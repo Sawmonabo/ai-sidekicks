@@ -1,8 +1,5 @@
-// Scalars the git-flow contract's modules share: git's short object ids and ref names,
-// addresses on the hosting service, timestamps, change-request numbers, the host's
-// own handles. Private to `gitflow/`: the barrel does not re-export
-// this module, because each value is a building block of a public schema, not a
-// contract of its own.
+// Scalars the git-flow modules share. Not re-exported by the barrel: each is a building block of
+// a public schema, not a contract of its own.
 import { z } from "zod";
 
 import { wireFreeFormString } from "../session.js";

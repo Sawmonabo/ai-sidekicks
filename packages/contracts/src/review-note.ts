@@ -28,7 +28,7 @@ export type ReviewNoteId = string & { readonly __brand: "ReviewNoteId" };
 export const ReviewNoteIdSchema: z.ZodType<ReviewNoteId, ReviewNoteId> =
   brandedUuidIdSchema<ReviewNoteId>("ReviewNoteId");
 
-/** Review's three scopes a note can be left in: the uncommitted changes, the branch, or a pull request. */
+/** The scopes a note can be left in: the uncommitted changes, the branch, or a pull request. */
 export type ReviewNoteScope = "changes" | "branch" | "change_request";
 
 /**

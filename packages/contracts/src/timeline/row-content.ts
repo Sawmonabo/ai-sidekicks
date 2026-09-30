@@ -1,12 +1,9 @@
-// The reads that fetch what a transcript row did not carry: a row's large body
-// or full output (`timeline.bodyRead`), and every file patch a tool call left
-// out (`timeline.patchRead`). A surface asks for either only when its control
-// is pressed or its diff is drawn, never because the reader scrolled past.
-//
-// Both answer with the stored text or a closed reason it cannot be read. The
-// reasons are the ones a sealed body has: the body never existed, or this
-// daemon cannot open it. A deleted session's rows are stubs no transcript
-// draws, so "purged" is not a reason either read can give.
+// The reads that fetch what a transcript row did not carry: a row's large body or full output
+// (`timeline.bodyRead`), and every file patch a tool call left out (`timeline.patchRead`). A
+// surface asks only when its control is pressed or its diff is drawn. Both answer with the
+// stored text or a closed reason it cannot be read: the body never existed, or this daemon
+// cannot open it. A deleted session's rows are stubs no transcript draws, so "purged" is not a
+// reason either read gives.
 import { z } from "zod";
 
 import {
@@ -28,7 +25,7 @@ import { TIMELINE_PAGE_MAX_BYTES } from "./operations.js";
 /** Why stored text cannot be read back. */
 export type StoredContentUnavailableReason = Exclude<HydratedContentUnavailableReason, "purged">;
 
-/** Every {@link StoredContentUnavailableReason}. */
+/** Every {@link StoredContentUnavailableReason}, as a value. */
 export const STORED_CONTENT_UNAVAILABLE_REASONS = [
   "absent",
   "master_key_unavailable",
@@ -41,9 +38,8 @@ export const StoredContentUnavailableReasonSchema: z.ZodType<StoredContentUnavai
   z.enum(STORED_CONTENT_UNAVAILABLE_REASONS);
 
 /**
- * Refuse stored text a reply could not carry inside one frame. A frame past the
- * bound closes the connection, so the refusal is what keeps an oversized reply
- * a failed read rather than a dropped connection.
+ * Refuse stored text a reply could not carry inside one frame. A frame past the bound closes
+ * the connection, so this keeps an oversized reply a failed read.
  */
 const requireMemberToRideOneFrame = (
   member: unknown,
@@ -62,9 +58,7 @@ const requireMemberToRideOneFrame = (
   }
 };
 
-// ---------------------------------------------------------------------------
-// BodyRead
-// ---------------------------------------------------------------------------
+// timeline.bodyRead
 
 /**
  * The one row whose large body or full output a surface opens when its control
@@ -116,9 +110,7 @@ export const TimelineBodyReadResponseSchema: z.ZodType<TimelineBodyReadResponse>
       .strict(),
   ]);
 
-// ---------------------------------------------------------------------------
-// PatchRead
-// ---------------------------------------------------------------------------
+// timeline.patchRead
 
 /** The tool call whose left-out patches a diff needs. */
 export interface TimelinePatchReadRequest {

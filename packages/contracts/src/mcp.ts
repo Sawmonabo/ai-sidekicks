@@ -1,27 +1,16 @@
-// MCP server governance: what a server binding is, what the daemon reports about
-// it, and what a governance mutation did to the live sessions behind it.
+// MCP server governance shapes: what a server binding is, what the daemon reports about it, and
+// what a mutation did to the live sessions behind it, plus each `mcp.*` method's request and reply.
+// The method table, event payloads and refusal codes are in `mcp-governance.ts`.
 //
-// Every read-back shape here carries no configuration value. The configuration
-// splits three ways: collected input whose credential-bearing values are write-only,
-// the redacted view the daemon serves, and values the daemon never serves.
-// `McpServerConfigView` is the middle one and carries NAMES where the wire carries
-// names (`envVarNames`, `headerNames`, `urlQueryParamNames`), so a surface that
-// renders every read-back here still cannot render a configuration value, an
-// environment-variable value, a header value or a token.
+// No read-back shape carries a configuration value. Credential-bearing input values are
+// write-only, and the redacted view carries names (`envVarNames`, `headerNames`,
+// `urlQueryParamNames`) where the wire carries values, so a surface rendering every read-back
+// still cannot render an environment-variable value, a header value or a token.
 //
-// EVERY GOVERNANCE MUTATION CARRIES `clientIdempotencyKey`, AND THE CALLER MINTS IT.
-// The key sits on the request rather than being minted inside the client, because
-// the value belongs to the caller: a retry of one operator press must reuse it, and
-// a client that minted one per call would make every retry a new operation. The
-// receipted `mcp.oauthLogin` carries one too.
-//
-// `mcp.reconnect` IS THE ONE OPERATION THAT CARRIES NO KEY. It is unreceipted at the
-// daemon, so a key on it would describe a replay that does not exist; its absence
-// is not an oversight to be fixed by symmetry.
-//
-// The file also holds each `mcp.*` method's request and reply. The method table
-// that pairs them, the governance event payloads and the refusal codes are in
-// `mcp-governance.ts`.
+// Every governance mutation carries a `clientIdempotencyKey` that the caller mints: a retry of
+// one operator press must reuse it, and a key minted per call would make every retry a new
+// operation. `mcp.reconnect` alone carries none, because it is unreceipted and there is no
+// replay for a key to describe.
 import { z } from "zod";
 
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
@@ -45,12 +34,10 @@ export const McpServerNameSchema: z.ZodString = wireFreeFormString(
 );
 
 /**
- * The five server statuses, most severe first, which is the daemon's aggregation
- * order: `failed > needs-auth > unknown > starting > connected`. A live session whose
- * observation source is lost reports `unknown`, because lost observability outranks a
- * known-healthy state. A client never applies the order; the aggregate arrives on the
- * entry and is rendered. The order is carried so a surface listing the vocabulary
- * lists it the way the daemon reasons about it.
+ * The five server statuses, most severe first, which is the daemon's aggregation order:
+ * `failed > needs-auth > unknown > starting > connected`. Lost observability reports `unknown`
+ * and outranks a known-healthy state. A client renders the aggregate on the entry and never
+ * applies the order itself; it is exported so a listing of the vocabulary uses it.
  */
 export const MCP_SERVER_STATUS_SEVERITY_ORDER: readonly McpServerStatus[] = Object.freeze([
   "failed",
@@ -103,10 +90,9 @@ export const MCP_CONFIG_SCOPES: readonly McpConfigScope[] = MCP_CONFIG_SCOPE_VAL
  * The scope-qualified identity of one server binding: provider, scope, scope
  * reference and server name.
  *
- * A DISCRIMINATED UNION on `scope`, not four optional members: `user` carries no
- * `scopeRef`, and `project` and `local` require one, the project's root folder.
- * A flat record would let a caller compose an identity the daemon rejects, and would
- * collapse two same-named servers in two scopes into one row.
+ * A union on `scope`, not optional members: `user` carries no `scopeRef`, and `project` and
+ * `local` require one, the project's root folder. A flat record would let a caller compose an
+ * identity the daemon rejects and would collapse same-named servers in two scopes into one row.
  */
 export type McpServerBindingRef =
   | { provider: ProviderName; scope: "user"; serverName: string }
@@ -264,11 +250,9 @@ interface McpServerInventoryFacts {
 /**
  * One inventory row: the binding, what is known about it, and the trust arm.
  *
- * A DISCRIMINATED PAIR on `trustUnavailable`. When the trust store is unreachable,
- * the trust- and override-dependent members are STRUCTURALLY ABSENT: not `false`, not
- * `unknown`, not an empty override list, because a made-up verdict is exactly what
- * the degraded arm exists to prevent. A client renders that absence as an absence
- * and withholds the trust controls on that row alone.
+ * A pair on `trustUnavailable`. When the trust store is unreachable the trust- and
+ * override-dependent members are absent, not `false`, `unknown` or an empty list, so no made-up
+ * verdict exists. A client renders the absence and withholds the trust controls on that row.
  */
 export type McpServerInventoryEntry = McpServerBindingRef &
   McpServerInventoryFacts &
@@ -341,9 +325,7 @@ export interface McpRemoveServerResult {
   liveResults?: McpLiveApplicationResult[] | undefined;
 }
 
-// ---------------------------------------------------------------------------
 // The configuration a person submits
-// ---------------------------------------------------------------------------
 
 /**
  * The longest command, argument, name, value, address or search text an `mcp.*`

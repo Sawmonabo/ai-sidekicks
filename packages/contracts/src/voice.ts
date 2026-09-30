@@ -1,17 +1,9 @@
-// Voice, as a window drives it through the daemon: which session voice is on in,
-// dictation into the composer on Claude Code, and Codex's own spoken call on Codex.
-//
-// Voice is on in one session at a time on this computer. The daemon holds which one,
-// every window and device reads it live, and it is off after the daemon restarts.
-// There is one recording and one call at a time, so the verbs that act on the one in
-// progress name no session.
-//
-// Dictation: the window captures the microphone and writes its audio here as 16 kHz
-// 16-bit mono PCM in 100 ms frames; the daemon runs the socket to the speech service
-// and streams the words back. A call: the window is the call's WebRTC peer and hands
-// its offer here; the daemon starts the call on the session's Codex conversation,
-// returns Codex's answer and streams the call's events. No provider credential
-// crosses this surface in either direction.
+// Voice, as a window drives it through the daemon: which session voice is on in, dictation into
+// the composer on Claude Code, and Codex's own spoken call on Codex. Voice is on in one session
+// at a time on this computer, held by the daemon and off after it restarts, and there is one
+// recording and one call at a time, so the verbs on the one in progress name no session.
+// Dictation audio is 16 kHz 16-bit mono PCM in 100 ms frames; the window is a call's WebRTC peer
+// and hands its offer here. No provider credential crosses this surface in either direction.
 import { z } from "zod";
 
 import { decodedByteLength } from "./internal/base64.js";
@@ -34,30 +26,29 @@ export const VoiceEmptyPayloadSchema: z.ZodType<VoiceEmptyPayload, VoiceEmptyPay
   .object({})
   .strict();
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
 /**
  * Voice is refused on an account its provider gives no voice: on Claude Code, an
  * account that is neither a Claude sign-in nor a pasted Claude token.
  */
 export const VOICE_UNAVAILABLE_CODE = "voice.unavailable" as const;
+/** The type of {@link VOICE_UNAVAILABLE_CODE}. */
 export type VoiceUnavailableCode = typeof VOICE_UNAVAILABLE_CODE;
 
 const VOICE_UNAVAILABLE_REASON_VALUES = ["claude_sign_in_required"] as const;
 /** Why {@link VOICE_UNAVAILABLE_CODE} refused. */
 export type VoiceUnavailableReason = (typeof VOICE_UNAVAILABLE_REASON_VALUES)[number];
+/** Every {@link VoiceUnavailableReason}, as a value. */
 export const VOICE_UNAVAILABLE_REASONS: readonly VoiceUnavailableReason[] =
   VOICE_UNAVAILABLE_REASON_VALUES;
 
 /** Codex could not start the call. */
 export const VOICE_CALL_START_FAILED_CODE = "voice.call_start_failed" as const;
+/** The type of {@link VOICE_CALL_START_FAILED_CODE}. */
 export type VoiceCallStartFailedCode = typeof VOICE_CALL_START_FAILED_CODE;
 
-// --------------------------------------------------------------------------
 // Which session voice is on in
-// --------------------------------------------------------------------------
 
 /** The session voice is on in, or null when it is off. */
 export interface VoiceState {
@@ -71,9 +62,7 @@ export const VoiceStateSchema: z.ZodType<VoiceState, VoiceState> = z
   .object({ sessionId: SessionIdSchema.nullable() })
   .strict();
 
-// --------------------------------------------------------------------------
 // Dictation
-// --------------------------------------------------------------------------
 
 /** Starts a recording in a Claude Code session. */
 export interface VoiceDictationStartRequest {
@@ -92,7 +81,10 @@ export const VoiceDictationStartRequestSchema: z.ZodType<
 export interface VoiceDictationWriteRequest {
   audio: string;
 }
-/** Parses a {@link VoiceDictationWriteRequest}; a frame longer than 100 ms or ending mid-sample is refused. */
+/**
+ * Parses a {@link VoiceDictationWriteRequest}; a frame longer than 100 ms or ending
+ * mid-sample is refused.
+ */
 export const VoiceDictationWriteRequestSchema: z.ZodType<
   VoiceDictationWriteRequest,
   VoiceDictationWriteRequest
@@ -132,6 +124,7 @@ const VOICE_DICTATION_FAILURE_REASON_VALUES = [
  * refused; the speech service refused the account's sign-in.
  */
 export type VoiceDictationFailureReason = (typeof VOICE_DICTATION_FAILURE_REASON_VALUES)[number];
+/** Every {@link VoiceDictationFailureReason}, as a value. */
 export const VOICE_DICTATION_FAILURE_REASONS: readonly VoiceDictationFailureReason[] =
   VOICE_DICTATION_FAILURE_REASON_VALUES;
 
@@ -175,9 +168,7 @@ export const VoiceDictationFrameSchema: z.ZodType<VoiceDictationFrame> = z.discr
   ],
 );
 
-// --------------------------------------------------------------------------
 // A Codex call
-// --------------------------------------------------------------------------
 
 /** Starts a call in a Codex session with the window's WebRTC offer. */
 export interface VoiceCallStartRequest {
@@ -268,9 +259,7 @@ export const VoiceListResponseSchema: z.ZodType<VoiceListResponse> = z
   .object({ voices: z.array(z.string().min(1)), defaultVoice: z.string().min(1) })
   .strict();
 
-// --------------------------------------------------------------------------
 // Methods
-// --------------------------------------------------------------------------
 
 /** The `voice.*` methods, keyed by name. */
 export interface VoiceMethodDescriptors {
@@ -325,6 +314,7 @@ export interface VoiceMethodDescriptors {
   >;
 }
 
+/** The `voice.*` method table. */
 export const VOICE_METHOD_DESCRIPTORS: VoiceMethodDescriptors = defineMethodDescriptors({
   "voice.stateUpdate": {
     method: "voice.stateUpdate",

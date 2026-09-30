@@ -3,9 +3,8 @@
 // relays its debugger traffic, and the daemon reads, writes and clears the page
 // host's cookies and site data.
 //
-// Two methods tables follow, one per direction. The daemon answers the link's
-// reports; main answers the calls the daemon makes, and those never join the
-// daemon's own method map.
+// Two method tables follow, one per direction. The daemon answers the link's reports; main
+// answers the calls the daemon makes, and those never join the daemon's own method map.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -104,10 +103,6 @@ export const PreviewReceivedResponseSchema: z.ZodType<PreviewReceivedResponse> =
   .object({ received: z.literal(true) })
   .strict();
 
-// ---------------------------------------------------------------------------
-// Cookies and site data in the desktop's page host (the daemon calls main)
-// ---------------------------------------------------------------------------
-
 /**
  * One cookie, in the record the daemon's browser library keeps. `expires` is in
  * seconds since the epoch, `-1` for a cookie that lasts the browsing session; main
@@ -163,7 +158,10 @@ export const PreviewPageCookiesReadResponseSchema: z.ZodType<PreviewPageCookiesR
   .object({ cookies: z.array(PreviewCookieSchema) })
   .strict();
 
-/** Write cookies into the Preview site data; a cookie with the same name, domain and path is replaced. */
+/**
+ * Write cookies into the Preview site data; a cookie with the same name, domain and path is
+ * replaced.
+ */
 export interface PreviewPageCookiesWriteRequest {
   cookies: PreviewCookie[];
 }
@@ -216,10 +214,6 @@ export interface PreviewClearedResponse {
 export const PreviewClearedResponseSchema: z.ZodType<PreviewClearedResponse> = z
   .object({ cleared: z.literal(true) })
   .strict();
-
-// ---------------------------------------------------------------------------
-// Methods
-// ---------------------------------------------------------------------------
 
 /** The `preview.*` link methods the daemon answers; main is their only caller. */
 export interface PreviewPageLinkMethodDescriptors {

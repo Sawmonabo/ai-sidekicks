@@ -1,6 +1,5 @@
-// The `session.created` payload. Kept apart from `session.ts` because it names the lead as
-// the live agent list does, and `agent.ts` imports `session.ts`; the event contract imports
-// this file, and nothing here imports that contract.
+// The `session.created` payload. Kept apart from `session.ts` because `agent.ts` imports
+// `session.ts` and this payload names the lead as the live agent list does.
 import { z } from "zod";
 
 import { AgentDefinitionIdSchema, type AgentDefinitionId } from "./agent-definition.js";
@@ -26,14 +25,11 @@ const SessionCreatedParentSchema: z.ZodType<SessionCreatedParent> = z
   .strict();
 
 /**
- * A session's birth. A session has one lead, born with it rather than joined to it later, so
- * this is the record that brings the lead into the session: `mainAgent` is the lead as the
- * live agent list carries it. It is also the one record of the session's shape at birth, of
- * the session it was forked from (`parent`, present exactly on a fork), and of the saved
+ * A session's birth. The lead is born with the session, so this record brings it in:
+ * `mainAgent` is the lead as the live agent list carries it. It also records the session's shape
+ * at birth, the session it was forked from (`parent`, present exactly on a fork) and the saved
  * definition a scratch session tries (`scratchForDefinitionId`). `actor` is the person who
- * created it.
- *
- * A type rather than an interface, so it meets the envelope's open payload record.
+ * created it. A type rather than an interface so it meets the envelope's open payload record.
  */
 export type SessionCreatedPayload = {
   sessionId: SessionId;
@@ -43,6 +39,7 @@ export type SessionCreatedPayload = {
   scratchForDefinitionId?: AgentDefinitionId | undefined;
   actor?: UserId | undefined;
 };
+/** Parses a {@link SessionCreatedPayload}. */
 export const SessionCreatedPayloadSchema: z.ZodType<SessionCreatedPayload> = z
   .object({
     sessionId: SessionIdSchema,

@@ -1,30 +1,7 @@
-// `repo.ts` contract core: branded ids, the four canonical repo/workspace
-// enums, the derived `RepoMountHealth` projection, the shared lifecycle
-// event payload, and its registration into `SessionEventSchema`.
-//
-// Backstops and the invariant this contract carries:
-//   • `VcsTypeSchema` is the discriminator's contract carrier, so the
-//     tests pin it CLOSED at `git`: no second member, no tolerant
-//     passthrough arm. Attach refuses a path that is not a git repository.
-//
-// Coverage shape:
-//   • Every member of every enum parses; out-of-set values are rejected (a 3rd
-//     mode, a 6th workspace state, a 4th mount state, a 2nd vcs type), so
-//     each pin is a real accept/reject boundary rather than a one-sided
-//     smoke test.
-//   • Branded ids reject a non-UUID, and the brand is nominal at compile
-//     time (a raw string is not a `RepoMountId`).
-//   • `RepoMountHealth` accepts all three ratified verdicts, rejects a
-//     `status` outside them, and rejects a missing `checkedAt`, a non-ISO
-//     `checkedAt`, and an unknown key.
-//   • The lifecycle payload matches field-for-field: `sessionId` required,
-//     the three subject ids optional and independently omittable, `state`
-//     drawn from BOTH vocabularies, `actor` bounded by the envelope's own cap
-//     and its three `wireFreeFormString` guards.
-//   • The six types parse end-to-end through `SessionEventSchema` with a
-//     category/type mismatch and a payload smuggle rejected. The
-//     `worktree.*` half of the family registered through the same seam is
-//     covered by worktree.test.ts, which owns that contract.
+// `repo.ts` contract core: branded ids, the canonical repo and workspace enums, the derived
+// `RepoMountHealth` projection, the shared lifecycle event payload, and its registration into
+// `SessionEventSchema`. The `worktree.*` half of the family is covered by worktree.test.ts.
+// `VcsTypeSchema` is pinned closed at `git`: attach refuses a path that is not a git repository.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -62,9 +39,7 @@ import {
   type WorkspaceState,
 } from "../repo.js";
 
-// Real RFC 9562 UUIDs (mix of v4 and v7). `RFC_9562_TEXT_FORM` validates the version
-// nibble + variant bits in canonical positions; mismatch is rejected at the
-// branded-id schema layer.
+// Real RFC 9562 UUIDs (v4 and v7); the branded-id schema checks the version and variant bits.
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
 const WORKSPACE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11";
@@ -73,10 +48,7 @@ const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const CHECKED_AT = "2026-07-24T19:14:35.000Z";
 const VERSION = "1.0";
 
-// --------------------------------------------------------------------------
 // Canonical enums.
-// --------------------------------------------------------------------------
-
 describe("ExecutionModeSchema (two-mode taxonomy)", () => {
   it.each([
     ["bound-root", true],
@@ -88,10 +60,8 @@ describe("ExecutionModeSchema (two-mode taxonomy)", () => {
   });
 
   it("enumerates exactly the two canonical modes (no more, no less)", () => {
-    // Exact-set pin, read through the same `.options` internals cast the
-    // EventCategorySchema pin in session-event.test.ts uses: the schema is
-    // annotated `z.ZodType<ExecutionMode>` for `isolatedDeclarations`, which
-    // erases the enum construct.
+    // Read `.options` through a cast (as session-event.test.ts does for `EventCategorySchema`):
+    // the `z.ZodType<ExecutionMode>` annotation erases the enum type.
     const schemaInternals = ExecutionModeSchema as unknown as { options: readonly string[] };
     expect([...schemaInternals.options].sort()).toEqual(["bound-root", "provisioned-worktree"]);
   });
@@ -104,8 +74,7 @@ describe("WorkspaceStateSchema (the 5-value workspace lifecycle)", () => {
     ["busy", true],
     ["stale", true],
     ["archived", true],
-    // A sixth state. `detached` belongs to the MOUNT vocabulary and must not
-    // leak across; `unreachable` belongs to RepoMountHealth.
+    // `detached` is a mount state and `unreachable` a mount-health status; neither may leak in.
     ["detached", false],
     ["unreachable", false],
     ["failed", false],
@@ -119,8 +88,7 @@ describe("RepoMountStateSchema (the 3-value mount lifecycle)", () => {
     ["attached", true],
     ["detached", true],
     ["archived", true],
-    // A fourth state. `preparing` / `stale` are WORKSPACE states and a
-    // mount never occupies them.
+    // `preparing` and `stale` are workspace states; a mount is never in them.
     ["preparing", false],
     ["stale", false],
   ])("parses %s -> %s", (candidate, shouldPass) => {
@@ -131,11 +99,8 @@ describe("RepoMountStateSchema (the 3-value mount lifecycle)", () => {
 describe("VcsTypeSchema (git only)", () => {
   it.each([
     ["git", true],
-    // The whole content is that the discriminator stays CLOSED at `git`.
-    // Each rejection below is a shape a widened union would admit: an
-    // "unknown"/"pending" state (which would let a resolver defer the
-    // verdict), a sibling VCS (which would be presented as git-adjacent
-    // without git capabilities), and the empty string.
+    // The discriminator stays closed at `git`: an "unknown" or "pending" value would let a
+    // resolver defer the verdict, and a sibling VCS would appear without git capabilities.
     ["unknown", false],
     ["pending", false],
     ["hg", false],
@@ -147,16 +112,12 @@ describe("VcsTypeSchema (git only)", () => {
   it("admits exactly one member — no second value, no passthrough", () => {
     const schemaInternals = VcsTypeSchema as unknown as { options: readonly string[] };
     expect([...schemaInternals.options]).toEqual(["git"]);
-    // Negative control on the pin above: a tolerant arm would make an
-    // arbitrary string parse. It must not.
+    // A tolerant arm would let an arbitrary string parse.
     expect(VcsTypeSchema.safeParse("anything-else").success).toBe(false);
   });
 });
 
-// --------------------------------------------------------------------------
 // Branded ids.
-// --------------------------------------------------------------------------
-
 describe("RepoMountIdSchema / WorkspaceIdSchema (branded UUID scalars)", () => {
   it.each([
     ["RepoMountIdSchema", RepoMountIdSchema],
@@ -165,19 +126,14 @@ describe("RepoMountIdSchema / WorkspaceIdSchema (branded UUID scalars)", () => {
     expect(schema.safeParse(REPO_MOUNT_ID).success).toBe(true);
     expect(schema.safeParse("not-a-uuid").success).toBe(false);
     expect(schema.safeParse("").success).toBe(false);
-    // A UUID-shaped string with a zero version nibble. The branded factory's
-    // `RFC_9562_TEXT_FORM` validates the version + variant nibbles, so this is
-    // not merely a length-and-hyphens check — and the 2026-09-08 case widening
-    // did not touch either nibble.
+    // A UUID-shaped string with a zero version nibble: the check covers version and variant
+    // bits, not only length and hyphens.
     expect(schema.safeParse("0190f8a0-7e2d-0c4a-9b1c-1b7c5b3e8f10").success).toBe(false);
   });
 });
 
-// COMPILE-TIME pin on the brand's nominality, validated by the
-// `tsconfig.test.json` typecheck leg. Held in a never-invoked function so the
-// pin does its whole job at compile time. The directive self-verifies: if the
-// brand is ever weakened to a bare `string`, TS reports the directive unused
-// (TS2578) and the leg goes red rather than silently losing the pin.
+// Compile-time pin on the brand, checked by the `tsconfig.test.json` typecheck. If the brand
+// weakens to a bare `string`, TS reports the directive unused (TS2578).
 const brandNominalityPin = (): void => {
   // @ts-expect-error — a raw string is not a RepoMountId without a parse.
   const unbranded: RepoMountId = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
@@ -185,10 +141,7 @@ const brandNominalityPin = (): void => {
 };
 void brandNominalityPin;
 
-// --------------------------------------------------------------------------
-// RepoMountHealth — the derived projection.
-// --------------------------------------------------------------------------
-
+// RepoMountHealth, the derived projection.
 const buildValidHealth = () => ({
   status: "healthy" as const,
   checkedAt: CHECKED_AT,
@@ -198,20 +151,15 @@ describe("RepoMountHealthSchema (derived projection, never persisted)", () => {
   it.each([
     ["healthy", true],
     ["unreachable", true],
-    // The third ratified verdict: a reachable root whose re-derived common
-    // directory no longer equals the attach-persisted anchor. Its accept case is
-    // pinned here rather than left implied, because the whole point of the
-    // member is that a mount whose binds are already refusing must not still
-    // project `healthy`.
+    // A reachable root whose re-derived common directory no longer equals the attach-time
+    // anchor; a mount whose binds already refuse must not still project `healthy`.
     ["identity_mismatch", true],
-    // Outside the three-value union. `unknown` is the shape explicitly rejects
-    // (the on-read probe floor means every read carries a fresh verdict), and
-    // `stale` is the WORKSPACE-state overload chose `unreachable` to avoid.
+    // Outside the three-value union: every read carries a fresh verdict, so there is no
+    // `unknown`, and `stale` is a workspace state.
     ["unknown", false],
     ["stale", false],
     ["degraded", false],
-    // Near-misses on the third member's own spelling. A wire value that differs
-    // only in separator is the failure a `z.enum` exists to catch.
+    // Near-miss spellings of `identity_mismatch`.
     ["identity-mismatch", false],
     ["identityMismatch", false],
   ])("status %s -> %s", (status, shouldPass) => {
@@ -230,8 +178,7 @@ describe("RepoMountHealthSchema (derived projection, never persisted)", () => {
     expect(
       RepoMountHealthSchema.safeParse({ ...buildValidHealth(), checkedAt: "yesterday" }).success,
     ).toBe(false);
-    // `{ offset: true }` — the package-wide datetime convention (RFC 3339
-    // not just Z-suffixed UTC).
+    // The package-wide datetime convention: RFC 3339 with an offset, not only Z-suffixed UTC.
     expect(
       RepoMountHealthSchema.safeParse({
         ...buildValidHealth(),
@@ -247,10 +194,7 @@ describe("RepoMountHealthSchema (derived projection, never persisted)", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// RepoWorkspaceLifecyclePayload — the family-shared payload.
-// --------------------------------------------------------------------------
-
+// RepoWorkspaceLifecyclePayload, the family-shared payload.
 const buildMountPayload = () => ({
   sessionId: SESSION_ID,
   repoMountId: REPO_MOUNT_ID,
@@ -268,8 +212,7 @@ const buildWorkspacePayload = () => ({
 
 describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle)", () => {
   it("accepts the minimum shape — sessionId + state only", () => {
-    // Every subject id is optional family shape, so the two required members
-    // are the whole floor.
+    // Every subject id is optional, so these two members are the whole floor.
     expect(
       RepoWorkspaceLifecyclePayloadSchema.safeParse({
         sessionId: SESSION_ID,
@@ -279,9 +222,8 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
   });
 
   it("accepts every subject id together — the detach cascade names more than one", () => {
-    // No "exactly one id" refinement exists, deliberately: a
-    // `workspace.archived` emitted by the detach cascade names both the
-    // mount that caused it and the workspace it archived.
+    // No "exactly one id" rule, deliberately: a `workspace.archived` from the detach cascade
+    // names both the mount that caused it and the workspace it archived.
     expect(
       RepoWorkspaceLifecyclePayloadSchema.safeParse({
         sessionId: SESSION_ID,
@@ -311,8 +253,8 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
   });
 
   it.each([
-    // BOTH vocabularies are in the union: mount states for `repo.*` rows,
-    // workspace states for `workspace.*` rows.
+    // Both vocabularies are in the union: mount states for `repo.*` rows, workspace states for
+    // `workspace.*` rows.
     ["attached (mount)", "attached", true],
     ["detached (mount)", "detached", true],
     ["archived (shared by both vocabularies)", "archived", true],
@@ -330,14 +272,9 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
   it.each([["creating"], ["dirty"], ["merged"], ["retired"]])(
     "rejects -owned worktree state %s (per-family boundary, permanent)",
     (worktreeState) => {
-      // This block's original comment predicted would widen the shipped
-      // schema with a third `WorktreeStateSchema` union arm; the ratified
-      // design PARAMETERIZED the family instead — the
-      // registration instantiates the factory in worktree.ts and never
-      // touches this schema — so the shipped two-vocabulary accept set never
-      // admits a worktree state. These rows stay red for good; the worktree
-      // vocabulary's accept half lives in worktree.test.ts against
-      // `WorktreeLifecyclePayloadSchema`.
+      // The worktree family instantiates the payload factory in worktree.ts instead of widening
+      // this schema, so a worktree state is never admitted here. The accept half lives in
+      // worktree.test.ts against `WorktreeLifecyclePayloadSchema`.
       expect(
         RepoWorkspaceLifecyclePayloadSchema.safeParse({
           sessionId: SESSION_ID,
@@ -356,8 +293,7 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
         state: "ready",
       }).success,
     ).toBe(true);
-    // Unbranded does NOT mean unvalidated — the runtime accept-set is the
-    // same RFC 9562 text form the branded ids compose.
+    // Unbranded is still validated: the same RFC 9562 text form the branded ids use.
     expect(
       RepoWorkspaceLifecyclePayloadSchema.safeParse({
         sessionId: SESSION_ID,
@@ -365,13 +301,9 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
         state: "ready",
       }).success,
     ).toBe(false);
-    // ...and IDENTICAL, not merely similar. This member composes the very
-    // predicate `brandedUuidIdSchema` composes (`uuidTextFormSchema`, the
-    // unbranded export beside it), so a value's parse result cannot move when
-    // narrows this to `WorktreeId`. The case-variant sentinel is the
-    // discriminating input: Zod's own `z.uuid()` refuses it while every branded id
-    // accepts it, so this pair fails if the member ever composed Zod's format instead
-    // of the shared predicate, and on nothing else.
+    // The member must use the same predicate as the branded ids (`uuidTextFormSchema`). The
+    // upper-case sentinel tells them apart: Zod's own `z.uuid()` refuses it, the shared
+    // predicate accepts it.
     const upperCaseSentinel = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
     expect(contracts.SessionIdSchema.safeParse(upperCaseSentinel).success).toBe(true);
     expect(
@@ -391,9 +323,8 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
   });
 
   it("accepts `actor: null` and an omitted `actor`, but not an empty or blank one", () => {
-    // Same trust-boundary stance as `EventEnvelope.actor`: a system-emitted
-    // event uses `null` or omits the key; a present-but-empty actor is a
-    // producer bug.
+    // As with `EventEnvelope.actor`: a system event uses `null` or omits the key; an empty
+    // actor is a producer bug.
     expect(RepoWorkspaceLifecyclePayloadSchema.safeParse(buildWorkspacePayload()).success).toBe(
       true,
     );
@@ -408,9 +339,7 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
       RepoWorkspaceLifecyclePayloadSchema.safeParse({ ...buildMountPayload(), actor: "\t \n" })
         .success,
     ).toBe(false);
-    // Interior whitespace is FINE — `wireFreeFormString` rejects
-    // whitespace-ONLY, not any whitespace. Without this control the two
-    // rejections above would read as an over-broad guard.
+    // Interior whitespace is fine; `wireFreeFormString` rejects only whitespace-only values.
     expect(
       RepoWorkspaceLifecyclePayloadSchema.safeParse({
         ...buildMountPayload(),
@@ -420,16 +349,9 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
   });
 
   it("rejects a NUL byte in `actor` — the third wireFreeFormString guard", () => {
-    // Every other helper-composed field in the package carries this pin
-    // explicitly (session-event.test.ts pins the envelope's own `actor` the
-    // same way): an embedded NUL is a truncation vector at the wire/replay
-    // trust boundary, so it must not survive into the log.
-    //
-    // The byte is BUILT at runtime rather than written as a unicode escape,
-    // which is the one deviation from the sibling suites' spelling. A raw NUL
-    // in the source makes ripgrep classify the file as binary and skip its
-    // content matches, which silently breaks the repo's grep tooling; constructing it here keeps the assertion identical and the
-    // file text-clean.
+    // An embedded NUL is a truncation vector at the wire and replay boundary, so it must not
+    // reach the log. The byte is built at runtime because a raw NUL in the source makes
+    // ripgrep treat the file as binary.
     const actorWithNulByte = `agent${String.fromCharCode(0)}injected`;
     expect(
       RepoWorkspaceLifecyclePayloadSchema.safeParse({
@@ -440,12 +362,8 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
   });
 
   it("bounds `actor` at the envelope's own cap (EVENT_FIELD_MAX_LEN)", () => {
-    // repo.ts restates the cap locally rather than importing it, because
-    // importing from event.ts would close a module cycle (event.ts imports
-    // the payload schema from repo.ts). A comment alone would be an
-    // unenforced pin, so the equality is asserted HERE against the real
-    // constant: at the cap it parses, one character over it does not. If the
-    // envelope cap ever moves, this fails until repo.ts follows.
+    // repo.ts restates the cap because importing it from event.ts would close a module cycle.
+    // This test holds the two equal: if the envelope cap moves, it fails until repo.ts follows.
     const atCap = "a".repeat(EVENT_FIELD_MAX_LEN);
     const overCap = "a".repeat(EVENT_FIELD_MAX_LEN + 1);
     expect(
@@ -467,16 +385,11 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
   });
 });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// The factory exists so can register five `worktree.*` types against this
-// payload family WITHOUT editing repo.ts. What these tests pin is the
-// property that makes that safe: each instantiation's accept set is exactly
-// its own vocabulary, so the two never merge into one widened union.
+// The payload factory lets the `worktree.*` types reuse this family without editing repo.ts.
+// Each instantiation accepts exactly its own vocabulary; the vocabularies never merge.
 
-// Stands in for the `WorktreeStateSchema` — the four worktree transitions
-// plus `ready`, the only literal shared with either vocabulary.
+// Stands in for the worktree states: four transitions plus `ready`, the only literal shared
+// with either vocabulary.
 const worktreeLikeStateSchema = z.enum(["creating", "ready", "dirty", "merged", "retired"]);
 const worktreeLikePayloadSchema = buildRepoWorkspaceLifecyclePayloadSchema(worktreeLikeStateSchema);
 
@@ -493,10 +406,8 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (a parameter, not a third uni
   it.each(["attached", "detached", "preparing", "busy", "stale"])(
     "an instantiation REJECTS state a shared union would have admitted: %s",
     (state) => {
-      // This is the finding. Adding `WorktreeStateSchema` as a third arm on
-      // the shipped schema would have widened ALL eleven types at once, so a
-      // `worktree.retired` payload could claim `state: "preparing"`.
-      // Parameterizing keeps each plan's accept set exactly its own.
+      // A shared third union arm would widen every type at once, so a `worktree.retired`
+      // payload could claim `state: "preparing"`.
       expect(worktreeLikePayloadSchema.safeParse({ sessionId: SESSION_ID, state }).success).toBe(
         false,
       );
@@ -506,9 +417,7 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (a parameter, not a third uni
   it.each(["creating", "dirty", "merged", "retired"])(
     "the shipped instantiation stays disjoint the other way and rejects: %s",
     (state) => {
-      // The reciprocal half — proven separately because a third arm would
-      // have broken THIS direction, silently, and no existing test asserts a
-      // worktree literal against the shipped schema.
+      // The reverse direction: a shared third arm would break this one too.
       expect(
         RepoWorkspaceLifecyclePayloadSchema.safeParse({ sessionId: SESSION_ID, state }).success,
       ).toBe(false);
@@ -526,9 +435,7 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (a parameter, not a third uni
   });
 
   it("carries the family's non-state field contract through unchanged", () => {
-    // Only `state` is parameterized; every other field must behave exactly as
-    // it does on the shipped instantiation, or the factory has quietly forked
-    // the family shape it exists to share.
+    // Only `state` is parameterized; every other field behaves as on the shipped schema.
     expect(
       worktreeLikePayloadSchema.safeParse({
         sessionId: SESSION_ID,
@@ -554,9 +461,7 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (a parameter, not a third uni
   });
 
   it("the shipped schema is itself an instantiation — same accept set as a hand-built twin", () => {
-    // Pins the refactor's own claim: `RepoWorkspaceLifecyclePayloadSchema` is
-    // now the factory applied to the two vocabularies, and nothing about its
-    // accept set moved when it stopped being a literal `z.object`.
+    // `RepoWorkspaceLifecyclePayloadSchema` is the factory applied to the two vocabularies.
     const rebuilt = buildRepoWorkspaceLifecyclePayloadSchema(
       z.union([RepoMountStateSchema, WorkspaceStateSchema]),
     );
@@ -581,21 +486,10 @@ describe("buildRepoWorkspaceLifecyclePayloadSchema (a parameter, not a third uni
   });
 });
 
-// --------------------------------------------------------------------------
 // Union registration into SessionEventSchema.
-// --------------------------------------------------------------------------
-
-// Each registered type paired with the state its emitter actually writes —
-// mount states for the `repo.*` pair, workspace states for the four
-// `workspace.*` rows.
-//
-// The element type is load-bearing, not decoration (same stance as
-// session-event.test.ts's `B18_MINTED_TYPES`). `SessionEvent["type"]` is the
-// REGISTERED union's discriminant, narrower than the 156-literal census
-// `SessionEventType`: if a later edit drops one of these six arms from
-// `SessionEventSchema`, this fixture stops compiling under
-// `tsc -p tsconfig.test.json` rather than silently thinning to a five-case
-// runtime table. The state half binds to the payload union the same way.
+// Each registered type paired with the state its emitter writes. `SessionEvent["type"]` is the
+// registered union's discriminant, so dropping one of these arms from `SessionEventSchema`
+// breaks compilation under `tsc -p tsconfig.test.json` instead of silently shrinking the table.
 const REGISTERED_REPO_EVENTS: ReadonlyArray<
   readonly [SessionEvent["type"], RepoMountState | WorkspaceState]
 > = [
@@ -607,9 +501,8 @@ const REGISTERED_REPO_EVENTS: ReadonlyArray<
   ["workspace.archived", "archived"],
 ];
 
-// `workspaces.repo_mount_id` is NOT NULL (mount-first single funnel), so
-// every workspace row names its mount: the workspace fixtures carry BOTH
-// ids and the mount fixtures carry only `repoMountId`.
+// `workspaces.repo_mount_id` is NOT NULL, so workspace fixtures carry both ids and mount
+// fixtures only `repoMountId`.
 const buildRepoEvent = (eventType: string, state: string) => ({
   id: "evt-repo-0001",
   sessionId: SESSION_ID,
@@ -634,17 +527,11 @@ describe("SessionEventSchema registration of the six variants", () => {
       const parsed = SessionEventSchema.parse(buildRepoEvent(eventType, state));
       expect(parsed.type).toBe(eventType);
       expect(parsed.category).toBe("session_lifecycle");
-      // The line above is self-referential on its own — the arm's own
-      // `category: z.literal(...)` produced the value it checks, so it cannot
-      // catch an arm literal that disagrees with the census. Cross-check
-      // against the independent registry, which is what
-      // `SESSION_EVENT_CATEGORY_BY_TYPE` exists for: `category` sits in the
-      // RFC 8785 canonical bytes backing the hash chain, so an arm/census
-      // disagreement would diverge at replay. Same leg the sibling suites
-      // close for their own variants.
+      // The line above reads the arm's own literal, so it cannot catch a disagreement with the
+      // registry. `category` is part of the canonical bytes behind the hash chain, so a
+      // disagreement would diverge at replay.
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(eventType)).toBe("session_lifecycle");
-      // The payload survives the union branch unchanged — no key added,
-      // dropped, or coerced on the way through.
+      // The payload passes through the union branch unchanged.
       expect(parsed.payload).toStrictEqual(buildRepoEvent(eventType, state).payload);
     },
   );
@@ -661,10 +548,7 @@ describe("SessionEventSchema registration of the six variants", () => {
   it.each(REGISTERED_REPO_EVENTS)(
     "%s rejects a category/type mismatch (the canonical-bytes guard)",
     (eventType, state) => {
-      // The per-variant `category: z.literal(...)` forbids cross-namespace
-      // smuggling: `category` sits in the canonical bytes that back the hash
-      // chain, so a mismatch hashed under the wrong category would diverge at
-      // replay.
+      // A mismatched category would hash under the wrong category and diverge at replay.
       const broken = {
         ...buildRepoEvent(eventType, state),
         category: "usage_telemetry" as const,
@@ -687,47 +571,23 @@ describe("SessionEventSchema registration of the six variants", () => {
     expect(SessionEventSchema.safeParse(broken).success).toBe(false);
   });
 
-  // The forward-edge pin that lived here ("does not yet register family
-  // member %s") flipped exactly as its comment designed when landed the five
-  // `worktree.*` arms. Their registration state mapping, standalone-vs-union
-  // agreement, and closed-registry boundary (`worktree.failed` stays
-  // rejected) are covered by worktree.test.ts, which owns that contract.
-  // One residue stays HERE because it pins THIS family's accept set: a
-  // registered worktree arm carries the vocabulary, NOT this shared schema —
-  // see the per-family disjointness rows above.
   it("still rejects a worktree TYPE carrying this family's payload builder with a repo-only subject", () => {
-    // A `worktree.*` row must satisfy `WorktreeLifecyclePayloadSchema`; the
-    // mount-shaped fixture (state: "attached") stays rejected even though
-    // the type arm now exists — the union's registration did not loosen
-    // vocabularies into the worktree arm.
+    // A `worktree.*` row must satisfy `WorktreeLifecyclePayloadSchema`, so a mount-shaped
+    // payload (state "attached") is rejected.
     const brokenWorktreeRow = buildRepoEvent("worktree.created", "attached");
     expect(SessionEventSchema.safeParse(brokenWorktreeRow).success).toBe(false);
   });
 });
 
-// A daemon-assigned OPAQUE node id, deliberately NOT a UUID.
+// A daemon-assigned opaque node id, deliberately not a UUID.
 const NODE_ID = "node-alpha-01";
 
-// --------------------------------------------------------------------------
-// Compile-time pins.
-// --------------------------------------------------------------------------
-//
-// Annotation-only assignments, validated by the `tsconfig.test.json`
-// typecheck leg rather than by a runtime assertion.
+// Compile-time pins, checked by the `tsconfig.test.json` typecheck rather than at runtime.
 
-// The payload MUST stay assignable to `Record<string, unknown>` — that is
-// what lets the six variant interfaces in event.ts narrow
-// `EventEnvelope.payload`. It holds because `RepoWorkspaceLifecyclePayload`
-// is a TYPE ALIAS: TypeScript grants an object type alias an implicit index
-// signature but grants an interface none. Re-declaring it as an interface
-// would fail HERE with a clear message, ahead of the more obscure failure at
-// the `extends EventEnvelope` site.
-//
-// The right-hand side is a PARSE RESULT, not an object literal: a literal
-// would carry its own implicit index signature and satisfy the annotation
-// whatever the alias is declared as, making the pin vacuous. `.parse()`
-// returns a value typed exactly `RepoWorkspaceLifecyclePayload`, so the
-// assignment tests the DECLARED type.
+// The payload must stay assignable to `Record<string, unknown>` so event.ts can narrow
+// `EventEnvelope.payload`. That holds because it is a type alias, which gets an implicit index
+// signature; an interface would not. The right-hand side is a parse result, not a literal: a
+// literal would satisfy the annotation whatever the alias is.
 const parsedLifecyclePayload: RepoWorkspaceLifecyclePayload =
   RepoWorkspaceLifecyclePayloadSchema.parse({
     sessionId: SESSION_ID,
@@ -736,15 +596,9 @@ const parsedLifecyclePayload: RepoWorkspaceLifecyclePayload =
 const payloadNarrowsTheEnvelope: Record<string, unknown> = parsedLifecyclePayload;
 void payloadNarrowsTheEnvelope;
 
-// One representative field per surface, spelled with only this module's
-// exported types — `RepoAttachResponse.state` / `.vcsType`,
-// `RepoMountReadResponse.health`,
-// `RepoDetachResponse.archivedWorkspaceIds`,
-// `WorkspaceBindRequest.executionMode`,
-// `WorkspaceExecutionModeCapabilitiesReadResponse.availableModes` /
-// `.restrictions`, and `WorkspaceListResponse.workspaces[].state`. assemble
-// the full request/response shapes; this pin proves the vocabulary is
-// complete before they do.
+// One representative field per wire surface (`RepoAttachResponse`, `RepoMountReadResponse`,
+// `RepoDetachResponse`, `WorkspaceBindRequest`, the execution-mode capabilities response and
+// `WorkspaceListResponse`), typed with this module's exports alone.
 const sixWireSurfacesTypeFromThisModuleAlone: {
   attachState: RepoMountState;
   attachVcsType: VcsType;
@@ -766,24 +620,16 @@ const sixWireSurfacesTypeFromThisModuleAlone: {
 };
 void sixWireSurfacesTypeFromThisModuleAlone;
 
-// --------------------------------------------------------------------------
-// Barrel re-export regression guard.
-// --------------------------------------------------------------------------
-
-// What the standalone `*EventSchema` rows below need of a schema. Structural
-// because the six exports have six distinct output types and this is the whole
-// surface the rows drive; a `z.ZodType<…>` column would need a common type
-// argument the variants do not share.
+// Barrel re-export guard.
+// What the rows below need of a schema; structural because the six exports have distinct
+// output types.
 interface StandaloneEventSchema {
   parse(value: unknown): unknown;
   safeParse(value: unknown): { success: boolean };
 }
 
-// The six standalone event-variant exports, paired with the state their
-// emitter writes and read THROUGH the barrel — this block's subject. Same
-// explicitly-typed shape as `REGISTERED_REPO_EVENTS` above and for the same
-// reason: the `SessionEvent["type"]` column stops compiling if an arm ever
-// leaves the union.
+// The six standalone event-variant exports read through the barrel, paired with the state
+// their emitter writes.
 const STANDALONE_REPO_EVENT_SCHEMAS: ReadonlyArray<
   readonly [SessionEvent["type"], RepoMountState | WorkspaceState, StandaloneEventSchema]
 > = [
@@ -795,19 +641,14 @@ const STANDALONE_REPO_EVENT_SCHEMAS: ReadonlyArray<
   ["workspace.archived", "archived", contracts.WorkspaceArchivedEventSchema],
 ];
 
-// A LAWFUL event of a DIFFERENT registered variant, for the discriminator pin
-// below. `archived` is the one state both vocabularies carry, so the
-// substitute parses under the union whichever row asks for it.
+// A valid event of a different registered variant. `archived` is the one state both
+// vocabularies carry, so the substitute parses under the union for every row.
 const buildSiblingRepoEvent = (eventType: SessionEvent["type"]) =>
   buildRepoEvent(eventType === "repo.attached" ? "workspace.ready" : "repo.attached", "archived");
 
 describe("index.ts re-exports contract core", () => {
-  // The barrel-gap regression: a module can be
-  // complete and still invisible to consumers if the `export * from
-  // "./repo.js"` line is missing or dropped in a later refactor. Importing
-  // through `../index.js` (not `../repo.js`) is what makes this exercise the
-  // re-export layer — the same reason anti-leakage.test.ts imports through
-  // the barrel.
+  // A module is invisible to consumers if the barrel's `export * from "./repo.js"` line is
+  // missing; importing through `../index.js` exercises that layer.
   it.each([
     ["RepoMountIdSchema", contracts.RepoMountIdSchema],
     ["WorkspaceIdSchema", contracts.WorkspaceIdSchema],
@@ -823,37 +664,27 @@ describe("index.ts re-exports contract core", () => {
   });
 
   it("resolves the NodeId symbols through the barrel to node-id.ts's instances", () => {
-    // `NodeIdSchema` and `NODE_ID_MAX_LEN` live in the dependency-free leaf
-    // node-id.ts, which repo.ts and event.ts import directly. This asserts the
-    // barrel lands on the very same instance, so no consumer can end up
-    // holding two schemas under one name.
+    // The barrel must resolve to the same instances as the dependency-free leaf node-id.ts
+    // that repo.ts and event.ts import.
     expect(contracts.NodeIdSchema).toBe(NodeIdSchema);
     expect(contracts.NODE_ID_MAX_LEN).toBe(NODE_ID_MAX_LEN);
     expect(contracts.NodeIdSchema.safeParse(NODE_ID).success).toBe(true);
   });
 
   it("resolves the same schema through the barrel and the module (no shadow copy)", () => {
-    // Identity, not just presence: a re-export that resolved to a different
-    // instance would mean two schemas sharing one name.
+    // Identity, not presence: a different instance would mean two schemas under one name.
     expect(contracts.ExecutionModeSchema).toBe(ExecutionModeSchema);
     expect(contracts.RepoWorkspaceLifecyclePayloadSchema).toBe(RepoWorkspaceLifecyclePayloadSchema);
   });
 
-  // The six event-variant exports get BEHAVIORAL coverage rather than the
-  // callable-`.parse` shape check the schema table above uses, because they
-  // are the one surface in this package that is spelled TWICE: event.ts
-  // declares each `*EventSchema` const, then rebuilds every variant inline for
-  // `z.discriminatedUnion` (the literal-typed arm `z.ZodType<T>` erases). A
-  // shape check is green under any drift between the two spellings; these rows
-  // fail on it.
+  // The event-variant exports are declared twice in event.ts (each `*EventSchema` const, then
+  // rebuilt inline for `z.discriminatedUnion`), so these rows check behavior; a shape check
+  // would pass despite drift between the two.
   it.each(STANDALONE_REPO_EVENT_SCHEMAS)(
     "%s parses its own valid event through the standalone export, matching the union",
     (eventType, state, schema) => {
       const event = buildRepoEvent(eventType, state);
-      // Agreement in BOTH directions at once: a const the union arm would
-      // refuse fails on the right-hand parse, and an arm the const would refuse
-      // fails on the left — and a difference in what either surface keeps shows
-      // up as an inequality rather than as two independently green parses.
+      // Checks agreement both ways, and any difference in what each surface keeps.
       expect(schema.parse(event)).toStrictEqual(SessionEventSchema.parse(event));
     },
   );
@@ -861,11 +692,8 @@ describe("index.ts re-exports contract core", () => {
   it.each(STANDALONE_REPO_EVENT_SCHEMAS)(
     "%s refuses a sibling variant's event — the const's own `type` literal is load-bearing",
     (eventType, _state, schema) => {
-      // The sharpest discriminator pin available: a lawful event of another
-      // REGISTERED variant, so the only thing that can refuse it is this
-      // const's own literal. The union control on the line below is what makes
-      // that argument hold — without it the refusal could be a malformed
-      // fixture rejecting for an unrelated reason.
+      // Only this const's own `type` literal can refuse a valid event of another variant; the
+      // union parse below shows the fixture itself is valid.
       const siblingEvent = buildSiblingRepoEvent(eventType);
       expect(SessionEventSchema.safeParse(siblingEvent).success).toBe(true);
       expect(schema.safeParse(siblingEvent).success).toBe(false);
@@ -876,10 +704,8 @@ describe("index.ts re-exports contract core", () => {
     "%s refuses a category mismatch and an unknown payload key on its own event",
     (eventType, state, schema) => {
       const event = buildRepoEvent(eventType, state);
-      // `category` sits in the RFC 8785 canonical bytes backing the hash chain,
-      // so a variant that accepted a mismatched one would hash under the wrong
-      // category at replay. Pinned on the union above; pinned here on the
-      // standalone surface, which is what Phase 2 emitters validate against.
+      // A mismatched category would hash under the wrong category at replay; the standalone
+      // surface is what emitters validate against.
       expect(schema.safeParse({ ...event, category: "usage_telemetry" }).success).toBe(false);
       // `.strict()` reaches the shared payload schema through this surface too.
       expect(
@@ -889,9 +715,7 @@ describe("index.ts re-exports contract core", () => {
   );
 
   it("re-exports the very same event-variant instances as event.ts (no shadow copy)", () => {
-    // Identity, the same leg the contract-schema block above closes: the rows
-    // above drive the BARREL values, and this is what ties their verdicts to
-    // the declarations in event.ts rather than to a second instance.
+    // The rows above drive the barrel values; identity ties them to the declarations in event.ts.
     expect(contracts.RepoAttachedEventSchema).toBe(RepoAttachedEventSchema);
     expect(contracts.RepoDetachedEventSchema).toBe(RepoDetachedEventSchema);
     expect(contracts.WorkspacePreparingEventSchema).toBe(WorkspacePreparingEventSchema);

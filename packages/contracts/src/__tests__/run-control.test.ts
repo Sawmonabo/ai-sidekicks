@@ -1,36 +1,13 @@
-// Plus the three shapes no Phase-1 task names — the `run-control.ts`
-// contract surface: the intervention request union, the
-// state-split intervention response, the run-state change event, the
-// forward rolled-back event, the pause/resume triggers, the two
-// `run.subscribe*` request shapes, and the run-read accessor shape.
+// Contract tests for `run-control.ts`: the intervention request union, the state-split
+// response, the run-state change and rolled-back events, the pause and resume requests, the
+// two `run.subscribe*` requests and the run-read snapshot.
 //
-// Backstops and the invariants these contracts carry:
-//   • The MANDATORY `expectedRunVersion` comparand. Every arm of the
-//     intervention union is pinned to reject its absence, so the
-//     stale-replay guard cannot be bypassed by omitting the field.
-//   • The same guard extended to the orchestration-layer pause and resume
-//     verbs, which hold no `InterventionType` membership.
-//
-// Coverage shape:
-//   • Every member of every enum parses and an out-of-set value is rejected,
-//     so each pin is a real accept/reject boundary rather than a one-sided
-//     smoke test.
-//   • Every parse refusal the contract claims is exercised WITH its positive
-//     control.
-//   • The creation row's own members (the linkage, the limits, the admission
-//     stamps) are pinned as REJECTED on the state stream: `run.queued`'s payload carries
-//     them, and a producer that put them on a transition must fail rather than
-//     have them silently dropped.
-//   • The three arms of the `run.subscribeState` stream are pinned AGAINST
-//     EACH OTHER: the stream carries no wire tag, so each schema is shown to
-//     reject the others' well-formed payloads — the property that makes one
-//     untagged stream safe to parse.
-//   • The two `run.subscribe*` request shapes are pinned against the two
-//     members a copy of a neighboring subscribe shape would bring with it: a
-//     `runId` filter (the subscription is session-scoped and fans out per run
-//     client-side) and a replay cursor (`run.*` carries none).
-//   • The `index.ts` barrel re-exports every symbol this task provides — the
-//     barrel-gap regression.
+// Every arm of the intervention union, and the pause and resume requests, must refuse a missing
+// `expectedRunVersion`, so the stale-replay guard cannot be bypassed by omitting it. Each enum
+// is checked on both sides of its boundary, and each refusal comes with a positive control.
+// The `run.subscribeState` arms carry no wire tag, so each schema must reject the others'
+// payloads. The creation row's members (linkage, limits, admission stamps) must be refused on
+// a state transition, and the `index.ts` barrel must re-export every symbol tested here.
 import { describe, expect, it } from "vitest";
 
 import * as contracts from "../index.js";
@@ -70,10 +47,6 @@ const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
 const FIRST_ARTIFACT_ID = "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SECOND_ARTIFACT_ID = "0f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TIMESTAMP = "2026-08-31T12:00:00.000Z";
-
-// --------------------------------------------------------------------------
-// Shared enums
-// --------------------------------------------------------------------------
 
 describe("run-control shared enums", () => {
   const interventionStates: ReadonlyArray<InterventionState> = [
@@ -130,9 +103,6 @@ describe("run-control shared enums", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 const guards = {
   targetRunId: RUN_ID,
   expectedRunVersion: 4,
@@ -160,8 +130,8 @@ describe("InterventionRequestPayload", () => {
   });
 
   it.each(arms)("refuses the %s arm without its mandatory comparand", (_type, payload) => {
-    // An optional comparand would let a caller bypass the stale-replay guard
-    // by omitting it, so absence must refuse on EVERY arm.
+    // An optional comparand would let a caller bypass the stale-replay guard, so absence must
+    // refuse on every arm.
     const { expectedRunVersion: _omitted, ...withoutComparand } = payload;
     expect(() => InterventionRequestPayloadSchema.parse(withoutComparand)).toThrow();
   });
@@ -172,9 +142,8 @@ describe("InterventionRequestPayload", () => {
   });
 
   it("refuses a non-UUID idempotency key", () => {
-    // The key lands in a durable receipt under a UNIQUE constraint; an
-    // unbounded caller-chosen string would make replay keying depend on client
-    // discipline.
+    // The key lands in a durable receipt under a UNIQUE constraint; an unbounded caller-chosen
+    // string would make replay keying depend on client discipline.
     expect(() =>
       InterventionRequestPayloadSchema.parse({
         ...guards,
@@ -269,12 +238,9 @@ describe("InterventionRequestPayload", () => {
   });
 
   describe("the steer attachments element type", () => {
-    // The arm was `unknown[]` until the 2026-09-08 discharge, and an
-    // `unknown[]` arm can enforce neither the carrier count cap, nor order
-    // preservation, nor the unresolved-marker contract — it cannot even carry
-    // an id a resolver could look up. These are the negative controls that make
-    // the element type load-bearing rather than decorative: each one PASSED
-    // before the discharge and refuses after it.
+    // An `unknown[]` element could enforce neither the count cap nor order preservation, and
+    // could not carry an id a resolver could look up. These negative controls make the element
+    // type load-bearing.
     const steerCarrying = (attachments: readonly unknown[]): Record<string, unknown> => ({
       ...guards,
       type: "steer",
@@ -283,7 +249,6 @@ describe("InterventionRequestPayload", () => {
     });
 
     it("REFUSES a non-id element", () => {
-      // The exact shape the pre-discharge suite admitted.
       expect(() =>
         InterventionRequestPayloadSchema.parse(steerCarrying([{ kind: "blob" }])),
       ).toThrow();
@@ -292,24 +257,21 @@ describe("InterventionRequestPayload", () => {
     });
 
     it("REFUSES a string that is not an artifact id", () => {
-      // `ArtifactId` is UUID-shaped because ratifies it as an RFC 9562 UUID the
-      // daemon mints at manifest creation, not because this seam chose a shape: a
-      // caller-supplied id reaching a manifest lookup must not be a path or a
-      // store-key fragment, and a bare `z.string()` element would admit both.
+      // `ArtifactId` is an RFC 9562 UUID the daemon mints at manifest creation; a caller-supplied
+      // id reaching a manifest lookup must not be a path or a store-key fragment, which a bare
+      // `z.string()` element would admit.
       expect(() =>
         InterventionRequestPayloadSchema.parse(steerCarrying(["../../etc/passwd"])),
       ).toThrow();
-      // A plausible-looking opaque handle is still refused, and the reason is the
-      // encoding rather than the characters: `artifact-1` is not an RFC 9562 UUID.
+      // A plausible-looking opaque handle is still refused: `artifact-1` is not an RFC 9562 UUID.
       expect(() => InterventionRequestPayloadSchema.parse(steerCarrying(["artifact-1"]))).toThrow(
         /uuid/i,
       );
     });
 
     it("accepts the empty carrier and preserves declared order", () => {
-      // Order preservation is the daemon's delivery obligation and not
-      // something a schema can assert; what the parse must not do is REORDER
-      // or DROP, so the round-trip pins the sequence it was handed.
+      // Ordering is the daemon's delivery duty; the parse must only not reorder or drop, so the
+      // round-trip pins the sequence.
       expect(InterventionRequestPayloadSchema.parse(steerCarrying([]))).toEqual(steerCarrying([]));
       const ordered = [SECOND_ARTIFACT_ID, FIRST_ARTIFACT_ID];
       expect(
@@ -322,9 +284,6 @@ describe("InterventionRequestPayload", () => {
     });
   });
 });
-
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
 
 const responseBase = {
   interventionId: INTERVENTION_ID,
@@ -373,9 +332,6 @@ describe("InterventionRequestResponse", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 const minimalRunStateChange = {
   runId: RUN_ID,
   runVersion: 3,
@@ -406,15 +362,8 @@ describe("RunStateChangeEvent", () => {
   });
 
   it("carries every member of both recovery vocabularies", () => {
-    // Driven from the IMPORTED arrays, not from a list written out here, and for
-    // the same reason the `InterventionType` fan-out above is: this module is the
-    // second of the four surfaces bound to REFERENCE the hoisted vocabularies
-    // rather than restate them. It used to restate them, as two module-private
-    // `z.enum` mirrors, and the `z.ZodType<T>` annotations that were said to hold
-    // those mirrors in lockstep do not: `ZodType` is covariant in its output, so a
-    // mirror NARROWER than the imported union compiles clean. A member added
-    // upstream must reach this carrier, and if a mirror ever returns here it will
-    // not — this test goes red instead of the member dead-lettering at parse.
+    // Driven from the imported arrays so a member added to either vocabulary reaches this
+    // carrier; a narrower local copy would still compile but dead-letter the member at parse.
     for (const recoveryCondition of RECOVERY_CONDITIONS) {
       for (const recoverySpanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
         const stateChange = {
@@ -430,15 +379,13 @@ describe("RunStateChangeEvent", () => {
   });
 
   it("keeps both recovery members OPTIONAL on this replay-visible projection", () => {
-    // The asymmetry against the live `DriverResumeResult`, where both are
-    // REQUIRED: optionality here exists only to admit pre-amendment history,
-    // and importing the parsers did not quietly import their requiredness.
+    // Both are required on the live `DriverResumeResult` but optional on this replay-visible
+    // projection.
     expect(RunStateChangeEventSchema.parse(minimalRunStateChange)).toEqual(minimalRunStateChange);
   });
 
   it("rejects an off-union value on either recovery member", () => {
-    // The negative control for the two loops above: referencing the hoisted
-    // parsers did not widen this carrier into accepting free strings.
+    // Referencing the shared parsers must not widen the carrier into accepting free strings.
     for (const member of ["recoveryCondition", "recoverySpanClassification"] as const) {
       expect(
         RunStateChangeEventSchema.safeParse({
@@ -465,10 +412,8 @@ describe("RunStateChangeEvent", () => {
   });
 
   it("refuses the creation row's own members on a state transition", () => {
-    // The linkage, the limits and the admission stamps are `run.queued`'s,
-    // recorded once on the run's creation. A transition that carried them would be
-    // a second record of one fact, so a producer that emits one must FAIL rather
-    // than have it silently dropped.
+    // The linkage, limits and admission stamps belong to `run.queued`, recorded once at creation;
+    // a producer that emits them on a transition must fail rather than have them silently dropped.
     for (const smuggled of [
       { agentId: "agent-1" },
       { parentRunId: PARENT_RUN_ID },
@@ -557,8 +502,8 @@ describe("RunStateChangeEvent", () => {
     });
 
     it("refuses an empty allowed-domains list", () => {
-      // The type is a NON-EMPTY tuple: an `allowed-domains` posture with no
-      // domains permits nothing while claiming to permit something.
+      // The type is a NON-EMPTY tuple: an `allowed-domains` posture with no domains permits
+      // nothing while claiming to permit something.
       expect(() =>
         RunStateChangeEventSchema.parse({
           ...minimalRunStateChange,
@@ -611,9 +556,6 @@ describe("RunStateChangeEvent", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 const minimalRolledBack = {
   sessionId: SESSION_ID,
   runId: RUN_ID,
@@ -636,10 +578,8 @@ describe("RunRolledBackEvent", () => {
   );
 
   it("admits a rewind to position zero and refuses a fractional or negative counter", () => {
-    // Position 0 is the run's first boundary — a legitimate anchor, exactly as
-    // on the request side. Both counters carry the same integer floor: a float
-    // or a negative could never equal a recorded position or a stored run
-    // version, so it would report a landing the run never made.
+    // Position 0 is the run's first boundary, a legitimate anchor as on the request side. A
+    // fractional or negative counter could never equal a recorded position or run version.
     expect(
       RunRolledBackEventSchema.parse({ ...minimalRolledBack, targetPosition: 0 }).targetPosition,
     ).toBe(0);
@@ -661,9 +601,8 @@ describe("RunRolledBackEvent", () => {
   });
 
   it("refuses a fabricated state transition", () => {
-    // A rollback transitions no state. A producer pairing the rewind with a
-    // synthesized previous/current pair would corrupt the transition stream
-    // consumers replay, so the pair must fail parse rather than ride along.
+    // A rollback is not a state change; an event pairing the rewind with a previous and current
+    // state would corrupt the transition stream consumers replay.
     expect(() =>
       RunRolledBackEventSchema.parse({
         ...minimalRolledBack,
@@ -674,9 +613,9 @@ describe("RunRolledBackEvent", () => {
   });
 
   it("is disjoint from the state-change arm it shares run.subscribeState with", () => {
-    // The stream carries no wire tag, so the two arms are told apart by shape
-    // alone — which holds only while each REFUSES the other. Positive controls
-    // first, so the two refusals are the crossing and not a malformed fixture.
+    // The stream carries no wire tag, so the arms are told apart by shape and each must refuse
+    // the other. Positive controls come first, so the refusals are the crossing and not a bad
+    // fixture.
     expect(RunRolledBackEventSchema.parse(minimalRolledBack)).toEqual(minimalRolledBack);
     expect(RunStateChangeEventSchema.parse(minimalRunStateChange)).toEqual(minimalRunStateChange);
     expect(() => RunStateChangeEventSchema.parse(minimalRolledBack)).toThrow();
@@ -732,10 +671,6 @@ describe("the recovery question after a restart", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Pause / resume triggers
-// --------------------------------------------------------------------------
-
 describe("run pause and resume", () => {
   const request = { targetRunId: RUN_ID, expectedRunVersion: 6 };
 
@@ -750,8 +685,8 @@ describe("run pause and resume", () => {
     ["RunPauseRequestSchema", RunPauseRequestSchema],
     ["RunResumeRequestSchema", RunResumeRequestSchema],
   ] as const)("%s refuses a request with no comparand", (_name, schema) => {
-    // The guard extended to the orchestration-layer verbs, which hold no
-    // InterventionType membership and so inherit nothing implicitly.
+    // The comparand guard applies to these orchestration-layer verbs too; they have no
+    // intervention type to inherit it from.
     expect(() => schema.parse({ targetRunId: RUN_ID })).toThrow();
   });
 
@@ -769,9 +704,6 @@ describe("run pause and resume", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 describe("run-control subscription requests", () => {
   const subscribeSchemas = [
     ["RunStateSubscribeRequestSchema", RunStateSubscribeRequestSchema],
@@ -788,24 +720,18 @@ describe("run-control subscription requests", () => {
   });
 
   it.each(subscribeSchemas)("%s refuses a run-scoped filter member", (_name, schema) => {
-    // The subscription is SESSION-scoped: the session is the authorization
-    // unit and a subscriber fans out per run client-side. A silently dropped
-    // `runId` would hand the caller every run of the session while reading as
-    // a filter it asked for and got.
+    // The subscription is session-scoped and clients fan out per run; a silently dropped
+    // `runId` would hand back every run of the session while reading as a filter.
     expect(() => schema.parse({ sessionId: SESSION_ID, runId: RUN_ID })).toThrow();
   });
 
   it.each(subscribeSchemas)("%s refuses a replay-cursor member", (_name, schema) => {
-    // `SessionSubscribeRequest` declares `afterCursor` for replay. `run.*`
-    // replays nothing, so neither cursor member has a producer here and the
-    // absence is a decision — copying the neighboring shape must fail.
+    // `SessionSubscribeRequest` declares `afterCursor` for replay; `run.*` replays nothing, so a
+    // request copied from that neighbor must fail.
     expect(() => schema.parse({ sessionId: SESSION_ID, afterCursor: "0" })).toThrow();
     expect(() => schema.parse({ sessionId: SESSION_ID, lastEventId: "0" })).toThrow();
   });
 });
-
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
 
 describe("RunReadSnapshot", () => {
   const snapshot = { version: 11, sessionId: SESSION_ID, state: "running" };
@@ -826,15 +752,8 @@ describe("RunReadSnapshot", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Barrel-gap regression
-// --------------------------------------------------------------------------
-
 describe("index.ts re-exports run-control contracts", () => {
-  // A module can be complete and still invisible to consumers if the
-  // `export * from "./run-control.js"` line is missing or dropped in a later
-  // refactor. Importing through `../index.js` (not `../run-control.js`) is what
-  // makes this exercise the re-export layer.
+  // Importing through `../index.js` rather than `../run-control.js` is what exercises the barrel.
   it.each([
     ["QueueItemIdSchema", contracts.QueueItemIdSchema],
     ["InterventionIdSchema", contracts.InterventionIdSchema],
@@ -865,8 +784,7 @@ describe("index.ts re-exports run-control contracts", () => {
   });
 
   it("resolves the same schema instance through the barrel as through the module", () => {
-    // A shadow copy would pass the callable check above while diverging on the
-    // next contract edit.
+    // A shadow copy would pass the callable check above but drift from the module's schema.
     expect(contracts.InterventionRequestResponseSchema).toBe(InterventionRequestResponseSchema);
     expect(contracts.RunStateChangeEventSchema).toBe(RunStateChangeEventSchema);
   });

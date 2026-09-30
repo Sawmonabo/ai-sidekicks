@@ -1,19 +1,10 @@
-// Session contracts — request/response payloads and shared projection types
-// for the session core (SessionRead / SessionSubscribe), the
-// frame a session's stream sends, the session verbs the console calls on one
-// session (rename, archive, reactivate, close, pin, mute, restart), the two
-// searches, and the payloads of the events those verbs append.
+// Session contracts: the session read and subscribe shapes, the frame a session's stream sends,
+// the verbs called on one session (rename, archive, reactivate, close, pin, mute, restart), the
+// two searches, and the payloads of the events those verbs append.
 //
-// ID format: the `brandedUuidIdSchema` factory's `RFC_9562_TEXT_FORM`
-// predicate accepts any RFC 9562 UUID, case-insensitively on every
-// alternative (general form, Nil, Max). Daemon-assigned IDs are
-// UUID v7 (sortable timestamp); control-plane rows take PostgreSQL's
-// `gen_random_uuid()`, which emits v4. Contracts must accept both, so we
-// deliberately do NOT pin to `z.uuidv7()`.
-//
-// Branded types (`SessionId`, `UserId`, …) provide compile-time nominal
-// typing — they prevent accidentally passing a `UserId` where a
-// `SessionId` was expected, even though both are strings at runtime.
+// Id format: `brandedUuidIdSchema` accepts any RFC 9562 UUID, case-insensitively. Daemon-assigned
+// ids are UUID v7, but control-plane rows take PostgreSQL's `gen_random_uuid()`, which emits v4,
+// so contracts must accept both and never pin to `z.uuidv7()`.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
@@ -25,83 +16,46 @@ import {
 } from "./jsonrpc-streaming.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 
-// --------------------------------------------------------------------------
-// Branded ID schemas
-// --------------------------------------------------------------------------
-//
-//   `type SessionId = string & { readonly __brand: "SessionId" };`
-// This is a TypeScript-only nominal type — runtime is a plain UUID string. We
-// keep our own `__brand` field rather than using `z.core.$brand` because the
-// spec's documented brand symbol is the structural shape we want cross- package
-// consumers to see (`packages/runtime-daemon`, `packages/control-plane` etc.
-// read to verify their type imports — making the consuming type structurally
-// identical to the doc's declaration eliminates a foot-gun).
-//
-// All exported schemas are annotated to satisfy `isolatedDeclarations: true`
-// from tsconfig.base.json (TS9010 — exported values must have explicit type
-// annotations so downstream packages can type-emit without re-running
-// whole-program inference).
-//
-// UUID-based IDs use the `brandedUuidIdSchema` helper from `./internal/branded`
-// which encapsulates the `RFC_9562_TEXT_FORM` predicate plus the `.brand().as
-// unknown as z.ZodType<T, T>` cast pattern that bridges Zod's single-T
-// `$ZodBranded` output to the double-T shape required for Standard-Schema-V1
-// input inference in tRPC v11. Non-UUID branded scalars (see EventCursorSchema
-// below) keep the inline cast.
+// Branded ids are TypeScript-only nominal types over a plain UUID string, with our own `__brand`
+// field rather than `z.core.$brand`, so other packages see one structural shape. Every exported
+// schema carries an explicit annotation for `isolatedDeclarations`. Request schemas use the
+// double-T `z.ZodType<T, T>` form so tRPC v11's Standard Schema V1 input inference resolves to
+// `T` rather than `unknown`; the schemas here never transform, so input and output are equal.
 
+/** Identifies one session. */
 export type SessionId = string & { readonly __brand: "SessionId" };
+/** Parses a {@link SessionId}. */
 export const SessionIdSchema: z.ZodType<SessionId, SessionId> =
   brandedUuidIdSchema<SessionId>("SessionId");
 
+/** Identifies one person. */
 export type UserId = string & { readonly __brand: "UserId" };
+/** Parses a {@link UserId}. */
 export const UserIdSchema: z.ZodType<UserId, UserId> = brandedUuidIdSchema<UserId>("UserId");
 
-// Only needs to pass it through unchanged on `SessionRead.timelineCursors`
-// and `SessionSubscribe.afterCursor`.
-//
-// We deliberately use `.min(1)` only — owns the cursor's internal format. The
-// `.max(EVENT_CURSOR_MAX_LEN)` cap below is defense-in-depth against
-// pathological lengths (mirrors the framework body-size cap pattern used
-// elsewhere in this package). If later publishes a structural cursor format
-// (e.g. `<sequence>_<monotonic_ns>`), tighten this regex; until then, any
-// non-empty bounded string is accepted.
+/** The longest event cursor accepted; a guard against pathological lengths. */
 export const EVENT_CURSOR_MAX_LEN = 256;
+/**
+ * An opaque position in a session's event log, passed through unchanged. Its format belongs to
+ * the daemon, so any non-empty bounded string is accepted.
+ */
 export type EventCursor = string & { readonly __brand: "EventCursor" };
-// Non-UUID branded scalar — inline cast (not the `brandedUuidIdSchema` helper) because the
-// underlying parser is `z.string().min(1).max(EVENT_CURSOR_MAX_LEN)`, not the factory's RFC
-// 9562 predicate. The `as unknown as z.ZodType<T, T>` cast matches the helper's pattern (see
-// `./internal/branded.ts` for the load-bearing rationale: bridging single-T `$ZodBranded`
-// output to the double-T shape required for Standard-Schema-V1 input inference in tRPC v11).
+// Not a UUID, so it keeps the inline cast rather than `brandedUuidIdSchema`; the cast bridges
+// Zod's single-T branded output to the double-T shape (see `./internal/branded.ts`).
+/** Parses an {@link EventCursor}. */
 export const EventCursorSchema: z.ZodType<EventCursor, EventCursor> = z
   .string()
   .min(1)
   .max(EVENT_CURSOR_MAX_LEN)
   .brand<"EventCursor">() as unknown as z.ZodType<EventCursor, EventCursor>;
 
-// --------------------------------------------------------------------------
-// wireFreeFormString — defense-in-depth helper for free-form string fields.
-// --------------------------------------------------------------------------
-//
-// Centralizes the trust-boundary checks applied to user/producer-supplied
-// free-form strings on the wire. Three guards in one helper:
-//
-//   1. Length bounds: `.min(1)` rejects empty, `.max(maxLen)` caps the
-//      pathological case (defense in depth — the HTTP/tRPC framework layer
-//      005 is the authoritative body-size enforcer).
-//   2. Whitespace-only rejection: `.regex(/\S/)` requires at least one
-//      non-whitespace character anywhere in the string. ASCII-whitespace
-//      only — Unicode zero-width characters (U+200B/200C/200D/2060/FEFF)
-//      bypass this regex by design. owns identity canonical form including
-//      zero-width-character handling; preempting the grammar choices at
-//      the wire layer would be wrong.
-//   3. NUL-byte rejection: `\0` corrupts log lines / observability traces
-//      (OpenTelemetry sees NUL as a string terminator) and creates
-//      filesystem / log-injection vectors. The wire layer is exactly where
-//      this trust boundary lives — we accept input from external (cross-
-//      node, future RPC) callers and cannot rely on producer trust alone.
-//
-// Used by every wire-layer free-form string in this package. Not branded —
-// the caller composes branding on top of it where applicable.
+/**
+ * A free-form wire string of 1 to `maxLen` characters with at least one non-whitespace
+ * character and no NUL byte; `fieldLabel` names the field in the refusal message. The length cap
+ * is defense in depth behind the transport's body-size limit. The whitespace check is ASCII-only,
+ * so zero-width characters pass by design; no identity normalization happens here.
+ * NUL is refused because it corrupts log lines and traces and opens log and filesystem injection.
+ */
 export const wireFreeFormString = (maxLen: number, fieldLabel: string): z.ZodString =>
   z
     .string()
@@ -114,14 +68,13 @@ export const wireFreeFormString = (maxLen: number, fieldLabel: string): z.ZodStr
       message: `${fieldLabel} MUST NOT contain a NUL byte.`,
     });
 
-// The longest filesystem path any wire string carries. 4096 is Linux's
-// `PATH_MAX`, above macOS's 1024 and Windows' 260-character default; a Windows
-// extended-length path can run longer, and one past this bound is refused.
+/**
+ * The longest filesystem path any wire string carries. 4096 is Linux's `PATH_MAX`, above macOS's
+ * 1024 and Windows' 260-character default; a longer Windows extended-length path is refused.
+ */
 export const FILE_PATH_MAX_LEN = 4096;
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
+/** Where a session is in its lifecycle. */
 export type SessionState =
   | "provisioning"
   | "active"
@@ -129,6 +82,7 @@ export type SessionState =
   | "closed"
   | "purge_requested"
   | "purged";
+/** Parses a {@link SessionState}. */
 export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
   "provisioning",
   "active",
@@ -137,15 +91,6 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
   "purge_requested",
   "purged",
 ]);
-
-// --------------------------------------------------------------------------
-// Shared projection types
-// --------------------------------------------------------------------------
-//
-// These are the read-side projections referenced from `SessionReadResponse`.
-// Per the canonical spec they are strict shapes
-// (the `.strict()` modifier rejects unknown keys at parse time, surfacing
-// schema drift early).
 
 /**
  * One session as `session.read` answers it. `draft` is the unsent composer draft the daemon
@@ -159,41 +104,31 @@ export interface SessionSnapshot {
   updatedAt: string;
   draft: string;
 }
+/** Parses a {@link SessionSnapshot}. */
 export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
   .object({
     id: SessionIdSchema,
     state: SessionStateSchema,
-    // Default `z.iso.datetime()` accepts only Z-suffixed UTC; `{ offset:
-    // true }` widens to the full RFC 3339 section 5.6 spec (numeric
-    // offsets like "+00:00", "-05:00") which the wire contract permits.
-    // The narrower canonical form (Z + ms) for hashing is owned by the
-    // normalization step, NOT by the wire schema here.
+    // `z.iso.datetime()` alone accepts only Z-suffixed UTC; `offset: true` also takes numeric
+    // offsets such as "-05:00", which the wire permits.
     createdAt: z.iso.datetime({ offset: true }),
     updatedAt: z.iso.datetime({ offset: true }),
     draft: z.string(),
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// SessionRead
-// --------------------------------------------------------------------------
-
+/** The session `session.read` answers with. */
 export interface SessionReadRequest {
   sessionId: SessionId;
 }
-// `z.ZodType<T, T>` (instead of `z.ZodType<T>`, where the second slot defaults
-// to `unknown`) is required so tRPC v11's Standard-Schema-V1 input inference
-// resolves to T and not `unknown`. The schema is non-transforming (no
-// `.transform()` / `.coerce()` / `.preprocess()` anywhere in this module), so
-// pre-validation Input ≡ post-validation Output ≡ T. Explicit double-T
-// preserves that equivalence on the type surface.
+/** Parses a {@link SessionReadRequest}. */
 export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionReadRequest> = z
   .object({
     sessionId: SessionIdSchema,
   })
   .strict();
 
-// `timelineCursors.acknowledged` is optional per the canonical interface.
+/** The `session.read` result: the session and its latest and acknowledged timeline cursors. */
 export interface SessionReadResponse {
   session: SessionSnapshot;
   timelineCursors: {
@@ -201,6 +136,7 @@ export interface SessionReadResponse {
     acknowledged?: EventCursor | undefined;
   };
 }
+/** Parses a {@link SessionReadResponse}. */
 export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
   .object({
     session: SessionSnapshotSchema,
@@ -213,41 +149,20 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// SessionSubscribe
-// --------------------------------------------------------------------------
-//
-// `session.subscribe` opens a server-side streaming subscription on
-// streaming primitive. The wire request carries the `sessionId` (and
-// optional `afterCursor` for replay-from-cursor); the wire response
-// carries ONLY the opaque `subscriptionId` returned by
-// `StreamingPrimitive.createSubscription<SessionEvent>(...)`. Subsequent
-// per-event values flow as `$/subscription/notify` frames keyed by that
-// `subscriptionId` (envelope shape owned by `jsonrpc-streaming.ts`); the
-// `SessionEvent` value schema is owned by `event.ts`. Client-initiated
-// teardown is a `$/subscription/cancel` notification referencing the
-// same id.
-//
-// Why the response is a separate, minimal schema rather than embedding
-// `SessionEvent` directly: the handler's wire result MUST be JSON- serializable
-// AND Zod-parseable; a `LocalSubscriptionProducer<T>` is an in-process producer
-// handle with closure-captured methods that satisfies neither. The shape below
-// carries only what the wire client actually needs — the `subscriptionId` it
-// uses to route subsequent inbound notifications. This also matches
-// `streaming-primitive.ts` line 267 which documents: "The handler typically
-// returns the `subscriptionId` to the wire client (e.g. as the `result` of a
-// `session.subscribe` request)".
+// `session.subscribe` opens a streaming subscription. The request carries the `sessionId` and an
+// optional `afterCursor` to replay from; the response carries only the opaque `subscriptionId`.
+// Events then flow as `$/subscription/notify` frames keyed by that id (envelope in
+// `jsonrpc-streaming.ts`, event schema in `event.ts`), and the client ends it with a
+// `$/subscription/cancel` notification. The response is not the event itself because the
+// handler's wire result must be serializable and parseable, which an in-process producer handle
+// is neither.
 
-/**
- * The `session.subscribe` input: the session to follow and, in `afterCursor`,
- * the cursor to replay from.
- */
+/** The `session.subscribe` input: the session to follow and an `afterCursor` to replay from. */
 export interface SessionSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor | undefined;
 }
-// `z.ZodType<T, T>` — see SessionReadRequestSchema for rationale (preserves
-// Standard-Schema-V1 input inference for tRPC v11 consumers).
+/** Parses a {@link SessionSubscribeRequest}. */
 export const SessionSubscribeRequestSchema: z.ZodType<
   SessionSubscribeRequest,
   SessionSubscribeRequest
@@ -258,36 +173,11 @@ export const SessionSubscribeRequestSchema: z.ZodType<
   })
   .strict();
 
-// `session.subscribe`'s init ack is an ALIAS SEAM over the canonical generic
-// `SubscribeAckResponse` (jsonrpc-streaming.ts): today `SessionSubscribeResponse`
-// is EXACTLY `{ subscriptionId }`, identical to every other `*.subscribe`
-// method's ack. The seam exists so a future divergence stays localized here.
-//
-// Divergence escape hatch: if `session.subscribe`'s response later gains
-// session-specific fields (e.g. an initial cursor echo, a server-replay-state
-// marker), this seam becomes a per-method extension —
-//   `export interface SessionSubscribeResponse extends SubscribeAckResponse { …new fields }`
-// plus its own `z.object({ subscriptionId: SubscriptionIdSchema, …new fields }).strict()`
-// schema — rather than widening the shared generic. The change is confined to these two
-// declarations: zero consumer import churn (the symbol names are unchanged), and because
-// the `subscriptionId` floor is preserved it is a MINOR widening so a response accepted
-// today remains accepted under any future evolution.
-//
-// Canonical source: this file (the SESSION binding). The generic ack itself
-// is owned by jsonrpc-streaming.ts. no-mirror disposition does not maintain
-// a doc-side mirror of either code-side typed surface.
-//
-// The explicit `z.ZodType<SessionSubscribeResponse>` annotation (identical to
-// `z.ZodType<SubscribeAckResponse>`, since the alias is type-transparent)
-// satisfies `isolatedDeclarations: true` and matches this file's
-// explicit-annotation convention.
+/** The `session.subscribe` acknowledgment: the generic `{ subscriptionId }` ack. */
 export type SessionSubscribeResponse = SubscribeAckResponse;
+/** Parses a {@link SessionSubscribeResponse}. */
 export const SessionSubscribeResponseSchema: z.ZodType<SessionSubscribeResponse> =
   SubscribeAckResponseSchema;
-
-// --------------------------------------------------------------------------
-// The session stream's frame
-// --------------------------------------------------------------------------
 
 /** One change on a session's stream: an event of the session's log and the cursor it sits at. */
 export interface SessionStreamChange<Event> {
@@ -295,13 +185,12 @@ export interface SessionStreamChange<Event> {
   readonly event: Event;
 }
 
-/** The value of each `session.subscribe` notify: a batch of changes, or the caught-up drop frame. */
+/** The value of each `session.subscribe` notify: a batch of changes, or the caught-up frame. */
 export type SessionStreamFrame<Event> = StreamFrame<SessionStreamChange<Event>, EventCursor>;
 
 /**
- * Builds the `session.subscribe` frame schema over the session event union. The union lives
- * in the event contract, which imports this file at load, so it is passed in rather than
- * imported here.
+ * Builds the `session.subscribe` frame schema over the session event union. The union lives in
+ * the event contract, which imports this file at load, so it is passed in rather than imported.
  */
 export function SessionStreamFrameSchema<Event>(
   eventSchema: z.ZodType<Event>,
@@ -312,24 +201,17 @@ export function SessionStreamFrameSchema<Event>(
   return StreamFrameSchema(changeSchema, EventCursorSchema);
 }
 
-// --------------------------------------------------------------------------
-// Shape
-// --------------------------------------------------------------------------
-
 /**
  * What a session is bound to, kept as a stored fact rather than a mode flag: a `chat` works in
  * a managed workspace the daemon owns, a `project` in a repository the person attached.
  * Converting a chat changes it in place, so it is read from the session, never fixed at creation.
  */
 export type SessionShape = "chat" | "project";
+/** Parses a {@link SessionShape}. */
 export const SessionShapeSchema: z.ZodType<SessionShape, SessionShape> = z.enum([
   "chat",
   "project",
 ]);
-
-// --------------------------------------------------------------------------
-// Verbs on one session
-// --------------------------------------------------------------------------
 
 /** The longest session name the daemon stores. */
 export const SESSION_NAME_MAX_LEN = 256;
@@ -341,6 +223,7 @@ export const SESSION_NAME_MAX_LEN = 256;
 export interface SessionTargetRequest {
   sessionId: SessionId;
 }
+/** Parses a {@link SessionTargetRequest}. */
 export const SessionTargetRequestSchema: z.ZodType<SessionTargetRequest, SessionTargetRequest> = z
   .object({ sessionId: SessionIdSchema })
   .strict();
@@ -352,6 +235,7 @@ export const SessionTargetRequestSchema: z.ZodType<SessionTargetRequest, Session
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface SessionVerbResponse {}
+/** Parses a {@link SessionVerbResponse}. */
 export const SessionVerbResponseSchema: z.ZodType<SessionVerbResponse> = z.object({}).strict();
 
 /**
@@ -362,6 +246,7 @@ export interface SessionRenameRequest {
   sessionId: SessionId;
   name: string | null;
 }
+/** Parses a {@link SessionRenameRequest}. */
 export const SessionRenameRequestSchema: z.ZodType<SessionRenameRequest, SessionRenameRequest> = z
   .object({
     sessionId: SessionIdSchema,
@@ -374,16 +259,13 @@ export interface SessionRenameResponse {
   sessionId: SessionId;
   name: string | null;
 }
+/** Parses a {@link SessionRenameResponse}. */
 export const SessionRenameResponseSchema: z.ZodType<SessionRenameResponse> = z
   .object({
     sessionId: SessionIdSchema,
     name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRenameResponse.name").nullable(),
   })
   .strict();
-
-// --------------------------------------------------------------------------
-// Search across sessions
-// --------------------------------------------------------------------------
 
 /** The longest query `session.search` and `session.fileSearch` accept. */
 export const SESSION_SEARCH_QUERY_MAX_LEN = 256;
@@ -396,6 +278,7 @@ export const SESSION_SEARCH_QUERY_MAX_LEN = 256;
 export interface SessionSearchRequest {
   query: string;
 }
+/** Parses a {@link SessionSearchRequest}. */
 export const SessionSearchRequestSchema: z.ZodType<SessionSearchRequest, SessionSearchRequest> = z
   .object({ query: wireFreeFormString(SESSION_SEARCH_QUERY_MAX_LEN, "SessionSearchRequest.query") })
   .strict();
@@ -447,13 +330,10 @@ const SessionSearchGroupSchema: z.ZodType<SessionSearchGroup> = z
 export interface SessionSearchResponse {
   groups: SessionSearchGroup[];
 }
+/** Parses a {@link SessionSearchResponse}. */
 export const SessionSearchResponseSchema: z.ZodType<SessionSearchResponse> = z
   .object({ groups: z.array(SessionSearchGroupSchema) })
   .strict();
-
-// --------------------------------------------------------------------------
-// File search in the working folder
-// --------------------------------------------------------------------------
 
 /**
  * The `session.fileSearch` input: the text typed after `@` in a session's draft. An empty query
@@ -463,6 +343,7 @@ export interface SessionFileSearchRequest {
   sessionId: SessionId;
   query: string;
 }
+/** Parses a {@link SessionFileSearchRequest}. */
 export const SessionFileSearchRequestSchema: z.ZodType<
   SessionFileSearchRequest,
   SessionFileSearchRequest
@@ -489,6 +370,7 @@ export interface SessionFileSearchResponse {
   paths: string[];
   searchedFileCount: number;
 }
+/** Parses a {@link SessionFileSearchResponse}; it cannot match more files than it searched. */
 export const SessionFileSearchResponseSchema: z.ZodType<SessionFileSearchResponse> = z
   .object({
     paths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
@@ -499,12 +381,8 @@ export const SessionFileSearchResponseSchema: z.ZodType<SessionFileSearchRespons
     message: "A file search cannot match more files than it searched.",
   });
 
-// --------------------------------------------------------------------------
-// Payloads of the events the session verbs append
-// --------------------------------------------------------------------------
-//
-// Each is authored here, beside the verb that appends it, and composed into the event union
-// by the event contract. None imports that contract: it imports this file at load.
+// The event payloads below sit beside the verb that appends them and are composed into the event
+// union by the event contract, which imports this file at load, so none may import that contract.
 
 /**
  * The payload of a lifecycle move — `session.archived`, `session.reactivated`,
@@ -517,6 +395,7 @@ export interface SessionLifecycleChangePayload {
   newState: SessionState;
   actor?: UserId | undefined;
 }
+/** Parses a {@link SessionLifecycleChangePayload}. */
 export const SessionLifecycleChangePayloadSchema: z.ZodType<SessionLifecycleChangePayload> = z
   .object({
     sessionId: SessionIdSchema,
@@ -532,6 +411,7 @@ export const SessionLifecycleChangePayloadSchema: z.ZodType<SessionLifecycleChan
  * while the session is unnamed, so a name the person typed always wins.
  */
 export type SessionRenameOrigin = "user" | "provider" | "auto";
+/** Parses a {@link SessionRenameOrigin}. */
 export const SessionRenameOriginSchema: z.ZodType<SessionRenameOrigin> = z.enum([
   "user",
   "provider",
@@ -548,6 +428,7 @@ export interface SessionRenamedPayload {
   origin: SessionRenameOrigin;
   actor?: UserId | undefined;
 }
+/** Parses a {@link SessionRenamedPayload}. */
 export const SessionRenamedPayloadSchema: z.ZodType<SessionRenamedPayload> = z
   .object({
     sessionId: SessionIdSchema,
@@ -565,13 +446,10 @@ export interface SessionMarkChangePayload {
   sessionId: SessionId;
   at: string;
 }
+/** Parses a {@link SessionMarkChangePayload}. */
 export const SessionMarkChangePayloadSchema: z.ZodType<SessionMarkChangePayload> = z
   .object({ sessionId: SessionIdSchema, at: z.iso.datetime({ offset: true }) })
   .strict();
-
-// --------------------------------------------------------------------------
-// The session method table
-// --------------------------------------------------------------------------
 
 /**
  * The `session.*` methods whose shapes this file states, each bound to its schemas. The
@@ -641,6 +519,7 @@ export interface SessionMethodDescriptors {
   >;
 }
 
+// The descriptor shared by every verb that takes only the session and returns nothing.
 function sessionVerb<MethodName extends string>(
   method: MethodName,
 ): MethodDescriptor<MethodName, SessionTargetRequest, SessionVerbResponse> {
@@ -653,6 +532,7 @@ function sessionVerb<MethodName extends string>(
   };
 }
 
+/** The `session.*` methods stated in this file, each with its schemas. */
 export const SESSION_METHOD_DESCRIPTORS: SessionMethodDescriptors = defineMethodDescriptors({
   "session.read": {
     method: "session.read",

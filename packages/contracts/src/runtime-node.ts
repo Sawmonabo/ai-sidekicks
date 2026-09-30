@@ -1,11 +1,8 @@
-// The runtime-node contract: a machine's registration with the control plane, and
-// the requests that rename it, remove it and write the DNS challenge record for its
-// wildcard certificate.
-//
-// "Runtime node" is the backend's word for one of the person's machines, the
-// computer whose background service runs sessions. The registration is the control
-// plane's admission record; whether a machine is trusted is the statement chain's,
-// so rename and remove each carry the statement a trusted key signed.
+// The runtime-node contract: a machine's registration with the control plane, and the requests
+// that rename it, remove it and write the DNS challenge record for its wildcard certificate.
+// "Runtime node" is the backend's word for one of the person's machines. The registration is only
+// the control plane's admission record; trust is the statement chain's, so rename and remove each
+// carry the statement a trusted key signed.
 import { z } from "zod";
 
 import {
@@ -31,9 +28,9 @@ import {
 const DNS_NAME_MAX_LEN = 253;
 
 /**
- * The service's registration at each start: the machine's id, its identity key,
- * the computer's own name, its platform and the service's version. The control plane
- * accepts it only for the key enrolled at sign-in, and refreshes that machine's row.
+ * The service's registration at each start: the machine's id, identity key, own name, platform
+ * and the service's version. The control plane accepts it only for the key enrolled at sign-in,
+ * and refreshes that machine's row.
  */
 export interface RuntimeNodeRegisterRequest {
   nodeId: NodeId;
@@ -67,8 +64,8 @@ export const RuntimeNodeRenameRequestSchema: z.ZodType<
 > = z.object({ statement: RuntimeNodeRenamedStatementSchema }).strict();
 
 /**
- * A removal, as the `runtimenode.removed` statement a trusted key signs. The machine
- * comes back only by being linked, under a new identity key and its same id.
+ * A removal, as the `runtimenode.removed` statement a trusted key signs. The machine comes back
+ * only by being linked again, under a new identity key and its same id.
  */
 export interface RuntimeNodeRemoveRequest {
   statement: RuntimeNodeRemovedStatement;
@@ -80,18 +77,17 @@ export const RuntimeNodeRemoveRequestSchema: z.ZodType<
 > = z.object({ statement: RuntimeNodeRemovedStatementSchema }).strict();
 
 /**
- * The TXT record an ACME DNS challenge asks for (RFC 8555): its name, under
- * `_acme-challenge.`, and its value, the 43-character base64url SHA-256 digest. The
- * relay writes it only for a machine that proves its key, and only for the minutes
- * of the challenge.
+ * The TXT record an ACME DNS challenge asks for: its name, under `_acme-challenge.`, and its
+ * value, the 43-character base64url SHA-256 digest. The relay writes it only for a machine that
+ * proves its key, and only for the minutes of the challenge.
  */
 export interface RuntimeNodeCertificateChallengeSetRequest {
   name: string;
   value: string;
 }
 /**
- * Parses a {@link RuntimeNodeCertificateChallengeSetRequest}. The name must be a
- * challenge name, so the request can never write any other record.
+ * Parses a {@link RuntimeNodeCertificateChallengeSetRequest}. The name must be a challenge name,
+ * so the request can never write any other record.
  */
 export const RuntimeNodeCertificateChallengeSetRequestSchema: z.ZodType<
   RuntimeNodeCertificateChallengeSetRequest,

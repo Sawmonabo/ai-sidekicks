@@ -1,31 +1,8 @@
-// Test C4: `Resource limit error matches
-// resource.limit_exceeded shape`.
-//
-// Backstops: "Each Resource Limits enforcement returns the standard
-// `{code: 'resource.limit_exceeded',...}` error shape and does not
-// terminate existing resources."
-//
-// The schema must be tight — daemon/control-plane both produce these and
-// the SDK's retry/backoff logic depends on the wire envelope being exactly
-// `{code, message, details: {resource, limit, current}}` with no
-// reinterpretable fields.
-//
-// Coverage shape:
-//   • Accepts the canonical shape
-//   • Rejects:
-//       - wrong `code` literal
-//       - missing `message`
-//       - missing or malformed `details` (any of resource/limit/current)
-//       - extra unknown top-level keys (.strict() guard)
-//       - extra unknown details keys (.strict() guard)
-//       - non-integer `limit` / `current`
-//       - negative `limit` / `current`
-//
-// Test: `PtyBackendUnavailable wire shape`. Same shape-checking discipline as
-// the resource.limit_exceeded suite — daemon throwers (PtyHostSelector,
-// RustSidecarPtyHost, resolveSidecarBinaryPath) all produce these envelopes
-// and SDK consumers (UI banners, diagnostics renderers) compare on `code` +
-// `attemptedBackend`.
+// The `resource.limit_exceeded` and `PtyBackendUnavailable` error envelopes. Daemon and
+// control plane both produce them and the SDK's retry and backoff logic keys on the exact
+// wire shape, so the schemas must be tight: the canonical shape is accepted, and a wrong
+// code, missing or malformed fields, non-integer or negative counts, and extra keys at
+// either level are refused.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -38,10 +15,7 @@ import {
   ResourceLimitExceededErrorSchema,
 } from "../error.js";
 
-// `NUL` is a runtime-equivalent template-literal NUL byte for test fixtures.
-// Both `${NUL}` and a unicode-escape-zero source escape produce a 1-char
-// string containing a single NUL byte at runtime, which is what
-// `wireFreeFormString` rejects on the wire.
+// A single NUL byte, which `wireFreeFormString` rejects on the wire.
 const NUL = String.fromCharCode(0);
 
 const buildValidError = () => ({
@@ -69,9 +43,7 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
   });
 
   it("accepts `current` strictly greater than `limit` (overflow case)", () => {
-    // The wire schema does NOT enforce `current >= limit`; that's a
-    // daemon-side invariant. A test fixture should be free to assert
-    // overflow scenarios without tripping the parser.
+    // The wire schema does not enforce `current >= limit`; the daemon does.
     const overflow = {
       ...buildValidError(),
       details: { ...buildValidError().details, current: 100 },
@@ -170,13 +142,8 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
     expect(result.success).toBe(false);
   });
 
-  // --------------------------------------------------------------------
-  // The wireFreeFormString helper, applied to free-form fields.
-  // --------------------------------------------------------------------
-  // R2-1: `message` and `details.resource` are now hardened with the same
-  // wire-layer guards (whitespace-only + NUL-byte rejection) used on
-  // identity and event fields. NUL bytes in `message` would corrupt
-  // observability log lines that quote the error verbatim.
+  // `message` and `details.resource` reject whitespace-only and NUL-byte values; a NUL in
+  // `message` would corrupt log lines that quote the error verbatim.
 
   it.each([
     ["single space", " "],
@@ -217,26 +184,9 @@ describe("ResourceLimitExceededErrorSchema (C4: resource.limit_exceeded shape)",
   });
 });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// Throwers: PtyHostSelector (sidecar binary missing AND fallback also
-// unavailable; env-var coerces to unknown backend), RustSidecarPtyHost
-// (5-failures-per-60s crash budget exhausted), resolveSidecarBinaryPath
-// (all 4 resolution steps exhausted). "Sidecar binary missing on user
-// machine".
-//
-// Coverage shape:
-//   • Accepts the canonical {code, message, details: {attemptedBackend, cause?}}
-//   • `cause` is omittable (key may be absent)
-//   • `cause` accepts arbitrary values (string, object, null, number)
-//   • `attemptedBackend` enum is closed: rejects unknown backend strings
-//   • Rejects: wrong code literal, missing top-level fields, extra keys
-//     (.strict() guard at both levels), missing `attemptedBackend`
-//
-// NUL-byte rejection on `message` is already covered upstream by the
-// `wireFreeFormString` helper (which the new schema reuses) and exercised
-// by the `ResourceLimitExceededError` suite above. Not re-tested here.
+// Thrown by the daemon's PTY host selector, the Rust sidecar host and the sidecar binary
+// resolver. `cause` may be absent or any value; `attemptedBackend` is a closed set. NUL-byte
+// rejection on `message` is covered by the suite above.
 
 const buildValidPtyError = () => ({
   code: PTY_BACKEND_UNAVAILABLE_CODE,
@@ -358,16 +308,9 @@ describe("PtyBackendUnavailableSchema", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Event-read cursor refusal code
-// ----------------------------------------------------------------------------
-//
-// The event-read cursor refusal ships as a code-and-message-only registration —
-// no `*Schema` — so the contract it ships IS the literal string. Both ends
-// compare against it: the daemon raises it from the read path, and the desktop
-// console's resume classifier branches on it to tell a lost position from every
-// other read refusal. A typo in the constant would silently make that arm
-// unreachable rather than fail, which is what this assertion exists to stop.
+// The cursor refusal is a code-and-message registration with no schema, so the literal
+// string is the contract: the daemon raises it and the desktop's resume classifier branches on
+// it. A typo would make that branch unreachable without failing anything else.
 describe("event-read cursor refusal code", () => {
   it("exposes the cursor code as the literal `event.cursor_unresolvable`", () => {
     expect(EVENT_CURSOR_UNRESOLVABLE_CODE).toBe("event.cursor_unresolvable");

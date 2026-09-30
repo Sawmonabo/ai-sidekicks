@@ -1,13 +1,6 @@
-// Barrel for the `packages/contracts/src/timeline/` subdirectory.
-//
-// The package keeps exporting only `"."`, so consumers import from
-// `@ai-sidekicks/contracts`; this barrel is re-exported from
-// `packages/contracts/src/index.ts`, the package's one import surface.
-//
-// Module order below is the subdirectory's one-way import chain —
-// child-run-summary ← row ← operations ← row-content, search ← methods. Every module here is an
-// eager module-scope Zod initializer, so keeping the chain acyclic is what
-// prevents a `ReferenceError` at import time.
+// Barrel for the timeline contracts; `src/index.ts` re-exports it as the package's one import
+// surface. The order is the one-way import chain (child-run-summary, row, operations,
+// row-content and search, methods), which keeps the eager Zod initializers acyclic.
 export * from "./child-run-summary.js";
 export * from "./row.js";
 export * from "./operations.js";

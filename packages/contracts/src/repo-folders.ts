@@ -1,16 +1,13 @@
-// Folder contracts — the folders the service can reach and where each came
-// from (`repo.mountList`), browsing the machine's folders from another device
-// by token (`repo.folderList`), one folder's attach, read and detach
-// (`repo.attach`, `repo.mountRead`, `repo.detach`), and the refusal for a
+// Folder contracts: the folders the service can reach and where each came from (`repo.mountList`),
+// browsing the machine's folders from another device by token (`repo.folderList`), one folder's
+// attach, read and detach (`repo.attach`, `repo.mountRead`, `repo.detach`), and the refusal for a
 // folder the service cannot reach.
 //
-// Requests are double-T `z.ZodType<T, T>` (the substrate parses inbound params
-// against them) and responses single-T `z.ZodType<T>`, since a response is not
-// an input surface.
+// Requests are double-T `z.ZodType<T, T>` so the substrate can parse inbound params against them;
+// responses are single-T, since a response is not an input surface.
 //
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
-// and nothing whose import closure reaches it (the transitive rule repo.ts's
-// header documents). Every module imported below is closure-clean.
+// This module imports nothing from `./event.js` and nothing whose imports reach it, which would
+// close an eager module cycle.
 import { z } from "zod";
 
 import { NodeIdSchema, type NodeId } from "./node-id.js";
@@ -35,20 +32,14 @@ import {
 } from "./session.js";
 import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
 
-// --------------------------------------------------------------------------
-// A folder's origin — what a folder the service can reach is, and whose.
-// --------------------------------------------------------------------------
-
 /**
- * Where a folder the service can reach came from, carrying the ids its removal
- * act takes:
- * - `attached`: a project's folder, attached by the person; removing it is the
- *   project's detach.
- * - `managed`: a chat's own workspace, which the daemon made and registered as
- *   a mount. It names the one chat that owns it and has no removal act of its
- *   own: it goes only when that session is purged.
- * - `worktree`: a worktree the app made, listed under its project; removing it
- *   is the worktree's retire.
+ * Where a folder the service can reach came from, carrying the ids its removal act takes:
+ * - `attached`: a project's folder, attached by the person; removing it is the project's detach.
+ * - `managed`: a chat's own workspace, which the daemon made and registered as a mount. It names
+ *   the one chat that owns it and has no removal act of its own: it goes only when that session is
+ *   purged.
+ * - `worktree`: a worktree the app made, listed under its project; removing it is the worktree's
+ *   retire.
  */
 export type RepoMountOrigin =
   | { kind: "attached"; repoMountId: RepoMountId; projectId: ProjectId }
@@ -79,14 +70,10 @@ export const RepoMountOriginSchema: z.ZodType<RepoMountOrigin> = z.discriminated
     .strict(),
 ]);
 
-// --------------------------------------------------------------------------
-// Folders — `repo.mountList` and `repo.folderList`.
-// --------------------------------------------------------------------------
-
 /**
- * One folder the service can reach, with how many sessions use it. A project's
- * worktrees follow their project's folder; a worktree on the other side's disk
- * of a Windows computer with WSL is marked `onOtherSideDisk`.
+ * One folder the service can reach, with how many sessions use it. A project's worktrees follow
+ * their project's folder; a worktree on the other side's disk of a Windows computer with WSL is
+ * marked `onOtherSideDisk`.
  */
 export interface RepoMountListEntry {
   path: string;
@@ -127,10 +114,9 @@ export const FOLDER_TOKEN_MAX_LEN = 256;
 export const FOLDER_LIST_ENTRY_LIMIT = 500;
 
 /**
- * A folder the service listed, as another device names it. The service mints
- * one per folder it lists and keeps it in memory for ten minutes, so a device
- * acts only on what the service showed it and no path string comes from
- * another device.
+ * A folder the service listed, as another device names it. The service mints one per folder it
+ * lists and keeps it in memory for ten minutes, so a device acts only on what the service showed
+ * it and no path string comes from another device.
  */
 export type FolderToken = string & { readonly __brand: "FolderToken" };
 /** Parses a {@link FolderToken}. Opaque to every client. */
@@ -141,9 +127,8 @@ export const FolderTokenSchema: z.ZodType<FolderToken, FolderToken> = z
   .brand<"FolderToken">() as unknown as z.ZodType<FolderToken, FolderToken>;
 
 /**
- * `repo.folderList`: the folder to show (the service account's home folder when
- * absent), the text that narrows its folders, and whether hidden folders are
- * listed.
+ * `repo.folderList`: the folder to show (the service account's home folder when absent), the text
+ * that narrows its folders, and whether hidden folders are listed.
  */
 export interface RepoFolderListRequest {
   folderToken?: FolderToken | undefined;
@@ -173,10 +158,9 @@ export interface RepoFolderPathSegment {
 }
 
 /**
- * The `repo.folderList` result: the folder in view as the service writes its
- * path, the path's segments from the top down (the last is the folder in view),
- * at most {@link FOLDER_LIST_ENTRY_LIMIT} of its folders, and `more` when the
- * filter would narrow further.
+ * The `repo.folderList` result: the folder in view as the service writes its path, the path's
+ * segments from the top down (the last is the folder in view), at most
+ * {@link FOLDER_LIST_ENTRY_LIMIT} of its folders, and `more` when the filter would narrow further.
  */
 export interface RepoFolderListResponse {
   path: string;
@@ -213,42 +197,30 @@ export const RepoFolderListResponseSchema: z.ZodType<RepoFolderListResponse> = z
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// One folder — `repo.attach`, `repo.mountRead`, `repo.detach`.
-// --------------------------------------------------------------------------
-//
-// Attach is the only way a path enters the machine's trust envelope. A mount
-// belongs to the machine, not to a session: the daemon stamps its own node id on
-// the row, and a session reaches the mount by binding a workspace to it. A path
-// that is not a git repository is refused.
+// Attach is the only way a path enters the machine's trust envelope. A mount belongs to the
+// machine, not to a session: the daemon stamps its own node id on the row, and a session reaches
+// the mount by binding a workspace to it. A path that is not a git repository is refused.
 
 /**
  * The `repo.attach` input, one of two arms:
- * - `{localPath}`: a path on the machine the service runs on, from a client on
- *   that machine. On the desktop the renderer never holds it: the folder chooser
- *   hands the renderer a picked-file token, and main's relay puts the path in the
- *   token's place before the call reaches the service.
- * - `{folderToken}`: from another device, a token `repo.folderList` minted for a
- *   folder it listed. The service turns it back into the folder it listed, so no
- *   path string ever comes from another device.
+ * - `{localPath}`: a path on the machine the service runs on, from a client on that machine. On the
+ *   desktop the renderer never holds it: the folder chooser hands it a picked-file token, and the
+ *   main process puts the path in the token's place before the call reaches the service.
+ * - `{folderToken}`: from another device, a token `repo.folderList` minted for a folder it listed.
+ *   The service turns it back into that folder, so no path string comes from another device.
  */
 export type RepoAttachRequest = { localPath: string } | { folderToken: FolderToken };
 /** Wire schema for {@link RepoAttachRequest}: exactly one of the two arms. */
 export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachRequest> = z.union([
   z
     .object({
-      // The path as entered, kept as the mount's provenance; the trust envelope
-      // keys off the resolved canonical root, never this.
-      //
-      // Three checks are deliberately not made here. An absoluteness test would
-      // refuse every Windows path in one spelling or another; the daemon's
-      // resolver applies the platform's own rule and refuses a relative, a
-      // `~`-prefixed or a driveless path loudly rather than completing it from
-      // its own working folder or home. A traversal test would refuse the lawful
-      // `/home/me/../me/repo`; containment is checked at bind, against the mount
-      // root. And a missing path is the resolver's typed refusal, not a parse
-      // error. The NUL guard `wireFreeFormString` carries is the one that matters
-      // on a path: an embedded NUL is a truncation vector.
+      // The path as entered, kept as provenance; the trust envelope keys off the resolved canonical
+      // root. Absoluteness, traversal and existence are deliberately not checked here: an
+      // absoluteness test would refuse some Windows spellings, so the resolver applies the
+      // platform's rule and refuses a relative, `~`-prefixed or driveless path; a traversal test
+      // would refuse the lawful `/home/me/../me/repo`, and containment is checked at bind; a
+      // missing path is the resolver's typed refusal. The NUL guard in `wireFreeFormString` is the
+      // one that matters, since an embedded NUL truncates a path.
       localPath: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoAttachRequest.localPath"),
     })
     .strict(),
@@ -268,9 +240,8 @@ export const RepoAttachResponseSchema: z.ZodType<RepoAttachResponse> = z
     repoMountId: RepoMountIdSchema,
     state: RepoMountStateSchema,
     vcsType: VcsTypeSchema,
-    // The resolver's absolute, symlink-resolved root, never the entered path.
-    // Required: a resolution failure aborts the attach with typed
-    // `repo.root_resolution_failed` rather than answering a partial success.
+    // The resolver's absolute, symlink-resolved root, never the entered path. A resolution failure
+    // aborts the attach with `repo.root_resolution_failed` instead of a partial success.
     canonicalRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoAttachResponse.canonicalRoot"),
   })
   .strict();
@@ -290,14 +261,13 @@ export interface RepoMountUser {
 }
 
 /**
- * One mount as `repo.mountRead` reports it: its own facts, a freshly probed
- * health verdict, where it came from and what uses it.
+ * One mount as `repo.mountRead` reports it: its own facts, a freshly probed health verdict, where
+ * it came from and what uses it.
  *
- * `localPath` is the path as entered and `canonicalRoot` the resolved root; they
- * differ when the folder was attached from inside the repository or through a
- * link. `displayName` is the name of the project the folder belongs to, as
- * Settings › Projects shows it, and is absent on a chat's own workspace, which
- * belongs to no project. `usedBy` names the sessions using the folder.
+ * `localPath` is the path as entered and `canonicalRoot` the resolved root; they differ when the
+ * folder was attached from inside the repository or through a link. `displayName` is the name of
+ * the project the folder belongs to, as Settings › Projects shows it, and is absent on a chat's
+ * own workspace, which belongs to no project. `usedBy` names the sessions using the folder.
  */
 export interface RepoMountReadResponse {
   id: RepoMountId;
@@ -315,15 +285,12 @@ export interface RepoMountReadResponse {
 /** Wire schema for {@link RepoMountReadResponse}. */
 export const RepoMountReadResponseSchema: z.ZodType<RepoMountReadResponse> = z
   .object({
-    // The bare `id`, as a read projection names its own row's key; the attach
-    // and detach replies name the mount they acted on `repoMountId`.
     id: RepoMountIdSchema,
     nodeId: NodeIdSchema,
     localPath: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoMountReadResponse.localPath"),
     canonicalRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoMountReadResponse.canonicalRoot"),
     vcsType: VcsTypeSchema,
     state: RepoMountStateSchema,
-    // Probed on every read, never a stored column.
     health: RepoMountHealthSchema,
     attachedAt: z.iso.datetime({ offset: true }),
     origin: RepoMountOriginSchema,
@@ -345,14 +312,12 @@ export const RepoDetachRequestSchema: z.ZodType<RepoDetachRequest, RepoDetachReq
   .strict();
 
 /**
- * The `repo.detach` result. Detaching is a project's `Delete`: the mount turns
- * `detached` for good, every dependent workspace is archived, the project record
- * is forgotten with its setup steps, and the project's sessions are archived and
- * stay readable. Nothing on disk is touched.
+ * The `repo.detach` result. Detaching is a project's `Delete`: the mount turns `detached` for good,
+ * every dependent workspace is archived, the project record is forgotten with its setup steps, and
+ * the project's sessions are archived and stay readable. Nothing on disk is touched.
  *
- * `forgottenProjectId` names the project this call forgot, and is null when the
- * mount was already detached, so the call forgot nothing. It is refused with
- * `repo.detach_conflict` while a dependent workspace is busy.
+ * `forgottenProjectId` names the project this call forgot, and is null when the mount was already
+ * detached. The call is refused with `repo.detach_conflict` while a dependent workspace is busy.
  */
 export interface RepoDetachResponse {
   repoMountId: RepoMountId;
@@ -373,9 +338,8 @@ export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
   .strict();
 
 /**
- * The refusal `repo.attach` answers when the service cannot reach the folder
- * picked, such as a folder in another WSL distribution than the one the service
- * runs in.
+ * The refusal `repo.attach` answers when the service cannot reach the folder picked, such as a
+ * folder in another WSL distribution than the one the service runs in.
  */
 export type RepoFolderUnreachableCode = "repo.folder_unreachable";
 /** The code of {@link RepoFolderUnreachableCode}. */

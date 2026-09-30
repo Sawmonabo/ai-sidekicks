@@ -1,14 +1,11 @@
-// Presence: which of the person's devices are connected to this machine, and
-// whether an app window is in front on each.
+// Presence: which of the person's devices are connected to this machine, and whether an app
+// window is in front on each. Presence belongs to a machine, never to a session. Each device
+// sends a heartbeat on each machine connection it holds; the machine keeps the last one per
+// device in memory and answers `presence.read` and `presence.subscribe` from it. Nothing is
+// persisted.
 //
-// Presence belongs to a machine, never to a session. Each device sends a
-// heartbeat on each machine connection it holds; the machine keeps the last one
-// per device in memory and answers `presence.read` and `presence.subscribe` from
-// what it holds. Nothing here is persisted.
-//
-// Every exported schema is annotated `z.ZodType<T, T>` because
-// `isolatedDeclarations` forbids inferred types on exported declarations, and the
-// schemas do not transform, so input and output are the same type.
+// Exported schemas are annotated `z.ZodType<T, T>` because `isolatedDeclarations` forbids
+// inferred types on exports, and the schemas do not transform.
 import { z } from "zod";
 
 import { EmptyAcknowledgementSchema, type EmptyAcknowledgement } from "./device.js";
@@ -21,11 +18,9 @@ import {
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
 
-// --------------------------------------------------------------------------
-// PresenceState — a device's liveness
-// --------------------------------------------------------------------------
-
+/** A device's liveness as the machine last saw it. */
 export type PresenceState = "online" | "idle" | "reconnecting" | "offline";
+/** Parses a {@link PresenceState}. */
 export const PresenceStateSchema: z.ZodType<PresenceState, PresenceState> = z.enum([
   "online",
   "idle",
@@ -33,27 +28,13 @@ export const PresenceStateSchema: z.ZodType<PresenceState, PresenceState> = z.en
   "offline",
 ]);
 
-// --------------------------------------------------------------------------
-// Bounds
-// --------------------------------------------------------------------------
-//
-// `DEVICE_TYPE_MAX_LEN` bounds a short category such as "desktop" or "mobile".
-// It and the device id's bound compose with `wireFreeFormString`, which also
-// refuses an empty, whitespace-only or NUL-carrying value.
-
+/** The longest device category, such as "desktop" or "mobile", in characters. */
 export const DEVICE_TYPE_MAX_LEN = 64;
 
-// --------------------------------------------------------------------------
-// PresenceHeartbeat — one device reporting itself to a machine
-// --------------------------------------------------------------------------
-//
-// Every key is required, both outside and inside `metadata`; `focusedSessionId`
-// is `null`, never absent, when the device has no session in focus. Both objects
-// are strict, so an unknown key is refused.
-
 /**
- * A device's report to a machine, sent when `appVisible` changes and otherwise
- * every 15 seconds on each machine connection the device holds.
+ * A device's report to a machine, sent when `appVisible` changes and otherwise every 15 seconds
+ * on each machine connection the device holds. Every key is required; `focusedSessionId` is
+ * `null`, never absent, when no session is in focus.
  */
 export interface PresenceHeartbeat {
   deviceId: string;
@@ -70,6 +51,7 @@ export interface PresenceHeartbeat {
   };
 }
 
+/** Parses a {@link PresenceHeartbeat}; both objects are strict, so an unknown key is refused. */
 export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeartbeat> = z
   .object({
     deviceId: wireFreeFormString(DEVICE_ID_MAX_LEN, "PresenceHeartbeat.deviceId"),
@@ -87,10 +69,6 @@ export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeart
       .strict(),
   })
   .strict();
-
-// --------------------------------------------------------------------------
-// The devices connected to this machine
-// --------------------------------------------------------------------------
 
 /** One device connected to this machine, as the machine last heard from it. */
 export interface PresenceDevice {
@@ -117,24 +95,23 @@ export interface MachinePresence {
   devices: PresenceDevice[];
 }
 
+/** Parses a {@link MachinePresence}. */
 export const MachinePresenceSchema: z.ZodType<MachinePresence, MachinePresence> = z
   .object({
     devices: z.array(PresenceDeviceSchema),
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// Requests
-// --------------------------------------------------------------------------
-
 /** `presence.read` takes nothing: presence is the machine's. */
 export type PresenceReadRequest = Record<string, never>;
+/** Parses a {@link PresenceReadRequest}: an empty object. */
 export const PresenceReadRequestSchema: z.ZodType<PresenceReadRequest, PresenceReadRequest> = z
   .object({})
   .strict();
 
 /** `presence.subscribe` takes nothing: presence is the machine's. */
 export type PresenceSubscribeRequest = Record<string, never>;
+/** Parses a {@link PresenceSubscribeRequest}: an empty object. */
 export const PresenceSubscribeRequestSchema: z.ZodType<
   PresenceSubscribeRequest,
   PresenceSubscribeRequest
@@ -142,12 +119,9 @@ export const PresenceSubscribeRequestSchema: z.ZodType<
 
 /** The `presence.subscribe` acknowledgement: the id its pushes carry. */
 export type PresenceSubscribeResponse = SubscribeAckResponse;
+/** Parses a {@link PresenceSubscribeResponse}. */
 export const PresenceSubscribeResponseSchema: z.ZodType<PresenceSubscribeResponse> =
   SubscribeAckResponseSchema;
-
-// --------------------------------------------------------------------------
-// The presence methods, as a table
-// --------------------------------------------------------------------------
 
 /** The `presence.*` methods the daemon answers. */
 export interface PresenceMethodDescriptors {

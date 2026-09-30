@@ -1,105 +1,10 @@
-// Timeline contract coverage.
+// Contract tests for the timeline schemas: rows and their arms, the rollback boundary, the
+// reasoning surface, child-run summaries and expansion, the incompleteness marker, and the
+// read, search, body and patch requests and replies.
 //
-// THE FAILURE MATRIX IS THE SPEC OF THIS FILE. the superseded-rendering
-// bullet enumerates the parse outcomes Phase 1 must encode, and every row
-// below names the class, the required outcome, and the `describe` block that
-// asserts it. A schema change that loosens one of these is a matrix row that
-// stops failing.
-//
-//   MUST FAIL — arm selection and attribution
-//     F1   run arm, epoch missing .................... run arm fails, NO fallthrough
-//     F2   run arm, position missing ................. run arm fails, NO fallthrough
-//     F3   run arm, runId missing .................... run arm fails, NO fallthrough
-//     F4   run arm, whole triple missing ............. run arm fails, NO fallthrough
-//     F5   general arm carrying the triple ........... strict refuses
-//     F6   general arm carrying `superseded` ......... strict refuses
-//     F11  boundary runId != payload.runId ........... refinement refuses
-//     F12  boundary sessionId != payload.sessionId ... refinement refuses
-//     F13  boundary position != payload.targetPosition refinement refuses
-//     F14  boundary `type` not `run.rolled_back` ..... refuses
-//     F15  boundary payload not a RunRolledBackEvent . refuses (typed at projection)
-//     F16  unknown `kind` value ...................... discriminatedUnion refuses
-//     F17  `kind` absent ............................. refuses
-//     F18  `superseded` carrying runId / epoch ....... strict refuses (single-field)
-//     F19  `superseded` without targetPosition ....... refuses
-//     F20  run arm with an unknown extra key ......... strict refuses
-//     F21  negative position / negative epoch ........ refuses
-//     F22  fractional position ....................... refuses
-//
-//   MUST FAIL — reasoning-surface availability
-//     F23  `available` without reasoningEntries ...... refuses
-//     F24  `policy_redacted` without policyReason .... refuses
-//     F25  `unavailable` carrying reasoningEntries ... strict refuses
-//     F26  `unavailable` carrying policyReason ....... strict refuses
-//     F29  `available` carrying policyReason ......... strict refuses
-//     F30  legacy `{ available: true, … }` ........... refuses (no tolerant arm)
-//     F31  legacy `{ available: false }` ............. refuses (no tolerant arm)
-//     F32  unknown availability value ................ refuses
-//     F33  reasoningEntries above the bound .......... refuses
-//
-//   MUST FAIL — summary and request shapes
-//     F34  ChildRunSummary missing eventCount ........ refuses
-//     F35  ChildRunSummary unknown `state` ........... refuses
-//     F36  ChildRunSummary extra key ................. strict refuses
-//     F37  read `limit` above the cap ................ refuses (bounded window)
-//     F38  read `limit` of zero ...................... refuses
-//
-//   MUST FAIL — the incompleteness marker
-//     F39  `completeness` absent ..................... refuses (required member)
-//     F40  incomplete arm without `cause` ............ refuses
-//     F41  incomplete arm without `observedAt` ....... refuses
-//     F42  cause outside the closed set .............. refuses
-//     F43  `state` outside the two arms .............. selects no arm
-//     F44  complete arm carrying `cause` ............. strict refuses
-//     F45  complete arm carrying `observedAt` ........ strict refuses
-//     F46  `observedAt` not an ISO-8601 instant ...... refuses
-//     F47  incomplete arm with an unknown extra key .. strict refuses
-//
-//   MUST FAIL — the reasoning-surface request
-//     F48  request carrying a principal member ....... strict refuses (no wire principal)
-//
-//   MUST FAIL — review folds
-//     F49  `available` carrying zero entries ......... refuses (collapses onto unavailable)
-//     F50  `hasMore: true` without `nextCursor` ...... arm selection refuses
-//     F51  terminal window WITH a cursor ............. PARSES — see below
-//     F52  response entry list above the cap ......... refuses (shared with the request cap)
-//     F53  non-boundary arm carrying `run.rolled_back` refuses (untyped cutoff)
-//     F54  marker at or below the row's position ..... refuses (cutoff is the retained floor)
-//
-//   MUST FAIL — frame safety, ordering, and lineage
-//     F55  general arm carrying `run_lifecycle` ...... refuses (run event with no run identity)
-//     F63  general arm carrying a run-scoped TYPE ..... refuses (category alone is not enough)
-//     F63  general arm whose payload names a run ...... refuses (per-row, for optional-run types)
-//     F64  run arm whose payload contradicts the row .. refuses (two attributions, one row)
-//     F56  boundary arm carrying another category .... refuses (its event is registered one way)
-//     F57  runId === parentRunId ..................... refuses (cyclic lineage), summary + expansion
-//     F58  entries out of sequence order ............. refuses (oldest-to-newest)
-//     F62  reasoning entries out of sequence order ... refuses (same rule, same surface)
-//     F59  expansion entry from another run .......... refuses (general arm exempt)
-//     F60  page over the frame byte budget ........... refuses — including a page AT the row cap
-//     F61  paged `available` without its cursor ...... refuses; unpaged states carry no `hasMore`
-//
-//   REVERSED BY A REVIEW FOLD — each was asserted the other way when first shipped
-//     F49  now REFUSES the empty `available` list (was: accepted)
-//     F51  now ACCEPTS a cursor on the terminal arm (was: refused)
-//
-//   MUST PASS
-//     P1   general row, minimal
-//     P2   run row, full triple, unmarked (current)
-//     P3   run row + `superseded { targetPosition }`
-//     P4   new-epoch row reusing a superseded ordinal, unmarked
-//     P5   attributed compacted stub on the run arm
-//     P7   rollback boundary whose outer triple agrees with its payload
-//     P8   a boundary row itself superseded by a later, lower cut
-//     P9   position 0 / epoch 0
-//     P10  childRunSummary carried on a general row and on a run row
-//     P11  each of the three availability states round-trips
-//     P12  ONE row schema parses a read-window row and a live-stream row
-//     P13  the `complete` arm round-trips
-//     P14  each of the two causes round-trips on the incomplete arm
-//     P15  an incomplete row still parses — the marker never removes the row
-//     P16  a page built by `countEntriesFittingOneFrame` is accepted by the schema
-//
+// A schema change that loosens any refusal here must turn a test red. The central rule is that
+// `kind` selects the arm and a row that fails its arm must not fall through to the general arm,
+// which would silently strip the attribution that rollback projection keys on.
 
 import { describe, expect, it } from "vitest";
 
@@ -141,10 +46,6 @@ import {
   type TimelineRow,
 } from "../timeline/index.js";
 
-// ----------------------------------------------------------------------------
-// Fixtures
-// ----------------------------------------------------------------------------
-
 const SESSION_ID = "6f1c9a6e-1f2b-4a3c-8d5e-0a1b2c3d4e5f";
 const OTHER_SESSION_ID = "7a2d0b7f-2e3c-4b4d-9e6f-1b2c3d4e5f60";
 const RUN_ID = "11111111-2222-4333-8444-555555555555";
@@ -165,9 +66,8 @@ const rowCommon = {
 } as const;
 
 /**
- * The general arm carries a NON-run category, and must: every
- * `run_lifecycle` event is run-scoped, so the arm that structurally has no run
- * identity refuses that category outright (F55).
+ * The general arm carries a non-run category: every `run_lifecycle` event is run-scoped, so the
+ * arm with no run identity refuses that category.
  */
 const generalRow = {
   ...rowCommon,
@@ -227,10 +127,6 @@ const incompleteCompleteness = {
 const expectRoundTrip = (schema: { parse: (value: unknown) => unknown }, value: unknown): void => {
   expect(schema.parse(value)).toStrictEqual(value);
 };
-
-// ----------------------------------------------------------------------------
-// TimelineRow — arm selection and attribution
-// ----------------------------------------------------------------------------
 
 describe("TimelineRow arm selection", () => {
   it("P2/P9 — a run row carrying the full triple parses and narrows on `kind`", () => {
@@ -304,10 +200,9 @@ describe("TimelineRow arm selection", () => {
     expectRoundTrip(TimelineRowSchema, { ...runScopedRow, childRunSummary });
   });
 
-  // F1–F4. The load-bearing half of each assertion is the SECOND one: the row
-  // must fail its `kind`-selected arm and must not be re-offered to the
-  // general arm, which is what would silently strip the
-  // attribution a rollback rule keys on.
+  // The load-bearing half of each assertion is the second: the row must fail its `kind`-selected
+  // arm and must not be re-offered to the general arm, which would silently strip the attribution
+  // a rollback rule keys on.
   const partialAttributionRows = [
     ["F1 — epoch missing", { ...runScopedRow, epoch: undefined }],
     ["F2 — position missing", { ...runScopedRow, position: undefined }],
@@ -414,12 +309,10 @@ describe("TimelineRow arm selection", () => {
   });
 
   it("F53 — every non-boundary arm REFUSES the rollback event type", () => {
-    // `kind` and `type` cannot disagree in the direction that loses data. A row
-    // with kind "run" carrying type "run.rolled_back" would parse otherwise —
-    // the run arm's `type` is the base's free-form string — and would reach a
-    // consumer narrowing on `kind` as an ordinary run row, with the rewind
-    // cutoff sitting unread in its untyped payload. That is the untyped-cutoff
-    // delivery forbids, reached by the back door.
+    // `kind` and `type` cannot disagree in the direction that loses data: a row with kind "run"
+    // carrying type "run.rolled_back" would otherwise parse (the run arm's `type` is a free-form
+    // string) and reach a consumer narrowing on `kind` as an ordinary run row, with the rewind
+    // cutoff unread in its untyped payload.
     const armFixtures: readonly [string, Record<string, unknown>][] = [
       ["run", runScopedRow],
       ["general", generalRow],
@@ -442,8 +335,7 @@ describe("TimelineRow arm selection", () => {
   });
 
   it("F54 — a superseded marker must rank BELOW the row it marks", () => {
-    // the boundary marks rows "whose carried run position exceeds the carried
-    // rewind cutoff".
+    // A superseded marker is set on rows whose run position exceeds the rewind cutoff.
     const at = { ...runScopedRow, position: 7, superseded: { targetPosition: 7 } };
     const below = { ...runScopedRow, position: 6, superseded: { targetPosition: 7 } };
     const above = { ...runScopedRow, position: 8, superseded: { targetPosition: 7 } };
@@ -460,10 +352,9 @@ describe("TimelineRow arm selection", () => {
 
   it("the exported `kind` census names exactly the union's arms", () => {
     expect([...TIMELINE_ROW_KINDS]).toStrictEqual(["rollback_boundary", "run", "general"]);
-    // A `kind` that selects no arm reports `invalid_union` AT `kind` (probed
-    // against zod 4.3.6). Every census member must select an arm; the negative
-    // control below proves the discriminator fires on one that does not, so a
-    // census member silently dropped from the union would fail here.
+    // A `kind` that selects no arm reports `invalid_union` at `kind`. Every census member must
+    // select an arm; the negative control below proves the discriminator fires on one that does
+    // not, so a census member silently dropped from the union would fail here.
     const selectsNoArm = (kind: string): boolean => {
       const result = TimelineRowSchema.safeParse({ ...rowCommon, kind });
       return (
@@ -479,10 +370,6 @@ describe("TimelineRow arm selection", () => {
     expect(selectsNoArm("child_run")).toBe(true);
   });
 });
-
-// ----------------------------------------------------------------------------
-// TimelineRollbackBoundary — the typed cutoff
-// ----------------------------------------------------------------------------
 
 describe("TimelineRollbackBoundary", () => {
   it("P7 — an agreeing boundary parses with a TYPED payload, no cast", () => {
@@ -537,9 +424,8 @@ describe("TimelineRollbackBoundary", () => {
   });
 
   it("F55 — the boundary row's OWN marker obeys the same ordering rule", () => {
-    // A boundary row ranks at its confirmed rewind floor and can itself be
-    // superseded by a later, lower cut — so the ordering rule applies to it
-    // too, against its own position rather than its payload's.
+    // A boundary row ranks at its confirmed rewind floor and can itself be superseded by a later,
+    // lower cut, so the ordering rule applies to it against its own position, not its payload's.
     const boundaryPosition: number = rollbackBoundaryRow.position;
     expect(
       TimelineRowSchema.safeParse({
@@ -579,9 +465,6 @@ describe("TimelineRollbackBoundary", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-
 describe("ChildRunSummary", () => {
   it("round-trips", () => {
     expectRoundTrip(ChildRunSummarySchema, childRunSummary);
@@ -604,10 +487,9 @@ describe("ChildRunSummary", () => {
   });
 
   it("F36 — the six-member set is closed", () => {
-    // `completeness` is now a member (below), so this asserts the closure that
-    // survives it: a producer spelling the marker its OWN way — the shape a
-    // pre-marker producer would most plausibly reach for — is refused rather
-    // than silently stripped and then missing from every consumer downstream.
+    // `completeness` is a member (below), so this asserts the closure that remains: a producer
+    // spelling the marker its own way is refused rather than silently stripped and then missing
+    // from every consumer downstream.
     expect(ChildRunSummarySchema.safeParse({ ...childRunSummary, incomplete: true }).success).toBe(
       false,
     );
@@ -622,9 +504,6 @@ describe("ChildRunSummary", () => {
     );
   });
 });
-
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
 
 describe("ChildRunSummary completeness marker", () => {
   const withCompleteness = (completeness: unknown): unknown => ({
@@ -740,9 +619,6 @@ describe("ChildRunSummary completeness marker", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-
 describe("ReasoningSurfaceReadResponse availability", () => {
   const reasoningEntry = { sequence: 1, content: "normalized reasoning", timestamp: TIMESTAMP };
 
@@ -790,17 +666,14 @@ describe("ReasoningSurfaceReadResponse availability", () => {
   });
 
   it("F65 — a TERMINAL `available` page ACCEPTS an empty entry list", () => {
-    // The second reversal on this axis, and the reason it is not a retreat from
-    // the first: the collapse onto `unavailable` is a defect of a FIRST read,
-    // and this arm is also how a continuation says it reached the end of a
-    // surface that does exist. `unavailable` would say no reasoning was
-    // captured, `policy_redacted` that it was withheld — both misstate a
-    // cursor that simply ran out.
+    // The collapse onto `unavailable` is a defect of a first read, but this arm is also how a
+    // continuation says it reached the end of a surface that exists: `unavailable` would say no
+    // reasoning was captured and `policy_redacted` that it was withheld, both wrong for a cursor
+    // that simply ran out.
     //
-    // The schema cannot tell those two cases apart because the request is not
-    // in its scope, so the first-page floor is enforced in the daemon binder,
-    // where request and response are held together; the daemon suite owns that
-    // assertion.
+    // The schema cannot tell those cases apart because the request is not in its scope, so the
+    // first-page floor is enforced in the daemon binder, where request and response are held
+    // together; the daemon suite owns that assertion.
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
       availability: "available",
       reasoningEntries: [],
@@ -816,10 +689,9 @@ describe("ReasoningSurfaceReadResponse availability", () => {
   });
 
   it("F61 — the paged `available` state obeys the same cursor rule the window does", () => {
-    // A reasoning surface that says there is more and cannot say where to
-    // resume is the same broken promise a cursorless `hasMore: true` window
-    // makes, on a surface already calls summary-first — so the page break is
-    // the normal case, not the edge one.
+    // A reasoning surface that says there is more and cannot say where to resume is the same
+    // broken promise as a cursorless `hasMore: true` window, and on a summary-first surface the
+    // page break is the normal case, not the edge one.
     expect(
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "available",
@@ -927,12 +799,10 @@ describe("ReasoningSurfaceReadResponse availability", () => {
   it("F48 — the request is run-scoped and carries no principal, in any spelling", () => {
     expectRoundTrip(ReasoningSurfaceReadRequestSchema, { runId: RUN_ID });
     expectRoundTrip(ReasoningSurfaceReadRequestSchema, { runId: RUN_ID, afterCursor: "seq-42" });
-    // The principal is resolved from the transport, never supplied by the
-    // caller. `.strict()` is what makes that a refusal rather than a silent
-    // strip — a stripped member would let a caller believe it had scoped the
-    // read to someone, which is exactly the second source of identity truth
-    // the authenticated-principal model forbids. Every plausible spelling is
-    // covered, because the failure mode is a producer guessing a name.
+    // The principal is resolved from the transport, never supplied by the caller. `.strict()`
+    // makes that a refusal rather than a silent strip: a stripped member would let a caller
+    // believe it had scoped the read to someone, a second source of identity truth. Every
+    // plausible spelling is covered, because the failure mode is a producer guessing a name.
     for (const member of ["principalId", "principal", "actor", "userId", "sub", "callerId"]) {
       expect(
         ReasoningSurfaceReadRequestSchema.safeParse({ runId: RUN_ID, [member]: "p-1" }).success,
@@ -940,10 +810,6 @@ describe("ReasoningSurfaceReadResponse availability", () => {
     }
   });
 });
-
-// ----------------------------------------------------------------------------
-// TimelineRead / ChildRunExpand
-// ----------------------------------------------------------------------------
 
 describe("timeline read window and child-run expansion", () => {
   const cursor = "seq-42";
@@ -965,17 +831,14 @@ describe("timeline read window and child-run expansion", () => {
   });
 
   it("F50 — `hasMore: true` REQUIRES `nextCursor`", () => {
-    // A window promising more rows and supplying no way to ask for them leaves
-    // the caller re-reading the same window or giving up, and both lose rows
-    // the session holds. requires "cursor-based continuation"; this is that
-    // requirement made unskippable.
+    // A window promising more rows and supplying no way to ask for them leaves the caller
+    // re-reading the same window or giving up, and both lose rows the session holds.
     expect(
       TimelineReadResponseSchema.safeParse({ entries: [generalRow], hasMore: true }).success,
     ).toBe(false);
-    // Positive control: the same window with its cursor parses. `entries` is
-    // non-empty on both, because F66 makes an empty continuing page a refusal
-    // in its own right and a negative control that trips two rules at once
-    // proves neither.
+    // Positive control: the same window with its cursor parses. `entries` is non-empty on both,
+    // because an empty continuing page is refused in its own right, and a negative control that
+    // trips two rules at once proves neither.
     expect(
       TimelineReadResponseSchema.safeParse({
         entries: [generalRow],
@@ -986,14 +849,10 @@ describe("timeline read window and child-run expansion", () => {
   });
 
   it("F51 — the terminal window ALLOWS a cursor, and never requires one", () => {
-    // This assertion is the reverse of the one first shipped here, and the
-    // reversal is the finding. The two members answer different questions —
-    // `hasMore` whether unread rows remain, `nextCursor` where this window
-    // ended — so they do not contradict on a final page. A client that has
-    // just read to the end and now opens the session's live stream
-    // (`session.subscribe` with `afterCursor`) from exactly there needs that
-    // position, and forbidding it would make the client re-derive it or
-    // re-read the window to recover something the producer already held.
+    // `hasMore` says whether unread rows remain and `nextCursor` where this window ended, so they
+    // do not contradict on a final page. A client that has read to the end and now opens the
+    // session's live stream (`session.subscribe` with `afterCursor`) from exactly there needs
+    // that position; forbidding it would make the client re-derive it or re-read the window.
     expectRoundTrip(TimelineReadResponseSchema, {
       entries: [],
       hasMore: false,
@@ -1069,7 +928,7 @@ describe("timeline read window and child-run expansion", () => {
       nextCursor: cursor,
     });
     // A child run is not inherently smaller than a session window, so the
-    // continuing arm owes its cursor for the same reason F50 does.
+    // continuing arm owes its cursor for the same reason a session window does.
     expect(
       ChildRunExpandResponseSchema.safeParse({
         runId: RUN_ID,
@@ -1091,9 +950,6 @@ describe("timeline read window and child-run expansion", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-
 describe("timeline method-name registry", () => {
   it("the descriptor registry is frozen — a consumer cannot re-point a method's schemas", () => {
     expect(Object.isFrozen(TIMELINE_METHOD_DESCRIPTORS)).toBe(true);
@@ -1103,17 +959,11 @@ describe("timeline method-name registry", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Category pinning and run-scoping
-// ----------------------------------------------------------------------------
-
 describe("row category is pinned where the event is", () => {
   it("F55 — the general arm REFUSES the run-scoped category", () => {
-    // A row whose `kind` was stamped wrong never reaches that arm at all, so
-    // the check never runs — and a `run_lifecycle` row would arrive as a
-    // legitimately attribution-free general row. Every one of the thirteen
-    // `run_lifecycle` types is run-scoped, so there is no correct projection
-    // this refusal costs.
+    // A row whose `kind` was stamped wrong never reaches that arm, so the check never runs, and a
+    // `run_lifecycle` row would arrive as a legitimately attribution-free general row. Every
+    // `run_lifecycle` type is run-scoped, so this refusal never rejects a correct projection.
     const misfiled = { ...generalRow, category: TIMELINE_RUN_LIFECYCLE_CATEGORY };
     const result = TimelineRowSchema.safeParse(misfiled);
     expect(result.success).toBe(false);
@@ -1146,7 +996,7 @@ describe("row category is pinned where the event is", () => {
 
 describe("run attribution is refused where it cannot be read, and pinned where it can", () => {
   it("F63 — the run-scoped type census is DERIVED from the taxonomy", () => {
-    // Membership spot-checks across all six contributing categories.
+    // Membership spot-checks across the contributing categories.
     for (const runScopedType of [
       "run.completed",
       "assistant.message",
@@ -1166,9 +1016,9 @@ describe("run attribution is refused where it cannot be read, and pinned where i
     ]) {
       expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.has(runScopedType)).toBe(true);
     }
-    // NEGATIVE CONTROLS — the exclusions are the whole reason this is a census
-    // and not a category list. Each of these is genuinely session-scoped on at
-    // least some rows, so admitting it would refuse a correct projection.
+    // Negative controls: the exclusions are the whole reason this is a census and not a category
+    // list. Each of these is session-scoped on at least some rows, so admitting it would refuse a
+    // correct projection.
     for (const notAlwaysRunScoped of [
       // Queue events: the target run lives in the `queue_items` row, never in
       // the event payload.
@@ -1197,12 +1047,10 @@ describe("run attribution is refused where it cannot be read, and pinned where i
   });
 
   it("F63 — the general arm REFUSES a run-scoped canonical type, whatever its category", () => {
-    // The category leg alone was not enough: `assistant_output`,
-    // `tool_activity`, and the run-scoped part of `interactive_request` are
-    // every bit as run-attributed as `run_lifecycle`, and a `general` row of
-    // one of those types carries no outer runId / position / epoch — so
-    // rollback projection can never reach it and it renders as permanently
-    // current.
+    // The category leg alone is not enough: `assistant_output`, `tool_activity` and the
+    // run-scoped part of `interactive_request` are as run-attributed as `run_lifecycle`, and a
+    // general row of one of those types carries no outer runId, position or epoch, so rollback
+    // projection could never reach it and it would render as permanently current.
     for (const runScopedType of ["assistant.message", "tool.result", "intervention.applied"]) {
       const misfiled = {
         ...generalRow,
@@ -1215,7 +1063,8 @@ describe("run attribution is refused where it cannot be read, and pinned where i
         expect(result.error.issues.some((issue) => issue.path.join(".") === "type")).toBe(true);
       }
     }
-    // POSITIVE CONTROL: the same category with a type outside the census
+    // Positive control: the same category with a type outside the census parses, so the
+    // refusal is the type and not the category.
     // parses, so the refusal is the type and not the category.
     expect(
       TimelineRowSchema.safeParse({
@@ -1246,7 +1095,7 @@ describe("run attribution is refused where it cannot be read, and pinned where i
         ).toBe(true);
       }
     }
-    // POSITIVE CONTROL: the same row without the run key parses.
+    // Positive control: the same row without the run key parses.
     expect(
       TimelineRowSchema.safeParse({
         ...generalRow,
@@ -1258,19 +1107,16 @@ describe("run attribution is refused where it cannot be read, and pinned where i
   });
 
   it("F64 — the run arm REFUSES a payload whose attribution contradicts the row", () => {
-    // A run row can state its identity twice — once in the outer triple every
-    // consumer filters on, once in the payload the detail view and canonical
-    // provenance are read from. Nothing forced agreement, so a row filed under
-    // run A could be sourced from run B, permanently and silently.
+    // A run row can state its identity twice: in the outer triple every consumer filters on, and
+    // in the payload the detail view and canonical provenance are read from. Without agreement, a
+    // row filed under run A could be sourced from run B, permanently and silently.
     const otherRunId = "99999999-8888-4777-8666-555555555555";
     const disagreements = [
       { payloadKey: "runId", payloadValue: otherRunId },
-      // BOTH registered spellings, not just the first. An intervention row is
-      // projected under the run it targets, so its payload names that run as
-      // `targetRunId`; a guard reading only `runId` accepted outer run A with
-      // payload run B and the row was then filtered, ranked, and superseded
-      // under A while its detail named B — the same two-identity split, reached
-      // through the one key the check did not read.
+      // Both registered spellings are checked, not just the first. An intervention row is
+      // projected under the run it targets, so its payload names that run as `targetRunId`; a
+      // guard reading only `runId` would accept outer run A with payload run B, and the row would
+      // be filtered, ranked and superseded under A while its detail named B.
       { payloadKey: "targetRunId", payloadValue: otherRunId },
       { payloadKey: "sourceEpoch", payloadValue: runScopedRow.epoch + 1 },
       { payloadKey: "sourcePosition", payloadValue: runScopedRow.position + 1 },
@@ -1288,8 +1134,8 @@ describe("run attribution is refused where it cannot be read, and pinned where i
         ).toBe(true);
       }
     }
-    // POSITIVE CONTROLS. Agreement parses — the check is on disagreement, not
-    // on the keys being present…
+    // Positive controls: agreement parses, since the check is on disagreement, not on the keys
+    // being present…
     expect(
       TimelineRowSchema.safeParse({
         ...runScopedRow,
@@ -1356,10 +1202,9 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
   });
 
   it("F58 — a window whose entries go backwards is refused", () => {
-    // rows run oldest to newest. A producer that ships them scrambled forces
-    // every consumer to re-sort a window it already had in order, and a
-    // consumer that does not re-sort renders the session's history out of
-    // sequence.
+    // Window rows run oldest to newest. A producer that ships them scrambled forces every
+    // consumer to re-sort a window it already had in order, and a consumer that does not re-sort
+    // renders the session's history out of sequence.
     const result = TimelineReadResponseSchema.safeParse({
       entries: [rowAt(10), rowAt(3)],
       hasMore: false,
@@ -1394,11 +1239,10 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
   });
 
   it("F62 — a reasoning page whose entries go backwards is refused", () => {
-    // The ordering rule is written about the SURFACE, not about one member.
-    // `ReasoningEntry` carries the same `sequence`, its own doc comment says
-    // the entries are "ordered by its originating `sequence`", and a reasoning
-    // page arriving scrambled is the same defect with the same consequence —
-    // a consumer that does not re-sort renders a run's thinking out of order.
+    // The ordering rule is about the surface, not one member. `ReasoningEntry` carries the same
+    // `sequence`, its doc comment says the entries are "ordered by its originating `sequence`",
+    // and a scrambled reasoning page has the same consequence: a consumer that does not re-sort
+    // renders a run's thinking out of order.
     const reasoningAt = (sequence: number): unknown => ({
       sequence,
       content: "considered the alternatives",
@@ -1418,8 +1262,8 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
         result.error.issues.some((issue) => issue.path.join(".") === "reasoningEntries.1.sequence"),
       ).toBe(true);
     }
-    // Positive controls, matching F58's: ascending parses and so does a
-    // repeated sequence, because the rule is nondecreasing on both surfaces.
+    // Positive controls, as for the window: ascending parses and so does a repeated sequence,
+    // because the rule is nondecreasing on both surfaces.
     expect(
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "available",
@@ -1486,9 +1330,9 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
     ).toBe(true);
   });
 
-  // A single JS unit that `JSON.stringify` escapes to a six-byte `\uXXXX`
-  // sequence — the true worst case for the reserve derivation, and admissible
-  // because `wireFreeFormString` bans only NUL and whitespace-only strings.
+  // A single JS unit that `JSON.stringify` escapes to a six-byte `\uXXXX` sequence: the true
+  // worst case for the reserve derivation, and admissible because `wireFreeFormString` bans only
+  // NUL and whitespace-only strings.
   const worstCaseUnit = "\u0001";
   const worstCaseRow = {
     ...runScopedRow,
@@ -1505,22 +1349,21 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
   }));
 
   it("F60 — the row-count ceiling alone does NOT bound the frame, and the byte budget does", () => {
-    // The finding, stated as arithmetic rather than as a worry. Every field
-    // below is at its own contract bound, so this page is contract-valid on
-    // every axis except the one being added here.
+    // Every field below is at its own contract bound, so this page is contract-valid on every
+    // axis except the one being added here.
     expect(jsonUtf8ByteLength(worstCasePage)).toBeGreaterThan(MAX_MESSAGE_BYTES);
     expect(
       TimelineReadResponseSchema.safeParse({ entries: worstCasePage, hasMore: false }).success,
     ).toBe(false);
 
-    // The producer's half stops before the count ceiling, which is the whole
-    // point: reaching 256 rows is not what usually ends a page.
+    // The producer's half stops before the count ceiling: reaching the row cap is not what
+    // usually ends a page.
     const fitted = countEntriesFittingOneFrame(worstCasePage, TIMELINE_READ_LIMIT_MAX);
     expect(fitted).toBeGreaterThan(0);
     expect(fitted).toBeLessThan(TIMELINE_READ_LIMIT_MAX);
 
-    // P16 — the producer and the validator agree BY CONSTRUCTION: the page the
-    // fitting function returns is accepted, and one row more is refused.
+    // The producer and the validator agree by construction: the page the fitting function
+    // returns is accepted, and one row more is refused.
     const page = worstCasePage.slice(0, fitted);
     expect(
       TimelineReadResponseSchema.safeParse({ entries: page, hasMore: true, nextCursor: cursor })
@@ -1534,10 +1377,9 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
       }).success,
     ).toBe(false);
 
-    // …and the frame that page becomes fits. This is the claim the reserve
-    // exists to make true: the whole JSON-RPC response envelope, carrying a
-    // maximal continuation cursor and a maximal echoed id, stays under the
-    // framer's cap.
+    // …and the frame that page becomes fits, which is the claim the reserve exists to make true:
+    // the whole JSON-RPC response envelope, carrying a maximal continuation cursor and a maximal
+    // echoed id, stays under the framer's cap.
     const maximalCursor = worstCaseUnit.repeat(EVENT_CURSOR_MAX_LEN);
     const frameBody = {
       jsonrpc: "2.0",
@@ -1629,21 +1471,19 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
   });
 
   it("F66 — an over-budget FIRST candidate is paged as one entry, then refused by the budget", () => {
-    // THE FLOOR, and where it stops. The byte budget bounds aggregation and
-    // never bounds a page below one entry, so a first candidate that alone
-    // exceeds the budget still counts as one: returning zero would leave the
-    // caller with an empty page beside an unconsumed cursor, which is a
-    // continuation that never advances and never names the offending row.
+    // The byte budget bounds aggregation but never bounds a page below one entry, so a first
+    // candidate that alone exceeds the budget still counts as one: returning zero would leave
+    // the caller with an empty page beside an unconsumed cursor, a continuation that never
+    // advances and never names the offending row.
     const unfittableRow = {
       ...runScopedRow,
       payload: { blob: "x".repeat(TIMELINE_PAGE_MAX_BYTES) },
     };
     expect(countEntriesFittingOneFrame([unfittableRow], TIMELINE_READ_LIMIT_MAX)).toBe(1);
-    // The floor does NOT put an oversized reply on the wire, and this is the
-    // assertion that says so: the single-entry page it produces is measured
-    // like any other and refused, naming the member. What the floor changed is
-    // WHERE the undeliverable row is reported — structurally, at the response
-    // boundary, on every producer — not whether it is delivered.
+    // The floor does not put an oversized reply on the wire: the single-entry page it produces is
+    // measured like any other and refused, naming the member. The floor decides where the
+    // undeliverable row is reported (structurally, at the response boundary, on every producer),
+    // not whether it is delivered.
     const overBudgetPage = TimelineReadResponseSchema.safeParse({
       entries: [unfittableRow],
       hasMore: false,
@@ -1702,9 +1542,7 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// A row's body, a call's left-out patches, and the session's own search
-// ----------------------------------------------------------------------------
+// Body, patch and search reads.
 
 /** A string whose JSON form is over one reply frame while its length is not. */
 const overFrameText = "\u0001".repeat(Math.ceil(TIMELINE_PAGE_MAX_BYTES / 6) + 1);

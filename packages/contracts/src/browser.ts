@@ -1,12 +1,7 @@
-// The machine-wide browser's wire, which Settings › Browser reads and acts on: the
-// sites holding saved data, the per-site sign-in, cookie clear and forget, clearing
-// every site, and which Chromium the headless page host runs.
-//
-// Site data is one set per machine, shared by every Preview page, the agent's
-// browser tools and a workflow's browser steps. The list is kept per registrable
-// domain: each row names its site by one origin, and every per-site act takes that
-// origin and applies to the site's whole registrable domain, so a login cookie set
-// on the parent domain goes with it.
+// The machine-wide browser methods behind Settings › Browser. Site data is one set per
+// machine, shared by every Preview page, the agent's browser tools and a workflow's browser
+// steps. Every per-site act takes one origin and applies to its whole registrable domain, so
+// a login cookie set on the parent domain goes with it.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -128,6 +123,7 @@ export const BrowserSiteDataClearResponseSchema: z.ZodType<BrowserSiteDataClearR
  * or the one the browser library fetched on first need.
  */
 export type BrowserChromiumSource = "desktop" | "chrome" | "edge" | "playwright";
+/** Every {@link BrowserChromiumSource}. */
 export const BROWSER_CHROMIUM_SOURCES: readonly BrowserChromiumSource[] = Object.freeze([
   "desktop",
   "chrome",
@@ -137,6 +133,7 @@ export const BROWSER_CHROMIUM_SOURCES: readonly BrowserChromiumSource[] = Object
 
 /** Why the daemon's headless Chromium cannot start on this machine. */
 export type BrowserChromiumCannotStartReason = "missingSystemLibraries";
+/** Every {@link BrowserChromiumCannotStartReason}. */
 export const BROWSER_CHROMIUM_CANNOT_START_REASONS: readonly BrowserChromiumCannotStartReason[] =
   Object.freeze(["missingSystemLibraries"]);
 

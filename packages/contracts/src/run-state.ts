@@ -1,6 +1,5 @@
-// Where a run stands, the one closed set every run shape reads. It sits below the
-// run modules because `run-control.ts` composes `run-children.ts` at module scope
-// and both read it, so neither can hold it without an import cycle.
+// Lives below the run modules: `run-control.ts` composes `run-children.ts` at module scope and
+// both read the state, so neither can own it without an import cycle.
 import { z } from "zod";
 
 /**
@@ -18,6 +17,7 @@ export type RunState =
   | "completed"
   | "interrupted"
   | "failed";
+/** Parses a {@link RunState}. */
 export const RunStateSchema: z.ZodType<RunState, RunState> = z.enum([
   "queued",
   "starting",

@@ -1,238 +1,55 @@
-// JSON-RPC streaming primitive contracts — the `$/subscription/notify` /
-// `$/subscription/cancel` wire envelopes plus the `LocalSubscriptionProducer<T>`
-// server-side producer interface.
-//
-// This file owns the CROSS-PACKAGE wire shape every streaming user
-// agrees on. The runtime IMPLEMENTATION (per-subscription state, value-
-// schema validation, transport-scoped cancel authorization, cleanup on
-// disconnect) lives in
-// `packages/runtime-daemon/src/ipc/streaming-primitive.ts` (sibling).
-//
-//   * JSON-RPC 2.0 + LSP-style framing. The streaming primitive uses LSP-style
-//     `$/`-prefixed method names for system notifications (mirrors LSP's
-//     `$/cancelRequest` convention).
-//   * Local IPC supports the bidirectional stream of notifications a
-//     streaming subscription produces.
-//   * "Streaming primitive `LocalSubscriptionProducer<T>` shipped on top of T-1's
-//     wire substrate + T-3's registry."
-//   * Phase 2 ships the PRIMITIVE only; handler binding
-//     (`session.subscribe`) lands in Phase 3.
-//
-// Invariants this file's interface enforces (canonical text through):
-//   * Schema validation runs before handler dispatch. Streaming analog:
-//     every emitted `$/subscription/notify` value MUST conform to the
-//     per-subscription `valueSchema` BEFORE the gateway sends the frame.
-//     Validation failure throws a daemon-internal
-//     `StreamingValidationError` (programmer error — the producer returned
-//     a malformed value); mirrors the registry's `invalid_result` posture.
-//     The cancel-method dispatch path validates params via the registry's
-//     standard path (`SubscriptionCancelParamsSchema`).
-//
-// What this file does NOT define (deferred to sibling tasks / phases):
-//   * The runtime `StreamingPrimitive` class with `createSubscription<T>`,
-//     `cleanupTransport`, `cancelSubscription` methods — in
-//     `packages/runtime-daemon/src/ipc/streaming-primitive.ts`.
-//   * Outbound notification framing. The streaming primitive's
-//     per-instance `send` callback bridges to the gateway's
-//     per-connection write path; the wire format is the same
-//     `Content-Length`-framed JSON-RPC envelope.
-//   * Concrete `session.subscribe`-style streaming handlers — owned by Phase 3.
-//     Phase 3 binds Phase 2's primitive into a domain-method handler that
-//     returns a `subscriptionId` and produces values into the
-//     `LocalSubscriptionProducer<T>` returned by the primitive.
-//   * The CLIENT-SIDE `LocalSubscriptionConsumer<T>` shape (with `next(): Promise<T>`,
-//     `cancel(): Promise<void>`, `[Symbol.asyncIterator]`). The SERVER-SIDE producer
-//     interface (`LocalSubscriptionProducer<T>` in this file) is intentionally
-//     distinct from the CLIENT-SIDE consumer (`LocalSubscriptionConsumer<T>`) —
-//     renamed both to disambiguate at the type level.
-//
-// Streaming-primitive architecture summary:
-//   1. A Phase 3 handler (e.g. `session.subscribe`) calls
-//      `streamingPrimitive.createSubscription<T>(transportId, valueSchema)`
-//      synchronously and receives a `LocalSubscriptionProducer<T>` producer
-//      handle. The handler returns a typed result containing the
-//      `subscriptionId` to the wire client.
-//   2. The handler-side producer code calls `subscription.next(value)`
-//      zero or more times. Each call validates against `valueSchema`
-//      (streaming analog) and emits a `$/subscription/notify` JSON-RPC
-//      notification on the per-transport wire.
-//   3. The handler-side producer calls `subscription.complete()` when
-//      the stream finishes naturally (no further values). Phase 2: this
-//      is a server-side state-only marker (no Phase 2 wire frame); future
-//      phases MAY introduce a `$/subscription/complete` notification.
-//   4. The peer client cancels by sending a `$/subscription/cancel`
-//      notification with the `subscriptionId`. The streaming primitive's
-//      cancel handler verifies transport-scoped ownership
-//      (cancel from peer A MUST NOT tear down peer B's subscription) and
-//      removes the entry.
-//   5. On transport disconnect, the bootstrap orchestrator calls
-//      `streamingPrimitive.cleanupTransport(transportId)` from the
-//      composed `onDisconnect` hook — every subscription owned by the
-//      closed transport is dropped without further wire I/O.
-//
-// Canonical source: this file. `subscriptionId` is a UUID-shaped branded type;
-// `crypto.randomUUID()` (Node 22.12+ native) emits RFC 9562 UUIDs the branded
-// factory's predicate admits. The brand symbol convention follows session.ts.
-// no-mirror disposition does not maintain a doc-side mirror of this code-side typed
-// surface) governs additive evolution if the brand string later narrows in place —
-// consumers keep the same import lines.
+// The wire shapes of a streaming subscription (`$/subscription/notify` and
+// `$/subscription/cancel`) and the server-side `LocalSubscriptionProducer` a handler emits through.
+// The runtime is `packages/runtime-daemon/src/ipc/streaming-primitive.ts`. A handler creates a
+// subscription, returns its `subscriptionId` in the ack, then calls `next(value)`; each value is
+// validated against the subscription's schema and sent as a notify frame. Only the owning
+// connection may cancel, and the daemon drops a connection's subscriptions when it closes.
 
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
 
-// --------------------------------------------------------------------------
-// Method-name constants
-// --------------------------------------------------------------------------
-
 /**
- * Outbound `$/subscription/notify` notification method name — sent by the
- * daemon to the client whenever a producer calls `subscription.next(value)`.
- * The frame is a JSON-RPC 2.0 notification (no `id` field) per spec.
- *
- * The `$/`-prefix follows LSP convention for system-namespace methods that
- * are NOT part of the user-namespace registry (compare LSP's
- * `$/cancelRequest`). The runtime `METHOD_NAME_LSP_REGEX` in
- * `packages/runtime-daemon/src/ipc/registry.ts` line 115 accepts the
- * `$/segment[/segment]*` shape; both `$/subscription/notify` and
- * `$/subscription/cancel` match.
- *
- * Canonical source: this file. no-mirror disposition, the LSP-style
- * streaming method-name taxonomy is canonical in code does not
- * maintain a doc-side mirror. The dotted-camelCase regex
- * `$/`-prefixed system namespace by design.
- *
- * Important: this method is OUTBOUND-ONLY (server-emitted). The streaming
- * primitive does NOT register a handler for it on the inbound dispatch
- * surface — the daemon never receives `$/subscription/notify` traffic; it
- * only emits it.
+ * The method name of the daemon-to-client notification carrying one subscription value. The
+ * `$/` prefix marks a system method outside the user namespace. It is outbound only; the daemon
+ * registers no handler for it.
  */
 export const SUBSCRIPTION_NOTIFY_METHOD = "$/subscription/notify" as const;
+/** The type of {@link SUBSCRIPTION_NOTIFY_METHOD}. */
 export type SubscriptionNotifyMethod = typeof SUBSCRIPTION_NOTIFY_METHOD;
 
 /**
- * Inbound `$/subscription/cancel` notification method name — sent by the
- * client to the daemon to tear down a server-side subscription. The daemon
- * registers a handler for this method against the registry surface;
- * dispatch validates `SubscriptionCancelParamsSchema` before the handler
- * runs.
- *
- * Why register as `mutating: false` (mirrors `daemon.hello`'s rationale):
- * tearing down a wire-level subscription is PROTOCOL state, not DOMAIN
- * state. Classifying cancel as mutating would refuse cancellation when
- * the connection is in `done-incompatible` state — the client could not
- * clean up subscriptions opened pre-mismatch. The non-mutating
- * classification keeps the cancellation surface available regardless of
- * negotiation state.
- *
- * Canonical source: this file (no-mirror disposition mirrors
- * `SUBSCRIPTION_NOTIFY_METHOD` above).
+ * The method name a client sends to tear down a subscription. The daemon registers it as
+ * non-mutating, so a client can still clean up after a failed version handshake.
  */
 export const SUBSCRIPTION_CANCEL_METHOD = "$/subscription/cancel" as const;
+/** The type of {@link SUBSCRIPTION_CANCEL_METHOD}. */
 export type SubscriptionCancelMethod = typeof SUBSCRIPTION_CANCEL_METHOD;
 
-// --------------------------------------------------------------------------
-// SubscriptionId — branded UUID type
-// --------------------------------------------------------------------------
-
-/**
- * The opaque per-subscription identifier. Branded (TypeScript nominal)
- * over a UUID string at runtime — `crypto.randomUUID()` (Node 22.12+
- * native) emits RFC 9562 UUIDs the branded factory's predicate admits.
- *
- * Brand pattern follows session.ts
- *   * runtime is a plain UUID string;
- *   * compile-time is a nominal type that prevents accidentally passing a
- *     `SessionId` where a `SubscriptionId` was expected.
- */
+/** The opaque id of one subscription: a UUID string at runtime, nominally typed at compile time. */
 export type SubscriptionId = string & { readonly __brand: "SubscriptionId" };
 
-/**
- * Zod schema for `SubscriptionId`, composed through the `brandedUuidIdSchema`
- * factory exactly as `SessionIdSchema` is, so this brand shares the ONE
- * RFC 9562 accept set every branded UUID id in the package parses with: a
- * spelling `SessionId` admits is never refused as a `SubscriptionId`, and a
- * change to that set reaches this brand without a second edit.
- */
+/** Parses a {@link SubscriptionId} with the same accept set as every branded UUID id. */
 export const SubscriptionIdSchema: z.ZodType<SubscriptionId, SubscriptionId> =
   brandedUuidIdSchema<SubscriptionId>("SubscriptionId");
 
-// --------------------------------------------------------------------------
-// SubscribeAckResponse — canonical subscribe-init ack
-// --------------------------------------------------------------------------
-
 /**
- * The canonical subscribe-init acknowledgement returned by EVERY registered
- * `*.subscribe` method (`session.subscribe`, `presence.subscribe`, and any
- * future streaming subscribe handler). It carries ONLY the `subscriptionId`
- * the server allocated at `createSubscription` time.
- *
- * Why a single field: the actual streamed values do NOT travel in this ack —
- * they flow over `$/subscription/notify` frames (see
- * `SubscriptionNotifyParams` below). The client uses the `subscriptionId`
- * returned here to register the subscription in its inbound dispatcher map
- * and route those notify frames to the matching consumer-side handle. The
- * wire-ordering invariant (init ack settles BEFORE any notify for that id)
- * is the handler's responsibility, not this type's.
- *
- * Forward-compat contract: a method whose ack legitimately needs additional
- * fields EXTENDS this interface rather than widening the generic — e.g.
- * `interface XSubscribeResponse extends SubscribeAckResponse { … }` plus its
- * own schema. The shared `SubscribeAckResponse` stays minimal so the
- * cross-method floor never carries per-method baggage. Such a per-method
- * extension is additive (the `subscriptionId` floor is preserved), so it is
- * a MINOR widening — an ack accepted today remains accepted under any future
- * evolution.
- *
- * Canonical source: this file. no-mirror disposition does not maintain a
- * doc-side mirror of this code-side typed surface.
- *
- * `readonly` on the field matches this file's interface convention (cf.
- * `SubscriptionCancelParams`, `SubscriptionCancelResult`).
+ * The ack every `*.subscribe` method returns, carrying only the `subscriptionId` the server
+ * allocated; values follow as notify frames, and the ack settles before any notify for that id. A
+ * method that needs more ack fields extends this interface.
  */
 export interface SubscribeAckResponse {
   readonly subscriptionId: SubscriptionId;
 }
 
-/**
- * Zod schema for `SubscribeAckResponse`. `.strict()` rejects unknown fields
- * per the same posture as the cancel envelopes above. The branded
- * `SubscriptionIdSchema` types cleanly here, so no cast-through-`unknown` is
- * needed (mirrors the existing `session.ts` `SessionSubscribeResponseSchema`,
- * which this generalizes).
- *
- * Single-T annotation `z.ZodType<SubscribeAckResponse>` per this file's
- * convention (cf. `SubscriptionCancelResultSchema`) — a response payload is
- * not a tRPC procedure input, so it does not need the double-T input-inference
- * form.
- */
+/** Parses a {@link SubscribeAckResponse}; unknown fields are refused. */
 export const SubscribeAckResponseSchema: z.ZodType<SubscribeAckResponse> = z
   .object({ subscriptionId: SubscriptionIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
-// $/subscription/notify — outbound notification params
-// --------------------------------------------------------------------------
-
 /**
- * The `$/subscription/notify` notification's `params` payload. Carries the
- * `subscriptionId` (so the client can route the value to the matching
- * `LocalSubscriptionConsumer` it holds) plus the typed `value` produced by the
- * server-side `LocalSubscriptionProducer`.
- *
- * `T` is the per-subscription value type; the runtime schema at the
- * substrate boundary is constructed via
- * `SubscriptionNotifyParamsSchema(valueSchema)` so each subscription
- * enforces its own value contract (streaming analog).
- *
- * Wire shape (one per `subscription.next(value)`):
- *   ```json
- *   {
- *     "jsonrpc": "2.0",
- *     "method": "$/subscription/notify",
- *     "params": { "subscriptionId": "...", "value": <T> }
- *   }
- *   ```
+ * The `params` of a notify frame: the `subscriptionId` for routing and the `value` one
+ * `next(value)` produced.
  */
 export interface SubscriptionNotifyParams<T> {
   readonly subscriptionId: SubscriptionId;
@@ -240,25 +57,8 @@ export interface SubscriptionNotifyParams<T> {
 }
 
 /**
- * Factory: build the per-subscription `params` schema given a `valueSchema`.
- * The schema enforces:
- *   * `subscriptionId` is a UUID-shaped branded string (matches the id the
- *     primitive issued at `createSubscription` time);
- *   * `value` conforms to the per-subscription `valueSchema` provided by
- *     the Phase 3 handler at subscription-creation time.
- *
- * The `.strict()` posture rejects unknown top-level fields — a server-side
- * regression that emitted an extra field would fail validation rather
- * than silently leaking the value. Mirrors the negotiation envelopes'
- * `.strict()` pattern (`jsonrpc-negotiation.ts` lines 165-172).
- *
- * Explicit return type annotation `z.ZodType<SubscriptionNotifyParams<T>>`
- * is REQUIRED by `isolatedDeclarations: true` in tsconfig.base.json — a
- * generic factory's return type cannot be inferred at the type-emit boundary
- * by downstream packages without an explicit annotation (TS9010).
- *
- * Cast through `unknown` for the same `exactOptionalPropertyTypes` /
- * `$ZodBranded` mismatch reason carried elsewhere in this corpus.
+ * Builds the notify `params` schema for one subscription from its `valueSchema`. Unknown fields
+ * are refused, so an extra field emitted by mistake fails validation instead of leaking.
  */
 export function SubscriptionNotifyParamsSchema<T>(
   valueSchema: z.ZodType<T>,
@@ -271,31 +71,19 @@ export function SubscriptionNotifyParamsSchema<T>(
     .strict() as unknown as z.ZodType<SubscriptionNotifyParams<T>>;
 }
 
-// --------------------------------------------------------------------------
-// StreamFrame — the batched value of a stream that sends changes
-// --------------------------------------------------------------------------
-
 /**
- * The most changes one frame carries. The daemon coalesces a stream's changes
- * into one frame per short window or this many changes, whichever comes first,
- * so a burst costs the screen one parse per frame rather than one per change.
+ * The most changes one frame carries. The daemon coalesces a stream's changes into one frame per
+ * short window or this many changes, whichever comes first.
  */
 export const STREAM_FRAME_MAX_CHANGES = 50;
 
 /**
- * One notify's `value` on a stream that sends changes rather than whole state.
- *
- * `changes` are the changes since the previous frame, oldest first, each
- * carrying its own cursor. The daemon never waits for a slow screen: when a
- * connection falls behind, the changes that do not fit are dropped for it, and
- * `dropped` rides the very next frame that fits, so the screen learns of the
- * loss at once and repairs from the daemon's record by cursor.
- *
- * A frame with no changes exists for one case only: a connection that fell
- * behind has caught up and nothing new has happened since. That frame carries
- * `dropped` and, in `cursor`, the newest cursor the stream has, so a session
- * that went quiet right after a drop still tells the screen it is behind. A
- * frame with changes carries no frame-level cursor; its changes carry theirs.
+ * One notify's `value` on a stream that sends changes. `changes` are those since the previous
+ * frame, oldest first, each carrying its own cursor. The daemon never waits for a slow connection:
+ * changes that do not fit are dropped for it and `dropped` rides the next frame that fits, so the
+ * screen repairs from the daemon's record by cursor. A frame with no changes exists only after a
+ * drop, once the connection has caught up; it carries `dropped` and the stream's newest `cursor`.
+ * A frame with changes carries no frame-level cursor.
  */
 export interface StreamFrame<Change, Cursor> {
   readonly changes: readonly Change[];
@@ -332,44 +120,16 @@ export function StreamFrameSchema<Change, Cursor>(
     ) as unknown as z.ZodType<StreamFrame<Change, Cursor>>;
 }
 
-// --------------------------------------------------------------------------
-// $/subscription/cancel — inbound notification params + result
-// --------------------------------------------------------------------------
-
 /**
- * The `$/subscription/cancel` notification's `params` payload. Carries
- * only the `subscriptionId` — the per-transport ownership check is the
- * primitive's responsibility (cancel from peer A MUST NOT tear down peer
- * B's subscription; the handler verifies `ctx.transportId` matches the
- * subscription's owning transport before removing the entry).
- *
- * Wire shape:
- *   ```json
- *   {
- *     "jsonrpc": "2.0",
- *     "id": <correlation-id>,
- *     "method": "$/subscription/cancel",
- *     "params": { "subscriptionId": "..." }
- *   }
- *   ```
- *
- * Note: the wire envelope is a JSON-RPC REQUEST (carries `id`), not a
- * notification — the client SHOULD know whether the cancel succeeded
- * (which the `SubscriptionCancelResult.canceled` boolean conveys). A
- * client that fires-and-forgets the cancel can still send a `null` id to
- * suppress the response per the `extractIdSafely` discriminator in the
- * gateway.
+ * The `params` of a cancel call. It is a request, not a notification, so the client learns whether
+ * it worked from {@link SubscriptionCancelResult}. Only the connection that owns the subscription
+ * can cancel it.
  */
 export interface SubscriptionCancelParams {
   readonly subscriptionId: SubscriptionId;
 }
 
-/**
- * Zod schema for `SubscriptionCancelParams`. `.strict()` rejects unknown
- * fields per the same posture as `SubscriptionNotifyParamsSchema`.
- *
- * Explicit return type annotation per `isolatedDeclarations: true`.
- */
+/** Parses {@link SubscriptionCancelParams}; unknown fields are refused. */
 export const SubscriptionCancelParamsSchema: z.ZodType<SubscriptionCancelParams> = z
   .object({
     subscriptionId: SubscriptionIdSchema,
@@ -377,181 +137,58 @@ export const SubscriptionCancelParamsSchema: z.ZodType<SubscriptionCancelParams>
   .strict() as unknown as z.ZodType<SubscriptionCancelParams>;
 
 /**
- * The `$/subscription/cancel` request's response payload.
- *
- *   * `canceled === true` — the subscription was found, owned by the
- *     calling transport, and removed.
- *   * `canceled === false` — the subscription id is unknown OR is owned
- *     by a different transport. Both branches collapse to the same
- *     observable result by design — the daemon does not differentiate
- *     "doesn't exist" from "exists but you don't own it" because the
- *     latter would leak existence of subscriptions across transports
- *     (a side-channel). Mirrors the conservative posture in
- *     `cleanupTransport`'s "idempotent on unknown id" contract.
+ * The result of a cancel call. `canceled` is false when the id is unknown or owned by another
+ * connection; the two are not told apart, so one connection cannot probe for another's
+ * subscriptions.
  */
 export interface SubscriptionCancelResult {
   readonly canceled: boolean;
 }
 
-/**
- * Zod schema for `SubscriptionCancelResult`. `.strict()` rejects unknown
- * fields.
- */
+/** Parses a {@link SubscriptionCancelResult}; unknown fields are refused. */
 export const SubscriptionCancelResultSchema: z.ZodType<SubscriptionCancelResult> = z
   .object({
     canceled: z.boolean(),
   })
   .strict() as unknown as z.ZodType<SubscriptionCancelResult>;
 
-// --------------------------------------------------------------------------
-// LocalSubscriptionProducer<T> — server-side producer interface
-// --------------------------------------------------------------------------
-
 /**
- * Server-side producer handle returned by
- * `StreamingPrimitive.createSubscription<T>`. The Phase 3 handler that
- * created the subscription calls these methods to emit values, signal
- * natural completion, or unilaterally cancel from the server side.
- *
- * Naming note (landed 2026-05-19):
- *   The CLIENT-side consumer is declared as `LocalSubscriptionConsumer<T>` at
- *   `packages/client-sdk/src/transport/types.ts` with shape `next():
- *   Promise<T | undefined>` / `cancel(): Promise<void>` /
- *   `[Symbol.asyncIterator]`. The server-side producer (this interface) is
- *   the value-producing handle (`next(value: T): void` / `complete()` /
- *   `cancel()` / `onCancel(handler)`). The two are intentionally distinct
- *   shapes; the rename eliminates the prior symbol collision.
- *
- * Lifecycle:
- *   * `createSubscription` → returns a fresh `LocalSubscriptionProducer<T>` with
- *     a unique `subscriptionId`. The primitive registers the subscription
- *     against the producer's `transportId` for cleanup-on-disconnect.
- *   * `next(value)` → validates against the per-subscription `valueSchema`
- *     and sends a `$/subscription/notify` frame on the producer's
- *     transport. Validation failure throws `StreamingValidationError`
- *     (programmer error; daemon-internal). After `complete()` or
- *     `cancel()` has fired, `next()` is a SILENT NO-OP — the caller's
- *     value is discarded without throwing. (Rationale: async producers
- *     race against transport-disconnect cleanup; throwing on every
- *     post-teardown emit would force every handler author to write
- *     defensive guards. The no-op posture is the documented contract.)
- *   * `complete()` → marks the subscription as complete from the producer's
- *     side. Phase 2: state-only (no Phase 2 wire frame is emitted —
- *     `$/subscription/complete` is a future-phase concern). Future
- *     `next(value)` calls are silent no-ops. Idempotent.
- *   * `cancel()` → server-initiated unilateral cancel. Removes the entry
- *     from the primitive's per-subscription map. Phase 2: state-only;
- *     a future-phase `$/subscription/cancel` (server→client) frame may
- *     supplement. Future `next(value)` calls are silent no-ops.
- *     Idempotent.
- *   * `onCancel(fn)` → register a callback that fires when the
- *     subscription terminates via an externally-imposed cancel
- *     (`cancel()`, `cleanupTransport()` on transport disconnect, or
- *     a CLIENT-initiated `$/subscription/cancel` wire frame). Does
- *     NOT fire on `complete()` — natural producer-driven termination
- *     is already known to the producer. Used by handlers to release
- *     upstream resources (e.g., dispose an in-memory event-bus
- *     watcher, abort an in-flight fetch) without leaking on cancel.
- *
- * Note: the SERVER-side `cancel()` is distinct from the CLIENT-initiated
- * `$/subscription/cancel` notification handled by the registered
- * cancel-method handler. Both paths lead to entry-removal but originate
- * differently. `onCancel` handlers fire on BOTH paths plus
- * `cleanupTransport`.
+ * The server-side handle a handler emits through, created per subscription and owned by one
+ * connection. It is distinct from the client SDK's `LocalSubscriptionConsumer`.
  */
 export interface LocalSubscriptionProducer<T> {
-  /**
-   * The opaque subscription identifier. The Phase 3 handler returns this
-   * value to the client in its typed result; the client uses it to route
-   * inbound `$/subscription/notify` frames to the matching consumer-side
-   * handle.
-   */
+  /** The id the handler returns to the client so it can route notify frames. */
   readonly subscriptionId: SubscriptionId;
 
   /**
-   * Emit a value to the client. The runtime validates `value` against the
-   * per-subscription `valueSchema` provided at creation time (streaming
-   * analog) and constructs a `$/subscription/notify` notification frame
-   * on the producer's transport.
+   * Validates `value` against the subscription's schema and sends it as a notify frame. A silent
+   * no-op after `complete()`, `cancel()` or the connection closing, because async producers race
+   * with teardown.
    *
-   * @throws StreamingValidationError when `value` fails the per-subscription
-   *   Programmer error — the producer returned a value that does not
-   *   match the registered shape. Daemon-internal; the error-mapping
-   *   does not promote this to a wire response (the wire envelope is a
-   *   NOTIFICATION, which by spec).
-   *
-   * Silent no-op after `complete()` or `cancel()` — the value is
-   * discarded without throwing or sending. The `T` parameter type is
-   * preserved at the signature level so call-site type-checking against
-   * the per-subscription value type still applies.
+   * @throws StreamingValidationError when `value` fails the schema; a producer bug the daemon
+   * refuses to put on the wire.
    */
   next(value: T): void;
 
   /**
-   * Mark the subscription as complete from the producer's side. Phase 2:
-   * state-only — no wire frame is emitted at this layer. Future phases
-   * MAY introduce a `$/subscription/complete` (server→client) notification.
-   *
-   * Idempotent. After `complete()`, subsequent `next(value)` calls are
-   * silent no-ops.
+   * Marks the subscription complete from the producer's side. It sends no frame and does not fire
+   * `onCancel` handlers. Idempotent; later `next` calls are no-ops.
    */
   complete(): void;
 
   /**
-   * Server-initiated unilateral cancel. Removes the entry from the
-   * primitive's per-subscription map. Phase 2: state-only; future-phase
-   * `$/subscription/cancel` (server→client) frames may supplement.
-   *
-   * Idempotent. After `cancel()`, subsequent `next(value)` calls are
-   * silent no-ops. Distinct from the CLIENT-initiated
-   * `$/subscription/cancel` notification handled by the registered
-   * cancel-method handler — both paths lead to entry-removal but
-   * originate differently.
+   * Cancels from the server side: removes the subscription and fires `onCancel` handlers, without
+   * sending a frame. Idempotent; later `next` calls are no-ops.
    */
   cancel(): void;
 
   /**
-   * Register a callback that fires once when the subscription terminates
-   * via an EXTERNALLY-IMPOSED cancel — i.e., one of:
-   *
-   *   * `cancel()` (server-initiated unilateral cancel)
-   *   * `cleanupTransport()` (transport-disconnect bulk cleanup driven
-   *     by the bootstrap orchestrator's `onDisconnect` composition)
-   *   * CLIENT-initiated `$/subscription/cancel` notification, which
-   *     the streaming primitive's registered cancel-method handler
-   *     dispatches via `cancelSubscription(transportId, subscriptionId)`
-   *
-   * Handlers do NOT fire on `complete()` — natural producer-driven
-   * termination is by definition already known to the producer; firing
-   * `onCancel` there would be self-callback noise.
-   *
-   * Semantics:
-   *
-   *   * Multiple registrations are allowed; handlers fire in registration
-   *     order.
-   *   * Per-handler error isolation: a handler that throws does NOT
-   *     prevent subsequent handlers from firing. Errors are caught and
-   *     swallowed at this layer (handlers are intentionally fire-and-
-   *     forget — the producer cannot block cancel teardown). Handler
-   *     authors that need to surface failures must do so through their
-   *     own logging/metrics path.
-   *   * Handlers fire AFTER the entry is removed from the per-
-   *     subscription / per-transport maps, so a handler that re-enters
-   *     the primitive (e.g., consults `cancelSubscription` for the same
-   *     id) observes the post-cancel state.
-   *   * Mirrors AbortSignal-style semantics: registering an `onCancel`
-   *     handler on an ALREADY-canceled subscription fires the handler
-   *     synchronously before `onCancel` returns. This makes the lifecycle
-   *     hook robust to race conditions where an upstream resource is
-   *     acquired after cancel has already fired (the handler still runs
-   *     and releases the resource, rather than leaking).
-   *   * Idempotent registration: registering the same function reference
-   *     twice queues two separate firings. Callers that need single-fire
-   *     semantics must dedupe at the call site.
-   *
-   * Used by Phase 3 handlers (e.g., `session.subscribe`) to release
-   * upstream resources — the discarded `unsubscribe` handle from
-   * `subscribeToSession` is the canonical leak this hook closes.
+   * Registers a callback for when the subscription is cancelled from outside: by `cancel()`, by
+   * the client's cancel call, or by the connection closing. It does not fire on `complete()`. A
+   * handler releases upstream resources; a throwing handler does not stop the others, and its error
+   * is swallowed. Handlers run in registration order after the subscription is removed, and
+   * registering on an already-cancelled subscription runs the handler at once. Registering the
+   * same function twice runs it twice.
    */
   onCancel(fn: () => void): void;
 }

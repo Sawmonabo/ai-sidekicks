@@ -1,12 +1,11 @@
-// What the hosting service answers, for the git-flow contract: the self-hosted git
-// hosts, the change requests on a branch (live, at the header's depth or at Review's),
-// the reviewer and label candidates, posting a review, answering a thread and reading
-// a failing check's log.
+// What the hosting service answers: the self-hosted git hosts, the change requests on a branch
+// (live, at the header's depth or at Review's), the reviewer and label candidates, posting a
+// review, answering a thread and reading a failing check's log.
 //
-// The hosting service is either GitHub or GitLab, each reached through its own
-// installed, signed-in command-line tool. "Change request" is the host-neutral word
-// for a pull request (GitHub) or a merge request (GitLab); the screen prints the
-// host's own word, which follows from the host kind this contract reports.
+// The hosting service is GitHub or GitLab, each reached through its own installed, signed-in
+// command-line tool. "Change request" is the host-neutral word for a pull request (GitHub) or a
+// merge request (GitLab); the screen prints the host's own word, which follows from the host kind
+// this contract reports.
 import { z } from "zod";
 
 import { countSchema } from "../internal/wire-scalars.js";
@@ -24,9 +23,7 @@ import {
   timestampSchema,
 } from "./shared.js";
 
-// --------------------------------------------------------------------------
 // Closed sets
-// --------------------------------------------------------------------------
 
 /** The hosting services served. A host is kept with the kind whose tool answered for it. */
 export const GIT_HOST_KINDS = ["github", "gitlab"] as const;
@@ -100,9 +97,7 @@ export const CHANGE_REQUEST_READ_DEPTHS = ["summary", "full"] as const;
 /** One subscription depth. */
 export type ChangeRequestReadDepth = (typeof CHANGE_REQUEST_READ_DEPTHS)[number];
 
-// --------------------------------------------------------------------------
 // Refusal codes
-// --------------------------------------------------------------------------
 
 /**
  * A host the person tried to add was not added. `not_a_host_name` is a name that
@@ -125,9 +120,7 @@ export const GitflowHostInvalidDetailsSchema: z.ZodType<GitflowHostInvalidDetail
   .object({ reason: z.enum(GITFLOW_HOST_INVALID_REASONS) })
   .strict();
 
-// --------------------------------------------------------------------------
 // Self-hosted git hosts
-// --------------------------------------------------------------------------
 
 /** The longest host name DNS allows. */
 export const GIT_HOST_NAME_MAX_LEN = 253;
@@ -212,9 +205,7 @@ export const GitflowHostRemoveResponseSchema: z.ZodType<GitflowHostRemoveRespons
   .object({ removed: z.boolean() })
   .strict();
 
-// --------------------------------------------------------------------------
 // Session-keyed requests and a change request at a glance
-// --------------------------------------------------------------------------
 
 /** A request keyed by the session alone; the daemon maps it to the session's folder. */
 export interface GitflowSessionRequest {
@@ -246,9 +237,7 @@ export const ChangeRequestSummarySchema: z.ZodType<ChangeRequestSummary> = z
   .object(changeRequestSummaryShape)
   .strict();
 
-// --------------------------------------------------------------------------
 // The change request, live
-// --------------------------------------------------------------------------
 
 /** The `gitflow.changeRequestSubscribe` input. */
 export interface GitflowChangeRequestSubscribeRequest {
@@ -388,9 +377,7 @@ export const ChangeRequestFrameSchema: z.ZodType<ChangeRequestFrame> = z.discrim
   ],
 );
 
-// --------------------------------------------------------------------------
 // Change-request form candidates
-// --------------------------------------------------------------------------
 
 /** The `gitflow.reviewerList` input. `query` narrows the candidates by what was typed. */
 export interface GitflowReviewerListRequest {
@@ -429,9 +416,7 @@ export const GitflowLabelListResponseSchema: z.ZodType<GitflowLabelListResponse>
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // Review, threads and checks
-// --------------------------------------------------------------------------
 
 /**
  * The `gitflow.reviewSubmit` input. The notes are the session's held notes, read from

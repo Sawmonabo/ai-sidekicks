@@ -3,9 +3,9 @@
 // project (its shapes in `session-convert.ts`), forking a session, moving its working folder,
 // and the `session.*` method table for these verbs and for `session.subscribe`.
 //
-// These shapes name repositories, worktrees, providers, agent definitions and the session
-// event union. Every one of those contracts imports `session.ts` at load, so the shapes that
-// need them live here, above all of them, and `session.ts` keeps only what they build on.
+// These shapes name repositories, worktrees, providers, agent definitions and the session event
+// union, all of which import `session.ts` at load, so the shapes that need them live here and
+// `session.ts` keeps only what they build on.
 import { z } from "zod";
 
 import {
@@ -55,16 +55,13 @@ import {
 } from "./session.js";
 import { WORKTREE_GIT_REF_MAX_LEN, WorktreeIdSchema, type WorktreeId } from "./worktree.js";
 
-// --------------------------------------------------------------------------
-// The sessions list
-// --------------------------------------------------------------------------
-
 /**
  * What a session is doing, as the daemon derives it: exactly one of five, and no surface
  * invents a sixth. `waiting` is waiting on the person; `failed` is a session that died, kept
  * apart from one that finished (`done`).
  */
 export type SessionActivity = "running" | "waiting" | "done" | "failed" | "idle";
+/** Parses a {@link SessionActivity}. */
 export const SessionActivitySchema: z.ZodType<SessionActivity> = z.enum([
   "running",
   "waiting",
@@ -163,6 +160,7 @@ const sessionListEntryCommonFields = {
   exchange: SessionExchangeSchema.optional(),
   lastActivityAt: z.iso.datetime({ offset: true }),
 };
+/** Parses a {@link SessionListEntry}. */
 export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminatedUnion("shape", [
   z
     .object({
@@ -184,6 +182,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
 /** `session.list` takes no members: the list is every session on this machine. */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface SessionListRequest {}
+/** Parses a {@link SessionListRequest}. */
 export const SessionListRequestSchema: z.ZodType<SessionListRequest, SessionListRequest> = z
   .object({})
   .strict();
@@ -192,6 +191,7 @@ export const SessionListRequestSchema: z.ZodType<SessionListRequest, SessionList
 export interface SessionListAck extends SubscribeAckResponse {
   readonly sessions: SessionListEntry[];
 }
+/** Parses a {@link SessionListAck}. */
 export const SessionListAckSchema: z.ZodType<SessionListAck> = z
   .object({ subscriptionId: SubscriptionIdSchema, sessions: z.array(SessionListEntrySchema) })
   .strict();
@@ -203,14 +203,11 @@ export const SessionListAckSchema: z.ZodType<SessionListAck> = z
 export type SessionListChange =
   | { kind: "upsert"; entry: SessionListEntry }
   | { kind: "remove"; sessionId: SessionId };
+/** Parses a {@link SessionListChange}. */
 export const SessionListChangeSchema: z.ZodType<SessionListChange> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("upsert"), entry: SessionListEntrySchema }).strict(),
   z.object({ kind: z.literal("remove"), sessionId: SessionIdSchema }).strict(),
 ]);
-
-// --------------------------------------------------------------------------
-// What a new session starts from
-// --------------------------------------------------------------------------
 
 /**
  * Where a new session works. A chat works in a managed workspace the daemon makes for it in the
@@ -220,6 +217,7 @@ export const SessionListChangeSchema: z.ZodType<SessionListChange> = z.discrimin
 export type SessionBinding =
   | { kind: "chat" }
   | { kind: "project"; repoMountId: RepoMountId; executionMode: ExecutionMode };
+/** Parses a {@link SessionBinding}. */
 export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z.discriminatedUnion(
   "kind",
   [
@@ -251,6 +249,7 @@ export interface SessionCreateRequest {
   leadDefinitionId?: AgentDefinitionId | undefined;
   scratch?: true | undefined;
 }
+/** Parses a {@link SessionCreateRequest}; a session must name a lead binding or a definition. */
 export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, SessionCreateRequest> = z
   .object({
     clientIdempotencyKey: z.uuid(),
@@ -297,6 +296,7 @@ export interface SessionCreateResponse {
   state: SessionState;
   resolvedConfiguration?: AgentResolvedConfiguration | undefined;
 }
+/** Parses a {@link SessionCreateResponse}. */
 export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
   .object({
     sessionId: SessionIdSchema,
@@ -305,10 +305,6 @@ export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
     resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
   })
   .strict();
-
-// --------------------------------------------------------------------------
-// session.fork
-// --------------------------------------------------------------------------
 
 /**
  * Fork a session from a message: a new session of the same shape carrying every row up to and
@@ -320,6 +316,7 @@ export interface SessionForkRequest {
   name?: string | undefined;
   clientIdempotencyKey: string;
 }
+/** Parses a {@link SessionForkRequest}. */
 export const SessionForkRequestSchema: z.ZodType<SessionForkRequest, SessionForkRequest> = z
   .object({
     sessionId: SessionIdSchema,
@@ -336,6 +333,7 @@ export const SessionForkRequestSchema: z.ZodType<SessionForkRequest, SessionFork
 export type SessionForkResponse =
   | { sessionId: SessionId; shape: "project"; worktreeId: WorktreeId }
   | { sessionId: SessionId; shape: "chat" };
+/** Parses a {@link SessionForkResponse}. */
 export const SessionForkResponseSchema: z.ZodType<SessionForkResponse> = z.discriminatedUnion(
   "shape",
   [
@@ -350,10 +348,6 @@ export const SessionForkResponseSchema: z.ZodType<SessionForkResponse> = z.discr
   ],
 );
 
-// --------------------------------------------------------------------------
-// session.setWorkingFolder
-// --------------------------------------------------------------------------
-
 /**
  * Move a project session's working folder to another of its project's worktrees, or with
  * `null` to the project's checkout. Asking for the folder the session is already in cancels a
@@ -363,6 +357,7 @@ export interface SessionSetWorkingFolderRequest {
   sessionId: SessionId;
   worktreeId: WorktreeId | null;
 }
+/** Parses a {@link SessionSetWorkingFolderRequest}. */
 export const SessionSetWorkingFolderRequestSchema: z.ZodType<
   SessionSetWorkingFolderRequest,
   SessionSetWorkingFolderRequest
@@ -377,6 +372,7 @@ export interface SessionSetWorkingFolderResponse {
   disposition: "applied" | "pending";
   worktreeId: WorktreeId | null;
 }
+/** Parses a {@link SessionSetWorkingFolderResponse}. */
 export const SessionSetWorkingFolderResponseSchema: z.ZodType<SessionSetWorkingFolderResponse> = z
   .object({
     sessionId: SessionIdSchema,
@@ -385,10 +381,7 @@ export const SessionSetWorkingFolderResponseSchema: z.ZodType<SessionSetWorkingF
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// The session directory's method table
-// --------------------------------------------------------------------------
-
+/** The session directory's methods, keyed by method name. */
 export interface SessionDirectoryMethodDescriptors {
   readonly "session.create": MethodDescriptor<
     "session.create",
@@ -424,6 +417,7 @@ export interface SessionDirectoryMethodDescriptors {
   >;
 }
 
+/** The session directory methods' wire contract: name, procedure type and schemas. */
 export const SESSION_DIRECTORY_METHOD_DESCRIPTORS: SessionDirectoryMethodDescriptors =
   defineMethodDescriptors({
     "session.create": {

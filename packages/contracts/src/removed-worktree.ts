@@ -1,9 +1,8 @@
-// Kept-worktree contracts — the copies `Discard and remove` keeps, listing
-// them, putting one back, and deleting one.
+// Kept-worktree contracts: the copies `Discard and remove` keeps, listing them, putting one back
+// and deleting one.
 //
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
-// and nothing whose import closure reaches it (the transitive rule repo.ts's
-// header documents). Every module imported below is closure-clean.
+// This module imports nothing from `./event.js` and nothing whose imports reach it, which would
+// close an eager module cycle.
 import { z } from "zod";
 
 import { ProjectIdSchema, type ProjectId } from "./project.js";
@@ -17,14 +16,8 @@ import {
   type WorktreeId,
 } from "./worktree.js";
 
-// ==========================================================================
-// Kept worktrees — `repo.removedWorktreeList`, `repo.worktreeRestore`,
-// `repo.removedWorktreeDelete`.
-// ==========================================================================
-//
-// `Discard and remove` moves the tree whole into its project's kept folder, so
-// nothing it held is lost. The copy stays until the person presses `Delete
-// now`; nothing deletes it on its own.
+// `Discard and remove` moves the tree whole into its project's kept folder, so nothing it held is
+// lost. The copy stays until the person presses `Delete now`; nothing deletes it on its own.
 
 /** `repo.removedWorktreeList`: one project's kept worktrees, or every project's. */
 export interface RemovedWorktreeListRequest {
@@ -37,9 +30,9 @@ export const RemovedWorktreeListRequestSchema: z.ZodType<
 > = z.object({ projectId: ProjectIdSchema.optional() }).strict();
 
 /**
- * One kept worktree: the tree's name and branch, the commit it stood on, when it
- * was removed, and its size. The size is read once after the discard, off its
- * path, so `sizeBytes` and `sizeReadAt` are null until that read has run.
+ * One kept worktree: the tree's name and branch, the commit it stood on, when it was removed, and
+ * its size. The size is read once after the discard, so `sizeBytes` and `sizeReadAt` are null until
+ * that read has run.
  */
 export interface RemovedWorktree {
   removedWorktreeId: RemovedWorktreeId;
@@ -87,10 +80,9 @@ export const RemovedWorktreeRequestSchema: z.ZodType<
 > = z.object({ removedWorktreeId: RemovedWorktreeIdSchema }).strict();
 
 /**
- * The `repo.worktreeRestore` result: the tree made again at `path`, on its own
- * branch, or on `<branch>-restored` when its branch has moved since or another
- * worktree holds it (`onNewBranch`). The kept copy stays until it is deleted,
- * whether or not the put-back was refused.
+ * The `repo.worktreeRestore` result: the tree made again at `path`, on its own branch, or on
+ * `<branch>-restored` when its branch has moved since or another worktree holds it (`onNewBranch`).
+ * The kept copy stays until it is deleted, whether or not the put-back was refused.
  */
 export interface WorktreeRestoreResponse {
   worktreeId: WorktreeId;

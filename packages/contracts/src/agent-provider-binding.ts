@@ -1,19 +1,11 @@
-// How a change to an agent's provider binding settles for every client, not only the
-// one that asked for it.
+// How a change to an agent's provider binding settles for every client, not only the asker.
+// Every change to a running agent's model, effort, speed, provider or account is a switch,
+// acknowledged with a disposition (usually `pending`, waiting for the boundary it applies at)
+// and later settled by one of two events, applied or failed. They are two events because the
+// agent card and the switch row wait on the applied one, and the system message naming what was
+// tried and why waits on the failed one.
 //
-// Every change to a running agent's model, effort, speed, provider or account is a
-// switch of its binding. The request is acknowledged with a disposition: most often
-// `pending`, the switch waiting for the boundary it applies at, and settled at once
-// only where the caller asked to interrupt and switch. A switch deferred to a
-// boundary settles later, and two events carry that settlement to every client
-// watching the session: one when the switch applied, one when it could not be. They
-// are two events rather than one because different surfaces wait on them for
-// opposite reasons: the applied event is the settlement the agent card and the
-// session's switch row draw, and the failed event is the one system message naming
-// the switch it tried and why.
-//
-// This module imports nothing from the session event union: the union imports the
-// payload schemas here.
+// This module imports nothing from the session event union: the union imports the payloads here.
 import { z } from "zod";
 
 import {
@@ -51,9 +43,7 @@ const switchIdSchema: z.ZodString = wireFreeFormString(AGENT_SWITCH_ID_MAX_LEN, 
 const bindingTokenSchema = (label: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
 
-// --------------------------------------------------------------------------
 // Closed vocabularies
-// --------------------------------------------------------------------------
 
 /**
  * Which mechanism carried the conversation across the switch. Four different acts,
@@ -136,9 +126,7 @@ export const AGENT_BINDING_SWITCH_STATUSES = ["pending", "applied", "degraded", 
 /** One of {@link AGENT_BINDING_SWITCH_STATUSES}. */
 export type AgentBindingSwitchStatus = (typeof AGENT_BINDING_SWITCH_STATUSES)[number];
 
-// --------------------------------------------------------------------------
 // The switch's intent and its settlement
-// --------------------------------------------------------------------------
 
 /**
  * The binding members a switch moves and the value each moves to; an omitted key is
@@ -331,9 +319,7 @@ export const AgentBindingSwitchDispositionSchema: z.ZodType<AgentBindingSwitchDi
       .superRefine(refineAccountState),
   ]);
 
-// --------------------------------------------------------------------------
 // The two settlement events
-// --------------------------------------------------------------------------
 
 /**
  * The payload of {@link AGENT_PROVIDER_BINDING_CHANGED_EVENT}: a switch that applied.

@@ -94,9 +94,7 @@ export const WorkflowDefinitionScopeRefSchema: z.ZodType<string, string> = z
   .string()
   .max(FILE_PATH_MAX_LEN);
 
-// --------------------------------------------------------------------------
 // The document
-// --------------------------------------------------------------------------
 
 /** The document schema version this contract reads and writes. */
 export const WORKFLOW_DOCUMENT_SCHEMA_VERSION = "2" as const;
@@ -428,9 +426,7 @@ export const WorkflowToolBindingSchema: z.ZodType<WorkflowToolBinding, WorkflowT
   .object({ binding: McpServerBindingRefSchema, toolName: z.string().min(1) })
   .strict();
 
-// --------------------------------------------------------------------------
 // The document's refusal
-// --------------------------------------------------------------------------
 
 /** A document the daemon's check at save refused; it carries every finding at once. */
 export const WORKFLOW_DEFINITION_REFUSED_CODE = "workflow.definition_refused" as const;

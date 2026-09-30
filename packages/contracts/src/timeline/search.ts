@@ -1,11 +1,6 @@
-// `timeline.search`: one session's own search over every row it holds, loaded
-// on screen or not.
-//
-// The find box counts every match in the session, so its `N of M` speaks for
-// the whole session rather than for the rows on screen, and stepping to a match
-// in history that is not loaded loads that history then. The count and each
-// hit's position come from the daemon's search over the session's own rows;
-// nothing on the screen walks rows it does not hold.
+// `timeline.search`: one session's own search over every row it holds, loaded on screen or not.
+// The find box's `N of M` speaks for the whole session, and stepping to a match in unloaded
+// history loads that history then. The count and each hit's position come from the daemon.
 import { z } from "zod";
 
 import { EVENT_FIELD_MAX_LEN } from "../event.js";

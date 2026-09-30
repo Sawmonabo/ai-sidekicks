@@ -32,11 +32,9 @@ import {
 // status list rather than spelled again, so a renamed status cannot leave a subset behind.
 const workflowRunStatusEnum = z.enum(WORKFLOW_RUN_STATUSES);
 
-// --------------------------------------------------------------------------
 // workflow.runStart
-// --------------------------------------------------------------------------
 
-/** The start modes a caller may ask for; `retry` and `sub-workflow` are minted by their own operations. */
+/** The start modes a caller may ask for; `retry` and `sub-workflow` come from their own methods. */
 type RequestableRunMode = Exclude<WorkflowRunMode, "retry" | "sub-workflow">;
 
 /**
@@ -84,9 +82,7 @@ export const WorkflowRunStartResponseSchema: z.ZodType<WorkflowRunStartResponse>
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.runCancel
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.runCancel` input. `reason` is recorded on the run and carried on its
@@ -130,9 +126,7 @@ export const WorkflowRunCancelResponseSchema: z.ZodType<WorkflowRunCancelRespons
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.runResume
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.runResume` input. An ordinary resume omits `versionRepin` and continues
@@ -185,9 +179,7 @@ export const WorkflowRunResumeResponseSchema: z.ZodType<WorkflowRunResumeRespons
     { path: ["repinnedToWorkflowVersionId"], message: "A re-pin names both versions." },
   );
 
-// --------------------------------------------------------------------------
 // workflow.runRetry
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.runRetry` input: re-run from a named step, which runs again with its
@@ -222,9 +214,7 @@ export const WorkflowRunRetryResponseSchema: z.ZodType<WorkflowRunRetryResponse>
     message: "A retry is a new run.",
   });
 
-// --------------------------------------------------------------------------
 // workflow.nodeExecute
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.nodeExecute` input: `Run this node` (`node`) or `Run from here`
@@ -267,9 +257,7 @@ export const WorkflowNodeExecuteResponseSchema: z.ZodType<WorkflowNodeExecuteRes
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.resultsPost
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.resultsPost` input: pull a finished run's results into the session the
@@ -296,9 +284,7 @@ export const WorkflowResultsPostResponseSchema: z.ZodType<WorkflowResultsPostRes
   .object({ workflowRunId: WorkflowRunIdSchema, posted: z.literal(true) })
   .strict();
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
 /** A start the policy check denied, or whose principal could not be resolved. */
 export type WorkflowStartDeniedCode = "workflow.start_denied";
@@ -377,9 +363,7 @@ export const WorkflowRetryUnavailableDetailsSchema: z.ZodType<WorkflowRetryUnava
   .object({ reason: z.enum(WORKFLOW_RETRY_UNAVAILABLE_REASONS) })
   .strict();
 
-// --------------------------------------------------------------------------
 // Run events
-// --------------------------------------------------------------------------
 
 /** The run a run event names: its session, its id, and the definition and version it pins. */
 export interface WorkflowRunEventPayload {
@@ -395,7 +379,7 @@ const workflowRunEventFields = {
   workflowVersionId: WorkflowVersionIdSchema,
 };
 
-/** `workflow.started`: how the run was started and by whom, so the run row rebuilds from the log. */
+/** `workflow.started`: how the run was started and by whom, so the run row rebuilds from events. */
 export interface WorkflowStartedPayload extends WorkflowRunEventPayload {
   mode: WorkflowRunMode;
   startedBy: WorkflowStartedBy;
@@ -458,9 +442,7 @@ export const WorkflowResultsPostedPayloadSchema: z.ZodType<WorkflowResultsPosted
   .object({ sessionId: SessionIdSchema, workflowRunId: WorkflowRunIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // The workflow run control method table
-// --------------------------------------------------------------------------
 
 /** The `workflow.*` methods that act on a run, keyed by name. */
 export interface WorkflowRunControlMethodDescriptors {

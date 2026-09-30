@@ -1,4 +1,4 @@
-// `worktree-setup.ts`: the setup card's status.
+// The setup card's status.
 import { describe, expect, it } from "vitest";
 
 import { WORKTREE_SETUP_OUTPUT_MAX_LEN, WorktreeSetupStatusSchema } from "../worktree-setup.js";

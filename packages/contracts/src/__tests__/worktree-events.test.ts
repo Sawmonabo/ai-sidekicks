@@ -1,5 +1,5 @@
-// `worktree-events.ts`: the worktree records beyond the family payload, the
-// swept-session record and the branch-change record.
+// The worktree records beyond the family payload, the swept-session record and the
+// branch-change record.
 import { describe, expect, it } from "vitest";
 
 import {

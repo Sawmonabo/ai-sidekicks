@@ -30,9 +30,7 @@ export const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: readonly [
   "machine-settings.json",
 ] = [".ai-sidekicks", "machine-settings.json"];
 
-// --------------------------------------------------------------------------
 // Bounds
-// --------------------------------------------------------------------------
 
 /**
  * The longest environment name or value. Windows caps one variable at 32,767
@@ -48,9 +46,7 @@ export const EMAIL_ADDRESS_MAX_LEN = 320;
 /** RFC 1035 caps a host name at 253 characters. */
 export const MAIL_SERVER_MAX_LEN = 253;
 
-// --------------------------------------------------------------------------
 // The environment-name rule
-// --------------------------------------------------------------------------
 
 /**
  * What an environment variable name may look like on every platform: a letter
@@ -70,7 +66,7 @@ export const CREDENTIAL_NAME_SUFFIXES: readonly string[] = Object.freeze([
   "_PASSWORD",
 ]);
 
-/** Claude Code's two update switches, set to `1` on every Claude process so the pinned build stays pinned. */
+/** Claude Code's two update switches, set to `1` on every Claude process to keep it pinned. */
 export const CLAUDE_UPDATE_SWITCH_NAMES: readonly string[] = Object.freeze([
   "DISABLE_AUTOUPDATER",
   "DISABLE_UPDATES",
@@ -116,6 +112,7 @@ export function environmentNameRefusal(name: string): EnvironmentNameRefusalReas
 
 /** A row's name refused at save; nothing is written and the rows stay as they were. */
 export type DaemonEnvironmentNameRefusedCode = "daemon.environment_name_refused";
+/** The error code the service answers with when a row's name is refused. */
 export const DAEMON_ENVIRONMENT_NAME_REFUSED_CODE: DaemonEnvironmentNameRefusedCode =
   "daemon.environment_name_refused";
 
@@ -133,9 +130,7 @@ export const DaemonEnvironmentNameRefusedDetailsSchema: z.ZodType<DaemonEnvironm
     })
     .strict();
 
-// --------------------------------------------------------------------------
 // The settings
-// --------------------------------------------------------------------------
 
 /**
  * One `name = value` row passed to every process the app starts, in
@@ -179,6 +174,7 @@ export const NotificationKindSwitchesSchema: z.ZodType<
 
 /** How often the email digest may go out at most. */
 export type EmailDigestPeriod = "hour" | "fourHours" | "day";
+/** Every {@link EmailDigestPeriod}, shortest first. */
 export const EMAIL_DIGEST_PERIODS: readonly EmailDigestPeriod[] = Object.freeze([
   "hour",
   "fourHours",
@@ -244,6 +240,7 @@ const NotificationSettingsSchema: z.ZodType<NotificationSettings, NotificationSe
 
 /** Whether Space is held while talking or tapped to start and stop, on both providers. */
 export type VoiceMode = "hold" | "tap";
+/** Every {@link VoiceMode}. */
 export const VOICE_MODES: readonly VoiceMode[] = Object.freeze(["hold", "tap"]);
 
 /** Voice's two settings. `codexVoice` unset reads as Codex's own default voice. */
@@ -471,12 +468,11 @@ export const MachineSettingsChangeSchema: z.ZodType<MachineSettingsChange, Machi
       message: "A settings change carries exactly one member.",
     });
 
-// --------------------------------------------------------------------------
 // The service's verbs
-// --------------------------------------------------------------------------
 
 /** Why a settings file was found broken. */
 export type SettingsFileRepairCause = "unparseable" | "schemaRefused";
+/** Every {@link SettingsFileRepairCause}. */
 export const SETTINGS_FILE_REPAIR_CAUSES: readonly SettingsFileRepairCause[] = Object.freeze([
   "unparseable",
   "schemaRefused",
@@ -569,6 +565,7 @@ export interface MachineSettingsMethodDescriptors {
     MachineSettingsReading
   >;
 }
+/** The descriptor table of the three machine-settings verbs. */
 export const MACHINE_SETTINGS_METHOD_DESCRIPTORS: MachineSettingsMethodDescriptors =
   defineMethodDescriptors({
     "daemon.machineSettingsRead": {

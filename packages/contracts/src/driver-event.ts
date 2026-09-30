@@ -1,70 +1,17 @@
-// DriverEvent — the driver-runtime slice of event census, in a downstream
-// leaf module so can author its own derived view without editing the
-// taxonomy file that supplies it.
+// `driver.subscribeEvents` streams one run's driver activity; `DriverEvent` is what may travel
+// on it: the session events of seven categories. The derivation lives here once, and the
+// daemon handler filters against it.
 //
-// `driver.subscribeEvents` streams one run's driver activity, and `DriverEvent`
-// is the name for what may travel on it. The CATEGORY LIST is ratified decision
-// #4 — seven categories that ALREADY EXIST census, no new one.
+// This is a separate module because `event.ts` and `event-core.ts` read `provider-driver.ts`
+// values at module scope. Importing `event.ts` from `provider-driver.ts` would close an eager
+// cycle, and TypeScript compiles that silently; the failure shows at runtime as an
+// `undefined` schema.
 //
-// OWNERSHIP — these four derived symbols are contract surface, which is why
-// they live here rather than beside the arrays. The consumption edge on
-// `event.ts` is already registered, and
-// reading exports across that edge is what this file does; authoring these
-// symbols INTO `event.ts` would instead have been an edit to a file it does not
-// own.
-//
-// The derivation is authored ONCE here and consumed on both sides of the wire:
-// the daemon handler filters against the set before buffering, the SDK
-// validates every delivered value against the schema. The set previously lived
-// module-locally in the daemon handler, which left the SDK seam with no
-// narrower schema to reach for — a mismatched daemon could push an approval or
-// audit row onto a driver-event subscription and every layer would accept it.
-//
-// WHY A SEPARATE MODULE RATHER THAN A BLOCK IN `provider-driver.ts` — the
-// eager cycle it avoids.
-//
-//     provider-driver.ts → event.ts → event-core.ts → provider-driver.ts
-//
-//   * `provider-driver.ts` → `event.ts` — the VALUE imports this file needs
-//     (the seven per-category arrays and `SessionEventSchema`), each read at
-//     module scope by the set and schema initializers below.
-//   * `event.ts` → `event-core.ts` — the hoisted-cluster re-export seam.
-//   * `event-core.ts` → `provider-driver.ts` — VALUE imports
-//     (`DRIVER_CAPABILITY_FLAGS`, `IdempotencyClassSchema`, and the two
-//     tool-metadata caps), read at module scope by `CapabilityDetailsSchema`.
-//
-// That last edge is why `provider-driver.ts` already DUPLICATES
-// `DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN` rather than importing its twin from
-// `event-core.ts`; the reasoning is recorded on that constant and applies here
-// unchanged. Every edge is an eager module-scope initializer, so no evaluation
-// order satisfies all three. TypeScript compiles module cycles silently and
-// the failure appears only at runtime, as a partially-evaluated namespace
-// yielding `undefined` where a schema expects a value.
-//
-// This module is downstream-only — nothing in the taxonomy chain imports it —
-// so it can never participate in that cycle. Consumers import from
-// `@ai-sidekicks/contracts`; no wire contract moves.
-//
-// TWO NAMES, TWO JOBS. Read them by job rather than by analogy to
-// `SessionEventType` / `SESSION_EVENT_TYPES`, whose const/type polarity is the
-// reverse of this pair's:
-//   • `DRIVER_EVENT_TYPES` is the CENSUS-level runtime domain — every
-//     event-type string the seven categories carry. This is the daemon
-//     filter's membership test. It must judge a census type that has no
-//     payload variant yet exactly as it will once one lands, because the
-//     filter's job is deciding what BELONGS on the stream, not what parses.
-//   • `DriverEvent` / `DriverEventType` are the PARSED-value discriminant —
-//     the arms `SessionEvent` actually registers inside those categories. That
-//     is a strict subset of the set above and stays one, because payload
-//     variants reach `SessionEventSchema` one at a time as their emitting plan
-//     ships them (the census note above `SESSION_EVENT_TYPES` records why).
-//     A reader who expects a `run.*` case here and finds none is seeing that
-//     subset relation, not a gap: `run_lifecycle` is the first category
-//     decision #4 names and no `run.*` payload variant is registered yet.
-// The two agree by construction — set membership by type, union membership by
-// category — and __tests__/driver-event.test.ts asserts that bridge directly
-// over every registered type. That assertion is what `DriverEventSchema`'s
-// type assertion below rests on.
+// `DRIVER_EVENT_TYPES` is the runtime membership test over every event type the seven
+// categories carry, including a type with no payload variant yet, because the filter decides
+// what belongs on the stream, not what parses. `DriverEvent` and `DriverEventType` cover only
+// the variants `SessionEvent` registers, a subset of that set. The two agree by construction
+// and the driver-event test asserts it, which is what `DriverEventSchema`'s cast rests on.
 
 import { z } from "zod";
 
@@ -87,12 +34,8 @@ import {
   type DriverSubscribeEventsParams,
 } from "./provider-driver.js";
 
-// The seven `EventCategory` values a driver event may carry. Hand-written
-// because the list is a DESIGN choice over the 16-category census that nothing
-// derives; everything from here down is mechanical off it and off the
-// per-category arrays. Module-local: the exported surface is the set, the two
-// types, and the schema — a consumer narrowing by category narrows through
-// `DriverEvent` itself.
+// The seven `EventCategory` values a driver event may carry. Hand-written because nothing
+// derives the choice; everything below is derived from it.
 type DriverEventCategory =
   | "run_lifecycle"
   | "assistant_output"
@@ -103,13 +46,9 @@ type DriverEventCategory =
   | "runtime_node_lifecycle";
 
 /**
- * Every `SessionEventType` in the seven driver-event categories — the runtime
- * membership test a driver-event stream filters on.
- *
- * Spread from the per-category arrays rather than hand-listed, for the reason
- * every derived set here is derived: a category that grows a new event type
- * joins this set automatically, where a hand-written list would silently start
- * dropping a driver event and look correct while doing it.
+ * Every `SessionEventType` in the seven driver-event categories: the membership test a
+ * driver-event stream filters on. Spread from the per-category arrays, so a new event type in
+ * a category joins the set automatically.
  */
 export const DRIVER_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventType>([
   ...RUN_LIFECYCLE_EVENT_TYPES,
@@ -122,45 +61,22 @@ export const DRIVER_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<Session
 ]);
 
 /**
- * The `SessionEvent` arms a `driver.subscribeEvents` stream may deliver.
- *
- * Derived by `Extract` over the union's own literal `category` member, NOT over
- * the per-category arrays: those are annotated `readonly SessionEventType[]`
- * (the `--isolatedDeclarations` widening noted on them in `event.ts`), so their
- * element type is the whole `SessionEventType` census and `[number]` would
- * derive nothing.
- * Every variant interface carries its category as a literal, so the union is
- * the one surface that still knows which arm belongs to which category — which
- * makes this derivation exact and keeps the event types out of any hand-list.
+ * The `SessionEvent` arms a `driver.subscribeEvents` stream may deliver. Derived from each
+ * variant's literal `category`, because the per-category arrays are annotated with the whole
+ * `SessionEventType` and derive nothing.
  */
 export type DriverEvent = Extract<SessionEvent, { category: DriverEventCategory }>;
 
-/** The `type` discriminant of `DriverEvent`. Derived, never hand-listed. */
+/** The `type` discriminant of {@link DriverEvent}. */
 export type DriverEventType = DriverEvent["type"];
 
 /**
- * `SessionEventSchema` narrowed to the driver-event categories.
+ * `SessionEventSchema` narrowed to the driver-event categories: it refuses every session event
+ * whose `type` is outside {@link DRIVER_EVENT_TYPES}, such as an approval or audit row.
  *
- * Accepts exactly the values `SessionEventSchema` accepts whose `type` is in
- * `DRIVER_EVENT_TYPES`, and REFUSES every other session event — so a consumer
- * validating with this schema cannot be handed an approval or an audit row
- * by a daemon that filtered wrongly or not at all.
- *
- * `.superRefine()` rather than `.transform()` or a rebuilt union: the taxonomy's
- * schemas are non-normalizing by contract (parsed output must be byte-identical
- * to input for the canonical-bytes path), and rebuilding a seven-category
- * discriminated union here would be a second registration of arms
- * `SessionEventSchema` already owns. `.superRefine()` returns `this` and Zod
- * clones internally, so `SessionEventSchema` itself is unchanged — the census
- * test asserts it still accepts a non-driver event after this schema is built,
- * because a mutation there would silently narrow every consumer of the full
- * union.
- *
- * The cast is justified by the bridge the census test asserts: within the
- * registered arms, `DRIVER_EVENT_TYPES` membership and `DriverEventCategory`
- * membership are the same predicate, so a value that passes the runtime check
- * is a `DriverEvent`. The explicit annotation is what keeps the export
- * `--isolatedDeclarations`-clean.
+ * It refines rather than transforms or rebuilds the union, so parsed output stays identical to
+ * input and `SessionEventSchema` itself is unchanged. The cast holds because, within the
+ * registered arms, type-set membership and category membership are the same predicate.
  */
 export const DriverEventSchema: z.ZodType<DriverEvent> = SessionEventSchema.superRefine(
   (event, ctx) => {

@@ -1,13 +1,11 @@
-// The session's agent tree as a client reads it, run admission under an agent, and
-// the `orchestration.*` method table.
+// The session's agent tree as a client reads it, run admission under an agent, and the
+// `orchestration.*` method table.
 //
-// The daemon builds one parent-to-child index per session from the provider stream
-// and persists it, because neither provider lists its children back on a resume.
-// That index is the one source of the child tree, of every fan-out count the screen
-// shows and of each agent's spend; `orchestration.childRunLinkRead` is a read of it,
-// and no other verb exposes the index. How a child was reached is kept in the index
-// and never sent: the screen draws the tree, the provider and model, and which agent
-// was asked, and never a mechanism word.
+// The daemon persists one parent-to-child index per session, built from the provider stream,
+// because neither provider lists its children back on a resume. That index is the one source of
+// the child tree, every fan-out count and each agent's spend; `orchestration.childRunLinkRead`
+// is the only verb that reads it. How a child was reached stays in the index and is never sent:
+// the screen draws the tree, provider, model and the agent asked, never a mechanism word.
 import { z } from "zod";
 
 import {
@@ -45,19 +43,16 @@ import {
 } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
-// --------------------------------------------------------------------------
 // orchestration.runCreate
-// --------------------------------------------------------------------------
 
 /**
- * Admit a run under an agent. No console control calls it: its callers are the
- * daemon's own paths (the bridge's `run` verb and a workflow's run-an-agent step)
- * and the SDK. Nothing counts against admission: a refusal is the provider's own, or
- * a target that does not resolve. A child may create a child of its own to any depth.
+ * Admits a run under an agent. No console control calls it; its callers are the daemon's own
+ * paths (the bridge's `run` verb, a workflow's run-an-agent step) and the SDK. No count limits
+ * admission: a refusal is the provider's own or an unresolved target. A child may create a
+ * child of its own to any depth.
  *
- * The target is either an agent already in the session, or a saved definition with
- * no live agent yet, which the daemon resolves at the queue insert and records on
- * the queued run.
+ * The target is an agent already in the session, or a saved definition with no live agent yet,
+ * which the daemon resolves at the queue insert and records on the queued run.
  */
 export type OrchestrationRunCreateRequest =
   | {
@@ -108,9 +103,7 @@ export const OrchestrationRunCreateResponseSchema: z.ZodType<OrchestrationRunCre
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // orchestration.childRunLinkRead
-// --------------------------------------------------------------------------
 
 /** The session whose whole tree `orchestration.childRunLinkRead` reads. */
 export interface ChildRunLinkReadRequest {
@@ -258,9 +251,7 @@ export const ChildRunLinkReadResponseSchema: z.ZodType<ChildRunLinkReadResponse>
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // The orchestration.* method table
-// --------------------------------------------------------------------------
 
 /**
  * The `orchestration.*` methods. The client re-reads the tree on each child started

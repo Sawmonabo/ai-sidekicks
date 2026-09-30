@@ -1,16 +1,15 @@
-// Project contracts — a project is its own durable record beside its mount. It
-// exists from the first press of `Clone`, before any mount does, and carries
-// the name the person gives it, its setup steps, its own environment rows and
-// its own branch pattern. The row shape, the environment-name rule and the
-// branch-pattern rule are the machine settings' own, imported so a project's
-// override is checked exactly as `Every project` is.
-// `repo.projectList` is a live list: the acknowledgement is the shared
-// `SubscribeAckResponse`, and each emission carries the whole list, so a late
-// subscriber needs no replay and a dropped frame costs nothing.
+// A project is its own durable record beside its mount. It exists from the first press of
+// `Clone`, before any mount does, and carries the name the person gives it, its setup steps, its
+// own environment rows and its own branch pattern. The row shape, the environment-name rule and
+// the branch-pattern rule are the machine settings', imported so a project's override is checked
+// exactly as `Every project` is.
 //
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
-// and nothing whose import closure reaches it (the transitive rule repo.ts's
-// header documents). Every module imported below is closure-clean.
+// `repo.projectList` is a live list: the acknowledgement is the shared `SubscribeAckResponse`,
+// and each emission carries the whole list, so a late subscriber needs no replay and a dropped
+// frame costs nothing.
+//
+// This module imports nothing from `./event.js` and nothing that reaches it, because an import
+// cycle among eager Zod initializers throws at import time and `tsc` does not flag it.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
@@ -28,15 +27,11 @@ import {
   FILE_PATH_MAX_LEN,
 } from "./session.js";
 
-/** A project: the record beside a mount that the person names and configures. */
+/** The daemon-minted id of a project: the record beside a mount that the person names. */
 export type ProjectId = string & { readonly __brand: "ProjectId" };
-/** Parses a {@link ProjectId}; the daemon mints it. */
+/** Parses a {@link ProjectId}. */
 export const ProjectIdSchema: z.ZodType<ProjectId, ProjectId> =
   brandedUuidIdSchema<ProjectId>("ProjectId");
-
-// --------------------------------------------------------------------------
-// Projects — `repo.projectList` and the edits on a project's row.
-// --------------------------------------------------------------------------
 
 /** The longest project name the daemon keeps. */
 export const PROJECT_NAME_MAX_LEN = 256;
@@ -87,11 +82,10 @@ export const ProjectSetupSchema: z.ZodType<ProjectSetup, ProjectSetup> = z
  * made when the clone attaches. `runningSessionId` names a session with an agent
  * running anywhere in the project, which is what grays `Delete`; the screen reads
  * that session's title from the session list. `environmentRows` are the
- * project's own rows, each winning over the `Every project` row of the same
- * name. `branchPattern` is null while the
- * project follows the machine's pattern. `onOtherSideDisk` marks a folder on the
- * other side's disk of a Windows computer with WSL, which the service reads more
- * slowly.
+ * project's own rows, each winning over the `Every project` row of the same name.
+ * `branchPattern` is null while the project follows the machine's pattern.
+ * `onOtherSideDisk` marks a folder on the other side's disk of a Windows computer with WSL,
+ * which the service reads more slowly.
  */
 export interface ProjectListEntry {
   projectId: ProjectId;

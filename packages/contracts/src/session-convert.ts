@@ -1,6 +1,6 @@
-// Converting a chat to a project: the request, the copy's outcome and the
-// `session.converted` payload. Kept apart from the session directory because the
-// session event union imports the payload, and the directory imports that union.
+// Converting a chat to a project: the request, the copy's outcome and the `session.converted`
+// payload. Kept apart from the session directory because the session event union imports the
+// payload and the directory imports that union.
 import { z } from "zod";
 
 import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
@@ -11,20 +11,17 @@ import {
   FILE_PATH_MAX_LEN,
 } from "./session.js";
 
-// --------------------------------------------------------------------------
-// session.convert
-// --------------------------------------------------------------------------
-
 /**
- * Convert a chat to a project. `path` is the folder typed into the conversion's path field;
- * it travels as data and the daemon checks it, reusing the machine's mount for that folder or
- * attaching one, and refusing a folder that is not a git repository.
+ * Converts a chat to a project. `path` is the folder the person typed; it travels as data and the
+ * daemon checks it, reusing the machine's mount for that folder or attaching one, and refusing a
+ * folder that is not a git repository.
  */
 export interface SessionConvertRequest {
   sessionId: SessionId;
   path: string;
   clientIdempotencyKey: string;
 }
+/** Parses a {@link SessionConvertRequest}. */
 export const SessionConvertRequestSchema: z.ZodType<SessionConvertRequest, SessionConvertRequest> =
   z
     .object({
@@ -49,6 +46,7 @@ const sessionConvertOutcomeFields = {
     wireFreeFormString(FILE_PATH_MAX_LEN, "SessionConvertResponse.skippedPaths"),
   ),
 };
+/** Parses a {@link SessionConvertResponse}. */
 export const SessionConvertResponseSchema: z.ZodType<SessionConvertResponse> = z
   .object(sessionConvertOutcomeFields)
   .strict();
@@ -58,6 +56,7 @@ export interface SessionConvertedPayload extends SessionConvertResponse {
   sessionId: SessionId;
   repoMountId: RepoMountId;
 }
+/** Parses a {@link SessionConvertedPayload}. */
 export const SessionConvertedPayloadSchema: z.ZodType<SessionConvertedPayload> = z
   .object({
     sessionId: SessionIdSchema,

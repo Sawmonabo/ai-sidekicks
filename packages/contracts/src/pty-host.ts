@@ -1,25 +1,15 @@
-// Runtime-callable PTY-host interface — daemon-side abstraction over the
-// `pty-host-protocol.ts` wire envelope.
-//
-// The contracts package carries two PTY surfaces:
-//   • `pty-host-protocol.ts` — wire-format DTOs that mirror the Rust serde
-//     structs (`bytes` fields are base64-encoded `string`; payload
-//     variants carry a `kind` discriminant). Cross-environment safe.
-//   • `pty-host.ts` (this file) — runtime API for daemon-side consumers.
-//     `bytes` fields are `Uint8Array` (already decoded); methods take
-//     flat parameters rather than envelopes. Daemon-only (Node context).
-//
-// Two backends implement the contract: a Rust sidecar binary marshaled
-// over Content-Length framing, and an in-process `node-pty` fallback.
+// Runtime API of a PTY host, for daemon-side consumers in Node. It differs from the wire types in
+// `pty-host-protocol.ts`: `bytes` are decoded `Uint8Array`s and methods take flat parameters
+// instead of envelopes. Two backends implement it: a Rust sidecar binary over Content-Length
+// framing, and an in-process `node-pty` fallback.
 
 import type { PtySignal, SpawnRequest, SpawnResponse } from "./pty-host-protocol.js";
 
+/** A PTY backend the daemon uses to spawn, drive and drain terminal sessions. */
 export interface PtyHost {
   /**
-   * Spawn a new PTY session. The daemon-layer cwd-translator rewrites
-   * `spec.cwd` to a stable parent directory before this method runs so
-   * sidecar reads observe a stable cwd even when the underlying worktree
-   * is torn down concurrently.
+   * Spawn a new PTY session. The daemon's cwd translator rewrites `spec.cwd` to a stable parent
+   * directory first, so the spawn sees a stable cwd even if the worktree is torn down meanwhile.
    */
   spawn(spec: SpawnRequest): Promise<SpawnResponse>;
 
@@ -30,10 +20,9 @@ export interface PtyHost {
   write(sessionId: string, bytes: Uint8Array): Promise<void>;
 
   /**
-   * Send `signal` to the session's child process. Windows backends
-   * translate POSIX signals to console-control events
-   * (`GenerateConsoleCtrlEvent` for `SIGINT`) and escalate hard-stops
-   * via `taskkill /T /F`.
+   * Send `signal` to the session's child process. Windows backends translate POSIX signals to
+   * console-control events (`GenerateConsoleCtrlEvent` for `SIGINT`) and escalate hard stops
+   * through `taskkill /T /F`.
    */
   kill(sessionId: string, signal: PtySignal): Promise<void>;
 
@@ -41,50 +30,24 @@ export interface PtyHost {
   close(sessionId: string): Promise<void>;
 
   /**
-   * Drain all active sessions and shut down host-level resources in
-   * preparation for daemon / Electron-main termination. The polymorphic
-   * counterpart to `close(sessionId)` for the lifecycle level above the
-   * per-session axis.
+   * Drain all active sessions and shut down host-level resources before the daemon or Electron main
+   * exits; the host-level counterpart of `close(sessionId)`. Implementations must:
    *
-   * Implementations MUST:
-   *   1. For every active session: dispatch a graceful per-session kill
-   *      (`SIGTERM`), wait up to `options.perSessionTimeoutMs` for the
-   *      session's child to exit, escalate to `SIGKILL` (the platform's
-   *      `taskkill /T /F` on Windows) if the timeout fires, and record
-   *      whether the session drained gracefully (`sessionsDrained`) or
-   *      was force-killed (`sessionsForcedKilled`).
-   *   2. For out-of-process backends (`RustSidecarPtyHost`): after all
-   *      per-session drains complete, close the sidecar's stdin and
-   *      wait up to `options.hostTimeoutMs` for the sidecar process to
-   *      exit; escalate to `taskkill /T /F /PID <sidecar-pid>` if the
-   *      host timeout fires; report the outcome via
-   *      `sidecarExitedCleanly` and `taskkillEscalated`. In-process
-   *      backends (`NodePtyHost`) have no sidecar to drain and MUST
-   *      vacuously report `sidecarExitedCleanly: true,
-   *      taskkillEscalated: false`.
-   *   3. Be idempotent and re-entrant: a second `shutdown()` call MUST
-   *      return the same `Promise<DrainResult>` as the in-flight first
-   *      call (Promise-memoization), not initiate a second drain.
+   * 1. For every active session, send a graceful `SIGTERM`, wait up to `perSessionTimeoutMs` for
+   *    the child to exit, then escalate to `SIGKILL` (`taskkill /T /F` on Windows), counting the
+   *    session in `sessionsDrained` or `sessionsForcedKilled`.
+   * 2. For an out-of-process backend, after all sessions drain, close the sidecar's stdin, wait up
+   *    to `hostTimeoutMs` for it to exit, and escalate to `taskkill /T /F /PID <sidecar-pid>`;
+   *    report the outcome in `sidecarExitedCleanly` and `taskkillEscalated`. An in-process backend
+   *    has no sidecar and reports `sidecarExitedCleanly: true, taskkillEscalated: false`.
+   * 3. Be idempotent: a second call returns the in-flight first call's promise instead of starting
+   *    another drain.
    *
-   * Shutdown is TERMINAL for the host instance: after `shutdown()`
-   * resolves, the host MUST refuse new `spawn()` calls (and consumers
-   * MUST NOT re-use the instance — re-create a new host if a fresh
-   * session is needed). Out-of-process backends MUST suppress
-   * auto-respawn of the sidecar process triggered by the shutdown-
-   * initiated child exit (the exit is deliberate, not a crash).
-   *
-   * Crash-budget interaction (`RustSidecarPtyHost` only): the
-   * shutdown-driven sidecar exit MUST NOT consume the sliding-window
-   * crash budget — `fireCrashTimeOnExit`'s `-1` sentinel emission MUST
-   * be suppressed (the per-session `onExit` fires from the real
-   * `ExitCodeNotification` arrivals during the drain) and
-   * `recordCrashOncePerChild` MUST NOT be invoked for the
-   * shutdown-initiated child exit.
-   *
-   * The caller is the daemon's own stop: the drain runs only when the
-   * service stops. The two timeouts are independent budgets so the
-   * caller can dimension each separately (per-session drain dominated by
-   * child cleanup; host drain dominated by sidecar dispatcher wind-down).
+   * Shutdown is terminal: afterward the host refuses new `spawn()` calls, and an out-of-process
+   * backend does not respawn the sidecar, because its exit is deliberate. That exit also does not
+   * count against the crash budget (`RustSidecarPtyHost` only): no `-1` crash sentinel is emitted
+   * and the crash is not recorded. The two timeouts are independent budgets, since per-session
+   * drain is dominated by child cleanup and host drain by sidecar wind-down.
    */
   shutdown(options: {
     readonly perSessionTimeoutMs: number;
@@ -92,104 +55,50 @@ export interface PtyHost {
   }): Promise<DrainResult>;
 
   /**
-   * Invoked when a data chunk arrives from `stdout` or `stderr` for the
-   * named session. `chunk` is the base64-decoded payload of the
-   * wire-side `DataFrame.bytes` from `pty-host-protocol.ts`.
-   *
-   * Ordering: MUST fire AFTER `spawn()` resolves for `sessionId` on the
-   * consumer's await chain. Out-of-process backends with separate wire
-   * channels for response dispatch vs. async events MUST buffer data
-   * chunks observed on the wire before the matching `SpawnResponse`
-   * frame and replay them on a separate I/O turn so the consumer's
-   * `await spawn()` continuation runs first (otherwise `onData(id,...)`
-   * could fire before the consumer records `id` in its own state and the
-   * chunk would be dropped). for the `RustSidecarPtyHost` realization of
-   * this requirement.
+   * Invoked for each stdout or stderr chunk of a session; `chunk` is the decoded
+   * `DataFrame.bytes`. It fires only after `spawn()` resolves for `sessionId`: an out-of-process
+   * backend buffers chunks that arrive before the matching `SpawnResponse` and replays them on a
+   * later turn, or the consumer would see data for a session id it has not recorded yet.
    */
   onData(sessionId: string, chunk: Uint8Array): void;
 
   /**
-   * Invoked when the session's child process exits. `signalCode` is the
-   * numeric signal that terminated the child, if any (e.g. `15` for
-   * `SIGTERM`); absent when the child exited normally with `exitCode`.
-   * Adapters translate the wire-side `ExitCodeNotification.signal_code`
-   * (`number | null`) — wire `null` is passed by omitting the third
-   * argument.
+   * Invoked when the session's child exits. `signalCode` is the signal that terminated the child
+   * (for example `15` for `SIGTERM`) and is omitted when the wire value is `null`.
    *
-   * MUST fire exactly once for every session where `spawn()` returned a
-   * successful `SpawnResponse`, regardless of how soon the child exits
-   * relative to spawn-response delivery — including sub-millisecond-
-   * lived children whose exit notification is observed on the wire
-   * BEFORE the spawn-response frame. Out-of-process backends with
-   * separate wire channels for response dispatch vs. async events MUST
-   * buffer pre-spawn exit notifications keyed by `sessionId` and replay
-   * them on a separate I/O turn after registering the session via
-   * spawn-response handling, so the consumer's `await spawn()`
-   * continuation runs first (otherwise `onExit(id,...)` could fire
-   * before the consumer records `id` in its own state). for the
-   * `RustSidecarPtyHost` realization of this requirement.
-   *
-   * MUST NOT fire after `close()` resolves for the same `sessionId`.
+   * It fires exactly once for every session whose `spawn()` succeeded, even for a child that exits
+   * before the spawn response arrives: an out-of-process backend buffers such early exits by
+   * `sessionId` and replays them on a later turn, after the consumer's `await spawn()` continues.
+   * It never fires after `close()` resolves for the same `sessionId`.
    */
   onExit(sessionId: string, exitCode: number, signalCode?: number): void;
 }
 
 /**
- * Result of a `PtyHost.shutdown()` drain cycle.
+ * Result of a `PtyHost.shutdown()` drain, so the desktop main process can see whether the quit
+ * drained gracefully or escalated to `taskkill`.
  *
- * Reported back to the lifecycle wiring layer so the desktop main
- * process can observe whether the will-quit handler achieved a
- * graceful drain or escalated to OS-level taskkill. The fields are
- * independent counters / flags — the four-value tuple captures the
- * per-session axis (drained vs. forced) and the sidecar-process axis
- * (clean exit vs.
- *
- * Invariants:
- *   - `sessionsDrained + sessionsForcedKilled` equals the count of
- *     sessions that were active at shutdown entry; sessions that had
- *     already exited before shutdown was called contribute to neither
- *     counter.
- *   - `sidecarExitedCleanly === false` implies `taskkillEscalated`
- *     may or may not be true (escalation is attempted but may itself
- *     fail; the flag records whether the daemon issued the
- *     `taskkill /T /F /PID` invocation). On `NodePtyHost`, both
- *     `sidecarExitedCleanly: true` and `taskkillEscalated: false`
- *     hold vacuously — there is no sidecar process to drain.
+ * `sessionsDrained + sessionsForcedKilled` equals the sessions active when shutdown began; sessions
+ * that had already exited count in neither. `taskkillEscalated` records that the daemon issued the
+ * `taskkill`, not that it succeeded, so it can be true when `sidecarExitedCleanly` is false.
  */
 export interface DrainResult {
-  /**
-   * Count of sessions that exited gracefully on `SIGTERM` within the
-   * per-session timeout budget. Each such session emitted its real
-   * `ExitCodeNotification` (or in-process `child.onExit` event) before
-   * the timeout fired.
-   */
+  /** Sessions that exited on `SIGTERM` within the per-session timeout. */
   readonly sessionsDrained: number;
   /**
-   * Count of sessions where the per-session timeout expired before the
-   * graceful kill produced an exit notification, triggering escalation
-   * to `SIGKILL` / `taskkill /T /F`. The session's `onExit` listener
-   * still fires (either from the real exit notification arriving late
-   * or from a synthetic emission per the SIGKILL escalation path), but
-   * the drain was non-graceful.
+   * Sessions whose per-session timeout expired before the graceful kill produced an exit, so the
+   * host escalated to `SIGKILL` or `taskkill /T /F`. Their `onExit` still fires.
    */
   readonly sessionsForcedKilled: number;
   /**
-   * `true` iff the sidecar process exited within the host timeout
-   * budget after the daemon closed its stdin. Vacuously `true` for
-   * in-process backends with no sidecar (`NodePtyHost`). `false` means
-   * the host-level timeout fired and the daemon either escalated to
-   * `taskkill` (see `taskkillEscalated`) or gave up if the platform
-   * has no equivalent escalation path.
+   * True when the sidecar exited within the host timeout after the daemon closed its stdin.
+   * Vacuously true for an in-process backend.
    */
   readonly sidecarExitedCleanly: boolean;
   /**
-   * `true` iff the daemon invoked `taskkill /T /F /PID <sidecar-pid>`
-   * (Windows) or the platform-equivalent escalation against the
-   * sidecar process. Vacuously `false` for in-process backends and for
-   * out-of-process backends that exited cleanly within the host
-   * timeout. The flag records the daemon-side action; whether the OS
-   * reaping itself succeeded is opaque (the daemon must not block
-   * indefinitely on a stuck OS-level kill).
+   * True when the daemon issued `taskkill /T /F /PID <sidecar-pid>` (or the platform equivalent)
+   * against the sidecar. Vacuously false for an in-process backend and for a sidecar that exited
+   * cleanly; whether the OS kill itself succeeded is not tracked.
    */
   readonly taskkillEscalated: boolean;
 }

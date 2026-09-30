@@ -1,9 +1,8 @@
-// Workflow runs: the run id, the statuses and the step record every run method and
-// event shares, and the codes a failed step carries. A node's id, an item and a step's
-// error are the workflow document's, in `workflow-definition.ts`. The methods that act on a run are in
-// `workflow-run-control.ts`, those that read, list and keep run records in
-// `workflow-run-records.ts`, and one step's data, approval and form in
-// `workflow-run-step.ts`; each builds on this file and none of them is imported here.
+// Workflow runs: the run id, the statuses and the step record every run method and event shares,
+// and the codes a failed step carries. A node's id, an item and a step's error are the workflow
+// document's, in `workflow-definition.ts`. The run methods build on this file, and it imports none
+// of them: `workflow-run-control.ts` acts on a run, `workflow-run-records.ts` reads, lists and
+// keeps run records, and `workflow-run-step.ts` covers one step's data, approval and form.
 import { z } from "zod";
 
 import {
@@ -34,19 +33,15 @@ import {
   type WorkflowStepError,
 } from "./workflow-definition.js";
 
-// --------------------------------------------------------------------------
 // Ids
-// --------------------------------------------------------------------------
 
-/** A workflow run's id: a UUID the daemon mints. A client passes it through and never builds one. */
+/** A workflow run's id: a UUID the daemon mints; a client never builds one. */
 export type WorkflowRunId = string & { readonly __brand: "WorkflowRunId" };
 /** Wire schema for {@link WorkflowRunId}. */
 export const WorkflowRunIdSchema: z.ZodType<WorkflowRunId, WorkflowRunId> =
   brandedUuidIdSchema<WorkflowRunId>("WorkflowRunId");
 
-// --------------------------------------------------------------------------
 // Closed vocabularies
-// --------------------------------------------------------------------------
 
 /**
  * A run's status, the only ones a surface shows. `waiting` covers a run held by a
@@ -148,9 +143,7 @@ export const WorkflowStartedBySchema: z.ZodType<WorkflowStartedBy> = z.discrimin
     .strict(),
 ]);
 
-// --------------------------------------------------------------------------
 // Step data
-// --------------------------------------------------------------------------
 
 /**
  * The most bytes a step payload is carried inline, counted on its JSON encoding. A
@@ -288,9 +281,7 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
     { path: ["resumeAt"], message: "Only a waiting step carries a resume or a deadline instant." },
   );
 
-// --------------------------------------------------------------------------
 // Cancel reasons
-// --------------------------------------------------------------------------
 
 /**
  * The most bytes a cancellation reason may take, counted on its UTF-8 encoding rather
@@ -312,18 +303,14 @@ export const WorkflowCancelReasonSchema: z.ZodType<string, string> = z
     message: `reason must be at most ${WORKFLOW_CANCEL_REASON_BYTE_CAP} bytes of UTF-8.`,
   });
 
-// --------------------------------------------------------------------------
 // Refusals every run method shares
-// --------------------------------------------------------------------------
 
 /** A workflow definition or run that does not exist. */
 export type WorkflowNotFoundCode = "workflow.not_found";
 /** The code of a missing workflow definition or run. */
 export const WORKFLOW_NOT_FOUND_CODE: WorkflowNotFoundCode = "workflow.not_found";
 
-// --------------------------------------------------------------------------
 // Step failures: each rides the failed step's error and its failed event
-// --------------------------------------------------------------------------
 
 /** A value `Keep for later runs` would keep over 64 KiB. */
 export type WorkflowKeptValueTooLargeCode = "workflow.kept_value_too_large";

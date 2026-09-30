@@ -1,11 +1,7 @@
-// The `repo.*` method table — every method's name, procedure type, mutating
-// flag and schemas, stated once, and the empty reply the mutations share. It
-// imports every `repo.*` contract file and none of them imports it, so it can
-// see the whole namespace without a cycle.
-//
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
-// and nothing whose import closure reaches it (the transitive rule repo.ts's
-// header documents). Every module imported below is closure-clean.
+// The `repo.*` method table: every method's name, procedure type, mutating flag and schemas, and
+// the empty reply the mutations share. It imports every `repo.*` contract file and none imports it,
+// so it sees the whole namespace without a cycle. It imports nothing from `./event.js` and nothing
+// whose imports reach it, which would close an eager module cycle.
 import { z } from "zod";
 
 import {
@@ -145,23 +141,18 @@ import {
 } from "./worktree-setup.js";
 
 /**
- * An empty reply: the mutation was accepted and what it changes arrives on the
- * stream that reports it. Shared by every `repo.*` mutation whose effect is
- * read elsewhere.
+ * An empty reply: the mutation was accepted and what it changes arrives on the stream that reports
+ * it. Shared by every `repo.*` mutation whose effect is read elsewhere.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface RepoEmptyResponse {}
 /** Wire schema for {@link RepoEmptyResponse}. */
 export const RepoEmptyResponseSchema: z.ZodType<RepoEmptyResponse> = z.object({}).strict();
 
-// ==========================================================================
-// The `repo.*` method table.
-// ==========================================================================
-//
-// A descriptor registers nothing: a method reaches the wire only when the
-// daemon service that answers it registers a handler against its descriptor.
-
-/** The `repo.*` descriptors, keyed by method name. */
+/**
+ * The `repo.*` descriptors, keyed by method name. A descriptor registers nothing: a method reaches
+ * the wire only when the daemon service that answers it registers a handler against it.
+ */
 export interface RepoMethodDescriptors {
   readonly "repo.attach": MethodDescriptor<"repo.attach", RepoAttachRequest, RepoAttachResponse>;
   readonly "repo.mountRead": MethodDescriptor<

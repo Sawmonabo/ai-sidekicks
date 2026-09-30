@@ -1,19 +1,9 @@
-// `providerAccount.*` coverage for the remaining methods and the credential
-// census.
-//
-//   1. Per-pair acceptance and rejection rows for update, remove, set-current and
-//      probe, plus the unknown-key refusal that `.strict()` buys on every shape.
-//   2. The census DERIVES its subject set from `PROVIDER_ACCOUNT_WIRE_SHAPES` and
-//      cross-checks that registry against the three provider-account modules'
-//      own exports, so a shape added later is either censused or caught. It
-//      closes with the fourth direction the schema registry cannot reach — the
-//      ERROR channel, whose `fields` is `Record<string, unknown>` — by censusing
-//      representative refusal envelopes both by member name and by value against
-//      the token fixture. Every part of it carries a negative control, because a
-//      checker that has never been shown to fail proves nothing about a clean
-//      result.
-//   3. The account switch, the memory import, the usage read and their refusals.
-//
+// `providerAccount.*` coverage for update, remove, set-current, probe and usage, plus the
+// credential census: the subject set is derived from `PROVIDER_ACCOUNT_WIRE_SHAPES` and
+// cross-checked against the three provider-account modules' exports, so a shape added later is
+// either censused or caught. The error channel, whose `fields` is `Record<string, unknown>`,
+// is censused by member name and by value against the token fixture. Each part has a negative
+// control showing the checker can fail.
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 
@@ -50,10 +40,7 @@ const ACCOUNT_ID = "acct_01J8XYZ";
 const TIMESTAMP = "2026-08-31T00:00:00.000Z";
 const SESSION_ID = "0192f3a1-4b5c-7d8e-9f01-23456789abcd";
 const SESSION_ID_2 = "0192f3a1-4b5c-7d8e-9f01-23456789abce";
-/**
- * The one credential value this plane accepts, named once so the error-envelope
- * census below can scan for it BY VALUE and not only by member name.
- */
+/** The one credential value this plane accepts, so the error-envelope census can scan by value. */
 const TOKEN_FIXTURE = "sk-example-token";
 
 function validAccount(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -108,22 +95,16 @@ describe("request/response pairs", () => {
         ],
       }).success,
     ).toBe(true);
-    // The verb's whole effect is on this member, and it has no partial success:
-    // `isDefault: false` on a SUCCESS reply would be a refusal wearing a success
-    // envelope, while every real refusal on this verb is a typed error
-    // (`provideraccount.unknown`, `permission_denied`, `default_conflict`). The
-    // sibling `ProviderAccountRemoveResponse.removed` makes the same argument
-    // with `z.literal(true)`; this one is a refinement because the account
-    // projection is shared and narrowing the type here would fork it.
+    // The verb has no partial success: `isDefault: false` on a success reply would be a refusal
+    // in a success envelope, and every real refusal here is a typed error. It is a refinement,
+    // not a narrower type, because the account projection is shared.
     expect(
       ProviderAccountSetCurrentResponseSchema.safeParse({
         account: validAccount({ isDefault: false }),
         movingSessions: [],
       }).success,
     ).toBe(false);
-    // And the shared projection is NOT narrowed by that pin: every other reply
-    // returning an account still admits a non-default one, which is the reading
-    // a list of accounts is made of.
+    // The shared projection stays wide: other replies still admit a non-default account.
     expect(
       ProviderAccountUpdateResponseSchema.safeParse({ account: validAccount({ isDefault: false }) })
         .success,
@@ -142,8 +123,7 @@ describe("request/response pairs", () => {
   });
 
   it("refuses an unknown key on every request, response, and notification shape", () => {
-    // `.strict()` everywhere, asserted over the derived registry rather than
-    // shape by shape, so a later shape cannot be added non-strict unnoticed.
+    // Asserted over the derived registry so a later shape cannot be added non-strict unnoticed.
     for (const wireShape of PROVIDER_ACCOUNT_WIRE_SHAPES) {
       const probe = wireShape.schema.safeParse({ smuggledMember: "x" });
       expect(probe.success, `\`${wireShape.name}\` accepted an unknown key`).toBe(false);
@@ -151,9 +131,8 @@ describe("request/response pairs", () => {
   });
 
   it("refuses a caller-asserted credential generation on the register request", () => {
-    // `credentialGeneration` is daemon-owned and appears on NO request: a caller
-    // that could assert one could assert that a stale quota reading or a
-    // superseded attention epoch is current.
+    // `credentialGeneration` is daemon-owned: a caller that could assert one could pass off a
+    // stale quota reading or superseded attention epoch as current.
     expect(
       ProviderAccountRegisterRequestSchema.safeParse({
         provider: "claude",
@@ -162,7 +141,7 @@ describe("request/response pairs", () => {
         credentialGeneration: 7,
       }).success,
     ).toBe(false);
-    // Nor on any other request shape in the module.
+    // Nor on any other request shape.
     for (const wireShape of PROVIDER_ACCOUNT_WIRE_SHAPES) {
       if (wireShape.direction !== "request") {
         continue;
@@ -175,8 +154,7 @@ describe("request/response pairs", () => {
   });
 
   it("refuses a partial success on the remove response", () => {
-    // `removed: false` would be a refusal wearing a success envelope; every
-    // refusal on this verb is a typed error instead.
+    // `removed: false` would be a refusal in a success envelope; refusals here are typed errors.
     expect(
       ProviderAccountRemoveResponseSchema.safeParse({ accountId: ACCOUNT_ID, removed: false })
         .success,
@@ -184,16 +162,10 @@ describe("request/response pairs", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 /**
- * Every member name reachable from a schema, at any nesting depth.
- *
- * Walking the runtime `def` rather than the exported TypeScript type is what
- * makes this a census of the WIRE and not of a hand-maintained list: a member
- * nested inside an array element, a union arm, or an optional wrapper is
- * reachable by a producer and is therefore reachable here.
+ * Every member name reachable from a schema, at any nesting depth. It walks the runtime `def`
+ * rather than the TypeScript type, so members inside array elements, union arms and optional
+ * wrappers are counted.
  */
 function collectMemberNames(schema: z.ZodType<unknown>): readonly string[] {
   const memberNames: string[] = [];
@@ -230,15 +202,9 @@ function collectMemberNames(schema: z.ZodType<unknown>): readonly string[] {
   return memberNames;
 }
 
-/**
- * Member names that could carry credential MATERIAL. Deliberately narrower than
- * "anything mentioning credentials": `credentialHomePath` and
- * `credentialGeneration` are legitimate non-secret members, so matching the bare
- * word `credential` would make the census cry wolf and be relaxed into
- * uselessness the first time it did.
- */
-// `tokens` alone is a usage count (how many model tokens a turn spent), not a
-// credential, so the bare plural is the one spelling of `token` left out.
+// Member names that could carry credential material. Narrower than "credential":
+// `credentialHomePath` and `credentialGeneration` are non-secret, and `tokens` alone is a usage
+// count.
 const CREDENTIAL_SHAPED_MEMBER =
   /(token(?!s$)|secret|password|passphrase|api_?key|private_?key|cookie|bearer)/i;
 
@@ -249,14 +215,9 @@ function credentialShapedMembersOf(schema: z.ZodType<unknown>): readonly string[
 }
 
 /**
- * The same two questions the schema walker asks, asked of a plain JSON value —
- * which is what an error envelope is. `JsonRpcErrorData.fields` is
- * `Record<string, unknown>`, so there is no `def` to walk and no schema to
- * census: the subject has to be the value itself.
- *
- * Both go to any DEPTH, because a mapper that spread a whole request object into
- * `fields` would bury the member one level down, which is the accident most
- * likely to happen and the one a top-level key check would miss.
+ * The schema walker's questions asked of a plain JSON value, since `JsonRpcErrorData.fields` has
+ * no schema to walk. Both helpers go to any depth: a mapper that spread a whole request into
+ * `fields` would bury the member one level down.
  */
 function credentialShapedKeysDeep(value: unknown): readonly string[] {
   const found: string[] = [];
@@ -300,9 +261,7 @@ function stringValuesDeep(value: unknown): readonly string[] {
 
 describe("one credential-accepting input, zero credential-bearing outputs", () => {
   it("registers every request, response, and notification schema the module exports", () => {
-    // The completeness check that keeps the census from going vacuous: a shape
-    // added later without a registry entry fails HERE rather than silently
-    // escaping every count below.
+    // A shape added without a registry entry fails here instead of escaping every count below.
     const providerAccountModules: Record<string, unknown> = {
       ...providerAccountModule,
       ...providerAccountSignInModule,
@@ -314,8 +273,8 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
       .sort();
     const registeredNames = PROVIDER_ACCOUNT_WIRE_SHAPES.map((wireShape) => wireShape.name).sort();
     expect(registeredNames).toEqual(exportedWireSchemaNames);
-    // And each entry points at the schema it names, so a copy-paste that
-    // registered one shape twice cannot pass.
+    // Each entry points at the schema it names, so a copy-paste that registered a shape twice
+    // cannot pass.
     for (const wireShape of PROVIDER_ACCOUNT_WIRE_SHAPES) {
       expect(
         providerAccountModules[`${wireShape.name}Schema`],
@@ -334,9 +293,8 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
       ),
     );
     expect(credentialInputs).toEqual(["ProviderAccountRegisterRequest.nonInteractiveToken"]);
-    // And the count is taken over a shape that DOES carry the re-supply
-    // selector, so "exactly one" is proven insensitive to `accountId` rather
-    // than only measured on a request that happens not to accept it.
+    // The count is taken over a shape that also carries the re-supply selector, so "exactly
+    // one" is shown insensitive to `accountId`.
     expect(collectMemberNames(ProviderAccountRegisterRequestSchema)).toContain("accountId");
   });
 
@@ -352,43 +310,27 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
   });
 
   it("detects a credential-shaped member at any depth (negative control)", () => {
-    // Without this, both counts above would be equally consistent with a walker
-    // that never descended past the top level. Each fixture hides the member one
-    // layer deeper than the last.
+    // Without this, both counts above would be consistent with a walker that never descended.
+    // Each fixture hides the member one layer deeper than the last.
     const nestedInAnObject = ProviderAccountRegisterResponseSchema;
     expect(credentialShapedMembersOf(nestedInAnObject)).toEqual([]);
     expect(collectMemberNames(nestedInAnObject)).toContain("displayLabel");
 
-    // A member nested inside an ARRAY element — the shape `accounts` uses.
+    // Inside an array element (`accounts`).
     expect(collectMemberNames(ProviderAccountListResponseSchema)).toContain("usedPercent");
-    // A member nested inside a UNION arm — the shape the readiness remedy uses.
+    // Inside a union arm (the readiness remedy).
     expect(collectMemberNames(ProviderAccountListResponseSchema)).toContain("signInInvocation");
-    // A member nested inside a DISCRIMINATED union arm — the notification shape.
+    // Inside a discriminated union arm (the notification).
     expect(collectMemberNames(ProviderAccountNotificationSchema)).toContain("failureReason");
 
-    // And a member reachable ONLY THROUGH a shape carrying a cross-field
-    // refinement. FIVE shapes in this module refuse a contradictory combination
-    // with `.superRefine`, which returns the object schema itself rather than
-    // wrapping it; were that ever to change, the walker would stop at the
-    // wrapper and every count above would silently go vacuous for exactly those
-    // shapes. Each of the five is covered, and this is the enumeration:
-    //   * `ProviderAccountRegisterRequestSchema` — covered by the
-    //     `accountId` assertion in the exactly-one-input test above.
-    //   * `ProviderAccountSchema` — reached THROUGH the refinement here, since
-    //     `displayLabel` lives on the refined account nested in the register
-    //     reply asserted at the top of this test.
-    //   * `ProviderReadinessSchema` — `signInInvocation` is reachable only
-    //     through the refined readiness entry inside the list reply, asserted
-    //     above.
-    //   * `ProviderAccountSetCurrentResponseSchema` — a refined shape wrapping
-    //     another refined shape, so it is the case that fails first if either
-    //     level ever starts wrapping.
-    //   * the `usage_window_updated` notification arm — `usedPercent` lives
-    //     inside it.
+    // Reachable only through shapes with a cross-field `.superRefine`, which returns the object
+    // schema itself. If it ever wrapped instead, the walker would stop at the wrapper and the
+    // counts above would go vacuous for exactly those shapes; a refined shape wrapping another
+    // refined one (set-current) fails first.
     expect(collectMemberNames(ProviderAccountSetCurrentResponseSchema)).toContain("displayLabel");
     expect(collectMemberNames(ProviderAccountNotificationSchema)).toContain("usedPercent");
 
-    // And the detector itself fires on each of the names it is meant to catch.
+    // The detector fires on each name it is meant to catch.
     for (const forbidden of [
       "refreshToken",
       "clientSecret",
@@ -403,10 +345,8 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
         true,
       );
     }
-    // While the legitimate non-secret members are NOT flagged — the
-    // discrimination that keeps this census from being relaxed away.
-    // `accountId` earns its place here: it is the one other member the register
-    // request accepts, so the count of one below has to be insensitive to it.
+    // Non-secret members are not flagged, which keeps the census from being relaxed away.
+    // `accountId` is the one other member the register request accepts.
     for (const permitted of [
       "credentialHomePath",
       "credentialGeneration",
@@ -421,8 +361,7 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
 
   it("marks exactly the credential-accepting member for transport redaction", () => {
     expect([...PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS]).toEqual(["nonInteractiveToken"]);
-    // The marking and the census must name the same member: a redaction list
-    // that drifted from the wire would leave a new credential member logged.
+    // A redaction list that drifted from the wire would leave a new credential member logged.
     const censusedInputMembers = PROVIDER_ACCOUNT_WIRE_SHAPES.filter(
       (wireShape) => wireShape.direction === "request",
     ).flatMap((wireShape) => credentialShapedMembersOf(wireShape.schema));
@@ -452,37 +391,14 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
     expect(carryingShapes).toEqual(["ProviderAccountRegisterRequest"]);
   });
 
-  // --------------------------------------------------------------------------
-  // The fourth direction: the error channel
-  // --------------------------------------------------------------------------
-  //
-  // The census above walks requests, responses, and notifications, which is
-  // every SCHEMA this module declares — and a `provideraccount.*` refusal is not
-  // one of them. It travels as `JsonRpcErrorData`, whose `fields` is
-  // `Record<string, unknown>`: an untyped hole no schema census can close,
-  // because there is no schema to walk. A mapper that spread the register
-  // request into `fields` would therefore pass every count above unchanged while
-  // logging the token.
-  //
-  // What is censused instead is REPRESENTATIVE mapped envelopes: each code is
-  // transcribed and each `fields` shape is composed to be consistent with that
-  // row's prose rather than copied from it, because the doc declares the
-  // permitted contents and does not exhibit an envelope. They are scanned two
-  // ways: by member NAME with the same detector the wire census uses, and by
-  // VALUE against the one token fixture this suite registers. The value scan is
-  // the one that matters for `provideraccount.token_class_refused`, whose
-  // normative rule is about the VALUE and not the name — "names which condition
-  // failed and never quotes, echoes, or excerpts the supplied value" — so a
-  // field innocently called `supplied` or `observed` carrying the token is
-  // caught here and would not be caught by any name-based rule.
-  //
-  // Two limits, stated rather than papered over. The fixture set is ENUMERATED
-  // BY HAND, so a code added to that doc without a fixture here is not caught;
-  // and the binding enforcement is the daemon's error mapper, a later phase —
-  // this pins the contract the mapper will be held to. Declaring the field names
-  // as an exported registry is deliberately NOT done yet: its only consumer
-  // would be this test, and a declaration minted ahead of its reader is the
-  // vacuity this whole block exists to prevent.
+  // The error channel. A `provideraccount.*` refusal travels as `JsonRpcErrorData`, whose
+  // `fields` is `Record<string, unknown>`, so no schema census reaches it: a mapper that spread
+  // the register request into `fields` would pass every count above while logging the token.
+  // Representative refusal envelopes are scanned by member name with the wire census's detector
+  // and by value against the token fixture. The value scan matters for
+  // `provideraccount.token_class_refused`, which names the failed condition and never quotes the
+  // supplied value, so a field innocently called `supplied` carrying the token is caught. The
+  // envelope list is enumerated by hand, so a new code without a fixture here is not caught.
   const PROVIDER_ACCOUNT_REFUSAL_ENVELOPES: ReadonlyArray<JsonRpcErrorData> = [
     { type: "provideraccount.not_registered", fields: { provider: "claude" } },
     { type: "provideraccount.no_default", fields: { provider: "claude" } },
@@ -505,9 +421,7 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
       type: "provideraccount.signin_in_flight",
       fields: { providerAccountId: ACCOUNT_ID, attemptId: "att_01J8" },
     },
-    // The condition is NAMED; the value that failed it is not carried, quoted,
-    // or excerpted — the one row in that table whose text is a rule about the
-    // payload rather than a description of it.
+    // Names the failed condition; never carries, quotes or excerpts the value that failed it.
     {
       type: "provideraccount.token_class_refused",
       fields: { provider: "claude", failedCondition: "not_a_vendor_minted_non_interactive_token" },
@@ -540,11 +454,8 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
   });
 
   it("catches a forced error that carries the token, by name and by value", () => {
-    // Without this, both counts above would be equally consistent with walkers
-    // that never descended and a fixture set that never contained a token.
-    //
-    // Case 1: the accident — the whole request spread into `fields`, so the
-    // member sits one level down under its own name.
+    // Without this, both counts above would be consistent with walkers that never descended.
+    // Case 1: the whole request spread into `fields`, so the member sits one level down.
     const spreadRequest: JsonRpcErrorData = {
       type: "provideraccount.token_class_refused",
       fields: {
@@ -554,10 +465,8 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
     };
     expect(credentialShapedKeysDeep(spreadRequest.fields)).toEqual(["nonInteractiveToken"]);
 
-    // Case 2: the accident NAME-based detection cannot catch — the refusal
-    // quoting what it refused, under a member whose name is innocent. This is
-    // exactly what the `token_class_refused` row forbids, and only the value
-    // scan sees it.
+    // Case 2: the refusal quotes what it refused under an innocent member name, which only the
+    // value scan sees.
     const quotedValue: JsonRpcErrorData = {
       type: "provideraccount.token_class_refused",
       fields: { provider: "claude", supplied: [`rejected: ${TOKEN_FIXTURE}`] },
@@ -567,9 +476,7 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
       stringValuesDeep(quotedValue.fields).some((value) => value.includes(TOKEN_FIXTURE)),
     ).toBe(true);
 
-    // And the value scan does not fire on an envelope that merely mentions the
-    // member name in prose, which is legitimate: naming the input is not
-    // echoing it.
+    // Naming the input in prose is not echoing it, so the value scan stays quiet.
     const namesTheMember: JsonRpcErrorData = {
       type: "provideraccount.token_class_refused",
       fields: { provider: "claude", failedCondition: "nonInteractiveToken must be vendor-minted" },
@@ -586,8 +493,8 @@ describe("one credential-accepting input, zero credential-bearing outputs", () =
     for (const code of codes) {
       expect(code.startsWith("provideraccount."), `\`${code}\` is not on this plane`).toBe(true);
     }
-    // The one member this plane may never put in an envelope, checked against
-    // the same marking the wire census uses rather than a second literal.
+    // The write-only member never appears in an envelope, checked against the same marking the
+    // wire census uses.
     for (const redactedMember of PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS) {
       for (const envelope of PROVIDER_ACCOUNT_REFUSAL_ENVELOPES) {
         expect(

@@ -1,25 +1,11 @@
-// Importing a provider's own existing conversations into the sessions list:
-// `session.importPreview`, `session.import`, `session.importSubscribe` and
-// `session.importStop`.
+// Importing a provider's own existing conversations into the sessions list.
 //
-// An import reads the provider's own session folders when it is started and
-// keeps nothing between starts, so a conversation finished a moment ago is in
-// the read. It skips every conversation the console already holds and says how
-// many it skipped.
-//
-// ONE IMPORT PER PROVIDER, AND IT OUTLIVES WHATEVER IS WATCHING IT. The import
-// belongs to the service, never to the page that started it: a page that closes
-// and comes back finds the same import still running. So a second
-// `session.import` for a provider whose import is running answers that import's
-// own id and starts nothing, which is what keeps two imports of one store from
-// ever running side by side. The stream is keyed by provider rather than by
-// import id for the same reason: a reloaded page knows the provider and not the
-// id. The service keeps each provider's last outcome, with its failed files,
-// until that provider's next import, and the stream's first message sends it, so
-// the settled line reads the same after a reload or an app restart.
-//
-// None of this is a session event: an import produces ordinary sessions, and the
-// progress of reading a provider's store belongs to no session's log.
+// One import runs per provider, and it belongs to the service, not to the page that started it: a
+// second `session.import` for a provider whose import is running answers that import's id and
+// starts nothing. The stream is keyed by provider because a reloaded page knows the provider, not
+// the import id. The service keeps each provider's last outcome, with its failed files, until the
+// next import and sends it as the stream's first message. Import progress belongs to no session's
+// log, so none of it is a session event.
 import { z } from "zod";
 
 import { countSchema } from "./internal/wire-scalars.js";
@@ -29,13 +15,13 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
-/** The daemon-minted id of one import. */
+/** Longest accepted import id. */
 export const PROVIDER_IMPORT_ID_MAX_LEN = 256;
-/** A reason the service gives, in its own words. */
+/** Longest accepted reason text. */
 export const PROVIDER_IMPORT_REASON_MAX_LEN = 1024;
-/** A project's name as the settled line names it. */
+/** Longest accepted project name in a settled line. */
 export const PROVIDER_IMPORT_PROJECT_NAME_MAX_LEN = 256;
-/** How many failures, unreadable files or attached projects one settled line may list. */
+/** Most failures, unreadable files or attached projects one settled line may list. */
 export const PROVIDER_IMPORT_LIST_MAX = 10_000;
 
 /** The daemon-minted id of one import. Opaque to every client. */
@@ -59,14 +45,10 @@ export const ProviderImportProviderRequestSchema: z.ZodType<
   ProviderImportProviderRequest
 > = z.object({ provider: ProviderNameSchema }).strict();
 
-// --------------------------------------------------------------------------
-// session.importPreview
-// --------------------------------------------------------------------------
-
 /**
- * How many projects this console does not have the import would attach. A
- * count above zero is confirmed in place before the import runs, because
- * attaching a project trusts its folder for both providers.
+ * How many projects this console does not have the import would attach. A count above zero is
+ * confirmed before the import runs, because attaching a project trusts its folder for both
+ * providers.
  */
 export interface ProviderImportPreviewResponse {
   provider: ProviderName;
@@ -78,10 +60,6 @@ export const ProviderImportPreviewResponseSchema: z.ZodType<ProviderImportPrevie
   .object({ provider: ProviderNameSchema, projectsToAttach: z.number().int().min(0) })
   .strict();
 
-// --------------------------------------------------------------------------
-// session.import
-// --------------------------------------------------------------------------
-
 /** The import that is now running for that provider: a new one, or the one already running. */
 export interface ProviderImportStartResponse {
   importId: ProviderImportId;
@@ -92,10 +70,6 @@ export const ProviderImportStartResponseSchema: z.ZodType<ProviderImportStartRes
   .object({ importId: ProviderImportIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
-// session.importSubscribe
-// --------------------------------------------------------------------------
-
 /** One conversation the import could not bring in, and the service's reason. */
 export interface ProviderImportFailure {
   source: string;
@@ -105,13 +79,11 @@ export interface ProviderImportFailure {
 /**
  * How an import ended.
  *
- * `finished` counts what was imported out of what was read (`total`), what was
- * already here, each failure with its reason, the
- * files that could not be opened, and the projects the import attached.
- * `nothingNew` found nothing to bring in and still says what was already here
- * and what could not be read, so an empty result is never a blank. `stopped`
- * leaves the sessions already read in the list. `refused` carries the service's
- * own words.
+ * `finished` counts what was imported out of what was read (`total`), what was already here, each
+ * failure with its reason, the files that could not be opened, and the projects attached.
+ * `nothingNew` still reports what was already here and what could not be read, so an empty result
+ * is never blank. `stopped` leaves the sessions already read in the list. `refused` carries the
+ * service's own words.
  */
 export type ProviderImportOutcome =
   | {
@@ -128,8 +100,8 @@ export type ProviderImportOutcome =
   | { outcome: "refused"; reason: string };
 
 /**
- * One message on a provider's import stream: the running import's count of
- * conversations read so far, or how the last import ended.
+ * One message on a provider's import stream: the running import's count of conversations read so
+ * far, or how the last import ended.
  */
 export type ProviderImportProgress =
   | { kind: "progress"; provider: ProviderName; importId: ProviderImportId; read: number }
@@ -197,14 +169,9 @@ export const ProviderImportProgressSchema: z.ZodType<ProviderImportProgress> = z
   ],
 );
 
-// --------------------------------------------------------------------------
-// session.importStop
-// --------------------------------------------------------------------------
-
 /**
- * Stop one import. The conversations already read stay in the sessions list, and
- * the stopped outcome arrives on the provider's stream. Stopping an import that
- * has already settled changes nothing.
+ * Stop one import. The conversations already read stay in the sessions list, and the stopped
+ * outcome arrives on the provider's stream. Stopping a settled import changes nothing.
  */
 export interface ProviderImportStopRequest {
   importId: ProviderImportId;
@@ -224,10 +191,7 @@ export const ProviderImportStopResponseSchema: z.ZodType<ProviderImportStopRespo
   .object({})
   .strict();
 
-// --------------------------------------------------------------------------
-// The method table
-// --------------------------------------------------------------------------
-
+/** The typed descriptor for each import method. */
 export interface SessionImportMethodDescriptors {
   readonly "session.importPreview": MethodDescriptor<
     "session.importPreview",

@@ -1,12 +1,11 @@
-// The Preview pane's wire: the pages a session owns and the verbs a client moves
-// them with, the dev servers the daemon discovers, the marks sent to the provider,
-// and the live picture for another device. The page host's link to the desktop's
-// main process is `preview-page-host.ts`; the ports shared with the person's other
-// devices are `preview-port.ts`.
+// The Preview pane's wire: the pages a session owns and the verbs that move them, the dev
+// servers the daemon discovers, the marks sent to the provider, and the live picture for another
+// device. The page host's link to the desktop's main process is `preview-page-host.ts`; the
+// ports shared with the person's other devices are `preview-port.ts`.
 //
-// The daemon owns every page and mints every page id; the renderer owns none. It
-// reads the list, sends requests keyed by session and page, and main keeps one
-// native view per page in step with the list.
+// The daemon owns every page and mints every page id; the renderer owns none. It reads the list
+// and sends requests keyed by session and page, and main keeps one native view per page in step
+// with the list.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -19,10 +18,6 @@ import {
 import { PreviewPortSchema } from "./preview-port.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 import { WEB_ADDRESS_FAULTS, type WebAddressFault } from "./web-address.js";
-
-// ---------------------------------------------------------------------------
-// Ids, addresses and zoom
-// ---------------------------------------------------------------------------
 
 /** The longest page id the daemon mints. */
 export const PREVIEW_PAGE_ID_MAX_LEN = 256;
@@ -67,21 +62,19 @@ export const PreviewZoomFactorSchema: z.ZodType<number, number> = z
     message: "zoomFactor must be one of the preset zoom factors",
   });
 
-// ---------------------------------------------------------------------------
-// Refusals
-// ---------------------------------------------------------------------------
-
 /**
  * An address Preview will not open, refused with its cause and the page left
  * where it was. Nothing is ever searched on the web.
  */
 export type PreviewAddressRefusedCode = "preview.address_refused";
+/** The value of {@link PreviewAddressRefusedCode}. */
 export const PREVIEW_ADDRESS_REFUSED_CODE: PreviewAddressRefusedCode = "preview.address_refused";
 /**
  * Why an address was refused: it carries a username or a password, its scheme is
  * one the pane cannot open, or the text is not an address at all.
  */
 export type PreviewAddressRefusedReason = WebAddressFault | "not_an_address";
+/** Every {@link PreviewAddressRefusedReason}. */
 export const PREVIEW_ADDRESS_REFUSED_REASONS: readonly PreviewAddressRefusedReason[] =
   Object.freeze([...WEB_ADDRESS_FAULTS, "not_an_address"]);
 /** The details a `preview.address_refused` refusal carries. It never echoes the address. */
@@ -92,10 +85,6 @@ export interface PreviewAddressRefusedDetails {
 export const PreviewAddressRefusedDetailsSchema: z.ZodType<PreviewAddressRefusedDetails> = z
   .object({ reason: z.enum(PREVIEW_ADDRESS_REFUSED_REASONS as [PreviewAddressRefusedReason]) })
   .strict();
-
-// ---------------------------------------------------------------------------
-// Pages
-// ---------------------------------------------------------------------------
 
 /**
  * A page's own icon, as the image's bytes rather than its address. The console
@@ -287,9 +276,8 @@ export const PreviewPageActivateResponseSchema: z.ZodType<PreviewPageActivateRes
 /**
  * Move one page within its session's order.
  *
- * `toIndex` is a position in the list WITHOUT that page in it. The surface that
- * drags a tab counts drop slots among the tabs as drawn and translates once, where
- * it sends the request.
+ * `toIndex` is a position in the list without that page in it. The surface that drags a tab
+ * counts drop slots among the tabs as drawn and translates once, where it sends the request.
  */
 export interface PreviewPageReorderRequest {
   sessionId: SessionId;
@@ -409,10 +397,6 @@ export const PreviewZoomResponseSchema: z.ZodType<PreviewZoomResponse> = z
   .object({ pageId: PreviewPageIdSchema, zoomFactor: PreviewZoomFactorSchema })
   .strict();
 
-// ---------------------------------------------------------------------------
-// Dev servers
-// ---------------------------------------------------------------------------
-
 /** The session whose project's dev servers a `preview.devServerList` subscription streams. */
 export interface PreviewDevServerListRequest {
   sessionId: SessionId;
@@ -449,10 +433,6 @@ export const PreviewDevServerSchema: z.ZodType<PreviewDevServer> = z
 /** One frame of the discovered servers: every server listening now. */
 export const PreviewDevServerListFrameSchema: z.ZodType<PreviewDevServer[]> =
   z.array(PreviewDevServerSchema);
-
-// ---------------------------------------------------------------------------
-// Marks
-// ---------------------------------------------------------------------------
 
 /** A point on the page, in viewport CSS pixels. */
 export interface PreviewPoint {
@@ -616,10 +596,6 @@ export const PreviewMarksSendResponseSchema: z.ZodType<PreviewMarksSendResponse>
   .object({ delivered: z.literal(true) })
   .strict();
 
-// ---------------------------------------------------------------------------
-// The live picture for another device
-// ---------------------------------------------------------------------------
-
 /** The page whose live picture another device watches while it has the pane open. */
 export interface PreviewScreencastSubscribeRequest {
   sessionId: SessionId;
@@ -668,10 +644,6 @@ export const PreviewScreencastFrameSchema: z.ZodType<PreviewScreencastFrame> = z
     ackToken: z.string().min(1),
   })
   .strict();
-
-// ---------------------------------------------------------------------------
-// Methods
-// ---------------------------------------------------------------------------
 
 /**
  * The `preview.*` page, dev-server, marks and live-picture methods the daemon
@@ -811,10 +783,6 @@ export const PREVIEW_METHOD_DESCRIPTORS: PreviewMethodDescriptors = defineMethod
     emissionSchema: PreviewScreencastFrameSchema,
   },
 });
-
-// ---------------------------------------------------------------------------
-// The keystroke main hands back from a page
-// ---------------------------------------------------------------------------
 
 /**
  * One keystroke main claimed from a page and handed back to the console to replay.

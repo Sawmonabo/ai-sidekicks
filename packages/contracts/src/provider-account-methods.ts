@@ -1,59 +1,29 @@
-// The remaining `providerAccount.*` methods (update, remove, set-current,
-// probe, memory import and usage read), the credential census over every
-// account shape, and the one method table for the namespace. The account record
-// and its reads are in `provider-account.ts`; registering and signing in are in
-// `provider-account-sign-in.ts`.
+// The `providerAccount.*` methods not in `provider-account-sign-in.ts` (update, remove,
+// set-current, probe, memory import, usage read), the credential census registry, and the
+// namespace's method table. The account record and its reads are in `provider-account.ts`.
 //
-// ----------------------------------------------------------------------------
-// The one credential input, and the census that keeps it one
-// ----------------------------------------------------------------------------
+// Credential material crosses this surface on exactly one input,
+// `ProviderAccountRegisterRequest.nonInteractiveToken`, and on no output: no response or
+// notification shape in the three provider-account modules carries a token-shaped member under
+// any name. `PROVIDER_ACCOUNT_WIRE_SHAPES` lists every request, response and notification shape
+// so the contract test derives its subject set from it (counting credential-accepting inputs
+// and credential-bearing outputs) instead of a hand-kept list that goes stale when a shape is
+// added.
 //
-// Credential material crosses this surface on EXACTLY ONE input —
-// `ProviderAccountRegisterRequest.nonInteractiveToken` — and on NO output. No
-// response and no notification shape in the three provider-account modules
-// carries a token-shaped member under any name. That claim is not prose:
-// `PROVIDER_ACCOUNT_WIRE_SHAPES` below enumerates every request, response, and
-// notification shape in the three, and the contract suite walks it to count credential-accepting inputs
-// (must be exactly one, named) and credential-bearing outputs (must be zero).
-// A shape added to any of the three without a registry entry is caught by the same suite's
-// completeness check, so the census cannot go vacuous by omission.
+// A `provideraccount.*` refusal travels as `JsonRpcErrorData`, whose `fields` is untyped, so no
+// schema census covers it. The guarantee that matters there is that
+// `provideraccount.token_class_refused` names which condition failed and never quotes, echoes
+// or excerpts the supplied value.
 //
-// THE ERROR CHANNEL IS THE FOURTH DIRECTION, and no module declares a shape
-// for it. A `provideraccount.*` refusal travels as `JsonRpcErrorData`, whose
-// `fields` is `Record<string, unknown>` — an untyped hole no schema census can
-// close, because there is no schema. The permitted contents are declared in
-// prose, per code the guarantee that matters most there is
-// `provideraccount.token_class_refused`, which "names which condition failed and
-// never quotes, echoes, or excerpts the supplied value". The contract suite
-// therefore censuses representative refusal envelopes — each code transcribed
-// from those rows, each `fields` shape composed to be consistent with that row's
-// prose — by member NAME at any depth and by VALUE against the token fixture, so
-// a mapper that echoed the input back fails a test rather than only a reading of
-// the docs. Two honest limits: the fixture set is enumerated by hand, so a code
-// added to that doc without a fixture is not caught here, and the binding
-// enforcement is the daemon's error mapper, which is a later phase. Registering
-// the field names as a typed contract belongs to the swap that gives them a
-// producer — a declaration whose only consumer is its own test is minted ahead
-// of its reader.
+// `credentialGeneration` is daemon-owned and on no request: a caller that could assert a
+// generation could assert that a stale quota reading or a superseded attention epoch is current.
 //
-// ----------------------------------------------------------------------------
-// What is response-only, and what deliberately is not
-// ----------------------------------------------------------------------------
-//
-// `credentialGeneration` is daemon-owned and appears on NO provider-account
-// request: a caller that could assert a generation could assert that a stale
-// quota reading or a superseded attention epoch is current.
-//
-// `accountId` never mints an identity from a request. Every request that
-// carries it is a selector naming an account the daemon already minted — the
-// required selector on update / remove / set-current / home-reset / probe /
-// login, the optional read scope on `ProviderAccountListRequest.accountId`,
-// and the optional token RE-SUPPLY selector on
-// `ProviderAccountRegisterRequest.accountId` (the one CREATE-shaped verb, so
-// the only place a supplied id could be mistaken for an assertion — documented
-// in the canonical wire section and). A supplied id that names no registered
+// `accountId` never mints an identity from a request; it always names an account the daemon
+// already minted. It is the required selector on update, remove, set-current, home-reset, probe
+// and login, the optional read scope on `ProviderAccountListRequest.accountId`, and the optional
+// token re-supply selector on `ProviderAccountRegisterRequest.accountId` (the one create-shaped
+// verb, where a supplied id could be mistaken for an assertion). An id that names no registered
 // account is refused rather than created.
-//
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -105,45 +75,29 @@ import {
 import { UsdMicrosSchema } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
-// --------------------------------------------------------------------------
-// Length caps
-// --------------------------------------------------------------------------
-
 /** A model id on a usage row, as the provider names it. */
 export const PROVIDER_ACCOUNT_USAGE_MODEL_MAX_LEN = 128;
 /** Why the wake helper did not install, in the installer's own words. */
 export const PROVIDER_WAKE_HELPER_REASON_MAX_LEN = 1024;
 
-// --------------------------------------------------------------------------
-// providerAccount.update
-// --------------------------------------------------------------------------
-//
-// NOT UPDATABLE, by omission from the request and enforced on write:
-// `provider` (an account does not change vendor), `credentialHomePath`
-// (rebinding a registration to a different home would silently re-point
-// historical spend at other credentials), `credentialGeneration` (daemon-owned
-// — a descriptive correction is not a credential event), and `isDefault`, which
-// has its own verb whose partial-unique-index race semantics this verb must not
-// duplicate.
-
+/**
+ * Edits an account's descriptive settings; an omitted member is unchanged. Not updatable, by
+ * omission and enforced on write: `provider`; `credentialHomePath`, because rebinding to another
+ * home would silently re-point historical spend at other credentials; `credentialGeneration`,
+ * because a descriptive correction is not a credential event; and `isDefault`, which has its own
+ * verb so its race semantics are not duplicated.
+ */
 export interface ProviderAccountUpdateRequest {
   accountId: ProviderAccountId;
-  /** Omitted = unchanged. */
   displayLabel?: string | undefined;
-  /** Omitted = unchanged; this is how `unknown` is resolved to a declared mode. */
+  /** How `unknown` is resolved to a declared mode. */
   billingMode?: BillingMode | undefined;
-  /**
-   * The durable per-account opt-out for the background observer. Carried on the
-   * existing update verb rather than as a dedicated verb: it is an ordinary
-   * mutable account preference. Omitted = unchanged; the column default is
-   * enabled, so silence never silences an observer.
-   */
+  /** The durable per-account opt-out for the background observer; on by default. */
   probeEnabled?: boolean | undefined;
   /**
-   * Start each usage window as soon as it opens, with one small turn on the
-   * smallest model. Omitted = unchanged; on by default. It sits under
-   * `probeEnabled` and does nothing while that is off, so turning it on then is
-   * kept rather than refused.
+   * Start each usage window as soon as it opens, with one small turn on the smallest model; on by
+   * default. It does nothing while `probeEnabled` is off, and turning it on then is kept rather
+   * than refused.
    */
   windowStartEnabled?: boolean | undefined;
   /**
@@ -154,6 +108,7 @@ export interface ProviderAccountUpdateRequest {
   wakeForWindowStartEnabled?: boolean | undefined;
 }
 
+/** Parses a {@link ProviderAccountUpdateRequest}. */
 export const ProviderAccountUpdateRequestSchema: z.ZodType<
   ProviderAccountUpdateRequest,
   ProviderAccountUpdateRequest
@@ -179,12 +134,14 @@ export type ProviderWakeHelperState =
   | { state: "installed" }
   | { state: "notInstalled"; reason: string };
 
+/** The updated account. */
 export interface ProviderAccountUpdateResponse {
   account: ProviderAccount;
-  /** Present when the request changed `wakeForWindowStartEnabled` on a machine that wakes through the helper. */
+  /** Present when the request changed `wakeForWindowStartEnabled` on a machine using the helper. */
   wakeHelper?: ProviderWakeHelperState | undefined;
 }
 
+/** Parses a {@link ProviderAccountUpdateResponse}. */
 export const ProviderAccountUpdateResponseSchema: z.ZodType<ProviderAccountUpdateResponse> = z
   .object({
     account: ProviderAccountSchema,
@@ -205,56 +162,52 @@ export const ProviderAccountUpdateResponseSchema: z.ZodType<ProviderAccountUpdat
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// providerAccount.remove
-// --------------------------------------------------------------------------
-
+/** Removes one account. */
 export interface ProviderAccountRemoveRequest {
   accountId: ProviderAccountId;
 }
 
+/** Parses a {@link ProviderAccountRemoveRequest}. */
 export const ProviderAccountRemoveRequestSchema: z.ZodType<
   ProviderAccountRemoveRequest,
   ProviderAccountRemoveRequest
 > = z.object({ accountId: ProviderAccountIdSchema }).strict();
 
+/** The removed account's id. */
 export interface ProviderAccountRemoveResponse {
   accountId: ProviderAccountId;
-  /**
-   * `z.literal(true)` and not `z.boolean()`: removal has no partial success. A
-   * `removed: false` reply would be a refusal wearing a success envelope, and
-   * every refusal on this verb is a typed error instead.
-   */
+  /** Always `true`: removal has no partial success, and every refusal is a typed error. */
   removed: true;
 }
 
+/** Parses a {@link ProviderAccountRemoveResponse}. */
 export const ProviderAccountRemoveResponseSchema: z.ZodType<ProviderAccountRemoveResponse> = z
   .object({ accountId: ProviderAccountIdSchema, removed: z.literal(true) })
   .strict();
 
 /** A run bound to the account is live, so it is not removed; the refusal names those sessions. */
 export const PROVIDER_ACCOUNT_IN_USE_CODE = "provideraccount.account_in_use" as const;
+/** The type of {@link PROVIDER_ACCOUNT_IN_USE_CODE}. */
 export type ProviderAccountInUseCode = typeof PROVIDER_ACCOUNT_IN_USE_CODE;
 
+/** The sessions whose live runs block a removal. */
 export type ProviderAccountInUseDetails = { sessionIds: SessionId[] };
+/** Parses {@link ProviderAccountInUseDetails}; at least one session is named. */
 export const ProviderAccountInUseDetailsSchema: z.ZodType<ProviderAccountInUseDetails> = z
   .object({ sessionIds: z.array(SessionIdSchema).min(1) })
   .strict();
 
-// --------------------------------------------------------------------------
-// providerAccount.setCurrent
-// --------------------------------------------------------------------------
-//
-// Makes this account its provider's current account, which is the account the
-// `Default` mark sits on: one fact. New sessions on that provider start on it,
-// and every running session on that provider that is not pinned to an account
-// moves to it. A saved agent or a workflow step set to a specific account stays
-// where it is pinned. Nothing here touches a credential.
-
+/**
+ * Makes this account its provider's current account, the one the `Default` mark sits on. New
+ * sessions on that provider start on it, and every running session there that is not pinned to
+ * an account moves to it; a saved agent or workflow step pinned to an account stays. No
+ * credential is touched.
+ */
 export interface ProviderAccountSetCurrentRequest {
   accountId: ProviderAccountId;
 }
 
+/** Parses a {@link ProviderAccountSetCurrentRequest}. */
 export const ProviderAccountSetCurrentRequestSchema: z.ZodType<
   ProviderAccountSetCurrentRequest,
   ProviderAccountSetCurrentRequest
@@ -269,18 +222,18 @@ const PROVIDER_ACCOUNT_MOVE_APPLIES_AT_VALUES = ["immediately", "next_tool_call"
  */
 export type ProviderAccountMoveAppliesAt = (typeof PROVIDER_ACCOUNT_MOVE_APPLIES_AT_VALUES)[number];
 
-/** One running session the switch is moving. The move settles on that session's own timeline. */
+/** One running session the switch is moving; the move settles on that session's own timeline. */
 export interface ProviderAccountMovingSession {
   sessionId: SessionId;
   appliesAt: ProviderAccountMoveAppliesAt;
 }
 
+/** The account now current and the sessions the switch is moving. */
 export interface ProviderAccountSetCurrentResponse {
   /**
-   * The account now current for its provider, so `isDefault` on it is `true`:
-   * the verb has no partial success, and every refusal is a typed error. A
-   * runtime check rather than a narrowed type, because the account projection
-   * is shared with every other reply.
+   * The account now current for its provider, so `isDefault` on it is `true`. Checked at run
+   * time rather than narrowed in the type, because the account projection is shared with every
+   * other reply.
    */
   account: ProviderAccount;
   /**
@@ -291,6 +244,7 @@ export interface ProviderAccountSetCurrentResponse {
   movingSessions: ProviderAccountMovingSession[];
 }
 
+/** Parses a {@link ProviderAccountSetCurrentResponse}; a non-default account is refused. */
 export const ProviderAccountSetCurrentResponseSchema: z.ZodType<ProviderAccountSetCurrentResponse> =
   z
     .object({
@@ -322,21 +276,21 @@ export const ProviderAccountSetCurrentResponseSchema: z.ZodType<ProviderAccountS
  * account whose last limits read showed its login gone is refused this way.
  */
 export const PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE = "provideraccount.not_authenticated" as const;
+/** The type of {@link PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE}. */
 export type ProviderAccountNotAuthenticatedCode = typeof PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE;
 
-// --------------------------------------------------------------------------
-// providerAccount.probe
-// --------------------------------------------------------------------------
-
+/** Checks one account's health now. */
 export interface ProviderAccountProbeRequest {
   accountId: ProviderAccountId;
 }
 
+/** Parses a {@link ProviderAccountProbeRequest}. */
 export const ProviderAccountProbeRequestSchema: z.ZodType<
   ProviderAccountProbeRequest,
   ProviderAccountProbeRequest
 > = z.object({ accountId: ProviderAccountIdSchema }).strict();
 
+/** The account's health as the probe read it. */
 export interface ProviderAccountProbeResponse {
   accountId: ProviderAccountId;
   healthState: ProviderAccountHealthState;
@@ -344,6 +298,7 @@ export interface ProviderAccountProbeResponse {
   credentialGeneration: CredentialGeneration;
 }
 
+/** Parses a {@link ProviderAccountProbeResponse}. */
 export const ProviderAccountProbeResponseSchema: z.ZodType<ProviderAccountProbeResponse> = z
   .object({
     accountId: ProviderAccountIdSchema,
@@ -352,36 +307,22 @@ export const ProviderAccountProbeResponseSchema: z.ZodType<ProviderAccountProbeR
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// providerAccount.memoryImport
-// --------------------------------------------------------------------------
-//
-// Copies the person's own memory store into this account's home, once, on a
-// press: Claude Code's `~/.claude/projects/*/memory/` (and the person's own agent
-// notes into the service's one agent-memory folder, never overwriting a file
-// already there), Codex's `~/.codex/memories/`. The two homes are never joined.
-// It answers with the outcome the account keeps as its `memoryImport`, so a
-// repeated press answers it again rather than copying twice.
-
+/**
+ * Copies the person's own memory store into this account's home, once, on a press: Claude Code's
+ * `~/.claude/projects/<project>/memory/` (and the person's own agent notes into the service's one
+ * agent-memory folder, never overwriting a file already there), or Codex's `~/.codex/memories/`.
+ * The two homes are never joined. It answers with the outcome the account keeps as its
+ * `memoryImport`, so a repeated press answers it again rather than copying twice.
+ */
 export interface ProviderAccountMemoryImportRequest {
   accountId: ProviderAccountId;
 }
 
+/** Parses a {@link ProviderAccountMemoryImportRequest}. */
 export const ProviderAccountMemoryImportRequestSchema: z.ZodType<
   ProviderAccountMemoryImportRequest,
   ProviderAccountMemoryImportRequest
 > = z.object({ accountId: ProviderAccountIdSchema }).strict();
-
-// --------------------------------------------------------------------------
-// providerAccount.usageRead
-// --------------------------------------------------------------------------
-//
-// Tokens and spend from the one table the service keeps a row in per turn,
-// each row naming the account that paid for it. Every dollar figure is the cost
-// with no mark: a subscription account's tokens are priced at the provider's
-// published per-token rates, and an account that has spent nothing reads zero.
-// These are the service's own figures; the provider's own usage windows are the
-// separate `usageWindows` on `providerAccount.list`.
 
 /** The accounts a usage read covers: one account, or every account of one provider. */
 export type ProviderAccountUsageScope =
@@ -393,6 +334,13 @@ const PROVIDER_ACCOUNT_USAGE_GROUPING_VALUES = ["day", "model"] as const;
 /** How a usage read splits its figures: by calendar day, or by model. */
 export type ProviderAccountUsageGrouping = (typeof PROVIDER_ACCOUNT_USAGE_GROUPING_VALUES)[number];
 
+/**
+ * Reads tokens and spend from the service's per-turn table, each row naming the account that paid
+ * for it. Every dollar figure is the cost with no mark: a subscription account's tokens are
+ * priced at the provider's published per-token rates, and an account that spent nothing reads
+ * zero. The provider's own usage windows are the separate `usageWindows` on
+ * `providerAccount.list`.
+ */
 export interface ProviderAccountUsageReadRequest {
   scope: ProviderAccountUsageScope;
   /** RFC 3339, inclusive. Absent = from the first recorded turn. */
@@ -403,6 +351,7 @@ export interface ProviderAccountUsageReadRequest {
   groupBy?: ProviderAccountUsageGrouping | undefined;
 }
 
+/** Parses a {@link ProviderAccountUsageReadRequest}. */
 export const ProviderAccountUsageReadRequestSchema: z.ZodType<
   ProviderAccountUsageReadRequest,
   ProviderAccountUsageReadRequest
@@ -420,8 +369,7 @@ export const ProviderAccountUsageReadRequestSchema: z.ZodType<
 
 /**
  * One figure: the tokens and what they cost, in whole micro-dollars. `day` is set on a row
- * grouped by day (`YYYY-MM-DD`) and `model` on a row grouped by model, the
- * model id as the provider names it.
+ * grouped by day (`YYYY-MM-DD`) and `model` on a row grouped by model, as the provider names it.
  */
 export interface ProviderAccountUsageRow {
   day?: string | undefined;
@@ -430,10 +378,12 @@ export interface ProviderAccountUsageRow {
   costUsdMicros: number;
 }
 
+/** The usage rows for the requested range and grouping. */
 export interface ProviderAccountUsageReadResponse {
   rows: ProviderAccountUsageRow[];
 }
 
+/** Parses a {@link ProviderAccountUsageReadResponse}. */
 export const ProviderAccountUsageReadResponseSchema: z.ZodType<ProviderAccountUsageReadResponse> = z
   .object({
     rows: z.array(
@@ -452,22 +402,13 @@ export const ProviderAccountUsageReadResponseSchema: z.ZodType<ProviderAccountUs
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// The wire-shape registry — the census's subject set
-// --------------------------------------------------------------------------
-//
-// Every provider-account request, response, and notification schema appears here
-// exactly once. The registry exists so census DERIVES its subject set rather
-// than hand-listing it: a hand-listed census passes forever after someone adds
-// an eleventh shape, which is precisely the incremental widening names as its
-// failure mode and this census as its detection.
-//
-// `direction` is what makes the count meaningful: credential material may
-// appear on `request` shapes (exactly one member, on exactly one shape) and on
-// NO `response` or `notification` shape.
-
+/**
+ * Which way a wire shape travels. Credential material may appear on `request` shapes (one member
+ * on one shape) and on no `response` or `notification` shape.
+ */
 export type ProviderAccountWireDirection = "request" | "response" | "notification";
 
+/** One entry of {@link PROVIDER_ACCOUNT_WIRE_SHAPES}: a shape's name, direction and schema. */
 export interface ProviderAccountWireShape {
   /** The exported interface's name, for a failure message that names the offender. */
   readonly name: string;
@@ -475,6 +416,10 @@ export interface ProviderAccountWireShape {
   readonly schema: z.ZodType<unknown>;
 }
 
+/**
+ * Every provider-account request, response and notification schema, once each, so the credential
+ * census derives its subject set from here instead of a hand-kept list.
+ */
 export const PROVIDER_ACCOUNT_WIRE_SHAPES: readonly ProviderAccountWireShape[] = [
   {
     name: "ProviderAccountListRequest",
@@ -593,10 +538,7 @@ export const PROVIDER_ACCOUNT_WIRE_SHAPES: readonly ProviderAccountWireShape[] =
   },
 ];
 
-// --------------------------------------------------------------------------
-// The method table
-// --------------------------------------------------------------------------
-
+/** The `providerAccount.*` methods the daemon answers. */
 export interface ProviderAccountMethodDescriptors {
   readonly "providerAccount.list": MethodDescriptor<
     "providerAccount.list",

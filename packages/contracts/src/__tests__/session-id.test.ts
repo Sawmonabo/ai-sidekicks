@@ -1,25 +1,12 @@
-// Test C1: `SessionId.parse rejects malformed UUIDs`.
-//
-// If `SessionIdSchema` ever silently accepts a malformed identifier, the
-// daemon and control-plane lose the ability to route reconnects to the right
-// authoritative state.
-//
-// Coverage shape:
-//   • Accepts valid RFC 9562 UUIDs (v4 admin-provisioned, v7 daemon-emitted)
-//   • Rejects:
-//       - empty string
-//       - non-UUID string
-//       - UUID with wrong segment lengths
-//       - UUID with a stray suffix
-//       - non-string types (number, null, undefined, object)
-//   • Successful parse returns a branded `SessionId` (TS-only nominal type)
+// `SessionIdSchema` must reject malformed identifiers: if it accepted one, the daemon and the
+// control plane could no longer route reconnects to the right authoritative state. It accepts
+// RFC 9562 UUIDs, rejects non-UUID strings and non-strings, and returns a branded `SessionId`.
 import { describe, expect, it } from "vitest";
 
 import { SessionIdSchema, type SessionId } from "../session.js";
 
-// Two real RFC 9562 UUIDs; we don't fabricate version bits because the branded
-// factory's `RFC_9562_TEXT_FORM` validates the version nibble and variant bits
-// in the canonical positions.
+// Two real RFC 9562 UUIDs; version bits are not fabricated because `RFC_9562_TEXT_FORM`
+// validates the version nibble and variant bits in their canonical positions.
 const VALID_UUID_V4 = "550e8400-e29b-41d4-a716-446655440000";
 const VALID_UUID_V7 = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 
@@ -35,9 +22,8 @@ describe("SessionIdSchema (C1: id-format invariant)", () => {
   });
 
   it("returns a branded SessionId at the type level", () => {
-    // This block does not need a runtime assertion — it's a compile-time
-    // proof that the brand survives `.parse()`. If `parse()` ever degrades
-    // to `string`, the assignment below will fail to typecheck.
+    // Compile-time proof that the brand survives `.parse()`: if it degraded to `string`, the
+    // assignment below would fail to typecheck.
     const parsed: SessionId = SessionIdSchema.parse(VALID_UUID_V4);
     expect(typeof parsed).toBe("string");
   });
@@ -67,16 +53,11 @@ describe("SessionIdSchema (C1: id-format invariant)", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// The shared accept set — `internal/branded.ts` `RFC_9562_TEXT_FORM`
-// ----------------------------------------------------------------------------
-//
-// Asserted on `SessionIdSchema` because the predicate is the FACTORY's, not
-// this family's: every branded UUID id in the package (`UserId`,
-// `RunId`, `ArtifactId`, the repo / worktree ids) composes the same `brandedUuidIdSchema`, so one
-// family's accept set is every family's. `provider-driver.test.ts` pins the same properties on
-// `ArtifactIdSchema` — two families, deliberately, so a future edit that re-homed one off the
-// factory could not pass by proving the other.
+// The shared accept set (`RFC_9562_TEXT_FORM` in `internal/branded.ts`) is asserted on
+// `SessionIdSchema` because the predicate belongs to the factory, not to this id family: every
+// branded UUID id composes the same `brandedUuidIdSchema`. `provider-driver.test.ts` pins the
+// same properties on `ArtifactIdSchema`, so a schema moved off the factory could not pass by
+// proving the other.
 
 describe("SessionIdSchema — the RFC 9562 accept set is case-insensitive on EVERY alternative", () => {
   const MAX_UUID_LOWERCASE = "ffffffff-ffff-ffff-ffff-ffffffffffff";
@@ -92,21 +73,17 @@ describe("SessionIdSchema — the RFC 9562 accept set is case-insensitive on EVE
     ["a mixed-case v4", "550E8400-e29b-41D4-A716-446655440000"],
     ["the Nil UUID", NIL_UUID],
   ])("accepts %s", (_label, value) => {
-    // RFC 9562 section 4 makes UUID hex text case-insensitive, so two
-    // spellings of ONE logical id must not receive two parse results. Before
-    // the factory carried its own predicate, Zod's versionless `uuid` regex
-    // reached the two sentinels through EXACT LOWERCASE string literals on a
-    // pattern with no `i` flag, and its general alternative could not rescue
-    // the Max UUID because a `[1-8]` version nibble rejects `f`.
+    // RFC 9562 section 4 makes UUID hex text case-insensitive, so two spellings of one logical
+    // id must not parse differently. Zod's stock `uuid` pattern spells the Nil and Max sentinels
+    // as lowercase literals with no `i` flag, and its general alternative cannot admit the Max
+    // UUID because a `[1-8]` version nibble rejects `f`.
     expect(SessionIdSchema.parse(value)).toBe(value);
   });
 
   it("does not normalize — case is preserved through the parse", () => {
-    // The accept set is case-insensitive; the VALUE is returned untouched.
-    // Canonicalization belongs at Map-key / hash-input boundaries
-    // (`canonicalizeUuid`), never here: branding in this codebase is
-    // cast-based, so a schema transform would not fire on the DB-row read
-    // paths where the case-split actually bites.
+    // The accept set is case-insensitive but the value is returned untouched. Canonicalization
+    // belongs at map-key and hash-input boundaries (`canonicalizeUuid`): ids are branded by
+    // casts, so a schema transform would not run on database-row reads.
     expect(SessionIdSchema.parse(MAX_UUID_UPPERCASE)).not.toBe(MAX_UUID_LOWERCASE);
   });
 
@@ -119,9 +96,9 @@ describe("SessionIdSchema — the RFC 9562 accept set is case-insensitive on EVE
     ["a path fragment", "../../etc/passwd"],
     ["an all-f string missing a hyphen", "ffffffffffff-ffff-ffff-ffffffffffff"],
   ])("REFUSES %s", (_label, value) => {
-    // The widening is case, and nothing else: the version and variant nibbles
-    // still decide, so the Max UUID is admitted by its OWN alternative rather
-    // than by a relaxed general form that would also admit a version-9 id.
+    // The widening is case and nothing else: the version and variant nibbles still decide, so
+    // the Max UUID is admitted by its own alternative, not by a relaxed general form that would
+    // also admit a version-9 id.
     expect(SessionIdSchema.safeParse(value).success).toBe(false);
   });
 });

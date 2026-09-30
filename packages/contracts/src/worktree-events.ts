@@ -1,11 +1,8 @@
-// Worktree event payloads — the records the daemon writes when a worktree is
-// made or removed beyond the family payload, when a session is swept back to
-// the repository root, and when a session's branch changes. `event.ts`
-// registers them; this module never imports it.
+// Worktree event payloads beyond the family payload: worktree created and retired, a session swept
+// back to the repository root, and a session's branch changed. `event.ts` registers them.
 //
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
-// and nothing whose import closure reaches it (the transitive rule repo.ts's
-// header documents). Every module imported below is closure-clean.
+// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js` and nothing whose
+// import closure reaches it (see the header of `repo.ts`).
 import { z } from "zod";
 
 import {
@@ -24,10 +21,6 @@ import {
   type WorktreeLifecyclePayload,
   type WorktreeState,
 } from "./worktree.js";
-
-// ==========================================================================
-// Event payloads the worktree records carry beyond the family.
-// ==========================================================================
 
 /**
  * `worktree.created`'s payload: the family payload, and on a put-back the kept

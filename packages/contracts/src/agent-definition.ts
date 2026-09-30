@@ -1,26 +1,20 @@
-// Saved agents: the definition registry a person builds in the library and the
-// editor, the binding that says which provider runs an agent, and the requests and
-// refusals of the definition verbs.
+// Saved agents: the definition registry a person builds in the library and the editor, the
+// binding that says which provider runs an agent, and the requests and refusals of the
+// definition verbs.
 //
-// A definition is node-local configuration, never session history: no verb here
-// appends an event. The list reads every definition from four origins (ours under
-// `.ai-sidekicks/agents/`, Claude Code's own agent files, Codex's own, and a
-// plugin's, which is read-only), and the daemon parses every file itself rather
-// than trusting a provider's own load, because a provider can drop a broken file
-// without a word.
+// A definition is node-local configuration, never session history: no verb here appends an
+// event. The list reads four origins (ours under `.ai-sidekicks/agents/`, Claude Code's agent
+// files, Codex's, and a plugin's, which is read-only), and the daemon parses every file itself
+// because a provider can drop a broken file without a word.
 //
-// WHY A STORED ROW AND A DRAFT ARE TWO SHAPES AND NOT ONE. On a write, an absent
-// member means "leave it to the default" and an explicit `null` means "stop pinning
-// this"; on the stored row there is no absence at all, and the inherit state is
-// `null`, materialized. One shape could express one grammar or the other and not
-// both, and the one it dropped would be the one a person needs to clear an account
-// or an effort they had pinned. So the create request leaves `overrides` optional
-// and the stored row always carries the list, and the update request types each
-// nullable member `T | null`, optional.
+// A stored row and a draft are two shapes because a write treats an absent member as "leave it
+// to the default" and an explicit `null` as "stop pinning this", while the stored row has no
+// absence and materializes the inherit state as `null`. One shape could not clear a pinned
+// account or effort. So create leaves `overrides` optional, the row always carries the list, and
+// update types each nullable member `T | null`, optional.
 //
-// This file also holds the live agent's id, `AgentId`, beside the definition's:
-// every other agent file imports it, and this is the one module none of them is
-// imported by.
+// `AgentId` lives here beside the definition's id: every other agent file imports it, and this
+// is the one module none of them is imported by.
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
@@ -32,9 +26,7 @@ import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session
 /** The longest reason text a refusal or a load failure carries. */
 export const AGENT_REASON_MAX_LEN = 1024;
 
-// --------------------------------------------------------------------------
 // Ids
-// --------------------------------------------------------------------------
 
 /**
  * A saved definition's daemon-minted id. Never its name: the name is a label a
@@ -50,9 +42,7 @@ export type AgentId = string & { readonly __brand: "AgentId" };
 /** Parses an {@link AgentId}. */
 export const AgentIdSchema: z.ZodType<AgentId, AgentId> = brandedUuidIdSchema<AgentId>("AgentId");
 
-// --------------------------------------------------------------------------
 // The provider binding
-// --------------------------------------------------------------------------
 
 /** A provider's own vocabulary token: a driver key, a model id, an effort or a speed. */
 const providerTokenSchema = (label: string): z.ZodString =>
@@ -146,9 +136,7 @@ export const AgentDefinitionBindingsDraftSchema: z.ZodType<
   .strict()
   .superRefine(refineOneBindingPerDriver);
 
-// --------------------------------------------------------------------------
 // The definition's own vocabularies
-// --------------------------------------------------------------------------
 
 /**
  * Where an agent's one memory lives: `user` everywhere, in the daemon's own
@@ -187,9 +175,7 @@ export const AgentHooksSchema: z.ZodType<AgentHooks, AgentHooks> = z.record(
   ),
 );
 
-// --------------------------------------------------------------------------
 // The stored definition
-// --------------------------------------------------------------------------
 
 /** A tool name on an allowlist, as the catalog spells it. */
 const toolNameSchema: z.ZodString = wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "tool name");
@@ -250,9 +236,7 @@ export const AgentDefinitionSchema: z.ZodType<AgentDefinition> = z
   .object(agentDefinitionFields)
   .strict();
 
-// --------------------------------------------------------------------------
 // Where a definition lives, as the list serves it
-// --------------------------------------------------------------------------
 
 /** Which files a definition came from: ours, a provider's own, or a plugin's. */
 export const AGENT_DEFINITION_ORIGINS = ["ours", "claude", "codex", "plugin"] as const;
@@ -369,9 +353,7 @@ export const AgentResolvedConfigurationSchema: z.ZodType<AgentResolvedConfigurat
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // agent.definitionList and agent.definitionSubscribe
-// --------------------------------------------------------------------------
 
 /** `agent.definitionList` and `agent.definitionSubscribe` take no members. */
 export type AgentDefinitionListRequest = Record<string, never>;
@@ -402,9 +384,7 @@ export const AgentDefinitionListResponseSchema: z.ZodType<AgentDefinitionListRes
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // agent.definitionCreate
-// --------------------------------------------------------------------------
 
 /**
  * A new definition. Every member except the name and the default binding is
@@ -468,9 +448,7 @@ export const AgentDefinitionCreateResponseSchema: z.ZodType<AgentDefinitionCreat
   .object({ definition: AgentDefinitionListEntrySchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // agent.definitionUpdate
-// --------------------------------------------------------------------------
 
 /**
  * A partial patch. An absent member leaves the stored value alone and an explicit
@@ -524,9 +502,7 @@ export const AgentDefinitionUpdateResponseSchema: z.ZodType<AgentDefinitionUpdat
   .object({ definition: AgentDefinitionListEntrySchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // agent.definitionDelete
-// --------------------------------------------------------------------------
 
 /**
  * Never refused and never cascading: a session running the agent keeps what it was
@@ -553,9 +529,7 @@ export const AgentDefinitionDeleteResponseSchema: z.ZodType<AgentDefinitionDelet
   .object({ deleted: z.literal(true) })
   .strict();
 
-// --------------------------------------------------------------------------
 // agent.definitionExport and agent.definitionImport
-// --------------------------------------------------------------------------
 
 /**
  * Writes the chosen definitions to one JSON file: each definition's record, icon,
@@ -618,9 +592,7 @@ export const AgentDefinitionImportResponseSchema: z.ZodType<AgentDefinitionImpor
   .object({ definitions: z.array(AgentDefinitionListEntrySchema).min(1) })
   .strict();
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
 /** An export whose file could not be written. */
 export type AgentExportWriteFailedCode = "agent.export_write_failed";

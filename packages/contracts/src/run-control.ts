@@ -1,23 +1,14 @@
-// Run-control contracts: interventions on a running run, pause and resume, the
-// recovery question after a restart, the run state stream, the run read, and the
-// `run.*` method table, which also serves the queue (`run-queue.ts`) and a child's
-// own controls (`run-children.ts`).
+// Run-control contracts: interventions on a running run, pause and resume, the recovery question
+// after a restart, the run state stream, the run read, and the `run.*` method table, which also
+// serves the queue (`run-queue.ts`) and a child's own controls (`run-children.ts`).
 //
-// This module owns the branded `InterventionId` and two closed sets every other
-// module imports from here rather than restating: `RunFailureCategory` and
-// `InterventionState`. `RunState` is in `./run-state.js`, below the run modules.
+// Imports go downward only. The modules imported here build their Zod schemas at module scope, so
+// a back-import would throw `ReferenceError` at import time instead of failing to compile. That
+// is also why the message bounds (`DRIVER_WIRE_STEER_*`) live in `./provider-driver.js`, whose
+// `SteerPayload` applies them and cannot import from here.
 //
-// It imports downward only. The shapes below compose `./provider-driver.js`,
-// `./run-children.js`, `./run-queue.js`, `./run-state.js`,
-// `./session-controls.js` and `./session.js`, each an eager module-scope Zod
-// initializer, so a back-import from any of them would throw `ReferenceError` at
-// import time rather than fail to compile. The same reason keeps the message
-// bounds (`DRIVER_WIRE_STEER_*`) in `./provider-driver.js`: its `SteerPayload`
-// applies them and cannot import from here.
-//
-// Request schemas use the double-T `z.ZodType<T, T>` form and response and
-// event schemas the single-T `z.ZodType<T>` form, matching `session.ts`: only
-// request schemas reach tRPC's Standard Schema V1 input inference.
+// Request schemas use the double-T `z.ZodType<T, T>` form and response and event schemas the
+// single-T form: only request schemas reach tRPC's Standard Schema V1 input inference.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
@@ -97,26 +88,16 @@ import {
   type SessionId,
 } from "./session.js";
 
-// --------------------------------------------------------------------------
-// Branded identifiers
-// --------------------------------------------------------------------------
-
+/** Identifies one intervention on a run. */
 export type InterventionId = string & { readonly __brand: "InterventionId" };
+/** Parses an {@link InterventionId}. */
 export const InterventionIdSchema: z.ZodType<InterventionId, InterventionId> =
   brandedUuidIdSchema<InterventionId>("InterventionId");
 
-// --------------------------------------------------------------------------
-// Closed sets
-// --------------------------------------------------------------------------
-//
-// `RunFailureCategory`'s values carry a space by design: they are the wire
-// literals, not identifiers.
-//
-// Both are typed double-T (`z.ZodType<T, T>`), as `QueueItemState` is: a
-// set that composes into a request schema loses Standard Schema V1 input
-// inference the moment its input degrades to `unknown` (see
-// `./internal/branded.ts`), and the sets stay alike.
+// Both closed sets are typed double-T: a set that composes into a request schema loses Standard
+// Schema V1 input inference once its input degrades to `unknown` (see `./internal/branded.ts`).
 
+/** Where an intervention stands, from request to outcome. */
 export type InterventionState =
   | "requested"
   | "accepted"
@@ -124,6 +105,7 @@ export type InterventionState =
   | "rejected"
   | "degraded"
   | "expired";
+/** Parses an {@link InterventionState}. */
 export const InterventionStateSchema: z.ZodType<InterventionState, InterventionState> = z.enum([
   "requested",
   "accepted",
@@ -133,11 +115,13 @@ export const InterventionStateSchema: z.ZodType<InterventionState, InterventionS
   "expired",
 ]);
 
+/** Why a run failed. The values carry spaces because they are wire literals, not identifiers. */
 export type RunFailureCategory =
   | "provider failure"
   | "transport failure"
   | "local persistence failure"
   | "projection failure";
+/** Parses a {@link RunFailureCategory}. */
 export const RunFailureCategorySchema: z.ZodType<RunFailureCategory, RunFailureCategory> = z.enum([
   "provider failure",
   "transport failure",
@@ -145,14 +129,9 @@ export const RunFailureCategorySchema: z.ZodType<RunFailureCategory, RunFailureC
   "projection failure",
 ]);
 
-// --------------------------------------------------------------------------
-// Shared field parsers
-// --------------------------------------------------------------------------
-
-// Filesystem path entries: the execution posture's `writableRoots`. Not
-// `wireFreeFormString`, which refuses whitespace-only values although a
-// directory named with a single space is legal on POSIX; NUL is refused because
-// no filesystem admits it in a path.
+// The execution posture's `writableRoots` entries. Not `wireFreeFormString`, which refuses
+// whitespace-only values although a directory named with a single space is legal on POSIX; NUL is
+// refused because no filesystem admits it in a path.
 const filesystemPathSchema: z.ZodString = z
   .string()
   .min(1)
@@ -161,29 +140,19 @@ const filesystemPathSchema: z.ZodString = z
     message: "Filesystem path MUST NOT contain a NUL byte.",
   });
 
-// --------------------------------------------------------------------------
-// Interventions on the lead's run
-// --------------------------------------------------------------------------
-//
-// `expectedRunVersion` is the MANDATORY optimistic-concurrency comparand: an
-// absent comparand is refused, never applied. `clientIdempotencyKey` is the
-// second guard: a requester-generated UUID stored on the intervention under
-// `UNIQUE(target_run_id, client_idempotency_key)`, so an identical retry replays
-// the recorded outcome.
-//
-// The interrupt's `pending` says what happens to the messages still waiting:
-// `nextTurn` sends them at once as the next turn (the lead's own interrupt), and
-// `returnToDraft` drops them back into the draft (interrupting everything).
-// `deliverFirst` names the waiting message `Send now` delivers ahead of the rest.
-//
-// The faster-model retry is the person's `Stop and retry` while Codex holds a turn
-// for a safety check and names a faster model: the daemon stops that turn and
-// sends the same message again on `model`, which then stays the session's model.
-// `expectedTurnId` is required on it, so a retry aimed at a turn that is no longer
-// the latest, or whose reply has started, is refused as `rejected` with a
-// `rejectionReason`.
+// `expectedRunVersion` is the mandatory optimistic-concurrency comparand: an absent one is
+// refused, never applied. `clientIdempotencyKey` is stored with the intervention under
+// `UNIQUE(target_run_id, client_idempotency_key)`, so an identical retry replays the recorded
+// outcome.
 
-/** A caller's request to steer, interrupt, cancel or retry a run, one arm per intervention type. */
+/**
+ * A caller's request to steer, interrupt, cancel or retry a run, one arm per intervention type.
+ * An interrupt's `pending` sends the waiting messages at once as the next turn (`nextTurn`) or
+ * drops them back into the draft (`returnToDraft`); `deliverFirst` names the message `Send now`
+ * delivers ahead of the rest. `faster_model_retry` stops a turn Codex holds for a safety check
+ * and resends the same message on `model`, which then stays the session's model; a retry aimed at
+ * a turn that is no longer the latest, or whose reply has started, is refused as `rejected`.
+ */
 export type InterventionRequestPayload =
   | {
       type: "steer";
@@ -219,6 +188,7 @@ export type InterventionRequestPayload =
       model: string;
     };
 
+/** Parses an {@link InterventionRequestPayload}; `deliverFirst` requires `pending: "nextTurn"`. */
 export const InterventionRequestPayloadSchema: z.ZodType<
   InterventionRequestPayload,
   InterventionRequestPayload
@@ -292,17 +262,15 @@ export const InterventionRequestPayloadSchema: z.ZodType<
     },
   );
 
-// The daemon's answer to an intervention. A refused intervention is a normal
-// response with state `rejected` and a machine-readable cause in
-// `rejectionReason`, not a JSON-RPC error.
-
+/**
+ * The common part of the daemon's answer to an intervention. A refused intervention is a normal
+ * response with state `rejected` and a machine-readable `rejectionReason`, not a JSON-RPC error.
+ */
 export interface InterventionResponseBase {
   interventionId: InterventionId;
   state: InterventionState;
-  // The run counter after the intervention, which the caller threads into its
-  // next `expectedRunVersion`. An applied steer advances the run version with no
-  // state change, so on that path this is the only place the fresh comparand can
-  // be read.
+  // The run version after the intervention, for the caller's next `expectedRunVersion`. An
+  // applied steer advances it with no state change, so this is the only place to read it.
   runVersion: number;
   rejectionReason?: string | undefined;
 }
@@ -313,7 +281,7 @@ export type InterventionRequestResponse = InterventionResponseBase & {
   result?: Record<string, unknown> | undefined;
 };
 
-/** Validates an {@link InterventionRequestResponse}; closed to unknown keys. */
+/** Parses an {@link InterventionRequestResponse}; closed to unknown keys. */
 export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestResponse> = z
   .object({
     interventionId: InterventionIdSchema,
@@ -328,22 +296,16 @@ export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestRes
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// The run state stream
-// --------------------------------------------------------------------------
-//
-// `ExecutionPosture` keeps a module-private parser. Its `z.ZodType<ExecutionPosture>`
-// annotation fails the build if that type narrows, though a widening still
-// compiles, because `ZodType` is covariant in its output.
-
-// `allowedDomains` is `[string, ...string[]]`, so the parser produces a non-empty
-// tuple: Zod v4's `.nonempty()` checks the length but leaves the inferred type
-// `string[]`, which the annotation below refuses.
+// `allowedDomains` is `[string, ...string[]]`, so the parser builds a non-empty tuple: Zod v4's
+// `.nonempty()` checks the length but leaves the inferred type `string[]`, which the annotation
+// refuses.
 const allowedDomainsSchema: z.ZodType<[string, ...string[]], [string, ...string[]]> = z.tuple(
   [wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ExecutionPosture.allowedDomains")],
   wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ExecutionPosture.allowedDomains"),
 );
 
+// The annotation fails the build if `ExecutionPosture` narrows; a widening still compiles because
+// `ZodType` is covariant in its output.
 const executionPostureSchema: z.ZodType<ExecutionPosture> = z.union([
   z
     .object({
@@ -432,14 +394,13 @@ const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
   })
   .strict();
 
-// The subscription server projects the stored row into this shape. `sessionId`
-// is carried by the subscription's scope (`RunStateSubscribeRequest`), not
-// repeated per event; `newState` is the stored row's own spelling.
-/** One run state transition as `run.subscribeState` delivers it, with its new run version. */
+/**
+ * One run state transition as `run.subscribeState` delivers it, with its new run version.
+ * `sessionId` is carried by the subscription's scope, not repeated per event.
+ */
 export interface RunStateChangeEvent {
   runId: RunId;
-  // The run's progression counter: the comparand clients read here and pass back
-  // as `expectedRunVersion`.
+  // The comparand clients pass back as `expectedRunVersion`.
   runVersion: number;
   previousState: RunState;
   newState: RunState;
@@ -447,17 +408,14 @@ export interface RunStateChangeEvent {
   failureCause?: RunRefusedCause | undefined;
   recoveryCondition?: RecoveryCondition | undefined;
   recoverySpanClassification?: RecoverySpanClassification | undefined;
-  // Two producers, one field: free-form prose from the resume-failure producer,
-  // and one fixed `<registered code> origin=<arm>` form from the outbound-frame
-  // neutralization tripwire. A consumer reads the cause as the substring before
-  // the first space and never assumes the whole value is prose.
+  // Two producers, one field: free-form prose on a failed resume, and a fixed
+  // `<registered code> origin=<arm>` form from the outbound-frame neutralization tripwire. Read
+  // the cause as the substring before the first space; the whole value is not always prose.
   providerFailureDetail?: string | undefined;
   completionKind?: "turn" | "task" | undefined;
-  // Present only on a terminal the daemon itself closed; such a terminal is never
-  // a crash.
+  // Present only on a terminal the daemon itself closed; such a terminal is never a crash.
   intendedClose?: true | undefined;
-  // Stamped only on `run.running`, where the resolved workspace root and the
-  // effective posture are final.
+  // Stamped only on `run.running`, where the workspace root and effective posture are final.
   executionPosture?: ExecutionPosture | undefined;
   trigger?:
     | "turn_limit"
@@ -468,6 +426,7 @@ export interface RunStateChangeEvent {
   timestamp: string;
 }
 
+/** Parses a {@link RunStateChangeEvent}; a failure cause rides only a transition into `failed`. */
 export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
   .object({
     runId: RunIdSchema,
@@ -496,26 +455,23 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     message: "A failure cause rides only a transition into `failed`.",
   });
 
-// The forward rollback event: not a state transition, so it carries no
-// `previousState` / `newState`, and inventing one would corrupt the transition
-// stream consumers replay. It shares `run.subscribeState` with the state change
-// and carries no tag: `.strict()` on both keeps them apart, since each fails the
-// other's required members. `sessionId` is present because this is also the
-// stored `run.rolled_back` payload the timeline reads.
-
-/** A run rewound to an earlier turn boundary, carried on `run.subscribeState`. */
+/**
+ * A run rewound to an earlier turn boundary, carried on `run.subscribeState`. It is not a state
+ * transition, so it has no `previousState` or `newState`; inventing one would corrupt the stream
+ * consumers replay. It carries no tag: `.strict()` keeps it apart from the state change. It is
+ * also the stored `run.rolled_back` payload, hence `sessionId`.
+ */
 export interface RunRolledBackEvent {
   sessionId: SessionId;
   runId: RunId;
-  // The run counter after the rollback, which advanced it.
+  // The run version after the rollback advanced it.
   runVersion: number;
-  // The turn boundary the run landed at, as a session position. It equals the
-  // request's target on the confirmed path; where the driver confirmed a
-  // different landing it is that landing, so the event never misstates where the
-  // run came to rest.
+  // The turn boundary the run landed at, as a session position: the request's target, or the
+  // landing the driver confirmed when that differs.
   targetPosition: number;
 }
 
+/** Parses a {@link RunRolledBackEvent}. */
 export const RunRolledBackEventSchema: z.ZodType<RunRolledBackEvent> = z
   .object({
     sessionId: SessionIdSchema,
@@ -526,12 +482,10 @@ export const RunRolledBackEventSchema: z.ZodType<RunRolledBackEvent> = z
   .strict();
 
 /**
- * One delivery on `run.subscribeState`: a state change, a rollback, or Codex's
- * safety hold on the run's turn. The hold is a live detail of the run's working
- * status and the stream is its only carrier: it is not written to the session's
- * history, so a re-opened session does not replay it. Like the rollback it carries
- * no tag; `.strict()` on all three keeps them apart, since each lacks the others'
- * required members.
+ * One delivery on `run.subscribeState`: a state change, a rollback, or Codex's safety hold on the
+ * run's turn. The hold is a live detail carried only by this stream, never written to the
+ * session's history, so a re-opened session does not replay it. None carries a tag; `.strict()`
+ * on all three keeps them apart.
  */
 export type RunStateStreamEvent =
   | RunStateChangeEvent
@@ -543,17 +497,12 @@ const RunStateStreamEventSchema: z.ZodType<RunStateStreamEvent> = z.union([
   RunSafetyBufferingUpdatedPayloadSchema,
 ]);
 
-// --------------------------------------------------------------------------
-// Pause and resume
-// --------------------------------------------------------------------------
-//
-// Separate requests, not `InterventionType` members, each with the same
-// mandatory `expectedRunVersion` as an intervention.
-
+/** Pauses a run. Not an intervention, but guarded by the same mandatory `expectedRunVersion`. */
 export interface RunPauseRequest {
   targetRunId: RunId;
   expectedRunVersion: number;
 }
+/** Parses a {@link RunPauseRequest}. */
 export const RunPauseRequestSchema: z.ZodType<RunPauseRequest, RunPauseRequest> = z
   .object({
     targetRunId: RunIdSchema,
@@ -561,10 +510,12 @@ export const RunPauseRequestSchema: z.ZodType<RunPauseRequest, RunPauseRequest> 
   })
   .strict();
 
+/** Resumes a paused run, guarded by the same mandatory `expectedRunVersion`. */
 export interface RunResumeRequest {
   targetRunId: RunId;
   expectedRunVersion: number;
 }
+/** Parses a {@link RunResumeRequest}. */
 export const RunResumeRequestSchema: z.ZodType<RunResumeRequest, RunResumeRequest> = z
   .object({
     targetRunId: RunIdSchema,
@@ -572,14 +523,16 @@ export const RunResumeRequestSchema: z.ZodType<RunResumeRequest, RunResumeReques
   })
   .strict();
 
-// The run-control ack: the run's state after the call and its advanced
-// `runVersion`, so the caller threads the fresh comparand into its next guarded
-// request without a round-trip to `run.subscribeState`.
+/**
+ * The run's state after a run-control call and its advanced `runVersion`, so the caller can
+ * guard its next request without reading `run.subscribeState`.
+ */
 export interface RunControlAck {
   runId: RunId;
   newState: RunState;
   runVersion: number;
 }
+/** Parses a {@link RunControlAck}. */
 export const RunControlAckSchema: z.ZodType<RunControlAck> = z
   .object({
     runId: RunIdSchema,
@@ -588,20 +541,14 @@ export const RunControlAckSchema: z.ZodType<RunControlAck> = z
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// Recovery after a restart
-// --------------------------------------------------------------------------
-//
-// After a restart the daemon compares each resumed conversation with its own
-// record. A read-only surplus on the provider's side is added with no question;
-// any other mismatch halts the run on a question with two choices, and the
-// person's answer is `run.recoveryResolve`. Where the provider is ahead:
-// `keep_provider` keeps what it did, `undo_to_agreed` cuts back to the last point
-// both records agree on. Where the service is ahead: `continue_provider`
-// continues from the provider's record, `hand_over` continues in a new
-// conversation with the hand-over brief.
-
-/** The person's answer to the recovery question. */
+/**
+ * The person's answer to the recovery question a restart leaves: the daemon compares each resumed
+ * conversation with its own record, adds a read-only provider surplus with no question, and
+ * halts on any other mismatch. Where the provider is ahead, `keep_provider` keeps what it did and
+ * `undo_to_agreed` cuts back to the last point both records agree on. Where the service is ahead,
+ * `continue_provider` continues from the provider's record and `hand_over` continues in a new
+ * conversation with the hand-over brief.
+ */
 export type RunRecoveryChoice =
   | "keep_provider"
   | "undo_to_agreed"
@@ -614,11 +561,12 @@ const RunRecoveryChoiceSchema: z.ZodType<RunRecoveryChoice, RunRecoveryChoice> =
   "hand_over",
 ]);
 
-/** Answers the recovery question a restart left a run halted on. */
+/** Answers the recovery question a restart left a run halted on (`run.recoveryResolve`). */
 export interface RunRecoveryResolveRequest {
   runId: RunId;
   choice: RunRecoveryChoice;
 }
+/** Parses a {@link RunRecoveryResolveRequest}. */
 export const RunRecoveryResolveRequestSchema: z.ZodType<
   RunRecoveryResolveRequest,
   RunRecoveryResolveRequest
@@ -630,38 +578,31 @@ export interface RunRecoveryResolvedPayload {
   runId: RunId;
   choice: RunRecoveryChoice;
 }
+/** Parses a {@link RunRecoveryResolvedPayload}. */
 export const RunRecoveryResolvedPayloadSchema: z.ZodType<RunRecoveryResolvedPayload> = z
   .object({ sessionId: SessionIdSchema, runId: RunIdSchema, choice: RunRecoveryChoiceSchema })
   .strict();
 
 /**
- * Opens a session's run state stream: every run in the session, the lead and each
- * child, which the caller fans out by `runId`. Session-scoped, with no replay
- * cursor.
+ * Opens a session's run state stream: every run in the session, the lead and each child, which
+ * the caller fans out by `runId`. Session-scoped, with no replay cursor.
  */
 export interface RunStateSubscribeRequest {
   sessionId: SessionId;
 }
+/** Parses a {@link RunStateSubscribeRequest}. */
 export const RunStateSubscribeRequestSchema: z.ZodType<
   RunStateSubscribeRequest,
   RunStateSubscribeRequest
 > = z.object({ sessionId: SessionIdSchema }).strict();
 
-// --------------------------------------------------------------------------
-// The run read
-// --------------------------------------------------------------------------
-//
-// The engine-side read the daemon's guards take. `sessionId` and `state` are a
-// derived projection; there is no runs table. The accessor returns a snapshot or
-// throws, never null for an unknown run, so a guard fails closed rather than
-// comparing `undefined` against a comparand. Synchronous, because the projection
-// read it fronts is a synchronous SQLite read.
-
+/** A run's version, session and state as the daemon's guards read them; there is no runs table. */
 export interface RunReadSnapshot {
   version: number;
   sessionId: SessionId;
   state: RunState;
 }
+/** Parses a {@link RunReadSnapshot}. */
 export const RunReadSnapshotSchema: z.ZodType<RunReadSnapshot> = z
   .object({
     version: countSchema,
@@ -670,11 +611,11 @@ export const RunReadSnapshotSchema: z.ZodType<RunReadSnapshot> = z
   })
   .strict();
 
+/**
+ * Reads a run's snapshot synchronously. It throws for an unknown run rather than returning null,
+ * so a guard fails closed instead of comparing `undefined` against a comparand.
+ */
 export type RunReadAccessor = (runId: RunId) => RunReadSnapshot;
-
-// --------------------------------------------------------------------------
-// Methods
-// --------------------------------------------------------------------------
 
 /** The run-control methods, keyed by method name. */
 export interface RunControlMethodDescriptors {

@@ -1,19 +1,14 @@
-// A session's shells as a client addresses them: the terminal id, the live list
-// of a session's shells, opening, closing and ordering them, the stream of one
-// shell's output, writing to it and resizing it, flow control, and the per-shell
-// control lease that decides who may type into it.
+// A session's shells as a client addresses them: the live list, opening, closing and ordering,
+// one shell's output stream, writing and resizing, flow control, and the per-shell control lease.
 //
-// Every request names the session and the terminal. A terminal belongs to one
-// session, and a request whose terminal is not that session's is refused, so a
-// terminal id alone never reaches another session's shell.
+// Every request names the session and the terminal; a request whose terminal is not that session's
+// is refused, so a terminal id alone never reaches another session's shell.
 //
-// The lease is one per shell. It is held by one of the user's devices, or by an
-// agent's running command on this machine; a run's hold carries the machine's own
-// device id, the run's id and the holding command's id, so a screen can tell "this
-// device holds it", "another device holds it" and "a run holds it" apart, and can
-// stop the command that holds it. There is no release: a hold ends when
-// another device takes the shell, when the holding connection ends, or when the
-// holding run leaves its running state.
+// The lease is one per shell, held by one of the user's devices or by an agent's running command on
+// this machine. A run's hold carries this machine's device id, the run's id and the holding
+// command's id, so a screen can tell "this device", "another device" and "a run" apart and stop
+// the command. There is no release: a hold ends when another device takes the shell, the holding
+// connection ends, or the holding run leaves its running state.
 import { z } from "zod";
 
 import { CommandIdSchema, type CommandId } from "./command.js";
@@ -39,9 +34,8 @@ export const TerminalIdSchema: z.ZodType<TerminalId, TerminalId> = z
 const holderDeviceIdSchema = wireFreeFormString(DEVICE_ID_MAX_LEN, "holderDeviceId");
 
 /**
- * Who holds one shell's control lease. `holderDeviceId` is the holding device;
- * while an agent's running command holds the shell it is this machine's own
- * device, `holderRunId` names the run, whose agent the screen reads from the run,
+ * Who holds one shell's control lease. `holderDeviceId` is the holding device (this machine's own
+ * while a run holds it), `holderRunId` names the run, whose agent the screen reads from the run,
  * and `holderCommandId` names the command, which is what stopping the hold stops.
  */
 export interface TerminalControlHolder {
@@ -50,9 +44,8 @@ export interface TerminalControlHolder {
   holderCommandId?: CommandId | undefined;
 }
 
-// A run holds a shell only through one of its running commands, so a hold names
-// both or neither: a run without its command leaves nothing to stop, and a command
-// without its run leaves no agent to name.
+// A run holds a shell only through one of its running commands, so a hold names both or neither: a
+// run without its command leaves nothing to stop, and a command without its run names no agent.
 const runHoldNamesItsCommand = (holder: {
   holderRunId?: RunId | undefined;
   holderCommandId?: CommandId | undefined;
@@ -72,10 +65,6 @@ export const TerminalControlHolderSchema: z.ZodType<TerminalControlHolder> = z
   .strict()
   .refine(runHoldNamesItsCommand, RUN_HOLD_NAMES_ITS_COMMAND);
 
-// --------------------------------------------------------------------------
-// pty.list — the session's shells, live
-// --------------------------------------------------------------------------
-
 /** The session whose shells a `pty.list` subscription follows. */
 export interface PtyListRequest {
   sessionId: SessionId;
@@ -86,9 +75,9 @@ export const PtyListRequestSchema: z.ZodType<PtyListRequest, PtyListRequest> = z
   .strict();
 
 /**
- * Where one shell's process stands. A shell that ends keeps its entry with its
- * exit code until it is closed; a shell that could not start keeps its entry with
- * the daemon's own words for why, and takes no input.
+ * Where one shell's process stands. A shell that ends keeps its entry with its exit code until it
+ * is closed; a shell that could not start keeps its entry with the daemon's words for why, and
+ * takes no input.
  */
 export type PtyShellStatus =
   | { state: "running" }
@@ -101,9 +90,8 @@ const PtyShellStatusSchema: z.ZodType<PtyShellStatus> = z.discriminatedUnion("st
 ]);
 
 /**
- * One shell as the tab strip draws it. `title` is the title the shell set for
- * itself, or its program's base name until it sets one; no person types it.
- * `holder` is `null` while nobody holds the shell.
+ * One shell as the tab strip draws it. `title` is the title the shell set for itself, or its
+ * program's base name until it sets one. `holder` is `null` while nobody holds the shell.
  */
 export interface PtyListEntry {
   terminalId: TerminalId;
@@ -121,9 +109,9 @@ const PtyListEntrySchema: z.ZodType<PtyListEntry> = z
   .strict();
 
 /**
- * The session's whole set of shells, sent on every change, in tab order. The
- * order is the daemon's, so every device draws the same strip. A shell that had
- * gone before the list was first read is not in it.
+ * The session's whole set of shells, sent on every change, in tab order. The order is the
+ * daemon's, so every device draws the same strip. A shell gone before the list was first read is
+ * not in it.
  */
 export interface PtyListUpdate {
   sessionId: SessionId;
@@ -139,14 +127,10 @@ export const PtyListUpdateSchema: z.ZodType<PtyListUpdate> = z
     { message: "a terminal appears at most once in the list", path: ["terminals"] },
   );
 
-// --------------------------------------------------------------------------
-// pty.open, pty.close, pty.reorder
-// --------------------------------------------------------------------------
-
 /**
- * Open another shell for the session: the person's own login shell in the
- * session's tree, so the request carries no program, arguments or folder. The
- * caller mints the key, and a retry with the same key never opens a second shell.
+ * Open another shell for the session: the person's own login shell in the session's tree, so the
+ * request carries no program, arguments or folder. The caller mints the key, and a retry with the
+ * same key never opens a second shell.
  */
 export interface PtyOpenRequest {
   sessionId: SessionId;
@@ -158,8 +142,8 @@ export const PtyOpenRequestSchema: z.ZodType<PtyOpenRequest, PtyOpenRequest> = z
   .strict();
 
 /**
- * The new shell's id. A shell that fails to start still has one: its tab stays
- * and its list entry reads `did_not_start` with the cause.
+ * The new shell's id. A shell that fails to start still has one: its tab stays and its list entry
+ * reads `did_not_start` with the cause.
  */
 export interface PtyOpenResponse {
   terminalId: TerminalId;
@@ -170,10 +154,9 @@ export const PtyOpenResponseSchema: z.ZodType<PtyOpenResponse> = z
   .strict();
 
 /**
- * Close one shell and end its process; `Close others` and `Close to the right`
- * send this once per shell. The daemon refuses it while a run holds the shell,
- * and while another device holds it unless `force` is true, which the screen
- * sends only after the person confirmed.
+ * Close one shell and end its process; closing several sends this once per shell. The daemon
+ * refuses it while a run holds the shell, and while another device holds it unless `force` is
+ * true, which the screen sends only after the person confirmed.
  */
 export interface PtyCloseRequest {
   sessionId: SessionId;
@@ -203,10 +186,6 @@ export const PtyReorderRequestSchema: z.ZodType<PtyReorderRequest, PtyReorderReq
     path: ["terminalIds"],
   });
 
-// --------------------------------------------------------------------------
-// pty.outputSubscribe — one shell's output
-// --------------------------------------------------------------------------
-
 /** The shell whose output a `pty.outputSubscribe` subscription streams. */
 export interface PtyOutputSubscribeRequest {
   sessionId: SessionId;
@@ -219,10 +198,10 @@ export const PtyOutputSubscribeRequestSchema: z.ZodType<
 > = z.object({ sessionId: SessionIdSchema, terminalId: TerminalIdSchema }).strict();
 
 /**
- * One frame of a shell's output stream. The first is always `replay`: the shell's
- * replay window starting at its first whole line, the rows and columns it was last
- * drawn at, so a running program's boxes come back unwrapped, and who holds it.
- * Then `output` in the order the shell wrote it, and `exited` once its program ends.
+ * One frame of a shell's output stream. The first is always `replay`: the replay window starting at
+ * its first whole line, the columns and rows it was last drawn at (so a running program's boxes
+ * come back unwrapped), and who holds it. Then `output` in the order the shell wrote it, and
+ * `exited` once its program ends.
  */
 export type PtyOutputFrame =
   | {
@@ -267,14 +246,9 @@ export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUn
     .strict(),
 ]);
 
-// --------------------------------------------------------------------------
-// pty.write, pty.resize
-// --------------------------------------------------------------------------
-
 /**
- * How written text reached the screen. A `paste` is wrapped as pasted text when
- * the program running in the shell asked for that, so several lines sit at the
- * prompt instead of running themselves.
+ * How written text arrived. A `paste` is wrapped as pasted text when the program in the shell asked
+ * for that, so several lines sit at the prompt instead of running themselves.
  */
 export type PtyWriteKind = "keys" | "paste";
 
@@ -295,10 +269,7 @@ export const PtyWriteRequestSchema: z.ZodType<PtyWriteRequest, PtyWriteRequest> 
   })
   .strict();
 
-/**
- * A shell's new size, in character cells. Only the device holding the shell sets
- * it; watchers draw at the shell's size.
- */
+/** A shell's new size in character cells. Only the holding device sets it; watchers follow it. */
 export interface PtyResizeRequest {
   sessionId: SessionId;
   terminalId: TerminalId;
@@ -319,15 +290,11 @@ export const PtyResizeRequestSchema: z.ZodType<PtyResizeRequest, PtyResizeReques
 export type PtyActResponse = null;
 const PtyActResponseSchema: z.ZodType<PtyActResponse> = z.null();
 
-// --------------------------------------------------------------------------
-// session.setTerminalFlowControl — one connection's behind state for one shell
-// --------------------------------------------------------------------------
-
 /**
- * The state this connection declares for one shell: `paused` while it is behind,
- * false once it has caught up. The daemon stops reading the shell only while every
- * live watcher is behind, and a connection's state clears when it disconnects. Not
- * gated by the lease: it moves no bytes toward the shell.
+ * The state this connection declares for one shell: `paused` while it is behind, false once it has
+ * caught up. The daemon stops reading the shell only while every live watcher is behind, and a
+ * connection's state clears when it disconnects. Not gated by the lease: it moves no bytes toward
+ * the shell.
  */
 export interface SessionSetTerminalFlowControlRequest {
   sessionId: SessionId;
@@ -350,13 +317,9 @@ export interface SessionSetTerminalFlowControlResponse {
 export const SessionSetTerminalFlowControlResponseSchema: z.ZodType<SessionSetTerminalFlowControlResponse> =
   z.object({ accepted: z.literal(true) }).strict();
 
-// --------------------------------------------------------------------------
-// session.takeControl and pty.control_changed — the per-shell lease
-// --------------------------------------------------------------------------
-
 /**
- * Take one shell's lease for the calling device. `force` moves it off another of
- * the user's devices; a take never moves it off a run. There is no release verb.
+ * Take one shell's lease for the calling device. `force` moves it off another of the user's
+ * devices; a take never moves it off a run.
  */
 export interface SessionTakeControlRequest {
   sessionId: SessionId;
@@ -389,9 +352,8 @@ export const SessionTakeControlResponseSchema: z.ZodType<SessionTakeControlRespo
 export const PTY_CONTROL_CHANGED_EVENT = "pty.control_changed" as const;
 
 /**
- * Why a shell's holder changed: it was taken, it was taken by force off another
- * device's hold, the holding connection ended, or the holding run left its
- * running state.
+ * Why a shell's holder changed: it was taken, taken by force off another device, the holding
+ * connection ended, or the holding run left its running state.
  */
 export type PtyControlChangedReason =
   | "taken"
@@ -407,10 +369,9 @@ export const PTY_CONTROL_CHANGED_REASONS: readonly PtyControlChangedReason[] = O
 ]);
 
 /**
- * One change of one shell's holder. The holder members say who holds it AFTER the
- * change, so a take names a holder and both releases name nobody; the device it
- * moved off is `previousHolderDeviceId`. The screen folds these and never infers a
- * holder from a take it made.
+ * One change of one shell's holder. The holder members say who holds it after the change, so a take
+ * names a holder and both releases name nobody; the device it moved off is
+ * `previousHolderDeviceId`. Clients fold these and never infer a holder from a take they made.
  */
 export interface PtyControlChangedPayload {
   sessionId: SessionId;
@@ -422,10 +383,9 @@ export interface PtyControlChangedPayload {
   reason: PtyControlChangedReason;
 }
 /**
- * Parses a {@link PtyControlChangedPayload}. A take that names no holder, or a
- * release that names one, contradicts itself and is refused. A forced take is a
- * device's, never a run's, and always moves the shell off another device. A run's
- * take names its holding command.
+ * Parses a {@link PtyControlChangedPayload}. A take that names no holder, or a release that names
+ * one, contradicts itself and is refused. A forced take is a device's, never a run's, and always
+ * moves the shell off another device. A run's take names its holding command.
  */
 export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload> = z
   .object({
@@ -459,17 +419,15 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
     },
   );
 
-// --------------------------------------------------------------------------
-// Refusals
-// --------------------------------------------------------------------------
-
 /**
- * A take, a close or a resize refused because someone else holds the shell. The
- * details name the holder, so the screen can tell a run's hold, which only stopping
- * its command ends, from another device's, which a forced take or close moves.
+ * A take, a close or a resize refused because someone else holds the shell. The details name the
+ * holder, so the screen can tell a run's hold, which only stopping its command ends, from another
+ * device's, which a forced take or close moves.
  */
 export const PTY_CONTROL_HELD_BY_OTHER_CODE = "pty.control_held_by_other" as const;
+/** Type of {@link PTY_CONTROL_HELD_BY_OTHER_CODE}. */
 export type PtyControlHeldByOtherCode = typeof PTY_CONTROL_HELD_BY_OTHER_CODE;
+/** Details of a `pty.control_held_by_other` refusal: the shell and who holds it. */
 export interface PtyControlHeldByOtherDetails extends TerminalControlHolder {
   terminalId: TerminalId;
 }
@@ -486,11 +444,8 @@ export const PtyControlHeldByOtherDetailsSchema: z.ZodType<PtyControlHeldByOther
 
 /** A write to a shell the writing device does not hold; it takes the shell first. */
 export const PTY_CONTROL_NOT_HELD_CODE = "pty.control_not_held" as const;
+/** Type of {@link PTY_CONTROL_NOT_HELD_CODE}. */
 export type PtyControlNotHeldCode = typeof PTY_CONTROL_NOT_HELD_CODE;
-
-// --------------------------------------------------------------------------
-// Method descriptors
-// --------------------------------------------------------------------------
 
 /** The `pty.*` methods, keyed by name. */
 export interface PtyMethodDescriptors {
@@ -512,6 +467,7 @@ export interface PtyMethodDescriptors {
   readonly "pty.write": MethodDescriptor<"pty.write", PtyWriteRequest, PtyActResponse>;
   readonly "pty.resize": MethodDescriptor<"pty.resize", PtyResizeRequest, PtyActResponse>;
 }
+/** Every `pty.*` method: its name, how it answers, and its shapes. */
 export const PTY_METHOD_DESCRIPTORS: PtyMethodDescriptors = defineMethodDescriptors({
   "pty.list": {
     method: "pty.list",
@@ -579,6 +535,7 @@ export interface TerminalControlMethodDescriptors {
     SessionSetTerminalFlowControlResponse
   >;
 }
+/** The lease take and flow control methods: their names, how each answers, and their shapes. */
 export const TERMINAL_CONTROL_METHOD_DESCRIPTORS: TerminalControlMethodDescriptors =
   defineMethodDescriptors({
     "session.takeControl": {

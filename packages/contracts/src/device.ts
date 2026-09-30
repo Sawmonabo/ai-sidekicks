@@ -1,13 +1,11 @@
-// The device contract: the requests that list, link, rename, revoke and forget the
-// person's devices, set a device's push address and notification switches, and
-// carry the desktop's control-plane calls through the background service. The keys
-// and the statement chain these requests carry are the trust-statement contract's.
+// The device requests: list, link, rename, revoke, forget, push address, notification
+// switches, and the desktop's control-plane calls through the background service. The keys
+// and statement chain they carry belong to the trust-statement module.
 //
-// Two boundaries meet here. The control plane serves `device.list`, the linking
-// requests, rename, revoke, forget, `device.statementList` and
+// Two boundaries meet here, each with its own descriptor table. The control plane serves
+// `device.list`, linking, rename, revoke, forget, `device.statementList` and
 // `device.pushAddressSet`; a machine's service serves `device.statementApply`,
 // `device.trustedList`, `device.notificationSettingsSet` and `controlPlane.call`.
-// Each boundary has its own descriptor table below.
 import { z } from "zod";
 
 import { decodedByteLength } from "./internal/base64.js";
@@ -61,9 +59,7 @@ const NameSchema = wireFreeFormString(MACHINE_OR_DEVICE_NAME_MAX_LEN, "name");
 const PlatformSchema = wireFreeFormString(PLATFORM_DESCRIPTION_MAX_LEN, "platform");
 const IsoTimeSchema = z.iso.datetime({ offset: true });
 
-// --------------------------------------------------------------------------
 // device.list: the machines, devices and passkeys, live
-// --------------------------------------------------------------------------
 
 /** A machine card's facts. `This machine` is the reader's own comparison of `nodeId`. */
 export interface MachineEntry {
@@ -187,9 +183,7 @@ export const DeviceListEventSchema: z.ZodType<DeviceListEvent> = z.union([
   z.object({ type: z.literal("runtimenode.registered"), machine: MachineEntrySchema }).strict(),
 ]);
 
-// --------------------------------------------------------------------------
 // Linking
-// --------------------------------------------------------------------------
 
 /** `device.linkStart` takes nothing: the caller is the linking side. */
 export type DeviceLinkStartRequest = Record<string, never>;
@@ -298,9 +292,7 @@ export type EmptyAcknowledgement = Record<string, never>;
 /** Parses a {@link EmptyAcknowledgement}. */
 export const EmptyAcknowledgementSchema: z.ZodType<EmptyAcknowledgement> = z.object({}).strict();
 
-// --------------------------------------------------------------------------
 // Rename, revoke, forget
-// --------------------------------------------------------------------------
 
 /** A rename, as the `device.renamed` statement the renaming device signs. */
 export interface DeviceRenameRequest {
@@ -329,9 +321,7 @@ export const DeviceForgetRequestSchema: z.ZodType<DeviceForgetRequest, DeviceFor
   .object({ deviceId: DeviceIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // The chain, fetched and handed on
-// --------------------------------------------------------------------------
 
 /** The chain after a given statement; `null` asks for it from the start. */
 export interface DeviceStatementListRequest {
@@ -408,9 +398,7 @@ export const DeviceTrustedListResponseSchema: z.ZodType<DeviceTrustedListRespons
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // Push address and notification switches
-// --------------------------------------------------------------------------
 
 /** Where a device's pushes go. */
 export const PUSH_PLATFORMS = ["apns", "fcm", "webPush"] as const;
@@ -493,9 +481,7 @@ export const DeviceNotificationSettingsSetRequestSchema: z.ZodType<
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // The control plane's procedures, as a table
-// --------------------------------------------------------------------------
 
 /** The device procedures the control plane serves. */
 export interface DeviceProcedureDescriptors {
@@ -623,9 +609,7 @@ export const DEVICE_PROCEDURE_DESCRIPTORS: DeviceProcedureDescriptors = defineMe
   },
 });
 
-// --------------------------------------------------------------------------
 // The service's device methods, as a table
-// --------------------------------------------------------------------------
 
 /** The device methods a machine's service answers over the channel. */
 export interface DeviceMethodDescriptors {
@@ -671,9 +655,7 @@ export const DEVICE_METHOD_DESCRIPTORS: DeviceMethodDescriptors = defineMethodDe
   },
 });
 
-// --------------------------------------------------------------------------
 // controlPlane.call: the desktop's control-plane calls, through the service
-// --------------------------------------------------------------------------
 
 /**
  * The control-plane procedures the desktop's screens call. The window holds no

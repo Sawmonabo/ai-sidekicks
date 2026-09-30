@@ -1,10 +1,7 @@
-// The service's own lifecycle verbs: stop, restart, the flush the main process
-// sends at quit, and the ping it sends when the link has gone quiet.
-//
-// There is no start verb: a stopped service has no socket to receive one, so a
-// start is the supervisor or the command line spawning the process. A quit
-// flushes and leaves the service, every run and every shell running; only stop
-// and restart end work.
+// The service's lifecycle verbs: stop, restart, the flush at quit and the ping on a quiet
+// link. There is no start verb: a stopped service has no socket, so a start is the supervisor
+// or the command line spawning the process. A quit flushes and leaves every run and shell
+// running; only stop and restart end work.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -28,7 +25,7 @@ export const DaemonStopRequestSchema: z.ZodType<DaemonStopRequest, DaemonStopReq
   .object({ idleDrainDeadlineMs: z.number().int().nonnegative().optional() })
   .strict();
 
-/** See {@link DaemonStopRequest}. */
+/** A restart takes the same deadline as {@link DaemonStopRequest}. */
 export interface DaemonRestartRequest {
   idleDrainDeadlineMs?: number | undefined;
 }
@@ -54,6 +51,7 @@ export const DaemonLifecycleAcceptedSchema: z.ZodType<DaemonLifecycleAccepted> =
  * service did not stop or restart. The caller's own connection is never counted.
  */
 export type DaemonLifecycleConflictCode = "daemon.lifecycle_conflict";
+/** Error code for a stop or restart refused because other clients are still connected. */
 export const DAEMON_LIFECYCLE_CONFLICT_CODE: DaemonLifecycleConflictCode =
   "daemon.lifecycle_conflict";
 
@@ -102,7 +100,7 @@ export const DaemonPingRequestSchema: z.ZodType<DaemonPingRequest, DaemonPingReq
   .object({})
   .strict();
 
-/** See {@link DaemonPingRequest}. */
+/** The ping's reply, carrying nothing. */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface DaemonPingResponse {}
 /** Parses a {@link DaemonPingResponse}. */
@@ -129,6 +127,8 @@ export interface DaemonLifecycleMethodDescriptors {
     readonly procedureType: "query";
   };
 }
+
+/** The lifecycle methods' names, procedure types and shapes. */
 export const DAEMON_LIFECYCLE_METHOD_DESCRIPTORS: DaemonLifecycleMethodDescriptors =
   defineMethodDescriptors({
     "daemon.stop": {

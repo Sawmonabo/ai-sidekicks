@@ -1,7 +1,6 @@
-// A descriptor table refuses an entry filed under another method's name, which
-// is what keeps the daemon's composed method map from pairing a name with the
-// wrong shapes. Loosening `MethodDescriptorTable` so an entry's `method` no longer
-// has to equal its key makes the `@ts-expect-error` below an unused directive.
+// A descriptor table refuses an entry filed under another method's name. Loosening
+// `MethodDescriptorTable` so an entry's `method` need not equal its key makes the
+// `@ts-expect-error` below an unused directive.
 import { z } from "zod";
 
 import { defineMethodDescriptors } from "./method-descriptor.js";

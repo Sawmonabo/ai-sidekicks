@@ -1,33 +1,6 @@
-// `worktree.ts` contract core: the two branded ids, the worktree lifecycle
-// enum, the family-payload instantiation over `WorktreeStateSchema`, and the
-// registration of the five `worktree.*` variants into `SessionEventSchema`.
-//
-// Backstops and plus the contract-shape halves of the invariants this file
-// carries:
-//   • Import, never redefine: an identity check proves worktree.ts's
-//     re-export of the execution-mode schema is repo.ts's one declaration
-//     rather than a fork.
-//   • The registry stays closed: `worktree.failed` stays rejected by the
-//     union and absent from the census.
-//
-// Coverage shape (mirrors repo.test.ts, the Phase-1 sibling):
-//   • Every member of every enum parses; out-of-set values are rejected
-//     (base-vocabulary states, case drift), so each pin is a real
-//     accept/reject boundary.
-//   • Branded ids reject a non-UUID, and the brands are nominal AND mutually
-//     nominal at compile time.
-//   • `WorktreeLifecyclePayloadSchema` accepts exactly the six-state worktree
-//     vocabulary and rejects every base-vocabulary state (the per-family
-//     accept set), keeps `.strict()`, and keeps the
-//     family's field contract.
-//   • The five `worktree.*` types parse end-to-end through
-//     `SessionEventSchema` with `worktreeId`-bearing payloads, agree with
-//     their standalone `*EventSchema` exports on every accept/reject axis
-//     (envelope `.strict()` included — the one axis with no compile-time
-//     backstop), and survive JSON round-trips; a category/type mismatch and
-//     a base-vocabulary state are rejected.
-//   • The `index.ts` barrel re-exports every symbol this task provides — the
-//     barrel-gap regression.
+// The worktree contract: the branded ids, the lifecycle state enum, the lifecycle payload, the
+// five `worktree.*` session events, and the request/response pairs. The registry stays closed:
+// `worktree.failed` is rejected by the union and absent from the event roster and census.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -42,12 +15,8 @@ import {
   type SessionEvent,
 } from "../event.js";
 import * as contracts from "../index.js";
-// The canonical DECLARATION, imported from its origin. worktree.ts re-exports
-// the same binding (type and value); the aliased import below is that
-// re-export, held under a distinct local name so the identity pin can compare
-// the two surfaces rather than trivially comparing one to itself.
-// `RepoMountIdSchema` rides along for its compile-time status-record pin —
-// canon, consumed from its origin.
+// The aliased import below is worktree.ts's re-export, under a distinct name so the identity
+// check compares two surfaces rather than one to itself.
 import { ExecutionModeSchema, RepoMountIdSchema } from "../repo.js";
 import { FILE_PATH_MAX_LEN } from "../session.js";
 import {
@@ -77,9 +46,8 @@ import {
   type WorktreeStatusReadResponse,
 } from "../worktree.js";
 
-// Real RFC 9562 UUIDs (mix of v4 and v7) — the same fixture stance as
-// repo.test.ts: `RFC_9562_TEXT_FORM` validates the version nibble + variant bits, so the
-// fixtures must be canonically valid, not lookalike strings.
+// Real RFC 9562 UUIDs (v4 and v7): the schemas validate the version nibble and variant bits,
+// so lookalike strings would not parse.
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
 const WORKSPACE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11";
@@ -89,10 +57,6 @@ const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const OCCURRED_AT = "2026-07-26T09:30:00.000Z";
 const VERSION = "1.0";
 
-// --------------------------------------------------------------------------
-// Canonical enums.
-// --------------------------------------------------------------------------
-
 describe("WorktreeStateSchema (the six-state worktree lifecycle)", () => {
   it.each([
     ["creating", true],
@@ -100,18 +64,16 @@ describe("WorktreeStateSchema (the six-state worktree lifecycle)", () => {
     ["dirty", true],
     ["merged", true],
     ["retired", true],
-    // `failed` is a ROW state with no `worktree.*` event of its own —
-    // but it is fully in the state vocabulary.
+    // `failed` is a row state with no `worktree.*` event of its own, but it is in the vocabulary.
     ["failed", true],
-    // The base-family vocabularies stay out of this plan's accept set
-    // (per-family vocabularies, no shared union).
+    // Repo and workspace states are separate vocabularies, not part of this one.
     ["preparing", false],
     ["attached", false],
     ["detached", false],
     ["busy", false],
     ["stale", false],
     ["archived", false],
-    // Case drift and inventions are contract breaks, not tolerated values.
+    // Case drift and unknown states are refused.
     ["CREATING", false],
     ["retiring", false],
     ["", false],
@@ -120,15 +82,9 @@ describe("WorktreeStateSchema (the six-state worktree lifecycle)", () => {
   });
 
   it("enumerates exactly the six canonical states in the ratified CHECK order", () => {
-    // ORDER, not merely membership — this pin and the two enum pins below are
-    // deliberately UNSORTED. Read through the same `.options` internals cast the sibling
-    // suites use. Declaration order mirrors the `worktrees.state` CHECK clause
-    // byte-for-byte, which is what gives conformance test a byte-exact target when it
-    // closes lockstep from the DDL side. A reorder fails here and forces a re-sync; it
-    // is NOT a wire break (RFC 8785 JCS serializes the literal string — the two-level
-    // note on worktree.ts's). DELIBERATE ASYMMETRY: the `ExecutionModeSchema` pin at the
-    // bottom of this file sorts both sides instead, because that enum is canon with no
-    // `CHECK` clause to mirror.
+    // Order matters, not just membership: it mirrors the `worktrees.state` CHECK clause in the
+    // daemon schema, so a reorder fails here and forces a re-sync. It is not a wire break, since
+    // the literal string is what serializes.
     const schemaInternals = WorktreeStateSchema as unknown as { options: readonly string[] };
     expect(schemaInternals.options).toEqual([
       "creating",
@@ -141,15 +97,8 @@ describe("WorktreeStateSchema (the six-state worktree lifecycle)", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Branded ids.
-// --------------------------------------------------------------------------
-
-// Structural element typing, not inference: the two schemas have DISTINCT
-// branded output types, so an un-annotated literal array widens `schema` to a
-// union that includes `string` and `.parse` stops resolving. The structural
-// view keeps one table driving both (same affordance as
-// `STANDALONE_WORKTREE_EVENT_SCHEMAS` below).
+// Typed structurally: the two schemas have distinct branded output types, so an unannotated
+// array would widen `schema` to a union that includes `string` and `.parse` would not resolve.
 const BRANDED_ID_SCHEMAS: ReadonlyArray<
   readonly [
     string,
@@ -169,20 +118,17 @@ describe("branded worktree / branch-context ids", () => {
     "%s accepts a canonical UUID and rejects non-UUID input",
     (_label, schema, uuid) => {
       const parsed = schema.parse(uuid);
-      // The brand is compile-time only — the runtime value is the input
-      // string.
+      // The brand is compile-time only.
       expect(parsed).toBe(uuid);
       expect(schema.safeParse("worktree-1").success).toBe(false);
       expect(schema.safeParse("").success).toBe(false);
-      // Version/variant nibbles are validated in canonical positions: the
-      // version nibble below is `0`, which RFC 9562 does not define.
+      // The version nibble below is `0`, which RFC 9562 does not define.
       expect(schema.safeParse("0190f8a0-7e2d-0c4a-9b1c-1b7c5b3e8f12").success).toBe(false);
     },
   );
 
-  // Compile-time nominality pins — never executed; present so `tsc -p
-  // tsconfig.test.json` fails if a brand decays to a plain string or the
-  // two brands collapse into one another (the repo.test.ts idiom).
+  // Compile-time pins, never executed: `tsc -p tsconfig.test.json` fails if a brand decays to
+  // a plain string or the two brands collapse into one.
   const brandNominalityPin = (): void => {
     // @ts-expect-error — a raw string is not a WorktreeId without a parse.
     const unbrandedWorktreeId: WorktreeId = WORKTREE_ID;
@@ -190,27 +136,19 @@ describe("branded worktree / branch-context ids", () => {
     // @ts-expect-error — a raw string is not a BranchContextId without a parse.
     const unbrandedBranchContextId: BranchContextId = BRANCH_CONTEXT_ID;
     void unbrandedBranchContextId;
-    // @ts-expect-error — mutually nominal: a parsed WorktreeId is not a
-    // BranchContextId.
+    // @ts-expect-error — a parsed WorktreeId is not a BranchContextId.
     const crossBrand: BranchContextId = WorktreeIdSchema.parse(WORKTREE_ID);
     void crossBrand;
   };
   void brandNominalityPin;
 });
 
-// --------------------------------------------------------------------------
-// WorktreeLifecyclePayloadSchema — the family factory over WorktreeStateSchema.
-// --------------------------------------------------------------------------
-//
-// The factory's own contract (cap propagation, `.strict()` transmission,
-// field-for-field family behavior) is proven in repo.test.ts against an
-// arbitrary instantiation; this block pins the SHIPPED instantiation's
-// accept boundary, which is what registers.
+// The payload factory's own contract is tested in repo.test.ts; this block pins the accept
+// boundary of the worktree instantiation.
 
 const buildWorktreePayload = (state: WorktreeState): WorktreeLifecyclePayload => ({
-  // Narrow-cast on the ID FIELD only, never the whole payload: the payload
-  // type brands `sessionId`, and a fixture literal needs the compile-time
-  // bridge while every parse row below still validates the runtime value.
+  // Cast on the id field only: the payload type brands `sessionId`, and every parse row below
+  // still validates the runtime value.
   sessionId: SESSION_ID as WorktreeLifecyclePayload["sessionId"],
   worktreeId: WORKTREE_ID,
   state,
@@ -220,10 +158,8 @@ describe("WorktreeLifecyclePayloadSchema (the family shape over this plan's voca
   it.each(["creating", "ready", "dirty", "merged", "retired", "failed"])(
     "accepts the worktree vocabulary member %s",
     (state) => {
-      // `failed` INCLUDED — representable in the payload type because the
-      // state enum is the row vocabulary; what V1 pins is that no
-      // `worktree.*` EVENT carries it, which is the closed-registry test
-      // below, not a narrowed payload arm.
+      // `failed` is representable because the state enum is the row vocabulary; that no
+      // `worktree.*` event carries it is the closed-registry test below.
       expect(
         WorktreeLifecyclePayloadSchema.safeParse({ sessionId: SESSION_ID, state }).success,
       ).toBe(true);
@@ -233,9 +169,8 @@ describe("WorktreeLifecyclePayloadSchema (the family shape over this plan's voca
   it.each(["attached", "detached", "preparing", "busy", "stale", "archived"])(
     "REJECTS the base-family vocabulary member %s (per-family accept set)",
     (state) => {
-      // The exact-vocabulary pin: the factory parameterization exists so a
-      // worktree payload can never claim a repo/workspace state (`archived`
-      // sits in BOTH base vocabularies and in neither of this plan's).
+      // A worktree payload can never claim a repo or workspace state (`archived` is in both
+      // of those vocabularies and in neither of this one).
       expect(
         WorktreeLifecyclePayloadSchema.safeParse({
           sessionId: SESSION_ID,
@@ -260,9 +195,7 @@ describe("WorktreeLifecyclePayloadSchema (the family shape over this plan's voca
   });
 
   it("keeps `worktreeId` optional at the SHAPE layer (emitter discipline fills it)", () => {
-    // Subject-id presence is per-type emitter discipline enforced at the
-    // `.parse()` emission seam in Phase 2 — the family shape marks all three
-    // subject ids optional, so a payload without `worktreeId` still parses.
+    // The family shape marks all three subject ids optional; the emitter supplies the right one.
     expect(
       WorktreeLifecyclePayloadSchema.safeParse({ sessionId: SESSION_ID, state: "creating" })
         .success,
@@ -300,31 +233,19 @@ describe("WorktreeLifecyclePayloadSchema (the family shape over this plan's voca
       WorktreeLifecyclePayloadSchema.safeParse({ ...buildWorktreePayload("ready"), actor: null })
         .success,
     ).toBe(true);
-    // Omission is the third guard the test name promises and a separate axis
-    // from `null`: `.optional()` and `.nullable()` are independent, so a
-    // family schema that dropped one would still pass the row above. The
-    // fixture carries no `actor` key at all.
+    // Omission is separate from `null`: `.optional()` and `.nullable()` are independent, so a
+    // schema that dropped one would still pass the row above.
     expect(WorktreeLifecyclePayloadSchema.safeParse(buildWorktreePayload("ready")).success).toBe(
       true,
     );
   });
 });
 
-// --------------------------------------------------------------------------
-// Union registration into SessionEventSchema.
-// --------------------------------------------------------------------------
-
-// Each registered type paired with the state its emitter actually writes —
-// event-transition mapping (row creation → `worktree.created`, `creating ->
-// ready` → `worktree.ready`, and so on; `-> failed` maps to NO event, which
-// is the closed-registry block below).
-//
-// The element type is load-bearing (same stance as repo.test.ts's
-// `REGISTERED_REPO_EVENTS`): `SessionEvent["type"]` is the REGISTERED
-// union's discriminant, so if a later edit drops one of the five arms from
-// `SessionEventSchema`, this fixture stops compiling rather than silently
-// thinning the runtime table. The state half binds to `WorktreeState` the
-// same way.
+// Each event type with the state its emitter writes (row creation is `worktree.created`,
+// `creating -> ready` is `worktree.ready`, and so on; `-> failed` has no event). The element
+// type is load-bearing: `SessionEvent["type"]` is the registered union's discriminant, so
+// dropping an arm from `SessionEventSchema` stops this fixture compiling instead of silently
+// thinning the table.
 const REGISTERED_WORKTREE_EVENTS: ReadonlyArray<readonly [SessionEvent["type"], WorktreeState]> = [
   ["worktree.created", "creating"],
   ["worktree.ready", "ready"],
@@ -333,10 +254,8 @@ const REGISTERED_WORKTREE_EVENTS: ReadonlyArray<readonly [SessionEvent["type"], 
   ["worktree.retired", "retired"],
 ];
 
-// Worktree events carry the full subject context: the worktree id ALWAYS
-// (emitter obligation this suite's fixtures model), plus the mount and
-// workspace the worktree serves — legitimately multi-id rows, which is why
-// the family shape has no "exactly one id" refinement.
+// A worktree event carries the worktree id plus the mount and workspace it serves, so the
+// family shape has no "exactly one id" refinement.
 const buildWorktreeEvent = (eventType: string, state: string) => ({
   id: "evt-worktree-0001",
   sessionId: SESSION_ID,
@@ -362,15 +281,10 @@ describe("SessionEventSchema registration of the five variants", () => {
       const parsed = SessionEventSchema.parse(buildWorktreeEvent(eventType, state));
       expect(parsed.type).toBe(eventType);
       expect(parsed.category).toBe("session_lifecycle");
-      // Cross-check against the independent census registry — the arm's own
-      // `category: z.literal(...)` produced the value above, so only the
-      // registry catches an arm/census disagreement (`category` sits in the
-      // RFC 8785 canonical bytes backing the hash chain).
+      // The arm's own literal produced the category above, so only the separate registry
+      // catches an arm/registry disagreement (`category` is part of the canonical bytes).
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(eventType)).toBe("session_lifecycle");
-      // The payload survives the union branch unchanged — no key added,
-      // dropped, or coerced on the way through. The fixture carries
-      // `worktreeId` (emitter obligation), so this one assertion covers
-      // its survival too.
+      // No payload key is added, dropped or coerced on the way through the union.
       expect(parsed.payload).toStrictEqual(buildWorktreeEvent(eventType, state).payload);
     },
   );
@@ -396,9 +310,7 @@ describe("SessionEventSchema registration of the five variants", () => {
   );
 
   it("rejects a base-vocabulary state through the union branch (the per-family pin, union level)", () => {
-    // The reciprocal of repo.test.ts's disjointness rows: a registered
-    // `worktree.*` arm must not admit a repo/workspace state, or the
-    // parameterized-payload design has silently regressed to a shared union.
+    // A registered `worktree.*` arm must not admit a repo or workspace state.
     expect(
       SessionEventSchema.safeParse(buildWorktreeEvent("worktree.ready", "attached")).success,
     ).toBe(false);
@@ -414,8 +326,7 @@ describe("SessionEventSchema registration of the five variants", () => {
   });
 
   it("lists all five types in SESSION_EVENT_TYPES (the same-diff roster rule)", () => {
-    // The roster is hand-written, so registration and roster must move in
-    // one diff; the full roster order pin lives in session-event.test.ts.
+    // The roster is hand-written; its full order is pinned in session-event.test.ts.
     expect(SESSION_EVENT_TYPES).toEqual(
       expect.arrayContaining([
         "worktree.created",
@@ -428,10 +339,8 @@ describe("SessionEventSchema registration of the five variants", () => {
   });
 });
 
-// The standalone exports are what the emitter validates against before
-// append — they must agree with the independently-spelled union arms or the
-// two surfaces drift (the repo.test.ts standalone-vs-union stance).
-// Structural `safeParse` typing sidesteps `z.ZodType` variance.
+// The emitter validates against the standalone schemas before appending, so they must agree
+// with the union arms. Typed structurally to sidestep `z.ZodType` variance.
 const STANDALONE_WORKTREE_EVENT_SCHEMAS: ReadonlyArray<
   readonly [
     SessionEvent["type"],
@@ -468,26 +377,15 @@ describe("standalone worktree event schemas agree with the union arms", () => {
   it.each(STANDALONE_WORKTREE_EVENT_SCHEMAS)(
     "%s standalone refuses a spurious ENVELOPE key and a category mismatch (state %s)",
     (eventType, state, standaloneSchema) => {
-      // Outer `.strict()` is the one axis of this parity with NO compile-time
-      // backstop. A widened `type` or `category` literal fails against the
-      // `z.ZodType<Worktree*Event>` annotation, and payload strictness cannot
-      // diverge because both surfaces reference the same
-      // `WorktreeLifecyclePayloadSchema` object — but a schema's inferred
-      // output type does not reflect outer `.strict()`, so a copy-paste slip
-      // that dropped it from one of the five exports would typecheck green
-      // and STRIP the spurious key instead of rejecting. The emitter
-      // validates through this surface would then append canonical bytes it
-      // never built, surfacing much later as a strict-union rejection at
-      // replay. The union control on each row is what makes the verdict a
-      // parity statement rather than a lone rejection.
+      // The outer `.strict()` has no compile-time backstop: an inferred type does not show it,
+      // so a standalone schema that dropped it would typecheck and strip the stray key instead
+      // of rejecting it. The emitter would then append bytes it never built, and replay would
+      // reject them much later.
       const fixture = buildWorktreeEvent(eventType, state);
       const withSpuriousEnvelopeKey = { ...fixture, spuriousEnvelopeKey: "x" };
       expect(standaloneSchema.safeParse(withSpuriousEnvelopeKey).success).toBe(false);
       expect(SessionEventSchema.safeParse(withSpuriousEnvelopeKey).success).toBe(false);
-      // `category` sits in the RFC 8785 canonical bytes backing the hash
-      // chain — pinned on the union above, pinned here on the standalone
-      // surface (the fourth axis of the repo.test.ts precedent this block
-      // mirrors).
+      // `category` is part of the canonical bytes, so the standalone schema pins it too.
       const withMismatchedCategory = { ...fixture, category: "usage_telemetry" as const };
       expect(standaloneSchema.safeParse(withMismatchedCategory).success).toBe(false);
       expect(SessionEventSchema.safeParse(withMismatchedCategory).success).toBe(false);
@@ -495,18 +393,11 @@ describe("standalone worktree event schemas agree with the union arms", () => {
   );
 });
 
-// --------------------------------------------------------------------------
-// The registry stays closed.
-// --------------------------------------------------------------------------
-
 describe("registry stays closed", () => {
   it("rejects `worktree.failed` through the union regardless of payload state", () => {
-    // Two rows isolate the axes: with `state: "ready"` the payload WOULD
-    // parse under a family arm if one existed, so the rejection is purely
-    // the missing type arm; with `state: "failed"` the full would-be shape
-    // of the deliberately-unminted event is refused end-to-end. The `->
-    // failed` transition emits no worktree event — the failure incident is
-    // evented as `workspace.stale` by the coupled `failRootPreparation`.
+    // With `state: "ready"` the payload would parse under a family arm, so the rejection is
+    // purely the missing type arm. A `-> failed` transition emits no worktree event; the
+    // failure is evented as `workspace.stale`.
     expect(
       SessionEventSchema.safeParse(buildWorktreeEvent("worktree.failed", "ready")).success,
     ).toBe(false);
@@ -516,34 +407,20 @@ describe("registry stays closed", () => {
   });
 
   it("keeps `worktree.failed` out of the roster AND out of the census", () => {
-    //
-    // Both lookups widen deliberately: `SESSION_EVENT_TYPES` is
-    // `SessionEvent["type"][]` and the registry is keyed on
-    // `SessionEventType`, so a literal that is (correctly) in NEITHER cannot
-    // be passed at its declared key type — the `as never` affordance
-    // session-event.test.ts uses for its own unregistered-literal probes.
+    // The lookups are widened because a literal in neither cannot be passed at the declared
+    // key type.
     expect(SESSION_EVENT_TYPES as readonly string[]).not.toContain("worktree.failed");
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.has("worktree.failed" as never)).toBe(false);
   });
 });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 describe("execution-mode taxonomy (import)", () => {
   it("re-exports the canonical schema VALUE by identity, never a fork", () => {
-    // The runtime half of the re-export, pinned directly on worktree.ts's own
-    // surface — the binding the `ExecutionModeSelectRequest` /
-    // `ExecutionModeSelectResponse` Zod pairs consume. A two-member enum
-    // REDEFINED in worktree.ts would pass every `.options` assertion; only
+    // A two-member enum redefined in worktree.ts would pass every `.options` assertion; only
     // object identity refuses it.
     expect(ExecutionModeSchemaFromWorktreeReExport).toBe(ExecutionModeSchema);
   });
 });
-
-// --------------------------------------------------------------------------
-// Barrel surface.
-// --------------------------------------------------------------------------
 
 describe("index.ts re-exports contract core", () => {
   it("re-exports every runtime symbol by identity (the barrel-gap regression)", () => {
@@ -558,8 +435,7 @@ describe("index.ts re-exports contract core", () => {
     expect(contracts.WorktreeRetiredEventSchema).toBe(WorktreeRetiredEventSchema);
   });
 
-  // Compile-time reachability of the type surface through the barrel —
-  // never executed, present for `tsc -p tsconfig.test.json`.
+  // Compile-time reachability of the types through the barrel, never executed.
   const barrelTypeSurfacePin = (): void => {
     const worktreeState: contracts.WorktreeState = "merged";
     void worktreeState;
@@ -573,27 +449,14 @@ describe("index.ts re-exports contract core", () => {
   void barrelTypeSurfacePin;
 });
 
-// ==========================================================================
-// Wire surfaces — the five `repo.*` request/response pairs.
-// ==========================================================================
+// Every `state` field composes the canonical enum object, so a re-spelled literal union fails
+// the vocabulary rows below. Execution-root prepare leaves `branchName` optional in the schema
+// and the service refuses its absence.
 //
-// Coverage, one per pair: select distinguishes the two canonical modes and
-// records one; prepare creates-or-binds the root and carries explicit reuse;
-// the reuse check reports branch, cleanliness, and compatibility; retire
-// records retirement independent of disk deletion; the status read exposes
-// worktree records with provenance. Every `state` field composes the canonical
-// enum object, so a re-spelled literal union that fell outside the DDL
-// lockstep fails the vocabulary rows below; execution-root prepare leaves
-// `branchName` schema-optional and refuses service-side.
-//
-// THE `.strict()` PIN IS BEHAVIORAL AND EXHAUSTIVE (the block at the end of
-// this file). Outer `.strict()` leaves no trace in a schema's inferred output
-// type, so a dropped `.strict()` typechecks green and silently STRIPS the
-// unknown key instead of rejecting it. Eleven shapes are pinned there: the ten
-// exported schemas plus the status-read ITEM schema, which is closed
-// independently of its envelope. Those rows also carry the "parse-accept one
-// in-shape fixture per shape" floor for all ten, since each pin asserts its
-// fixture parses before adding the stray key.
+// The `.strict()` rows at the end of this file are the only guard on closed shapes: an outer
+// `.strict()` leaves no trace in the inferred type, so a dropped one typechecks and silently
+// strips the unknown key. They cover the ten exported schemas plus the status-read item schema,
+// which is closed independently of its envelope, and each also proves its fixture parses.
 
 const RUN_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f15";
 const EXECUTION_ROOT = "/Users/dev/.ai-sidekicks/execution-roots/mount-0190f8a0/worktrees/wt-01";
@@ -602,12 +465,10 @@ const BASE_REF = "main";
 const CREATED_AT = "2026-07-26T09:30:00.000Z";
 const UPDATED_AT = "2026-07-26T09:31:00.000Z";
 
-// The three inputs that separate `wireFreeFormString` from a bare `z.string()`:
-// empty, whitespace-only, and an embedded NUL byte. A guard downgrade at any
-// single call site is otherwise INVISIBLE — the inferred type stays `string`,
-// so tsc stays green, and every other row in this suite still passes. Fields
-// whose cap row already fails against a bare `z.string()` (`baseRef`, the reuse
-// response's `branchName`, `reason`) do not need a row here.
+// The inputs that separate `wireFreeFormString` from a bare `z.string()`: empty, whitespace
+// only, and an embedded NUL byte. A downgrade at one call site is otherwise invisible, since
+// the inferred type stays `string`. Fields whose cap row already fails a bare `z.string()`
+// (`baseRef`, the reuse response's `branchName`, `reason`) need no row here.
 const GUARD_DOWNGRADE_VALUES: readonly string[] = [
   "",
   "   ",
@@ -624,7 +485,7 @@ const buildExecutionModeSelectResponse = () => ({
   state: "preparing",
 });
 
-// The MINIMAL lawful prepare request — `workspaceId` alone.
+// The minimal lawful prepare request.
 const buildExecutionRootPrepareRequest = () => ({ workspaceId: WORKSPACE_ID });
 const buildExecutionRootPrepareResponse = () => ({
   executionRoot: EXECUTION_ROOT,
@@ -684,9 +545,7 @@ const buildWorktreeStatusReadResponse = () => ({
   },
 });
 
-// Override-parse helpers, the repo.test.ts affordance: the fixtures above stay
-// explicit while the assertion lines below read at a glance. Field-OMISSION
-// cases still `delete` the key directly, which no override form can express.
+// Override-parse helpers; field-omission cases still `delete` the key directly.
 const parseSelectRequest = (overrides: Record<string, unknown> = {}) =>
   ExecutionModeSelectRequestSchema.safeParse({
     ...buildExecutionModeSelectRequest(),
@@ -712,10 +571,8 @@ const parseReuseCheckResponse = (overrides: Record<string, unknown> = {}) =>
     ...buildWorktreeReuseCheckResponse(),
     ...overrides,
   });
-// Status-read helpers reach INTO the array: every interesting failure mode is
-// per-RECORD, and a top-level override could not express one. The record
-// helper takes a whole record (so the field-omission rows can `delete` a key);
-// the override helper rides it for the common in-shape case.
+// Status-read helpers reach into the array because failures are per record. The record helper
+// takes a whole record so omission rows can `delete` a key.
 const parseStatusReadWorktreeRecord = (record: Record<string, unknown>) =>
   WorktreeStatusReadResponseSchema.safeParse({
     ...buildWorktreeStatusReadResponse(),
@@ -732,13 +589,13 @@ describe("ExecutionModeSelect request (records the mode)", () => {
   it.each(["bound-root", "provisioned-worktree"])(
     "distinguishes the canonical mode %s",
     (executionMode) => {
-      // Reached through the imported taxonomy, so both are wire-lawful here.
+      // Both modes are wire-lawful.
       expect(parseSelectRequest({ executionMode }).success).toBe(true);
     },
   );
 
   it.each([
-    // A plausible-but-absent mode, and the empty string.
+    // A plausible but absent mode, and the empty string.
     ["detached"],
     [""],
   ])("rejects the out-of-taxonomy executionMode %s", (executionMode) => {
@@ -746,9 +603,8 @@ describe("ExecutionModeSelect request (records the mode)", () => {
   });
 
   it.each(["workspaceId", "executionMode"])("rejects a select missing %s", (field) => {
-    // Neither field has a wire default: a default on `executionMode` would make
-    // "caller omitted the mode" indistinguishable from "caller chose that mode"
-    // on the one surface whose whole job is recording an explicit switch.
+    // A default on `executionMode` would make an omitted mode look like a chosen one on the
+    // surface that records an explicit switch.
     const broken = { ...buildExecutionModeSelectRequest() } as Record<string, unknown>;
     delete broken[field];
     expect(ExecutionModeSelectRequestSchema.safeParse(broken).success).toBe(false);
@@ -763,30 +619,23 @@ describe("ExecutionModeSelect response (records the mode)", () => {
   it.each(["bound-root", "provisioned-worktree"])(
     "echoes back the full two-mode taxonomy — %s",
     (executionMode) => {
-      // The response echo is not a narrower surface than the request: makes an
-      // unavailable mode a typed `workspace.mode_unsupported` refusal, so every
-      // mode the request accepts must be echoable. A narrowing like
-      // `z.enum(["provisioned-worktree"])` is assignable to the wider
-      // `ExecutionMode` annotation, so it typechecks green and passes every
-      // other row here while silently refusing a lawful answer.
+      // Every mode the request accepts must be echoable (an unavailable one is refused as
+      // `workspace.mode_unsupported`). A narrower enum still typechecks against the wider
+      // annotation, so only this row catches it.
       expect(parseSelectResponse({ executionMode }).success).toBe(true);
     },
   );
 
   it("rejects an out-of-taxonomy executionMode on the response too", () => {
-    // Negative control on the row above — response validation is not laxer
-    // than request validation (validates both directions).
+    // Response validation is no laxer than request validation.
     expect(parseSelectResponse({ executionMode: "detached" }).success).toBe(false);
   });
 
   it.each(["preparing", "ready", "busy", "stale", "archived"])(
     "carries the full WorkspaceState vocabulary, not a two-literal narrowing — %s",
     (state) => {
-      // The ratified block types this field `WorkspaceState` and glosses the
-      // two expected values in a comment; a `z.enum(["ready","preparing"])`
-      // would silently reject the other three lawful states while passing
-      // every other row here. Contrast the `Extract`-narrowed retire `state`
-      // below, where the ratified block narrows the TYPE.
+      // A two-literal enum would silently reject the other three lawful states. The retire
+      // response, by contrast, narrows its state to `retired` on purpose.
       expect(parseSelectResponse({ state }).success).toBe(true);
     },
   );
@@ -794,9 +643,7 @@ describe("ExecutionModeSelect response (records the mode)", () => {
   it.each(["creating", "dirty", "merged", "retired", "failed", "exploded"])(
     "still rejects the non-workspace state %s (non-narrowed is not unvalidated)",
     (state) => {
-      // Negative control on the row above — and contract half: the field
-      // composes the `WorkspaceStateSchema`, so THIS plan's worktree
-      // vocabulary must not leak into a workspace-state slot.
+      // The field composes `WorkspaceStateSchema`, so the worktree vocabulary must not leak in.
       expect(parseSelectResponse({ state }).success).toBe(false);
     },
   );
@@ -804,8 +651,8 @@ describe("ExecutionModeSelect response (records the mode)", () => {
 
 describe("ExecutionRootPrepare request (create or bind)", () => {
   it("accepts the minimal shape — workspaceId alone (schema-optional branch)", () => {
-    // `branchName` is optional in the SHAPE: a wire prepare without it draws
-    // the typed service-side `workspace.branch_name_required` (400) refusal.
+    // `branchName` is optional in the shape; the service refuses its absence with
+    // `workspace.branch_name_required`.
     expect(parsePrepareRequest().success).toBe(true);
   });
 
@@ -821,26 +668,21 @@ describe("ExecutionRootPrepare request (create or bind)", () => {
   });
 
   it("carries NO wire runId — run provenance is gate-supplied service-side", () => {
-    // The run-setup gate calls the service directly and supplies the run id
-    // that populates `worktrees.created_by_run_id`. A wire `runId` would let a
-    // caller forge provenance on a row the gate owns, so `.strict()` refuses
-    // the key rather than ignoring it.
+    // The run-setup gate calls the service directly and supplies the run id. A wire `runId`
+    // would let a caller forge provenance, so `.strict()` refuses the key.
     expect(parsePrepareRequest({ runId: RUN_ID }).success).toBe(false);
   });
 
   it("requires workspaceId — the one field on this request that is not optional", () => {
-    // Worth its own row precisely BECAUSE the other four are optional: the
-    // minimal-shape row above passes a lone `workspaceId`, so if that field
-    // ever became optional the schema would accept `{}` and every existing row
-    // here would still be green.
+    // The other four fields are optional, so if this one became optional too, `{}` would parse
+    // and every other row would stay green.
     expect(ExecutionRootPrepareRequestSchema.safeParse({}).success).toBe(false);
     expect(parsePrepareRequest({ workspaceId: "workspace-1" }).success).toBe(false);
   });
 
   it("requires a canonical-UUID reuseWorktreeId and a boolean acknowledgement", () => {
     expect(parsePrepareRequest({ reuseWorktreeId: "worktree-1" }).success).toBe(false);
-    // A string "true" is the classic HTML-form coercion bug; consent to bind a
-    // dirty candidate is affirmative and typed, never coerced.
+    // Consent to bind a dirty candidate is a real boolean, never a coerced string.
     expect(parsePrepareRequest({ acknowledgeDirtyCandidate: "true" }).success).toBe(false);
   });
 
@@ -855,20 +697,15 @@ describe("ExecutionRootPrepare request (create or bind)", () => {
   });
 
   it("does NOT bound the ref fields at the 4096 path cap (the two classes differ)", () => {
-    // NEGATIVE CONTROL on the cap choice: a ref name capped at
-    // `FILE_PATH_MAX_LEN` by a copy-paste would accept this 4096-character
-    // value and pass every other row in this block.
+    // A ref capped at `FILE_PATH_MAX_LEN` by mistake would accept this value.
     const pathLengthBranch = "b".repeat(FILE_PATH_MAX_LEN);
     expect(parsePrepareRequest({ branchName: pathLengthBranch }).success).toBe(false);
   });
 });
 
-// The two mode-discriminated response shapes, keyed by which root id each
-// carries. Both modes carry `branchContextId`. The element type is spelled out rather than
-// inferred: an un-annotated literal array widens each row to a union that
-// includes `string`, and the spread in the test body then stops
-// type-checking as an object (the `REGISTERED_WORKTREE_EVENTS` stance
-// above).
+// The two response shapes by mode; both carry `branchContextId`. Typed explicitly: an
+// unannotated array widens each row to a union including `string`, and the spread below would
+// stop typechecking as an object.
 const PREPARE_RESPONSE_MODE_SHAPES: ReadonlyArray<readonly [string, Record<string, string>]> = [
   ["provisioned-worktree mode", { worktreeId: WORKTREE_ID, branchContextId: BRANCH_CONTEXT_ID }],
   ["bound-root mode", { branchContextId: BRANCH_CONTEXT_ID }],
@@ -885,9 +722,7 @@ describe("ExecutionRootPrepare response (a root or a typed refusal, never both)"
   });
 
   it("rejects a response with no executionRoot — unrepresentable-absent", () => {
-    // Preparation failure ABORTS with a typed error (`worktree.create_failed`)
-    // and admits no fallback root, so there is no
-    // partial success carrying an unresolved one.
+    // A failed preparation aborts with a typed error and admits no fallback root.
     const broken = { ...buildExecutionRootPrepareResponse() } as Record<string, unknown>;
     delete broken["executionRoot"];
     expect(ExecutionRootPrepareResponseSchema.safeParse(broken).success).toBe(false);
@@ -902,18 +737,14 @@ describe("ExecutionRootPrepare response (a root or a typed refusal, never both)"
   it.each(["preparing", "ready", "busy", "stale", "archived"])(
     "carries the full WorkspaceState vocabulary after the reprovision bracket — %s",
     (state) => {
-      // The fixture only ever exercises `ready`, so without this row a
-      // narrowing to `z.enum(["ready"])` — assignable to the wider
-      // `WorkspaceState` annotation, therefore green under tsc — would pass the
-      // whole block while refusing four lawful positions.
+      // The fixture only uses `ready`; a narrowing to `z.enum(["ready"])` typechecks and would
+      // otherwise pass while refusing four lawful states.
       expect(parsePrepareResponse({ state }).success).toBe(true);
     },
   );
 
   it("rejects a worktree state in the workspace-state slot", () => {
-    // Negative control, and contract half: this field composes the
-    // `WorkspaceStateSchema`, so THIS plan's vocabulary must not leak into
-    // it.
+    // The field composes `WorkspaceStateSchema`, so the worktree vocabulary must not leak in.
     expect(parsePrepareResponse({ state: "dirty" }).success).toBe(false);
     expect(parsePrepareResponse({ state: "creating" }).success).toBe(false);
   });
@@ -931,19 +762,16 @@ describe("WorktreeReuseCheck (branch, cleanliness, compat)", () => {
   });
 
   it.each(["repoMountId", "branchName"])("rejects a check missing %s", (field) => {
-    // `branchName` is REQUIRED here even though the prepare request leaves it
-    // optional: a reuse check with no branch has no key to look its singular
-    // candidate up by, and the derivation-seed argument does not reach a pure
-    // read.
+    // `branchName` is required here though prepare leaves it optional: a check with no branch
+    // has no key to look its candidate up by.
     const broken = { ...buildWorktreeReuseCheckRequest() } as Record<string, unknown>;
     delete broken[field];
     expect(WorktreeReuseCheckRequestSchema.safeParse(broken).success).toBe(false);
   });
 
   it("applies the wireFreeFormString guard to the request branchName", () => {
-    // The request half has no cap row of its own (the response half carries
-    // one), so a downgrade to a bare `z.string()` here would let a blank
-    // lookup key through to a query that can only ever miss.
+    // This side has no cap row of its own, so a bare `z.string()` would let a blank lookup key
+    // through to a query that can only miss.
     for (const hostile of GUARD_DOWNGRADE_VALUES) {
       const probe = { ...buildWorktreeReuseCheckRequest(), branchName: hostile };
       expect(WorktreeReuseCheckRequestSchema.safeParse(probe).success).toBe(false);
@@ -951,9 +779,7 @@ describe("WorktreeReuseCheck (branch, cleanliness, compat)", () => {
   });
 
   it("accepts the bare negative answer — `available: false` alone", () => {
-    // Not a degenerate shape: every other field DESCRIBES a candidate, so
-    // "no live candidate" is complete with one field. The absence of a
-    // cross-field refinement is what makes it parse.
+    // Every other field describes a candidate, so "no live candidate" is complete with one field.
     expect(WorktreeReuseCheckResponseSchema.safeParse({ available: false }).success).toBe(true);
   });
 
@@ -990,11 +816,10 @@ describe("WorktreeReuseCheck (branch, cleanliness, compat)", () => {
     const overCap = "r".repeat(WORKTREE_REUSE_REASON_MAX_LEN + 1);
     expect(parseReuseCheckResponse({ reason: atCap }).success).toBe(true);
     expect(parseReuseCheckResponse({ reason: overCap }).success).toBe(false);
-    // The two caps are DIFFERENT classes (512 vs 256), and this row is what
-    // catches a swap: a `reason` capped at the ref length would refuse this
-    // perfectly lawful 300-character explanation.
+    // The reason and ref caps differ (512 and 256); a reason capped at the ref length would
+    // refuse this lawful 300-character explanation.
     expect(parseReuseCheckResponse({ reason: "r".repeat(300) }).success).toBe(true);
-    // ... while a `branchName` capped at the reason length would accept one.
+    // A `branchName` capped at the reason length would accept one.
     expect(parseReuseCheckResponse({ branchName: "b".repeat(300) }).success).toBe(false);
   });
 });
@@ -1010,11 +835,9 @@ describe("WorktreeRetire (records retirement)", () => {
     const response = buildWorktreeRetireResponse();
     expect(WorktreeRetireResponseSchema.safeParse(response).success).toBe(true);
     for (const state of ["creating", "ready", "dirty", "merged", "failed"]) {
-      // `Extract<WorktreeState, "retired">`. `failed` is the pointed exclusion:
-      // a failed CREATION never materialized a checkout, so it is not a retire
-      // outcome — and a retire refused while the root is busy is the typed
-      // `worktree.retire_conflict` error, not a response carrying the
-      // unchanged state.
+      // A failed creation never made a checkout, so `failed` is not a retire outcome, and a
+      // retire refused while the root is busy is a `worktree.retire_conflict` error rather than
+      // a response with the unchanged state.
       expect(WorktreeRetireResponseSchema.safeParse({ ...response, state }).success).toBe(false);
     }
   });
@@ -1097,23 +920,13 @@ describe("WorktreeStatusRead (the switcher's one read, keyed by the project's fo
   });
 });
 
-// --------------------------------------------------------------------------
-// `.strict()` — the behavioral pin on all eleven shapes.
-// --------------------------------------------------------------------------
-//
-// Outer `.strict()` is TYPE-INVISIBLE: a schema's inferred output does not
-// reflect it, so a dropped `.strict()` compiles green and silently STRIPS the
-// unknown key. Nothing else in this suite would catch that — which is why
-// every shape gets a row here rather than a sampled few.
+// Every shape gets a row, since nothing else catches a dropped outer `.strict()`.
 
 const expectClosedShape = (
   schema: { safeParse: (candidate: unknown) => { success: boolean } },
   fixture: Record<string, unknown>,
 ): void => {
-  // Accept THEN reject: the accept leg proves the fixture is in-shape, so the
-  // rejection is attributable to the stray key alone and not to a fixture that
-  // never parsed. It also carries this block's second job — one parse-accept
-  // per shape, all ten exported schemas.
+  // Accepting first proves the fixture is in-shape, so the rejection is due to the stray key.
   expect(schema.safeParse(fixture).success).toBe(true);
   expect(schema.safeParse({ ...fixture, unknownWireKey: "leak" }).success).toBe(false);
 };
@@ -1136,22 +949,14 @@ describe("`.strict()` closes every wire shape (behavioral pin)", () => {
   });
 
   it("closes the status-read item schema independently of its envelope", () => {
-    // The envelope's own `.strict()` cannot reach inside an array element, so
-    // an item-level guard is a separate obligation — the wire shape is closed
-    // at both levels (the `workspaceListItemSchema` precedent). This row is why
-    // the count is eleven, not ten.
+    // The envelope's `.strict()` cannot reach inside an array element, so the item needs its
+    // own guard.
     expect(parseStatusReadWithWorktree({ unknownWireKey: "leak" }).success).toBe(false);
   });
 });
 
-// --------------------------------------------------------------------------
-// Compile-time pins for shapes.
-// --------------------------------------------------------------------------
-//
-// Never executed; present so `tsc -p tsconfig.test.json` fails if a narrowing
-// or a required field is weakened. Each directive self-verifies: relax the
-// constraint and TypeScript reports the directive unused (TS2578), turning the
-// typecheck leg red rather than silently dropping the pin.
+// Compile-time pins, never executed: `tsc -p tsconfig.test.json` fails if a narrowing or a
+// required field is weakened.
 
 const extractNarrowingPins = (): void => {
   // @ts-expect-error — WorktreeRetireResponse admits `retired` only.
@@ -1161,10 +966,8 @@ const extractNarrowingPins = (): void => {
 void extractNarrowingPins;
 
 const worktreeStatusRecordProvenancePin = (): void => {
-  // @ts-expect-error — a worktree record with no creating-session provenance.
-  // Every OTHER field is populated correctly, so the missing
-  // `createdBySessionId` is the only error the directive can be consuming: the
-  // field is required on the TYPE, not merely at parse time.
+  // @ts-expect-error — a worktree record with no creating-session provenance. Every other
+  // field is present, so the missing `createdBySessionId` is the only error consumed.
   const missingCreatedBySessionId: WorktreeStatusReadResponse["worktrees"][number] = {
     worktreeId: WorktreeIdSchema.parse(WORKTREE_ID),
     repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
@@ -1186,9 +989,7 @@ void worktreeStatusRecordProvenancePin;
 
 describe("index.ts re-exports wire surfaces", () => {
   it("re-exports every runtime symbol by identity", () => {
-    // The barrel-gap regression. This module added `export *
-    // from "./worktree.js"`, so these ride it — the pin is that they actually
-    // reach the public surface, star export or not.
+    // These ride the barrel's star export; the check is that they reach the public surface.
     expect(contracts.ExecutionModeSelectRequestSchema).toBe(ExecutionModeSelectRequestSchema);
     expect(contracts.ExecutionModeSelectResponseSchema).toBe(ExecutionModeSelectResponseSchema);
     expect(contracts.ExecutionRootPrepareRequestSchema).toBe(ExecutionRootPrepareRequestSchema);
@@ -1203,7 +1004,7 @@ describe("index.ts re-exports wire surfaces", () => {
     expect(contracts.WORKTREE_REUSE_REASON_MAX_LEN).toBe(WORKTREE_REUSE_REASON_MAX_LEN);
   });
 
-  // Compile-time reachability of type surface through the barrel.
+  // Compile-time reachability of the types through the barrel.
   const barrelWireTypePin = (): void => {
     const selectRequest: contracts.ExecutionModeSelectRequest =
       ExecutionModeSelectRequestSchema.parse(buildExecutionModeSelectRequest());
@@ -1215,10 +1016,6 @@ describe("index.ts re-exports wire surfaces", () => {
   };
   void barrelWireTypePin;
 });
-
-// --------------------------------------------------------------------------
-// Removing a worktree: keep or discard, and carrying uncommitted work.
-// --------------------------------------------------------------------------
 
 const REMOVED_WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f22";
 

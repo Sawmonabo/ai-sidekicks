@@ -1,101 +1,21 @@
-// Internal provider-driver contract — the normalized surface every provider
-// integration (Codex, Claude, …) implements so the session engine never sees
-// provider-native types. Exact field set mirrors the canonical TypeScript
-// shapes — Provider Driver Contract (verbatim — adding/removing/renaming a
-// field here is a contract break and requires the spec edit first).
+// The normalized surface every provider driver (Codex, Claude) implements, so the session engine
+// never sees provider-native types.
 //
-// Trust-boundary asymmetry — why some surfaces are nominal TS and others are Zod:
-//   1. NOMINAL TypeScript (no runtime validation), of two distinct origins:
-//        (a) daemon-CONSTRUCTED PARAMS — the `ProviderDriver` methods and all
-//            param types (`CreateSessionParams` … `ApplyInterventionParams` + the
-//            intervention payloads). The daemon constructs these in-process and
-//            hands them to the driver; the caller IS the trusted runtime, so
-//            there is genuinely nothing untrusted to parse.
-//        (b) driver-CONSTRUCTED RETURNS — the capability / handle / model / mode
-//            shapes (`DriverCapabilityFlag`, `DriverCapabilities`,
-//            `GetCapabilitiesResult`, `ProviderSessionHandle`, `ProviderModel`,
-//            `ProviderMode`). These are NOT daemon-constructed: `getCapabilities`
-//            returns `GetCapabilitiesResult`/`DriverCapabilities`, `createSession`
-//            returns `ProviderSessionHandle`, `listModels`/`listModes` return
-//            `ProviderModel`/`ProviderMode`. They ship nominal by design — see the
-//            two-boundary model below for why that is sound.
-//        TWO-BOUNDARY MODEL: a driver MAY call a remote/native provider behind
-//      The trust boundary is at the *driver*, not at this contract layer. The
-//      driver — implementation, which is daemon-OWNED code — normalizes raw
-//      provider output at ITS boundary and returns these nominal types to the
-//      daemon as already-trusted normalized values. The contract-definition
-//      layer here does not re-parse them; re-parsing trusted-after-normalization
-//      output would be redundant.
-//        PRINCIPLE (what Phase 1 Zod-validates, and what it deliberately does
-//      not): Phase 1 validates HERE only the returns that carry a contract-level
-//      invariant or normalization — `DriverResumeResult` (structural),
-//      `ProviderToolMetadata` (`.default()` normalization), and
-//      `DriverInterventionResult` (ratified wire shape; see (2)). EVERY OTHER
-//      provider-output return is validated at its write/normalize seam — or
-//      Phase 3 (driver normalization) — NOT at this contract-definition layer.
-//      Two concrete persisted fields are deferred-but-TRACKED this way:
-//      `DriverCapabilities.contractVersion` (persisted to
-//      `driver_contract_meta.contract_version`, a semver) and
-//      `ProviderSessionHandle.resumeHandle` (persisted to
-//      `runtime_bindings.resume_handle`) receive their length / format bounds at
-//      the Phase-2 write seam, NOT at this layer.
-//   2. ZOD-VALIDATED HERE: the driver RESULT envelopes
-//      (`DriverInterventionResultSchema`, `DriverResumeResultSchema`,
-//      `ForkConversationResultSchema`, `DriverAuthProbeResultSchema`, one per
-//      RESULT TYPE — the goal operations return nothing and throw a provider
-//      refusal — and the two adds, `DriverTranscriptExportResultSchema` /
-//      `DriverTranscriptReplayResultSchema`, and add
-//      `DriverCompactionResultSchema`), the provider-DECLARED tool metadata
-//      (`ProviderToolMetadataSchema`), and the FOUR driver-NORMALIZED seam shapes
-//      (`CallbackToolInvocationSchema`, `McpServerStatusEmissionSchema`, and adds
-//      `ProviderCommandEntrySchema` / `ProviderOutputSpeedStateSchema`), each built
-//      from provider wire output BEFORE the daemon-injected `CreateSessionParams`
-//      callback sees it. The two transcript envelopes join them on that same rule
-//      rather than on a new one — a driver constructs each from what its own provider
-//      accepted, and each carries the closed-vocabulary `declaredLosses`, where an
-//      unnamed loss class is precisely the drift a caller reading "nothing was
-//      dropped" off an empty array must not inherit. `DriverCompactionResultSchema`
-//      joins them on that same rule and adds a structural one of its own: the
-//      discriminated shape is what makes "no `applied` without a
-//      `boundaryPosition`" and "no `capability_undeclared` reason at all" refusals
-//      rather than conventions. All of them parse UNTRUSTED provider output — the
-//      trust boundary — so they need runtime validation.
-//      `ProviderToolMetadataSchema` additionally carries the parse-time
-//      `idempotency_class` → `manual_reconcile_only` normalization that only a
-//      schema's `.default()` provides.
-//        Within these Zod-validated surfaces there is a further asymmetry: the
-//      result envelopes are `.strict()` (fixed-protocol response shapes — an unknown key
-//      signals a protocol violation, so reject), while `ProviderToolMetadataSchema` STRIPS
-//      unknown keys (extensible declaration surface — forward-compat: "Unknown capability
-//      fields are ignored (tolerant reader)"). The four seam shapes side with the
-//      ENVELOPES, not with the tool metadata: `CallbackToolInvocation`,
-//      `McpServerStatusEmission`, `ProviderCommandEntry`, and `ProviderOutputSpeedState`
-//      are fixed-field wire translations the DRIVER constructs, so the tolerant-reader
-//      rationale (an extensible surface the PROVIDER declares and later versions grow)
-//      does not reach them — an unknown key there is a driver bug, so all four are
-//      `.strict()`. After this file realizes ALL SEVENTEEN strings the canonical doc's
-//      seventeen-string enumeration names, over the TWELVE PROVIDER-BOUNDARY length caps
-//      declared below — carrying that re-derivation from twelve with the five strings its
-//      console-parity shapes introduced. Both counts are scoped to THIS boundary: the
-//      seventeen-string enumeration censuses provider OUTPUT, so the SDK-seam caps (3)
-//      declares are a SEPARATE set and move neither number.
-//   3. The CLIENT-FACING SDK-SEAM Zod schemas (`RunIdSchema`,
-//      `InterruptRunParamsSchema`, `ApplyInterventionParamsSchema`, the three
-//      `List*ResultSchema` replies, …) validate client→daemon WIRE input and the
-//      daemon's own replies — a DIFFERENT boundary — and ship in Phase 4. Do not
-//      conflate them with (2): (2) guards provider→daemon output; the SDK seam
-//      guards client→daemon input. They carry their own length caps, declared with
-//      their own section, for the same reason the boundaries are separate — a cap
-//      sized against what a PROVIDER emits is not evidence about what a CLIENT may
-//      send.
+// Trust boundaries decide which shapes are Zod schemas and which are plain TypeScript:
+//   - The `ProviderDriver` params are built by the daemon in-process, so they are plain types.
+//   - The capability, handle, model and mode returns are built by the driver, which normalizes
+//     provider output at its own boundary; this layer does not re-parse them. The persisted
+//     `contractVersion` and `resumeHandle` are bounded where they are written.
+//   - Schemas guard what parses untrusted provider output: the result envelopes, the tool metadata
+//     and the driver-normalized seam shapes (callback-tool invocation, MCP server status, provider
+//     command entry, output-speed state). Envelopes and seam shapes are `.strict()` (an unknown key
+//     is a protocol or driver bug); tool metadata strips unknown keys because providers extend it.
+//   - The client-facing SDK-seam schemas (`RunIdSchema`, `InterruptRunParamsSchema`, the list
+//     replies) guard client-to-daemon input, a different boundary with its own length caps.
 //
-// This contract IS the local surface. A driver MAY call a remote provider API
-// behind these methods, but the control + execution authority stays attached
-// to the local runtime node. The types deliberately carry no remote-authority
-// handle, hosted-session reference, or control-plane dispatch shape — there is
-// no way to express "execute via the control plane" in this contract, which is
-// how the type system preserves the invariant.
-//
+// The contract carries no remote-authority handle or control-plane dispatch shape, so a driver may
+// call a remote provider API behind these methods while execution authority stays with the local
+// runtime.
 
 import { z } from "zod";
 
@@ -104,297 +24,163 @@ import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { wireFreeFormString, SessionIdSchema, type SessionId } from "./session.js";
 
-// --------------------------------------------------------------------------
-// Branded ID
-// --------------------------------------------------------------------------
-//
-// `RunId` is the canonical run identifier.
-//
-// Brand form matches session.ts (`SessionId` etc.) verbatim — a TypeScript-only
-// nominal type whose runtime is a plain UUID string.
-//
-// TYPE-ONLY at Phase 1 by design; the paired `RunIdSchema` co-locates HERE which
-// is where its first consumer lands (`InterruptRunParamsSchema` at the
-// client→daemon SDK seam). Authoring the schema at Phase 1 would have broken
-// that phase's deliberate type-only ratification, so the brand shipped alone and
-// the validator joins it now — same file, same section.
+// ---- Branded ID ----
+
+/** Branded run identifier: a plain UUID string at runtime. */
 export type RunId = string & { readonly __brand: "RunId" };
 
-// The runtime validator for the brand above, and the ONLY place a caller-supplied
-// run id becomes a `RunId`.
-//
-// Homed here rather than in the run-control contract for a STRUCTURAL reason, not
-// a stylistic one: this file is the brand's lowest-level consumer, and
-// `run-control.ts` / the approval surface import it UPWARD.
-// Authoring it in either of those would make this file's own SDK seam import
-// backwards across tiers — forbidden by the build order, not merely undesirable.
-// Those higher-tier modules consume this symbol rather than declaring a sibling;
-// a second branded UUID declaration anywhere would be a second source of truth
-// for what a run id is, and the two would drift the first time either grew a
-// constraint.
-//
-// `brandedUuidIdSchema` (not a bare `z.string()`): a run id crossing the client
-// boundary is an UNTRUSTED caller-supplied string, and UUID-shape rejection is
-// what stops a path fragment, a SQL fragment, or an unbounded blob from reaching
-// a store lookup keyed on this value. The double-`T` `ZodType<RunId, RunId>` the
-// helper returns is what lets the schema compose into the request objects below
-// under `exactOptionalPropertyTypes` (see the `IdempotencyClassSchema` note).
+/**
+ * Validates a caller-supplied run id; the only place a string becomes a `RunId`. Declared here,
+ * the lowest-level consumer, so higher-tier modules import it instead of declaring a second brand.
+ * Rejecting non-UUID shapes keeps a path or SQL fragment out of a store lookup. The
+ * `ZodType<RunId, RunId>` annotation lets it compose into the request objects below under
+ * `exactOptionalPropertyTypes`.
+ */
 export const RunIdSchema: z.ZodType<RunId, RunId> = brandedUuidIdSchema<RunId>("RunId");
 
-// `ArtifactId` is the identifier of a manifest in the artifact space, and it is
-// the ELEMENT TYPE of every turn-scoped attachment carrier. It is homed HERE by
-// the same rule that homes `RunId` above — a cross-cutting symbol is declared in
-// the contract file of its LOWEST-TIER consumer and imported upward, never
-// re-invented — and this file is that consumer: `SteerPayload.attachments` below
-// is the earliest-shipping member typed `ArtifactId[]`. `run-control.ts`
-// imports it for the `steer` arm of `InterventionRequestPayload`, and
-// `artifacts/` imports it rather than restating it — a second
-// branded UUID declaration anywhere would be a second source of truth for what an
-// artifact id is, and the two would drift the first time either grew a
-// constraint.
-//
-// `brandedUuidIdSchema` because that is the encoding ratifies (2026-09-08): an
-// `ArtifactId` is an RFC 9562 UUID minted by the daemon at manifest creation —
-// the registered daemon-assigned id encoding `SessionId` and `RunId` already
-// carry, accepting any RFC 9562 form so a control-plane `gen_random_uuid()` v4
-// parses — and it identifies the MANIFEST and never its content, which that
-// envelope carries separately as a SHA-256 `digest`. This schema therefore does
-// not assert an encoding of its own; it enforces the one that spec states, and
-// widening or narrowing the accept set is an amendment there rather than an edit
-// here. The practical effect is the one `RunIdSchema` gives: an artifact id
-// reaching this seam is a caller-supplied string, and shape-rejection is what
-// stops a path fragment or a store-lookup key from arriving as one. The
-// double-`T` `ZodType<ArtifactId, ArtifactId>` composes into the request objects
-// under `exactOptionalPropertyTypes`.
+/**
+ * Identifier of an artifact manifest and the element type of every turn-scoped attachment list.
+ * A daemon-minted RFC 9562 UUID (any form is accepted, so a control-plane `gen_random_uuid()` v4
+ * parses); it names the manifest, never its content, which carries a separate SHA-256 `digest`.
+ */
 export type ArtifactId = string & { readonly __brand: "ArtifactId" };
+/** Validates a caller-supplied artifact id; declared beside `RunIdSchema` for the same reason. */
 export const ArtifactIdSchema: z.ZodType<ArtifactId, ArtifactId> =
   brandedUuidIdSchema<ArtifactId>("ArtifactId");
 
-// --------------------------------------------------------------------------
-// ProviderDriver — the 18-operation normalized contract
-// --------------------------------------------------------------------------
-//
-// Beside the core operations the surface carries four parity operations
-// (`forkConversation`, `setSessionGoal`, `clearSessionGoal`, `probeAuth`), two
-// transcript operations (`exportTranscript`, `replayTranscript`) and two
-// console-parity operations (`compactContext`, `listProviderCommands`), each at
-// its place in the canonical operation order.
-//
-// The two daemon-injected callbacks (`onCallbackToolCall`, `onMcpServerStatus`)
-// are absent by design — they are `CreateSessionParams` MEMBERS, not operations,
-// so they never widen this surface whatever its arity.
-//
-// The type names referenced by the signatures below (`ApplyInterventionParams`,
-// `DriverInterventionResult`, `DriverResumeResult`, `GetCapabilitiesResult`,
-// `ForkConversationParams`, `ForkConversationResult`, `SetSessionGoalParams`,
-// `ClearSessionGoalParams`, `DriverAuthProbeResult`,
-// `ExportTranscriptParams`, `DriverTranscriptExportResult`,
-// `ReplayTranscriptParams`, `DriverTranscriptReplayResult`,
-// `CompactContextParams`, `DriverCompactionResult`,
-// `ListProviderCommandsParams`, `ProviderCommandListResult`) and
-// their transitive dependencies
-// (`DriverCapabilities` / `DriverCapabilityFlag`, `IdempotencyClass` /
-// `ProviderToolMetadata`, `DriverCliVersionReport`, `ExecutionPosture`,
-// `SessionCallbackTool`, `SubagentPolicy`, `CallbackToolInvocation` /
-// `CallbackToolResult`, `McpServerStatusProducer`) are defined further down in
-// this same file.
-/** The normalized operations every provider driver implements for the daemon. */
+// ---- ProviderDriver ----
+
+/**
+ * The normalized operations every provider driver implements for the daemon. The daemon-injected
+ * callbacks (`onCallbackToolCall`, `onMcpServerStatus`) are `CreateSessionParams` members, not
+ * operations.
+ */
 export interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunParams): Promise<void>;
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
-  // Capability-GATED on the `rollback` flag: a call against an undeclared flag
-  // refuses statically with `driver.capability_unsupported` before dispatch.
-  // `degraded` is the DYNAMIC outcome of a driver that WAS invoked and reported
-  // its fallback — the two are not interchangeable.
+  // Gated on `rollback`: an undeclared flag refuses with `driver.capability_unsupported` before
+  // dispatch. `degraded` is the outcome of a driver that was invoked and reported its fallback.
   forkConversation(params: ForkConversationParams): Promise<ForkConversationResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
-  // Both goal operations are capability-gated on the `session_goals` flag, under
-  // the same static refusal as `forkConversation` above. A provider that refuses the
-  // goal throws; success returns nothing.
+  // Both goal operations are gated on `session_goals`, like `forkConversation`. A provider that
+  // refuses the goal throws; success returns nothing.
   setSessionGoal(params: SetSessionGoalParams): Promise<void>;
   clearSessionGoal(params: ClearSessionGoalParams): Promise<void>;
   closeSession(params: CloseSessionParams): Promise<void>;
   listModels(): Promise<ProviderModel[]>;
   listModes(): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
-  // NOT capability-gated — deliberately flagless, and REQUIRED of every driver: a
-  // zero-turn authentication probe. There is no `auth_probe` capability flag to
-  // declare, so a driver cannot opt out by silence (the same reasoning that keeps
-  // `pause` off the flag list, applied in the opposite direction).
+  // Not capability-gated and required of every driver: a zero-turn authentication probe. No flag
+  // exists for it, so a driver cannot opt out by silence.
   probeAuth(): Promise<DriverAuthProbeResult>;
-  // NOT capability-gated, and required of every driver: rendering the canonical
-  // transcript is how a driver declares what it can carry, so a driver that
-  // could not answer it could not report its losses either. PURE with respect to
-  // session state — it mutates nothing, writes nothing, and starts no turn. The
-  // transcript is passed IN rather than fetched: it is a projection the daemon
-  // rebuilds per call, and a driver holding a handle to it would be holding a
-  // second record of the log, which is the divergence eliminates.
+  // Not capability-gated and required of every driver: rendering the canonical transcript is how
+  // a driver declares what it can carry and report losing. Pure: it mutates nothing and starts no
+  // turn. The transcript is passed in because the daemon rebuilds it per call; a driver holding it
+  // would keep a second record of the log.
   exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult>;
-  // Capability-GATED on the `transcript_replay` flag, under the same
-  // static-refusal / dynamic-degrade split as `forkConversation` above. Reconstitutes a
-  // conversation into a FRESH provider session and never writes to the SOURCE
-  // session. Returns only after the post-replay assertion passes, because the
-  // injection surface is untyped at the wire: a returned success is validated
-  // against nothing, so it is not evidence a replay worked.
+  // Gated on `transcript_replay`. Reconstitutes a conversation into a fresh provider session and
+  // never writes to the source session. Returns only after the post-replay assertion passes: the
+  // injection surface is untyped on the wire, so a returned success alone proves nothing.
   replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
-  // Capability-GATED on the `context_compaction` flag, under the same
-  // static-refusal split as `forkConversation` above. Compacts the bound session's own
-  // provider-side context ON USER REQUEST — never on a threshold, timer,
-  // or heuristic. It SETTLES on the provider's TYPED COMPACTION EVIDENCE (the
-  // frame that already produces `usage.context_compacted`) and NEVER on the
-  // request being accepted: the Codex method answers an empty ack and the Claude
-  // leg is a `driver_command` frame that only settles, so acceptance is evidence
-  // of delivery and of nothing else. There is deliberately NO prompt-injected
-  // emulation arm — a driver that cannot compact declares the flag `false` and
-  // the call refuses at the static gate. The wait for that evidence is BOUNDED
-  // and TWICE-TERMINATED (the driver's own declared per-binding bound, and the
-  // binding ceasing to be live), and bounding the OPERATION never bounds the
-  // BOUNDARY'S RECORD: a compaction frame arriving after settlement still
-  // normalizes exactly as an unsolicited provider-initiated compaction does.
+  // Gated on `context_compaction`. Compacts the bound session's provider-side context on user
+  // request only, settling on the provider's typed compaction evidence and never on the request
+  // being accepted (Codex answers an empty ack; Claude's `driver_command` frame only settles).
+  // There is no prompt-injected emulation: a driver that cannot compact declares the flag `false`.
+  // The wait ends at the driver's declared per-binding bound or when the binding stops being
+  // live; a compaction frame that arrives after settlement still normalizes as an unsolicited one.
   compactContext(params: CompactContextParams): Promise<DriverCompactionResult>;
-  // Capability-GATED on the `provider_commands` flag. A LIVE read of the
-  // provider's own native slash-command and skill enumeration for the bound
-  // session, held as driver-session state and discarded with it: not persisted,
-  // not cached across sessions, and folded into no projection — which is why this
-  // capability adds no table and no column. Every entry carries the
-  // `(driverName, providerAccountId)` it was read under, and that binding is a
-  // ROUTING INVARIANT enforced here rather than trusted to a consumer.
+  // Gated on `provider_commands`. A live read of the provider's own slash-command and skill
+  // enumeration for the bound session, held as driver-session state and discarded with it (not
+  // persisted or cached). Every entry carries the `(driverName, providerAccountId)` it was read
+  // under; the daemon enforces the routing invariant on that pair.
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult>;
 }
 
-// --------------------------------------------------------------------------
-// Method parameter + return shapes
-// --------------------------------------------------------------------------
-//
-// Leaf param/return types required by the 18 signatures above. Authored here
-// (not in a companion task) because the interface cannot resolve without them
-// and no later Phase-1 task owns them.
+// ---- Method parameters and returns ----
 
+/** What the daemon hands a driver to open a session: config, spawn-bound legs and callbacks. */
 export interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
-  // Spawn-time realization of the native-cap-escape admitted cap: providers that
-  // bind budget caps at process spawn (Claude `--max-budget-usd`) realize it here,
-  // so the initial create path never launches a native-cap-admitted leg capless.
-  // Same idiom note as StartRunParams below.
+  // Realizes the native-cap-escape admitted cap at spawn for providers that bind budget caps then
+  // (Claude `--max-budget-usd`), so a cap-admitted leg is never launched capless.
   admittedCostCapUsdMicros?: number | undefined;
-  // The five spawn-bound parity legs. Each is realized by the provider legs that
-  // bind that surface AT PROCESS SPAWN — the per-run/per-turn carriers are
-  // `StartRunParams` — so a leg that binds at spawn and receives nothing here
-  // launches without it. `ResumeSessionParams` re-declares all of them plus the
-  // two function legs below, because resume is a FRESH spawn (see there).
+  // The legs below are spawn-bound: a leg that binds at process spawn and receives nothing here
+  // launches without it. Per-run carriers are `StartRunParams`; `ResumeSessionParams` repeats
+  // these because resume is a fresh spawn.
   executionPosture?: ExecutionPosture | undefined;
-  // The REQUESTED accelerated-output mode. Gated on the `output_speed` flag and
-  // validated against that driver's declared `outputSpeedLevels` BEFORE spawn,
-  // so an out-of-vocabulary value refuses rather than reaching the provider.
-  // Spawn-bound for the same reason posture is: the axis is a settings opt-in
-  // the provider reads at process start, so a fresh process is the only place it
-  // can be realized — `ResumeSessionParams` re-realizes it below. Requesting it
-  // is NOT the same as getting it: what the provider actually declared is
-  // observed later as binding-held `ProviderOutputSpeedState`, and no path
-  // rewrites either value into the other.
+  // The requested accelerated-output mode. Gated on `output_speed` and validated against the
+  // driver's declared `outputSpeedLevels` before spawn, so an out-of-vocabulary value refuses
+  // before reaching the provider. Spawn-bound because the provider reads it at process start.
+  // Requested is not granted: the provider's declared state is observed later as binding-held
+  // `ProviderOutputSpeedState`, and neither value is rewritten into the other.
   outputSpeed?: string | undefined;
-  // Gated on the `callback_tools` flag. Codex maps these onto function-form
-  // `dynamicTools`; Claude hosts the same registry as a daemon-hosted ephemeral
-  // MCP server (`--mcp-config`), where they surface as `mcp__<server>__<tool>`.
+  // Gated on `callback_tools`. Claude hosts the registry as a daemon-hosted ephemeral MCP server
+  // (`--mcp-config`), where the tools surface as `mcp__<server>__<tool>`.
   callbackTools?: SessionCallbackTool[] | undefined;
   // Gated on the `subagents` flag.
   subagentPolicy?: SubagentPolicy | undefined;
-  // Gated on the `structured_output` flag. A normalized JSON Schema constraining
-  // schema-constrained final output. The Claude leg binds it PER SESSION here
-  // (`--json-schema`); the Codex leg realizes it PER TURN via
-  // `StartRunParams.outputSchema` — which is why both carriers declare it.
+  // Gated on `structured_output`. A normalized JSON Schema constraining the final output. Claude
+  // binds it per session here (`--json-schema`); Codex per turn via `StartRunParams.outputSchema`.
   outputSchema?: Record<string, unknown> | undefined;
-  // The provider account this leg is admitted against (consumed).
-  // ADDITIVE-OPTIONAL: omitting it is the unchanged pre-amendment path, in which
-  // the leg spawns against whatever the node resolves as that provider's default.
+  // The provider account this leg is admitted against; omitted, the leg spawns against the node's
+  // default for that provider. Opaque to the driver, which receives an already-constructed spawn
+  // environment: pinning the account's credential home into it and denying ambient credential
+  // names are obligations of the spawn path, not something this member carries or a driver does.
   //
-  // OPAQUE TO THE DRIVER, and that is the whole contract. What the driver
-  // receives instead is the ALREADY-CONSTRUCTED spawn environment. Pinning that
-  // account's credential home into it, and denying the ambient names a bound leg
-  // must not read, are OBLIGATIONS ON THE SPAWN PATH — the fail-closed binding,
-  // consumed here — rather than properties this member carries or work any
-  // driver performs: the daemon's environment builder strips exactly the names
-  // the request's resolved credential policy denies, and no in-tree path pins a
-  // per-account home yet. Stating that as an obligation rather than as a settled
-  // fact is the point.
-  //
-  // SERVER-RESOLVED AND SERVER-STAMPED: a client-supplied value is an INPUT to
-  // resolution, never the recorded outcome. What lands here, and what is durably
-  // recorded, is the value the daemon resolved.
-  //
-  // The reason it is spawn-bound rather than per-turn: a run's paying account is
-  // bound for the run's LIFETIME, so `ResumeSessionParams` re-realizes it below
-  // from the durable record rather than re-resolving the current default.
+  // Server-resolved and server-stamped: a client-supplied value is an input to resolution, never
+  // the recorded outcome. Spawn-bound because a run's paying account is fixed for its lifetime;
+  // resume re-realizes it from the durable record instead of re-resolving the current default.
   providerAccountId?: string | undefined;
-  // Daemon-injected callback-tool dispatcher (gated on `callback_tools`). The
-  // driver invokes it on a provider callback-tool request and answers the
-  // provider with the result, so no invocation is left unanswered and no
-  // approval bypass is invented. Its daemon-side host routes every invocation
-  // through the Cedar pipeline — authors no symbol, which is why this is an
-  // INJECTED closure rather than a dependency.
+  // Daemon-injected dispatcher, gated on `callback_tools`. The driver calls it for each provider
+  // callback-tool request and answers the provider with the result, so no invocation goes
+  // unanswered. The daemon's host routes every call through the Cedar approval pipeline.
   onCallbackToolCall?:
     | ((invocation: CallbackToolInvocation) => Promise<CallbackToolResult>)
     | undefined;
-  // Daemon-injected MCP server-status sink. The daemon PRE-BINDS this closure to
-  // the leg identity (sessionId + the store-minted bindingId) at spawn, so the
-  // driver never supplies leg identity and cannot misattribute — or spoof —
-  // another leg's rows; that is also why the init census the driver emits DURING
-  // `createSession` needs no id the driver does not yet have.
+  // Daemon-injected MCP server-status sink, pre-bound to this leg's identity (session id and the
+  // store-minted binding id) at spawn, so a driver cannot misattribute or spoof another leg's rows
+  // and needs no id it does not yet have for the init census it emits during `createSession`.
   onMcpServerStatus?: McpServerStatusProducer | undefined;
 }
 
+/**
+ * What the daemon hands a driver to resume a session in a fresh process; it repeats the
+ * spawn-bound legs of `CreateSessionParams`.
+ */
 export interface ResumeSessionParams {
   sessionId: SessionId;
   resumeHandle: string; // opaque provider-owned handle
-  // Recovery wire-through of the native-cap-escape admitted cap: resume/relaunch
-  // re-threads the run.queued server-stamped value so the provider-side hard stop
-  // survives daemon restart and session relaunch. Same idiom note as
-  // StartRunParams below.
+  // Re-threads the run.queued server-stamped admitted cap so the provider-side hard stop survives
+  // a daemon restart and session relaunch.
   admittedCostCapUsdMicros?: number | undefined;
-  // Resume is a FRESH PROCESS SPAWN (the posture-relaunch precedent — an
-  // existing process never mutates into a resumed leg), so every spawn-bound
-  // surface `CreateSessionParams` binds must RE-REALIZE here or the resumed leg
-  // silently sheds it: a posture-less resume relaunches UNSANDBOXED, a
-  // schema-less one unconstrained. That is a security property, not a
-  // convenience, which is why these are duplicated rather than inherited.
-  //
-  // The SIX DATA legs are reconstructed by the daemon from the durable
-  // `runtime_bindings.spawn_config` record (written at every spawn) — never from
-  // the original client request, which recovery does not have. The two FUNCTION
-  // legs are re-injected fresh at every spawn; functions are never stored in
-  // `spawn_config`.
+  // Resume is a fresh process spawn, so every spawn-bound member of `CreateSessionParams` must be
+  // re-realized here or the resumed leg silently sheds it: a posture-less resume relaunches
+  // unsandboxed, a schema-less one unconstrained. The data legs are rebuilt by the daemon from the
+  // durable `runtime_bindings.spawn_config` written at every spawn, never from the original client
+  // request; the two function legs are re-injected at every spawn, as functions are never stored.
   executionPosture?: ExecutionPosture | undefined;
-  // The FIFTH reconstructed data leg, on exactly the ground the five beside it
-  // stand on (re-derived from four by counting when added `providerAccountId`): a
-  // speed-less resume relaunches at the provider's default while
-  // `agents.output_speed` still records the operator's accepted mode, which is the
-  // silent-shedding failure this list exists to prevent. What the relaunched
-  // process declares is observed as binding-held state, NOT returned on
-  // `DriverResumeResult` — see `ProviderOutputSpeedState`.
+  // A speed-less resume relaunches at the provider's default while `agents.output_speed` still
+  // records the operator's accepted mode. The state the relaunched process declares is observed as
+  // binding-held state, not returned on `DriverResumeResult` (see `ProviderOutputSpeedState`).
   outputSpeed?: string | undefined;
   callbackTools?: SessionCallbackTool[] | undefined;
   subagentPolicy?: SubagentPolicy | undefined;
   outputSchema?: Record<string, unknown> | undefined;
-  // The SIXTH reconstructed data leg, and the one whose silent shedding is a
-  // BILLING fault rather than a capability one: a resume that re-resolved
-  // "whichever account is default now" would move a live run's spend onto an
-  // account it was never admitted against, mid-run, with the receipt's
-  // per-paying-account key still claiming the original. So the value is read back
-  // from the durable `runtime_bindings.spawn_config` record written at the
-  // original spawn — never re-resolved, and never taken from a client request
-  // recovery does not hold. Same opacity rule as on `CreateSessionParams` above.
+  // Read back from the durable `spawn_config` record, never re-resolved: resolving "whichever
+  // account is default now" would move a live run's spend onto an account it was not admitted
+  // against. Same opacity rule as on `CreateSessionParams`.
   providerAccountId?: string | undefined;
   // An omitted rebind would strand provider callback-tool requests unanswered on
   // the resumed leg.
   onCallbackToolCall?:
     | ((invocation: CallbackToolInvocation) => Promise<CallbackToolResult>)
     | undefined;
-  // Re-injected census sink, pre-bound to the RESUMED leg's identity — the
-  // resumed leg re-emits its init census through it.
+  // Re-injected census sink, pre-bound to the resumed leg's identity; the leg re-emits its init
+  // census through it.
   onMcpServerStatus?: McpServerStatusProducer | undefined;
 }
 
@@ -402,115 +188,85 @@ export interface ResumeSessionParams {
 export interface StartRunParams {
   runId: RunId;
   agentConfig: Record<string, unknown>;
-  // Native-cap-escape wire-through: the run.queued server-stamped admitted family
-  // cap in whole micro-dollars, realized as the provider's native hard cap on
-  // cap-capable legs (Claude `--max-budget-usd`)
+  // The run.queued server-stamped admitted family cap in whole micro-dollars, realized as the
+  // provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`).
   admittedCostCapUsdMicros?: number | undefined;
-  // `?: T | undefined` (not bare `?: T`) per the package idiom under
-  // `exactOptionalPropertyTypes: true` — see session.ts:252-257. has no
-  // `StartRunParamsSchema` (lifecycle ops are daemon-internal per Phase 4
-  // decision #2), but the idiom is uniform across this package's interfaces.
+  // Optionals are `?: T | undefined`, not bare `?: T`, under `exactOptionalPropertyTypes`: the
+  // package idiom, which keeps an interface aligned with a schema's inferred type.
   conversationHistory?: unknown[] | undefined;
-  // The per-run EFFECTIVE posture — the same object the daemon stamps on
-  // `run.running`. Codex realizes it per turn (the `turn/start` sandbox params);
-  // a provider that binds posture at spawn realizes it at session boundaries
-  // instead, and a mid-session posture change on such a leg resolves via SESSION
-  // RELAUNCH — never a silent partial application.
+  // The per-run effective posture, the same object the daemon stamps on `run.running`. Codex
+  // realizes it per turn (`turn/start` sandbox params); a provider that binds posture at spawn
+  // realizes it at session boundaries, and a mid-session change there resolves by session
+  // relaunch, never a silent partial application.
   executionPosture?: ExecutionPosture | undefined;
-  // Per-turn schema-constrained final output (the Codex `turn/start.outputSchema`
-  // leg); the Claude leg binds the same schema at spawn via
-  // `CreateSessionParams.outputSchema`. Gated on the `structured_output` flag.
+  // Per-turn schema-constrained final output (Codex `turn/start.outputSchema`); Claude binds the
+  // same schema at spawn via `CreateSessionParams.outputSchema`. Gated on `structured_output`.
   outputSchema?: Record<string, unknown> | undefined;
 }
 
+/** Asks a driver to interrupt one run, with an optional reason. */
 export interface InterruptRunParams {
   runId: RunId;
-  // `?: T | undefined` per the package idiom under `exactOptionalPropertyTypes`
-  // (session.ts:252-257). Load-bearing here: pairs `InterruptRunParamsSchema`, whose Zod
-  // `.optional()` infers `string | undefined` — the explicit `| undefined` keeps the
-  // interface and the inferred schema output aligned.
+  // `| undefined` keeps this aligned with `InterruptRunParamsSchema`, whose `.optional()` infers
+  // `string | undefined`.
   reason?: string | undefined;
 }
 
+/** Answers one interactive request a driver raised on a run; `response` is provider-shaped. */
 export interface RespondToRequestParams {
   runId: RunId;
   requestId: string;
   response: unknown;
 }
 
+/** Asks a driver to close one session. */
 export interface CloseSessionParams {
   sessionId: SessionId;
 }
 
-// Driver-CONSTRUCTED return of `createSession` / `resumeSession`. Both fields are opaque
-// provider-owned blobs. `resumeHandle` is persisted to `runtime_bindings.resume_handle`
-// and bounded (non-empty + length + NUL-reject) Phase-2 write seam, NOT re-parsed here
+/**
+ * Driver-constructed return of `createSession` and `resumeSession`; both fields are opaque
+ * provider-owned blobs. `resumeHandle` is bounded (non-empty, length, NUL-reject) where it is
+ * persisted to `runtime_bindings.resume_handle`, not re-parsed here.
+ */
 export interface ProviderSessionHandle {
   providerSessionId: string;
   resumeHandle: string;
 }
 
-// Driver-CONSTRUCTED return of `listModels`. One selectable model of one
-// provider, normalized at the driver's own boundary.
-//
-// `effortLevels` is the model's reasoning-effort vocabulary, and it is carried
-// PER MODEL rather than per provider because that is what binds: the level list
-// rides `ProviderModel.effortLevels`. It is deliberately `string[]` and not a
-// closed union — the vocabularies differ between providers AND between models
-// of one provider, and a union frozen here would refuse a level the installed
-// build offers. An EMPTY array would instead assert that the model has an
-// effort axis with nothing on it, which no provider surface expresses.
-//
-// `effortLevels?: string[] | undefined` carries the explicit `| undefined` this
-// package uses for EVERY schema-backed optional (`ProviderToolMetadata`,
-// `GetCapabilitiesResult.outputSpeedLevels`). Every existing constructor and
-// reader is unaffected: absence still means "no effort axis", and no call site
-// is newly required to supply anything.
-//
-// `fast` is whether the model has a fast output mode, as its provider says:
-// Claude Code's `supportsFastMode` on the model's catalog row, Codex's non-empty
-// service-tier list. A model without one keeps the speed control grayed, so the
-// member is required: a missing reading and "no fast mode" must not look alike.
-//
-// `contextWindow` is the model's window in tokens, as the provider reports it.
-// Absent until a reading has arrived, and a row with no reading shows the model
-// with no figure: nothing fills it from a table or a default.
+/** One selectable model of one provider, normalized at the driver's boundary (`listModels`). */
 export interface ProviderModel {
   id: string;
   name: string;
   capabilities: string[];
+  // The model's reasoning-effort vocabulary, carried per model because levels differ between
+  // providers and between models of one provider. A `string[]`, not a closed union, so a level the
+  // installed build offers is never refused. Absent means the model has no effort axis.
   effortLevels?: string[] | undefined;
+  // Whether the model has a fast output mode, as its provider reports it (Claude Code's
+  // `supportsFastMode`, Codex's non-empty service-tier list). Required so a missing reading never
+  // looks like "no fast mode".
   fast: boolean;
+  // The window in tokens as the provider reports it. Absent until a reading arrives; nothing fills
+  // it from a table or a default.
   contextWindow?: number | undefined;
 }
 
+/** One selectable mode of one provider, normalized at the driver's boundary (`listModes`). */
 export interface ProviderMode {
   id: string;
   name: string;
 }
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// Nominal TypeScript — NO Zod. The capability surface is a driver-CONSTRUCTED
-// return: the driver normalizes raw provider output at its own Phase-3 boundary
-// and returns this already-trusted shape, so the contract layer does not re-parse
-// it. `contractVersion` carries no contract-level invariant that forces a schema
-// here — it is a provider-output value bounded (semver + length) Phase-2 write
-// seam (persisted to `driver_contract_meta.contract_version`), not here.
+// ---- Capabilities ----
 
-// `pause` is intentionally EXCLUDED: pause is an orchestration-layer request
-// (`RunPauseRequest` in `run-control.ts`), not a static capability flag, so a
-// driver cannot advertise a `pause` capability at all — the type system makes
-// the mis-modeling unrepresentable.
-//
-// This array's order IS the canonical enum order: the schema's CHECK list on
-// `driver_capabilities.capability_flag`, the driver declarations and the writer
-// all read the same sequence, so a new flag goes where the canonical order puts
-// it. Adding one is a coordinated change: this array, the schema's CHECK, and
-// every total `Record<DriverCapabilityFlag, boolean>` declaration. The writer's
-// snapshot reader enforces exactly `DRIVER_CAPABILITY_FLAGS.length` rows per
-// driver, so a cache missing a flag fails its next hydrate.
+/**
+ * Driver capability flags in canonical order: the CHECK list on
+ * `driver_capabilities.capability_flag` and every total `Record<DriverCapabilityFlag, boolean>`
+ * follow the same order, so a new flag changes all of them together. The daemon's writer enforces
+ * exactly this many rows per driver. `pause` is deliberately absent: it is an orchestration
+ * request (`RunPauseRequest` in `run-control.ts`), not a capability a driver can advertise.
+ */
 export const DRIVER_CAPABILITY_FLAGS = [
   "resume",
   "steer",
@@ -525,193 +281,135 @@ export const DRIVER_CAPABILITY_FLAGS = [
   "callback_tools",
   "subagents",
   "transcript_replay",
-  // User-triggered compaction of the bound session's own provider-side
-  // context via `compactContext`. Native on Codex, emulated on Claude through
-  // the one tripwire-exempt `driver_command` frame V1 produces.
+  // User-triggered compaction of the bound session's provider-side context via `compactContext`.
+  // Native on Codex; emulated on Claude through the one tripwire-exempt `driver_command` frame.
   "context_compaction",
-  // A LIVE read of the provider's own slash-command and skill enumeration via
-  // `listProviderCommands`. Held as driver-session state and discarded with
-  // it, which is why this flag mints no table and no column.
+  // A live read of the provider's slash-command and skill enumeration via `listProviderCommands`,
+  // held as driver-session state, so the flag adds no table or column.
   "provider_commands",
-  // A user-settable provider-side accelerated-output mode. A
-  // SINGLE-PROVIDER flag by construction: one pinned CLI declares such a state
-  // and the other supplies neither conjunct this axis requires — no statically
-  // declarable level vocabulary and no declared-state read — so the `false`
-  // cell is a complete declaration rather than an unprobed gap. That sibling's
-  // wire is NOT speed-silent (corrected 2026-08-31): it carries a per-turn
-  // service-tier parameter. It is UNDECLARABLE on this axis, which is a
-  // different claim and the only one this flag makes.
+  // A user-settable provider-side accelerated-output mode. Single-provider by construction: only
+  // one pinned CLI declares such a state. The other has no statically declarable level vocabulary
+  // and no declared-state read, so its `false` is a complete declaration, not an unprobed gap; its
+  // wire takes a per-turn service-tier parameter, which makes the axis undeclarable there.
   "output_speed",
 ] as const;
 
+/** The name of one driver capability flag. */
 export type DriverCapabilityFlag = (typeof DRIVER_CAPABILITY_FLAGS)[number];
 
+/**
+ * A driver's capability flag matrix and contract semver. Driver-normalized, so the contract layer
+ * does not re-parse it; `contractVersion` is bounded (semver, length) where it is persisted to
+ * `driver_contract_meta.contract_version`.
+ */
 export interface DriverCapabilities {
   flags: Record<DriverCapabilityFlag, boolean>;
   contractVersion: string;
 }
 
-// --------------------------------------------------------------------------
-// Tool metadata + idempotency (
-// --------------------------------------------------------------------------
-//
+// ---- Tool metadata and idempotency ----
+
+/** How a tool call may be retried or undone: repeated, compensated, or reconciled by hand. */
 export type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 
-// The HTTP/JSON-RPC framework layer (005) is authoritative on body size; these
-// caps are a SECOND line of defense (mirrors error.ts:130). All TWELVE are
-// consumed via `wireFreeFormString` (rejects empty / whitespace-only / NUL /
-// over-max) — bare `z.string()` would let unbounded provider output reach
+// Length caps on provider output, applied through `wireFreeFormString`, which rejects empty,
+// whitespace-only, NUL and over-max values and never truncates. The framework layer bounds body
+// size; these are a second line of defense against unbounded provider output reaching
 // `driver_tools` and `runtime_bindings`.
-// Twelve caps cover SEVENTEEN fields because four are reused across surfaces that
-// carry the same category of value (see the per-cap notes) — the seventeen are
-// exactly the canonical doc's seventeen-string enumeration, all of which this
-// file now realizes. Both counts are PROVIDER-BOUNDARY counts. carried that count
-// from twelve to seventeen along with the five strings the console-parity shapes
-// introduced, which is the re-derivation.
-//
-//   • DRIVER_TOOL_NAME_MAX_LEN (128) — the tool `name` on BOTH surfaces that
-//     carry one (`ProviderToolMetadata.name`, the provider-DECLARED tool, and
-//     `CallbackToolInvocation.toolName`, the driver-NORMALIZED invocation that
-//     names it back); a name/label tier token. Same-category reuse — the
-//     invocation's name is resolved against the declaration's, so a cap that
-//     let the two diverge would make an unresolvable name representable.
-//   • DRIVER_TOOL_DESCRIPTION_MAX_LEN (16384) — tool `description`; prose/message
-//     tier. MCP-style descriptions can embed parameter-schema docs that exceed
-//     8 KiB, and the helper REJECTS on overlength (no truncation), so this is
-//     sized generously to avoid dropping a legitimate verbose description while
-//     still bounding pathological sizes.
-//   • DRIVER_FALLBACK_ACTION_MAX_LEN (128) — the `fallbackAction` hint on BOTH
-//     degradable result envelopes (`DriverInterventionResult`,
-//     `ForkConversationResult`); a short hint token (e.g. `queue_and_interrupt`).
-//     One cap because it is one category of value — a per-envelope cap would
-//     let the two drift apart for no reason.
-//   • DRIVER_BINDING_ID_MAX_LEN (256) — the `bindingId` on BOTH envelopes that
-//     report one (`DriverResumeResult`, `ForkConversationResult.applied`); an
-//     opaque store-minted session-binding surrogate persisted into
-//     `runtime_bindings`. Same-category reuse as above.
-//   • DRIVER_FAILURE_DETAIL_MAX_LEN (32768) — resume `providerFailureDetail`;
-//     prose/message tier failure detail. Sized generously (32 KiB) because a legitimate
-//     failure detail may wrap an upstream stack trace / nested-cause chain, and a reject
-//     here would LOSE the signal mandates; a value still exceeding this is pathological
-//     (see the field comment below).
-//   • DRIVER_AUTH_DETAIL_MAX_LEN (512) — `DriverAuthProbeResult.detail`; a
-//     provider-reported account/plan descriptor (e.g. a plan name + seat email),
-//     so the short-prose tier, NOT the 32 KiB failure-detail tier: unlike a
-//     resume failure it wraps no stack trace, and unlike a name token it is a
-//     sentence. A reject here loses only descriptive color — the probe's
-//     `status`, which carries the fail-closed admission decision, is unaffected.
-//   • DRIVER_TOOL_CALL_ID_MAX_LEN (256) — `CallbackToolInvocation.toolCallId`;
-//     an opaque provider correlation id, sized on the same opaque-handle tier as
-//     `DRIVER_BINDING_ID_MAX_LEN` (a distinct constant because the two are
-//     independently owned — the provider mints one, the store the other).
-//   • DRIVER_MCP_SERVER_NAME_MAX_LEN (128) — `McpServerStatusEmission.serverName`;
-//     a name/label-tier token, same tier as the tool `name` above.
-//   • DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN (128) — `ProviderCommandEntry.name`; a
-//     name/label-tier token.
-//   • DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN (16384) —
-//     `ProviderCommandEntry.description`; prose/message tier, sized on the
-//     tool-description grounds: a skill's front matter routinely carries usage
-//     prose, and the helper REJECTS rather than truncates, so a tight cap would
-//     drop the whole ENTRY (an entry is admitted or it is not) and make a
-//     verbose skill look like one the provider does not publish.
-//   • DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN (128) — `ProviderCommandEntry.scope`
-//     and `ProviderOutputSpeedState.declared`. One cap because it is one
-//     category: a short provider-declared VOCABULARY token, carried verbatim and
-//     narrowed to no closed set here (the Codex skill scope is one of four names;
-//     the Claude speed state is one of three). Same-category reuse in the
-//     `DRIVER_FALLBACK_ACTION_MAX_LEN` sense — a per-field cap would let two
-//     values of one kind drift apart for no reason.
-//   • DRIVER_OUTPUT_SPEED_REASON_MAX_LEN (512) —
-//     `ProviderOutputSpeedState.reason`; the provider's own explanation of why the
-//     declared state is not the requested one. Short-prose tier, sized like
-//     `DRIVER_AUTH_DETAIL_MAX_LEN` rather than the 32 KiB failure tier: it wraps
-//     no stack trace, and rejecting it loses only the explanation while `declared`
-//     — the state itself — is a separate field and survives.
+
+/**
+ * Max length of a tool name, shared by `ProviderToolMetadata.name` and
+ * `CallbackToolInvocation.toolName` so a name that resolves against a declaration always fits.
+ */
 export const DRIVER_TOOL_NAME_MAX_LEN = 128;
+/**
+ * Max length of a tool description; generous because MCP-style descriptions can embed
+ * parameter-schema docs beyond 8 KiB and an overlong value is rejected, not truncated.
+ */
 export const DRIVER_TOOL_DESCRIPTION_MAX_LEN = 16384;
+/** Max length of `fallbackAction` on `DriverInterventionResult` and `ForkConversationResult`. */
 export const DRIVER_FALLBACK_ACTION_MAX_LEN = 128;
+/** Max length of the store-minted `bindingId` on the resume and fork results. */
 export const DRIVER_BINDING_ID_MAX_LEN = 256;
+/**
+ * Max length of a resume `providerFailureDetail`; generous because it may wrap an upstream stack
+ * trace or nested-cause chain, and a rejection would lose that signal.
+ */
 export const DRIVER_FAILURE_DETAIL_MAX_LEN = 32768;
+/**
+ * Max length of `DriverAuthProbeResult.detail`, a short account or plan descriptor; a rejection
+ * loses only descriptive text, never the probe `status` that carries the admission decision.
+ */
 export const DRIVER_AUTH_DETAIL_MAX_LEN = 512;
+/** Max length of `CallbackToolInvocation.toolCallId`, an opaque provider correlation id. */
 export const DRIVER_TOOL_CALL_ID_MAX_LEN = 256;
+/** Max length of `McpServerStatusEmission.serverName`. */
 export const DRIVER_MCP_SERVER_NAME_MAX_LEN = 128;
+/** Max length of `ProviderCommandEntry.name`. */
 export const DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN = 128;
+/**
+ * Max length of `ProviderCommandEntry.description`; generous because a skill's front matter
+ * routinely carries usage prose, and an overlong value drops the whole entry.
+ */
 export const DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN = 16384;
+/**
+ * Max length of a short provider-declared vocabulary token carried verbatim
+ * (`ProviderCommandEntry.scope`, `ProviderOutputSpeedState.declared`).
+ */
 export const DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN = 128;
+/** Max length of `ProviderOutputSpeedState.reason`; a rejection loses only the explanation. */
 export const DRIVER_OUTPUT_SPEED_REASON_MAX_LEN = 512;
 
-// The enumeration is provider- and skill-authored and travels to a client, so an
-// unbounded one is an arbitrarily large IPC response and renderer workload
-// rather than a merely ugly read. Sized against the pinned surfaces rather than
-// guessed: the Claude 2.1.251 session handshake publishes 119 interactive
-// slash-commands, 58 skills, and 2 terminal-only commands (179 entries), so this
-// cap does not truncate an honest provider while still bounding a pathological
-// one. Truncation is never silent — the group carries `complete: false` — and it
-// is a WIRE-AND-RENDER bound only: the driver's own held enumeration is NOT
-// capped, so a truncated read can never manufacture a `command_absent` refusal
-// for a command the provider actually publishes.
+/**
+ * Max entries in one provider-command enumeration. The enumeration is provider- and skill-authored
+ * and travels to a client, so an unbounded one means an arbitrarily large IPC response and render
+ * load. Sized above the Claude 2.1.251 handshake (119 slash-commands, 58 skills, 2 terminal-only
+ * commands). Truncation is never silent (the group carries `complete: false`) and bounds only the
+ * wire and render: the driver's held enumeration is uncapped, so truncation never causes a
+ * `command_absent` refusal for a command the provider publishes.
+ */
 export const DRIVER_PROVIDER_COMMAND_ENTRIES_MAX = 512;
 
-// Declared BEFORE `ProviderToolMetadataSchema` because `const` schemas do not
-// hoist (unlike the `type` declarations above) and the tool-metadata schema
-// references this one.
-//
-// Double-`T` `z.ZodType<IdempotencyClass, IdempotencyClass>` — NOT the single-
-// param `SessionStateSchema` form (session.ts:141). Single-param leaves the
-// INPUT slot defaulting to `unknown`; when this enum is composed via
-// `.optional().default(...)` into the transforming `ProviderToolMetadataSchema`
-// below, that `unknown` input propagates and fails to match the hand-written
-// ingress `idempotency_class?: IdempotencyClass | undefined` under
-// `exactOptionalPropertyTypes` (TS2375). Pinning the input slot to the enum
-// union keeps the parent's Output/Input annotation sound — the same double-`T`
-// discipline session.ts:289-294 documents, applied here because this is the
-// only composed named sub-schema in the file.
+/**
+ * Validates an {@link IdempotencyClass}. Declared before `ProviderToolMetadataSchema` because
+ * `const` does not hoist. The double-`T` annotation pins the input slot: the single-parameter form
+ * defaults it to `unknown`, which fails to match the hand-written ingress type once composed
+ * through `.optional().default(...)` under `exactOptionalPropertyTypes` (TS2375).
+ */
 export const IdempotencyClassSchema: z.ZodType<IdempotencyClass, IdempotencyClass> = z.enum([
   "idempotent",
   "compensable",
   "manual_reconcile_only",
 ]);
 
-// INGRESS shape — what a provider driver DECLARES via `getCapabilities()`.
-// `idempotency_class` is OPTIONAL: a driver MAY omit it and an undeclared class
-// is NOT a contract violation.
+/**
+ * Ingress shape of a tool a driver declares via `getCapabilities()`. `idempotency_class` is
+ * optional: an undeclared class is not a contract violation.
+ */
 export interface ProviderToolMetadata {
   name: string;
   idempotency_class?: IdempotencyClass | undefined;
   description?: string | undefined;
 }
 
-// NORMALIZED shape — the daemon-side projection AFTER the normalization seam has
-// applied the `manual_reconcile_only` default. `idempotency_class` is REQUIRED,
-// so the type system forbids persisting an un-normalized value into the NOT NULL
-// `driver_tools.idempotency_class` column. This is the only tool-metadata shape
-// that crosses the persistence boundary; ingress `ProviderToolMetadata` never
-// does.
+/**
+ * Daemon-side tool shape after the `manual_reconcile_only` default is applied. Its required
+ * `idempotency_class` keeps an un-normalized value out of the NOT NULL
+ * `driver_tools.idempotency_class` column; only this shape crosses the persistence boundary.
+ */
 export interface NormalizedProviderToolMetadata {
   name: string;
   idempotency_class: IdempotencyClass;
   description?: string | undefined;
 }
 
-// This package's FIRST transforming schema (Input ≠ Output): the
-// `.optional().default("manual_reconcile_only")` makes `idempotency_class`
-// optional on the INPUT (a driver may omit it) but REQUIRED on the OUTPUT (the
-// default fills it), which is exactly ingress→normalized transition. The
-// annotation is therefore Output-first / Input-second:
-// `z.ZodType<NormalizedProviderToolMetadata, ProviderToolMetadata>`. Both
-// interfaces are HAND-WRITTEN (above) rather than `z.input`/`z.output`-derived —
-// derivation would be circular against this required annotation, and the package
-// has zero such usage.
-//
-// Unknown keys are STRIPPED (dropped from the normalized output), NOT rejected: the
-// `z.object()` default already strips, which is exactly the "Unknown capability fields are
-// ignored (tolerant reader)" — the extensible tool-metadata DECLARATION surface must stay
-// forward-compatible. This is a DELIBERATE contrast to the result-envelope schemas
-// (`DriverInterventionResultSchema`, `DriverResumeResultSchema`) which KEEP `.strict()`:
-// those are fixed-protocol response shapes where an unknown key signals a protocol
-// violation. (No chained `.strip()` — the `z.object()` default already strips; Zod 4 still
-// declares the method but marks an explicit `.strip()` redundant.) The two free-form
-// strings are `wireFreeFormString`-bounded.
+/**
+ * Validates and normalizes a declared tool: an omitted `idempotency_class` becomes
+ * `manual_reconcile_only`, and unknown keys are stripped, not rejected, because the declaration
+ * surface is extensible (tolerant reader). This contrasts with the `.strict()` result envelopes,
+ * which are fixed-protocol shapes. The two interfaces are hand-written because deriving them from
+ * the schema would be circular against the required annotation (Output first, Input second).
+ */
 export const ProviderToolMetadataSchema: z.ZodType<
   NormalizedProviderToolMetadata,
   ProviderToolMetadata
@@ -724,104 +422,58 @@ export const ProviderToolMetadataSchema: z.ZodType<
   ).optional(),
 });
 
-// CLI-version report carried on the nominal `GetCapabilitiesResult` return.
-// NOMINAL, not Zod, for the same) reason as `contractVersion`: it is
-// driver-normalized output, and `raw` takes its non-empty / length / NUL bounds
-// Phase-2 write seam where it is persisted, not at this layer.
-//
-// `semver` is REQUIRED, which is the whole point of the pair: an UNPARSEABLE
-// provider version is structurally unrepresentable in this shape, so the driver
-// must fail the report fail-closed rather than hand the daemon a report it cannot
-// compare against its configured per-driver floor. Attach then refuses as
-// `driver.cli_version_unparseable`; a parseable version BELOW the floor refuses
-// as `driver.cli_version_below_floor`.
-//
-// Both values are read from the version the SPAWNED PROCESS reports in-band —
-// never from a launcher symlink, which can name a different build than the one
-// that will actually run.
+/**
+ * The provider CLI version as the spawned process reports it in-band, never from a launcher
+ * symlink that may name a different build. `semver` is required so an unparseable version is
+ * unrepresentable: the driver fails the report closed and attach refuses as
+ * `driver.cli_version_unparseable`; a version below the configured floor refuses as
+ * `driver.cli_version_below_floor`. `raw` is bounded where it is persisted, not here.
+ */
 export interface DriverCliVersionReport {
   raw: string;
   semver: string;
 }
 
-// Return type of `ProviderDriver.getCapabilities()` — nominal TS. semantically separates
-// whole-driver capability flags from per-tool metadata; this wrapper keeps
-// `DriverCapabilities` pure (flags + contractVersion only) while carrying both surfaces in
-// a single round-trip. `tools` is the INGRESS `ProviderToolMetadata[]` (pre-normalization,
-// as declared by the provider) — normalization to `NormalizedProviderToolMetadata` happens
-// at the daemon's hydration seam, not at this return shape.
-//
-// `cliVersion` is REQUIRED — a capability report without a parseable provider
-// version never reaches the daemon at all (fail-closed by construction). It is a
-// property of THIS READING rather than of a capability, which is why it rides
-// the wrapper and `DriverCapabilities` stays pure (flags + contractVersion); it
-// is deliberately NOT mirrored onto the event-boundary `CapabilityDetails`,
-// because the version floor is an attach-time gate, not a per-snapshot
-// capability property.
-//
-// `detectionSource` is ADDITIVE-OPTIONAL and LIVE-SCOPED, and the two halves are
-// one decision rather than two: it is present and TOTAL over the flag set
-// whenever this wrapper is a live driver read, and ABSENT exactly when the
-// wrapper was reconstructed by `DriverCapabilitiesWriter.hydrate()` from the
-// durable cache, which persists flag VALUES for change detection and NOT
-// provenance. Absence therefore reads as "cache reconstruction" and never as
-// "unknown provenance" — a consumer that needs provenance re-reads the driver. A
-// REQUIRED member would be unsatisfiable on the hydrate path and would have
-// forced a cache column whose only content is a fact about a reading that is
-// over; no column is minted here for exactly that reason.
-//
-// Driver-side only: deliberately NOT mirrored into `CapabilityDetails` (the same
-// carve-out `cliVersion` takes) and NOT carried on the client-facing
-// `driver.listCapabilities` payload, which this member does not widen.
-// `outputSpeedLevels` is the output-speed axis's VALUE VOCABULARY — present iff
-// `capabilities.flags.output_speed` is `true`; absent or empty means the axis is
-// unsettable and a caller carrying an `outputSpeed` refuses fail-closed rather
-// than forwarding an unvalidated value.
-//
-// STATICALLY DECLARED from the same per-driver table the `output_speed` flag
-// itself comes from, and never read from the provider: obtaining the provider's
-// declared speed state costs a turn-bearing request, which is exactly the
-// conjunct that makes that flag `static`, so a vocabulary sourced by reading
-// would contradict its own detection source.
-//
-// It does NOT follow `detectionSource` into absence-on-hydrate, and that is a
-// consequence of being static rather than a second rule: `detectionSource` is a
-// fact about ONE READING and cannot be re-derived, while this is a constant of
-// the DRIVER and always can. The durable capability cache therefore gains no
-// column, and a client never receives `output_speed: true` without the values it
-// must render — on either read path.
+/**
+ * Return of `ProviderDriver.getCapabilities()`: the flag matrix, the tool declarations as the
+ * provider made them (normalized at the daemon's hydration seam) and the CLI version.
+ */
 export interface GetCapabilitiesResult {
   capabilities: DriverCapabilities;
   tools: ProviderToolMetadata[];
+  // Required: a capability report without a parseable provider version never reaches the daemon.
+  // It describes this reading rather than a capability, so it rides this wrapper and is not
+  // mirrored onto the event-boundary `CapabilityDetails` (the version floor gates attach only).
   cliVersion: DriverCliVersionReport;
+  // Present and total over the flag set on a live driver read; absent when the result was rebuilt
+  // by `DriverCapabilitiesWriter.hydrate()` from the durable cache, which stores flag values and
+  // not provenance. Absence means "cache reconstruction", never "unknown provenance": a consumer
+  // that needs provenance re-reads the driver. Not mirrored into `CapabilityDetails` or the
+  // client-facing `driver.listCapabilities` payload.
   detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
+  // The output-speed value vocabulary: present iff `capabilities.flags.output_speed` is `true`;
+  // absent or empty means the axis is unsettable and a caller carrying `outputSpeed` refuses
+  // rather than forwarding an unvalidated value. Declared statically from the per-driver table,
+  // because reading it from the provider costs a turn-bearing request. Unlike `detectionSource`
+  // it survives `hydrate()`, so the durable cache needs no column for it.
   outputSpeedLevels?: string[] | undefined;
 }
 
-// How one flag's declared value on THIS reading was arrived at (mirroring).
-//
-//   * `probed` — read from the installed build by a zero-turn probe whose
-//     negative control still refused.
-//   * `static` — declared from the driver's own per-driver table, which that
-//     same rule admits only where no ADMISSIBLE probe exists, and only where the
-//     driver's mechanism table names the conjunct that fails.
-//
-// A bare union rather than a `const` tuple plus a derived type: there is no
-// runtime consumer here — no iteration, no membership test, no schema built from
-// the values — and the sibling `RecoverySpanClassification` sets that precedent
-// in this file. The runtime half lives with the mechanism table that produces
-// the values (`runtime-daemon/src/provider/capability-probe.ts`), where the
-// per-driver totality is a compile-time `Record` obligation.
+/**
+ * How one flag's value was arrived at on a reading: `probed` by a zero-turn probe whose negative
+ * control still refused, or `static` from the driver's own table, used only where no admissible
+ * probe exists. A bare union because nothing iterates it at runtime; per-driver totality is a
+ * compile-time `Record` in `runtime-daemon/src/provider/capability-probe.ts`.
+ */
 export type CapabilityDetectionSource = "static" | "probed";
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// The intervention vocabulary. This file is the enum's co-located home; the
-// run-control orchestration imports it. A driver applies the first three
-// (`ApplyInterventionParams`); the daemon carries out `faster_model_retry` by
-// stopping the turn and sending its message again on the named model.
-/** How a caller acts on a live run: steer, interrupt, cancel, or retry on a faster model. */
+// ---- Interventions ----
+
+/**
+ * How a caller acts on a live run: steer, interrupt, cancel, or retry on a faster model. A driver
+ * applies the first three (`ApplyInterventionParams`); the daemon carries out `faster_model_retry`
+ * by stopping the turn and sending its message again on the named model.
+ */
 export type InterventionType = "steer" | "interrupt" | "cancel" | "faster_model_retry";
 /** Validates an {@link InterventionType}; the one runtime spelling of its values. */
 export const InterventionTypeSchema: z.ZodType<InterventionType, InterventionType> = z.enum([
@@ -831,34 +483,15 @@ export const InterventionTypeSchema: z.ZodType<InterventionType, InterventionTyp
   "faster_model_retry",
 ]);
 
-// Nominal TS — daemon-constructed param. Discriminated union over `type`: each
-// intervention type is structurally coupled to its payload, so `type: "steer"` REQUIRES a
-// `SteerPayload` and a mismatched/empty payload is unrepresentable — not a
-// silently-accepted no-op. routes interventions by type, so the type→payload coupling is a
-// contract invariant, not a convenience. Every arm repeats `expectedRunVersion`, the
-// MANDATORY fail-closed comparand: a non-optional `number`, so an absent value is a type
-// error, never a silently-applied intervention.
-//
-// Every arm likewise repeats `clientIdempotencyKey`, the MANDATORY
-// REQUESTER-GENERATED UUID (campaign B3). The daemon dedupes on it against the
-// `interventions` UNIQUE guard (replay-or-conflict), which is what converts an
-// AT-LEAST-ONCE delivery into EXACTLY-ONCE application — a retried steer
-// re-applies nothing. The key is threaded to the wire UNCHANGED, never re-minted
-// at the driver boundary (re-minting would hand a provider-remote invocation a
-// fresh key per retry and defeat the dedupe outright), so a provider that honors
-// dedupe keys receives the CALLER's key — the `compensable` propagation pattern.
-// Non-optional for the same reason `expectedRunVersion` is: an absent key must
-// be a type error, not a silently non-deduped intervention. The driver-side
-// threading itself is the driver's, landing in Phase 3; this arm set only makes
-// the value impossible to omit on the way there.
-//
-// No paired Zod schema, deliberately: this is a daemon-CONSTRUCTED param like
-// the rest of the `*Params` family, so there is nothing untrusted to parse — the
-// requester-supplied key is validated at the client→daemon WIRE seam, a
-// different boundary, before it ever reaches this shape.
-//
-// One arm per intervention a driver applies (steer, interrupt, cancel): the
-// union's arm set is the dispatch surface.
+/**
+ * A daemon-constructed intervention, discriminated on `type` so each type is coupled to its payload
+ * and a mismatched or empty payload is unrepresentable. Every arm repeats two mandatory members,
+ * non-optional so an absence is a type error: `expectedRunVersion`, the fail-closed comparand, and
+ * `clientIdempotencyKey`, the requester-generated UUID the daemon dedupes on (the `interventions`
+ * UNIQUE guard), which turns at-least-once delivery into exactly-once application. The key reaches
+ * the wire unchanged and is never re-minted at the driver boundary, since a fresh key per retry
+ * would defeat the dedupe. No Zod schema: the key is validated at the client-to-daemon seam.
+ */
 export type ApplyInterventionParams =
   | {
       type: "steer";
@@ -882,76 +515,59 @@ export type ApplyInterventionParams =
       payload: CancelPayload;
     };
 
+/** Payload of a `steer` intervention: the message content, its attachments and a target turn. */
 export interface SteerPayload {
   content: string;
-  // TYPED `ArtifactId[]`, never `unknown[]` (2026-09-08 discharge). The element
-  // is an id into the manifest space and the list is ORDER-PRESERVING: the
-  // position an attachment occupies on the way in is the position it occupies on
-  // the way out, and an element the turn cannot resolve at delivery time surfaces
-  // as an explicit cause-bearing unresolved marker IN ITS OWN POSITION rather
-  // than being dropped — a silently shortened list makes the recipient reason
-  // about a message that was never sent.
+  // Order-preserving: an attachment's position in equals its position out, and an element the turn
+  // cannot resolve at delivery surfaces as a cause-bearing unresolved marker in its own position,
+  // never dropped (a silently shortened list makes the recipient reason about a message that was
+  // never sent).
   //
-  // TWO BOUNDS, DELIBERATELY DISTINCT. `DRIVER_WIRE_STEER_ATTACHMENTS_MAX` below
-  // is this SEAM's coarse count ceiling — a frame-abuse guard, sized above any
-  // admissible carrier. The POLICY bound is the `max_attachments_per_carrier`
-  // (default 10, operator-tunable within 1-50), enforced by the daemon at
-  // CARRIER ACCEPTANCE, which refuses the whole carrier as
-  // `artifact.too_many_attachments` (413) before any element is bound or
-  // delivered, rather than truncating it to fit — a truncating carrier is the
-  // silent drop this typing exists to prevent, wearing a success status code.
-  // The tunable bound is not a parse concern: a schema constant cannot read
-  // operator configuration, and a wire cap pinned to the default would refuse
-  // carriers a raised setting admits.
+  // Two bounds: `DRIVER_WIRE_STEER_ATTACHMENTS_MAX` below is this seam's coarse frame-abuse
+  // ceiling; the policy bound `max_attachments_per_carrier` (default 10, operator-tunable 1-50) is
+  // enforced by the daemon at carrier acceptance, which refuses the whole carrier as
+  // `artifact.too_many_attachments` (413) rather than truncating. A schema constant cannot read
+  // operator configuration.
   //
-  // INTERIM: THE DAEMON REFUSES WHAT THIS TYPE ADMITS. No daemon seam resolves an
-  // `ArtifactId` to bytes yet, so until the attachment-reference resolver ships,
-  // a non-empty list on a `driver.applyIntervention` steer is refused WHOLE at
-  // the single IPC ingress (`runtime-daemon/src/ipc/handlers/driver-handlers.ts`,
-  // `refuseAttachmentDeliveryUnsupported`) with the already-registered
-  // `driver.capability_unsupported` — before any driver method runs, because the
-  // alternative is a supported steer answering `applied` after silently dropping
-  // every element. The type is deliberately NOT narrowed to express that: the
-  // carrier contract is correct and the daemon is what is not yet able to honor
-  // it, so the refusal lifts with a code change and no wire change.
+  // No daemon seam resolves an `ArtifactId` to bytes yet, so the IPC ingress
+  // (`runtime-daemon/src/ipc/handlers/driver-handlers.ts`, `refuseAttachmentDeliveryUnsupported`)
+  // refuses a non-empty list on a steer whole with `driver.capability_unsupported`, before any
+  // driver method runs. The type stays wide: the carrier contract is correct and the refusal lifts
+  // with a code change alone.
   attachments?: ArtifactId[] | undefined;
   expectedTurnId?: string | undefined;
 }
 
+/** Payload of an `interrupt` intervention. */
 export interface InterruptPayload {
   reason?: string | undefined;
 }
 
+/** Payload of a `cancel` intervention. */
 export interface CancelPayload {
   reason?: string | undefined;
 }
 
-// Return shape of `ProviderDriver.applyIntervention()`. Zod-validated because it parses
-// UNTRUSTED provider output (the trust boundary). `fallbackAction` is an optional hint
-// carrying the suggested fallback for a `degraded` result (e.g. `queue_and_interrupt` for
-// a degraded steer); on the `applied` path it is absent by convention. Intentionally a
-// flat object, NOT a `status`-discriminated union like the sibling `DriverResumeResult`:
-// that envelope's variants carry different REQUIRED fields, whereas these two differ only
-// by one optional field — the flat shape mirrors the ratified envelope (Phase-4 decision
-// #3). Non-transforming object → double-`T` annotation per session.ts:289-294.
-//
-// `refusalCode` is additive-optional and closed to ONE literal, registered. It
-// is set when a driver-boundary text neutralization failure is already
-// classified at the moment this result resolves, and it rides the result rather
-// than a JSON-RPC error because an unsupported-or-refused intervention is DATA
-// not an exception. It is BEST-EFFORT BY CONSTRUCTION: the driver does not hold
-// the intervention call open waiting for the provider turn to settle, so the
-// member is absent whenever settlement lands after this result does. The run's
-// own `run.failed` terminal is the guarantee on every path; this member is the
-// second surface, never the only one. Deliberately NOT `.strict()`-exempt and
-// NOT widened to a general refusal channel — a second code would need its own
-// registration, and a union minted ahead of a second producer is a gate with no
-// reader.
+/**
+ * Return of `ProviderDriver.applyIntervention()`. `fallbackAction` hints the fallback for a
+ * `degraded` result (e.g. `queue_and_interrupt` for a steer) and is absent when `applied`. A flat
+ * object, not a `status`-discriminated union like `DriverResumeResult`, because its two statuses
+ * differ by one optional field.
+ */
 export interface DriverInterventionResult {
   status: "applied" | "degraded";
   fallbackAction?: string | undefined;
+  // Set when a driver-boundary text neutralization failure is already classified as this result
+  // resolves. It rides the result rather than a JSON-RPC error because a refused intervention is
+  // data. Best-effort: the driver does not hold the call open for the provider turn to settle, so
+  // the member is absent when settlement lands later; the run's own `run.failed` terminal is the
+  // guarantee. Closed to one literal on purpose: a second code needs its own registration.
   refusalCode?: "driver.text_neutralization_failed" | undefined;
 }
+/**
+ * Validates a {@link DriverInterventionResult} parsed from untrusted provider output. Strict, and
+ * non-transforming, so the double-`T` annotation applies.
+ */
 export const DriverInterventionResultSchema: z.ZodType<
   DriverInterventionResult,
   DriverInterventionResult
@@ -962,24 +578,14 @@ export const DriverInterventionResultSchema: z.ZodType<
       DRIVER_FALLBACK_ACTION_MAX_LEN,
       "DriverInterventionResult.fallbackAction",
     ).optional(),
-    // A CLOSED LITERAL, not `wireFreeFormString`. Every other free-form member
-    // of this envelope carries provider-authored prose and is length-bounded
-    // and sanitized on that basis; this one carries a code the daemon itself
-    // minted, so the schema that admits it should admit exactly that code and
-    // nothing else. A `z.string()` here would let a driver report an arbitrary
-    // refusal on a field whose consumers key on identity.
+    // A closed literal, not `wireFreeFormString`: this carries a code the daemon minted, so the
+    // schema admits exactly that code, and consumers key on its identity.
     refusalCode: z.literal("driver.text_neutralization_failed").optional(),
   })
   .strict()
-  // Cross-field, because the two members contradict each other on one arm: the
-  // refusal code IS the classification that the user's text was
-  // swallowed, and a swallowed text is precisely what `applied` denies. A
-  // version-skewed driver reporting the pair must fail parse at this trust
-  // boundary rather than hand out a result whose two readers disagree — a
-  // caller keying on `status` reporting success while one keying on
-  // `refusalCode` reports failure. (`.superRefine()` returns `this` — the
-  // Zod-4 property event.ts's audit-integrity pairing rule records — so the
-  // flat-envelope annotation above still holds.)
+  // Cross-field: the refusal code classifies the user's text as swallowed, which `applied` denies.
+  // A version-skewed driver reporting the pair fails parse here rather than hand out a result
+  // whose two readers disagree. (`.superRefine()` returns `this`, so the annotation above holds.)
   .superRefine((result, ctx) => {
     if (result.status === "applied" && result.refusalCode !== undefined) {
       ctx.addIssue({
@@ -991,70 +597,39 @@ export const DriverInterventionResultSchema: z.ZodType<
     }
   });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// `RecoveryCondition` — named once here (the re-type of what shipped as an
-// inline `z.literal('recovery-needed')`), referenced at every carrying surface.
-// `recovery-needed` is the generic condition: operator reconciliation required.
-// `reauth-required` means the provider session or credential expired — detected
-// mid-run via the provider's typed auth-failure signals, or at resume/probe time
-// — and its remediation is re-authenticating the provider CLI on the runtime
-// node, after which recovery MAY retry. Two conditions, two different operator
-// actions, which is why one literal could not carry both.
-//
-// Widening at the SCHEMA rather than at the consumer is what makes this
-// contract-first: the mid-run `reauth-required` route and the carrier
-// consume become expressible here instead of dead-lettering at parse.
-//
-// ONE list, derived rather than restated, because the annotation the carriers
-// previously leaned on does not guard the direction this union actually moves.
-// `z.ZodType` is COVARIANT in its output, so a `z.enum` narrower than the union
-// still satisfies a `z.ZodType<RecoveryCondition>` annotation. Measured on this
-// workspace's toolchain: widening the union by a third member left `tsc -b
-// --force` at zero errors here AND in `run-control.ts`, while narrowing it
-// produced two TS2375s. Widening is the direction the corpus took
-// (`recovery-needed` -> `+ reauth-required`), and its failure mode is a new
-// condition dead-lettering at parse at whichever carrier was not updated with
-// it. Deriving the type from the values deletes the second list that made that
-// drift expressible.
+// ---- Recovery conditions ----
+
+/**
+ * Why a run needs attention: `recovery-needed` means an operator must reconcile it;
+ * `reauth-required` means the provider session or credential expired (detected mid-run from the
+ * provider's typed auth-failure signals, or at resume or probe time) and recovery may retry once
+ * the provider CLI is re-authenticated on the runtime node. Two conditions, two operator actions.
+ * One list, from which the type and schema derive: `z.ZodType` is covariant in its output, so an
+ * enum narrower than the union still satisfies a `z.ZodType<RecoveryCondition>` annotation
+ * (measured: widening left `tsc -b --force` clean while narrowing raised TS2375), and a second
+ * hand-written list would let a new condition dead-letter at parse at a carrier not updated.
+ */
 export const RECOVERY_CONDITIONS = ["recovery-needed", "reauth-required"] as const;
 
+/** One member of {@link RECOVERY_CONDITIONS}. */
 export type RecoveryCondition = (typeof RECOVERY_CONDITIONS)[number];
 
-// Exported so every carrier REFERENCES this parser instead of restating its values.
-// Four surfaces carry the condition: the `DriverResumeResult` `failed` variant below
-// (REQUIRED), the `RunStateChangeEvent` projection in `run-control.ts` (optional), and —
-// when their owning plans author them — the `RecoveryStatusReadResponse` and the
-// `FailureDetailReadResponse`, which binds to IMPORT this symbol rather than redeclare it.
-//
-// `z.ZodType` rather than a `z.ZodEnum<...>` annotation: no consumer derives from
-// the enum surface here. The value set is reachable through `RECOVERY_CONDITIONS`,
-// which is the single source either way.
+/**
+ * Validates a {@link RecoveryCondition}. Every carrier references this parser instead of restating
+ * the values: the `DriverResumeResult` `failed` arm (required) and the run-state change projection
+ * in `run-control.ts` (optional). Annotated `z.ZodType`, not `z.ZodEnum`, because no consumer
+ * derives from the enum surface; the value set is `RECOVERY_CONDITIONS`.
+ */
 export const RecoveryConditionSchema: z.ZodType<RecoveryCondition, RecoveryCondition> =
   z.enum(RECOVERY_CONDITIONS);
 
-// `RecoverySpanClassification` — the SIBLING classification of the halted span's
-// CONTENT. Orthogonal to `RecoveryCondition` above: that axis names WHY the run
-// needs an operator, this one names WHAT the diverged/halted span contains, so
-// policy can tier on blast radius. Deliberately NOT modeled as a widening of
-// `RecoveryCondition` — the two answer different questions, and conflating them
-// would overload operator-remediation routing.
-//
-// V1 consumes it as AUDIT METADATA ONLY: every divergence still halts for human
-// action, and `unclassifiable` MUST be handled exactly as `irreversible` — the
-// fail-closed default, which is what keeps the driver-side escape hatch below
-// from being a free pass. Recording the axis now makes tiered auto-resolution
-// (auto-resolve `read_only` / `idempotent_write`, always halt `irreversible`) a
-// future POLICY flip rather than a schema change.
-//
-// `const`-array-derived, like `RECOVERY_CONDITIONS` above and
-// `DRIVER_CAPABILITY_FLAGS` below. This was a plain literal union until on the
-// stated premise that it had no runtime consumer and a const array would be a
-// runtime symbol nothing reads. The premise no longer holds: the exported parser
-// below reads it, and so does every carrier referencing that parser. The
-// lockstep the premise rested on was never enforced in the widening direction
-// either — see `RECOVERY_CONDITIONS` for the measurement.
+/**
+ * What the halted or diverged span contains, so policy can tier on blast radius. Orthogonal to
+ * `RecoveryCondition`, which says why the run needs an operator, so it is not a widening of that
+ * union. Audit metadata only: every divergence still halts for human action, and `unclassifiable`
+ * must be handled exactly as `irreversible`, the fail-closed default that keeps a driver from using
+ * it as a free pass. Const-array-derived because the exported parser and its carriers read it.
+ */
 export const RECOVERY_SPAN_CLASSIFICATIONS = [
   "read_only",
   "idempotent_write",
@@ -1062,38 +637,30 @@ export const RECOVERY_SPAN_CLASSIFICATIONS = [
   "unclassifiable",
 ] as const;
 
+/** One member of {@link RECOVERY_SPAN_CLASSIFICATIONS}. */
 export type RecoverySpanClassification = (typeof RECOVERY_SPAN_CLASSIFICATIONS)[number];
 
-// The sibling parser, exported on the same ground and referenced at the same
-// four carriers. `unclassifiable` is a MEMBER rather than an absence, so a
-// driver that cannot classify the span still parses; the fail-closed handling
-// rule — treat it exactly as `irreversible` — is the consumer's obligation and
-// not something a value set can enforce.
+/**
+ * Validates a {@link RecoverySpanClassification}; carried by the same surfaces as
+ * `RecoveryConditionSchema`. `unclassifiable` is a member rather than an absence, so a driver that
+ * cannot classify the span still parses; treating it as `irreversible` is the consumer's duty,
+ * which a value set cannot enforce.
+ */
 export const RecoverySpanClassificationSchema: z.ZodType<
   RecoverySpanClassification,
   RecoverySpanClassification
 > = z.enum(RECOVERY_SPAN_CLASSIFICATIONS);
-//
-// Return shape of `ProviderDriver.resumeSession()`. Zod-validated because it parses
-// UNTRUSTED provider output. The discriminated union over `status` makes SILENT
-// REPLACEMENT structurally inexpressible: the `failed` variant carries a
-// `RecoveryCondition` + a `RecoverySpanClassification` + `providerFailureDetail` and has
-// NO `bindingId`, so a failed resume cannot be conflated with a successful one — the type
-// system forbids returning a binding while signaling failure. requires resume failure to
-// "surface `provider failure` detail and a visible `recovery-needed` condition; it must
-// not silently create a replacement provider session under the same canonical run."
-// Resumed-case timestamps live on `runtime_bindings.updated_at`; this shape carries only
-// the discriminated-union semantic payload.
-//
-// The `resumed` arm's REQUIRED `sessionPosition` is the driver's normalized
-// monotonic position (a turn/event ordinal — the same number-cursor convention
-// as `ForkConversationResult`'s confirmed position), which the daemon compares against
-// its RECORDED position. That compare is load-bearing rather than decorative: it
-// is what catches a provider silently answering a resume with a FRESH session
-// (e.g. Claude on a working-directory mismatch), because a fresh session's
-// position cannot match the recorded one. So a successful resume WITHOUT a
-// comparable position is structurally inexpressible, the same guarantee the
-// fork envelope makes for its position.
+
+/**
+ * Return of `ProviderDriver.resumeSession()`, parsed from untrusted provider output. Discriminated
+ * on `status` so a failed resume cannot pose as a successful one: `failed` carries a
+ * `RecoveryCondition`, a `RecoverySpanClassification` and `providerFailureDetail` and has no
+ * `bindingId`, and a failed resume must never silently create a replacement provider session under
+ * the same run. The `resumed` arm's required `sessionPosition` is the driver's normalized monotonic
+ * position (a turn or event ordinal, as in `ForkConversationResult`); the daemon compares it with
+ * its recorded position, which catches a provider answering a resume with a fresh session (e.g.
+ * Claude on a working-directory mismatch). Timestamps live on `runtime_bindings.updated_at`.
+ */
 export type DriverResumeResult =
   | { status: "resumed"; bindingId: string; sessionPosition: number }
   | {
@@ -1102,53 +669,35 @@ export type DriverResumeResult =
       recoverySpanClassification: RecoverySpanClassification;
       providerFailureDetail: string;
     };
+/** Validates a {@link DriverResumeResult}; both arms are `.strict()`. */
 export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResumeResult> =
   z.discriminatedUnion("status", [
     z
       .object({
         status: z.literal("resumed"),
-        // `bindingId` is a machine-generated OPAQUE provider session-binding
-        // handle. An opaque machine handle does not need the `/\S/` + NUL
-        // guards that target HUMAN-entered fields, but it gets them here for a
-        // different reason — not "stronger is better": this handle is
-        // PERSISTED into `runtime_bindings`, so `wireFreeFormString`'s `/\S/` + NUL guards are
-        // defense-in-depth against storage / log-injection hazards on a stored
-        // untrusted value. The cap (`DRIVER_BINDING_ID_MAX_LEN = 256`) is sized
-        // for a short session-binding handle.
+        // Opaque and machine-generated, but persisted into `runtime_bindings`, so the
+        // `wireFreeFormString` guards (non-blank, no NUL) defend a stored untrusted value against
+        // storage and log-injection hazards. The cap is sized for a short session-binding handle.
         bindingId: wireFreeFormString(DRIVER_BINDING_ID_MAX_LEN, "DriverResumeResult.bindingId"),
-        // SHAPE only (integer >= 0) — the same bound, and the same split, as
-        // `ForkConversationResultSchema`'s `applied` position. The DOMAIN checks (that
-        // this position matches the daemon's RECORDED position, and the
-        // divergence reconciliation a mismatch triggers — halt-for-human) are
-        // the daemon's, not this layer's: they
-        // need session state this shape does not carry, so asserting them here
-        // would be a check that cannot actually be performed.
+        // Shape only (integer >= 0), as in `ForkConversationResultSchema`. Comparing the position
+        // with the daemon's recorded one, and reconciling a mismatch, need session state this shape
+        // does not carry, so they belong to the daemon.
         sessionPosition: z.number().int().min(0),
       })
       .strict(),
     z
       .object({
         status: z.literal("failed"),
-        // REFERENCES the hoisted parser rather than restating its two
-        // values, so a condition added to `RECOVERY_CONDITIONS` reaches this
-        // carrier by construction instead of dead-lettering at parse right here.
+        // References the shared parser so a new condition reaches this carrier by construction.
         recoveryCondition: RecoveryConditionSchema,
-        // REQUIRED on this LIVE driver return — unlike the OPTIONAL form the
-        // replay-visible carriers take, whose optionality exists only to admit
-        // pre-amendment history. A resume failure is produced FRESH at resume
-        // time and is never replayed, so there is no such history here for
-        // optionality to admit. A driver that cannot classify the span emits
-        // `unclassifiable` (which the consumer must handle exactly as
-        // `irreversible`), so OMISSION is a schema failure rather than a silent
-        // "unknown". Referenced from the hoisted parser above, the same
-        // discipline as `recoveryCondition`.
+        // Required on this live return: a resume failure is produced fresh and never replayed, so
+        // no older record needs it optional. A driver that cannot classify the span emits
+        // `unclassifiable`, so omission is a schema failure.
         recoverySpanClassification: RecoverySpanClassificationSchema,
-        // The cap is generous (`DRIVER_FAILURE_DETAIL_MAX_LEN = 32768`) so a legitimate
-        // verbose detail (wrapped upstream stack trace / nested-cause chain) is not
-        // suppressed — MANDATES this detail surface. A value still exceeding the cap is
-        // pathological; the daemon's resume handler (4) must treat an unparseable provider
-        // result as ITSELF a provider failure and surface `recovery-needed`, so the
-        // system-level signal survives even a parse rejection here.
+        // The cap is generous so a verbose detail (wrapped upstream stack trace or nested-cause
+        // chain) is not suppressed. A value past it is pathological; a driver treats a result that
+        // fails this schema as a provider failure and surfaces `recovery-needed`, so the signal
+        // survives a parse rejection here.
         providerFailureDetail: wireFreeFormString(
           DRIVER_FAILURE_DETAIL_MAX_LEN,
           "DriverResumeResult.providerFailureDetail",
@@ -1157,156 +706,85 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
       .strict(),
   ]);
 
-// --------------------------------------------------------------------------
-// Typed provider usage-limit signal
-// --------------------------------------------------------------------------
-//
-// A SIBLING AXIS beside `RecoveryCondition`, minted on exactly the ground
-// `RecoverySpanClassification` above was minted on: the two answer different
-// questions. Every `RecoveryCondition` member means A HUMAN MUST ACT — reconcile
-// the diverged span, or re-authenticate the provider CLI on the runtime node. A
-// spent usage allowance means the opposite: no operator action shortens the
-// wait, and the run resumes unattended once the provider's window turns over.
-// Folding this into `RecoveryCondition` would route a self-clearing pause into
-// the operator-remediation queue, which is the conflation that axis exists to
-// prevent — and widening the union would silently re-type every existing
-// consumer's exhaustive switch.
-//
-// A driver emits a signal ONLY when a STRUCTURED provider event it can NAME
-// states the allowance is spent. Prose in a message, a process exit code, and a
-// bare HTTP status are all forbidden inputs: each is a surface the provider may
-// reword or reuse freely, so matching on one converts an upstream copy edit into
-// a silent misclassification here. An unrecognized shape therefore emits
-// NOTHING, and that absence reads "not known to be limited" — never "known not
-// to be limited".
-//
-// NO CAPABILITY FLAG IS ADDED, and `DRIVER_CAPABILITY_FLAGS` above is restated
-// UNWIDENED. Recognition is a UNIFORM OBLIGATION of every driver, the footing
-// `probeAuth` already stands on: a flag would let a driver declare the
-// obligation away, and a run the provider refused for spend would then sit in
-// the generic failure path with nothing telling anyone why.
-//
-// NOMINAL rather than Zod, by the file header's own rule rather than by
-// exception. The Zod set in the header's (2) exists for surfaces that carry
-// provider-VERBATIM values across the trust boundary — `ProviderOutputSpeedState`
-// is schema'd because `declared` is the provider's own string, and
-// `ProviderCommandEntry` because the command names are. NO member below is
-// provider-verbatim: `cause` and `provenance` are closed literals the driver
-// SELECTS, and `resetsAt` is a timestamp the driver COMPOSES. A schema over them
-// would validate the driver against itself. Same disposition, and the same
-// reason, as `RecoverySpanClassification`. No count in the header moves.
+// ---- Provider usage-limit signal ----
 
-// The closed cause set. ONE member today, and the arity is a finding rather than
-// a placeholder: across both pinned provider surfaces, exactly one condition
-// satisfies this axis's own defining property — that it clears on its own.
-//
-// `plan-allowance-exhausted` — the subscription/plan allowance for a rolling
-// window is spent. It clears when the window turns over, with no operator
-// action, which is what makes it this axis's member.
-//
-// DELIBERATELY EXCLUDED, enumerated so that a typed provider arm reaching a
-// driver and producing nothing is a RECORDED decision rather than a hole (an
-// excluded arm and a dormant one are not the same thing, and collapsing them is
-// how a normalizer quietly stops covering its wire):
-//   * A DEPLETED CREDIT BALANCE (Codex `workspace_owner_credits_depleted` /
-//     `workspace_member_credits_depleted`). No window turnover restores a
-//     balance — a purchase does. It is operator-remediable, so it fails this
-//     axis's defining property, and admitting it here would park a run against a
-//     boundary at which nothing changes.
-//   * A PAYMENT FAULT (Claude `billing_error`). Same reason: a human must act.
-//   * A SPEND-CONTROL CEILING (Codex `spendControlReached`). That is an
-//     administrative budget state carried on a snapshot, not a statement that a
-//     turn was refused, and reading a state flag as a refusal would park runs
-//     that the provider is still willing to serve.
-// WHERE THE EXCLUDED ARMS GO TODAY: nowhere in particular, and that is stated
-// rather than implied. Neither `RecoveryCondition` member names them — that
-// union is `recovery-needed | reauth-required` — so a turn refused for any of
-// the three settles on the driver's ordinary turn-failure path, unchanged by
-// this task. Excluding them from THIS axis is the decision recorded here; giving
-// them a typed home of their own is a separate one nothing above claims to make.
-// Widening this union is an ordinary amendment; inventing a free string is not.
+// A driver emits a usage-limit signal only when a structured provider event it can name says the
+// allowance is spent. Prose, an exit code or a bare HTTP status are never inputs, since the
+// provider may reword or reuse them; an unrecognized shape emits nothing, which reads "not known
+// to be limited". There is no capability flag: recognition is required of every driver, like
+// `probeAuth`. These types are plain TypeScript because no member is provider-verbatim: `cause`
+// and `provenance` are closed literals the driver selects, and `resetsAt` is a timestamp it
+// composes.
+
+/**
+ * Why a provider refused for spend, on an axis separate from `RecoveryCondition`: every recovery
+ * condition needs a human, while a spent usage allowance clears when the provider's window turns
+ * over. One member on purpose: only `plan-allowance-exhausted`, the subscription allowance for a
+ * rolling window, clears on its own. Excluded because a human must act or the state is not a
+ * refused turn: a depleted credit balance (Codex `workspace_owner_credits_depleted` and
+ * `workspace_member_credits_depleted`, restored by a purchase), a payment fault (Claude
+ * `billing_error`), and a spend-control ceiling (Codex `spendControlReached`, an administrative
+ * budget state on a snapshot). A turn refused for any of them settles on the driver's ordinary
+ * turn-failure path. Widen the union deliberately; never with a free string.
+ */
 export type ProviderUsageLimitCause = "plan-allowance-exhausted";
 
-// Where the reset instant CAME FROM, carried on the boundary itself rather than
-// inferred by the consumer from which driver produced it.
-//
-// `provider-stated` — the provider named this instant, for the window it also
-// named as the spent one. `runtime-derived` — the provider named no reset
-// instant, and the daemon computed one from a delay the provider did give. The
-// two are not interchangeable evidence: a consumer may arm a schedule on either,
-// but only the first is safe to SHOW as the provider's own answer, and only the
-// second should widen when a retry lands early.
+/**
+ * Where a reset instant came from: `provider-stated` (the provider named it, for the window it also
+ * named as spent) or `runtime-derived` (the daemon computed it from a delay the provider gave). A
+ * consumer may schedule on either, but only the first is safe to show as the provider's own answer,
+ * and only the second should widen when a retry lands early.
+ */
 export type ProviderUsageLimitResetProvenance = "provider-stated" | "runtime-derived";
 
-// The boundary, as ONE object rather than two sibling optionals on the signal.
-// That is the structural point: "an instant with no provenance" and "a
-// provenance stamp with no instant" are both inexpressible, so a consumer that
-// has an instant always knows what it is worth.
+/**
+ * A reset instant and its provenance as one object, so an instant without provenance and a
+ * provenance without an instant are both unrepresentable.
+ */
 export interface ProviderUsageLimitResetBoundary {
-  // RFC 3339 UTC, the encoding `PhaseState.autoResumeAt` already consumes, so
-  // the pacing surface carries this value through without re-encoding it.
+  // RFC 3339 UTC.
   resetsAt: string;
   provenance: ProviderUsageLimitResetProvenance;
 }
 
-// The signal itself. The BOUNDARY IS OPTIONAL AND THE CAUSE IS NOT, because the
-// two absences mean different things and only one of them is routine: a
-// recognized refusal parks the run whether or not a window was reported, and a
-// missing boundary changes only whether a resume is SCHEDULED. An absent
-// boundary means no reset instant is known from what has been observed — never
-// that the provider publishes none.
+/**
+ * A recognized provider usage-limit refusal. The cause is required and the boundary optional: a
+ * recognized refusal parks the run whether or not a window was reported, and a missing boundary
+ * only means no resume is scheduled. Absent means no reset instant is known from what was
+ * observed, not that the provider publishes none.
+ */
 export interface ProviderUsageLimitSignal {
   cause: ProviderUsageLimitCause;
   resetBoundary?: ProviderUsageLimitResetBoundary | undefined;
 }
 
-// --------------------------------------------------------------------------
-// R8 parity operation shapes (
-// --------------------------------------------------------------------------
-//
-// Everything below is reachable ONLY from the four operations added to
-// `ProviderDriver` above, or from the spawn/turn carriers those operations share.
-// The nominal-vs-Zod split follows the file header's rule mechanically, with no
-// new judgment: daemon-CONSTRUCTED params and daemon-CONSTRUCTED config stay
-// nominal; the two result envelopes (`ForkConversationResult`,
-// `DriverAuthProbeResult`) and the two driver-normalized seam shapes
-// (`CallbackToolInvocation`, `McpServerStatusEmission`) are Zod-parsed because
-// they carry provider output across the trust boundary.
+// ---- Conversation fork ----
 
-// --------------------------------------------------------------------------
-// Conversation fork — `forkConversation` (gated on the `rollback` flag)
-// --------------------------------------------------------------------------
-//
-// Forks the provider conversation at a recorded position into a new provider
-// session. It touches no files.
-//
-// `position` is the driver's normalized monotonic session position (a turn/event
-// ordinal).
-//
-// `bindingId` is the leg key, and it is load-bearing rather than decorative:
-// run→bindings is 1:many in the shipped store (a capped or posture relaunch mints
-// a new binding for the same run), so `sessionId` alone cannot name the target
-// leg. The DAEMON resolves the run's live binding at dispatch — clients address
-// the run, not the leg.
+/**
+ * Params of `forkConversation` (gated on `rollback`): fork the provider conversation at a recorded
+ * `position` (the driver's normalized monotonic session position, a turn or event ordinal) into a
+ * new provider session; touches no files. `bindingId` is the leg key: a run has many bindings (a
+ * capped or posture relaunch mints a new one), so `sessionId` cannot name the target leg. The
+ * daemon resolves the run's live binding at dispatch; clients address the run, not the leg.
+ */
 export interface ForkConversationParams {
   sessionId: SessionId;
   position: number;
   bindingId: string;
 }
 
-// Return shape of `ProviderDriver.forkConversation()`. Zod-validated — untrusted
-// provider output. Discriminated over `status` for the same structural reason as
-// `DriverResumeResult`: a SUCCESSFUL fork WITHOUT A CONFIRMED POSITION is
-// inexpressible, because `sessionPosition` is REQUIRED on `applied` and absent
-// from `degraded`. This schema bounds its SHAPE only (integer >= 0); the domain
-// checks need session state this shape does not carry and are the daemon's.
-//
-// `bindingId` is the binding the fork minted (Claude `--resume-session-at` +
-// `--fork-session`; Codex `thread/fork`). It is a store-minted binding
-// surrogate, never itself a resume handle.
+/**
+ * Return of `ProviderDriver.forkConversation()`, parsed from untrusted provider output.
+ * Discriminated on `status` like `DriverResumeResult`: `sessionPosition` is required on `applied`
+ * and absent from `degraded`, so a fork without a confirmed position is unrepresentable. The schema
+ * bounds shape only (integer >= 0); domain checks need session state and belong to the daemon.
+ * `bindingId` is the binding the fork minted (Claude `--resume-session-at` with `--fork-session`;
+ * Codex `thread/fork`), a store-minted surrogate and never a resume handle.
+ */
 export type ForkConversationResult =
   | { status: "applied"; sessionPosition: number; bindingId?: string | undefined }
   | { status: "degraded"; fallbackAction?: string | undefined };
+/** Validates a {@link ForkConversationResult}; both arms are `.strict()`. */
 export const ForkConversationResultSchema: z.ZodType<
   ForkConversationResult,
   ForkConversationResult
@@ -1332,23 +810,17 @@ export const ForkConversationResultSchema: z.ZodType<
     .strict(),
 ]);
 
-// --------------------------------------------------------------------------
-// Session goals — `setSessionGoal` / `clearSessionGoal` (gated on `session_goals`)
-// --------------------------------------------------------------------------
-//
-// `goalText` is the daemon-RENDERED textual form of the session's structured
-// goal: the structured shape is goal contract, and the daemon renders structure
-// → provider text at dispatch, so the driver never sees the structure and cannot
-// diverge from it.
-//
-// Durable truth is the `session.goal_updated` / `session.goal_cleared` events,
-// and the daemon re-pushes the goal on session resume — driver-held state is
-// never the recovery source, which is why neither operation returns the goal it
-// applied.
-//
-// `bindingId` is the leg key for the same 1:many reason as `ForkConversationParams`:
-// goal delivery fans out PER LIVE BINDING, matching the durable intent's per-leg
-// map. `runId` rides along for run-scoped context and telemetry.
+// ---- Session goals ----
+
+/**
+ * Params of `setSessionGoal` (gated on `session_goals`). `goalText` is the daemon-rendered text of
+ * the session's structured goal, so the driver never sees the structure and cannot diverge from it.
+ * Durable truth is the `session.goal_updated` and `session.goal_cleared` events and the daemon
+ * re-pushes the goal on resume, so driver-held state is never the recovery source and neither
+ * operation returns the goal it applied. `bindingId` is the leg key, as on
+ * `ForkConversationParams`: goal delivery fans out per live binding. `runId` rides along for
+ * context and telemetry.
+ */
 export interface SetSessionGoalParams {
   sessionId: SessionId;
   bindingId: string;
@@ -1356,42 +828,34 @@ export interface SetSessionGoalParams {
   goalText: string;
 }
 
+/** Params of `clearSessionGoal` (gated on `session_goals`); addresses one live binding. */
 export interface ClearSessionGoalParams {
   sessionId: SessionId;
   bindingId: string;
   runId: RunId;
 }
 
-// --------------------------------------------------------------------------
-// Zero-turn authentication probe — `probeAuth` (NOT capability-gated)
-// --------------------------------------------------------------------------
-//
-// `indeterminate` (probe surface unavailable or unparseable) is treated as NOT
-// authenticated for admission — FAIL CLOSED — while staying distinguishable from
-// `unauthenticated`, so operators can separate probe health from credential
-// state. Collapsing the two into a boolean would destroy exactly that
-// distinction, which is why this is a three-value enum and not `authenticated:
-// boolean`.
-//
-// Run admission against a driver not probing `authenticated` refuses as
-// `driver.not_authenticated` BEFORE any turn is spent. Mid-run credential expiry
-// is a different surface: the provider's typed auth-failure signals map onto
-// `RecoveryCondition`'s `reauth-required`.
+// ---- Authentication probe ----
+
+/**
+ * Return of the zero-turn `probeAuth` (not capability-gated), parsed from untrusted provider
+ * output. `indeterminate` (probe surface unavailable or unparseable) counts as not authenticated
+ * for admission (fail closed) yet stays distinguishable from `unauthenticated`, so operators can
+ * tell probe health from credential state; a boolean would lose that. Run admission against a
+ * driver not probing `authenticated` refuses as `driver.not_authenticated` before any turn is
+ * spent. Mid-run credential expiry is a different surface: typed auth-failure signals map to the
+ * `reauth-required` recovery condition.
+ */
 export interface DriverAuthProbeResult {
   status: "authenticated" | "unauthenticated" | "indeterminate";
-  // Knowingly PII-BEARING: a provider-reported account/plan descriptor whose
-  // observed shape is a plan name plus a seat EMAIL. Scope is therefore transient,
-  // operator-facing diagnostics ONLY — it MUST NOT be persisted durably, nor
-  // carried on any event, without a PII classification and the erasure reciprocals
-  // that classification obliges. The consumer is the probeAuth admission leg (run
-  // admission against a driver not probing `authenticated` refuses
-  // `driver.not_authenticated` before a turn is spent), which reads `status` for
-  // the decision and this field only to tell an operator WHY; no single task owns
-  // that refusal today, so the spec clause is the citation rather than a task id.
-  // `status` alone carries the fail-closed decision, so dropping this field loses
-  // diagnostics and never correctness.
+  // Knowingly PII-bearing: a provider-reported account or plan descriptor whose observed shape is
+  // a plan name plus a seat email. Transient operator-facing diagnostics only: never persist it or
+  // carry it on an event without a PII classification and the erasure that obliges. Admission
+  // reads `status` for the decision and this field only to tell an operator why, so dropping it
+  // loses diagnostics, never correctness.
   detail?: string | undefined;
 }
+/** Validates a {@link DriverAuthProbeResult}; strict. */
 export const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, DriverAuthProbeResult> =
   z
     .object({
@@ -1403,37 +867,23 @@ export const DriverAuthProbeResultSchema: z.ZodType<DriverAuthProbeResult, Drive
     })
     .strict();
 
-// --------------------------------------------------------------------------
-// Canonical transcript export + replay — `exportTranscript` / `replayTranscript`
-// --------------------------------------------------------------------------
-//
-// The canonical transcript is a PROJECTION the daemon folds from the session
-// event log and rebuilds per call. It is therefore passed IN to
-// `exportTranscript` rather than fetched by the driver: a driver holding a
-// transcript handle would be holding a second record of facts the log already
-// orders, which is exactly the divergence the decision eliminates.
-//
-// The projection shapes below are DAEMON-CONSTRUCTED and ship nominal — there is
-// nothing untrusted to parse in a value the daemon just folded.
-//
-// The per-turn ELEMENT shape is owned here rather than mirrored from the canonical
-// doc, which carries only the projection's identity: the fold's members are
-// exactly what the ordered pipeline operates on, so they are authored beside the
-// pipeline that consumes them. Their content is bounded normalized taxonomy —
-// anything a provider held that never became an event is absent by CONSTRUCTION,
-// not by discipline, which is what the declared-loss rule exists to surface.
+// ---- Canonical transcript export and replay ----
 
-// The closed vocabulary of what a transcript operation could not carry. A new
-// loss kind is an amendment, never a free string, so this is the one place the
-// set is written down; an EMPTY list is a positive claim that nothing was
-// dropped, which is why a driver that does not know what it lost may not emit
-// one.
+// The canonical transcript is a projection the daemon folds from the session event log, so its
+// shapes are daemon-constructed and plain TypeScript. Content is bounded, normalized taxonomy:
+// anything a provider held that never became an event is absent by construction, which is what
+// the declared-loss rule surfaces.
+
+/**
+ * The closed vocabulary of what a transcript operation could not carry. A new kind is a deliberate
+ * addition, never a free string. An empty list claims nothing was dropped, so a driver that does
+ * not know what it lost may not emit one.
+ */
 export const DECLARED_LOSS_KINDS = [
-  // Non-portable by both vendors' stated rules; never translated. Stripped
-  // UNCONDITIONALLY, including on a same-provider replay where the signatures
-  // would still validate — carrying them would owe an exact reproduction of
-  // block order and count, a second provider-specific correctness contract whose
-  // failures surface as opaque signature rejections rather than declared losses.
+  // Non-portable by both vendors' stated rules and never translated. Stripped unconditionally,
+  // even on a same-provider replay where signatures would still validate: carrying them would owe
+  // an exact reproduction of block order and count, whose failures surface as opaque signature
+  // rejections rather than declared losses.
   "provider_private_reasoning",
   // The memo budget evicted older exchanges — whole exchanges only, never halves.
   "context_truncated",
@@ -1441,115 +891,79 @@ export const DECLARED_LOSS_KINDS = [
   "tool_call_history_repaired",
   // The memo floor: verbatim exchanges replaced by a bounded prose rendering.
   "conversation_history_summarized",
-  // A logged turn's body could not be read when the fold ran, so the turn is
-  // carried with its structural position and an EMPTY body rather than being
-  // dropped. Named because the alternative readings — a turn that never
-  // happened, or one whose author said nothing — are both false.
+  // A logged turn's body could not be read when the fold ran, so the turn is carried with its
+  // position and an empty body rather than dropped. Named because the alternatives, a turn that
+  // never happened or one whose author said nothing, are both false.
   "turn_content_unavailable",
-  // A logged turn's body exceeded the append-time plaintext ceiling and is
-  // stored as a codepoint-boundary PREFIX, so the fold carries the prefix and
-  // names the loss rather than replaying a silently shortened turn. Deliberately
-  // NOT folded into `context_truncated`, whose scope is the memo budget evicting
-  // whole exchanges and never halves, and not reported as
-  // `turn_content_unavailable`, which would overstate a turn that is available
-  // as a prefix.
-  //
-  // RECOGNIZED here and produced nowhere in this workspace, which is the
-  // ordering the canonical contract prescribes rather than a field minted ahead
-  // of its reader: a loss kind is an amendment, never a code-first free string,
-  // so the vocabulary entry precedes its producer. The signal it reports is a
-  // durable per-event flag that does not exist yet (the
-  // `session_events.content_payload` and its `contentTruncated` marker), and the
-  // leg that would read that flag into a loss list is a fold-emission leg names
-  // as an unowned residual — no task in that plan yet reads it.
-  //
-  // It has two readers the day it lands, and both get strictly better for
-  // knowing it. The memo continuity-marker parser refuses a record carrying any
-  // token it cannot place, so a marker written by a daemon that DOES know this
-  // kind would otherwise degrade that whole record to unreadable; and the
-  // unreadable-record upper bound reports this very list, which is a bound only
-  // while the list is the whole vocabulary.
+  // A logged turn's body exceeded the append-time plaintext ceiling and is stored as a
+  // codepoint-boundary prefix; the fold carries the prefix and names the loss. Not
+  // `context_truncated` (the memo budget evicting whole exchanges) and not
+  // `turn_content_unavailable` (which would overstate a turn available as a prefix). Kept in the
+  // vocabulary because the memo continuity-marker parser refuses a record carrying a token it
+  // cannot place, and the unreadable-record upper bound reports this whole list.
   "turn_content_truncated",
 ] as const;
 
+/** One member of {@link DECLARED_LOSS_KINDS}. */
 export type DeclaredLossKind = (typeof DECLARED_LOSS_KINDS)[number];
 
+/** Validates a {@link DeclaredLossKind}. */
 export const DeclaredLossKindSchema: z.ZodType<DeclaredLossKind, DeclaredLossKind> =
   z.enum(DECLARED_LOSS_KINDS);
 
 /** Who authored a turn. The transcript carries no third author in V1. */
 export type CanonicalTranscriptRole = "user" | "assistant";
 
-// Whether a reasoning block was ever visible to the user. The strip keys
-// on THIS, not on `reasoningKind`: a filter matching one kind name silently
-// leaves that kind's redacted sibling behind, and the multi-turn protocol then
-// breaks on a block nobody classified. Summaries are user-visible and
-// therefore already canonical, so they carry forward as plain text.
+/**
+ * Whether a reasoning block was ever visible to the user. The strip keys on this, not on
+ * `reasoningKind`, because a filter matching one kind name would leave that kind's redacted
+ * sibling behind and break the multi-turn protocol. Summaries are user-visible, hence canonical.
+ */
 export type CanonicalReasoningDisclosure = "private" | "summary";
 
-// Whether a tool result came from the provider or was minted by the pipeline's
-// pairing repair. Recorded because a repaired result is a DECLARED loss, and a
-// consumer that cannot tell the two apart cannot honor the declaration.
+/**
+ * Whether a tool result came from the provider or was minted by the pairing repair. A repaired
+ * result is a declared loss, and a consumer that cannot tell the two apart cannot honor that.
+ */
 export type CanonicalToolResultProvenance = "provider" | "repaired";
 
-// One unit of turn content.
-//
-// Every arm carries `position`: the session-log sequence of the event that
-// contributed THIS segment. It is derived provenance projected from the log,
-// never a second record of the session's order, which is what requires. It is
-// required on every arm rather than optional because it is what a bound filters
-// on — an absent position would exempt its segment from every bound, and the call
-// site that forgot it would look no different from one that had nothing to
-// record. Steps that re-home a segment carry the value through unchanged, so
-// positions within a turn are ascending as the fold builds them but need not stay
-// so once the pairing repair has moved a result behind its call.
-//
-// A `tool_call` deliberately carries NO enclosing-block member while a
-// `tool_result` does. That asymmetry is structural, not incidental: it makes
-// "the strip never drops a call" unrepresentable-otherwise rather than a rule
-// the strip has to remember, while leaving the strip able to orphan a RESULT —
-// which is precisely the condition the pairing repair exists to answer, and
-// precisely why the repair must run after the strip and not before.
+/**
+ * One unit of turn content. Every arm carries `position`, the session-log sequence of the event
+ * that contributed it: derived provenance projected from the log, never a second record of the
+ * session's order. It is required on every arm because a bound filters on it, and an absent
+ * position would exempt its segment from every bound. Steps that re-home a segment keep the value,
+ * so positions within a turn ascend as the fold builds them but need not once the pairing repair
+ * moves a result behind its call. A `tool_call` carries no enclosing-block member while a
+ * `tool_result` does, so the strip can never drop a call yet can orphan a result, which is what the
+ * pairing repair answers; hence the repair must run after the strip.
+ */
 export type CanonicalTranscriptSegment =
   | {
       kind: "text";
       position: number;
       text: string;
-      // Set when the row's body was unavailable at fold time. `text` is then
-      // empty because inventing content is the one thing the fold may not do,
-      // and the segment is kept so the turn survives with its position — a
-      // dropped turn is indistinguishable from one that never happened. Every
-      // projection carrying one owes the matching declared loss.
+      // Set when the row's body was unavailable at fold time. `text` is then empty, because the
+      // fold never invents content, and the segment is kept so the turn survives with its
+      // position. Every projection carrying one owes the matching declared loss.
       contentUnavailable?: boolean | undefined;
-      // Present on the stand-in the settle emits for an ID-LESS legacy tool
-      // result whose enclosing reasoning block resolved `private` at turn close.
-      // The body was read and withheld, so `text` is empty and
-      // `contentUnavailable` stays absent — setting it would claim a read
-      // failure that never happened, the exact lie the deferred settlement was
-      // built to avoid.
-      //
-      // A `text` arm rather than the `tool_result` + `enclosureDisclosure`
-      // carrier because that arm REQUIRES `toolCallId` and a legacy id-less
-      // result has none: minting a synthetic id would hand the pairing repair a
-      // call to chase that no provider ever made. Like `enclosureDisclosure`,
-      // this member rides the segment it governs and survives any positional
-      // bound the segment survives — which is the point: a bound between the
-      // result and its later-logged private reasoning row cuts away the only
-      // sibling that could classify it, and without this marker that bounded
-      // export would declare nothing.
-      //
-      // Never rendered and never exported: the strip drops the segment and
-      // declares `provider_private_reasoning`. Closed at one literal because
-      // only the `private` disposition withholds a read body — an `unknown`
-      // enclosure keeps its placeholder on the `contentUnavailable` path.
+      // Set on the stand-in emitted for an id-less tool result whose enclosing reasoning block
+      // resolved `private` at turn close. The body was read and withheld, so `text` is empty and
+      // `contentUnavailable` stays absent (setting it would claim a read failure that never
+      // happened). It is a `text` arm rather than a `tool_result` because that arm requires
+      // `toolCallId`, and a synthetic id would give the pairing repair a call no provider made. It
+      // rides the segment it governs and survives any positional bound the segment survives;
+      // without it, a bound between the result and its later-logged private reasoning row would
+      // leave the export declaring nothing. Never rendered or exported: the strip drops the segment
+      // and declares `provider_private_reasoning`. One literal because only `private` withholds a
+      // read body; an `unknown` enclosure keeps its placeholder on the `contentUnavailable` path.
       withheldEnclosure?: "private" | undefined;
     }
   | {
       kind: "reasoning";
       position: number;
       blockId: string;
-      // The provider's own block-kind label, carried verbatim for diagnostics.
-      // It is NOT what the strip keys on — see `CanonicalReasoningDisclosure`.
+      // The provider's own block-kind label, carried verbatim for diagnostics; the strip keys on
+      // `disclosure`, not on this.
       reasoningKind: string;
       disclosure: CanonicalReasoningDisclosure;
       text: string;
@@ -1557,16 +971,15 @@ export type CanonicalTranscriptSegment =
   | {
       kind: "tool_call";
       position: number;
-      // The CANONICAL id. Replay never re-mints one and never reuses one across
-      // two distinct calls; the target-facing id is supplied by the identity map.
+      // The canonical id: replay never re-mints one or reuses one across two calls; the
+      // target-facing id comes from the identity map.
       toolCallId: string;
       toolName: string;
-      // The call's arguments as the provider serialized them. Kept as the
-      // serialized form because re-encoding a parsed object would change bytes
-      // the target may hash or echo.
+      // The arguments as the provider serialized them; re-encoding a parsed object would change
+      // bytes the target may hash or echo.
       argumentsJson: string;
-      // As on the `text` arm. An unreadable body leaves `argumentsJson` empty
-      // rather than dropping the call, whose id the pairing repair needs.
+      // As on the `text` arm. An unreadable body leaves `argumentsJson` empty rather than dropping
+      // the call, whose id the pairing repair needs.
       contentUnavailable?: boolean | undefined;
     }
   | {
@@ -1576,26 +989,19 @@ export type CanonicalTranscriptSegment =
       outcome: "succeeded" | "failed";
       provenance: CanonicalToolResultProvenance;
       text: string;
-      // Present when the provider emitted this result INSIDE a reasoning block.
-      // Stripping that block removes the result and orphans its call, which is
-      // the only way an orphan arises from a well-formed transcript.
+      // Present when the provider emitted this result inside a reasoning block; stripping that
+      // block removes the result and orphans its call, the only way an orphan arises from a
+      // well-formed transcript.
       enclosingReasoningBlockId?: string | undefined;
-      // How the fold resolved that enclosure at turn close, and the ONLY carrier
-      // of that resolution that survives a positional bound: the block id names a
-      // sibling segment a bound may cut away, while this member rides the result
-      // it governs.
-      //
-      // Recorded for the two dispositions that WITHHOLD and for no other. A
-      // portable (`summary`) enclosure and a citation of a block from another
-      // turn both leave it absent, because nothing branches on either and a
-      // member minted ahead of its reader is one every later fold must keep true.
-      //
+      // How the fold resolved that enclosure at turn close, and the only carrier of that
+      // resolution that survives a positional bound: the block id names a sibling segment a bound
+      // may cut away, while this member rides the result. Recorded only for the two dispositions
+      // that withhold; a portable (`summary`) enclosure and a citation of a block from another turn
+      // leave it absent, since nothing branches on either.
       //   `private`  the enclosing block was read and is not portable;
-      //   `unknown`  the enclosure could not be established portable — the turn's
-      //              reasoning row was unreadable, so its block ids are not
-      //              knowable at all, or the block carried a disclosure this fold
-      //              does not classify. Fail-closed: content that MIGHT be
-      //              private must travel with the block, not past it.
+      //   `unknown`  the enclosure could not be established portable (the turn's reasoning row was
+      //              unreadable, or the block carried a disclosure this fold does not classify).
+      //              Fail-closed: content that might be private travels with the block.
       enclosureDisclosure?: "private" | "unknown" | undefined;
       // As on the `text` arm.
       contentUnavailable?: boolean | undefined;
@@ -1603,68 +1009,56 @@ export type CanonicalTranscriptSegment =
 
 /** One ordered turn of the canonical transcript. */
 export interface CanonicalTranscriptTurn {
-  // The session-log sequence of the event that OPENED this turn — the position
-  // of its first segment. Turns are strictly ascending in it, which is what makes
-  // the fold's order the log's. Consecutive same-role events coalesce INTO an open
-  // turn and keep their own, higher, positions on their own segments, so this
-  // member bounds nothing on its own: a filter written against it admits every
-  // later event folded into a turn that opened early.
+  // The session-log sequence of the event that opened this turn (its first segment). Turns ascend
+  // strictly in it. Consecutive same-role events coalesce into an open turn and keep their own,
+  // higher, positions on their segments, so this member bounds nothing: a filter on it would admit
+  // every later event folded into a turn that opened early.
   position: number;
   role: CanonicalTranscriptRole;
   segments: readonly CanonicalTranscriptSegment[];
 }
 
-// The daemon-side fold of a run's normalized events into ordered turns. It never
-// crosses a wire and is never persisted.
+/**
+ * The daemon-side fold of a run's normalized events into ordered turns; it never crosses a wire and
+ * is never persisted.
+ */
 export interface CanonicalTranscriptProjection {
   sessionId: SessionId;
   runId: RunId;
-  // The log position this fold was taken at. Two folds at the same position
-  // render identically and one taken after an appended event does not — the
-  // projection-not-a-store property, stated as a member rather than a comment so
-  // a test can assert it.
+  // The log position this fold was taken at: two folds at one position render identically, and one
+  // taken after an appended event does not.
   builtAtPosition: number;
   turns: readonly CanonicalTranscriptTurn[];
 }
 
-// The export input pairs the folded projection with the boundary it is exported
-// against (the operation's input is the daemon-supplied canonical projection
-// AND a target boundary).
-//
-// The projection also arrives already folded, so the two members could be read as
-// two answers to "where does this transcript end?". They are not, because the
-// driver is given the reconciliation rule rather than a choice: it retains
-// exactly the SEGMENTS whose `position` is at or below `boundary`, dropping any
-// turn that leaves empty. Stated per segment and not per turn because the fold
-// coalesces consecutive same-role events into ONE turn positioned at the first of
-// them — a turn-level filter would carry every later event's content across the
-// boundary with it. That is a deterministic filter over data it already holds —
-// it opens no log, consults nothing the daemon did not hand it, and mints no
-// second record of the session's order, which is what requires of a driver. It is
-// equal to the fold bounded at the same position, so a projection the fold
-// already bounded filters to itself and the rule is a no-op on the common path
-// and a stated bound on every path.
+/**
+ * Input of `exportTranscript`: the folded projection and the boundary it is exported against. The
+ * driver retains exactly the segments whose `position` is at or below `boundary` and drops any turn
+ * left empty. The filter is per segment, not per turn, because the fold coalesces consecutive
+ * same-role events into one turn positioned at the first, so a turn-level filter would carry later
+ * events' content across the boundary. It is a deterministic filter over data the driver already
+ * holds and equals the fold bounded at the same position, so it is a no-op on an already-bounded
+ * projection.
+ */
 export interface ExportTranscriptParams {
   sessionId: SessionId;
   transcript: CanonicalTranscriptProjection;
-  // Export up to and INCLUDING this normalized session position — the same
-  // position vocabulary `ForkConversationParams.position` uses, and the same one
-  // `CanonicalTranscriptSegment.position` carries, which is what makes the filter
-  // above expressible against the segments in hand rather than needing a lookup.
+  // Export up to and including this normalized session position, the vocabulary of
+  // `ForkConversationParams.position` and `CanonicalTranscriptSegment.position`.
   boundary: number;
 }
 
-// Return shape of `ProviderDriver.exportTranscript()`. Zod-validated.
+/** Return of `ProviderDriver.exportTranscript()`. */
 export interface DriverTranscriptExportResult {
-  // Provider-shaped replay frames, deliberately UNTYPED at this boundary: the
-  // pinned injection surface takes an untyped array and validates neither shape
-  // nor tool-call pairing, so the DAEMON owns both and a type here would be a
-  // false assurance about a check nobody performs.
+  // Provider-shaped replay frames, untyped on purpose: the pinned injection surface takes an
+  // untyped array and validates neither shape nor tool-call pairing, so the daemon owns both and a
+  // type here would assure a check nobody performs.
   frames: unknown[];
-  // What steps 3 and 4 of the ordered pipeline stripped or repaired, by class.
+  // What the strip and repair steps of the ordered pipeline removed or repaired, by class.
   declaredLosses: DeclaredLossKind[];
 }
 
+/** Validates a {@link DriverTranscriptExportResult}; strict. */
 export const DriverTranscriptExportResultSchema: z.ZodType<
   DriverTranscriptExportResult,
   DriverTranscriptExportResult
@@ -1675,30 +1069,27 @@ export const DriverTranscriptExportResultSchema: z.ZodType<
   })
   .strict();
 
+/** Params of `replayTranscript`: a fresh target session and the frames to inject into it. */
 export interface ReplayTranscriptParams {
-  // A FRESH session handle. Replay never writes to the session the transcript
-  // came from.
+  // A fresh session handle. Replay never writes to the session the transcript came from.
   target: ProviderSessionHandle;
   frames: unknown[];
 }
 
-// Return shape of `ProviderDriver.replayTranscript()`. Zod-validated.
-//
-// Flat rather than discriminated, unlike `ForkConversationResult`, because
-// `declaredLosses` is REQUIRED on BOTH arms: an `applied` replay that
-// stripped provider-private reasoning still lost something, and a union that
-// made the member arm-scoped would have let that loss go unnamed. What IS
-// arm-scoped is the list's required CONTENT on the degraded arm, and it rides the
-// schema below rather than this shape: expressing it in the type would take the
-// discriminated union this member set exists to avoid.
+/**
+ * Return of `ProviderDriver.replayTranscript()`. Flat rather than discriminated, unlike
+ * `ForkConversationResult`, because `declaredLosses` is required on both arms: an `applied` replay
+ * that stripped provider-private reasoning still lost something. The arm-scoped content rule rides
+ * the schema below, since expressing it in the type would need the union this shape avoids.
+ */
 export interface DriverTranscriptReplayResult {
-  // `degraded` is the memo floor having stood in: the conversation moved and the
-  // losses say what came along. It is NOT a failure result — a target that
-  // cannot be reached at all throws.
+  // `degraded` means the memo floor stood in: the conversation moved and the losses say what came
+  // along. It is not a failure; a target that cannot be reached at all throws.
   status: "applied" | "degraded";
   declaredLosses: DeclaredLossKind[];
 }
 
+/** Validates a {@link DriverTranscriptReplayResult}; strict, with arm-scoped loss rules. */
 export const DriverTranscriptReplayResultSchema: z.ZodType<
   DriverTranscriptReplayResult,
   DriverTranscriptReplayResult
@@ -1708,36 +1099,19 @@ export const DriverTranscriptReplayResultSchema: z.ZodType<
     declaredLosses: z.array(DeclaredLossKindSchema),
   })
   .strict()
-  // `degraded` on THIS operation has exactly one cause — the memo floor stood in —
-  // so requires every such settlement to carry a NON-EMPTY list naming
-  // `conversation_history_summarized`. Enforced rather than narrated: the flat
-  // shape alone admits `{status: 'degraded', declaredLosses: []}`, and an empty
-  // array is the POSITIVE claim that nothing was dropped, so that value tells the
-  // caller a bounded prose summary is the verbatim conversation.
+  // `degraded` here has one cause, the memo floor standing in, so it must name
+  // `conversation_history_summarized`. Enforced rather than narrated: the flat shape admits
+  // `{status: 'degraded', declaredLosses: []}`, and an empty array claims nothing was dropped, so
+  // that value would tell the caller a summary is the verbatim conversation. Naming the kind
+  // subsumes non-emptiness; a bare `.min(1)` would admit a degraded result declaring some other
+  // loss while hiding the summarization. `applied` keeps full latitude over every other kind,
+  // empty list included. (`.superRefine()` returns `this`, so the envelope stays a `ZodObject` and
+  // the annotation above holds.)
   //
-  // Naming the kind subsumes non-emptiness, which is why there is no separate
-  // length rule and none is added: a `.min(1)` would admit a degraded result
-  // declaring some OTHER loss while still hiding the summarization — the exact
-  // reading this rule exists to forbid.
-  //
-  // Arm-SCOPED on purpose, and scoped in BOTH directions. `applied` keeps the
-  // full latitude over every OTHER kind, empty list included: an applied replay
-  // that dropped nothing is the case the empty array exists to state, and a
-  // universal non-emptiness rule would delete it. What `applied` does NOT keep is
-  // `conversation_history_summarized` — see the inverse rule below.
-  // `.superRefine()` returns `this`, so the envelope stays a `ZodObject` and the
-  // Output/Input annotation above still holds — the same Zod-4 property
-  // `withEpochStamp` in event.ts records.
-  //
-  // The two rules together make the kind an EXACT witness of the arm rather than
-  // a one-way requirement. A one-way rule leaves `{status: 'applied',
-  // declaredLosses: ['conversation_history_summarized']}` parseable, and that
-  // value is self-contradictory: it claims the native replay landed the
-  // conversation AND that a bounded prose summary stood in for it. A consumer
-  // reading `status` publishes native-replay continuity for what is really a
-  // memo-floor session; a consumer reading the kind publishes a summarized
-  // session for what really replayed. Both readings are defensible against the
-  // shape, which is precisely why neither is safe — so the value is refused.
+  // The inverse rule makes the kind an exact witness of the arm: `applied` with
+  // `conversation_history_summarized` claims both that native replay landed and that a summary
+  // stood in, so a consumer reading `status` and one reading the kind would publish opposite
+  // continuity for the same value.
   .superRefine((result, ctx) => {
     if (
       result.status === "degraded" &&
@@ -1763,64 +1137,50 @@ export const DriverTranscriptReplayResultSchema: z.ZodType<
     }
   });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
+// ---- Compaction and provider commands ----
 
-// Daemon-CONSTRUCTED params, so nominal. They stay BINDING-addressed because run
-// -> bindings is 1:many and each operation acts on exactly one leg; they cross
-// no wire, and no client constructs one. The client-facing verbs take a run
-// (compaction) and an agent (enumeration) and the daemon resolves the binding at
-// dispatch — that resolution is the SDK seam's, not this layer's.
+// Their params are daemon-constructed and binding-addressed: a run has many bindings and each
+// operation acts on exactly one leg. The client-facing verbs take a run (compaction) or an agent
+// (enumeration), and the SDK seam resolves the binding at dispatch.
+
+/** Params of `compactContext` (gated on `context_compaction`); addresses one binding. */
 export interface CompactContextParams {
   sessionId: SessionId;
   bindingId: string;
 }
 
-// The result of a compaction ATTEMPT, not of the request — a DISCRIMINATED UNION
-// on `status`, so no arm can carry a member another arm's state makes
-// meaningless and no consumer has to guess which optional members its arm
-// implies.
-//
-//   * `applied` is reachable ONLY after the provider's typed compaction frame is
-//     observed, and `boundaryPosition` is REQUIRED there, typed `number | null`
-//     so a frame carrying no position is representable without being
-//     synthesized.
-//   * `refused` means NOTHING WAS SENT.
-//   * `failed` means something WAS sent and no boundary was witnessed.
-//
-// There is deliberately no `capability_undeclared` reason: an undeclared flag
-// refuses at the static capability gate with `driver.capability_unsupported`
-// BEFORE the driver is called, so an arm for it would be a second, contradictory
-// encoding of one refusal.
+/**
+ * The result of a compaction attempt, not of the request, discriminated on `status` so no arm
+ * carries a member another arm makes meaningless. `applied` is reachable only after the provider's
+ * typed compaction frame is observed; `boundaryPosition` is required there, `number | null` so a
+ * frame carrying no position is representable without being synthesized. `refused` means nothing
+ * was sent; `failed` means something was sent and no boundary was witnessed. There is no
+ * `capability_undeclared` reason: an undeclared flag refuses at the static capability gate with
+ * `driver.capability_unsupported` before the driver is called, so an arm would encode one refusal
+ * twice.
+ */
 export type DriverCompactionResult =
   | { status: "applied"; boundaryPosition: number | null }
-  // `command_absent`: the pre-dispatch presence check on the emulated leg did not
-  // find the command in the provider's own enumeration for this binding.
-  // `not_permitted`: the run-control adjudication denied the caller — produced by
-  // the daemon-side gate, never by a driver, which runs no authorization of its
-  // own; the arm lives here because the refusal settles on the operation's own
+  // `command_absent`: the pre-dispatch presence check on the emulated leg did not find the command
+  // in the provider's own enumeration for this binding. `not_permitted`: the run-control
+  // adjudication denied the caller; produced by the daemon-side gate, never by a driver (which
+  // runs no authorization), and it lives here because the refusal settles on the operation's own
   // result rather than as a JSON-RPC error.
   | { status: "refused"; reason: "command_absent" | "not_permitted" }
-  // `wait_expired`: the driver's declared per-binding compaction bound elapsed
-  // with no typed compaction frame. `binding_lost`: the binding stopped being
-  // live before one arrived. `provider_error`: the mechanism itself errored.
-  // Every arm records a diagnostic; none is silent, and none can settle
-  // `applied`.
+  // `wait_expired`: the driver's declared per-binding compaction bound elapsed with no typed
+  // compaction frame. `binding_lost`: the binding stopped being live before one arrived.
+  // `provider_error`: the mechanism itself errored. Every arm records a diagnostic; none can
+  // settle `applied`.
   | { status: "failed"; reason: "wait_expired" | "binding_lost" | "provider_error" };
 
-// A STRUCTURAL ASSERTION SCHEMA, and deliberately NOT one of the untrusted-result
-// envelopes beside it — the distinction matters enough to state, because reaching
-// for the wrong one here would put a `.strict()` wire guard on the wrong trust
-// class. This result is DAEMON-CONSTRUCTED: the driver composes it from a
-// settlement the daemon's own wait computed, so there is no untrusted envelope to
-// parse. Two consumers read it. The conformance suite asserts against it so the
-// two structural rules the canonical doc states stay MECHANICALLY CHECKABLE
-// rather than narrated — `applied` without a `boundaryPosition` key does not
-// parse, and `capability_undeclared` is not a reason any arm admits.
-//
-// The one genuinely untrusted number involved, the provider's own boundary
-// position, is read at the frame-normalize boundary where every other provider
-// number is read, and reaches this result already narrowed.
+/**
+ * Validates a {@link DriverCompactionResult} as a structural assertion, not an untrusted-result
+ * envelope: the result is daemon-constructed from a settlement the daemon's own wait computed, and
+ * the client SDK parses the reply with it. It keeps two structural rules mechanical: `applied`
+ * without a `boundaryPosition` key does not parse, and no arm admits `capability_undeclared`. The
+ * provider's own boundary position, the one untrusted number, is narrowed at the frame-normalize
+ * boundary before it reaches this result.
+ */
 export const DriverCompactionResultSchema: z.ZodType<
   DriverCompactionResult,
   DriverCompactionResult
@@ -1828,9 +1188,8 @@ export const DriverCompactionResultSchema: z.ZodType<
   z
     .object({
       status: z.literal("applied"),
-      // `.nullable()` and NOT `.optional()`: null is the positive statement that
-      // the provider's frame carried no position, while an absent key would be
-      // indistinguishable from a driver that forgot to report one.
+      // `.nullable()`, not `.optional()`: null states that the provider's frame carried no
+      // position, while an absent key would look like a driver that forgot to report one.
       boundaryPosition: z.number().int().min(0).nullable(),
     })
     .strict(),
@@ -1848,65 +1207,47 @@ export const DriverCompactionResultSchema: z.ZodType<
     .strict(),
 ]);
 
+/** Params of `listProviderCommands` (gated on `provider_commands`); addresses one binding. */
 export interface ListProviderCommandsParams {
   sessionId: SessionId;
   bindingId: string;
 }
 
-// One enumerated provider command or skill. `binding` is not decoration: it is
-// the routing key the invariant is enforced on, carried WITH the data so a
-// consumer cannot lose it by filtering a held list instead of re-reading. Its
-// `providerAccountId` is NULLABLE because a session need not have bound an
-// account at all; see the schema below for why absence is stated rather than
-// synthesized.
-//
-//   * `kind` distinguishes the two things providers publish under one syntax.
-//   * `description` is OMITTED, never carried as an empty string, when the
-//     provider publishes none. That is a real case rather than a hypothetical:
-//     the Codex skills surface types its description as REQUIRED, so a skill
-//     whose front matter declares none arrives as `""` — and the schema below
-//     bounds this member with `wireFreeFormString`, which rejects empty and
-//     whitespace-only. A driver that forwarded the empty string verbatim would
-//     therefore fail its own enumeration on an honest provider reading. Omission
-//     is also the truthful encoding: the member's absence already means "the
-//     provider published no description", and an empty string would say the
-//     provider published one and it was blank.
-//   * `scope` is present only where the provider declares one (the Codex skills
-//     surface does; the Claude handshake enumeration does not), so its absence
-//     means the provider stated no scope — never that the scope is unknown.
-//   * `enabled` follows that same present-iff-the-provider-declares-one rule: the
-//     Codex `skills/list` entry carries an `enabled` Boolean and the Claude
-//     handshake enumeration publishes no enabled/disabled distinction at all, so
-//     ABSENT means the provider draws no such distinction on this surface —
-//     never that the entry's state is unknown, and NEVER a driver-synthesized
-//     `true`, which would be exactly the fabricated reading the verbatim rules
-//     here forbid.
-//
-// The driver DOES NOT FILTER: a disabled entry is RETURNED, because dropping it
-// would make the result stop being the provider's enumeration as observed and
-// would leave a consumer unable to tell a disabled command from one that does not
-// exist. What the flag governs is OFFERABILITY, not presence.
-//
-// V1 IS ENUMERATION AND DISCOVERY, NOT A DISPATCH CHANNEL. No member here is a
-// dispatch handle and no route takes one: the ONLY entry V1 sends is the
-// compaction command, composed by the driver's own emulated leg and reached
-// through `compactContext`, which checks presence against this same enumeration.
+/**
+ * One enumerated provider command or skill. `binding` is the routing key, carried with the data so
+ * a consumer cannot lose it by filtering a held list instead of re-reading; its
+ * `providerAccountId` is nullable because a session need not have bound an account. The driver does
+ * not filter: a disabled entry is returned, since dropping it would stop the result being the
+ * provider's enumeration as observed and hide the difference between a disabled command and one
+ * that does not exist. `enabled` governs offerability, not presence. This is enumeration and
+ * discovery, not a dispatch channel: the only entry the driver sends is the compaction command,
+ * reached through `compactContext`, which checks presence against this enumeration.
+ */
 export interface ProviderCommandEntry {
   name: string;
+  // Distinguishes the two things providers publish under one syntax.
   kind: "command" | "skill";
+  // Omitted, never an empty string, when the provider publishes none. Codex types a skill's
+  // description as required, so a skill with none arrives as "", which the schema's
+  // `wireFreeFormString` rejects; forwarding it verbatim would fail the enumeration on an honest
+  // reading. Omission also says the truth: no description was published, not a blank one.
   description?: string | undefined;
+  // Present only where the provider declares one (Codex skills do; the Claude handshake
+  // enumeration does not), so absence means no scope was stated, never that it is unknown.
   scope?: string | undefined;
+  // Present iff the provider declares one (Codex `skills/list` carries an `enabled` Boolean; the
+  // Claude handshake enumeration draws no such distinction). Absent means no distinction on this
+  // surface, never an unknown state, and never a driver-synthesized `true`.
   enabled?: boolean | undefined;
   binding: { driverName: string; providerAccountId: string | null };
 }
 
-// A driver-NORMALIZED seam shape — the THIRD, joining `CallbackToolInvocation`
-// and `McpServerStatusEmission`. It sides with the ENVELOPES rather than with
-// the tolerant `ProviderToolMetadata`: the driver constructs this from what
-// its own provider published, so an unknown key is a driver bug and the shape
-// is `.strict()`. Both provider-authored strings are
-// `wireFreeFormString`-bounded because a local skill file's front matter is
-// operator-writable and the assembled list travels to a client.
+/**
+ * Validates a {@link ProviderCommandEntry}. Strict, siding with the result envelopes: the driver
+ * builds it from what its provider published, so an unknown key is a driver bug. Both
+ * provider-authored strings are `wireFreeFormString`-bounded because a local skill file's front
+ * matter is operator-writable and the assembled list travels to a client.
+ */
 export const ProviderCommandEntrySchema: z.ZodType<ProviderCommandEntry, ProviderCommandEntry> = z
   .object({
     name: wireFreeFormString(DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN, "ProviderCommandEntry.name"),
@@ -1923,142 +1264,83 @@ export const ProviderCommandEntrySchema: z.ZodType<ProviderCommandEntry, Provide
     binding: z
       .object({
         driverName: z.string().min(1),
-        // NULLABLE, and not `.optional()`. A session can genuinely hold no bound
-        // provider account — the account registry is a spawn-time binding that
-        // not every leg carries — and `null` is the POSITIVE statement that none
-        // was bound. The alternatives are both worse: an absent key is
-        // indistinguishable from a driver that forgot to report one, and a
-        // synthesized placeholder (`""`, `"unknown"`, the driver name) would make
-        // the routing invariant UNENFORCEABLE while looking enforced, because two
-        // accountless bindings on different providers would compare equal on the
-        // half of the pair that is supposed to separate them.
+        // Nullable, not `.optional()`: an account-less session is real (the account registry is a
+        // spawn-time binding not every leg carries) and `null` states that none was bound. An
+        // absent key would look like a driver that forgot to report one, and a placeholder (`""`,
+        // "unknown", the driver name) would make the routing invariant unenforceable while looking
+        // enforced, since two account-less bindings on different providers would compare equal on
+        // the half of the pair meant to separate them.
         //
-        // `null` therefore MATCHES NOTHING, never a wildcard — an accountless
-        // enumeration can be read but never used to route a dispatch onto some
-        // other binding. That is an OBLIGATION ON THE CONSUMER rather than a
-        // property this schema enforces: no pair-comparison predicate exists
-        // yet, and where it lands is recorded on `ProviderCommandListResult`
-        // below. It is stated here because the encoding is what makes the
-        // obligation satisfiable at all — under a synthesized placeholder the
-        // consumer would have nothing left to separate two accountless bindings
-        // by, whatever predicate it eventually ran.
-        //
-        // TWO PRODUCER-SIDE FACTS COINCIDE ON THIS ONE ARM, DELIBERATELY. A
-        // driver reports `null` both when no account is bound and when it has no
-        // reader for the account registry at all — the registry is the daemon's,
-        // and neither establishment params object carries an account id, so a
-        // driver built without that injected reader cannot ask. Separating the
-        // two would mint a third state whose only consumer treats it identically
-        // to the second: the obligation above reads identically on both, so
-        // neither fact may authorize a dispatch onto another binding, and the
-        // safe direction is the same one. A reader is therefore owed to any consumer
-        // that must distinguish them — none exists in V1 — and this arm is
-        // documented as the union of the two rather than silently the first.
+        // `null` matches nothing, never a wildcard: an account-less enumeration can be read but
+        // never used to route a dispatch onto another binding. That is the consumer's obligation,
+        // not something this schema enforces. A driver also reports `null` when it has no reader
+        // for the account registry (neither establishment params object carries an account id);
+        // the obligation reads the same on both, so neither authorizes a dispatch onto another
+        // binding.
         providerAccountId: z.string().min(1).nullable(),
       })
       .strict(),
   })
   .strict();
 
-// One live binding's enumeration. `runId` and `binding` TOGETHER say where these
-// entries came from: neither alone is a key (run -> bindings is 1:many, and one
-// agent can hold bindings on the same provider and account across two runs), and
-// no claim is made that either is unique — the pair is PROVENANCE a client can
-// read and construct, not an addressing handle.
-//
-// `complete: false` means the provider published more entries than the cap admits
-// and this group's tail was dropped. The cap and the flag are PER GROUP, so one
-// truncated binding never marks another complete or incomplete.
+/**
+ * One live binding's enumeration. `runId` and `binding` together are provenance a client can read
+ * and construct, not an addressing handle: neither alone is a key (a run has many bindings, and one
+ * agent can hold bindings on the same provider and account across two runs). `complete: false`
+ * means the provider published more entries than the cap admits and this group's tail was dropped;
+ * the cap and the flag are per group.
+ */
 export interface ProviderCommandBindingGroup {
-  // NULLABLE for the same reason `providerAccountId` is, and never omitted:
-  // absence is STATED, never synthesized. An enumeration is a property of the
-  // BINDING, and a binding outlives any one of its runs, so there are two
-  // distinct reads where no single run attributes the entries:
-  //
-  //   1. ZERO RUNS ARE LIVE — the ordinary pre-first-turn palette read. A client
-  //      opening the command surface before the session's first turn is asking a
-  //      perfectly answerable question, so this read SUCCEEDS with `null` rather
-  //      than refusing; there is nothing wrong with a binding that has not run
-  //      anything yet.
-  //   2. TWO OR MORE RUNS ARE LIVE on the one binding — no single run is the
-  //      attributable one, and picking either would be a coin flip presented as
-  //      provenance.
-  //
-  // Exactly one live run answers with THAT run. A last-bound fallback was
-  // considered and REJECTED: a never-cleared id naming a run that has already
-  // retired is false provenance, which is strictly worse than the honest `null`
-  // this member carries — the whole point of the pair is that a client can trust
-  // what it reads.
+  // Nullable, and never omitted, for the same reason as `providerAccountId`. An enumeration
+  // belongs to the binding, which outlives any one run, so no single run attributes it in two
+  // cases: zero runs are live (the ordinary pre-first-turn palette read, which succeeds with `null`
+  // rather than refusing), and two or more runs are live on the binding (picking one would be a
+  // coin flip presented as provenance). Exactly one live run answers with that run. A last-bound
+  // fallback is rejected: a never-cleared id naming a retired run is false provenance, worse than
+  // the honest `null`.
   runId: RunId | null;
   binding: { driverName: string; providerAccountId: string | null };
   entries: ProviderCommandEntry[];
   complete: boolean;
 }
 
-// The reply is the GROUP LIST, never a bare entry array: an agent can hold
-// several live bindings at once, so a flat array would hand a consumer an
-// arbitrary leg's commands with the provenance stripped. A single-binding agent
-// yields one group, so the common case costs one level of nesting and the
-// concurrent case stays representable instead of silently collapsing.
-//
-// THE DRIVER OPERATION RETURNS EXACTLY ONE GROUP, in this shared envelope: its
-// params name ONE binding, and one binding has one enumeration. The envelope is
-// shared with the client-facing verb rather than split in two because the fan-out
-// across an agent's live bindings — and the merge back into one reply — belongs
-// to the daemon-side resolution that knows which bindings an agent holds, and a
-// second single-group type would make that merge a shape conversion instead of a
-// concatenation.
-//
-// THE PAIR-COMPARISON PREDICATE IS THE FAN-OUT'S, NOT THIS OPERATION'S. The
-// routing invariant is that an entry is offerable and dispatchable only through
-// agents of the binding it was read under, and it is enforced at the daemon
-// rather than trusted to the renderer. A driver cannot enforce it here: this
-// operation's params name one binding and it answers for that binding alone, and
-// a driver comparing the pair against itself would refuse every ACCOUNTLESS read
-// — the ordinary case — because `null` matches nothing by design. The comparison
-// therefore belongs to the client-facing handler that fans out across an agent's
-// live bindings and merges the groups back, which is the only layer holding two
-// bindings at once. What each driver does enforce is the stronger local guard: a
-// dispatch goes into the very process whose enumeration it read, matched by that
-// process's own identity rather than by the pair.
+/**
+ * The reply of `listProviderCommands`: a list of binding groups, never a bare entry array, because
+ * an agent can hold several live bindings and a flat array would strip provenance from an arbitrary
+ * leg's commands. The driver operation returns exactly one group (its params name one binding); the
+ * envelope is shared with the client-facing verb so the daemon's fan-out and merge across an
+ * agent's bindings is a concatenation. The routing invariant (an entry is offerable and
+ * dispatchable only through agents of the binding it was read under) is enforced at the daemon, not
+ * here: a driver comparing the pair against itself would refuse every account-less read, since
+ * `null` matches nothing by design. What each driver does enforce is a dispatch into the very
+ * process whose enumeration it read, matched by that process's own identity.
+ */
 export interface ProviderCommandListResult {
   bindings: ProviderCommandBindingGroup[];
 }
 
-// The provider's own report of its accelerated-output state — never a probe of
-// its own and never synthesized from the request.
-//
-// IT IS BINDING-HELD DRIVER-SESSION STATE, NOT A SPAWN RETURN. The declaring
-// handshake is emitted only as part of a turn-bearing exchange, so neither
-// `createSession` nor `resumeSession` can carry it: both resolve before the first
-// such exchange, and neither may spend a synthetic turn or block waiting for one.
-// The driver records this against the binding WHEN THE HANDSHAKE ACTUALLY
-// ARRIVES, on the first turn-bearing exchange the user's own work
-// produces, and holds it for the binding's life. Until then the binding HAS NO
-// OBSERVATION, and every reader is absent-until-observed rather than defaulted.
-//
-// READ AND DISCARDED WITH THE SESSION: deliberately NOT written to
-// `runtime_bindings.spawn_config`, which records what was REQUESTED so a resume
-// can re-realize it, and not to `agents.output_speed`, which records the
-// operator's accepted choice. Persisting an observation into either would create
-// a second, staler record of a fact the live session already holds — and would
-// make a mode that stopped being available look accepted after a restart.
-//
-// `declared` is carried VERBATIM and is deliberately NOT narrowed to
-// `outputSpeedLevels`: that vocabulary bounds what a caller may REQUEST, while
-// this is what the provider REPORTED, and a provider reporting a level the
-// driver's table does not list is reporting a real state under version skew —
-// coercing it would fabricate exactly the false reading this shape exists to
-// prevent. `reason` is the provider's own explanation, present only where the
-// provider supplied one; its absence means the provider gave no reason, never
-// that there was none.
+/**
+ * The provider's own report of its accelerated-output state, never a probe of its own and never
+ * synthesized from the request. It is binding-held driver-session state, not a spawn return: the
+ * declaring handshake arrives only within a turn-bearing exchange, so neither `createSession` nor
+ * `resumeSession` can carry it (neither may spend a synthetic turn or block waiting for one). The
+ * driver records it when the handshake arrives, on the first turn-bearing exchange the user's own
+ * work produces, and holds it for the binding's life; until then every reader sees absent, never a
+ * default. It is discarded with the session and deliberately not written to
+ * `runtime_bindings.spawn_config` (what was requested, for resume) or `agents.output_speed` (the
+ * operator's accepted choice): persisting an observation there would create a second, staler
+ * record and make a mode that stopped being available look accepted after a restart. `declared`
+ * is verbatim and not narrowed to `outputSpeedLevels`, which bounds what a caller may request; a
+ * level the driver's table does not list is a real state under version skew, and coercing it would
+ * fabricate a false reading. `reason` is the provider's own explanation, present only where it
+ * gave one.
+ */
 export interface ProviderOutputSpeedState {
   declared: string;
   reason?: string | undefined;
 }
 
-// The FOURTH driver-normalized seam shape, `.strict()` on the same grounds as
-// the third.
+/** Validates a {@link ProviderOutputSpeedState}; strict, like `ProviderCommandEntrySchema`. */
 export const ProviderOutputSpeedStateSchema: z.ZodType<
   ProviderOutputSpeedState,
   ProviderOutputSpeedState
@@ -2075,37 +1357,28 @@ export const ProviderOutputSpeedStateSchema: z.ZodType<
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// Execution posture — the spawn/turn sandbox + permission surface
-// --------------------------------------------------------------------------
-//
-// Nominal TS — daemon-CONSTRUCTED. Carried by `CreateSessionParams` /
-// `StartRunParams` above and stamped on `run.running` for audit.
-//
-// Two cross-field invariants are encoded STRUCTURALLY rather than checked at
-// runtime, so a violating posture cannot be constructed at all:
-//   • `allowedDomains` exists ONLY under `networkAccess: "allowed-domains"`, and
-//     is non-empty BY CONSTRUCTION there (`[string, ...string[]]`) — an
-//     allow-list mode with an empty or absent list is unrepresentable, so the
-//     fail-open reading never arises.
-//   • `credentialPolicyRef` is REQUIRED on both sandboxed modes and ABSENT under
-//     `mode: "trusted"` — a trusted run records no enforced credential
-//     constraint, so a posture carrying both is unrepresentable.
-//
-// The `?: never` exclusion members below deliberately do NOT take this package's
-// `?: T | undefined` idiom. `?: never` is what makes the member structurally
-// absent; writing `?: never | undefined` would collapse to `?: undefined` and
-// turn a structural exclusion into a merely-nullable field, which is the opposite
-// of the intent.
-//
-// `credentialPolicyRef` is a content-addressed `"sha256:<hex>"` over the RFC 8785
-// JCS-canonicalized credential-policy artifact — a REFERENCE, so auditors can
-// reconstruct exactly which credentials were denied without the posture
-// embedding an installation-revealing list.
+// ---- Execution posture ----
+
+/**
+ * The network half of an {@link ExecutionPosture}. `allowedDomains` exists only under
+ * `networkAccess: "allowed-domains"` and is non-empty by construction there, so an allow-list mode
+ * with an empty or absent list, which would read as fail-open, is unrepresentable. The `?: never`
+ * members do not take the package's `?: T | undefined` idiom: `?: never` makes a member
+ * structurally absent, while `?: never | undefined` collapses to a merely nullable field.
+ */
 export type ExecutionPostureNetwork =
   | { networkAccess: "none" | "full"; allowedDomains?: never }
   | { networkAccess: "allowed-domains"; allowedDomains: [string, ...string[]] };
 
+/**
+ * The sandbox and permission surface of a spawn or turn, daemon-constructed, carried by
+ * `CreateSessionParams` and `StartRunParams` and stamped on `run.running` for audit.
+ * `credentialPolicyRef` is required on both sandboxed modes and absent under `mode: "trusted"`,
+ * which records no enforced credential constraint. It is a content-addressed `"sha256:<hex>"` over
+ * the RFC 8785 JCS-canonicalized credential-policy artifact: a reference, so auditors can
+ * reconstruct which credentials were denied without the posture embedding an
+ * installation-revealing list.
+ */
 export type ExecutionPosture = ExecutionPostureNetwork & {
   writableRoots: string[];
   profileName?: string | undefined;
@@ -2117,38 +1390,30 @@ export type ExecutionPosture = ExecutionPostureNetwork & {
       }
   );
 
-// --------------------------------------------------------------------------
-// Callback tools — the `onCallbackToolCall` spawn seam (gated on `callback_tools`)
-// --------------------------------------------------------------------------
-//
-// `SessionCallbackTool` is daemon-CURATED and daemon-TRUSTED — never provider
-// output — so it stays nominal. It mirrors the function-form provider tool shape
-// (name + description + JSON-Schema input): the Codex leg maps it 1:1 onto
-// function-form `dynamicTools`, and the Claude leg hosts the same registry as a
-// daemon-hosted ephemeral MCP server. Every invocation flows through the daemon's
-// approval pipeline and lands as an ordinary `tool_activity` row.
+// ---- Callback tools ----
+
+/**
+ * A daemon-curated, daemon-trusted tool offered to the model (never provider output), so it stays
+ * plain TypeScript. It mirrors the function-form provider tool shape (name, description, JSON
+ * Schema input); Claude hosts the registry as a daemon-hosted ephemeral MCP server. Every
+ * invocation flows through the daemon's approval pipeline and lands as an ordinary `tool_activity`
+ * row.
+ */
 export interface SessionCallbackTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
 }
 
-// The invocation the driver hands to the injected dispatcher. Zod-validated: the
-// driver builds it from UNTRUSTED provider wire output, and this parse is the
-// last point before the value reaches daemon-owned code.
-//
-// `toolName` is resolved against the session's registered `SessionCallbackTool`
-// set, and an UNKNOWN name answers `failed` WITHOUT dispatch. `arguments` is
-// validated against the registered tool's `inputSchema` BEFORE any Cedar
-// round-trip, so schema-invalid arguments also answer `failed` without dispatch —
-// malformed provider output never reaches the approval pipeline. Both of those
-// are the dispatcher host's checks, not this schema's: they need the session's
-// registry, which this shape does not carry. What this schema guarantees is
-// narrower and prior — that the strings are bounded and the ids are well-formed
-// before any of that runs.
-//
-// `toolCallId` is copied VERBATIM onto the answered result: tool-event pairing is
-// exact-string match, so normalizing it here would break the pairing.
+/**
+ * The invocation a driver hands to the injected dispatcher, built from untrusted provider wire
+ * output. This parse is the last point before the value reaches daemon-owned code and guarantees
+ * only that strings are bounded and ids well-formed. The dispatcher host does the checks that need
+ * the session's registry: an unknown `toolName` answers `failed` without dispatch, and `arguments`
+ * are validated against the registered `inputSchema` before any Cedar round-trip, so malformed
+ * provider output never reaches the approval pipeline. `toolCallId` is copied verbatim onto the
+ * answered result because tool-event pairing is an exact-string match.
+ */
 export interface CallbackToolInvocation {
   toolName: string;
   arguments: Record<string, unknown>;
@@ -2156,6 +1421,7 @@ export interface CallbackToolInvocation {
   sessionId: SessionId;
   runId: RunId;
 }
+/** Validates a {@link CallbackToolInvocation}; strict. */
 export const CallbackToolInvocationSchema: z.ZodType<
   CallbackToolInvocation,
   CallbackToolInvocation
@@ -2168,47 +1434,39 @@ export const CallbackToolInvocationSchema: z.ZodType<
       "CallbackToolInvocation.toolCallId",
     ),
     sessionId: SessionIdSchema,
-    // The named `RunIdSchema` const, which shipped beside the brand at the top of
-    // this file. This site previously inlined `brandedUuidIdSchema<RunId>`
-    // because the exported symbol did not exist yet; now that it does, a second
-    // inline construction of the same validator would be a second source of truth
-    // for run-id shape — the precise drift co-locates the pair to avoid.
+    // References the shared `RunIdSchema` rather than building a second run-id validator.
     runId: RunIdSchema,
   })
   .strict();
 
-// The answer the daemon hands back to the driver, which the driver relays to the
-// provider. Daemon-CONSTRUCTED and trusted, so nominal — the direction of trust
-// is the reverse of the invocation above.
-//
-// The `?: never` exclusion members carry the same rationale as `ExecutionPosture`
-// (structural absence, so no `| undefined`): only `completed` may carry `output`,
-// and only the two failure arms may carry `error`, so "denied WITH output" and
-// "completed WITH an error" are both unrepresentable.
+/**
+ * The answer the daemon returns to the driver, which relays it to the provider. Daemon-constructed
+ * and trusted, so plain TypeScript: trust runs the reverse way from the invocation. Only
+ * `completed` may carry `output` and only the failure arms may carry `error`, so "denied with
+ * output" and "completed with an error" are unrepresentable. The `?: never` members are
+ * structurally absent, so they take no `| undefined` (as in `ExecutionPosture`).
+ */
 export type CallbackToolResult =
   | { status: "completed"; output?: unknown; error?: never }
   | { status: "denied"; output?: never; error?: string | undefined }
   | { status: "failed"; output?: never; error?: string | undefined };
 
-// --------------------------------------------------------------------------
-// MCP server status — the `onMcpServerStatus` spawn seam (producer-only)
-// --------------------------------------------------------------------------
-//
-// SERVERS ONLY, never a per-server tool-list assumption: support is not
-// visibility. Producer-only — the consumer is the status normalizer, and
-// consumer semantics live there.
+// ---- MCP server status ----
+
+/** Connection state of one MCP server. Servers only: support is not visibility of its tools. */
 export type McpServerStatus = "unknown" | "starting" | "connected" | "needs-auth" | "failed";
 
-// What the DRIVER emits: `serverName` + `status`, and nothing else. The driver
-// NEVER supplies leg identity — the daemon pre-binds the injected producer closure
-// to the leg at spawn — so a driver cannot misattribute, or spoof, another leg's
-// rows, and the init census emitted DURING `createSession` needs no id the driver
-// does not yet have. `serverName` is untrusted provider/CLI output, so this shape
-// is Zod-parsed at the driver normalization seam before it reaches the producer.
+/**
+ * What a driver emits for one MCP server: `serverName` and `status`, nothing else. The driver never
+ * supplies leg identity, since the daemon pre-binds the injected producer to the leg at spawn, so a
+ * driver cannot misattribute or spoof another leg's rows. `serverName` is untrusted provider or CLI
+ * output, so the shape is Zod-parsed at the driver normalization seam.
+ */
 export interface McpServerStatusEmission {
   serverName: string;
   status: McpServerStatus;
 }
+/** Validates a {@link McpServerStatusEmission}; strict. */
 export const McpServerStatusEmissionSchema: z.ZodType<
   McpServerStatusEmission,
   McpServerStatusEmission
@@ -2222,11 +1480,12 @@ export const McpServerStatusEmissionSchema: z.ZodType<
   })
   .strict();
 
-// What the CONSUMER reads: the pre-bound producer closure stamps the leg identity
-// onto every emission. Nominal — daemon-constructed from the injection context.
-// `bindingId` is daemon-stamped, never driver-supplied; because run→bindings is
-// 1:many, statuses key per `(binding, server)`, so a relaunched leg's fresh census
-// supersedes its OWN predecessor without clobbering a concurrent live leg's rows.
+/**
+ * What the consumer reads: the pre-bound producer stamps the leg identity onto every emission.
+ * `bindingId` is daemon-stamped, never driver-supplied. Because a run has many bindings, statuses
+ * key per `(binding, server)`, so a relaunched leg's fresh census supersedes its own predecessor
+ * without clobbering a concurrent live leg's rows.
+ */
 export interface McpServerStatusUpdate {
   sessionId: SessionId;
   bindingId: string;
@@ -2234,33 +1493,31 @@ export interface McpServerStatusUpdate {
   status: McpServerStatus;
 }
 
-// Returns `void`, NOT `Promise<void>` — deliberately asymmetric with the sibling
-// `onCallbackToolCall`, which is awaited. This is a fire-and-forget TELEMETRY
-// sink: the driver has no answer to wait for, and making it awaitable would let a
-// slow consumer back-pressure the provider's status stream.
+/**
+ * The injected status sink. Returns `void`, not `Promise<void>`, unlike the awaited
+ * `onCallbackToolCall`: it is fire-and-forget telemetry, and making it awaitable would let a slow
+ * consumer back-pressure the provider's status stream.
+ */
 export type McpServerStatusProducer = (emission: McpServerStatusEmission) => void;
 
-// --------------------------------------------------------------------------
-// Provider-native subagents (gated on the `subagents` flag)
-// --------------------------------------------------------------------------
-//
-// Nominal TS — daemon-CONSTRUCTED. SINGLE-SUPERVISOR invariant: the daemon is the
-// only cross-session supervisor, so provider subagents run IN-SESSION only, their
-// usage aggregates into the run's own budgets, and their tool calls flow through
-// the same approval pipeline.
-//
-// Discriminated on `enabled`: a disabled policy carries no limits and no
-// definitions, so "off but configured" is unrepresentable and the daemon sends the
-// full arm on enable rather than mutating a partial one.
+// ---- Provider-native subagents ----
+
+/**
+ * Provider-native subagent policy, daemon-constructed and gated on `subagents`. The daemon is the
+ * only cross-session supervisor, so provider subagents run in-session only: their usage aggregates
+ * into the run's own budgets and their tool calls flow through the same approval pipeline.
+ * Discriminated on `enabled` so a disabled policy carries no limits or definitions ("off but
+ * configured" is unrepresentable) and the daemon sends the full arm on enable.
+ */
 export type SubagentPolicy =
   | { enabled: false }
   | { enabled: true; maxDepth: number; maxConcurrent: number; definitions: SubagentDefinition[] };
 
-// The unified per-subagent definition each driver maps onto its provider form
-// (Claude `--agents` AgentDefinition; Codex `[agents]` config). Every field beyond
-// `name` is optional because the mapping is TOLERANT: each leg maps what its
-// provider supports and ignores the rest, which is graded on the capability matrix
-// rather than enforced by this shape.
+/**
+ * The unified per-subagent definition each driver maps onto its provider form (Claude `--agents`
+ * AgentDefinition; Codex `[agents]` config). Every field beyond `name` is optional because each leg
+ * maps what its provider supports and ignores the rest, which the capability matrix grades.
+ */
 export interface SubagentDefinition {
   name: string;
   description?: string | undefined;
@@ -2271,241 +1528,145 @@ export interface SubagentDefinition {
   maxTurns?: number | undefined;
 }
 
-// --------------------------------------------------------------------------
-// Driver transport configuration
-// --------------------------------------------------------------------------
-//
-// A daemon driver-REGISTRY config surface, not an RPC payload and not a
-// `ProviderDriver` member — it configures how the daemon reaches a driver process.
-// V1 realizes only the Codex leg (`app-server --listen unix://|ws://`,
-// config-gated, off by default); the Claude CLI exposes no local listener, so
-// remote Claude participation is cross-node dispatch instead.
-//
-// `bearerTokenRef` is a daemon-config REFERENCE to the ws bearer credential, never
-// the secret value (the same ref-not-value pattern as `credentialPolicyRef`), and
-// it is REQUIRED on the websocket arm: an UNAUTHENTICATED ws listener is
-// unrepresentable, which is the point of discriminating the transports rather than
-// carrying an optional endpoint on one shape.
+// ---- Driver transport configuration ----
+
+/**
+ * How the daemon reaches a driver process; a daemon driver-registry setting, not an RPC payload or
+ * a `ProviderDriver` member. Only the Codex leg uses it (`app-server --listen unix://|ws://`,
+ * config-gated, off by default); the Claude CLI exposes no local listener, so remote Claude
+ * participation is cross-node dispatch. `bearerTokenRef` references the ws bearer credential in
+ * daemon config, never the secret value, and is required on the websocket arm so an unauthenticated
+ * ws listener is unrepresentable.
+ */
 export type DriverTransportConfig =
   | { transport: "stdio" }
   | { transport: "unix-socket"; endpoint: string }
   | { transport: "websocket"; endpoint: string; bearerTokenRef: string };
 
-// --------------------------------------------------------------------------
-// Client-facing SDK-seam wire schemas
-//         #2 / #3 / #4; verifies)
-// --------------------------------------------------------------------------
-//
-// THE THIRD BOUNDARY, and the reason this section does not reuse a single
-// constant from the block above. This section is neither. It guards CLIENT input
-// crossing into the daemon over JSON-RPC, plus the daemon's own replies going
-// back out. A caller here is an SDK consumer on the far side of a socket —
-// untrusted in exactly the way a provider process is, but untrusted about
-// DIFFERENT values. A cap sized against what a provider EMITS is not evidence
-// about what a client may SEND, so the caps below are a disjoint set and the
-// provider-boundary census (twelve caps over seventeen strings) does not move.
-//
-// WHAT IS REGISTERED, AND WHAT DELIBERATELY IS NOT. `driver.*` names that
-// operate on an ALREADY-EXISTING session or run. The four lifecycle operations —
-// `createSession`, `resumeSession`, `startRun`, `closeSession` — establish,
-// restore, start, or tear one down, so they are orchestration-owned and get NO
-// client-facing schema here. Their absence IS the contract: a shape that does
-// not exist cannot be reached by a client guessing a method name, and one minted
-// "for symmetry" would be a wire surface with no registered method and no reader
-// — the same mistake forbids when it requires a capability flag to be minted
-// together with its consumer.
-//
-// The eight pairs below are exactly the eight names the daemon registers — the
-// five request/response verbs, the subscription leg, and the two console-parity
-// verbs:
-//   `driver.listCapabilities`  DriverReadParams        -> ListCapabilitiesResult
-//   `driver.listModels`        ListModelsRequest       -> ListModelsResult
-//   `driver.listModes`         DriverReadParams        -> ListModesResult
-//   `driver.interruptRun`      InterruptRunParams      -> DriverAckResult
-//   `driver.applyIntervention` ApplyInterventionParams -> DriverInterventionResult
-//   `driver.subscribeEvents`   DriverSubscribeEventsParams -> SubscribeAckResponse
-//   `driver.compactContext`    CompactContextRequest   -> DriverCompactionResult
-//   `driver.listProviderCommands` ListProviderCommandsRequest -> ProviderCommandListResult
-// The two request schemas live at the end of this section. Their result
-// schemas are shared rather than minted twice: `DriverCompactionResultSchema`
-// ships beside its and `ProviderCommandListResultSchema` (below) parses its
-// entries through `ProviderCommandEntrySchema`, because the entries ARE
-// driver-normalized provider output and a second entry schema here would
-// drift from the first.
-//
-// WHAT THE THREE READS TAKE. `driver.listCapabilities` and `driver.listModes`
-// take nothing: capabilities are served from the daemon's capability cache with
-// no provider round-trip per call, so there is no driver to name and none to
-// refuse on. `driver.listModels` takes the session whose model control asks,
-// because the catalog it answers is the one that session can run: a model its
-// account or the session itself cannot run is left out, never grayed. None of
-// the three takes a `{ driverName }`: every reply answers for every driver.
-//
-// WHY THE THREE READS REPLY PER DRIVER. Each reply is a GROUP LIST keyed by
-// `driverName`, never a flat merged array — the same rule
-// `ProviderCommandListResult` states for provider commands. A flat array would
-// hand a caller one arbitrary driver's models with the provenance stripped, and
-// a caller cannot re-derive which driver published an entry from the entry
-// itself: model ids collide across providers and mode ids carry no vendor
-// marker. Grouping is what keeps a Claude-published value from being offered to
-// or sent through a Codex-bound agent.
-//
-// WHAT THE CAPABILITY REPLY CARRIES, AND WHAT STOPS AT THE DRIVER. scopes this
-// reply precisely: "the registered client-facing payload carries the flags".
-// `GetCapabilitiesResult` additionally carries `detectionSource`, `cliVersion`,
-// and `tools`, and rules that the mechanism grades and `cliVersion` alike "stop
-// there" — they do not reach this payload, and a consumer needing provenance or
-// a version reads it through the daemon rather than off this reply. `tools` is a
-// daemon-side ingress concern (it reaches `driver_tools`, which is where its
-// readers are), and no
-// clause routes it to a client, so it is omitted on the stated bias that adding
-// a member later is additive while removing one is a break. `outputSpeedLevels`
-// crosses, and it must: makes its reader a user-facing control, so a client
-// would otherwise receive `output_speed: true` without the values it has to
-// render. `builtInTools` crosses too: it is each provider's own fixed tool list,
-// which the tool-allowlist picker offers beside the callback and MCP tools, and
-// it is a different list from `tools`, whose entries carry recovery classes a
-// client never reads.
+// ---- Client-facing SDK-seam wire schemas ----
 
-// Per-field length caps for the SDK seam. Same defense-in-depth posture as the
-// provider-boundary block (the framework layer is authoritative on body size;
-// these are the second line), and consumed through the same
-// `wireFreeFormString` helper so empty, whitespace-only, NUL-bearing, and
-// over-length values all refuse rather than reaching a store lookup or a driver
-// dispatch.
+// A third boundary, separate from the provider boundary above: these schemas guard client input
+// crossing into the daemon over JSON-RPC, plus the daemon's own replies. A client is untrusted
+// about different values than a provider, so the caps below are a disjoint set.
 //
-//   • DRIVER_WIRE_TOKEN_MAX_LEN (128) — the short identifier/label tier on this
-//     seam: model and mode `id` + `name`, and the provider-declared vocabulary
-//     tokens inside `capabilities`, `effortLevels`, and `outputSpeedLevels`. One
-//     cap because it is one category — a per-field cap would let five values of
-//     one kind drift apart for no reason. Sized with 5x headroom over the pinned
-//     surfaces (the longest published model id at this spec's pins is 25
-//     characters).
-//   • DRIVER_WIRE_HANDLE_MAX_LEN (256) — the opaque provider correlation handle
-//     a client echoes BACK to the daemon: `SteerPayload.expectedTurnId`.
-//     Opaque-handle tier, deliberately roomier than the token tier because the
-//     value is not a label a human reads and is not minted here — refusing a
-//     legitimate provider-minted handle would make a valid steer unsendable.
-//   • DRIVER_WIRE_REASON_MAX_LEN (512) — the human-authored `reason` on
-//     `InterruptRunParams`, `InterruptPayload`, and `CancelPayload`. Short-prose
-//     tier, matching the `DRIVER_AUTH_DETAIL_MAX_LEN` sizing rather than the
-//     32 KiB failure tier: a reason wraps no stack trace, and the helper rejects
-//     rather than truncating, so an over-long one refuses the whole
-//     intervention. That is the right trade for a field whose loss costs only
-//     descriptive color while the intervention itself is expressible without
-//     it.
-//   • DRIVER_WIRE_STEER_CONTENT_MAX_LEN (16384) — the words of a message the
-//     person sends: the queued message (`run.queueCreate`, a child's
-//     `run.childSteer`), the steer that delivers it (`SteerPayload.content`), an
-//     undo's resend and a side question. Prose/message tier: a message
-//     routinely carries a paragraph and occasionally a pasted fragment, and
-//     because the helper REJECTS the whole payload rather than truncating it, a
-//     tight cap would silently make long-but-honest messages impossible to
-//     send. It is declared here, below `run-control.ts`, because this file's
-//     `SteerPayload` applies it and cannot import from a module that imports
-//     it.
-//   • DRIVER_WIRE_CATALOG_ENTRIES_MAX (256) — per-driver entry cap on the model
-//     and mode lists, and on the token arrays inside a model. Unlike
-//     `DRIVER_PROVIDER_COMMAND_ENTRIES_MAX` this cap REJECTS rather than
-//     truncating with a completeness marker, because these replies carry no
-//     `complete` flag and a silently short catalog would look to a renderer
-//     exactly like a provider that publishes fewer models. Sized far above the
-//     pinned surfaces (eight models on the Codex leg, four on the Claude leg),
-//     so tripping it means a daemon-side composition bug rather than an honest
-//     catalog.
-//   • DRIVER_WIRE_STEER_ATTACHMENTS_MAX (64) — count cap on the files a
-//     message carries, wherever the content cap above applies. Each element is
-//     an `ArtifactId`, already bounded by the brand's UUID shape, so this cap is
-//     the coarse frame-abuse ceiling on the COUNT; without it a single message
-//     could carry an unbounded id array through the daemon and into a driver
-//     dispatch. It is deliberately NOT the policy
-//     bound: the operator-tunable `max_attachments_per_carrier` (default 10,
-//     range 1-50) is enforced at carrier acceptance by the daemon, which refuses
-//     the whole carrier `artifact.too_many_attachments` (413), so this constant
-//     is sized ABOVE that range's ceiling and a parse never pre-empts a refusal
-//     the operator's setting owns.
-//   • DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN (64) — `DriverCapabilities.contract\
-//     Version` on the capability reply. This is the ONE cap on this seam that
-//     duplicates a value rather than choosing one: it deliberately matches
-//     `CAPABILITY_CONTRACT_VERSION_MAX_LEN` (event-core.ts), which bounds the
-//     same field on the `CapabilityDetails` snapshot, so a version string that
-//     survives this reply also survives the snapshot and the two cannot disagree
-//     about one value. The constant is redeclared here
-//     rather than imported because event-core.ts already imports
-//     `DRIVER_CAPABILITY_FLAGS` from this file — the import back would close a
-//     value cycle whose provider-driver-first evaluation order leaves that array
-//     in its temporal dead zone, crashing module init rather than merely
-//     warning. Redeclaring is the cost of not restructuring two modules for one
-//     integer; the coupling is stated here so a future change to either lands on
-//     both.
+// Only `driver.*` methods that act on an already-existing session or run have schemas here. The
+// four lifecycle operations (`createSession`, `resumeSession`, `startRun`, `closeSession`) are
+// orchestration-owned and deliberately have no client-facing shape, so a client guessing a method
+// name cannot reach them. The registered methods are in `DRIVER_METHOD_DESCRIPTORS` at the end of
+// the file, plus `driver.subscribeEvents` in `driver-event.ts`. The compaction and command replies
+// reuse `DriverCompactionResultSchema` and `ProviderCommandListResultSchema` rather than a second
+// schema.
+//
+// `driver.listCapabilities` and `driver.listModes` take nothing: capabilities come from the
+// daemon's capability cache with no provider round-trip per call. `driver.listModels` takes the
+// session whose model control asks, because the catalog is the one that session can run. None
+// takes a `{ driverName }`; every reply answers for every driver, as a group list keyed by
+// `driverName` and never a flat merged array, like `ProviderCommandListResult`: model ids collide
+// across providers and mode ids carry no vendor marker, so a caller cannot re-derive which driver
+// published an entry, and grouping keeps a Claude-published value from being offered to or sent
+// through a Codex-bound agent.
+//
+// The capability reply carries the flags plus `outputSpeedLevels` (without it a client would see
+// `output_speed: true` with no values to render) and `builtInTools` (each provider's own fixed tool
+// list, which the tool-allowlist picker offers; a different list from `tools`). It omits
+// `detectionSource`, `cliVersion` and `tools`: provenance and version are read through the daemon,
+// `tools` is a daemon-side ingress concern (it reaches `driver_tools`), and adding a member later
+// is additive while removing one is a break.
+
+// Per-field length caps for the SDK seam. The framework layer bounds body size; these are the
+// second line, applied through `wireFreeFormString` so empty, whitespace-only, NUL-bearing and
+// over-length values refuse before reaching a store lookup or a driver dispatch.
+
+/**
+ * Max length of a short identifier or label on this seam: model and mode `id` and `name`, and the
+ * vocabulary tokens inside `capabilities`, `effortLevels` and `outputSpeedLevels`. Sized well above
+ * the longest published model id.
+ */
 export const DRIVER_WIRE_TOKEN_MAX_LEN = 128;
+/**
+ * Max length of the opaque provider correlation handle a client echoes back
+ * (`SteerPayload.expectedTurnId`); roomier than the token tier because refusing a legitimate
+ * provider-minted handle would make a valid steer unsendable.
+ */
 export const DRIVER_WIRE_HANDLE_MAX_LEN = 256;
+/**
+ * Max length of the human-authored `reason` on `InterruptRunParams`, `InterruptPayload` and
+ * `CancelPayload`; short prose, since an over-long reason refuses the whole intervention, which is
+ * expressible without it.
+ */
 export const DRIVER_WIRE_REASON_MAX_LEN = 512;
+/**
+ * Max length of a message the person sends: a queued message (`run.queueCreate`, a child's
+ * `run.childSteer`), the steer that delivers it (`SteerPayload.content`), an undo's resend and a
+ * side question. Generous because an over-long payload is rejected whole, not truncated. Declared
+ * here because `SteerPayload` applies it and this file cannot import a module that imports it.
+ */
 export const DRIVER_WIRE_STEER_CONTENT_MAX_LEN = 16384;
+/**
+ * Max entries in a per-driver model or mode list and in the token arrays inside a model. Unlike
+ * `DRIVER_PROVIDER_COMMAND_ENTRIES_MAX` it rejects rather than truncates: these replies carry no
+ * `complete` flag, and a silently short catalog would look like a provider publishing fewer
+ * models. Sized far above the pinned surfaces, so tripping it means a daemon composition bug.
+ */
 export const DRIVER_WIRE_CATALOG_ENTRIES_MAX = 256;
+/**
+ * Max attachments on one message wherever the content cap applies: a coarse frame-abuse ceiling on
+ * the count (each element is already bounded by the `ArtifactId` UUID shape). Not the policy bound:
+ * `max_attachments_per_carrier` (default 10, range 1-50) is enforced by the daemon at carrier
+ * acceptance, so this is sized above that range and a parse never pre-empts the operator's refusal.
+ */
 export const DRIVER_WIRE_STEER_ATTACHMENTS_MAX = 64;
+/**
+ * Max length of `DriverCapabilities.contractVersion` on the capability reply. Deliberately equal to
+ * `CAPABILITY_CONTRACT_VERSION_MAX_LEN` (`event-core.ts`), which bounds the same field on the
+ * `CapabilityDetails` snapshot, so a version that survives one survives the other. Redeclared, not
+ * imported: `event-core.ts` imports `DRIVER_CAPABILITY_FLAGS` from this file, and importing back
+ * would close a value cycle that leaves that array in its temporal dead zone at module init. A
+ * change to either value lands on both.
+ */
 export const DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN = 64;
 
-// The request shape shared by the two no-arg reads, and the reply shape shared
-// by the two verbs whose driver-side operation returns `Promise<void>`.
-//
-// TWO NAMES FOR ONE STRUCTURE, DELIBERATELY. Both are the empty object, and
-// collapsing them into one alias would be the cheaper spelling. They sit on
-// OPPOSITE sides of the wire — one is what a client may send, the other is what
-// the daemon replies — and the first of them to grow a member must grow without
-// dragging the other with it. A shared alias would make that growth a breaking
-// edit at an unrelated call site.
-//
-// `.strict()` on both: an unknown key on a fixed-protocol envelope is a caller
-// that believes it is talking to a different method, and answering it as though
-// the extra key were absent hides the mismatch until something downstream reads
-// the field that never arrived.
+/**
+ * Request of the two no-arg reads (`driver.listCapabilities`, `driver.listModes`). Strict: an
+ * unknown key means a caller believes it is talking to a different method, and ignoring it would
+ * hide that until something downstream reads the field that never arrived. Kept apart from
+ * `DriverAckResult`, though both are the empty object, because they sit on opposite sides of the
+ * wire and one must be free to grow without a breaking edit to the other.
+ */
 export type DriverReadParams = Record<string, never>;
+/** Validates a {@link DriverReadParams}. */
 export const DriverReadParamsSchema: z.ZodType<DriverReadParams, DriverReadParams> = z
   .object({})
   .strict();
 
+/** Reply of the verbs whose driver-side operation returns `Promise<void>`. */
 export type DriverAckResult = Record<string, never>;
+/** Validates a {@link DriverAckResult}. */
 export const DriverAckResultSchema: z.ZodType<DriverAckResult, DriverAckResult> = z
   .object({})
   .strict();
 
-// `driver.listModels`'s request: the session whose model control is reading the
-// catalog. Strict for the reason the empty envelopes above are.
+/** Request of `driver.listModels`: the session whose model control reads the catalog. Strict. */
 export interface ListModelsRequest {
   sessionId: SessionId;
 }
+/** Validates a {@link ListModelsRequest}. */
 export const ListModelsRequestSchema: z.ZodType<ListModelsRequest, ListModelsRequest> = z
   .object({ sessionId: SessionIdSchema })
   .strict();
 
-// The per-flag boolean shape, DERIVED from `DRIVER_CAPABILITY_FLAGS` rather than
-// hand-listed. Module-local: its only consumer is the capability schema below,
-// so it fails the export hoist bar (2+ surfaces).
-//
-// Derivation is the point, not brevity. `DriverCapabilities.flags` is
-// `Record<DriverCapabilityFlag, boolean>` precisely so a flag cannot be silently
-// omitted (the structural half of), and a hand-written literal here would
-// reintroduce exactly the omission the type forbids: an eighteenth flag appended
-// to the array above would typecheck everywhere and then be stripped off this
-// reply at runtime, so a client would read "undeclared" for a capability the
-// driver declared `true`. Building the shape from the array makes that drift
-// impossible by construction.
-//
-// The `as` cast is load-bearing and narrow: `Object.fromEntries` is typed to
-// return an index signature, and the array's `as const` is what makes the
-// narrowing sound.
+// Module-local. Derived from `DRIVER_CAPABILITY_FLAGS` rather than hand-listed, so a new flag can
+// never be silently stripped off the capability reply at runtime (a client would read "undeclared"
+// for a capability the driver declared `true`). The `as` cast is narrow: `Object.fromEntries`
+// returns an index signature, and the array's `as const` makes the narrowing sound.
 const DRIVER_CAPABILITY_FLAG_SHAPE: Record<DriverCapabilityFlag, z.ZodBoolean> = Object.fromEntries(
   DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, z.boolean()]),
 ) as Record<DriverCapabilityFlag, z.ZodBoolean>;
 
-// `DriverCapabilities` (flags + contractVersion) as a wire schema. The type has
-// shipped since as a this is its first schema, and it exists because the
-// capability reply below crosses a wire that nominal types do not guard.
-//
-// `contractVersion` is bounded at the same 64 the event boundary uses, via this
-// seam's own constant — see `DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN` above for why
-// the value is duplicated rather than imported.
+/**
+ * Validates `DriverCapabilities` on the wire, where nominal types do not guard.
+ * `contractVersion` is bounded by this seam's own `DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN`.
+ */
 export const DriverCapabilitiesSchema: z.ZodType<DriverCapabilities, DriverCapabilities> = z
   .object({
     flags: z.object(DRIVER_CAPABILITY_FLAG_SHAPE).strict(),
@@ -2516,12 +1677,11 @@ export const DriverCapabilitiesSchema: z.ZodType<DriverCapabilities, DriverCapab
   })
   .strict();
 
-// One driver's entry in the `driver.listCapabilities` reply. See the section
-// header for why this is `GetCapabilitiesResult` minus `detectionSource`,
-// `cliVersion`, and `tools`, and plus `driverName` and `builtInTools`.
-//
-// `builtInTools` is the provider's own tool names, in the provider's words, and
-// every driver has them, so the member is required.
+/**
+ * One driver's entry in the `driver.listCapabilities` reply: `GetCapabilitiesResult` minus
+ * `detectionSource`, `cliVersion` and `tools`, plus `driverName` and `builtInTools` (the provider's
+ * own tool names in its own words; every driver has them, so the member is required).
+ */
 export interface DriverCapabilityReport {
   driverName: string;
   capabilities: DriverCapabilities;
@@ -2529,25 +1689,19 @@ export interface DriverCapabilityReport {
   builtInTools: string[];
 }
 
+/** Reply of `driver.listCapabilities`: one report per driver. */
 export interface ListCapabilitiesResult {
   drivers: DriverCapabilityReport[];
 }
 
-// `driverName: z.string().min(1)` rather than a `wireFreeFormString` cap, on the
-// in-file precedent already set for this exact field by
-// `ProviderCommandBindingGroup.binding`. The value is a daemon-side registry key
-// (`"claude"`, `"codex"`), not untrusted text, and it appears here on a REPLY —
-// the daemon is quoting its own map key back. `.min(1)` is the honest assertion:
-// an empty driver name is a composition bug, and there is nothing else about the
-// value this layer knows.
-//
-// `outputSpeedLevels` is present iff `capabilities.flags.output_speed` is true —
-// a cross-field rule the daemon's cache enforces at composition time rather than
-// a schema conjunct here, because absence is also the legitimate shape for every
-// driver whose flag is false, and a schema-level implication would have to be
-// re-stated identically at every producer. What the schema DOES enforce is that
-// when the member is present it is a bounded array of bounded tokens, so a
-// renderer offered a choice set is never offered an unbounded one.
+/**
+ * Validates a {@link DriverCapabilityReport}. `driverName` is only `.min(1)`: it is the daemon's
+ * own registry key (`"claude"`, `"codex"`) quoted back on a reply, so an empty one is a
+ * composition bug and nothing else about it is known here. That `outputSpeedLevels` is present iff
+ * `output_speed` is true is enforced by the daemon's cache at composition time, not here (absence
+ * is also the shape for every driver whose flag is false); the schema enforces that a present
+ * member is a bounded array of bounded tokens.
+ */
 export const DriverCapabilityReportSchema: z.ZodType<
   DriverCapabilityReport,
   DriverCapabilityReport
@@ -2567,21 +1721,17 @@ export const DriverCapabilityReportSchema: z.ZodType<
   })
   .strict();
 
+/** Validates a {@link ListCapabilitiesResult}. */
 export const ListCapabilitiesResultSchema: z.ZodType<
   ListCapabilitiesResult,
   ListCapabilitiesResult
 > = z.object({ drivers: z.array(DriverCapabilityReportSchema) }).strict();
 
-// `ProviderModel` / `ProviderMode` as wire schemas. Both types have shipped as
-// gives them their first schemas because the `listModels` / `listModes` replies
-// are the first surfaces on which they leave the daemon.
-//
-// These validate a DAEMON-COMPOSED reply, so their job is to catch a composition
-// bug before it reaches a renderer — an empty model id, an unbounded token a
-// driver read straight off a provider catalog — and not to re-validate anything
-// the provider boundary already normalized, because for these two shapes there
-// is no such prior normalization: neither type appears so this is the FIRST
-// bound either has ever carried.
+/**
+ * Validates a {@link ProviderModel} on the `listModels` reply. It checks a daemon-composed reply,
+ * catching a composition bug (an empty id, an unbounded token read straight off a provider catalog)
+ * before it reaches a renderer; no earlier schema bounds these shapes.
+ */
 export const ProviderModelSchema: z.ZodType<ProviderModel, ProviderModel> = z
   .object({
     id: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.id"),
@@ -2589,12 +1739,9 @@ export const ProviderModelSchema: z.ZodType<ProviderModel, ProviderModel> = z
     capabilities: z
       .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.capabilities"))
       .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
-    // ABSENT and EMPTY are different readings here and the schema must keep them
-    // distinguishable: absence means the model exposes no effort selection at
-    // all, which is the registered reading, while an empty array would assert an
-    // effort axis with nothing on it — a claim no provider surface makes. So
-    // `.optional()` with no `.default([])`; a default would erase the
-    // distinction at the parse that is supposed to preserve it.
+    // Absent and empty must stay distinguishable: absent means no effort selection, and an empty
+    // array would assert an effort axis with nothing on it. So `.optional()` with no
+    // `.default([])`, which would erase the distinction at the parse that should preserve it.
     effortLevels: z
       .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.effortLevels"))
       .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
@@ -2604,6 +1751,7 @@ export const ProviderModelSchema: z.ZodType<ProviderModel, ProviderModel> = z
   })
   .strict();
 
+/** Validates a {@link ProviderMode} on the `listModes` reply. */
 export const ProviderModeSchema: z.ZodType<ProviderMode, ProviderMode> = z
   .object({
     id: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderMode.id"),
@@ -2611,15 +1759,18 @@ export const ProviderModeSchema: z.ZodType<ProviderMode, ProviderMode> = z
   })
   .strict();
 
+/** One driver's models in the `listModels` reply. */
 export interface DriverModelReport {
   driverName: string;
   models: ProviderModel[];
 }
 
+/** Reply of `driver.listModels`: one group per driver. */
 export interface ListModelsResult {
   drivers: DriverModelReport[];
 }
 
+/** Validates a {@link DriverModelReport}. */
 export const DriverModelReportSchema: z.ZodType<DriverModelReport, DriverModelReport> = z
   .object({
     driverName: z.string().min(1),
@@ -2627,19 +1778,23 @@ export const DriverModelReportSchema: z.ZodType<DriverModelReport, DriverModelRe
   })
   .strict();
 
+/** Validates a {@link ListModelsResult}. */
 export const ListModelsResultSchema: z.ZodType<ListModelsResult, ListModelsResult> = z
   .object({ drivers: z.array(DriverModelReportSchema) })
   .strict();
 
+/** One driver's modes in the `listModes` reply. */
 export interface DriverModeReport {
   driverName: string;
   modes: ProviderMode[];
 }
 
+/** Reply of `driver.listModes`: one group per driver. */
 export interface ListModesResult {
   drivers: DriverModeReport[];
 }
 
+/** Validates a {@link DriverModeReport}. */
 export const DriverModeReportSchema: z.ZodType<DriverModeReport, DriverModeReport> = z
   .object({
     driverName: z.string().min(1),
@@ -2647,19 +1802,18 @@ export const DriverModeReportSchema: z.ZodType<DriverModeReport, DriverModeRepor
   })
   .strict();
 
+/** Validates a {@link ListModesResult}. */
 export const ListModesResultSchema: z.ZodType<ListModesResult, ListModesResult> = z
   .object({ drivers: z.array(DriverModeReportSchema) })
   .strict();
 
-// `driver.interruptRun` — the first consumer of `RunIdSchema`, which is why that
-// validator homes in this file (see the brand at the top).
-//
-// The wire shape is the DRIVER PARAM shape, not a session-addressed envelope. A
-// run id is globally unique, so a `sessionId` beside it would be a second
-// addressing key the daemon would have to reconcile against the first — and
-// disagreement between them has no honest answer. the two console-parity verbs
-// are the deliberate contrast: those ARE session-addressed, because their
-// targets (a binding, an agent) are only identified within a session.
+/**
+ * Validates `driver.interruptRun` input; the first consumer of `RunIdSchema`, which is why that
+ * validator lives in this file. The shape is the driver param shape, not a session-addressed
+ * envelope: a run id is globally unique, so a `sessionId` beside it would be a second addressing
+ * key with no honest answer when the two disagree. The console-parity requests below are
+ * session-addressed because the session is the authorization scope they mask against first.
+ */
 export const InterruptRunParamsSchema: z.ZodType<InterruptRunParams, InterruptRunParams> = z
   .object({
     runId: RunIdSchema,
@@ -2667,28 +1821,16 @@ export const InterruptRunParamsSchema: z.ZodType<InterruptRunParams, InterruptRu
   })
   .strict();
 
-// `driver.applyIntervention` — a DISCRIMINATED union on `type`, mirroring
-// `ApplyInterventionParams` arm for arm.
-//
-// Because this union IS the dispatch surface, a request whose `type` is not an
-// `InterventionType` member must fail PARSE here rather than reach a handler
-// that would have to invent a refusal — which is what makes
-// `z.discriminatedUnion` the right primitive and not merely a faster one: it
-// refuses an unknown discriminant at the discriminator, before any arm's fields
-// are considered.
-//
-// `clientIdempotencyKey` is a REQUESTER-generated UUID and this is the seam that
-// validates it. `ApplyInterventionParams` states exactly that division: the
-// param shape carries no paired schema because the key "is validated at the
-// client→daemon WIRE seam, a different boundary, before it ever reaches this
-// shape". `z.uuid()` is that validation — a non-UUID key would land in
-// a durable receipt as an unbounded caller-chosen string and make replay keying
-// depend on client discipline.
-//
-// `expectedRunVersion` is optimistic-concurrency state, so `.int()` and
-// `.nonnegative()` are both load-bearing rather than decorative: a float or a
-// negative would compare unequal to every stored version and turn a
-// concurrency check into an unconditional refusal that looks like a conflict.
+/**
+ * Validates `driver.applyIntervention` input as a discriminated union on `type`, arm for arm with
+ * `ApplyInterventionParams`. The union is the dispatch surface, so an unknown `type` fails parse at
+ * the discriminator rather than reaching a handler that would have to invent a refusal.
+ * `clientIdempotencyKey` is a requester-generated UUID validated here (`z.uuid()`); otherwise a
+ * caller-chosen unbounded string would land in a durable receipt and replay keying would depend on
+ * client discipline. `expectedRunVersion` is optimistic-concurrency state, so `.int()` and
+ * `.nonnegative()` matter: a float or a negative would compare unequal to every stored version and
+ * turn the check into an unconditional refusal that looks like a conflict.
+ */
 export const ApplyInterventionParamsSchema: z.ZodType<
   ApplyInterventionParams,
   ApplyInterventionParams
@@ -2702,11 +1844,9 @@ export const ApplyInterventionParamsSchema: z.ZodType<
       payload: z
         .object({
           content: wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, "SteerPayload.content"),
-          // `ArtifactId` elements, so this seam refuses a non-id element
-          // outright and the `.max()` is the coarse frame-abuse count ceiling
-          // beside it. The POLICY count — `max_attachments_per_carrier` — is
-          // the daemon's at carrier acceptance, not this parse's; see the
-          // `SteerPayload` declaration.
+          // `ArtifactId` elements, so a non-id element is refused outright; the `.max()` is the
+          // coarse frame-abuse count ceiling. The policy count is the daemon's at carrier
+          // acceptance (see `SteerPayload`).
           attachments: z.array(ArtifactIdSchema).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
           expectedTurnId: wireFreeFormString(
             DRIVER_WIRE_HANDLE_MAX_LEN,
@@ -2747,61 +1887,43 @@ export const ApplyInterventionParamsSchema: z.ZodType<
     .strict(),
 ]);
 
-//
-// Run-scoped: a subscription is opened against one run's driver event stream,
-// so the request carries the run id and nothing else.
-//
-// THE RESPONSE IS THE SHARED ACK, NOT A DRIVER-SPECIFIC TWIN. Every registered
-// `*.subscribe` method answers with `SubscribeAckResponse` (jsonrpc-streaming.ts)
-// — the opaque `subscriptionId` and nothing more, with the events themselves
-// arriving as later `$/subscription/notify` frames. Declaring a
-// `DriverSubscribeEventsResult` here would fork a fixed-protocol envelope that
-// the SDK's inbound dispatcher keys on uniformly, so this pair deliberately has
-// no response type of its own.
+/**
+ * Request of `driver.subscribeEvents`: a subscription opened against one run's driver event stream.
+ * The reply is the shared `SubscribeAckResponse` (`jsonrpc-streaming.ts`), the opaque
+ * `subscriptionId` with events arriving as later `$/subscription/notify` frames; a driver-specific
+ * twin would fork an envelope the SDK's inbound dispatcher keys on uniformly.
+ */
 export interface DriverSubscribeEventsParams {
   runId: RunId;
 }
 
+/** Validates a {@link DriverSubscribeEventsParams}. */
 export const DriverSubscribeEventsParamsSchema: z.ZodType<
   DriverSubscribeEventsParams,
   DriverSubscribeEventsParams
 > = z.object({ runId: RunIdSchema }).strict();
 
-// --------------------------------------------------------------------------
-// The two console-parity wire requests (session-addressed)
-// --------------------------------------------------------------------------
-//
-// BOTH REQUESTS ARE SESSION-ADDRESSED AND NEITHER CARRIES A BINDING. The
-// canonical wire contract publishes no `bindingId` anywhere on the client
-// surface: a binding is daemon-internal state, and a request that could name
-// one would hand a caller the routing key the pair-comparison doctrine exists
-// to keep daemon-enforced. The `sessionId` is not redundant beside the second
-// key — it is the AUTHORIZATION SCOPE both verbs mask against first (a
-// non-member and an unknown session refuse byte-identically), and the run or
-// agent is only resolved within it. This is the deliberate contrast the
-// `InterruptRunParamsSchema` comment records against the globally-unique run
-// id's single-key shape.
+// ---- Console-parity wire requests ----
 
-// The agent identifier member. `AgentId`'s brand and schema live in
-// `agent-definition.ts`, which imports this file at load, so this file cannot
-// import them back without a load cycle. The member is typed `string` and
-// checked as a UUID where it crosses; a branded `AgentId` is assignable to it at
-// every call site.
+// Both requests are session-addressed and neither carries a binding: a binding is daemon-internal
+// state, and a request that could name one would hand a caller the routing key the daemon must
+// enforce. The `sessionId` is the authorization scope both verbs mask against first (a non-member
+// and an unknown session refuse byte-identically); the run or agent is resolved within it.
 
-// `driver.compactContext` — the user-triggered compaction request.
-//
-// Run-addressed WITHIN the session: compaction drives one run's live binding,
-// and the daemon resolves that binding itself (refusing `run.not_found` /
-// `driver.unavailable` in the canonical fixed order). The reply is
-// `DriverCompactionResult` union, never a bare acknowledgment — `refused` and
-// `failed` are DATA a caller branches on, because the daemon-side adjudication
-// (`not_permitted`) settles on the operation's own result rather than as a
-// JSON-RPC error.
+/**
+ * Request of `driver.compactContext`, the user-triggered compaction. Run-addressed within the
+ * session: compaction drives one run's live binding, and the daemon resolves that binding itself
+ * (refusing `run.not_found` or `driver.unavailable`). The reply is a `DriverCompactionResult`,
+ * never a bare acknowledgment: `refused` and `failed` are data a caller branches on, because the
+ * daemon-side adjudication (`not_permitted`) settles on the operation's own result rather than as a
+ * JSON-RPC error.
+ */
 export interface CompactContextRequest {
   sessionId: SessionId;
   runId: RunId;
 }
 
+/** Validates a {@link CompactContextRequest}. */
 export const CompactContextRequestSchema: z.ZodType<CompactContextRequest, CompactContextRequest> =
   z
     .object({
@@ -2810,17 +1932,21 @@ export const CompactContextRequestSchema: z.ZodType<CompactContextRequest, Compa
     })
     .strict();
 
-// `driver.listProviderCommands` — the command-surface enumeration request.
-//
-// Agent-addressed WITHIN the session: an agent can hold several live bindings
-// at once, and the daemon-side fan-out across them is what the reply's group
-// list exists to carry. `.strict()` is what makes "the wire admits NO binding
-// member" a refusal rather than a convention.
+/**
+ * Request of `driver.listProviderCommands`, the command-surface enumeration. Agent-addressed
+ * within the session: an agent can hold several live bindings, and the daemon's fan-out across
+ * them is what the reply's group list carries. `.strict()` makes "the wire admits no binding
+ * member" a refusal rather than a convention.
+ */
 export interface ListProviderCommandsRequest {
   sessionId: SessionId;
+  // Typed `string`, not the branded `AgentId`: its brand and schema live in `agent-definition.ts`,
+  // which imports this file, so importing back would create a load cycle. The schema checks it as
+  // a UUID where it crosses; a branded `AgentId` is assignable to it at every call site.
   agentId: string;
 }
 
+/** Validates a {@link ListProviderCommandsRequest}. */
 export const ListProviderCommandsRequestSchema: z.ZodType<
   ListProviderCommandsRequest,
   ListProviderCommandsRequest
@@ -2831,22 +1957,19 @@ export const ListProviderCommandsRequestSchema: z.ZodType<
   })
   .strict();
 
-// The reply-side schemas for the group list. these give them their first
-// schemas because the reply is the first surface on which they leave the
-// daemon, and the registry's result validation is the reader. Like the roster
-// reply schemas, they guard a DAEMON-COMPOSED reply — the job is catching a
-// composition bug (a dropped `runId` key, an unbounded merge) before it reaches
-// a renderer.
-//
+/**
+ * Validates a {@link ProviderCommandBindingGroup} on the reply. It checks a daemon-composed reply,
+ * catching a composition bug (a dropped `runId` key, an unbounded merge) before it reaches a
+ * renderer.
+ */
 export const ProviderCommandBindingGroupSchema: z.ZodType<
   ProviderCommandBindingGroup,
   ProviderCommandBindingGroup
 > = z
   .object({
-    // `.nullable()` and NOT `.optional()`: the zero-live-runs and two-plus-
-    // live-runs arms both answer `null`, and an ABSENT key would be
-    // indistinguishable from a producer that forgot to attribute the group —
-    // the exact ambiguity.
+    // `.nullable()`, not `.optional()`: the zero-live-runs and two-or-more-live-runs cases both
+    // answer `null`, and an absent key would look like a producer that forgot to attribute the
+    // group.
     runId: RunIdSchema.nullable(),
     binding: z
       .object({
@@ -2854,26 +1977,23 @@ export const ProviderCommandBindingGroupSchema: z.ZodType<
         providerAccountId: z.string().min(1).nullable(),
       })
       .strict(),
-    // Bounded at the SAME 512 the provider boundary admits per group
-    // (`DRIVER_PROVIDER_COMMAND_ENTRIES_MAX`), deliberately NOT at this seam's
-    // 256 catalog cap: the entries were already admitted at 512 through and a
-    // smaller reply-side cap would turn a legitimate 300-command enumeration
-    // into a result-validation `-32603` after the provider boundary accepted
-    // it. Truncation-with-a-marker is so the cap here only backstops a merge
-    // bug.
+    // Bounded at `DRIVER_PROVIDER_COMMAND_ENTRIES_MAX`, the provider-boundary cap per group, not
+    // the smaller `DRIVER_WIRE_CATALOG_ENTRIES_MAX`: entries already admitted at the larger cap
+    // would otherwise fail result validation with a `-32603`. Truncation carries a marker, so this
+    // cap only backstops a merge bug.
     entries: z.array(ProviderCommandEntrySchema).max(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX),
     complete: z.boolean(),
   })
   .strict();
 
-// `.min(1)`: a success reply is NEVER the empty group list. The handler refuses
-// an agent holding no live binding as `driver.unavailable` before any dispatch,
-// so zero groups on a resolved reply is a composition bug and parses as one.
-// The group COUNT is deliberately uncapped, mirroring the uncapped `drivers`
-// arrays on the three roster replies: it is the daemon's own fan-out over the
-// agent's live bindings — bounded by run admission, not by anything a caller
-// sends — and a cap here would refuse an honest reply while defending against
-// nothing a caller controls.
+/**
+ * Validates a {@link ProviderCommandListResult}. `.min(1)`: a success reply is never the empty
+ * group list, because the handler refuses an agent holding no live binding as `driver.unavailable`
+ * before any dispatch, so zero groups is a composition bug. The group count is deliberately
+ * uncapped, like the `drivers` arrays on the roster replies: it is the daemon's own fan-out over
+ * the agent's live bindings, bounded by run admission, and a cap would refuse an honest reply while
+ * defending against nothing a caller controls.
+ */
 export const ProviderCommandListResultSchema: z.ZodType<
   ProviderCommandListResult,
   ProviderCommandListResult
@@ -2883,13 +2003,10 @@ export const ProviderCommandListResultSchema: z.ZodType<
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// The method table
-// --------------------------------------------------------------------------
-//
-// `driver.subscribeEvents` is in `driver-event.ts`'s table: its emission is the
-// session event, and naming that schema here would import the event module,
-// which itself imports this file.
+// ---- Method table ----
+
+// `driver.subscribeEvents` is in the table in `driver-event.ts`: its emission is the session
+// event, and naming that schema here would import the event module, which imports this file.
 
 /** The driver methods a client calls, each a query or a mutation. */
 export interface DriverMethodDescriptors {

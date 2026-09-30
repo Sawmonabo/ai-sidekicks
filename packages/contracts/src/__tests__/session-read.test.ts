@@ -1,19 +1,8 @@
 // The `session.read` request and answer: what the daemon may send, and what it must never.
-//
-// Coverage shape:
-//   • Request:
-//       - `{sessionId}` parses; sessionId is required and UUID-guarded
-//       - non-object / null input is rejected
-//       - extra unknown keys are rejected (`.strict()` enforcement)
-//   • Response:
-//       - well-formed payload parses, preserves snapshot + cursor values
-//       - the snapshot carries the held draft; one without it rejects
-//       - `timelineCursors.acknowledged` is optional (absent AND present ok)
-//       - missing `session` / `timelineCursors` rejects
-//       - `.strict()` holds at every nesting level (top, cursors, snapshot)
-//       - snapshot datetimes accept RFC 3339 numeric offsets AND Z-suffix
-//       - cursor bounds: empty rejects (min 1), oversized rejects
-//         (EVENT_CURSOR_MAX_LEN defense-in-depth cap), boundary accepts
+// Both shapes are strict at every nesting level. A session id is required and UUID-guarded, the
+// answer carries the held draft, `timelineCursors.acknowledged` is optional, snapshot datetimes
+// accept numeric offsets and `Z`, and a cursor is non-empty and capped at
+// `EVENT_CURSOR_MAX_LEN` as defense in depth.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -24,9 +13,8 @@ import {
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 
-// Fixture returns a wire-shaped object with no per-field brand casts —
-// `safeParse` accepts plain UUID strings and brands them on the way out
-// (the schema, not the type system, is the unit under test).
+// The fixture is wire-shaped with no brand casts: `safeParse` accepts plain UUID strings and
+// brands them on the way out, so the schema, not the type system, is what is under test.
 const buildValidResponse = () => ({
   session: {
     id: SESSION_ID,

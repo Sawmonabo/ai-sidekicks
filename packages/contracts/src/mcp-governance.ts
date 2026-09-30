@@ -1,10 +1,6 @@
-// The `mcp.*` namespace as the daemon registers it and the event log keeps it:
-// the method table pairing each method with its request and reply, the payloads
-// of the five governance events, and the refusal codes the methods answer with.
-// The shapes themselves are in `mcp.ts`.
-//
-// An event payload names a project or local binding by the keyed digest of its
-// folder, never the folder itself, because events are kept and signed.
+// The `mcp.*` method table, the five governance event payloads and the refusal codes.
+// An event payload names a project or local binding by the keyed digest of its folder,
+// never the folder itself, because events are kept and signed.
 import { z } from "zod";
 
 import {
@@ -62,9 +58,7 @@ import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import type { McpServerStatus } from "./provider-driver.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 
-// ---------------------------------------------------------------------------
 // Governance event payloads
-// ---------------------------------------------------------------------------
 
 /**
  * A binding's identity inside a kept event: the folder is replaced by its keyed
@@ -237,16 +231,16 @@ export const McpServerOauthCompletedPayloadSchema: z.ZodType<McpServerOauthCompl
     ...initiatingSessionShape,
   });
 
-// ---------------------------------------------------------------------------
 // Refusal codes
-// ---------------------------------------------------------------------------
 
 /** No binding with the requested provider, scope, folder and name exists. */
 export type McpServerNotFoundCode = "mcp.server_not_found";
+/** The value of {@link McpServerNotFoundCode}. */
 export const MCP_SERVER_NOT_FOUND_CODE: McpServerNotFoundCode = "mcp.server_not_found";
 
 /** The submitted configuration failed validation before anything was written. */
 export type McpConfigInvalidCode = "mcp.config_invalid";
+/** The value of {@link McpConfigInvalidCode}. */
 export const MCP_CONFIG_INVALID_CODE: McpConfigInvalidCode = "mcp.config_invalid";
 
 /**
@@ -254,11 +248,13 @@ export const MCP_CONFIG_INVALID_CODE: McpConfigInvalidCode = "mcp.config_invalid
  * twice, or a Codex project file no longer hashes to what the daemon last read.
  */
 export type McpConfigWriteConflictCode = "mcp.config_write_conflict";
+/** The value of {@link McpConfigWriteConflictCode}. */
 export const MCP_CONFIG_WRITE_CONFLICT_CODE: McpConfigWriteConflictCode =
   "mcp.config_write_conflict";
 
 /** A request key was reused with a different request; the first one stands. */
 export type McpIdempotencyConflictCode = "mcp.idempotency_conflict";
+/** The value of {@link McpIdempotencyConflictCode}. */
 export const MCP_IDEMPOTENCY_CONFLICT_CODE: McpIdempotencyConflictCode = "mcp.idempotency_conflict";
 
 /**
@@ -266,29 +262,32 @@ export const MCP_IDEMPOTENCY_CONFLICT_CODE: McpIdempotencyConflictCode = "mcp.id
  * `approvalMode` tool override on a `project` binding.
  */
 export type McpConfigScopeUnsupportedCode = "mcp.config_scope_unsupported";
+/** The value of {@link McpConfigScopeUnsupportedCode}. */
 export const MCP_CONFIG_SCOPE_UNSUPPORTED_CODE: McpConfigScopeUnsupportedCode =
   "mcp.config_scope_unsupported";
 
 /** The caller does not own this machine. Ownership decides, never the transport. */
 export type McpOperatorScopeRequiredCode = "mcp.operator_scope_required";
+/** The value of {@link McpOperatorScopeRequiredCode}. */
 export const MCP_OPERATOR_SCOPE_REQUIRED_CODE: McpOperatorScopeRequiredCode =
   "mcp.operator_scope_required";
 
 /** The policy denied the governance change, checked before whether the binding exists. */
 export type McpGovernanceDeniedCode = "mcp.governance_denied";
+/** The value of {@link McpGovernanceDeniedCode}. */
 export const MCP_GOVERNANCE_DENIED_CODE: McpGovernanceDeniedCode = "mcp.governance_denied";
 
 /** A tool override would loosen what an untrusted server may do. */
 export type McpTrustRequiredCode = "mcp.trust_required";
+/** The value of {@link McpTrustRequiredCode}. */
 export const MCP_TRUST_REQUIRED_CODE: McpTrustRequiredCode = "mcp.trust_required";
 
 /** The sign-in could not be started. A failure after it started arrives as an event. */
 export type McpOauthFlowFailedCode = "mcp.oauth_flow_failed";
+/** The value of {@link McpOauthFlowFailedCode}. */
 export const MCP_OAUTH_FLOW_FAILED_CODE: McpOauthFlowFailedCode = "mcp.oauth_flow_failed";
 
-// ---------------------------------------------------------------------------
 // The method table
-// ---------------------------------------------------------------------------
 
 /**
  * Every `mcp.*` method but `mcp.subscribe`, whose emissions are event envelopes

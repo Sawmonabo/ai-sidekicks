@@ -1,21 +1,15 @@
-// Clone contracts — `repo.clone` makes a project from a repository URL, and
-// its card follows the clone live: git's progress, the question git asks and
-// the person's answer, a failure with git's own last line, cancel, and pulling
-// large files afterwards.
+// Clone contracts: `repo.clone` makes a project from a repository URL, and its card follows the
+// clone live: git's progress, the question git asks and the person's answer, a failure with git's
+// last line, cancel, and pulling large files afterwards.
 //
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
-// and nothing whose import closure reaches it (the transitive rule repo.ts's
-// header documents). Every module imported below is closure-clean.
+// This module imports nothing from `./event.js` and nothing whose imports reach it, which would
+// close an eager module cycle.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import { ProjectIdSchema, type ProjectId } from "./project.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
-
-// --------------------------------------------------------------------------
-// Cloning from a URL — `repo.clone` and its card.
-// --------------------------------------------------------------------------
 
 /** The longest repository URL `repo.clone` takes. */
 export const REPO_CLONE_URL_MAX_LEN = 2048;
@@ -25,10 +19,9 @@ export const REPO_CLONE_LINE_MAX_LEN = 1024;
 export const REPO_CLONE_ANSWER_MAX_LEN = 4096;
 
 /**
- * `repo.clone`: the repository's URL, the folder the clone goes into when it is
- * not the machine's clone folder, and the project whose failed or canceled clone
- * this runs again. The reply names the project, made at once and marked
- * `cloning`; the clone ends in the ordinary attach.
+ * `repo.clone`: the repository's URL, the folder the clone goes into when it is not the machine's
+ * clone folder, and the project whose failed or canceled clone this runs again. The reply names
+ * the project, made at once and marked `cloning`; the clone ends in the ordinary attach.
  */
 export interface RepoCloneRequest {
   url: string;
@@ -45,8 +38,8 @@ export const RepoCloneRequestSchema: z.ZodType<RepoCloneRequest, RepoCloneReques
   .strict();
 
 /**
- * The refusal `repo.clone` answers before any clone starts: the address is neither
- * https nor ssh, or the destination folder is not empty. Nothing is made.
+ * The refusal `repo.clone` answers before any clone starts: the address is neither https nor ssh,
+ * or the destination folder is not empty. Nothing is made.
  */
 export type RepoCloneRefusedCode = "repo.clone_refused";
 /** The code of {@link RepoCloneRefusedCode}. */
@@ -83,8 +76,8 @@ export interface RepoCloneProjectRequest {
   projectId: ProjectId;
 }
 /**
- * Wire schema for {@link RepoCloneProjectRequest}: `repo.cloneSubscribe`,
- * `repo.cloneCancel` and `repo.largeFilesPull` each take only the project.
+ * Wire schema for {@link RepoCloneProjectRequest}: `repo.cloneSubscribe`, `repo.cloneCancel` and
+ * `repo.largeFilesPull` each take only the project.
  */
 export const RepoCloneProjectRequestSchema: z.ZodType<
   RepoCloneProjectRequest,
@@ -109,9 +102,8 @@ export interface RepoCloneProgress {
   percent: number | null;
 }
 /**
- * A question git asked (a user name, a password or token, a key's passphrase,
- * or whether to trust a host's key), in git's own words. `masked` is true for a
- * password or a passphrase.
+ * A question git asked (a user name, a password or token, a key's passphrase, or whether to trust
+ * a host's key), in git's own words. `masked` is true for a password or a passphrase.
  */
 export interface RepoCloneQuestion {
   questionId: CloneQuestionId;
@@ -122,12 +114,12 @@ export interface RepoCloneQuestion {
 /**
  * One `repo.cloneSubscribe` emission, the clone card's whole state.
  *
- * - `cloning` and `pulling_large_files` carry git's latest progress and the
- *   question it is waiting on, if any.
- * - `large_files_missing`: the clone finished, but the repository keeps large
- *   files in Git LFS, which is not installed, so they arrived as placeholders.
- * - `failed` names the step that failed and git's last error line; the line is
- *   null only when the service restarted during the clone and git left none.
+ * - `cloning` and `pulling_large_files` carry git's latest progress and the question it is waiting
+ *   on, if any.
+ * - `large_files_missing`: the clone finished, but the repository keeps large files in Git LFS,
+ *   which is not installed, so they arrived as placeholders.
+ * - `failed` names the step that failed and git's last error line; the line is null only when the
+ *   service restarted during the clone and git left none.
  * - `canceled` and `done` end the card.
  */
 export type RepoCloneStatus =
@@ -187,14 +179,12 @@ export const RepoCloneStatusSchema: z.ZodType<RepoCloneStatus> = z.discriminated
 ]);
 
 /**
- * `repo.cloneAnswer`: the answer to one of git's questions. The daemon hands it
- * to git's askpass program and nowhere else; it is never stored, logged or
- * echoed on any reply or event, and a transport that logs request bodies must
- * redact `answer`.
+ * `repo.cloneAnswer`: the answer to one of git's questions. The daemon hands it to git's askpass
+ * program and nowhere else; it is never stored, logged or echoed on any reply or event, and a
+ * transport that logs request bodies must redact `answer`.
  *
- * An empty answer is lawful (an empty passphrase). A line break or a NUL byte is
- * refused: the askpass program prints the answer as one line, so either would
- * cut the answer short or smuggle a second one.
+ * An empty answer is lawful (an empty passphrase). A line break or a NUL byte is refused: the
+ * askpass program prints the answer as one line, so either would cut it short or smuggle a second.
  */
 export interface RepoCloneAnswerRequest {
   projectId: ProjectId;
@@ -228,9 +218,9 @@ export const RepoCloneFolderReadRequestSchema: z.ZodType<
 > = z.object({}).strict();
 
 /**
- * Where a clone goes, and why: the folder the person set, else the folder
- * holding the most recently attached project, else the home folder. The
- * session picker and Settings › Projects both read this one answer.
+ * Where a clone goes, and why: the folder the person set, else the folder holding the most recently
+ * attached project, else the home folder. The session picker and Settings › Projects both read
+ * this one answer.
  */
 export interface RepoCloneFolderReadResponse {
   folder: string;
