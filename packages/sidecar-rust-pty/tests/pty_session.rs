@@ -1,22 +1,9 @@
-//! Integration tests for the per-session PTY holder.
+//! Integration tests for the session registry against real `/bin/sh` children: a `portable-pty`
+//! child must produce `DataFrame` and `ExitCodeNotification` envelopes on the outbound channel.
 //!
-//! Exercises [`PtySessionRegistry`] against real `/bin/sh` children —
-//! dispatcher smoke test is the next layer of integration coverage, but these
-//! tests are the load-bearing assertions that the Phase 1 holder actually
-//! wires a `portable-pty` child through to `DataFrame` +
-//! `ExitCodeNotification` envelopes on the outbound channel.
-//!
-//! ## Platform scope
-//!
-//! These tests are unix-only because:
-//! 1. The holder's `kill()` is unix-only at Phase 1 (Windows arm returns
-//!    [`WindowsKillNotImplemented`] per the audit row's deferral).
-//! 2. The spawn shape uses `/bin/sh` which is not a Windows binary path.
-//!
-//! Phase 3 will add Windows-specific cases when the kill- translation arm
-//! lands. Module-level `#[cfg(unix)]` gating means the Windows CI matrix
-//! sees zero tests in this file rather than a CI failure.
-//!
+//! Unix only: `kill()` returns `WindowsKillNotImplemented` on Windows, and the spawn shape uses
+//! `/bin/sh`. The module-level `#![cfg(unix)]` leaves the Windows matrix with zero tests here
+//! instead of failures.
 
 #![cfg(unix)]
 
@@ -29,16 +16,12 @@ use sidecar_rust_pty::pty_session::{PtySessionError, PtySessionRegistry};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::timeout;
 
-/// Two-second polling budget for the "child exits + ExitCodeNotification
-/// arrives" path. `echo hello; exit 0` typically finishes within a few
-/// milliseconds even under CI load; 2 s is two orders of magnitude of
-/// headroom while still failing fast on a genuinely hung holder.
+/// Budget for a child to exit and its `ExitCodeNotification` to arrive; it finishes in
+/// milliseconds, so 2 s only fails fast on a hang.
 const EXIT_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Drain envelopes from `rx` until an `ExitCodeNotification` is observed
-/// or `EXIT_TIMEOUT` elapses, returning every envelope received during
-/// the wait. Used so tests can assert on the arrival ordering of
-/// `DataFrame` + `ExitCodeNotification` without busy-waiting.
+/// Collects envelopes from `rx` until an `ExitCodeNotification` arrives or `EXIT_TIMEOUT` elapses,
+/// so tests can assert ordering without busy-waiting.
 async fn drain_until_exit(rx: &mut UnboundedReceiver<Envelope>) -> Vec<Envelope> {
     let mut envelopes = Vec::new();
     let deadline_fut = timeout(EXIT_TIMEOUT, async {
@@ -59,20 +42,15 @@ async fn drain_until_exit(rx: &mut UnboundedReceiver<Envelope>) -> Vec<Envelope>
     envelopes
 }
 
-/// Empty env hands the child whatever portable-pty's CommandBuilder
-/// considers safe defaults. We could pass the parent's env via
-/// `std::env::vars`, but `/bin/sh -c 'echo hello'` doesn't need any env
-/// for the test to pass — keeping the spawn request minimal makes the
-/// test focused on the holder's wire shape, not on env propagation.
+/// An empty env keeps the spawn request minimal; these tests do not need one.
 fn empty_env() -> Vec<(String, String)> {
     Vec::new()
 }
 
 #[tokio::test]
 async fn spawn_echo_emits_data_frame_then_exit() {
-    // The canonical Phase 1 acceptance scenario: spawn a child that writes
-    // a known string then exits 0, and assert we observe a DataFrame with
-    // those bytes followed by an ExitCodeNotification with exit_code 0.
+    // A child writes a known string and exits 0: expect a `DataFrame` with those bytes, then an
+    // `ExitCodeNotification` with exit code 0.
     let (registry, mut rx) = PtySessionRegistry::new();
 
     let response = registry
@@ -91,8 +69,7 @@ async fn spawn_echo_emits_data_frame_then_exit() {
 
     let envelopes = drain_until_exit(&mut rx).await;
 
-    // Verify ordering: at least one DataFrame, then exactly one
-    // ExitCodeNotification at the tail.
+    // At least one `DataFrame`, then exactly one `ExitCodeNotification` at the tail.
     let data_frames: Vec<_> = envelopes
         .iter()
         .filter_map(|e| match e {
@@ -118,14 +95,12 @@ async fn spawn_echo_emits_data_frame_then_exit() {
         "expected exactly one ExitCodeNotification, got envelopes: {envelopes:?}"
     );
 
-    // The exit notification arrives last.
     assert!(matches!(
         envelopes.last().expect("non-empty"),
         Envelope::ExitCodeNotification(_)
     ));
 
-    // All DataFrames carry the spawned session_id and stream: Stdout
-    // (per the Phase 1 PTY-merge-streams design note).
+    // Every `DataFrame` carries the session id and `Stdout` (a PTY merges stdout and stderr).
     for df in &data_frames {
         assert_eq!(df.session_id, session_id);
         assert_eq!(
@@ -135,8 +110,7 @@ async fn spawn_echo_emits_data_frame_then_exit() {
         );
     }
 
-    // The exit notification carries the same session id, exit_code 0
-    // (echo + exit 0 → 0), and signal_code: None (Phase 1 contract).
+    // The exit notification has the same session id, exit code 0, and no signal code.
     let exit = exit_notifications[0];
     assert_eq!(exit.session_id, session_id);
     assert_eq!(exit.exit_code, 0);
@@ -145,9 +119,7 @@ async fn spawn_echo_emits_data_frame_then_exit() {
         "Phase 1 emits signal_code: None for every exit per module rustdoc"
     );
 
-    // Concatenated output must contain "hello". PTY canonical mode
-    // translates LF to CRLF on output so the literal bytes might be
-    // "hello\r\n" — assert on `contains` rather than exact equality.
+    // The PTY may translate LF to CRLF, so assert `contains` rather than equality.
     let mut combined: Vec<u8> = Vec::new();
     for df in &data_frames {
         combined.extend_from_slice(&df.bytes);
@@ -161,12 +133,7 @@ async fn spawn_echo_emits_data_frame_then_exit() {
 
 #[tokio::test]
 async fn data_frame_seq_is_monotonic_per_session() {
-    // Pump a payload large enough that the 8 KiB chunker actually
-    // emits multiple DataFrames so we can observe `seq` increment.
-    //
-    // The shell command writes 64 KiB of 'A' (8x the chunk threshold)
-    // then exits. Even with one read-coalesce, this is large enough
-    // to force at least two chunks. `printf` is more portable than
+    // 64 KiB of 'A' is eight 8 KiB chunks, so `seq` must increment. `printf` is more portable than
     // `yes | head` on macOS sh.
     let (registry, mut rx) = PtySessionRegistry::new();
 
@@ -212,10 +179,7 @@ async fn data_frame_seq_is_monotonic_per_session() {
 
 #[tokio::test]
 async fn parallel_sessions_get_distinct_session_ids() {
-    // Two spawns from the same registry must mint distinct session
-    // ids. This pins the `mint_session_id` contract: ids are
-    // process-wide unique, not just unique within a single spawn
-    // path.
+    // Ids come from a per-registry counter and must be distinct across spawns.
     let (registry, _rx) = PtySessionRegistry::new();
 
     let a = registry
@@ -298,10 +262,8 @@ async fn kill_on_unknown_session_returns_unknown_session_error() {
 
 #[tokio::test]
 async fn kill_sigterm_terminates_long_running_child() {
-    // Spawn a `sleep 30` child, then send SIGTERM. The waiter task
-    // should fire ExitCodeNotification within EXIT_TIMEOUT — well
-    // before the sleep would naturally complete. This pins the
-    // unix kill path end-to-end through `libc::kill`.
+    // After SIGTERM to `sleep 30`, the exit notification must arrive within `EXIT_TIMEOUT`, well
+    // before the sleep would end. This pins the unix kill path through `libc::kill`.
     let (registry, mut rx) = PtySessionRegistry::new();
 
     let response = registry
@@ -318,11 +280,7 @@ async fn kill_sigterm_terminates_long_running_child() {
 
     let session_id = response.session_id.clone();
 
-    // Give the child a beat to actually be sleeping before we signal
-    // it. Without this, the signal may race the spawn and either
-    // (a) hit the parent's pre-exec stage on some platforms or
-    // (b) the child has not yet installed its default SIGTERM
-    // handler. 50 ms is generous for both Linux and macOS.
+    // Let the child start sleeping first; a signal sent too early could hit the spawn before exec.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let kill_response = registry
@@ -334,7 +292,6 @@ async fn kill_sigterm_terminates_long_running_child() {
         .expect("kill should succeed");
     assert_eq!(kill_response.session_id, session_id);
 
-    // Wait for the exit notification.
     let envelopes = drain_until_exit(&mut rx).await;
     let exit = envelopes
         .iter()
@@ -347,19 +304,14 @@ async fn kill_sigterm_terminates_long_running_child() {
         });
 
     assert_eq!(exit.session_id, session_id);
-    // SIGTERM-killed child: exit_code is portable-pty's "signal-
-    // terminated" sentinel (1) per the From<std::process::ExitStatus>
-    // implementation in portable-pty 0.9. signal_code is None at
-    // Phase 1 per module rustdoc.
+    // A signal-terminated child gets portable-pty's sentinel `exit_code` 1, and `signal_code` is
+    // always `None`.
     assert_eq!(
         exit.signal_code, None,
         "Phase 1 always emits signal_code: None"
     );
-    // We don't assert on the exact exit_code value since portable-pty's
-    // mapping (signal-terminated → code=1) is documented but not
-    // load-bearing for the Phase 1 holder. The presence of the
-    // ExitCodeNotification + the kill having actually terminated the
-    // 30-second sleep within 2 seconds IS the load-bearing assertion.
+    // The exact `exit_code` is not asserted; the load-bearing check is that the kill ended the
+    // 30-second sleep within 2 seconds.
 }
 
 #[tokio::test]
@@ -368,8 +320,7 @@ async fn resize_on_active_session_succeeds() {
     let response = registry
         .spawn(SpawnRequest {
             command: "/bin/sh".to_string(),
-            // Sit idle waiting for stdin so the session stays alive
-            // long enough for the resize.
+            // Idle on stdin so the session stays alive for the resize.
             args: vec!["-c".to_string(), "cat".to_string()],
             env: empty_env(),
             cwd: "/tmp".to_string(),
@@ -390,7 +341,7 @@ async fn resize_on_active_session_succeeds() {
 
     assert_eq!(resize_response.session_id, response.session_id);
 
-    // Clean up — kill the cat to avoid leaving a zombie test process.
+    // Clean up: kill `cat`.
     let _ = registry
         .kill(KillRequest {
             session_id: response.session_id,
@@ -401,20 +352,9 @@ async fn resize_on_active_session_succeeds() {
 
 #[tokio::test]
 async fn write_round_trips_through_cat() {
-    // Spawn `cat` (echoes stdin to stdout via PTY canonical mode),
-    // call `registry.write(b"hello\n")`, assert a subsequent DataFrame
-    // contains the literal "hello" payload. This is the happy-path
-    // coverage for the write surface — the existing
-    // `write_on_unknown_session_returns_unknown_session_error` test
-    // pins the negative path, and this test pins the success path.
-    //
-    // PTY canonical-mode echo: the slave-side line discipline echoes
-    // every input byte back through the master, so the daemon
-    // observes its own write as a DataFrame. Plus `cat` itself reads
-    // the line and writes it back — so we may see two echoes of
-    // "hello" (one from line discipline, one from cat's stdout).
-    // The assertion is just `.contains("hello")` so either case
-    // passes.
+    // Spawn `cat`, write `hello\n`, and expect a `DataFrame` containing "hello". The PTY line
+    // discipline echoes the input and `cat` prints it back, so it may appear twice; `contains`
+    // accepts either.
     let (registry, mut rx) = PtySessionRegistry::new();
 
     let response = registry
@@ -429,7 +369,7 @@ async fn write_round_trips_through_cat() {
         .await
         .expect("spawn should succeed");
 
-    // Give `cat` a beat to actually be reading from its stdin.
+    // Let `cat` start reading stdin.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let write_response = registry
@@ -441,8 +381,7 @@ async fn write_round_trips_through_cat() {
         .expect("write should succeed");
     assert_eq!(write_response.session_id, response.session_id);
 
-    // Collect DataFrames for up to 500 ms — long enough for line
-    // discipline + cat to both round-trip; short enough to keep the
+    // Collect for up to 500 ms, long enough for the echo and `cat`'s output.
     // test fast.
     let mut combined: Vec<u8> = Vec::new();
     let collect_fut = timeout(Duration::from_millis(500), async {
@@ -463,7 +402,7 @@ async fn write_round_trips_through_cat() {
         "write should round-trip through the PTY; combined output: {s:?}"
     );
 
-    // Clean up — kill cat so we don't leave a zombie test process.
+    // Clean up: kill `cat`.
     let _ = registry
         .kill(KillRequest {
             session_id: response.session_id,
@@ -474,27 +413,11 @@ async fn write_round_trips_through_cat() {
 
 #[tokio::test]
 async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
-    // Pins the race-closing fix: after a child has exited naturally, the `exited` flag set
-    // inside the waiter task's `spawn_blocking` closure must cause
-    // subsequent `kill()` calls to short-circuit with
-    // `UnknownSession` BEFORE `libc::kill` can fire at a pid the
-    // kernel may have already recycled.
-    //
-    // The test cannot deterministically exercise the recycled-pid
-    // failure mode (that requires concurrent fork+exec from another
-    // process), but it CAN pin the load-bearing behavior: a kill
-    // attempt after the waiter has observed exit returns
-    // `UnknownSession` (or `Io(ESRCH)` if the kill landed in the
-    // narrow post-store-pre-syscall window). The assertion accepts
-    // either: both are correct shapes — what is NOT acceptable is a
-    // silent `Ok(KillResponse)` reporting success against a recycled
-    // pid.
-    //
-    // To make the post-exit moment observable from the test, we
-    // await the `ExitCodeNotification` (which is emitted AFTER the
-    // `exited` store inside the spawn_blocking closure — the store
-    // happens-before the notification send). Once we see the
-    // notification, the flag is guaranteed to be `true`.
+    // After a child exits, `kill()` must not report success: the `exited` flag makes it return
+    // `UnknownSession`, or `Io(ESRCH)` if it lands in the narrow window after the store. A recycled
+    // pid cannot be exercised deterministically, so this pins that the outcome is never
+    // `Ok(KillResponse)`. The `ExitCodeNotification` is sent after the `exited` store, so once it
+    // arrives the flag is set.
     let (registry, mut rx) = PtySessionRegistry::new();
 
     let response = registry
@@ -511,8 +434,7 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
 
     let session_id = response.session_id.clone();
 
-    // Wait for the ExitCodeNotification — this is the moment the
-    // waiter task has gone past its `wait()` return + flag store.
+    // The flag is set by the time the notification arrives.
     let envelopes = drain_until_exit(&mut rx).await;
     let saw_exit = envelopes
         .iter()
@@ -522,12 +444,8 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
         "expected ExitCodeNotification before testing post-exit kill, got: {envelopes:?}"
     );
 
-    // The session may or may not have been removed from the registry
-    // map by now (the waiter's `map.remove(&session_id)` happens
-    // after the notification send). Either way, kill MUST NOT report
-    // success — either UnknownSession (flag-check short-circuit OR
-    // map-removed short-circuit) or Io (ESRCH from a no-longer-
-    // killable pid). The forbidden outcome is `Ok(KillResponse)`.
+    // The waiter may not have removed the session yet, so accept `UnknownSession` (flag check or
+    // map removal) or `Io` (ESRCH). `Ok` is the forbidden outcome.
     let result = registry
         .kill(KillRequest {
             session_id: session_id.clone(),
@@ -537,21 +455,11 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
 
     match result {
         Err(PtySessionError::UnknownSession(_)) => {
-            // Expected: the `exited` flag short-circuited (or the
-            // waiter already removed the session from the map).
+            // The `exited` flag or the map removal short-circuited.
         }
         Err(PtySessionError::Io(_)) => {
-            // Acceptable: the flag race lost in this run; libc::kill
-            // landed with ESRCH ("no such process") because the
-            // kernel had already reaped the pid AND the pid happened
-            // not to be recycled yet. This is still a correctness-
-            // preserving outcome — we did not signal an unrelated
-            // process. The ESRCH error number is platform-specific
-            // (3 on Linux + macOS), but we don't assert on the raw
-            // value because libc::kill could in principle return EPERM
-            // or another error if the pid was recycled to a non-
-            // owned process; the load-bearing assertion is that the
-            // operation did NOT report success.
+            // The flag race was lost and `kill(2)` returned an error (ESRCH, or another error if
+            // the pid was recycled to a process we do not own). No unrelated process was signaled.
         }
         Ok(_) => panic!(
             "post-exit kill MUST NOT return Ok — it could be signaling a recycled pid. \
@@ -564,67 +472,22 @@ async fn post_exit_kill_returns_unknown_session_not_recycled_pid() {
     }
 }
 
-/// Contract test for `DataFrame` written by the child must arrive on
-/// the outbound channel BEFORE the `ExitCodeNotification` for the
-/// same session.
+/// A `DataFrame` the child writes must reach the outbound channel before the session's
+/// `ExitCodeNotification`.
 ///
-/// The pre-fix waiter emitted `ExitCodeNotification` immediately after
-/// `Child::wait()` returned, without waiting for the reader pump to
-/// observe PTY EOF. On a child that wrote substantial output and then
-/// exited, the waiter could overtake the reader's final chunk(s) —
-/// the consumer would see `ExitCodeNotification` before some trailing
-/// bytes the child wrote, violating the protocol ordering contract.
-///
-/// The fix awaits the reader task's `JoinHandle` (untimed) inside the
-/// waiter, so the notification cannot fire until the reader has read
-/// every byte the child wrote and observed PTY EOF. An earlier shape
-/// capped the drain with a `tokio::time::timeout(...)` +
-/// `JoinHandle::abort()` on the reader; per Tokio `JoinHandle::abort`
-/// rustdoc that abort is a no-op on `spawn_blocking` once started,
-/// which would let the reader keep emitting `DataFrame`s after the
-/// timed-out notification (reintroducing the bug). Phase 1 chooses
-/// correctness on the ordering contract over forward progress on a
-/// pathologically-stuck PTY — see `spawn_waiter_task` rustdoc.
-///
-/// ## Scope and limits — macOS vs Windows
-///
-/// On macOS + Linux PTY the writer and reader operate in lockstep
-/// through a small kernel buffer (~16 KiB on Darwin), so by the time
-/// `printf` finishes and the child exits, the reader has already
-/// consumed every byte. `Child::wait()` returns AFTER the reader has
-/// already drained the master-side buffer, leaving no trailing
-/// chunks for the waiter to overtake. Empirically this test passes
-/// on macOS even with the drain removed — the race is structurally
-/// possible but not observable through real PTY timing on Darwin.
-///
-/// The bug is much more readily observable on **Windows ConPTY**,
-/// where the master-side EOF can lag the child exit by tens of
-/// milliseconds (ConPTY buffers stdout through a separate kernel
-/// pipe with its own flush latency). On Windows the pre-fix shape
-/// would reliably emit `ExitCodeNotification` before the reader
-/// drained, producing the protocol violation. Phase 3 brings the
-/// Windows test surface up, at which point this test (compiled and
-/// run on Windows) will be the load-bearing bite for the race. On
-/// macOS + Linux it is a positive-coverage contract pin: the
-/// byte-total assertion + last-envelope assertion together document
-/// and lock in the post-fix ordering invariant.
-///
-/// ## Why 256 KiB / 32 chunks
-///
-/// 32 chunks of 8 KiB each (`READ_CHUNK_BYTES`) gives the reader
-/// substantial work and exercises the multi-DataFrame ordering path
-/// alongside the single-chunk smoke. `drain_until_exit` returns on
-/// the first `ExitCodeNotification` it sees, so if the notification
-/// arrived early on a system whose PTY behavior permits the race,
-/// the collected byte total would fall short of 256 KiB — that's
-/// the test's bite.
+/// The waiter awaits the reader task without a timeout, so the notification cannot fire until the
+/// reader has seen every byte and PTY EOF (see `spawn_waiter_task` for why there is no timeout). On
+/// macOS and Linux the reader keeps pace with the child, so this passes even without the drain and
+/// pins the contract rather than catching the race. On Windows ConPTY, where master-side EOF can
+/// lag the child's exit, the race is readily visible. The child writes 256 KiB, which is 32 chunks
+/// of `READ_CHUNK_BYTES` (8 KiB); `drain_until_exit` stops at the first notification, so one that
+/// arrived early would leave the byte total short.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn exit_notification_arrives_after_final_data_frame() {
     let (registry, mut rx) = PtySessionRegistry::new();
 
-    // 256 KiB of 'A' (32 × 8 KiB chunks) followed by `exit 0`. Each
-    // `printf 'A%.0s' $(seq ...)` emits exactly 'A' once per seq arg
-    // — portable on macOS + Linux + (in MSYS-like) Windows shells.
+    // 256 KiB of 'A' (32 chunks of 8 KiB), then `exit 0`. `printf 'A%.0s' $(seq ...)` emits one 'A'
+    // per argument.
     const PAYLOAD_BYTES: usize = 256 * 1024;
     let cmd = format!("printf 'A%.0s' $(seq 1 {PAYLOAD_BYTES}); exit 0");
     let response = registry
@@ -640,16 +503,12 @@ async fn exit_notification_arrives_after_final_data_frame() {
         .expect("spawn should succeed");
     let session_id = response.session_id.clone();
 
-    // Drain envelopes until the first `ExitCodeNotification`. With the
-    // drain in place the reader pumps every chunk before that
-    // notification can fire.
+    // Drain to the first `ExitCodeNotification`; the waiter's reader drain means every chunk
+    // precedes it.
     let envelopes = drain_until_exit(&mut rx).await;
 
-    // Load-bearing assertion: the ExitCodeNotification arrives LAST.
-    // Without the waiter's drain this would not hold for substantial
-    // output even when the test happens to win the race in CI — the
-    // shape pre-fix had no happens-before edge from reader-drain to
-    // notification-emit.
+    // The notification must be the last envelope; without the waiter's drain there is no ordering
+    // guarantee even when a run happens to pass.
     assert!(
         matches!(envelopes.last(), Some(Envelope::ExitCodeNotification(_))),
         "ExitCodeNotification must arrive after the final DataFrame; got envelopes: \
@@ -662,11 +521,8 @@ async fn exit_notification_arrives_after_final_data_frame() {
         })
     );
 
-    // Load-bearing assertion: ALL 256 KiB of 'A' bytes arrived before
-    // the notification. `drain_until_exit` returns on the FIRST
-    // notification it sees, so if a chunk arrives AFTER the
-    // notification it never enters `envelopes` — the byte total
-    // would fall short. Counting bytes directly catches that.
+    // All 256 KiB must arrive before the notification: `drain_until_exit` stops at the first one,
+    // so a late chunk would leave the total short.
     let data_total: usize = envelopes
         .iter()
         .filter_map(|e| match e {
@@ -696,8 +552,7 @@ async fn exit_notification_arrives_after_final_data_frame() {
         count = envelopes.len()
     );
 
-    // Exactly one ExitCodeNotification, carrying the spawned id and
-    // exit_code 0 (printf + exit 0 → 0).
+    // Exactly one notification, with the spawned id and exit code 0.
     let exit_notifications: Vec<_> = envelopes
         .iter()
         .filter_map(|e| match e {
@@ -715,61 +570,22 @@ async fn exit_notification_arrives_after_final_data_frame() {
     assert_eq!(exit_notifications[0].signal_code, None);
 }
 
-/// Regression — registry-drop must terminate idle children so the
-/// writer-task outbound channel closes.
+/// Dropping the registry with an idle session must terminate its child and close the outbound
+/// channel, so `main`'s writer task can exit.
 ///
-/// Pins the deadlock-closing contract of [`PtySessionRegistry`]'s
-/// `Drop` impl: dropping the registry while at least one session is
-/// idle (no DataFrame writes, child still alive) MUST cause the
-/// outbound receiver to observe `None` within a bounded timeout. The
-/// receiver-observes-`None` outcome is what tells `main`'s writer
-/// task to drain and exit; without it, `main()` hangs on
-/// `writer_handle.await` because the reader and waiter tasks each
-/// hold an `outbound: UnboundedSender<Envelope>` clone that never
-/// drops.
-///
-/// **What the test exercises (the load-bearing chain).**
-///
-/// 1. Spawn a child that idles indefinitely (`sleep 30`). The reader
-///    task blocks in `read()` on the master-side PTY; the waiter
-///    task blocks in `Child::wait()`. Both hold outbound-sender
-///    clones. The PARENT also writes nothing in the spawn-time path,
-///    so no DataFrame transit either.
-/// 2. Drop the registry. The `Drop` impl walks the killers map and
-///    invokes `kill()` on the still-running child.
-/// 3. The kill chain: child exits → slave-end closes → master-side
-///    `read()` returns `Ok(0)` → reader exits its `Ok(0)` arm and
-///    drops its outbound clone → `Child::wait()` returns → waiter
-///    awaits the already-finished reader, emits one
-///    `ExitCodeNotification`, exits, drops its outbound clone.
-/// 4. With all three sender clones (registry + reader + waiter)
-///    dropped, the outbound channel closes. `rx.recv()` returns
-///    `None`.
-///
-/// **Why a 1-second budget.** The four hops above are each unix
-/// syscalls or tokio scheduling moments — sub-millisecond in
-/// expectation. 1 s is three orders of magnitude of headroom on Linux
-/// + macOS while still failing fast on a genuinely hung registry.
-///
-/// **Why we drain envelopes, not assert exactly one.** The waiter
-/// task emits a final `ExitCodeNotification` on its way out. Whether
-/// that envelope arrives before or after our `None` observation is a
-/// scheduling artifact — both are valid. The discriminating
-/// assertion is "`None` arrives within the budget", not "no
-/// envelopes arrived".
-///
-/// Under the BUG (no `Drop`, no killer-map): `kill()` is never called;
-/// the child sits in `sleep 30`; the reader and waiter never exit;
-/// `rx.recv()` blocks until the 30-second sleep naturally completes
-/// or the test framework's outer timeout fires. The 1 s timeout fires
-/// first → test fails with the assertion below.
+/// The child (`sleep 30`) writes nothing and does not exit, so the reader and waiter tasks each
+/// hold an outbound-sender clone that would never drop without the `Drop` impl. `Drop` kills the
+/// child; its exit closes the PTY, the reader sees EOF, the waiter's `wait()` returns, and once
+/// every sender clone drops `rx.recv()` returns `None`. The 1 s budget is far above that
+/// sub-millisecond chain and fails fast on a hung registry. The test drains envelopes rather than
+/// asserting there are none, because whether the waiter's `ExitCodeNotification` arrives before
+/// `None` is a scheduling detail; the assertion is that `None` arrives in time. Without `Drop`,
+/// `recv()` blocks until the sleep ends and the 1 s timeout fails the test.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn registry_drop_terminates_idle_session_and_closes_outbound_channel() {
     let (registry, mut rx) = PtySessionRegistry::new();
 
-    // Spawn an idle child. `sleep 30` writes nothing to its PTY and
-    // does not exit on its own within the test window — exactly the
-    // shape that hangs the broken `main()`.
+    // An idle child that writes nothing and does not exit within the test window.
     let _response = registry
         .spawn(SpawnRequest {
             command: "/bin/sh".to_string(),
@@ -782,30 +598,19 @@ async fn registry_drop_terminates_idle_session_and_closes_outbound_channel() {
         .await
         .expect("spawn should succeed");
 
-    // Give the child a beat to actually be sleeping before we drop
-    // the registry. Without this, the kill races the spawn and may
-    // hit an in-flight pre-exec stage on some platforms. 50 ms
-    // matches the precedent set by `kill_sigterm_terminates_long_running_child`.
+    // Let the child start sleeping before the drop, so the kill does not race the spawn.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    // Drop the registry. Under FIX: the `Drop` impl kills the child,
-    // which closes the slave end, which surfaces as EOF on the
-    // reader, which lets all outbound-sender clones drop. Under BUG:
-    // no Drop / no kill / sleep continues / clones survive / receiver
-    // never closes.
+    // The `Drop` impl kills the child, which lets every outbound-sender clone drop.
     drop(registry);
 
-    // Drain envelopes until `recv()` returns `None` OR the 1 s budget
-    // elapses. `None` is the load-bearing observation — it tells
-    // `main`'s writer task to exit.
+    // Drain until `recv()` returns `None`, which is what lets `main`'s writer task exit, or the 1 s
+    // budget elapses.
     let close_result = timeout(Duration::from_secs(1), async {
         loop {
             match rx.recv().await {
                 Some(_envelope) => {
-                    // The waiter task may emit a final
-                    // ExitCodeNotification on its way out. Drain
-                    // and keep looping until the channel actually
-                    // closes.
+                    // The waiter may send a final ExitCodeNotification first; keep draining.
                     continue;
                 }
                 None => return,
@@ -823,35 +628,18 @@ async fn registry_drop_terminates_idle_session_and_closes_outbound_channel() {
     );
 }
 
-/// Regression — registry-drop must terminate **N idle children** so the
-/// writer-task outbound channel closes regardless of how many sessions
-/// are alive at drop time.
+/// The same as `registry_drop_terminates_idle_session_and_closes_outbound_channel` with two idle
+/// children: each session holds two sender clones (reader and waiter), and all four must drop
+/// before `rx.recv()` returns `None`.
 ///
-/// Sibling to `registry_drop_terminates_idle_session_and_closes_outbound_channel`
-/// (the N=1 case). N=2 exercises the [`PtySessionRegistry::drop`] map-
-/// drain loop's parallel-termination semantics — one child killed first,
-/// the other still pending; both kill chains must complete before the
-/// channel can close because each session contributes two
-/// `UnboundedSender<Envelope>` clones (reader + waiter) and ALL must
-/// drop for `rx.recv()` to observe `None`.
-///
-/// **Why N=2 specifically.** `HashMap` iteration order is randomized
-/// per-process (`RandomState`), so each test run exercises a
-/// representative `kill()` interleaving. A flaky N=2 outcome (one of
-/// two kill chains stalls) reveals an ordering or partial-drain bug
-/// that N=1 cannot detect.
-///
-/// **Why a 1-second budget.** Same reasoning as the N=1 test — each
-/// kill→EOF→reader-exit→waiter-exit chain is sub-millisecond on unix,
-/// so 1 s is three orders of magnitude of headroom for both chains
-/// running in parallel on a 4-thread runtime.
+/// `HashMap` iteration order is randomized per process, so runs vary the kill interleaving; a flaky
+/// result would reveal an ordering or partial-drain bug that one session cannot. The 1 s budget
+/// follows the single-session test.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn registry_drop_terminates_two_idle_sessions_and_closes_outbound_channel() {
     let (registry, mut rx) = PtySessionRegistry::new();
 
-    // Spawn two idle children. Each `sleep 30` writes nothing and does
-    // not exit on its own within the test window, so under the BUG path
-    // BOTH sessions' reader+waiter clones survive the registry drop.
+    // Two idle children: both sessions' reader and waiter clones must drop.
     for _ in 0..2 {
         registry
             .spawn(SpawnRequest {
@@ -866,25 +654,18 @@ async fn registry_drop_terminates_two_idle_sessions_and_closes_outbound_channel(
             .expect("spawn should succeed");
     }
 
-    // Same 50 ms settle window as the N=1 test — give both children a
-    // beat to actually be sleeping before we drop the registry, so the
-    // kill does not race spawn's pre-exec stage on either session.
+    // Let both children start sleeping before the drop.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    // Drop the registry. Under FIX: `Drop` walks the killers map in
-    // randomized order, kills both children, both kill chains run in
-    // parallel on the multi-thread runtime, all four reader+waiter
-    // clones drop, channel closes. Under BUG: any single kill chain
-    // that fails to terminate its child leaves clones alive and the
-    // receiver never observes `None`.
+    // `Drop` kills both children in randomized map order; the channel closes only if both kill
+    // chains finish.
     drop(registry);
 
     let close_result = timeout(Duration::from_secs(1), async {
         loop {
             match rx.recv().await {
                 Some(_envelope) => {
-                    // Drain any final ExitCodeNotifications from both
-                    // sessions; the load-bearing observation is `None`.
+                    // Drain the final notifications; the observation that matters is `None`.
                     continue;
                 }
                 None => return,
@@ -903,49 +684,21 @@ async fn registry_drop_terminates_two_idle_sessions_and_closes_outbound_channel(
     );
 }
 
-/// Regression — well-behaved children honor SIGHUP within the
-/// natural-EOF window, so the SIGKILL escalation must NOT
-/// fire.
+/// A well-behaved child must die from the soft kill (SIGHUP) alone, before the SIGKILL escalation
+/// fires.
 ///
-/// Sibling discriminator to
-/// `registry_drop_terminates_idle_session_and_closes_outbound_channel`:
-/// that test uses a 1 s budget which is ≥ `DROP_KILL_ESCALATION_DEADLINE`
-/// (the constant defined in `pty_session.rs`'s Drop block). It therefore
-/// cannot tell whether the channel closed via the natural Phase 1
-/// SIGHUP path or via the Phase 2 SIGKILL escalation — both would
-/// arrive within 1 s.
-///
-/// This test pins the (a) clause of: with a budget of 300 ms — well
-/// under the 1000 ms escalation deadline — the channel MUST close via
-/// Phase 1 alone. A well-behaved `sleep 30` terminates on SIGHUP
-/// within milliseconds on Linux + macOS, so 300 ms is two orders of
-/// magnitude of headroom for the natural path while guaranteeing the
-/// escalation thread is still sleeping when the assertion fires.
-///
-/// **Under the BUG (escalation fires for ALL children).** If a
-/// future regression collapses the soft-kill arm and unconditionally
-/// schedules SIGKILL after 1000 ms, this test still passes because
-/// the natural SIGHUP path runs first. The test discriminates the
-/// inverse failure: if a regression breaks the Phase 1 soft kill
-/// (e.g., the `killer.kill()` call is accidentally removed), the
-/// channel will not close until the 1000 ms escalation fires —
-/// which exceeds this test's 300 ms budget and trips the assertion.
-///
-/// **Implementation note — budget vs. escalation deadline.** 300 ms
-/// is < 1000 ms by enough margin that scheduler jitter on CI runners
-/// will not push the natural-EOF latency past the budget. If this
-/// test ever flakes the right diagnostic is "is Phase 1 SIGHUP still
-/// terminating well-behaved children?", not "is 300 ms too tight?";
-/// raise the budget only after verifying the soft kill is still in
-/// the Phase 1 arm of [`PtySessionRegistry::drop`].
+/// `registry_drop_terminates_idle_session_and_closes_outbound_channel` uses a 1 s budget, which
+/// cannot tell the soft kill from the escalation because `DROP_KILL_ESCALATION_DEADLINE` is also
+/// 1000 ms. This test waits only 300 ms, so the channel must close through the soft kill alone. It
+/// catches a regression that removes or breaks the soft kill (the channel would then wait for the
+/// escalation and miss 300 ms). If it flakes, first check that the soft kill still terminates
+/// well-behaved children before raising the budget.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn registry_drop_terminates_well_behaved_child_without_escalation() {
     let (registry, mut rx) = PtySessionRegistry::new();
 
-    // A well-behaved `sleep 30` honors SIGHUP and exits within
-    // milliseconds — exactly the natural-EOF case Phase 1 was built
-    // for. This is the discriminator that ensures escalation does
-    // NOT fire on well-behaved children.
+    // A well-behaved `sleep 30` exits on SIGHUP within milliseconds, so escalation must not be
+    // needed.
     let _response = registry
         .spawn(SpawnRequest {
             command: "/bin/sh".to_string(),
@@ -958,14 +711,13 @@ async fn registry_drop_terminates_well_behaved_child_without_escalation() {
         .await
         .expect("spawn should succeed");
 
-    // 50 ms settle window — same precedent as the sibling
-    // registry-drop tests above.
+    // Let the child start sleeping before the drop.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     drop(registry);
 
-    // 300 ms budget — well below the 1000 ms escalation deadline.
-    // If this test fails, Phase 1 SIGHUP soft-kill has regressed.
+    // 300 ms is well below the 1000 ms escalation deadline; a failure means the soft kill has
+    // regressed.
     let close_result = timeout(Duration::from_millis(300), async {
         loop {
             match rx.recv().await {
@@ -985,64 +737,22 @@ async fn registry_drop_terminates_well_behaved_child_without_escalation() {
     );
 }
 
-/// Regression — children that ignore SIGHUP must still terminate
-/// within the bounded SIGKILL escalation window so registry-drop
-/// completes.
+/// A child that ignores SIGHUP must still die from the SIGKILL escalation, so registry drop
+/// completes in bounded time.
 ///
-/// Pins the (b) clause of: with a child that installs `trap "" HUP`
-/// to swallow the Phase 1 soft kill, the registry's Drop impl must
-/// escalate to `libc::kill(pid, SIGKILL)` after
-/// `DROP_KILL_ESCALATION_DEADLINE` (1000 ms) elapses, and the
-/// outbound channel must close within the escalation budget plus a
-/// small jitter window for the actual SIGKILL → child-exit → EOF →
-/// reader-exit → waiter-exit chain.
-///
-/// **Test budget — 2× DROP_KILL_ESCALATION_DEADLINE.** The constant
-/// is 1000 ms; we wait up to 2000 ms. The expected timeline:
-///   - t=0: `drop(registry)` runs; Phase 1 SIGHUP fires (no effect —
-///     child has `trap "" HUP`); escalation thread spawned.
-///   - t=1000 ms: escalation thread wakes, calls `libc::kill(pid, 0)`,
-///     sees the child still alive, calls `libc::kill(pid, SIGKILL)`.
-///   - t=1000 ms + ε: kernel terminates child; slave-end closes;
-///     reader's blocked `read()` returns `Ok(0)`; reader-task exits;
-///     waiter's `Child::wait()` returns; waiter-task exits; both
-///     `UnboundedSender` clones drop; `rx.recv()` observes `None`.
-///
-/// The ε bound is the same sub-millisecond syscall chain as the
-/// well-behaved-child tests; 2000 ms total gives the escalation a
-/// full second to actually be scheduled by the OS plus 1000 ms of
-/// headroom on top. CI runners under heavy load can stretch the
-/// escalation-thread wake-up latency by a few hundred ms; 2× the
-/// deadline is the conservative bound.
-///
-/// **Under the BUG (no escalation).** Without Phase 2 the child
-/// keeps `sleep 60` running for the full minute. `rx.recv()` blocks
-/// past 2 s and the assertion fires — exactly the regression this
-/// test exists to catch.
-///
-/// **Shell compat.** `/bin/sh -c 'trap "" HUP; exec sleep 60'` uses
-/// POSIX shell syntax: empty-string trap argument means "ignore the
-/// signal" per `trap(1)`. Both bash (macOS `/bin/sh`) and dash
-/// (Linux `/bin/sh`) implement the empty-trap form identically — no
-/// shell-flavor dependency. The explicit `exec` removes dependence
-/// on the shell's implementation-defined last-command optimization
-/// — the PID portable-pty captured IS `sleep` with SIG_IGN
-/// inherited, not the shell parent. POSIX permits-but-does-not-
-/// require the optimization, so a future shell version that
-/// fork-and-waits would silently break this test diagnostically
-/// without the `exec`.
+/// `trap "" HUP` swallows the soft kill. `Drop` then escalates to `libc::kill(pid, SIGKILL)` after
+/// `DROP_KILL_ESCALATION_DEADLINE` (1000 ms), and the outbound channel closes shortly after the
+/// child dies. The test waits up to 2000 ms, twice the deadline, to allow for scheduler delay on a
+/// loaded CI runner. Without the escalation `sleep 60` keeps running and the wait times out.
+/// `exec sleep 60` makes the pid portable-pty recorded the `sleep` process itself, with the ignored
+/// signal inherited, rather than a shell that might fork and wait (POSIX allows but does not
+/// require the shell to skip the fork).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn registry_drop_escalates_to_sigkill_for_sighup_ignoring_child() {
     let (registry, mut rx) = PtySessionRegistry::new();
 
-    // The SIGHUP-ignoring child: `trap "" HUP` swallows the Phase 1
-    // soft kill, then `exec sleep 60` replaces the shell with the
-    // sleep binary in-place (sharing the shell's pid). Phase 2
-    // SIGKILL escalation is the only termination path within the
-    // test window. The explicit `exec` guarantees portable-pty's
-    // captured pid IS the sleep process with SIG_IGN inherited,
-    // regardless of the shell's implementation-defined last-command
-    // optimization.
+    // `trap "" HUP` swallows the soft kill; `exec sleep 60` makes the recorded pid the sleep
+    // process itself. Only the SIGKILL escalation can end it within the test window.
     let _response = registry
         .spawn(SpawnRequest {
             command: "/bin/sh".to_string(),
@@ -1055,17 +765,12 @@ async fn registry_drop_escalates_to_sigkill_for_sighup_ignoring_child() {
         .await
         .expect("spawn should succeed");
 
-    // 100 ms settle window — the `trap` builtin runs before `sleep`
-    // starts, so we need the shell to have actually executed the
-    // trap line before we drop. 50 ms (matching the sibling tests)
-    // works in practice but 100 ms is slightly more conservative
-    // for CI; the absolute number is not load-bearing.
+    // The shell must have run the `trap` before the drop; 100 ms is a conservative margin.
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     drop(registry);
 
-    // 2× DROP_KILL_ESCALATION_DEADLINE (2000 ms) — see rustdoc for
-    // the timeline breakdown.
+    // Twice `DROP_KILL_ESCALATION_DEADLINE` (2000 ms); see the doc comment for the timeline.
     let close_result = timeout(Duration::from_millis(2000), async {
         loop {
             match rx.recv().await {
