@@ -23,7 +23,6 @@ import { z } from "zod";
 import {
   AGENT_DEFINITION_ORIGINS,
   AGENT_DEFINITION_SCOPES,
-  AGENT_FILE_PATH_MAX_LEN,
   AGENT_REASON_MAX_LEN,
   type AgentDefinitionOrigin,
   type AgentDefinitionScope,
@@ -39,7 +38,7 @@ import {
 } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider-driver.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 /**
  * The longest name a new skill takes. Codex refuses to load a skill whose name is
@@ -61,7 +60,7 @@ export const SkillIdSchema: z.ZodType<SkillId, SkillId> = brandedUuidIdSchema<Sk
 
 /** A file's path inside its skill folder, relative to the folder, as the daemon judges it. */
 const relativeFilePathSchema = (label: string): z.ZodString =>
-  wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, label);
+  wireFreeFormString(FILE_PATH_MAX_LEN, label);
 
 /**
  * Which providers a skill reaches. Defaulted by origin: a skill authored here is on
@@ -161,14 +160,14 @@ const iconSchema = z.string().min(1).nullable();
 export const SkillListEntrySchema: z.ZodType<SkillListEntry> = z
   .object({
     skillId: SkillIdSchema,
-    name: wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, "SkillListEntry.name"),
+    name: wireFreeFormString(FILE_PATH_MAX_LEN, "SkillListEntry.name"),
     description: z.string().nullable(),
     icon: iconSchema,
     origin: z.enum(AGENT_DEFINITION_ORIGINS),
     pluginName: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "pluginName").optional(),
     scope: z.enum(AGENT_DEFINITION_SCOPES),
     projectId: uuidTextFormSchema.optional(),
-    folderPath: wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, "folderPath"),
+    folderPath: wireFreeFormString(FILE_PATH_MAX_LEN, "folderPath"),
     files: z.array(SkillFileSchema),
     availability: SkillAvailabilitySchema,
     callForms: SkillCallFormsSchema,
@@ -471,7 +470,7 @@ export const SkillRecordReattachRequestSchema: z.ZodType<
 > = z
   .object({
     skillId: SkillIdSchema,
-    folderPath: wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, "folderPath"),
+    folderPath: wireFreeFormString(FILE_PATH_MAX_LEN, "folderPath"),
   })
   .strict();
 
@@ -533,7 +532,7 @@ export interface SkillPathRefusedDetails {
 /** Parses {@link SkillPathRefusedDetails}. */
 export const SkillPathRefusedDetailsSchema: z.ZodType<SkillPathRefusedDetails> = z
   .object({
-    path: z.string().max(AGENT_FILE_PATH_MAX_LEN),
+    path: z.string().max(FILE_PATH_MAX_LEN),
     reason: z.enum(SKILL_PATH_REFUSED_REASONS),
   })
   .strict();

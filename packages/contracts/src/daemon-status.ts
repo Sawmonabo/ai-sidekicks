@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { ReleaseVersionSchema } from "./release-manifest.js";
+import { FILE_PATH_MAX_LEN } from "./session.js";
 
 /** Where the service is in its own life. */
 export type DaemonProcessState = "running" | "starting" | "stopping" | "degraded";
@@ -19,10 +20,11 @@ export const DAEMON_PROCESS_STATES: readonly DaemonProcessState[] = Object.freez
   "degraded",
 ]);
 
-/** The longest path or free-form text the status carries. */
+/** The longest free-form text the status carries. */
 export const DAEMON_STATUS_TEXT_MAX_LEN = 4_096;
 
 const StatusTextSchema = z.string().min(1).max(DAEMON_STATUS_TEXT_MAX_LEN);
+const StatusPathSchema = z.string().min(1).max(FILE_PATH_MAX_LEN);
 const TimestampSchema = z.iso.datetime({ offset: true });
 const Sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
@@ -128,7 +130,7 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
     transportEndpoint: StatusTextSchema,
     startedAt: TimestampSchema,
     uptimeMs: z.number().int().nonnegative(),
-    dataDirectory: StatusTextSchema,
+    dataDirectory: StatusPathSchema,
     processor: z.object({ percent: z.number().min(0).max(100), readAt: TimestampSchema }).strict(),
     memory: z
       .object({ residentBytes: z.number().int().nonnegative(), readAt: TimestampSchema })
@@ -143,7 +145,7 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
     fileScanning: z.enum(DAEMON_FILE_SCANNING_KINDS),
     sidecarHashMismatch: z
       .object({
-        path: StatusTextSchema,
+        path: StatusPathSchema,
         expectedSha256: Sha256HexSchema,
         actualSha256: Sha256HexSchema,
       })

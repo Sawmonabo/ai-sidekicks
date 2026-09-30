@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { uuidTextFormSchema } from "../internal/branded.js";
+import { countSchema } from "../internal/wire-scalars.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN, RunIdSchema, type RunId } from "../provider-driver.js";
 import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
@@ -24,7 +25,6 @@ import {
 } from "./hosting.js";
 import {
   ChangeRequestNumberSchema,
-  countSchema,
   GitRefNameSchema,
   GitShortObjectIdSchema,
   HostingAddressSchema,

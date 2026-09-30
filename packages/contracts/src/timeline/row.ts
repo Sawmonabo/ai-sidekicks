@@ -52,9 +52,13 @@ import {
 } from "../event.js";
 import type { EventCategory } from "../event.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { REPO_PATH_MAX_LEN } from "../repo.js";
 import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run-control.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "../session.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";
 
@@ -220,7 +224,7 @@ export interface TimelineOmittedPatch {
 }
 const TimelineOmittedPatchSchema: z.ZodType<TimelineOmittedPatch> = z
   .object({
-    path: wireFreeFormString(REPO_PATH_MAX_LEN, "TimelineOmittedPatch.path"),
+    path: wireFreeFormString(FILE_PATH_MAX_LEN, "TimelineOmittedPatch.path"),
     size: z.number().int().nonnegative(),
   })
   .strict();

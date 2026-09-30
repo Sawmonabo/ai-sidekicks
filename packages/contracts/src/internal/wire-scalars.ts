@@ -1,0 +1,17 @@
+// Internal helpers for the @ai-sidekicks/contracts package — NOT re-exported
+// from `src/index.ts`. The small scalar rules several contract modules share,
+// stated once so no module keeps its own copy.
+import { z } from "zod";
+
+/**
+ * A daemon-composed string: a path, a provider's words, a name. The reply
+ * schemas guard the daemon's own composition, so non-empty is the rule they
+ * enforce.
+ */
+export const composedTextSchema: z.ZodString = z.string().min(1);
+
+/** A count of things, or a number of seconds or bytes: a whole number, zero or more. */
+export const countSchema: z.ZodNumber = z.number().int().nonnegative();
+
+/** A share in percent, from 0 to 100; a fraction is allowed. */
+export const percentSchema: z.ZodNumber = z.number().min(0).max(100);

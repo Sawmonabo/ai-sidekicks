@@ -33,7 +33,12 @@ import { z } from "zod";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 // DIRECT import from the dependency-free `./node-id.js` leaf (see the header).
 import { NodeIdSchema, type NodeId } from "./node-id.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  FILE_PATH_MAX_LEN,
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+} from "./session.js";
 
 // --------------------------------------------------------------------------
 // Branded ID schemas
@@ -409,23 +414,6 @@ export const RepoWorkspaceLifecyclePayloadSchema: z.ZodType<RepoWorkspaceLifecyc
 // contributes an `unknown` input slot to poison the composed object's
 // inference.
 
-// Bound on the two filesystem-path wire strings these surfaces carry:
-// `RepoAttachRequest.localPath` (inbound, caller-supplied) and the
-// `canonicalRoot` / `localPath` the attach + read responses return. 4096 is
-// Linux's `PATH_MAX` — the most generous of the supported platforms' limits
-// (macOS caps at 1024; Windows' long-path form runs far higher but V1 tier
-// needs no such headroom) — so no legitimate path is refused on wire-length
-// grounds. Defense-in-depth at the wire/IPC trust boundary, the same posture
-// as `NODE_ID_MAX_LEN` / `EVENT_CURSOR_MAX_LEN`; the framework body-size cap
-// remains the authoritative limit.
-//
-// Exporting matches every other `*_MAX_LEN` in the package and lets
-// `__tests__/repo.test.ts` assert the accept/reject boundary against the named
-// constant instead of a magic number. REUSED this constant for
-// `WorkspaceBindRequest.directory` rather than minting a second cap; the
-// joined-path reasoning is on that field's declaration.
-export const REPO_PATH_MAX_LEN = 4096;
-
 // --------------------------------------------------------------------------
 // RepoAttach — `repo.attach` (mutation).
 // --------------------------------------------------------------------------
@@ -483,7 +471,7 @@ export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachReq
     // path, which is a technically legal POSIX filename. A path that is
     // nothing but spaces is far likelier to be a UI-submission bug than an
     // intended target, so the guard stays.
-    localPath: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoAttachRequest.localPath"),
+    localPath: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoAttachRequest.localPath"),
   })
   .strict();
 
@@ -509,7 +497,7 @@ export const RepoAttachResponseSchema: z.ZodType<RepoAttachResponse> = z
     // with no resolved root is unrepresentable, because resolution failure
     // ABORTS attach with typed `repo.root_resolution_failed` rather than
     // returning a partial success.
-    canonicalRoot: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoAttachResponse.canonicalRoot"),
+    canonicalRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoAttachResponse.canonicalRoot"),
   })
   .strict();
 
@@ -553,8 +541,8 @@ export const RepoMountReadResponseSchema: z.ZodType<RepoMountReadResponse> = z
     // values are meaningful: the entered path is what the user recognizes, the
     // canonical root is what the system trusts). Attaching from a nested
     // subdirectory is the case that separates them.
-    localPath: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoMountReadResponse.localPath"),
-    canonicalRoot: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoMountReadResponse.canonicalRoot"),
+    localPath: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoMountReadResponse.localPath"),
+    canonicalRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoMountReadResponse.canonicalRoot"),
     vcsType: VcsTypeSchema,
     state: RepoMountStateSchema,
     // DERIVED projection — probed at read time, never a `repo_mounts` column.

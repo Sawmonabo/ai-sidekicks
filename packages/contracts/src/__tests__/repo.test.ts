@@ -45,7 +45,6 @@ import { NODE_ID_MAX_LEN, NodeIdSchema } from "../node-id.js";
 import {
   buildRepoWorkspaceLifecyclePayloadSchema,
   ExecutionModeSchema,
-  REPO_PATH_MAX_LEN,
   RepoAttachRequestSchema,
   RepoAttachResponseSchema,
   RepoDetachRequestSchema,
@@ -69,6 +68,7 @@ import {
   type WorkspaceId,
   type WorkspaceState,
 } from "../repo.js";
+import { FILE_PATH_MAX_LEN } from "../session.js";
 
 // Real RFC 9562 UUIDs (mix of v4 and v7). `RFC_9562_TEXT_FORM` validates the version
 // nibble + variant bits in canonical positions; mismatch is rejected at the
@@ -781,9 +781,9 @@ describe("RepoAttachRequestSchema (the entered path)", () => {
     expect(RepoAttachRequestSchema.safeParse({}).success).toBe(false);
   });
 
-  it("bounds `localPath` at REPO_PATH_MAX_LEN and refuses blank / NUL-byte forms", () => {
-    const atCap = "/".repeat(REPO_PATH_MAX_LEN);
-    const overCap = "/".repeat(REPO_PATH_MAX_LEN + 1);
+  it("bounds `localPath` at FILE_PATH_MAX_LEN and refuses blank / NUL-byte forms", () => {
+    const atCap = "/".repeat(FILE_PATH_MAX_LEN);
+    const overCap = "/".repeat(FILE_PATH_MAX_LEN + 1);
     expect(parseAttachRequest({ localPath: atCap }).success).toBe(true);
     expect(parseAttachRequest({ localPath: overCap }).success).toBe(false);
     expect(parseAttachRequest({ localPath: "" }).success).toBe(false);

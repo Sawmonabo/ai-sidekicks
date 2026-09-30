@@ -27,7 +27,6 @@ import { RunIdSchema, type RunId } from "./provider-driver.js";
 import {
   buildRepoWorkspaceLifecyclePayloadSchema,
   ExecutionModeSchema,
-  REPO_PATH_MAX_LEN,
   RepoMountIdSchema,
   WorkspaceIdSchema,
   WorkspaceStateSchema,
@@ -37,7 +36,12 @@ import {
   type WorkspaceId,
   type WorkspaceState,
 } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "./session.js";
 
 // --------------------------------------------------------------------------
 // ExecutionMode — canon, re-exported (type AND schema value).
@@ -248,9 +252,8 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // Bound on the git ref names these surfaces carry — `branchName` (the head
 // branch of a worktree) and `baseRef` (the worktree base: a branch,
 // tag, or commit-ish). ONE constant for both, because both carry a git ref
-// name and two constants obliged to hold the same value with nothing
-// enforcing the equality is the hazard `WorkspaceBindRequest.directory`
-// declined when it reused `REPO_PATH_MAX_LEN`.
+// name, and two constants obliged to hold the same value with nothing
+// enforcing the equality is a hazard.
 //
 // 256 is this package's IDENTIFIER class (`NODE_ID_MAX_LEN`,
 // `EVENT_FIELD_MAX_LEN`, `DRIVER_BINDING_ID_MAX_LEN`) and NOT the 4096
@@ -308,10 +311,10 @@ export const WORKTREE_GIT_REF_MAX_LEN = 256;
 // `EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN`, which holds the same 512:
 // importing would assert an equality neither contract owes the other, the
 // reasoning that keeps `WORKSPACE_LAST_ERROR_MAX_LEN` from importing
-// `ERROR_MESSAGE_MAX_LEN`. `REPO_PATH_MAX_LEN` is imported and NOT restated
+// `ERROR_MESSAGE_MAX_LEN`. `FILE_PATH_MAX_LEN` is imported and NOT restated
 // for the opposite reason — it mirrors an external platform ceiling
-// (`PATH_MAX`) that both plans read off the same fact, so one constant is the
-// honest source rather than a coincidence of policy.
+// (`PATH_MAX`), so one constant is the honest source rather than a
+// coincidence of policy.
 export const WORKTREE_REUSE_REASON_MAX_LEN = 512;
 
 // --------------------------------------------------------------------------
@@ -474,7 +477,7 @@ export const ExecutionRootPrepareResponseSchema: z.ZodType<ExecutionRootPrepareR
     // mode and no fallback root, so there is no partial success carrying an
     // unresolved root to represent.
     executionRoot: wireFreeFormString(
-      REPO_PATH_MAX_LEN,
+      FILE_PATH_MAX_LEN,
       "ExecutionRootPrepareResponse.executionRoot",
     ),
     // The workspace position after reprovision bracket
@@ -725,7 +728,7 @@ const worktreeStatusRecordSchema = z
     // directory, never a path inside the attached checkout. REQUIRED because
     // the column is NOT NULL: a worktree row exists only once its placement is
     // decided.
-    fsRoot: wireFreeFormString(REPO_PATH_MAX_LEN, "WorktreeStatusReadResponse.worktrees[].fsRoot"),
+    fsRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusReadResponse.worktrees[].fsRoot"),
     state: WorktreeStateSchema,
     // REQUIRED — `worktrees.created_by_session_id` is NOT NULL and makes
     // creating-session provenance unconditional, so a provenance-less

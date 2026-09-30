@@ -22,6 +22,7 @@ import {
   type AgentTreeMember,
   type ChildHandle,
 } from "./agent.js";
+import { countSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import {
   DRIVER_TOOL_NAME_MAX_LEN,
@@ -43,9 +44,6 @@ import {
   type SessionCostReceiptRequest,
 } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
-
-/** A count of children. */
-const childCountSchema = z.number().int().nonnegative();
 
 // --------------------------------------------------------------------------
 // orchestration.runCreate
@@ -251,7 +249,7 @@ export const ChildRunLinkReadResponseSchema: z.ZodType<ChildRunLinkReadResponse>
   .object({
     children: z.array(ChildRunLinkSchema),
     counts: z
-      .object({ live: childCountSchema, total: childCountSchema, waiting: childCountSchema })
+      .object({ live: countSchema, total: countSchema, waiting: countSchema })
       .strict()
       .refine((counts) => counts.live <= counts.total && counts.waiting <= counts.total, {
         message: "Neither the live nor the waiting count exceeds the total.",

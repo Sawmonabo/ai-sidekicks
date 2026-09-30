@@ -21,6 +21,7 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
+import { composedTextSchema } from "./internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import { MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerNameSchema } from "./mcp.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
@@ -41,10 +42,6 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 // carrying one take the unbranded UUID text form so that brand can narrow them
 // later with no change to what parses.
 const agentIdSchema = uuidTextFormSchema;
-
-// A daemon-composed string: a path, a provider's words, a name. The reply schemas
-// guard the daemon's own composition, so non-empty is the rule they enforce.
-const composedTextSchema = z.string().min(1);
 
 /** The one input every session read takes: the session. */
 export interface SessionAddressedRequest {

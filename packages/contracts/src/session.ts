@@ -114,6 +114,11 @@ export const wireFreeFormString = (maxLen: number, fieldLabel: string): z.ZodStr
       message: `${fieldLabel} MUST NOT contain a NUL byte.`,
     });
 
+// The longest filesystem path any wire string carries. 4096 is Linux's
+// `PATH_MAX`, above macOS's 1024 and Windows' 260-character default; a Windows
+// extended-length path can run longer, and one past this bound is refused.
+export const FILE_PATH_MAX_LEN = 4096;
+
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 

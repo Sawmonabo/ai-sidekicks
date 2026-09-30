@@ -22,12 +22,12 @@
 // progress of reading a provider's store belongs to no session's log.
 import { z } from "zod";
 
+import { countSchema } from "./internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
-import { REPO_PATH_MAX_LEN } from "./repo.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 /** The daemon-minted id of one import. */
 export const PROVIDER_IMPORT_ID_MAX_LEN = 256;
@@ -140,9 +140,8 @@ export type ProviderImportProgress =
       settlement: ProviderImportOutcome;
     };
 
-const countSchema = z.number().int().min(0);
 const importReasonSchema = wireFreeFormString(PROVIDER_IMPORT_REASON_MAX_LEN, "import reason");
-const importPathSchema = wireFreeFormString(REPO_PATH_MAX_LEN, "import source path");
+const importPathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "import source path");
 
 /** Parses a {@link ProviderImportOutcome}. */
 export const ProviderImportOutcomeSchema: z.ZodType<ProviderImportOutcome> = z.discriminatedUnion(

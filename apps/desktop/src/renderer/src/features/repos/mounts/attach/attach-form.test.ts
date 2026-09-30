@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { REPO_PATH_MAX_LEN } from "@ai-sidekicks/contracts";
+import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts";
 
 import { EMPTY_ATTACH_FORM, resolveAttachForm } from "./attach-form.js";
 
@@ -18,16 +18,16 @@ describe("resolveAttachForm — the path is checked and never rewritten", () => 
   });
 
   it("refuses a path past the wire's own cap, and says by how much", () => {
-    const tooLong = "/".repeat(REPO_PATH_MAX_LEN + 1);
+    const tooLong = "/".repeat(FILE_PATH_MAX_LEN + 1);
     const verdict = resolveAttachForm({ localPath: tooLong }).verdict;
     expect(verdict.status).toBe("incomplete");
-    expect(verdict.status === "incomplete" && verdict.because).toContain(String(REPO_PATH_MAX_LEN));
+    expect(verdict.status === "incomplete" && verdict.because).toContain(String(FILE_PATH_MAX_LEN));
   });
 
   it("negative control: a path exactly at the cap is sendable", () => {
     // The guard is `>` and not `>=`, because the contract's own `max` admits the
     // boundary — a console refusing it would refuse a path the daemon accepts.
-    const atCap = "/".repeat(REPO_PATH_MAX_LEN);
+    const atCap = "/".repeat(FILE_PATH_MAX_LEN);
     expect(resolveAttachForm({ localPath: atCap }).verdict.status).toBe("sendable");
   });
 

@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { FILE_PATH_MAX_LEN } from "./session.js";
 
 /** `Stop a run after`'s steps, in minutes; `null` is `No limit`. */
 export type RunTimeLimitMinutes = 30 | 60 | 240 | 720 | 1440;
@@ -19,9 +20,6 @@ export const RUN_TIME_LIMIT_MINUTES: readonly RunTimeLimitMinutes[] = Object.fre
 export type WorkflowChainAskAfterRuns = 25 | 100 | 500 | 2000;
 export const WORKFLOW_CHAIN_ASK_AFTER_RUNS_STEPS: readonly WorkflowChainAskAfterRuns[] =
   Object.freeze([25, 100, 500, 2000]);
-
-/** The longest file path the settings name. */
-export const DAEMON_CONFIG_PATH_MAX_LEN = 4_096;
 
 const SizeBytesSchema = z.number().int().positive();
 
@@ -68,7 +66,7 @@ export const DaemonConfigSchema: z.ZodType<DaemonConfig> = z
   .object({
     ...WRITABLE_CONFIG_MEMBER_SCHEMAS,
     toolMemoryCapEnforceable: z.boolean(),
-    replayLogPath: z.string().min(1).max(DAEMON_CONFIG_PATH_MAX_LEN),
+    replayLogPath: z.string().min(1).max(FILE_PATH_MAX_LEN),
   })
   .strict();
 

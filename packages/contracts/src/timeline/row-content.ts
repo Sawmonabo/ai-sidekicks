@@ -17,8 +17,12 @@ import {
   type HydratedSessionEventContent,
 } from "../event.js";
 import { jsonUtf8ByteLength } from "../jsonrpc.js";
-import { REPO_PATH_MAX_LEN } from "../repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "../session.js";
 
 import { TIMELINE_PAGE_MAX_BYTES } from "./operations.js";
 
@@ -148,7 +152,7 @@ export interface TimelinePatchReadResponse {
   files: TimelinePatchFile[];
 }
 
-const patchPathSchema = wireFreeFormString(REPO_PATH_MAX_LEN, "TimelinePatchFile.path");
+const patchPathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "TimelinePatchFile.path");
 
 /** Parses a {@link TimelinePatchReadResponse}. */
 export const TimelinePatchReadResponseSchema: z.ZodType<TimelinePatchReadResponse> = z

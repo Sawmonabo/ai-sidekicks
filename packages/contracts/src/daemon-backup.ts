@@ -28,9 +28,8 @@ import {
 import { ERROR_MESSAGE_MAX_LEN } from "./error.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { ReleaseVersionSchema } from "./release-manifest.js";
-import { REPO_PATH_MAX_LEN } from "./repo.js";
 import { ServicePlaceLocationSchema, type ServicePlaceLocation } from "./service-place.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 /** The manifest's file name, beside each backup's database copy. */
 export const BACKUP_MANIFEST_FILE_NAME = "manifest.json";
@@ -157,7 +156,7 @@ export interface BackupReadResponse {
 /** Parses a {@link BackupReadResponse}. */
 export const BackupReadResponseSchema: z.ZodType<BackupReadResponse> = z
   .object({
-    folder: wireFreeFormString(REPO_PATH_MAX_LEN, "BackupReadResponse.folder"),
+    folder: wireFreeFormString(FILE_PATH_MAX_LEN, "BackupReadResponse.folder"),
     folderOnServiceDisk: z.boolean(),
     totalBytes: z.number().int().nonnegative(),
     lastRun: BackupLastRunSchema.nullable(),

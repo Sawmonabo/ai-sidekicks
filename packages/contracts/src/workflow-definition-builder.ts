@@ -4,6 +4,7 @@
 // with. The method table that lists these methods is in `workflow-definition-methods.ts`.
 import { z } from "zod";
 
+import { countSchema } from "./internal/wire-scalars.js";
 import {
   WorkflowDefinitionIdSchema,
   WorkflowDraftDocumentSchema,
@@ -18,7 +19,6 @@ import {
 } from "./workflow-definition.js";
 
 const isoInstant = z.iso.datetime({ offset: true });
-const count = z.number().int().nonnegative();
 
 // --------------------------------------------------------------------------
 // Refusals
@@ -72,7 +72,7 @@ export const WorkflowEnabledSetResponseSchema: z.ZodType<WorkflowEnabledSetRespo
   .object({
     definitionId: WorkflowDefinitionIdSchema,
     enabled: z.boolean(),
-    armedTriggerCount: count,
+    armedTriggerCount: countSchema,
   })
   .strict();
 

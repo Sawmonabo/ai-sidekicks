@@ -21,7 +21,7 @@
 // Empty means the mount root, which is the default-workspace case.
 
 import {
-  REPO_PATH_MAX_LEN,
+  FILE_PATH_MAX_LEN,
   type ExecutionMode,
   type WorkspaceExecutionModeCapabilitiesReadResponse,
 } from "@ai-sidekicks/contracts";
@@ -131,10 +131,10 @@ function bindVerdictFor(
   form: BindFormState,
   selection: ServedSelection<ExecutionMode>,
 ): BindFormVerdict {
-  if (form.directory.length > REPO_PATH_MAX_LEN) {
+  if (form.directory.length > FILE_PATH_MAX_LEN) {
     return {
       status: "incomplete",
-      because: `That directory is ${String(form.directory.length)} characters. The wire accepts ${String(REPO_PATH_MAX_LEN)}.`,
+      because: `That directory is ${String(form.directory.length)} characters. The wire accepts ${String(FILE_PATH_MAX_LEN)}.`,
     };
   }
   switch (selection.status) {

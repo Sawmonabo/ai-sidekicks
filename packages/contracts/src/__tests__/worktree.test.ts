@@ -46,10 +46,10 @@ import * as contracts from "../index.js";
 // the same binding (type and value); the aliased import below is that
 // re-export, held under a distinct local name so the identity pin can compare
 // the two surfaces rather than trivially comparing one to itself.
-// `REPO_PATH_MAX_LEN` and `RepoMountIdSchema` ride along for the cap
-// boundaries and its compile-time status-record pin — canon, consumed from its
-// origin.
-import { ExecutionModeSchema, REPO_PATH_MAX_LEN, RepoMountIdSchema } from "../repo.js";
+// `RepoMountIdSchema` rides along for its compile-time status-record pin —
+// canon, consumed from its origin.
+import { ExecutionModeSchema, RepoMountIdSchema } from "../repo.js";
+import { FILE_PATH_MAX_LEN } from "../session.js";
 import {
   BranchContextIdSchema,
   ExecutionModeSchema as ExecutionModeSchemaFromWorktreeReExport,
@@ -837,9 +837,9 @@ describe("ExecutionRootPrepare request (create or bind)", () => {
 
   it("does NOT bound the ref fields at the 4096 path cap (the two classes differ)", () => {
     // NEGATIVE CONTROL on the cap choice: a ref name capped at
-    // `REPO_PATH_MAX_LEN` by a copy-paste would accept this 4096-character
+    // `FILE_PATH_MAX_LEN` by a copy-paste would accept this 4096-character
     // value and pass every other row in this block.
-    const pathLengthBranch = "b".repeat(REPO_PATH_MAX_LEN);
+    const pathLengthBranch = "b".repeat(FILE_PATH_MAX_LEN);
     expect(parsePrepareRequest({ branchName: pathLengthBranch }).success).toBe(false);
   });
 });

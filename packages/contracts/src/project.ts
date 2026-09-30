@@ -20,8 +20,13 @@ import {
   EnvironmentRowSchema,
   type EnvironmentRow,
 } from "./machine-settings.js";
-import { REPO_PATH_MAX_LEN, RepoMountIdSchema, type RepoMountId } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "./session.js";
 
 /** A project: the record beside a mount that the person names and configures. */
 export type ProjectId = string & { readonly __brand: "ProjectId" };
@@ -68,7 +73,7 @@ export interface ProjectSetup {
 /** Parses a {@link ProjectSetup}; each file is a path inside the repository. */
 export const ProjectSetupSchema: z.ZodType<ProjectSetup, ProjectSetup> = z
   .object({
-    filesToCopy: z.array(wireFreeFormString(REPO_PATH_MAX_LEN, "ProjectSetup.filesToCopy[]")),
+    filesToCopy: z.array(wireFreeFormString(FILE_PATH_MAX_LEN, "ProjectSetup.filesToCopy[]")),
     commands: z.array(wireFreeFormString(PROJECT_SETUP_COMMAND_MAX_LEN, "ProjectSetup.commands[]")),
     timeLimitSeconds: z.number().int().positive(),
   })
@@ -107,7 +112,7 @@ export const ProjectListEntrySchema: z.ZodType<ProjectListEntry> = z
     projectId: ProjectIdSchema,
     repoMountId: RepoMountIdSchema.nullable(),
     name: wireFreeFormString(PROJECT_NAME_MAX_LEN, "ProjectListEntry.name"),
-    folderPath: wireFreeFormString(REPO_PATH_MAX_LEN, "ProjectListEntry.folderPath"),
+    folderPath: wireFreeFormString(FILE_PATH_MAX_LEN, "ProjectListEntry.folderPath"),
     state: ProjectStateSchema,
     sessionCount: z.number().int().nonnegative(),
     runningSessionId: SessionIdSchema.nullable(),

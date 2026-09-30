@@ -10,7 +10,6 @@ import { z } from "zod";
 
 import {
   ExecutionModeSchema,
-  REPO_PATH_MAX_LEN,
   RepoMountIdSchema,
   WorkspaceIdSchema,
   WorkspaceStateSchema,
@@ -19,7 +18,12 @@ import {
   type WorkspaceId,
   type WorkspaceState,
 } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "./session.js";
 
 // ==========================================================================
 // Wire surfaces — WorkspaceBind / WorkspaceExecutionModeCapabilitiesRead /
@@ -156,14 +160,11 @@ export const WorkspaceBindRequestSchema: z.ZodType<WorkspaceBindRequest, Workspa
     // check for a bypassable pre-resolution one — the same reasoning that
     // keeps traversal off `RepoAttachRequest.localPath` in repo.ts.
     //
-    // The cap REUSES `REPO_PATH_MAX_LEN` instead of minting the separate
-    // constant the note anticipated. The honest bound on a relative segment is
+    // The cap is the one path bound. The honest bound on a relative segment is
     // the same PATH_MAX ceiling: what the filesystem actually bounds is the
     // joined `canonicalRoot + directory`, and the schema cannot see the root's
-    // length at parse time, so any tighter number would be invented. A second
-    // constant holding the same 4096 would be two values obliged to stay equal
-    // with nothing enforcing the equality.
-    directory: wireFreeFormString(REPO_PATH_MAX_LEN, "WorkspaceBindRequest.directory").optional(),
+    // length at parse time, so any tighter number would be invented.
+    directory: wireFreeFormString(FILE_PATH_MAX_LEN, "WorkspaceBindRequest.directory").optional(),
   })
   .strict() as unknown as z.ZodType<WorkspaceBindRequest, WorkspaceBindRequest>;
 
@@ -385,7 +386,7 @@ const workspaceListItemSchema = z
     // Optional because a `preparing` workspace has no execution root yet;
     // the root is filled in when it is prepared.
     fsRoot: wireFreeFormString(
-      REPO_PATH_MAX_LEN,
+      FILE_PATH_MAX_LEN,
       "WorkspaceListResponse.workspaces[].fsRoot",
     ).optional(),
     // The `metadata.lastError` detail recorded when a mode switch fails (the

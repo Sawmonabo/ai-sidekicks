@@ -22,7 +22,7 @@ import {
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
 import { ExecutionModeSchema, type ExecutionMode } from "./repo.js";
-import { wireFreeFormString } from "./session.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
 
 /** Where the file sits, relative to the person's home folder. */
 export const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: readonly [
@@ -39,8 +39,6 @@ export const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: readonly [
  * characters, the tightest limit of the three platforms.
  */
 export const ENVIRONMENT_ROW_MAX_LEN = 32_767;
-/** The longest folder path the file keeps. */
-export const MACHINE_SETTINGS_FOLDER_MAX_LEN = 4_096;
 /** The longest editor id or Codex voice name. */
 export const MACHINE_SETTINGS_NAME_MAX_LEN = 256;
 /** The longest branch-name pattern. */
@@ -271,7 +269,7 @@ export interface BackupSettings {
 const BackupSettingsSchema: z.ZodType<BackupSettings, BackupSettings> = z
   .object({
     automatic: z.boolean(),
-    folder: wireFreeFormString(MACHINE_SETTINGS_FOLDER_MAX_LEN, "BackupSettings.folder").nullable(),
+    folder: wireFreeFormString(FILE_PATH_MAX_LEN, "BackupSettings.folder").nullable(),
   })
   .strict();
 
@@ -395,10 +393,7 @@ const MACHINE_SETTINGS_MEMBER_SCHEMAS = {
   environmentRows: z.array(EnvironmentRowSchema),
   backup: BackupSettingsSchema,
   branchNamePattern: BranchNamePatternSchema,
-  cloneFolder: wireFreeFormString(
-    MACHINE_SETTINGS_FOLDER_MAX_LEN,
-    "MachineSettings.cloneFolder",
-  ).nullable(),
+  cloneFolder: wireFreeFormString(FILE_PATH_MAX_LEN, "MachineSettings.cloneFolder").nullable(),
   voice: VoiceSettingsSchema,
 };
 

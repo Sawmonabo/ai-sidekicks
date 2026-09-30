@@ -24,7 +24,7 @@
 //
 import { z } from "zod";
 
-import { wireFreeFormString } from "./session.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Length caps
@@ -46,8 +46,6 @@ export const PROVIDER_ACCOUNT_EMAIL_MAX_LEN = 320;
 export const PROVIDER_ACCOUNT_ORG_ID_MAX_LEN = 256;
 /** Provider-reported organization display name. */
 export const PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN = 256;
-/** Filesystem path bound: POSIX `PATH_MAX` on Linux, and above Windows' extended-length limit. */
-export const PROVIDER_CREDENTIAL_HOME_PATH_MAX_LEN = 4096;
 /** The provider's own first-party sign-in command, carried for DISPLAY only. */
 export const PROVIDER_SIGN_IN_INVOCATION_MAX_LEN = 512;
 /** Opaque daemon-minted correlation key for one brokered sign-in attempt. */
@@ -498,7 +496,7 @@ export const ProviderRemedySchema: z.ZodType<ProviderRemedy, ProviderRemedy> = z
         // daemon's credential-home service, which owns the only context in
         // which they are decidable.
         credentialHomePath: wireFreeFormString(
-          PROVIDER_CREDENTIAL_HOME_PATH_MAX_LEN,
+          FILE_PATH_MAX_LEN,
           "ProviderSignInRemedy.credentialHomePath",
         ),
       })

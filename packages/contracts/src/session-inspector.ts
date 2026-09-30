@@ -7,21 +7,12 @@
 // by the daemon and never computed on the screen.
 import { z } from "zod";
 
+import { composedTextSchema, countSchema, percentSchema } from "./internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 import { SessionAddressedRequestSchema, type SessionAddressedRequest } from "./session-controls.js";
-
-// A daemon-composed string: a path, a provider's words, a name. The reply schemas
-// guard the daemon's own composition, so non-empty is the rule they enforce.
-const composedTextSchema = z.string().min(1);
-
-// A token count or a number of seconds.
-const countSchema = z.number().int().nonnegative();
-
-// A share of the context window, in percent.
-const percentSchema = z.number().min(0).max(100);
 
 // --------------------------------------------------------------------------
 // What fills the context

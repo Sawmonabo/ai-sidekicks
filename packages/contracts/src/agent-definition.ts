@@ -26,11 +26,9 @@ import { z } from "zod";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
 import { DRIVER_TOOL_NAME_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver.js";
-import { wireFreeFormString } from "./session.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
 import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 
-/** The longest file path a definition's file members carry. */
-export const AGENT_FILE_PATH_MAX_LEN = 4096;
 /** The longest reason text a refusal or a load failure carries. */
 export const AGENT_REASON_MAX_LEN = 1024;
 
@@ -333,7 +331,7 @@ export const AgentDefinitionListEntrySchema: z.ZodType<AgentDefinitionListEntry>
     pluginName: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "pluginName").optional(),
     scope: z.enum(AGENT_DEFINITION_SCOPES),
     projectId: uuidTextFormSchema.optional(),
-    sourcePath: wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, "sourcePath"),
+    sourcePath: wireFreeFormString(FILE_PATH_MAX_LEN, "sourcePath"),
     orphaned: z.boolean(),
     disabledInProvider: z.boolean(),
     loadError: wireFreeFormString(AGENT_REASON_MAX_LEN, "loadError").nullable(),
@@ -513,7 +511,7 @@ export const AgentDefinitionUpdateRequestSchema: z.ZodType<
     name: agentDefinitionFields.name.optional(),
     bindings: AgentDefinitionBindingsDraftSchema.optional(),
     ...writableDefinitionFields,
-    reattachFilePath: wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, "reattachFilePath").optional(),
+    reattachFilePath: wireFreeFormString(FILE_PATH_MAX_LEN, "reattachFilePath").optional(),
   })
   .strict();
 
@@ -580,7 +578,7 @@ export const AgentDefinitionExportRequestSchema: z.ZodType<
 > = z
   .object({
     definitionIds: z.array(AgentDefinitionIdSchema).min(1),
-    filePath: wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, "filePath"),
+    filePath: wireFreeFormString(FILE_PATH_MAX_LEN, "filePath"),
   })
   .strict();
 
@@ -609,7 +607,7 @@ export interface AgentDefinitionImportRequest {
 export const AgentDefinitionImportRequestSchema: z.ZodType<
   AgentDefinitionImportRequest,
   AgentDefinitionImportRequest
-> = z.object({ filePath: wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, "filePath") }).strict();
+> = z.object({ filePath: wireFreeFormString(FILE_PATH_MAX_LEN, "filePath") }).strict();
 
 /** The created rows, under their final and possibly suffixed names. */
 export interface AgentDefinitionImportResponse {

@@ -9,8 +9,13 @@
 import { z } from "zod";
 
 import { ProjectIdSchema, type ProjectId } from "./project.js";
-import { REPO_PATH_MAX_LEN, RepoMountIdSchema, type RepoMountId } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "./session.js";
 import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
 
 // --------------------------------------------------------------------------
@@ -75,7 +80,7 @@ export interface RepoMountListEntry {
 /** Wire schema for {@link RepoMountListEntry}. */
 export const RepoMountListEntrySchema: z.ZodType<RepoMountListEntry> = z
   .object({
-    path: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoMountListEntry.path"),
+    path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoMountListEntry.path"),
     origin: RepoMountOriginSchema,
     usingSessionCount: z.number().int().nonnegative(),
     onOtherSideDisk: z.boolean(),
@@ -133,7 +138,7 @@ export const RepoFolderListRequestSchema: z.ZodType<RepoFolderListRequest, RepoF
   z
     .object({
       folderToken: FolderTokenSchema.optional(),
-      filter: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoFolderListRequest.filter").optional(),
+      filter: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListRequest.filter").optional(),
       showHidden: z.boolean().optional(),
     })
     .strict();
@@ -165,12 +170,12 @@ export interface RepoFolderListResponse {
 /** Wire schema for {@link RepoFolderListResponse}. */
 export const RepoFolderListResponseSchema: z.ZodType<RepoFolderListResponse> = z
   .object({
-    path: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoFolderListResponse.path"),
+    path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListResponse.path"),
     segments: z
       .array(
         z
           .object({
-            name: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoFolderListResponse.segments[].name"),
+            name: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListResponse.segments[].name"),
             folderToken: FolderTokenSchema,
           })
           .strict(),
@@ -180,7 +185,7 @@ export const RepoFolderListResponseSchema: z.ZodType<RepoFolderListResponse> = z
       .array(
         z
           .object({
-            name: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoFolderListResponse.entries[].name"),
+            name: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListResponse.entries[].name"),
             folderToken: FolderTokenSchema,
             isRepository: z.boolean(),
           })

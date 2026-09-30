@@ -4,7 +4,7 @@
 // defaulted for the caller, a directory trimmed on the way out, and an empty field sent
 // as an empty string rather than omitted. Each has a negative control beside it.
 
-import { REPO_PATH_MAX_LEN } from "@ai-sidekicks/contracts";
+import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -121,22 +121,22 @@ describe("resolveBindForm", () => {
   });
 
   it("refuses a directory past the wire's cap, naming both lengths", () => {
-    const overCap = "a".repeat(REPO_PATH_MAX_LEN + 1);
+    const overCap = "a".repeat(FILE_PATH_MAX_LEN + 1);
     const verdict = verdictFor({ directory: overCap, executionMode: "provisioned-worktree" });
     expect(verdict.status).toBe("incomplete");
     expect(verdict.status === "incomplete" && verdict.because).toContain(
-      String(REPO_PATH_MAX_LEN + 1),
+      String(FILE_PATH_MAX_LEN + 1),
     );
   });
 
   it("negative control: a directory exactly at the cap is sendable", () => {
-    const atCap = "a".repeat(REPO_PATH_MAX_LEN);
+    const atCap = "a".repeat(FILE_PATH_MAX_LEN);
     const verdict = verdictFor({ directory: atCap, executionMode: "provisioned-worktree" });
     expect(verdict.status).toBe("sendable");
   });
 
   it("checks the length before the mode, which is the order a person meets them", () => {
-    const overCap = "a".repeat(REPO_PATH_MAX_LEN + 1);
+    const overCap = "a".repeat(FILE_PATH_MAX_LEN + 1);
     const verdict = verdictFor({ directory: overCap, executionMode: undefined });
     expect(verdict.status === "incomplete" && verdict.because).toContain("characters");
   });

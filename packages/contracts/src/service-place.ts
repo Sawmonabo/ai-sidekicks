@@ -13,8 +13,7 @@
 import { z } from "zod";
 
 import { ReleaseVersionSchema } from "./release-manifest.js";
-import { REPO_PATH_MAX_LEN } from "./repo.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 /** The record's file name, in `%LOCALAPPDATA%\ai-sidekicks\`. */
 export const SERVICE_RECORD_FILE_NAME = "service.json";
@@ -64,7 +63,7 @@ export const ServiceRecordSchema: z.ZodType<ServiceRecord, ServiceRecord> = z.un
       runtimeDigest: z
         .string()
         .regex(/^[0-9a-f]{64}$/u, { message: "runtimeDigest is 64 lowercase hex digits." }),
-      distroHome: wireFreeFormString(REPO_PATH_MAX_LEN, "ServiceRecord.distroHome"),
+      distroHome: wireFreeFormString(FILE_PATH_MAX_LEN, "ServiceRecord.distroHome"),
     })
     .strict(),
 ]);

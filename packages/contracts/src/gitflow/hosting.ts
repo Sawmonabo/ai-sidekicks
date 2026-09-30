@@ -9,11 +9,11 @@
 // host's own word, which follows from the host kind this contract reports.
 import { z } from "zod";
 
+import { countSchema } from "../internal/wire-scalars.js";
 import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
 import {
   ChangeRequestNumberSchema,
-  countSchema,
   HostHandleSchema,
   HostingAddressSchema,
   timestampSchema,
