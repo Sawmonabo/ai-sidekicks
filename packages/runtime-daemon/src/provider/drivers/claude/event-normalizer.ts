@@ -85,10 +85,11 @@
 //     Binary-probe/Verified additions dated 2026-08-25, which POSTDATES the
 //     35-kind census they would have to join. They are excluded uniformly
 //     rather than selectively: `model_refusal_fallback` could be argued onto
-//     census row 21 (`model_rerouted`) by inference, but its sibling
-//     `model_refusal_no_fallback` has no such argument, and mapping one by
-//     inference while excluding the other would make the table's evidence
-//     grade inconsistent row to row. `queued_notification` has a second
+//     census row 21 (`model_rerouted`) by inference, while its sibling
+//     `model_refusal_no_fallback` is a refusal with no fallback, which ends
+//     the run as `run.failed` with cause `refused` rather than rerouting it.
+//     Mapping one by inference while excluding the other would make the
+//     table's evidence grade inconsistent row to row. `queued_notification` has a second
 //     reason: the vendor describes it as a message "the CLI accepts inbound",
 //     i.e. daemon -> CLI, so an occurrence on the inbound stream is itself the
 //     anomaly the diagnostic exists to surface.
@@ -994,7 +995,7 @@ export const CLAUDE_FAMILY_REACHABILITY: readonly ClaudeFamilyReachability[] = O
     ] as const),
     unreachedCensusKinds: Object.freeze(["token_usage", "model_rerouted"] as const),
     shortfallReason:
-      "`token_usage` (census row 12) rides a stream-json message frame the pin cannot observe; `model_rerouted` (row 21) has a plausible Claude carrier in the `model_refusal_fallback` / `model_refusal_no_fallback` pair, but that pair is recorded only as adjacent subtypes present at the pin (2026-08-25) and no disposition table covers it, so both are excluded uniformly rather than one mapped by inference",
+      "`token_usage` (census row 12) rides a stream-json message frame the pin cannot observe; `model_rerouted` (row 21) has a plausible Claude carrier in `model_refusal_fallback` (its sibling `model_refusal_no_fallback` is a refusal that fails the run), but the pair is recorded only as adjacent subtypes present at the pin (2026-08-25) and no disposition table covers it, so both are excluded uniformly rather than one mapped by inference",
   }),
   Object.freeze({
     family: "interactive_request",

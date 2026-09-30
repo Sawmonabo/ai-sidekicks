@@ -101,7 +101,11 @@
 //     substrate's `sanitizeErrorMessage` / `sanitizeFields` is the enforcing
 //     layer should a caller ever pass something path-shaped.
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import {
+  JsonRpcErrorCode,
+  WORKTREE_RETIRE_CONFLICT_CODE,
+  type WorktreeRetireConflictCode,
+} from "@ai-sidekicks/contracts";
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
 
@@ -134,7 +138,7 @@ export type WorktreeErrorCode =
   | "worktree.create_failed"
   | "worktree.branch_collision"
   | "worktree.reuse_conflict"
-  | "worktree.retire_conflict";
+  | WorktreeRetireConflictCode;
 
 /**
  * Runtime companion to {@link WorktreeErrorCode} row order. Exported so a suite
@@ -153,7 +157,7 @@ export const WORKTREE_ERROR_CODES: readonly WorktreeErrorCode[] = [
   "worktree.create_failed",
   "worktree.branch_collision",
   "worktree.reuse_conflict",
-  "worktree.retire_conflict",
+  WORKTREE_RETIRE_CONFLICT_CODE,
 ];
 
 /**
@@ -462,7 +466,7 @@ export class WorktreeRetireConflictError extends DaemonDomainError {
     super(
       `worktree ${worktreeId} cannot be retired: workspace ${holdingWorkspaceId} is holding it for an active run`,
       {
-        code: "worktree.retire_conflict" satisfies WorktreeErrorCode,
+        code: WORKTREE_RETIRE_CONFLICT_CODE,
         httpStatus: 409,
         detail: { worktreeId, holdingWorkspaceId },
       },
