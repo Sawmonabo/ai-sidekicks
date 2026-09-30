@@ -113,6 +113,9 @@
 
       // Whole files kept for a consumer that is not built yet, each with what will consume it.
       "ignoreFiles": [
+        // Wakes a view at a wall-clock deadline, for the device-link code that gives way to
+        // `Link a device` when its five minutes run out.
+        "src/renderer/src/hooks/useDeadlineWake.ts",
         // Scripted diff patches kept as the fixtures' test data, read by no module until the Review
         // pane's diff read lands.
         "fixtures/data/repos-diff-patches.ts",
