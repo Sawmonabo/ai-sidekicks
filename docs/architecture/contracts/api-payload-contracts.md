@@ -6236,12 +6236,8 @@ interface AgentListResponse {
     // from the provider"; absence means nothing has been read YET or ever, which is the same
     // instruction to the reader in every arm.
     //
-    // UNDER CONCURRENT BINDINGS the projection is the agent's MOST RECENTLY ESTABLISHED live
-    // binding, stated as a rule rather than left to "the live binding": an agent can
-    // hold several at once, and that one is the only binding whose start could have realized the
-    // `outputSpeed` served beside it, so the values in this row compare like with like instead
-    // of pairing a current request with an older leg's declaration. A single-binding agent — the
-    // ordinary case — is unaffected. This member is what makes the prohibited false success
+    // An agent runs on one binding at a time, so the projection is that binding's declaration,
+    // and the values in this row pair the current request with the declaration it produced. This member is what makes the prohibited false success
     // unrenderable — a provider that ACCEPTS the setting and then leaves the mode off shows a
     // requested value and a differing declared one, with the provider's own reason beside it.
     // That disagreement is deliberately NOT a switch failure: the switch applied, the provider
