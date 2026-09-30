@@ -148,9 +148,6 @@ export type SessionEventType =
   | "backup.completed"
   | "backup.failed"
   | "backup.restored"
-  // policy_events
-  | "policy_bundle.loaded"
-  | "policy_bundle.rejected"
   // orchestration_admission
   | "orchestration.rejected"
   // mcp_governance
@@ -458,12 +455,6 @@ export const EVENT_MAINTENANCE_EVENT_TYPES: readonly SessionEventType[] = [
   "backup.completed",
   "backup.failed",
   "backup.restored",
-] as const;
-
-/** The event types of the `policy_events` category. */
-export const POLICY_EVENTS_EVENT_TYPES: readonly SessionEventType[] = [
-  "policy_bundle.loaded",
-  "policy_bundle.rejected",
 ] as const;
 
 /** The event types of the `orchestration_admission` category. */

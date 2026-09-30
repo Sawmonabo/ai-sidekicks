@@ -38,22 +38,6 @@ export interface DaemonMemoryReading {
   readAt: string;
 }
 
-/** Where the approval rules the service evaluates with came from. */
-export type ApprovalRulesSource = "built_in" | "update";
-/** Every {@link ApprovalRulesSource}. */
-export const APPROVAL_RULES_SOURCES: readonly ApprovalRulesSource[] = Object.freeze([
-  "built_in",
-  "update",
-]);
-
-/** The signed bundle of approval rules the service runs. */
-export interface DaemonApprovalRules {
-  /** The bundle's number, which only ever rises. */
-  version: number;
-  builtAt: string;
-  source: ApprovalRulesSource;
-}
-
 /** What scans an incoming file on this machine: the antivirus through AMSI, or nothing. */
 export type DaemonFileScanning = "amsi" | "none";
 /** Every {@link DaemonFileScanning}. */
@@ -113,7 +97,6 @@ export interface DaemonStatusReadResponse {
   dataDirectory: string;
   processor: DaemonProcessorReading;
   memory: DaemonMemoryReading;
-  approvalRules: DaemonApprovalRules;
   fileScanning: DaemonFileScanning;
   /** The sidecar refused at its last spawn, or `null` when none was. */
   sidecarHashMismatch: DaemonSidecarHashMismatch | null;
@@ -133,13 +116,6 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
     processor: z.object({ percent: z.number().min(0).max(100), readAt: TimestampSchema }).strict(),
     memory: z
       .object({ residentBytes: z.number().int().nonnegative(), readAt: TimestampSchema })
-      .strict(),
-    approvalRules: z
-      .object({
-        version: z.number().int().positive(),
-        builtAt: TimestampSchema,
-        source: z.enum(APPROVAL_RULES_SOURCES),
-      })
       .strict(),
     fileScanning: z.enum(DAEMON_FILE_SCANNING_KINDS),
     sidecarHashMismatch: z

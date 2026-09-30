@@ -32,7 +32,6 @@ export type EventCategory =
   | "recovery_events"
   | "security_events"
   | "event_maintenance"
-  | "policy_events"
   | "orchestration_admission"
   | "mcp_governance"
   | "workflow_lifecycle"
@@ -53,7 +52,6 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "recovery_events",
   "security_events",
   "event_maintenance",
-  "policy_events",
   "orchestration_admission",
   "mcp_governance",
   "workflow_lifecycle",

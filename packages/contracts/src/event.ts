@@ -245,9 +245,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "backup.completed": "event_maintenance",
   "backup.failed": "event_maintenance",
   "backup.restored": "event_maintenance",
-  // policy_events
-  "policy_bundle.loaded": "policy_events",
-  "policy_bundle.rejected": "policy_events",
   // orchestration_admission
   "orchestration.rejected": "orchestration_admission",
   // mcp_governance
