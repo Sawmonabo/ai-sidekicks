@@ -156,8 +156,8 @@ import {
  * CLI-originated ask, while `interrupt` and `mcp_set_servers` are
  * daemon-originated — and the direction is recorded for only some subtypes,
  * so a `direction` member would have to be inferred for the
- * rest. Each row's `reason` (or its `interactive_request` target) carries the
- * direction claim instead, at the evidence grade that row actually has.
+ * rest. Each row's `reason` (or its family target) carries the direction
+ * claim instead, at the evidence grade that row actually has.
  *
  * Carried as OUTPUT rather than demanded as input, for the reason the Codex
  * sibling records for its `transport`: the caller has a frame kind off the
@@ -273,9 +273,8 @@ const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = ne
  *
  * Pure and total over `SessionEventType`. Exported because it is the single
  * place the boundary rule is decided, and because both answers must be
- * exercised by a test — at the current tree state every Claude target is
- * `payload-variant-pending`, so a test that only ever normalized Claude frames
- * would leave the other answer unproven.
+ * exercised by a test directly rather than only through whichever Claude
+ * targets happen to be registered today.
  */
 export function resolveClaudeEmissionReadiness(
   eventType: SessionEventType,
@@ -629,47 +628,39 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
   },
 
   // ------------------------------------------------------------------
-  // Control channel, CLI -> daemon. Three of the sixteen are asks aimed at
-  // the human and therefore carry an `interactive_request` capability; the
-  // rest are answered by the driver's control dispatcher and reach no
-  // timeline.
+  // Control channel, CLI -> daemon. Two of the sixteen are asks aimed at the
+  // person; the rest are answered by the driver's control dispatcher or never
+  // sent, and reach no timeline.
   // ------------------------------------------------------------------
 
-  // Census row 7: "`approval_request` ... adopt `interactive_request`
-  // (`driver_ask.requested`, permission ask)". The wire census states this
-  // subtype's direction outright — it "remains the `--permission-prompt-tool`
-  // plumbing (`{tool_name, input}` -> `{behavior: allow | deny, ...}`)", i.e.
-  // the CLI asks and the daemon answers.
+  // A permission ask: the CLI asks whether a tool may run and the daemon
+  // answers (`{tool_name, input}` -> `{behavior: allow | deny, ...}`). It is
+  // recorded once, as the approval it opens. Claude Code's question tool also
+  // arrives here; `normalizeClaudeCanUseToolRequest` splits it off by tool name.
   "control_request/can_use_tool": {
     disposition: "normalized",
     frameKind: "control_request/can_use_tool",
     channel: "control-request",
-    family: "interactive_request",
-    eventType: "driver_ask.requested",
+    family: "approval_flow",
+    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
-  // Census row 9: "`user_input_request` ... adopt `interactive_request`
-  // (`driver_ask.requested`, input ask)". Both subtypes below are input asks
-  // by the registry's own naming; nothing states their direction outright,
-  // so the direction is Derived from the subtype name rather than
-  // Verified. Recorded here because that is the grade a reviewer needs: if a
-  // later probe shows either to be daemon-originated, the row moves to
-  // not-evented beside `interrupt` and nothing else changes.
+  // A tool server's question to the person (an MCP elicitation), recorded as
+  // the same question record the question tool yields.
   "control_request/elicitation": {
     disposition: "normalized",
     frameKind: "control_request/elicitation",
     channel: "control-request",
     family: "interactive_request",
-    eventType: "driver_ask.requested",
+    eventType: "question.asked",
     normalizedKind: "user_input_request",
   },
   "control_request/request_user_dialog": {
-    disposition: "normalized",
+    disposition: "not-evented",
     frameKind: "control_request/request_user_dialog",
     channel: "control-request",
-    family: "interactive_request",
-    eventType: "driver_ask.requested",
-    normalizedKind: "user_input_request",
+    reason:
+      "a host-rendered dialog of a kind the host declares at start (`refusal_fallback_prompt`, `auto_mode_server_fallback` and others); the CLI treats an undeclared kind as one the host cannot display and fails closed, and the daemon declares none, so Claude Code never sends it",
   },
   // The Claude delta table disposes the whole hook family `discard`, "hook
   // -lifecycle; daemon-internal orchestration, not an audit-timeline
@@ -926,6 +917,32 @@ export function normalizeClaudeWireFrame(frameKind: string): ClaudeFrameNormaliz
   return normalization;
 }
 
+// Claude Code's question tool.
+const CLAUDE_QUESTION_TOOL_NAME = "AskUserQuestion";
+
+const CLAUDE_QUESTION_TOOL_NORMALIZATION: ClaudeNormalizedFamilyEmission = Object.freeze({
+  disposition: "normalized",
+  frameKind: "control_request/can_use_tool",
+  channel: "control-request",
+  family: "interactive_request",
+  eventType: "question.asked",
+  normalizedKind: "user_input_request",
+  emissionReadiness: resolveClaudeEmissionReadiness("question.asked"),
+});
+
+/**
+ * Normalize one `can_use_tool` control request by the tool it names: Claude
+ * Code's question tool is a question to the person and becomes `question.asked`;
+ * every other tool is a permission ask and gets the table's `can_use_tool` row.
+ *
+ * @param toolName - The request's `tool_name`, verbatim off the wire. Untrusted.
+ */
+export function normalizeClaudeCanUseToolRequest(toolName: string): ClaudeFrameNormalization {
+  return toolName === CLAUDE_QUESTION_TOOL_NAME
+    ? CLAUDE_QUESTION_TOOL_NORMALIZATION
+    : normalizeClaudeWireFrame("control_request/can_use_tool");
+}
+
 // --------------------------------------------------------------------------
 // Family reachability ledger.
 // --------------------------------------------------------------------------
@@ -999,14 +1016,10 @@ export const CLAUDE_FAMILY_REACHABILITY: readonly ClaudeFamilyReachability[] = O
   }),
   Object.freeze({
     family: "interactive_request",
-    reachedBy: Object.freeze([
-      "control_request/can_use_tool",
-      "control_request/elicitation",
-      "control_request/request_user_dialog",
-    ] as const),
+    reachedBy: Object.freeze(["control_request/elicitation"] as const),
     unreachedCensusKinds: Object.freeze(["user_input_resolved"] as const),
     shortfallReason:
-      "`user_input_resolved` (census row 10) records the daemon's own answer to an ask, so the resolution is emitted by the surface that answered rather than observed on an inbound frame; census row 8 (`approval_resolved`) routes to `approval_flow`, outside this ledger's six families",
+      "`user_input_resolved` (census row 10) is discarded by the registry: the answer is recorded as the person's own `user.message` turn by the call that answered the question, never observed on an inbound frame; `approval_request` and `approval_resolved` route to `approval_flow`, outside this ledger's six families",
   }),
   Object.freeze({
     family: "assistant_output",

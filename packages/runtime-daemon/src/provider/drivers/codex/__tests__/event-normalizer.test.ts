@@ -92,8 +92,8 @@ interface ExpectedNormalizedRow {
 
 const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNormalizedRow> =
   new Map([
-    // ServerRequest — callback tool + the seven asks that surface as
-    // `driver_ask.*`.
+    // ServerRequest — callback tool, the two questions (`question.asked`) and
+    // the five permission asks (`approval.requested`).
     [
       "item/tool/call",
       {
@@ -108,7 +108,7 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       {
         transport: "server-request",
         family: "interactive_request",
-        eventType: "driver_ask.requested",
+        eventType: "question.asked",
         normalizedKind: "user_input_request",
       },
     ],
@@ -117,7 +117,7 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       {
         transport: "server-request",
         family: "interactive_request",
-        eventType: "driver_ask.requested",
+        eventType: "question.asked",
         normalizedKind: "user_input_request",
       },
     ],
@@ -125,8 +125,8 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       "item/commandExecution/requestApproval",
       {
         transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
+        family: "approval_flow",
+        eventType: "approval.requested",
         normalizedKind: "approval_request",
       },
     ],
@@ -134,8 +134,8 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       "item/fileChange/requestApproval",
       {
         transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
+        family: "approval_flow",
+        eventType: "approval.requested",
         normalizedKind: "approval_request",
       },
     ],
@@ -143,8 +143,8 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       "item/permissions/requestApproval",
       {
         transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
+        family: "approval_flow",
+        eventType: "approval.requested",
         normalizedKind: "approval_request",
       },
     ],
@@ -152,8 +152,8 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       "execCommandApproval",
       {
         transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
+        family: "approval_flow",
+        eventType: "approval.requested",
         normalizedKind: "approval_request",
       },
     ],
@@ -161,8 +161,8 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       "applyPatchApproval",
       {
         transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
+        family: "approval_flow",
+        eventType: "approval.requested",
         normalizedKind: "approval_request",
       },
     ],
@@ -854,20 +854,20 @@ describe("Codex event normalizer — tool-keyed methods bind to the tools.ts nam
   it("keeps every tool-keyed approval method in the normalization census", () => {
     // The failure this catches: a tool namespace change ripples into the
     // method literal, the method silently leaves the census, and approval
-    // frames start reaching the unknown seam instead of interactive_request.
+    // frames start reaching the unknown seam instead of approval_flow.
     for (const approvalMethod of CODEX_TOOL_KEYED_APPROVAL_METHODS) {
       expect(CODEX_INBOUND_FRAME_METHODS).toContain(approvalMethod);
       expect(CODEX_FRAME_NORMALIZATION_BY_METHOD.has(approvalMethod)).toBe(true);
     }
   });
 
-  it("normalizes every tool-keyed approval method into interactive_request", () => {
+  it("normalizes every tool-keyed approval method into approval.requested", () => {
     for (const approvalMethod of CODEX_TOOL_KEYED_APPROVAL_METHODS) {
       expect(normalizeCodexInboundFrame(approvalMethod)).toMatchObject({
         disposition: "normalized",
         transport: "server-request",
-        family: "interactive_request",
-        eventType: "driver_ask.requested",
+        family: "approval_flow",
+        eventType: "approval.requested",
       });
     }
   });

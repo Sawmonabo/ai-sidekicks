@@ -457,13 +457,10 @@ const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = ne
  *
  * Pure and total over `SessionEventType`. Exported because it is the single
  * place the boundary rule is decided, and because both answers must be
- * exercised by a test. Re-derived when the durable content home registered the
- * five body-bearing payload variants: 3 of the 11 Codex targets
- * (`assistant.message`, `tool.invoked`, `tool.result`) now appear in the
- * 30-member registered roster and answer `envelope-constructible`; the other 8
- * stay `payload-variant-pending`. Both answers are therefore reachable through
- * ordinary Codex frames, and the tests additionally call this resolver directly
- * so neither arm depends on the census staying mixed.
+ * exercised by a test. Some Codex targets have a registered payload variant and
+ * some do not, so both answers are reachable through ordinary Codex frames, and
+ * the tests additionally call this resolver directly so neither arm depends on
+ * the census staying mixed.
  */
 export function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissionReadiness {
   return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)
@@ -646,61 +643,61 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "item/tool/requestUserInput",
     transport: "server-request",
     family: "interactive_request",
-    eventType: "driver_ask.requested",
+    eventType: "question.asked",
     normalizedKind: "user_input_request",
   },
+  // A tool server's question (an MCP elicitation) becomes the same question record.
   "mcpServer/elicitation/request": {
     disposition: "normalized",
     nativeMethod: "mcpServer/elicitation/request",
     transport: "server-request",
     family: "interactive_request",
-    eventType: "driver_ask.requested",
+    eventType: "question.asked",
     normalizedKind: "user_input_request",
   },
-  // Permission asks — modern trio then legacy pair. The driver-ask binding covers all five
-  // plus the two input asks above to the four `driver_ask.*` types, which
-  // normalizer routes into the Cedar pipeline. They are `approval_request`
-  // (row 7), NOT `approval_resolved`: the ask reaches the daemon undecided,
-  // and the approval_flow row is minted by the daemon's own adjudication
-  // downstream.
+  // The provider's permission asks, modern trio then legacy pair. Each is
+  // recorded once, as `approval.requested`; the provider's own request id is
+  // kept only to route the answer back. They are `approval_request` (row 7), NOT
+  // `approval_resolved`: the ask reaches the daemon undecided, and the
+  // resolution rows are minted by the daemon's own adjudication.
   "item/commandExecution/requestApproval": {
     disposition: "normalized",
     nativeMethod: "item/commandExecution/requestApproval",
     transport: "server-request",
-    family: "interactive_request",
-    eventType: "driver_ask.requested",
+    family: "approval_flow",
+    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   "item/fileChange/requestApproval": {
     disposition: "normalized",
     nativeMethod: "item/fileChange/requestApproval",
     transport: "server-request",
-    family: "interactive_request",
-    eventType: "driver_ask.requested",
+    family: "approval_flow",
+    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   "item/permissions/requestApproval": {
     disposition: "normalized",
     nativeMethod: "item/permissions/requestApproval",
     transport: "server-request",
-    family: "interactive_request",
-    eventType: "driver_ask.requested",
+    family: "approval_flow",
+    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   execCommandApproval: {
     disposition: "normalized",
     nativeMethod: "execCommandApproval",
     transport: "server-request",
-    family: "interactive_request",
-    eventType: "driver_ask.requested",
+    family: "approval_flow",
+    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   applyPatchApproval: {
     disposition: "normalized",
     nativeMethod: "applyPatchApproval",
     transport: "server-request",
-    family: "interactive_request",
-    eventType: "driver_ask.requested",
+    family: "approval_flow",
+    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   // The two control-plane server-requests. Both are answered on the transport
