@@ -24,12 +24,13 @@ import type {
   DaemonMethod,
   DaemonParams,
   DaemonResult,
+  DaemonSubscribeParams,
   MachineSettings,
   MachineSettingsChange,
   MachineSettingsReading,
-  MachineSettingsRepair,
   ServicePlaceLocation,
   SessionId,
+  SettingsFileRepair,
   WorkflowRunId,
 } from "@ai-sidekicks/contracts";
 
@@ -62,15 +63,23 @@ export type Unsubscribe = () => void;
 export type FilePathRef = string & { readonly __brand: "FilePathRef" };
 
 /**
- * What an open dialog is for, which decides what it lets a person pick: `attachFiles`
- * picks files, several at once, for the composer; `importFile` picks one file to import.
- * Neither picks a folder.
+ * What an open dialog answers for each purpose, which also decides what it lets a person
+ * pick: `attachFiles` picks files, several at once, for the composer; `importFile` picks
+ * one file to import; `pickFolder` picks one folder.
  */
-export type OpenDialogPurpose = "attachFiles" | "importFile";
+export interface OpenDialogResults {
+  readonly attachFiles: OpenDialogResult;
+  readonly importFile: OpenDialogResult;
+  /** The picked folder's token, or `null` when the person canceled. */
+  readonly pickFolder: FilePathRef | null;
+}
+
+/** What an open dialog is for. */
+export type OpenDialogPurpose = keyof OpenDialogResults;
 
 /** What the renderer asks an open dialog for. */
-export interface OpenDialogOptions {
-  readonly purpose: OpenDialogPurpose;
+export interface OpenDialogOptions<Purpose extends OpenDialogPurpose = OpenDialogPurpose> {
+  readonly purpose: Purpose;
 }
 
 /**
@@ -86,11 +95,6 @@ export interface PickedFile {
 /** The files a person picked, empty when they canceled. */
 export interface OpenDialogResult {
   readonly refs: readonly PickedFile[];
-}
-
-/** What the renderer asks a save dialog for: the file name it offers first. */
-export interface SaveDialogOptions {
-  readonly suggestedName: string;
 }
 
 /** Electron `MessageBoxOptions` shape (stub). */
@@ -142,11 +146,17 @@ export type UpdateSelfBlock =
  * read-out has to say when its answer was established; an `idle` with no time behind it reads
  * as "there is no update" when it means "we do not know". It is optional: a build that has
  * never completed a check has no instant to report.
+ *
+ * `available` is an update the updater found and has not downloaded, with the version and
+ * the instant that version was released, both as the update feed states them. `verifying` is
+ * the updater checking the downloaded update's signature, before it is ready to install.
  */
 export type UpdateState = (
   | { readonly status: "idle"; readonly lastCheckedAt?: string }
   | { readonly status: "checking" }
+  | { readonly status: "available"; readonly version: string; readonly releasedAt: string }
   | { readonly status: "downloading"; readonly percent: number }
+  | { readonly status: "verifying" }
   | { readonly status: "ready" }
   | { readonly status: "error"; readonly message: string }
 ) & {
@@ -222,7 +232,7 @@ export interface ServicePlace {
   /** A distribution's WSL version; absent for Windows itself. */
   readonly wslVersion?: 1 | 2;
   /** A distribution's C library; absent for Windows itself. */
-  readonly libc?: string;
+  readonly libc?: "glibc" | "musl";
   readonly claude: ServicePlaceProvider;
   readonly codex: ServicePlaceProvider;
   readonly reading: ServicePlaceReading;
@@ -256,7 +266,7 @@ export type KeyboardMap = Readonly<Record<string, string | null>>;
  */
 export interface KeyboardMapReading {
   readonly map: KeyboardMap;
-  readonly repair?: MachineSettingsRepair;
+  readonly repair?: SettingsFileRepair;
 }
 
 /** A preview pane: the one session whose active page it shows. */
@@ -301,11 +311,15 @@ export interface WindowSize {
   readonly height: number;
 }
 
-/** The daemon's own wire: its JSON-RPC calls and its subscriptions. */
+/**
+ * The daemon's own wire: its JSON-RPC calls, and its subscriptions, each opened with the
+ * request its method registers.
+ */
 export interface DaemonWire {
   call<M extends DaemonMethod>(method: M, params: DaemonParams<M>): Promise<DaemonResult<M>>;
   subscribe<E extends DaemonEvent>(
     event: E,
+    params: DaemonSubscribeParams<E>,
     handler: (payload: DaemonEventPayload<E>) => void,
   ): Unsubscribe;
 }
@@ -355,9 +369,11 @@ export interface PreloadApi {
   };
 
   readonly native: {
-    showOpenDialog(options: OpenDialogOptions): Promise<OpenDialogResult>;
+    showOpenDialog<Purpose extends OpenDialogPurpose>(
+      options: OpenDialogOptions<Purpose>,
+    ): Promise<OpenDialogResults[Purpose]>;
     /** The chosen file's token, or `null` when the person canceled. */
-    showSaveDialog(options: SaveDialogOptions): Promise<FilePathRef | null>;
+    showSaveDialog(): Promise<FilePathRef | null>;
     /** A file dropped on the page: the preload reads its path and main mints the token. */
     getDroppedFileRef(file: File): Promise<FilePathRef>;
     /** A picture pasted on the page: main writes the bytes to a temporary file. */

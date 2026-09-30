@@ -13,7 +13,7 @@
 //     the fixture keeps it for the life of the scenario: the first read is the empty map and a
 //     write is read back, which is the Keyboard page's whole contract with main.
 
-import type { DaemonEvent } from "@ai-sidekicks/contracts";
+import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts";
 import { DAEMON_STATUS_TOPIC } from "@shared/daemon-status-topic.js";
 import type {
   CpInput,
@@ -70,10 +70,18 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
     daemon: {
       call: fixtureDaemon.call,
       // The supervisor's topic is main's, and the fixture has no main to publish it.
-      subscribe: ((event: DaemonEvent | typeof DAEMON_STATUS_TOPIC, handler: () => void) =>
+      subscribe: ((
+        event: DaemonEvent | typeof DAEMON_STATUS_TOPIC,
+        params: DaemonSubscribeParams<DaemonEvent>,
+        handler: () => void,
+      ) =>
         event === DAEMON_STATUS_TOPIC
           ? refuseAbsentSubscription("daemon.subscribe(daemon.status)")
-          : fixtureDaemon.subscribe(event, handler)) as PlatformBridge["daemon"]["subscribe"],
+          : fixtureDaemon.subscribe(
+              event,
+              params,
+              handler,
+            )) as PlatformBridge["daemon"]["subscribe"],
       requestStart: () => refuseAbsentCapability("daemon.requestStart"),
       requestUpdate: () => refuseAbsentCapability("daemon.requestUpdate"),
       cancelUpdate: () => refuseAbsentCapability("daemon.cancelUpdate"),

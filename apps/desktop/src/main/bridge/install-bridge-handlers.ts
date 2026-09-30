@@ -10,7 +10,7 @@ import path from "node:path";
 import { BrowserWindow, clipboard, dialog, ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import { BRIDGE_CHANNELS } from "@shared/bridge-channels.js";
-import type { OpenDialogResult } from "@shared/preload-api.js";
+import type { OpenDialogPurpose, OpenDialogResults } from "@shared/preload-api.js";
 import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows/navigation.js";
 import { FilePathRefs } from "./file-path-refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
@@ -31,7 +31,7 @@ export function installBridgeHandlers(paths: BridgeHandlerPaths): void {
 
   handleFromConsole(
     BRIDGE_CHANNELS.showOpenDialog,
-    (event, options): Promise<OpenDialogResult> =>
+    (event, options): Promise<OpenDialogResults[OpenDialogPurpose]> =>
       showOpenDialog(
         {
           showOpenDialog: (dialogOptions) => {

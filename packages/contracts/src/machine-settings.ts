@@ -475,27 +475,28 @@ export const MachineSettingsChangeSchema: z.ZodType<MachineSettingsChange, Machi
 // The service's verbs
 // --------------------------------------------------------------------------
 
-/** Why the service found the file broken. */
-export type MachineSettingsRepairCause = "unparseable" | "schemaRefused";
-export const MACHINE_SETTINGS_REPAIR_CAUSES: readonly MachineSettingsRepairCause[] = Object.freeze([
+/** Why a settings file was found broken. */
+export type SettingsFileRepairCause = "unparseable" | "schemaRefused";
+export const SETTINGS_FILE_REPAIR_CAUSES: readonly SettingsFileRepairCause[] = Object.freeze([
   "unparseable",
   "schemaRefused",
 ]);
 
 /**
- * The service found the file broken, read the defaults in its place and wrote
- * them back. Carried until the next change is written, so the page can say both
- * happened.
+ * A settings file's repair: its owner found the file broken, read the defaults in
+ * its place and wrote them back. Carried until the next change is written, so the
+ * page can say both happened. The machine settings file and the keyboard map both
+ * carry one.
  */
-export interface MachineSettingsRepair {
+export interface SettingsFileRepair {
   repairedAt: string;
-  cause: MachineSettingsRepairCause;
+  cause: SettingsFileRepairCause;
 }
 
 /** The file as the service last read or wrote it, and the repair it made, if any. */
 export interface MachineSettingsReading {
   settings: MachineSettings;
-  repair?: MachineSettingsRepair | undefined;
+  repair?: SettingsFileRepair | undefined;
 }
 /** Parses a {@link MachineSettingsReading}. */
 export const MachineSettingsReadingSchema: z.ZodType<MachineSettingsReading> = z
@@ -504,7 +505,7 @@ export const MachineSettingsReadingSchema: z.ZodType<MachineSettingsReading> = z
     repair: z
       .object({
         repairedAt: z.iso.datetime({ offset: true }),
-        cause: z.enum(MACHINE_SETTINGS_REPAIR_CAUSES),
+        cause: z.enum(SETTINGS_FILE_REPAIR_CAUSES),
       })
       .strict()
       .optional(),

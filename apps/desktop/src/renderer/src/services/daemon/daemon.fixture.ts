@@ -10,6 +10,7 @@ import type {
   DaemonMethod,
   DaemonParams,
   DaemonResult,
+  DaemonSubscribeParams,
 } from "@ai-sidekicks/contracts";
 import type { DaemonWire, Unsubscribe } from "@shared/preload-api.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
@@ -31,8 +32,11 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
         method,
         await resolveScriptedReply(scenarioEngine, method, params),
       ) as DaemonResult<MethodName>,
+    // A scenario plays one session from its start, so the subscription's request is taken
+    // and not read: every stream it serves is already that session's, from its first beat.
     subscribe: <EventName extends DaemonEvent>(
       event: EventName,
+      _params: DaemonSubscribeParams<EventName>,
       handler: (payload: DaemonEventPayload<EventName>) => void,
     ): Unsubscribe =>
       // The scenario composes each delivery from its authored beats as untyped data, so the

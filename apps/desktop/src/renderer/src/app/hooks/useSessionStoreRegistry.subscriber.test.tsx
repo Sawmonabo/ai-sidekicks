@@ -16,6 +16,9 @@ import { type SessionDiagnostics } from "@renderer/services/session-events/sessi
 import { SessionEventSubscriber } from "@renderer/services/session-events/session-event-subscriber.js";
 import { SessionProbe } from "./session-store-hooks.test-support.js";
 
+/** A session id the daemon admits, so the binder opens a stream for it. */
+const BOUND_SESSION_ID = "019b7a44-4400-75e5-8510-ada11a5a66a5";
+
 /** The diagnostics a composition was handed, as the page would hold them. */
 interface DiagnosticsHolder {
   installed: SessionDiagnostics | undefined;
@@ -70,7 +73,9 @@ afterEach(() => {
 describe("useSessionStoreRegistry — the window's registry and the binder that feeds it", () => {
   it("mints a binder beside the registry and binds the open session", () => {
     const { diagnosticsHolder, wrapper } = compositionHarness();
-    render(<SessionProbe sessionId="session-bound" onObserve={() => undefined} />, { wrapper });
+    render(<SessionProbe sessionId={BOUND_SESSION_ID} onObserve={() => undefined} />, {
+      wrapper,
+    });
 
     // Read through what the composition was handed rather than through a returned
     // object, because the hook deliberately does not hand the binder out — this is
@@ -78,9 +83,9 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     // case also proves the tier has something to read.
     const diagnostics = diagnosticsHolder.installed;
     expect(diagnostics).toBeDefined();
-    expect(diagnostics?.openSessionIds()).toEqual(["session-bound"]);
+    expect(diagnostics?.openSessionIds()).toEqual([BOUND_SESSION_ID]);
 
-    expect(diagnostics?.boundSessionIds()).toEqual(["session-bound"]);
+    expect(diagnostics?.boundSessionIds()).toEqual([BOUND_SESSION_ID]);
   });
 
   it("disposes the binder in the same cleanup, before the registry", () => {

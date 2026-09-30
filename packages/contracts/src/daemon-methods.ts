@@ -150,6 +150,12 @@ export type DaemonResult<M extends DaemonMethod> =
 /** A subscription: a method that acknowledges and then streams. */
 export type DaemonEvent = Exclude<DaemonMethodName, DaemonMethod>;
 
+/** What a caller sends to open a subscription. */
+export type DaemonSubscribeParams<E extends DaemonEvent> =
+  DaemonMethodDescriptors[E] extends AnyMethodDescriptor
+    ? MethodRequestOf<DaemonMethodDescriptors[E]>
+    : never;
+
 /** One value a subscription pushes after its acknowledgement. */
 export type DaemonEventPayload<E extends DaemonEvent> =
   DaemonMethodDescriptors[E] extends AnyMethodDescriptor

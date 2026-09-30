@@ -34,8 +34,8 @@
 // and wrong about the transport, on that one path.
 //
 // THAT IS A MISSING SIGNAL AND NOT A MISSING OBSERVER, which is why nothing here
-// compensates for it. `PlatformBridge.daemon.subscribe` is `(event, handler) =>
-// Unsubscribe`: the handler is a payload sink with no error, end, or close arm, the
+// compensates for it. `PlatformBridge.daemon.subscribe` is `(event, request,
+// handler) => Unsubscribe`: the handler is a payload sink with no error, end, or close arm, the
 // handle only cancels, and no member anywhere on that bridge — `daemon`,
 // `controlPlane`, `native`, `update`, `app` — reports connection state.
 // There is nothing an observer could listen to. The alternatives are the two this file

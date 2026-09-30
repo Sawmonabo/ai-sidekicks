@@ -43,7 +43,7 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
 /**
  * Deliver a scenario's beats to one subscriber, filtered by what it subscribed to.
  *
- * `daemon.subscribe(name, handler)` names either a registered stream or one event
+ * `daemon.subscribe(name, request, handler)` names either a registered stream or one event
  * type, and `session-event-streams.ts` owns which names are which and what each
  * stream carries. This function performs no routing of its own — a fixture that
  * kept a second reading of the seam would answer a `run.*` stream with silence
@@ -59,7 +59,8 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * above is exercised here exactly as the live bridge exercises it. The two `run.*`
  * streams are registered PROJECTIONS —
  * `RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary` — and
- * `run-stream-projection.ts` builds one from the beat. Handing those two the
+ * `run-stream-projection.ts` builds one from the beat. The state stream's live
+ * safety hold has no session row, so no beat delivers one. Handing those two the
  * envelope would train every run-stream subscriber on a frame the
  * live bridge cannot send: no `kind`, no `sequence`, no nested `payload`, and
  * a top-level `newState` where the envelope has `payload.newState`.

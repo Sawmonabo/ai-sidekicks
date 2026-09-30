@@ -2,11 +2,11 @@ import { useId } from "react";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatPercent } from "@renderer/lib/wire-figures.js";
+import { formatDate, formatPercent } from "@renderer/lib/wire-figures.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
 import { type UpdateReading } from "./updater-reading.js";
 
-/** The five arms, plus the read not having landed. One render per arm. */
+/** Each arm of the updater's state, plus the read not having landed. One render per arm. */
 export function UpdateReadOut(props: { readonly reading: UpdateReading }): React.JSX.Element {
   const { reading } = props;
   // Generated rather than written: two windows can render this block at once, and a
@@ -29,6 +29,13 @@ export function UpdateReadOut(props: { readonly reading: UpdateReading }): React
           Checking for an update…
         </p>
       );
+    case "available":
+      return (
+        <p className="meridian-settings-page__state">
+          Update available — <WireFigure value={state.version} />, released{" "}
+          <DerivedFigure text={formatDate(state.releasedAt)} />.
+        </p>
+      );
     case "downloading":
       return (
         <div className="meridian-settings-page__state">
@@ -43,6 +50,12 @@ export function UpdateReadOut(props: { readonly reading: UpdateReading }): React
           />
           <DerivedFigure text={formatPercent(state.percent / 100)} />
         </div>
+      );
+    case "verifying":
+      return (
+        <p className="meridian-settings-page__state" aria-busy="true">
+          Checking the signature…
+        </p>
       );
     case "ready":
       return (

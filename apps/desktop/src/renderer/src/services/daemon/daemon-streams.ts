@@ -19,13 +19,8 @@
 // before rendering a figure from it. The two run-stream names are
 // `session-event-streams.ts`'s, the one place a subscription name is spelled.
 
-import type {
-  DaemonEvent,
-  RunQueueSubscribeRequest,
-  RunStateSubscribeRequest,
-} from "@ai-sidekicks/contracts";
+import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts";
 
-import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
@@ -42,86 +37,53 @@ import type { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "./session-e
  */
 export const PROVIDER_ACCOUNT_SUBSCRIBE_STREAM = "providerAccount.subscribe";
 
-/** The subsystem name the subscription guard's refusal carries. */
-export const DAEMON_STREAM_REFUSAL_ORIGIN = "console-daemon-stream";
-
 /**
  * One daemon subscription, as the registry declares it: the stream's method name
  * and the registered request that scopes it.
  *
- * Both `run.*` streams are session-scoped — `RunStateSubscribeRequest` and
- * `RunQueueSubscribeRequest` each require a `sessionId` — so the
- * request is not optional here and a caller cannot spell an unscoped open.
+ * Both `run.*` streams are session-scoped — their registered requests each require a
+ * `sessionId` — so the request is not optional here and a caller cannot spell an
+ * unscoped open.
  */
-export interface DaemonStreamOpen {
+export interface DaemonStreamOpen<StreamName extends RunStreamName> {
   /** The registered stream name: the run-state stream or the queue stream. */
-  readonly method: typeof RUN_STATE_EVENT_STREAM | typeof RUN_QUEUE_EVENT_STREAM;
-  /** The registered request, parsed by the caller through its own schema. */
-  readonly request: RunStateSubscribeRequest | RunQueueSubscribeRequest;
+  readonly method: StreamName;
+  /** The registered request, forwarded to the daemon as the subscription's scope. */
+  readonly request: DaemonSubscribeParams<StreamName>;
 }
 
 /**
  * A node-scoped daemon subscription: a stream whose registered request scopes it to
  * this machine and therefore carries no session at all.
  *
- * A SIBLING OF `subscribeDaemon` AND NOT A WIDENING OF IT. The session guard below
- * is what keeps a session-scoped feed from ever opening with nothing to put on it,
- * and relaxing it to admit a request with no session would delete that guarantee for
- * the two `run.*` feeds in order to serve a stream that never had a session to name.
  * Two functions, one open — `openStream` is the only place either reaches
  * `bridge.daemon.subscribe`.
  */
-export function subscribeNodeDaemon(
+export function subscribeNodeDaemon<StreamName extends DaemonEvent>(
   bridge: PlatformBridge,
-  streamName: DaemonEvent,
+  streamName: StreamName,
+  request: DaemonSubscribeParams<StreamName>,
   handler: (payload: unknown) => void,
 ): Unsubscribe {
-  return openStream(bridge, streamName, handler);
+  return openStream(bridge, streamName, request, handler);
 }
 
 /**
  * The daemon subscription, taking the registered request the wire's own registry
- * pairs with the stream.
- *
- * WHAT HAPPENS TO THE REQUEST TODAY, EXACTLY. It is VALIDATED and HELD, and it is
- * not yet forwarded, because there is nowhere to forward it to:
- * `PlatformBridge.daemon.subscribe<E>(event, handler)` carries an event name and a
- * handler and NO request-parameter channel, and the preload bridge contract pins
- * that signature as an early placeholder whose shape — positional parameter, options
- * bag, or an event-to-params map — belongs to the daemon and transport work and is
- * deliberately not fixed from one caller's vantage. Widening the contract type here
- * would be that premature narrowing; widening the CONSOLE's own wrapper is not, and
- * it is what makes the day the channel lands a one-line change inside this function
- * rather than an audit of every feed. The shipped preload is a stub that
- * throws on every method, so no live subscription exists to leak across today.
- *
- * WHY HOLDING IT IS SAFE UNDER THE ONE BRIDGE THAT ANSWERS. The fixture is the only
- * bridge that delivers a `run.*` beat, and a fixture scenario declares exactly one
- * session — its beats are minted against that scenario's single session id — so
- * there is no second session's projection for an unscoped subscription to consume.
- * The guard below is therefore about the CALLER, not about the wire: it refuses an
- * open that names no session so a feed can never reach the day the channel lands
- * with nothing to put on it.
+ * pairs with the stream and forwarding it as the subscription's scope.
  *
  * @consumedBy the run queue's and run state's live feeds
  */
-export function subscribeDaemon(
+export function subscribeDaemon<StreamName extends RunStreamName>(
   bridge: PlatformBridge,
-  stream: DaemonStreamOpen,
+  stream: DaemonStreamOpen<StreamName>,
   handler: (payload: unknown) => void,
 ): Unsubscribe {
-  const { sessionId } = stream.request;
-  if (typeof sessionId !== "string" || sessionId.length === 0) {
-    throw new RefusalError(
-      refuse(
-        DAEMON_STREAM_REFUSAL_ORIGIN,
-        "stream-request-unscoped",
-        `The ${stream.method} stream is session-scoped and was opened with no session, so the console did not open it.`,
-      ),
-    );
-  }
-  return openStream(bridge, stream.method, handler);
+  return openStream(bridge, stream.method, stream.request, handler);
 }
+
+/** The two session-scoped run streams a feature opens through {@link subscribeDaemon}. */
+type RunStreamName = typeof RUN_STATE_EVENT_STREAM | typeof RUN_QUEUE_EVENT_STREAM;
 
 /**
  * The one call into `daemon.subscribe`, shared by both scoped entry points.
@@ -131,12 +93,13 @@ export function subscribeDaemon(
  * reading proves — a node-scoped tail opening is the returning edge a window with no
  * bindable session has no other way to observe.
  */
-function openStream(
+function openStream<StreamName extends DaemonEvent>(
   bridge: PlatformBridge,
-  streamName: DaemonEvent,
+  streamName: StreamName,
+  request: DaemonSubscribeParams<StreamName>,
   handler: (payload: unknown) => void,
 ): Unsubscribe {
   return openObservedSubscription(bridge.transportReconnect, () =>
-    bridge.daemon.subscribe(streamName, handler),
+    bridge.daemon.subscribe(streamName, request, handler),
   );
 }

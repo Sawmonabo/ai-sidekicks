@@ -273,6 +273,13 @@ export function formatClockTime(iso: string, locale?: string): string {
   }).format(instant.epochMilliseconds);
 }
 
+/** The calendar day's fields, shared by the two formatters that name a day. */
+const CALENDAR_DAY_FIELDS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+};
+
 /**
  * An instant a person acts on: the calendar day AND the wall-clock time.
  *
@@ -295,13 +302,24 @@ export function formatDateTime(iso: string, locale?: string): string {
     return "—";
   }
   return new Intl.DateTimeFormat(locale, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+    ...CALENDAR_DAY_FIELDS,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   }).format(instant.epochMilliseconds);
+}
+
+/**
+ * A calendar day with no time: an instant read as the day it fell on, such as a
+ * release date. The same day fields as {@link formatDateTime}, so the two agree
+ * wherever they sit together.
+ */
+export function formatDate(iso: string, locale?: string): string {
+  const instant = parseInstant(iso);
+  if (instant.kind === "malformed") {
+    return "—";
+  }
+  return new Intl.DateTimeFormat(locale, CALENDAR_DAY_FIELDS).format(instant.epochMilliseconds);
 }
 
 /**

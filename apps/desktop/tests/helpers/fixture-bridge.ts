@@ -13,6 +13,7 @@ import type {
   DaemonEvent,
   DaemonMethod,
   DaemonParams,
+  DaemonSubscribeParams,
   EventEnvelope,
   SessionStreamFrame,
 } from "@ai-sidekicks/contracts";
@@ -97,7 +98,9 @@ export function createFixture(
 }
 
 /**
- * Subscribe through the bridge exactly as a view would.
+ * Subscribe through the bridge exactly as a view would, scoped to the session the scenario
+ * plays: the whole-session stream and both run streams are session-scoped, and a bare event
+ * type is the fixture's own arm, which takes the same request.
  *
  * The event name is cast to `DaemonEvent` and the payload left `unknown`: the suites name
  * streams by string, including the bare event types the daemon's method map does not list,
@@ -116,9 +119,14 @@ export function subscribeThroughBridge<Delivered = EventEnvelope>(
   eventName: string,
 ): readonly Delivered[] {
   const received: Delivered[] = [];
-  fixture.bridge.daemon.subscribe(eventName as DaemonEvent, (payload: unknown) => {
-    received.push(payload as Delivered);
-  });
+  const request = { sessionId: fixture.engine.scenario.sessionId };
+  fixture.bridge.daemon.subscribe(
+    eventName as DaemonEvent,
+    request as DaemonSubscribeParams<DaemonEvent>,
+    (payload: unknown) => {
+      received.push(payload as Delivered);
+    },
+  );
   return received;
 }
 
@@ -228,26 +236,36 @@ export function withDaemonCall(
  * the next, which is the shape the shipped stub preload puts a console in: every
  * daemon method throws until a build with a real one is installed. It receives the
  * subscriber's handler too, so a case can deliver what no scenario plays — a frame
- * carrying the daemon's drop mark.
+ * carrying the daemon's drop mark — and the request the subscription was opened with.
  */
 export function withDaemonSubscribe(
   bridge: PlatformBridge,
-  open: (passThrough: () => Unsubscribe, handler: (payload: unknown) => void) => Unsubscribe,
+  open: (
+    passThrough: () => Unsubscribe,
+    handler: (payload: unknown) => void,
+    request: unknown,
+  ) => Unsubscribe,
 ): PlatformBridge {
   // Bound before the spread, so the pass-through reaches the bridge this helper
   // WRAPPED rather than the arm it is building — which would call itself forever.
   const wrappedSubscribe = bridge.daemon.subscribe.bind(bridge.daemon) as (
     event: string,
+    request: unknown,
     handler: (payload: unknown) => void,
   ) => Unsubscribe;
   return {
     ...bridge,
     daemon: {
       ...bridge.daemon,
-      subscribe: ((event: string, handler: (payload: unknown) => void): Unsubscribe =>
+      subscribe: ((
+        event: string,
+        request: unknown,
+        handler: (payload: unknown) => void,
+      ): Unsubscribe =>
         open(
-          () => wrappedSubscribe(event, handler),
+          () => wrappedSubscribe(event, request, handler),
           handler,
+          request,
         )) as PlatformBridge["daemon"]["subscribe"],
     },
   };

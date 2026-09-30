@@ -74,9 +74,8 @@ const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(EventEnvelopeSchema
  * The frame is refused whole when it is not the registered shape: a member the
  * contract forbids, an event the tolerant carrier refuses, more changes than a frame
  * carries, or a frame with no changes that is not the caught-up drop frame. Its
- * changes' cursors are not carried: the console has nowhere to send one back, since
- * the bridge's `daemon.subscribe` takes no request, and the store orders events by
- * `sequence`.
+ * changes' cursors are not carried: the console repairs a drop by re-reading the
+ * session, and the store orders events by `sequence`.
  */
 export function readSessionStreamFrame(delivered: unknown): SessionStreamFrameReading | undefined {
   const parsed = SESSION_STREAM_FRAME_SCHEMA.safeParse(delivered);

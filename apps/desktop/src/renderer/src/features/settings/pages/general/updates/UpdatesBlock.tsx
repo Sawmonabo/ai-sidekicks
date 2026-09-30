@@ -1,14 +1,16 @@
 // Where the update stands, and who decides when it lands.
 //
-// The five-arm state read-out: `idle`, `checking`, `downloading` with its percent,
-// `ready`, and `error` with its message. `UpdateState` is a registered union on the
-// preload contract and this file renders exactly its five members.
+// The state read-out: `idle`, `checking`, `available` with the version found and its
+// release, `downloading` with its percent, `verifying`, `ready`, and `error` with its
+// message. `UpdateState` is a registered union on the preload contract and this file
+// renders exactly its members.
 //
-// NOTHING RESTARTS WITHOUT A PRESS, AND `ready` MEANS DOWNLOADED
+// NOTHING DOWNLOADS OR RESTARTS WITHOUT A PRESS, AND `ready` MEANS DOWNLOADED
 //
-// The restart control exists only on the `ready` arm, because that arm is what the
-// updater says when the download has completed; the console never derives readiness
-// from a percent, and it invents no percent for an arm that carries none — only
+// The download control exists only on the `available` arm, the update the updater found
+// and has not fetched. The restart control exists only on the `ready` arm, because that
+// arm is what the updater says when the download has completed; the console never derives
+// readiness from a percent, and it invents no percent for an arm that carries none — only
 // `downloading` has one, and only `downloading` renders a bar.
 //
 // A call that throws or rejects is not caught here; it propagates to the caller.
@@ -29,7 +31,7 @@ import { UpdateReadOut } from "./UpdateReadOut.js";
 /**
  * What each settled arm of the updater's read SAYS, for the person who cannot see it.
  *
- * TOTAL over `UpdateState`'s own union, so a sixth arm landing upstream is a compile
+ * TOTAL over `UpdateState`'s own union, so an arm landing upstream is a compile
  * error here rather than a settlement that lands silently.
  *
  * Deliberately carries no percent. The `downloading` arm re-settles on every push the
@@ -41,7 +43,9 @@ import { UpdateReadOut } from "./UpdateReadOut.js";
 const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>> = {
   idle: "Update state read. No update is waiting.",
   checking: "Update state read. A check is running.",
+  available: "Update state read. An update is available to download.",
   downloading: "Update state read. An update is downloading.",
+  verifying: "Update state read. The update's signature is being checked.",
   ready: "Update state read. An update has downloaded and installs on the next restart.",
   error: "Update state read. The updater reported a failure.",
 };
@@ -62,7 +66,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   const reading = useUpdateReading(updater);
   // Said once, when the updater read lands.
   useSettlementAnnouncement(updateSettlementSentence(reading));
-  const isReady = reading.kind === "state" && reading.state.status === "ready";
+  const status = reading.kind === "state" ? reading.state.status : undefined;
 
   return (
     <section className="meridian-settings-page__block" aria-label="Application updates">
@@ -80,7 +84,18 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
         >
           Check now
         </button>
-        {isReady ? (
+        {status === "available" ? (
+          <button
+            type="button"
+            className="meridian-settings-page__action meridian-action-button"
+            onClick={() => {
+              void updater.requestDownload();
+            }}
+          >
+            Download
+          </button>
+        ) : null}
+        {status === "ready" ? (
           <button
             type="button"
             className="meridian-settings-page__action meridian-action-button"

@@ -1,7 +1,7 @@
 // What a `daemon.subscribe` name delivers: the closed set of registered STREAMS and
 // the routing every subscription in the renderer goes through.
 //
-// `daemon.subscribe(name, handler)` names either a registered STREAM or a single
+// `daemon.subscribe(name, request, handler)` names either a registered STREAM or a single
 // event type, and the two answer differently — a stream delivers a projection of
 // many kinds, an event type delivers only its own. Both sides of that seam read this
 // module: `frame/session/session-event-binder.ts` passes a stream name to `daemon.subscribe`,

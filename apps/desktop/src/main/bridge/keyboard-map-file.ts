@@ -17,7 +17,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { MachineSettingsRepair, MachineSettingsRepairCause } from "@ai-sidekicks/contracts";
+import type { SettingsFileRepair, SettingsFileRepairCause } from "@ai-sidekicks/contracts";
 import * as z from "zod/mini";
 
 import type { KeyboardMap, KeyboardMapReading } from "@shared/preload-api.js";
@@ -56,7 +56,7 @@ const EMPTY_MAP: KeyboardMap = Object.freeze({});
 export class KeyboardMapFile {
   readonly #filePath: string;
   readonly #now: () => Date;
-  #repair: MachineSettingsRepair | undefined;
+  #repair: SettingsFileRepair | undefined;
   #pending: Promise<unknown> = Promise.resolve();
 
   public constructor(options: KeyboardMapFileOptions) {
@@ -112,7 +112,7 @@ export class KeyboardMapFile {
     return this.#readingOf(parsed.data);
   }
 
-  async #repairWithEmptyMap(cause: MachineSettingsRepairCause): Promise<KeyboardMapReading> {
+  async #repairWithEmptyMap(cause: SettingsFileRepairCause): Promise<KeyboardMapReading> {
     await this.#writeAtomically(EMPTY_MAP);
     this.#repair = { repairedAt: this.#now().toISOString(), cause };
     return this.#readingOf(EMPTY_MAP);

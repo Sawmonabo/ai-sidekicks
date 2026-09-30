@@ -7,13 +7,13 @@
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 
-import type { OpenDialogOptions, OpenDialogResult, PickedFile } from "@shared/preload-api.js";
+import type { OpenDialogPurpose, OpenDialogResults, PickedFile } from "@shared/preload-api.js";
 import type { FilePathRefOwner, FilePathRefs } from "./file-path-refs.js";
 
 /** The part of Electron's `dialog` the open dialog uses. */
 export interface OpenDialogHost {
   showOpenDialog(options: {
-    readonly properties: ("openFile" | "multiSelections")[];
+    readonly properties: ("openFile" | "openDirectory" | "multiSelections")[];
   }): Promise<{ readonly canceled: boolean; readonly filePaths: readonly string[] }>;
 }
 
@@ -22,23 +22,35 @@ export interface ClipboardHost {
   writeText(text: string): void;
 }
 
+/** What the platform's chooser lets a person pick, for each purpose. */
+const OPEN_DIALOG_PROPERTIES: Readonly<
+  Record<OpenDialogPurpose, ("openFile" | "openDirectory" | "multiSelections")[]>
+> = {
+  attachFiles: ["openFile", "multiSelections"],
+  importFile: ["openFile"],
+  pickFolder: ["openDirectory"],
+};
+
 /**
- * Show the open dialog for a purpose and answer the picked files as tokens, with each
- * file's own name and size. Files only, never a folder: `attachFiles` picks several at once,
- * `importFile` one. Empty when the person canceled.
+ * Show the open dialog for a purpose and answer what was picked as tokens. `attachFiles`
+ * picks several files at once and `importFile` one, each answered with the file's own name
+ * and size, and none when the person canceled. `pickFolder` picks one folder and answers
+ * its token, or `null` when the person canceled.
  */
 export async function showOpenDialog(
   host: OpenDialogHost,
   filePathRefs: FilePathRefs,
   owner: FilePathRefOwner,
   options: unknown,
-): Promise<OpenDialogResult> {
+): Promise<OpenDialogResults[OpenDialogPurpose]> {
   const purpose = openDialogPurpose(options);
-  const chosen = await host.showOpenDialog({
-    properties: purpose === "attachFiles" ? ["openFile", "multiSelections"] : ["openFile"],
-  });
+  const chosen = await host.showOpenDialog({ properties: OPEN_DIALOG_PROPERTIES[purpose] });
   if (chosen.canceled) {
-    return { refs: [] };
+    return purpose === "pickFolder" ? null : { refs: [] };
+  }
+  if (purpose === "pickFolder") {
+    const [folder] = chosen.filePaths;
+    return folder === undefined ? null : filePathRefs.mint(owner, folder);
   }
   const refs: PickedFile[] = [];
   for (const path of chosen.filePaths) {
@@ -56,13 +68,13 @@ export function copyToClipboard(host: ClipboardHost, text: unknown): void {
   host.writeText(text);
 }
 
-function openDialogPurpose(options: unknown): OpenDialogOptions["purpose"] {
+function openDialogPurpose(options: unknown): OpenDialogPurpose {
   const purpose =
     typeof options === "object" && options !== null && "purpose" in options
       ? options.purpose
       : undefined;
-  if (purpose !== "attachFiles" && purpose !== "importFile") {
-    throw new TypeError("An open dialog is asked for `attachFiles` or `importFile`.");
+  if (purpose !== "attachFiles" && purpose !== "importFile" && purpose !== "pickFolder") {
+    throw new TypeError("An open dialog is asked for `attachFiles`, `importFile` or `pickFolder`.");
   }
   return purpose;
 }

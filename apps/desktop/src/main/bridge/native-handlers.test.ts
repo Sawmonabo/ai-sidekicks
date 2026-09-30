@@ -7,10 +7,18 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { OpenDialogResult } from "@shared/preload-api.js";
 import { FilePathRefs, type FilePathRefOwner } from "./file-path-refs.js";
 import { copyToClipboard, showOpenDialog, type OpenDialogHost } from "./native-handlers.js";
 
 let folder: string;
+
+/** The open dialog for a file purpose, whose answer is the picked files. */
+async function showFileDialog(
+  ...args: Parameters<typeof showOpenDialog>
+): Promise<OpenDialogResult> {
+  return (await showOpenDialog(...args)) as OpenDialogResult;
+}
 
 beforeEach(async () => {
   folder = await mkdtemp(path.join(tmpdir(), "sidekicks-open-dialog-test-"));
@@ -47,7 +55,7 @@ describe("the open dialog", () => {
     const refs = new FilePathRefs();
     const owner = page(1);
 
-    const result = await showOpenDialog(dialogPicking([picked]), refs, owner, {
+    const result = await showFileDialog(dialogPicking([picked]), refs, owner, {
       purpose: "attachFiles",
     });
 
@@ -59,7 +67,7 @@ describe("the open dialog", () => {
     expect(file === undefined ? undefined : refs.pathOf(owner, file.ref)).toBe(picked);
   });
 
-  it("picks several files for an attachment and one file for an import, never a folder", async () => {
+  it("picks several files for an attachment, one file for an import and one folder for a folder", async () => {
     const attach = dialogPicking([]);
     await showOpenDialog(attach, new FilePathRefs(), page(1), { purpose: "attachFiles" });
     expect(attach.showOpenDialog).toHaveBeenCalledWith({
@@ -69,6 +77,30 @@ describe("the open dialog", () => {
     const importOne = dialogPicking([]);
     await showOpenDialog(importOne, new FilePathRefs(), page(1), { purpose: "importFile" });
     expect(importOne.showOpenDialog).toHaveBeenCalledWith({ properties: ["openFile"] });
+
+    const pickFolder = dialogPicking([]);
+    await showOpenDialog(pickFolder, new FilePathRefs(), page(1), { purpose: "pickFolder" });
+    expect(pickFolder.showOpenDialog).toHaveBeenCalledWith({ properties: ["openDirectory"] });
+  });
+
+  it("answers a picked folder as one token and keeps its path in main, or null on cancel", async () => {
+    const refs = new FilePathRefs();
+    const owner = page(1);
+
+    const ref = await showOpenDialog(dialogPicking([folder]), refs, owner, {
+      purpose: "pickFolder",
+    });
+
+    expect(typeof ref).toBe("string");
+    expect(ref).not.toContain(folder);
+    expect(typeof ref === "string" ? refs.pathOf(owner, ref) : undefined).toBe(folder);
+
+    const canceled: OpenDialogHost = {
+      showOpenDialog: () => Promise.resolve({ canceled: true, filePaths: [] }),
+    };
+    await expect(
+      showOpenDialog(canceled, refs, owner, { purpose: "pickFolder" }),
+    ).resolves.toBeNull();
   });
 
   it("answers no files when the person cancels", async () => {
@@ -94,7 +126,7 @@ describe("the open dialog", () => {
     const refs = new FilePathRefs();
     const owner = page(1);
     const [file] = (
-      await showOpenDialog(dialogPicking([picked]), refs, owner, { purpose: "importFile" })
+      await showFileDialog(dialogPicking([picked]), refs, owner, { purpose: "importFile" })
     ).refs;
     if (file === undefined) {
       throw new Error("the dialog picked nothing");

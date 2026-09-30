@@ -9,7 +9,9 @@ import {
   createStubBridge,
   type KeyboardMap,
   type KeyboardMapReading,
-  type OpenDialogResult,
+  type OpenDialogOptions,
+  type OpenDialogPurpose,
+  type OpenDialogResults,
   type PreloadApi,
 } from "@shared/preload-api.js";
 
@@ -20,8 +22,13 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
     ...stub,
     native: {
       ...stub.native,
-      showOpenDialog: async (options): Promise<OpenDialogResult> =>
-        (await ipcRenderer.invoke(BRIDGE_CHANNELS.showOpenDialog, options)) as OpenDialogResult,
+      showOpenDialog: async <Purpose extends OpenDialogPurpose>(
+        options: OpenDialogOptions<Purpose>,
+      ): Promise<OpenDialogResults[Purpose]> =>
+        (await ipcRenderer.invoke(
+          BRIDGE_CHANNELS.showOpenDialog,
+          options,
+        )) as OpenDialogResults[Purpose],
       openExternal: async (url): Promise<void> => {
         await ipcRenderer.invoke(BRIDGE_CHANNELS.openExternal, url);
       },

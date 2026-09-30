@@ -1,6 +1,6 @@
 // What the updates block reads, and what it says once it has read it.
 //
-// The five arms the updater publishes, the ordering between the opening read and a
+// The arms the updater publishes, the ordering between the opening read and a
 // transition pushed while it is still in flight, and the one polite announcement the
 // settled read makes. What a control does with any of it is
 // `UpdatesBlock.controls.test.ts`, over the doubles in `updates-block.test-support.tsx`.
@@ -8,7 +8,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
-import { formatDateTime } from "@renderer/lib/wire-figures.js";
+import { formatDate, formatDateTime } from "@renderer/lib/wire-figures.js";
 import {
   renderSettled,
   updaterHoldingItsRead,
@@ -16,7 +16,7 @@ import {
   updaterReporting,
 } from "./updates-block.test-support.js";
 
-describe("the updates block — the five arms", () => {
+describe("the updates block — the updater's arms", () => {
   it("renders idle as nothing waiting", async () => {
     const { block: container } = await renderSettled(updaterReporting({ status: "idle" }));
     expect(container.textContent ?? "").toContain("No update is waiting");
@@ -34,6 +34,24 @@ describe("the updates block — the five arms", () => {
     // whether the check happened and was silent.
     const { block: container } = await renderSettled(updaterReporting({ status: "idle" }));
     expect(container.textContent ?? "").toContain("No check has finished in this installation.");
+  });
+
+  it("renders a found update with its version and its release", async () => {
+    const { block } = await renderSettled(
+      updaterReporting({
+        status: "available",
+        version: "1.4.0",
+        releasedAt: "2026-09-28T16:00:00.000Z",
+      }),
+    );
+    expect(block.textContent ?? "").toContain(
+      `Update available — 1.4.0, released ${formatDate("2026-09-28T16:00:00.000Z")}.`,
+    );
+  });
+
+  it("renders the signature check", async () => {
+    const { block } = await renderSettled(updaterReporting({ status: "verifying" }));
+    expect(block.textContent ?? "").toContain("Checking the signature…");
   });
 
   it("renders downloading with its own percent and a bar", async () => {
