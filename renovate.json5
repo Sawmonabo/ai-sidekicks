@@ -1,22 +1,21 @@
-// Renovate config per ADR-023 §Axis 4 (sub-axis 3).
+// Renovate config.
 //
-// minimumReleaseAge: 14 days matches Renovate's documented automerge floor and is
-// the controlling defense against Shai-Hulud-class transitive compromise (post-
-// publish-malicious-version detection windows commonly < 7 days).
+// minimumReleaseAge: 14 days matches Renovate's documented automerge floor and is the controlling
+// defense against Shai-Hulud-class transitive compromise (post-publish malicious-version detection
+// windows are commonly under 7 days).
 //
-// security:minimumReleaseAgeNpm preset injects a 3-day floor for npm packages.
-// We override it back to 14 days via an explicit packageRule below (placed AFTER
-// the extends chain — Renovate packageRules are last-write-wins).
+// The security:minimumReleaseAgeNpm preset injects a 3-day floor for npm packages; an explicit
+// packageRule below, placed after the extends chain (packageRules are last-write-wins), overrides
+// it back to 14 days.
 //
 // helpers:pinGitHubActionDigests pairs with the SHA-pinned third-party actions in
-// .github/workflows/*.yml — Renovate keeps the SHAs current automatically.
-// A few of the current pins (e.g. pnpm/action-setup, googleapis/release-please-action)
-// resolve to annotated-tag-object SHAs from `git ls-remote refs/tags/<tag>`, not
-// commit SHAs. GitHub Actions accepts both (resolves through the tag object),
-// so the immutable-pin security property is identical; helpers:pinGitHubActionDigests
-// will normalize these to commit SHAs on the next bump.
+// .github/workflows/*.yml, and Renovate keeps the SHAs current. A few current pins (e.g.
+// pnpm/action-setup, googleapis/release-please-action) resolve to annotated-tag-object SHAs from
+// `git ls-remote refs/tags/<tag>`, not commit SHAs. GitHub Actions accepts both (it resolves
+// through the tag object), so the immutable-pin property is identical, and the preset normalizes
+// them to commit SHAs on the next bump.
 //
-// Dependabot deferred per ADR-023 §Axis 4 antithesis (no first-class minimum-release-age).
+// Dependabot is not used: it has no first-class minimum-release-age.
 
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
@@ -25,14 +24,12 @@
     "security:minimumReleaseAgeNpm",
     "helpers:pinGitHubActionDigests",
     ":semanticCommits",
-    // Force every Renovate PR's commit scope to `deps` (matches commitlint
-    // scope-enum). Type defaults to `chore` from :semanticCommits, which is
-    // valid in our type-enum. Use :semanticCommitScope (singular) — Renovate
-    // emits one scope per PR; the deprecated `:semanticCommitScopeAll` preset
-    // does not exist in renovatebot/renovate (would abort the extends chain
-    // with "Cannot find preset's package").
-    // Never use :semanticCommitTypeAll(deps) — `deps` is not a valid commitlint
-    // type and would block every Renovate PR.
+    // Force every Renovate PR's commit scope to `deps` (matches commitlint scope-enum). The type
+    // defaults to `chore` from :semanticCommits, valid in our type-enum. Use :semanticCommitScope
+    // (singular): Renovate emits one scope per PR, and the deprecated `:semanticCommitScopeAll`
+    // preset does not exist in renovatebot/renovate (it would abort the extends chain with "Cannot
+    // find preset's package"). Never use :semanticCommitTypeAll(deps): `deps` is not a valid
+    // commitlint type and would block every Renovate PR.
     ":semanticCommitScope(deps)",
   ],
   minimumReleaseAge: "14 days",
@@ -50,10 +47,9 @@
       matchUpdateTypes: ["patch"],
       automerge: true,
       automergeType: "pr",
-      // Squash on automerge so Renovate PRs collapse to one commit on develop
-      // (`automergeStrategy` applies on automerge; replaces the invalid
-      // top-level `squash: true` setting which `renovate-config-validator
-      // --strict` rejects).
+      // Squash on automerge so Renovate PRs collapse to one commit on develop (`automergeStrategy`
+      // applies on automerge; the top-level `squash: true` setting is invalid and
+      // `renovate-config-validator --strict` rejects it).
       automergeStrategy: "squash",
     },
     {
@@ -65,7 +61,7 @@
       automerge: false,
       labels: ["dependencies", "major"],
     },
-    // Release-tooling actions: never automerge majors (per ADR-023 §F-9 mitigation).
+    // Release-tooling actions: never automerge majors.
     {
       matchPackageNames: [
         "googleapis/release-please-action",

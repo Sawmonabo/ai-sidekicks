@@ -7,11 +7,8 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "./src",
-    // `isolatedDeclarations` (inherited from base) requires either `declaration`
-    // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
-    // the typechecker honors `isolatedDeclarations` constraints without writing
-    // files (see TS5069). `composite: false` and a null buildinfo prevent this
-    // config from polluting the project-references graph.
+    // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
+    // project-references graph.
     "composite": false,
     "declaration": true,
     "declarationMap": false,

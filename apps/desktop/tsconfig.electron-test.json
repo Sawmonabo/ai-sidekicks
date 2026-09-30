@@ -1,80 +1,66 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Typechecks the two Electron-driving tiers — `e2e` and `endurance` — and the
-  // cross-process scaffolding suites under `tests/helpers/` that drive the same
-  // launcher, cleanup, and process-tree
-  // machinery those tiers run on.
+  // Typechecks the two Electron-driving tiers, `e2e` and `endurance`, and the cross-process
+  // scaffolding suites under `tests/helpers/` that drive the same launcher, cleanup and
+  // process-tree machinery.
   //
-  // These files are genuinely BOTH contexts at once, which is why neither of the
-  // existing test configs fits. The driver code is Node — `node:fs`,
-  // `node:process`, a spawned Electron — so `tsconfig.browser-test.json`
-  // (renderer options, no Node types) rejects it. The callbacks handed to
-  // `page.evaluate` are browser code that runs in the renderer — `document`,
-  // `requestAnimationFrame`, `performance.memory` — so `tsconfig.test.json`
-  // (Node lib, no DOM) rejects those.
+  // These files are both contexts at once, so neither existing test config fits. The driver code is
+  // Node (`node:fs`, `node:process`, a spawned Electron), which `tsconfig.browser-test.json`
+  // (renderer options, no Node types) rejects. The callbacks handed to `page.evaluate` are browser
+  // code (`document`, `requestAnimationFrame`, `performance.memory`), which `tsconfig.test.json`
+  // (Node lib, no DOM) rejects.
   //
-  // The answer is a config with both libs, scoped to exactly the two directories
-  // that need it, rather than widening `tsconfig.test.json` — which would hand
-  // the DOM to `launch.smoke.test.ts` and every `src/main/**` unit, where
-  // reaching for `document` is a defect the compiler should still catch.
+  // The answer is a config with both libs, scoped to the directories that need it, rather than
+  // widening `tsconfig.test.json`, which would hand the DOM to `launch.smoke.test.ts` and every
+  // `src/main/**` unit, where reaching for `document` is a defect the compiler should still catch.
   "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,
-    // The budget registry's modules import each other by their real `.mts` path,
-    // because `node --experimental-strip-types` resolves the extension it is
-    // GIVEN and does no `.mjs` → `.mts` rewriting. A program that pulls them in
-    // needs this option to accept that path, and this tier does pull them in —
-    // through `launch-budgets.ts`, which reads the harness bounds off the same
-    // registry. Legal here for the reason `tsconfig.test.json` states about its
-    // own copy: this config is `noEmit`.
+    // The budget registry's modules import each other by their real `.mts` path, because
+    // `node --experimental-strip-types` resolves the extension it is given and does no `.mjs` to
+    // `.mts` rewriting. A program that pulls them in needs this option, and this tier does, through
+    // `launch-budgets.ts`, which reads the harness bounds off the same registry. Legal here because
+    // this config is `noEmit`.
     "allowImportingTsExtensions": true,
-    // Same `isolatedDeclarations` pairing `tsconfig.test.json` documents: the
-    // base sets it, and it needs `declaration` or `composite`, so `declaration`
-    // is kept on beside `noEmit` (TS5069) while `composite: false` keeps this
-    // config out of the project-references graph.
+    // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
+    // project-references graph.
     "composite": false,
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false,
-    // DOM joins the Node lib rather than replacing it — see the header. Kept in
-    // step with the renderer project's own lib set.
+    // DOM joins the Node lib rather than replacing it (see the header); kept in step with the
+    // renderer project's lib set.
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    // These tiers name renderer constants, and the modules that DECLARE those
-    // constants type-import their family barrels, which re-export `.tsx`
-    // components — so the renderer's React modules are in this program whether or
-    // not a test file mentions one. Without `jsx` they fail TS6142 at the barrel
-    // and the pin the whole posture rests on (import the string, never retype it)
-    // is unavailable. Same option the renderer's own project carries; nothing
-    // here emits, and no `.tsx` is authored under `tests/e2e/` or
-    // `tests/endurance/`.
+    // These tiers name renderer constants, and the modules that declare them type-import their
+    // family barrels, which re-export `.tsx` components, so the renderer's React modules are in
+    // this program whether or not a test file mentions one. Without `jsx` they fail TS6142 at the
+    // barrel and the pin the whole posture rests on (import the string, never retype it) is
+    // unavailable. Same option the renderer project carries; nothing here emits, and no `.tsx` is
+    // authored under `tests/e2e/` or `tests/endurance/`.
     "jsx": "react-jsx"
   },
   "include": [
     "tests/e2e/**/*",
     "tests/endurance/**/*",
-    // The scaffolding's own suites, for the header's reason: two of them reach the
-    // launcher and the palette helper below, which hand `page.evaluate` browser
-    // callbacks, so a Node-lib program cannot hold them.
+    // The scaffolding's own suites: two of them reach the launcher and the palette helper below,
+    // which hand `page.evaluate` browser callbacks, so a Node-lib program cannot hold them.
     "tests/helpers/**/*.test.ts",
     "tests/helpers/**/*.test-support.ts",
     "tests/helpers/deferred-rejection.ts",
     "tests/helpers/electron-harness.ts",
     "tests/helpers/launch-readiness.ts",
-    // The palette helper both launching tiers open through. It earns its line the
-    // way its two neighbors above do: it hands `page.evaluate` a callback that reads
-    // `document.activeElement`, which is browser code, and it imports the launcher,
-    // which drags `launch-readiness.ts`'s callbacks in with it.
+    // The palette helper both launching tiers open through. It hands `page.evaluate` a callback
+    // that reads `document.activeElement`, which is browser code, and imports the launcher, which
+    // drags `launch-readiness.ts`'s callbacks in with it.
     "tests/helpers/palette-interaction.ts",
-    // These tiers import renderer constants — a database name, a partition, a key
-    // — so that a rename breaks the test at compile time instead of leaving it
-    // reading a record nothing writes. That pulls the renderer's transitive module
-    // graph into this program, and part of that graph reads the build-time
-    // signals declared here. The renderer's own `tsconfig` picks this file up by
-    // its `src/**` include; this one has to name it.
+    // These tiers import renderer constants (a database name, a partition, a key) so a rename
+    // breaks the test at compile time instead of leaving it reading a record nothing writes. That
+    // pulls the renderer's transitive module graph into this program, and part of it reads the
+    // build-time signals declared in this file. The renderer's own `tsconfig` picks it up by its
+    // `src/**` include; this one has to name it.
     "src/renderer/src/vite-env.d.ts",
-    // The same, for the other ambient declaration that graph needs: renderer
-    // modules this tier reaches read `window.desktopBridge`, so the preload
-    // global's declaration is part of this program's obligations too.
+    // The other ambient declaration that graph needs: renderer modules this tier reaches read
+    // `window.desktopBridge`, so the preload global's declaration is part of this program too.
     "src/renderer/src/desktop-bridge.d.ts"
   ],
   // The renderer unit tests these globs reach are typechecked by the renderer's
