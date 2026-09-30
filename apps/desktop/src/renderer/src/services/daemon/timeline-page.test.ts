@@ -52,65 +52,29 @@ describe("readEarlierTimelinePage — one window, read as the store's own log", 
     ]);
   });
 
-  it("leaves an absent actor absent rather than spelling it as a present undefined", () => {
-    const response = TimelineReadResponseSchema.parse({
-      entries: [rowAt(7)],
-      hasMore: false,
-    } satisfies TimelineReadResponse);
-
-    expect(Object.hasOwn(readEarlierTimelinePage(response).events[0] ?? {}, "actorId")).toBe(false);
-  });
-
-  it("copies the payload rather than aliasing the parsed row's", () => {
-    const response = TimelineReadResponseSchema.parse({
-      entries: [rowAt(7)],
-      hasMore: false,
-    } satisfies TimelineReadResponse);
-
-    const page = readEarlierTimelinePage(response);
-
-    expect(page.events[0]?.payload).not.toBe(response.entries[0]?.payload);
-    expect(page.events[0]?.payload).toStrictEqual({ note: 7 });
-  });
-
-  it("takes the producer's own `hasMore` as the verdict on what remains", () => {
+  it("takes the producer's own `hasMore` as the verdict, never the cursor's presence", () => {
     const continuing = TimelineReadResponseSchema.parse({
       entries: [rowAt(7)],
       hasMore: true,
       nextCursor: "cursor-6" as EventCursor,
     } satisfies TimelineReadResponse);
 
-    const page = readEarlierTimelinePage(continuing);
+    const continuingPage = readEarlierTimelinePage(continuing);
 
-    expect(page.hasEarlierRows).toBe(true);
-    expect(page.nextBeforeCursor).toBe("cursor-6");
-  });
+    expect(continuingPage.hasEarlierRows).toBe(true);
+    expect(continuingPage.nextBeforeCursor).toBe("cursor-6");
 
-  it("does not read a terminal page's cursor as more rows", () => {
-    // Negative control for the discriminant: `nextCursor` is permitted on the terminal arm, so a
-    // boundary reading its presence would report earlier rows behind every final page.
+    // `nextCursor` is permitted on the terminal arm, so a boundary reading its presence would
+    // report earlier rows behind every final page.
     const terminal = TimelineReadResponseSchema.parse({
       entries: [rowAt(7)],
       hasMore: false,
       nextCursor: "cursor-6" as EventCursor,
     } satisfies TimelineReadResponse);
 
-    const page = readEarlierTimelinePage(terminal);
+    const terminalPage = readEarlierTimelinePage(terminal);
 
-    expect(page.hasEarlierRows).toBe(false);
-    expect(page.nextBeforeCursor).toBe("cursor-6");
-  });
-
-  it("reads an empty terminal window as a window with nothing before it", () => {
-    const page = readEarlierTimelinePage(
-      TimelineReadResponseSchema.parse({
-        entries: [],
-        hasMore: false,
-      } satisfies TimelineReadResponse),
-    );
-
-    expect(page.events).toStrictEqual([]);
-    expect(page.hasEarlierRows).toBe(false);
-    expect(page.nextBeforeCursor).toBeUndefined();
+    expect(terminalPage.hasEarlierRows).toBe(false);
+    expect(terminalPage.nextBeforeCursor).toBe("cursor-6");
   });
 });

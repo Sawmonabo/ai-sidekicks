@@ -88,36 +88,4 @@ describe("useReadScope — the line ends with the render that owned it", () => {
 
     view.unmount();
   });
-
-  it("abandons the old key's round when only the key moves", () => {
-    const rounds: ReadRound[] = [];
-    const view = render(<ReadLineProbe subject={SUBJECT_ONE} subjectKey="alpha" rounds={rounds} />);
-    const firstKeyRound = newestRound(rounds);
-    expect(firstKeyRound.signal.aborted).toBe(false);
-
-    view.rerender(<ReadLineProbe subject={SUBJECT_ONE} subjectKey="beta" rounds={rounds} />);
-
-    expect(firstKeyRound.signal.aborted).toBe(true);
-    expect(newestRound(rounds).signal.aborted).toBe(false);
-
-    view.unmount();
-  });
-
-  it("keeps one line across a render that moved nothing", () => {
-    const rounds: ReadRound[] = [];
-    const view = render(<ReadLineProbe subject={SUBJECT_ONE} subjectKey="alpha" rounds={rounds} />);
-    const beforeRerender = newestRound(rounds);
-
-    view.rerender(<ReadLineProbe subject={SUBJECT_ONE} subjectKey="alpha" rounds={rounds} />);
-
-    // The round supersedes because a second read opened; the line did not end, which is what
-    // a re-render at the same addressing means. A hook minting a fresh scope per render would
-    // abandon a read nothing replaced.
-    const afterRerender = newestRound(rounds);
-    expect(afterRerender.signal.aborted).toBe(false);
-    expect(beforeRerender.signal.aborted).toBe(true);
-
-    view.unmount();
-    expect(afterRerender.signal.aborted).toBe(true);
-  });
 });

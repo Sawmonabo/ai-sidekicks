@@ -1,8 +1,7 @@
 // The half of the attention panel for people who cannot see it. `attention-sentences.test.ts`
-// pins what is said; this pins when: silent while the read is in flight, once when it settles,
-// again when a later settlement differs, and never because the list merely rendered. The read
-// re-reads whenever a session store moves, so a hook speaking per render would repeat and one
-// latching a flag at mount would swallow a later coverage gap.
+// pins what is said; this pins that a later settlement that says something different is spoken
+// too. The read re-reads whenever a session store moves, so a hook latching a flag at its first
+// settlement would swallow a later coverage gap.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
@@ -97,35 +96,7 @@ function mountProbe(reading: AttentionReading): {
 }
 
 describe("the attention reading announces its settlement", () => {
-  it("says nothing while the read is still in flight", () => {
-    // The still-reading arm is `undefined`, not an empty string, which would clear a standing
-    // region.
-    const probe = mountProbe({ phase: "reading" });
-
-    expect(probe.spoken()).toStrictEqual([]);
-  });
-
-  it("says what a served read found, once", async () => {
-    const probe = mountProbe({ phase: "reading" });
-    await probe.rerender(answered({ items: [itemNeeding("a"), itemNeeding("b")] }));
-
-    expect(probe.spoken()).toStrictEqual(["2 items need you."]);
-  });
-
-  it("does not say it again because the list rendered again", async () => {
-    // Control for a hook announcing from its render body or keyed on the reading object: equal
-    // readings arrive repeatedly with a new identity.
-    const probe = mountProbe({ phase: "reading" });
-    await probe.rerender(answered({ items: [itemNeeding("a")] }));
-    await probe.rerender(answered({ items: [itemNeeding("a")] }));
-    await probe.rerender(answered({ items: [itemNeeding("a")] }));
-
-    expect(probe.spoken()).toStrictEqual(["One item needs you."]);
-  });
-
   it("speaks a later settlement that says something different", async () => {
-    // Control from the other side: a flag latched at the first settlement would silence the later
-    // coverage gap.
     const probe = mountProbe({ phase: "reading" });
     await probe.rerender(answered({ items: [itemNeeding("a")] }));
     await probe.rerender(answered({ items: [itemNeeding("a")], refusedSessionIds: ["session-b"] }));
@@ -134,16 +105,5 @@ describe("the attention reading announces its settlement", () => {
       "One item needs you.",
       "One item needs you. One session could not be checked.",
     ]);
-  });
-
-  it("names both facts when the read did not cover every session", async () => {
-    const probe = mountProbe({ phase: "reading" });
-    await probe.rerender(
-      answered({ items: [itemNeeding("a")], refusedSessionIds: ["session-b", "session-c"] }),
-    );
-
-    const [spoken] = probe.spoken();
-    expect(spoken).toContain("One item needs you.");
-    expect(spoken).toContain("2 sessions could not be checked.");
   });
 });

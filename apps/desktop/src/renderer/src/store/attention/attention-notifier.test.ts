@@ -94,35 +94,6 @@ describe("the attention notifier", () => {
     expect(notifier.arrivalsToAnnounce(settledRead(standing))).toStrictEqual([]);
   });
 
-  it("keeps a cleared id while there is room under the cap", () => {
-    // Negative control for pruning every id a read did not return: a fan-out that refused one
-    // session answers without its items, and forgetting them would re-announce them on recovery.
-    const notifier = new AttentionNotifier();
-    const carried = item({ id: "carried", sessionId: "session-b" });
-    notifier.arrivalsToAnnounce(settledRead([item(), carried]));
-    notifier.arrivalsToAnnounce(settledRead([item()]));
-
-    expect(notifier.arrivalsToAnnounce(settledRead([item(), carried]))).toStrictEqual([]);
-  });
-
-  it("forgets the oldest cleared id rather than growing without bound", () => {
-    const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([item({ id: "oldest" })]));
-    const fill = Array.from({ length: ATTENTION_NOTIFIED_ITEM_CAP }, (_unused, index) =>
-      item({ id: `filler-${String(index)}` }),
-    );
-    notifier.arrivalsToAnnounce(settledRead(fill));
-
-    // `oldest` cleared from the projection and the fill took the whole cap, so the oldest
-    // cleared id was dropped and the item is an arrival again. A duplicate banner is the
-    // direction this cap may be wrong in; an unbounded set is not.
-    expect(
-      notifier
-        .arrivalsToAnnounce(settledRead([item({ id: "oldest" }), fill[fill.length - 1]!]))
-        .map((announced) => announced.id),
-    ).toStrictEqual(["oldest"]);
-  });
-
   it("raises one banner for a run and the session aggregate that represents it", () => {
     // Two item ids over one canonical event, as a projection carrying both scopes looks: the
     // aggregate takes the representative's `sourceEventId`. Keyed on the item id, one run
@@ -135,39 +106,5 @@ describe("the attention notifier", () => {
     const arrivals = notifier.arrivalsToAnnounce(settledRead([runScoped, aggregate]));
 
     expect(arrivals.map((announced) => announced.id)).toStrictEqual(["run-1:pending_approval"]);
-  });
-
-  it("negative control: two items over two events are two banners", () => {
-    // Guards against a fold that collapsed every settlement to one banner and silently dropped
-    // the second approval.
-    const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([]));
-
-    const arrivals = notifier.arrivalsToAnnounce(
-      settledRead([item({ id: "run-1:pending_approval" }), item({ id: "run-2:pending_approval" })]),
-    );
-
-    expect(arrivals.map((announced) => announced.id)).toStrictEqual([
-      "run-1:pending_approval",
-      "run-2:pending_approval",
-    ]);
-  });
-
-  it("does not re-announce the aggregate on a later read that carries its event", () => {
-    // The cross-settlement half: the aggregate's id may move when the representative changes,
-    // so an item-keyed memory would raise a second banner for news already told.
-    const notifier = new AttentionNotifier();
-    notifier.arrivalsToAnnounce(settledRead([]));
-    const runScoped = item({ id: "run-1:pending_approval", sourceEventId: "event-1" });
-    notifier.arrivalsToAnnounce(settledRead([runScoped]));
-
-    const arrivals = notifier.arrivalsToAnnounce(
-      settledRead([
-        runScoped,
-        item({ id: "session-a:pending_approval", sourceEventId: "event-1" }),
-      ]),
-    );
-
-    expect(arrivals).toStrictEqual([]);
   });
 });

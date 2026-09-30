@@ -1,10 +1,8 @@
-// How a suite drives the two phases a subject-scoped addressing is held in.
+// How a suite drives, through React, a pass that really runs and never commits.
 //
 // `subject-scoped-holder.ts` mints an addressing during a render and confirms it when that
-// render commits, so a suite must say which of the two it drives: directly, with no
-// renderer, in the order React would; or through React, with a pass that really runs and
-// never commits. Both live here because they are one role (putting a holder into a state a
-// claim is about) and because a test file may not import another test file.
+// render commits, so the claims about an uncommitted addressing need a pass React ran and
+// threw away.
 //
 // The abandoned pass is driven by a transition that suspends and is never resolved. A
 // render-phase state update is the wrong driver: React answers it by re-invoking the
@@ -16,27 +14,6 @@
 
 import { act, render, type RenderResult } from "@testing-library/react";
 import { startTransition, type ReactElement } from "react";
-
-/**
- * A promise nothing ever settles, so the pass that suspends on it never resumes.
- *
- * Minted by the caller and handed in as a prop: React refuses to treat one minted inside a
- * render body as a suspension it can retry.
- */
-export class SuspensionGate {
-  #open: (() => void) | undefined;
-  public readonly pending: Promise<void>;
-
-  public constructor() {
-    this.pending = new Promise<void>((resolve) => {
-      this.#open = resolve;
-    });
-  }
-
-  public open(): void {
-    this.#open?.();
-  }
-}
 
 /**
  * Drive one committed visit, one pass at another subject that is abandoned, and one render
@@ -51,40 +28,16 @@ export async function driveAbandonedPass<TSubject extends object>(
   abandoned: TSubject,
 ): Promise<RenderResult> {
   const view = render(treeAt(committed, undefined));
-  const gate = new SuspensionGate();
+  // Nothing ever settles it, so the pass that suspends on it never resumes. It is minted here and
+  // handed in as a prop: React refuses to retry a suspension minted inside a render body.
+  const neverSettles = new Promise<void>(() => undefined);
   await act(async () => {
     startTransition(() => {
-      view.rerender(treeAt(abandoned, gate.pending));
+      view.rerender(treeAt(abandoned, neverSettles));
     });
   });
   await act(async () => {
     view.rerender(treeAt(committed, undefined));
-  });
-  return view;
-}
-
-/**
- * Drive one visit, one pass React drops at another subject, and one visit back.
- *
- * The suspension here is resolved rather than parked: React re-renders from the newest
- * element once the promise settles, which is what makes the pass dropped rather than
- * abandoned. The two drivers serve different claims and differ in whether the discarded pass
- * is ever retried.
- */
-export async function driveDroppedPass<TSubject extends object>(
-  treeAt: (subject: TSubject, suspendOn: Promise<void> | undefined) => ReactElement,
-  visited: TSubject,
-  dropped: TSubject,
-): Promise<RenderResult> {
-  const view = render(treeAt(visited, undefined));
-  const gate = new SuspensionGate();
-  await act(async () => {
-    view.rerender(treeAt(dropped, gate.pending));
-  });
-  await act(async () => {
-    gate.open();
-    await gate.pending;
-    view.rerender(treeAt(visited, undefined));
   });
   return view;
 }

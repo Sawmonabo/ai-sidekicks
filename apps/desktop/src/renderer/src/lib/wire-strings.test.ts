@@ -17,7 +17,7 @@ describe("reading a wire-supplied member as a string", () => {
     expect(readWireString("")).toBeUndefined();
   });
 
-  it("negative control: every non-string the wire can carry reads as absent", () => {
+  it("reads every non-string the wire can carry as absent", () => {
     // Without this, `value ? value : undefined` would satisfy every case above and pass a number,
     // object or array through to a caller expecting a string.
     for (const value of [undefined, null, 0, 1, true, false, {}, [], ["run-1"], Symbol("run")]) {
@@ -42,7 +42,7 @@ describe("reading a wire-supplied member as a number", () => {
     expect(readWireNumber(Number.NEGATIVE_INFINITY)).toBeUndefined();
   });
 
-  it("negative control: no value is coerced, the numeric string least of all", () => {
+  it("coerces no value, the numeric string least of all", () => {
     // Without this, `Number(value)` would satisfy every case above and return `4` for `"4"`,
     // `true` and `[]`.
     for (const value of [undefined, null, "4", "", true, false, {}, [], [4]]) {

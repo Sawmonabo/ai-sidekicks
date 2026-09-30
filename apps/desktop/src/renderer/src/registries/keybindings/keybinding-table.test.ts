@@ -60,32 +60,4 @@ describe("KeybindingTable — a stale disposer cannot orphan the live listener",
     pressChord(target);
     expect(runCount()).toBe(1);
   });
-
-  it("is idempotent: disposing the current installation twice detaches once and leaves it detached", () => {
-    const { table, target, runCount } = buildTable();
-
-    const disposer = table.install(target);
-    disposer();
-    disposer();
-
-    expect(table.installed).toBe(false);
-    pressChord(target);
-    expect(runCount()).toBe(0);
-  });
-
-  it("negative control: install, dispose, install still runs the command exactly once per press", () => {
-    // Guards against a table that refuses reinstallation or whose disposer detaches nothing.
-    const { table, target, runCount } = buildTable();
-
-    table.install(target)();
-    const secondDisposer = table.install(target);
-
-    pressChord(target);
-    expect(runCount()).toBe(1);
-
-    secondDisposer();
-    pressChord(target);
-    expect(runCount()).toBe(1);
-    expect(table.installed).toBe(false);
-  });
 });

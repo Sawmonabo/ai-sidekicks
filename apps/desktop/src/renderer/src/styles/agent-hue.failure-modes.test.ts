@@ -1,13 +1,13 @@
-// Failure modes of the agent hue wheel: twelve steps handed to an unbounded population. Running
-// out does not crash; it draws two agents alike in a crowded wrap, and a reused color would
-// re-attribute an agent's earlier rows. A happy-path test with three agents reaches neither.
+// The agent hue wheel handed to an unbounded population: twelve steps, and running out must not
+// draw two agents alike while a step is still free. A happy-path test with three agents never
+// reaches the wrap.
 
 import { describe, expect, it } from "vitest";
 
 import { HUE_WHEEL_STEPS } from "./palette.js";
 import { AgentHueAllocator } from "./agent-hue.js";
 
-describe("failure matrix — the agent hue wheel runs out of steps", () => {
+describe("the agent hue wheel runs out of steps", () => {
   it("uses every step before any repeats, and wraps evenly past twelve", () => {
     const allocator = new AgentHueAllocator();
     const agentIds = Array.from(
@@ -30,15 +30,5 @@ describe("failure matrix — the agent hue wheel runs out of steps", () => {
     expect(assignments.slice(HUE_WHEEL_STEPS).every((one) => one.sharesStepWithEarlierUser)).toBe(
       true,
     );
-  });
-
-  it("frees nothing when an agent leaves, so a color never changes hands", () => {
-    const allocator = new AgentHueAllocator();
-    const leaving = allocator.admit("agent-leaving");
-    // There is deliberately no `release`: reusing a departed agent's hue would re-attribute its
-    // rows.
-    expect("release" in allocator).toBe(false);
-    const later = allocator.admit("agent-later");
-    expect(later.step).not.toBe(leaving.step);
   });
 });

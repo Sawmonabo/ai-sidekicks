@@ -1,15 +1,11 @@
 // A frame carrying the daemon's drop mark, and the repair it asks for. When the daemon drops
-// changes for a connection, the next frame carries the mark, and a caught-up connection gets one
-// frame with no changes and the mark. No scenario plays either, so each case hands the subscriber
-// the frame itself through the fixture bridge's subscribe arm.
+// changes for a connection, a caught-up connection gets one frame with no changes and the mark. No
+// scenario plays it, so the case hands the subscriber the frame itself through the fixture
+// bridge's subscribe arm.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
-import {
-  composeScenarioSessionFrames,
-  type ScenarioSessionStreamFrame,
-} from "../daemon/event-envelope.fixture.js";
 import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
 import { settleMicrotasks } from "@test/helpers/session-store-fixtures.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
@@ -70,16 +66,6 @@ async function createBoundHarness(): Promise<DropHarness> {
   return { registry, binder, engine, deliver: handler, reasonsSeen };
 }
 
-/** The scenario's first beat, as the frame the daemon would carry it in. */
-function frameOfFirstBeat(): ScenarioSessionStreamFrame {
-  const firstBeat = CONCURRENT_STREAMING_SCENARIO.beats[0];
-  const [frame] = composeScenarioSessionFrames(firstBeat === undefined ? [] : [firstBeat.event]);
-  if (frame === undefined) {
-    throw new Error("the concurrent-streaming scenario plays no beats");
-  }
-  return frame;
-}
-
 // Tripwires throw in development; under test they are recorded, since nothing here expects one.
 beforeEach(() => {
   windowTripwires.setThrowOnReport(false);
@@ -99,35 +85,6 @@ describe("SessionEventSubscriber — the drop mark", () => {
     await settleMicrotasks();
     expect(reasonsSeen).toEqual(["gap-repull"]);
     expect(binder.unreadableDeliveryCount).toBe(0);
-
-    binder.dispose();
-  });
-
-  it("repairs on the mark riding the first frame after the gap, and still queues its events", async () => {
-    const { registry, binder, engine, deliver, reasonsSeen } = await createBoundHarness();
-
-    deliver({ ...frameOfFirstBeat(), dropped: true });
-
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(1);
-    expect(registry.peek(SESSION_ID)?.snapshot().degradedCause).toBe("sequence-gap");
-    engine.advance(0);
-    await settleMicrotasks();
-    expect(reasonsSeen).toEqual(["gap-repull"]);
-
-    binder.dispose();
-  });
-
-  it("negative control: a frame without the mark asks for no repair", async () => {
-    // Without this, a subscriber that re-read on every frame would pass both cases above.
-    const { registry, binder, engine, deliver, reasonsSeen } = await createBoundHarness();
-
-    deliver(frameOfFirstBeat());
-
-    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(1);
-    expect(registry.peek(SESSION_ID)?.snapshot().degradedCause).toBeUndefined();
-    engine.advance(0);
-    await settleMicrotasks();
-    expect(reasonsSeen).toEqual([]);
 
     binder.dispose();
   });

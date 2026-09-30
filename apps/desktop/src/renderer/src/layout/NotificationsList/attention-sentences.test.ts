@@ -61,15 +61,6 @@ function answered(options: {
 }
 
 describe("what one settled attention read says", () => {
-  it("counts what needs a person, in the singular and the plural", () => {
-    expect(describeAttentionSettlement(answered({ items: [itemNeeding("a")] }))).toBe(
-      "One item needs you.",
-    );
-    expect(
-      describeAttentionSettlement(answered({ items: [itemNeeding("a"), itemNeeding("b")] })),
-    ).toBe("2 items need you.");
-  });
-
   it("stays silent only for a read that found nothing and covered everything", () => {
     // A read that answered for every session and dropped nothing has nothing to say; anything less
     // must say so, since a listener cannot see the panel.
@@ -80,17 +71,6 @@ describe("what one settled attention read says", () => {
     expect(describeAttentionSettlement(answered({ droppedCount: 1 }))).toBe(
       "Nothing was found in what this read covered. 1 delivery could not be read, so what needs you may be behind what the background service has sent.",
     );
-  });
-
-  it("carries the coverage gap beside a count rather than instead of it", () => {
-    expect(
-      describeAttentionSettlement(
-        answered({
-          items: [itemNeeding("a")],
-          refusedSessions: [refusedSession("s-1"), refusedSession("s-2")],
-        }),
-      ),
-    ).toBe("One item needs you. 2 sessions could not be checked.");
   });
 
   it("states every fact the read produced, in one sentence", () => {

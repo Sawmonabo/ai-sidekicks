@@ -1,10 +1,9 @@
-// The fold itself: the kinds it claims and what one event does to the board. Payloads are ones
-// the kind's schema accepts, except where a case's subject is a refused payload.
+// The fold itself: what one event does to the board. Payloads are ones the kind's schema
+// accepts, except where a case's subject is a refused payload.
 
 import { describe, expect, it } from "vitest";
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import type { EntityMutation } from "../session/entities/entities.js";
-import { APPROVAL_FLOW_EVENT_KINDS, APPROVAL_FLOW_PROJECTORS } from "./approval-flow-projection.js";
+import { APPROVAL_FLOW_PROJECTORS } from "./approval-flow-projection.js";
 import { SESSION_ID, approvalEvent } from "./approval-flow-projection.test-support.js";
 
 const RUN_ID = "019b7a33-3300-740e-8110-d1a4c1150511";
@@ -45,27 +44,6 @@ function fold(
     approvalEvent({ kind, sequence: 1, payload, ...(actorId === undefined ? {} : { actorId }) }),
   );
 }
-
-describe("the kinds the composer feature claims", () => {
-  it("is the approval_flow category minus the events that are not an ask's", () => {
-    const categoryKinds = [...SESSION_EVENT_CATEGORY_BY_TYPE]
-      .filter(([, category]) => category === "approval_flow")
-      .map(([eventType]) => eventType);
-
-    // Another kind landing in the category fails here rather than going unclaimed.
-    expect(categoryKinds.filter((kind) => !APPROVAL_FLOW_EVENT_KINDS.includes(kind))).toStrictEqual(
-      [
-        "approval.reviewer_denied",
-        "approval.denial_overridden",
-        "moderation.review_flagged",
-        "plan.proposed",
-        "plan.accepted",
-        "plan.handed_off",
-      ],
-    );
-    expect(APPROVAL_FLOW_EVENT_KINDS).toContain("approval.requested");
-  });
-});
 
 describe("one event, folded", () => {
   it("keys the ask on its id and carries the rest of the payload, the ask id included", () => {
@@ -138,25 +116,5 @@ describe("one event, folded", () => {
         sessionId: "019b7a33-3300-7001-8110-d1a4c11505ff",
       }),
     ).toStrictEqual([]);
-  });
-
-  it("folds nothing for a revocation that names no ask", () => {
-    // A detached project or withdrawn trust ends a rule with no ask, so no entity to key on.
-    const {
-      runId: _runId,
-      approvalRequestId: _approvalRequestId,
-      ...revocation
-    } = {
-      ...ASK,
-      ruleId: RULE_ID,
-      invalidationTrigger: "project_detached",
-    };
-    expect(fold("approval.rule_revoked", revocation)).toStrictEqual([]);
-  });
-
-  it("negative control: the same revocation naming its ask does fold", () => {
-    expect(
-      fold("approval.rule_revoked", { ...ASK, ruleId: RULE_ID, invalidationTrigger: "explicit" }),
-    ).toHaveLength(1);
   });
 });

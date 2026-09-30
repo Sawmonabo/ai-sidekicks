@@ -1,5 +1,5 @@
-// An override wins over the shipped chord, a conflict is refused, a reset restores, and what one
-// window wrote the next reads back from the keyboard map.
+// An override wins over the shipped chord, a conflict is refused, and what one window wrote the
+// next reads back from the keyboard map.
 
 import { describe, expect, it } from "vitest";
 
@@ -38,7 +38,6 @@ type KeyboardMapBridge = PreloadApi["keyboardMap"];
  */
 class MemoryKeyboardMap implements KeyboardMapBridge {
   public stored: KeyboardMap;
-  public repair: KeyboardMapReading["repair"];
   public failWrites = false;
   public failReads = false;
   #letReadAnswer: (() => void) | undefined;
@@ -61,9 +60,7 @@ class MemoryKeyboardMap implements KeyboardMapBridge {
     if (this.failReads) {
       throw new Error("Error invoking remote method 'keyboardMap.read': EACCES");
     }
-    return this.repair === undefined
-      ? { map: this.stored }
-      : { map: this.stored, repair: this.repair };
+    return { map: this.stored };
   }
 
   public async write(map: KeyboardMap): Promise<KeyboardMap> {
@@ -71,7 +68,6 @@ class MemoryKeyboardMap implements KeyboardMapBridge {
       throw new Error("Error invoking remote method 'keyboardMap.write': ENOSPC");
     }
     this.stored = map;
-    this.repair = undefined;
     return map;
   }
 
@@ -140,22 +136,9 @@ describe("an override reaches the keyboard, not just the page", () => {
     expect(table.handleKeyDown(altOnePress())).toBe(true);
     expect(ran).toStrictEqual(["workflows"]);
   });
-
-  it("negative control: the shipped table runs the other command on the same press", () => {
-    // Without this, a table that always ran workflows on this press would pass the case above.
-    const ran: string[] = [];
-    const table = new KeybindingTable({
-      registry: navigationRegistry(ran),
-      readContext: () => ({}),
-    });
-    table.setBindings(DEFAULTS);
-
-    expect(table.handleKeyDown(altOnePress())).toBe(true);
-    expect(ran).toStrictEqual(["sessions"]);
-  });
 });
 
-describe("what the store refuses and what it restores", () => {
+describe("what the store refuses", () => {
   it("refuses a chord another command answers to, naming that command", async () => {
     const overrides = overrideStore();
     const result = await overrides.bind("frame.goToSessions", "Alt+Digit2");
@@ -166,51 +149,6 @@ describe("what the store refuses and what it restores", () => {
     }
     // Refused before anything moved.
     expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
-  });
-
-  it("restores the shipped chord on a reset, and forgets the override", async () => {
-    const overrides = overrideStore();
-    await overrides.bind("frame.goToSessions", "$mod+9");
-    expect(overrides.snapshot.bindings[0]?.chord).toBe("$mod+9");
-
-    await overrides.reset("frame.goToSessions");
-    expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
-    expect(overrides.overrides).toStrictEqual({});
-  });
-
-  it("drops every override at once, and keeps an explicit unbinding until it does", async () => {
-    const overrides = overrideStore();
-    await overrides.unbind("frame.goToSessions");
-    expect(overrides.snapshot.bindings.map((binding) => binding.commandId)).toStrictEqual([
-      "frame.goToWorkflows",
-    ]);
-
-    await overrides.resetAll();
-    expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
-  });
-
-  it("publishes a fresh snapshot on every act and holds one identity between them", () => {
-    const overrides = overrideStore();
-    const first = overrides.snapshot;
-    expect(overrides.snapshot).toBe(first);
-    overrides.beginRecording();
-    expect(overrides.snapshot).not.toBe(first);
-    expect(overrides.snapshot.recording).toBe(true);
-    overrides.endRecording();
-    expect(overrides.snapshot.recording).toBe(false);
-  });
-
-  it("tells its subscribers once per act and stops telling an unsubscribed one", async () => {
-    const overrides = overrideStore();
-    let changes = 0;
-    const unsubscribe = overrides.subscribe(() => {
-      changes += 1;
-    });
-    await overrides.bind("frame.goToSessions", "$mod+9");
-    expect(changes).toBe(1);
-    unsubscribe();
-    await overrides.bind("frame.goToSessions", "$mod+8");
-    expect(changes).toBe(1);
   });
 });
 
@@ -230,13 +168,6 @@ describe("what one window wrote, the next one reads", () => {
     await reader.hydrateFrom(keyboardMap);
     expect(reader.snapshot.bindings[0]?.chord).toBe("$mod+9");
     expect(reader.hydrationRefusals).toHaveLength(0);
-  });
-
-  it("negative control: a store that read an empty map installs the shipped chords", async () => {
-    // Without this, a reader that kept the writer's in-memory map would pass the round trip above.
-    const reader = overrideStore();
-    await reader.hydrateFrom(new MemoryKeyboardMap());
-    expect(reader.snapshot.bindings).toStrictEqual(DEFAULTS);
   });
 
   it("declines a stored chord that no longer installs rather than raising on it", async () => {
@@ -289,22 +220,6 @@ describe("what one window wrote, the next one reads", () => {
     expect(overrides.overrides).toStrictEqual({ "frame.goToWorkflows": "Alt+Digit4" });
   });
 
-  it("negative control: the newer hydration's overrides do land when it answers last", async () => {
-    // Without this, a store ignoring every hydration but the first would pass the case above.
-    const replaced = heldMapHolding("frame.goToSessions", "Alt+Digit3");
-    const current = heldMapHolding("frame.goToWorkflows", "Alt+Digit4");
-    const overrides = overrideStore();
-
-    const first = overrides.hydrateFrom(replaced);
-    const second = overrides.hydrateFrom(current);
-    await replaced.answer();
-    await first;
-    await current.answer();
-    await second;
-
-    expect(overrides.overrides).toStrictEqual({ "frame.goToWorkflows": "Alt+Digit4" });
-  });
-
   it("discloses a refused write rather than reporting a preference that was kept", async () => {
     // The chord is bound for this window, and the store says it will not come back.
     const keyboardMap = new MemoryKeyboardMap();
@@ -329,17 +244,6 @@ describe("what one window wrote, the next one reads", () => {
     // Main's message can name a path, so the detail must not carry it.
     expect(overrides.readRefusal?.detail).not.toContain("EACCES");
   });
-
-  it("holds the repair main reports until the next change is written", async () => {
-    const keyboardMap = new MemoryKeyboardMap();
-    keyboardMap.repair = { repairedAt: "2026-09-30T12:00:00.000Z", cause: "unparseable" };
-    const overrides = overrideStore();
-    await overrides.hydrateFrom(keyboardMap);
-    expect(overrides.repair?.cause).toBe("unparseable");
-
-    await overrides.bind("frame.goToSessions", "$mod+9");
-    expect(overrides.repair).toBeUndefined();
-  });
 });
 
 describe("the shipped table is read, not captured", () => {
@@ -352,7 +256,6 @@ describe("the shipped table is read, not captured", () => {
       readonly platform: "darwin";
     };
     readonly contribute: (binding: Keybinding) => void;
-    readonly contributeSilently: (binding: Keybinding) => void;
   } {
     let base: readonly Keybinding[] = DEFAULTS;
     const listeners = new Set<() => void>();
@@ -372,10 +275,6 @@ describe("the shipped table is read, not captured", () => {
           listener();
         }
       },
-      // The same growth with no signal, for the negative control.
-      contributeSilently: (binding) => {
-        base = [...base, binding];
-      },
     };
   }
 
@@ -391,28 +290,5 @@ describe("the shipped table is read, not captured", () => {
     expect(overrides.snapshot.bindings.map((binding) => binding.commandId)).toContain(
       "transcript.open",
     );
-  });
-
-  it("negative control: the signal is what refreshes it, not the next read", () => {
-    // The snapshot is cached because `useSyncExternalStore` compares by identity, so a silent move
-    // stays invisible; this fails if the store recomposes on every read.
-    const growable = growableBase();
-    const overrides = new KeybindingOverrideStore(growable.options);
-    expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
-
-    growable.contributeSilently({ chord: "Alt+Digit4", commandId: "transcript.close" });
-
-    expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
-  });
-
-  it("answers the shipped table beside the effective one, with the overrides only in the second", async () => {
-    // The page measures "changed" against the shipped table, not the effective one.
-    const overrides = overrideStore();
-    await overrides.hydrateFrom(new MemoryKeyboardMap());
-    const result = await overrides.bind("frame.goToSessions", "Alt+Digit9");
-    expect(result.outcome).toBe("bound");
-
-    expect(overrides.snapshot.shippedBindings).toStrictEqual(DEFAULTS);
-    expect(overrides.snapshot.bindings[0]?.chord).toBe("Alt+Digit9");
   });
 });

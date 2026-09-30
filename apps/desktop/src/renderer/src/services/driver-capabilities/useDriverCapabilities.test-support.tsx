@@ -1,5 +1,5 @@
-// What both halves of the capability suite build their cases from: a driver's report, the counting
-// bridge that answers it, and the probe that consumes the hook.
+// What the capability suite builds its case from: a driver's report, the counting bridge that
+// answers it, and the probe that consumes the hook.
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
