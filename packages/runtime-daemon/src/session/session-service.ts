@@ -1,53 +1,20 @@
-// SessionService — test-seeding append + replay over Local SQLite.
+// Reads a session's events back in `sequence ASC` order and replays them to a snapshot, plus a
+// guarded `append` that tests use to seed rows.
 //
-// Append path (GUARDED, test-only):
-//   - `append()` refuses to run unless the service was constructed with the
-//     module-private `TestSeedingAppendToken` singleton
-//     (`TestSeedingAppendToken.forTestsOnly()`). It writes a row with a
-//     caller-chosen `sequence`, outside the per-session append lock, with no
-//     sealing and no canonical-size ceiling — everything the sole durable
-//     writer, `EventLogService.append`, exists to guarantee — so no production
-//     composition root may reach it. Tests seeding rows opt in explicitly at
-//     construction.
-//   - Writes one `session_events` row per event. A single-statement INSERT is
-//     implicitly atomic in SQLite.
-//   - Materializes `monotonic_ns` from the writer (caller-supplied) so tests
-//     can drive non-monotonic values.
-//   - Writes `pii_payload = NULL` always.
-//
-// Replay path:
-//   - Reads events for a session by `sequence ASC` — the canonical replay
-//     key.
-//   - Returns hydrated `StoredEvent` objects (parsed JSON payload). The
-//     projector consumes these to build `DaemonSessionSnapshot`.
-//   - `monotonic_ns` is hydrated as `bigint` (SQLite INTEGER → JS Number
-//     loses precision above 2^53 — process.hrtime.bigint() can produce
-//     values above this — so better-sqlite3's `safeIntegers` mode is
-//     enabled per-statement on the read path).
-//
-// What this service does NOT do:
-//   - Snapshot persistence to `session_snapshots`: replay reproduces state
-//     from the event log alone.
-//   - Recovery from torn writes mid-batch.
+// `append` writes a row with a caller-chosen `sequence`, outside the per-session append lock,
+// with no sealing and no size ceiling. `EventLogService.append` is the only durable writer, so
+// `append` refuses to run unless the service was built with `TestSeedingAppendToken`. Replay
+// does not persist snapshots; it rebuilds state from the event log each time.
 
 import type { Database, RunResult, Statement } from "better-sqlite3";
 
 import type { AppendableEvent, DaemonSessionSnapshot, StoredEvent } from "./types.js";
 import { replay as projectReplay } from "./session-projector.js";
 
-// Internal row shape returned by better-sqlite3's `.all()` on the read
-// query. Kept private — callers receive `StoredEvent` (with parsed JSON
-// payload + bigint monotonic_ns).
-//
-// `safeIntegers(true)` on the read statement applies to ALL integer
-// columns (it is a per-statement, not per-column, switch). Both
-// `sequence` and `monotonic_ns` are returned as `bigint`; `sequence` is
-// converted back to `number` at hydration. That conversion is safe
-// because `sequence` is a per-session counter and overflowing
-// `Number.MAX_SAFE_INTEGER` (~9×10^15) would take decades at any
-// plausible emit rate. `monotonic_ns` stays `bigint` because
-// `process.hrtime.bigint()` legitimately exceeds 2^53 even on hosts
-// booted well over a year.
+// A row as better-sqlite3 returns it from the replay query. `safeIntegers` applies to every
+// integer column of a statement, so `sequence` and `monotonic_ns` both arrive as bigint.
+// `sequence` is converted back to a number at hydration (a per-session counter cannot reach
+// 2^53); `monotonic_ns` stays bigint because `process.hrtime.bigint()` can exceed it.
 interface SessionEventRow {
   readonly id: string;
   readonly session_id: string;
@@ -64,64 +31,38 @@ interface SessionEventRow {
 }
 
 /**
- * Capability token gating `SessionService.append`'s test-seeding writes (see
- * the guard rationale in the file header).
+ * Capability token that lets `SessionService.append` seed rows. It only ever comes from
+ * `forTestsOnly()`, so configuration or deserialized data cannot switch the append on.
  *
- * A boolean opt-in — even one typed as the literal `true` — is not a
- * real barrier: TypeScript narrows a `boolean` to `true` inside an
- * `if`, and `condition ? true : undefined` assigns without a cast, so
- * a configuration- or environment-derived flag could thread through
- * unnoticed. What this token guarantees — and what it does not:
+ * - Compile time: the `#brand` private field makes the type nominal, and the private constructor
+ *   leaves `forTestsOnly()` as the only way to get one.
+ * - Runtime: the guard compares against the module-private singleton by identity, so a forged
+ *   object cast to the type still fails.
+ * - Package boundary: the token is not exported from the `session` barrel or the package root,
+ *   and the package `exports` map only exposes `"."`, so code outside the package cannot import
+ *   it.
  *
- *   - COMPILE TIME: the `#brand` private field makes the type nominal —
- *     no object literal, config value, or structural lookalike is
- *     assignable to it — and the `private` constructor means the only
- *     way to obtain one is `forTestsOnly()`, a loud, grep-able act no
- *     data-driven wiring can perform.
- *   - RUNTIME: the guard compares against the module-private singleton
- *     by IDENTITY (`isGenuine`), so even an `as unknown as` cast of a
- *     forged object still throws — deserialized data can never BE this
- *     object.
- *   - OUT-OF-PACKAGE: unreachable. The token is deliberately NOT
- *     re-exported from the `session` barrel or the package root, and
- *     the package `exports` map declares only `"."`, so Node itself
- *     refuses a deep import of this module from outside the package.
- *
- * Honest limit: none of the above stops IN-PACKAGE code
- * from gating a genuine `forTestsOnly()` call behind an environment
- * check — `process.env.X ? TestSeedingAppendToken.forTestsOnly()
- * : undefined` returns the real singleton and passes `isGenuine`. The
- * token blocks data-DERIVED enablement, not code that deliberately
- * calls the factory. That residual is closed mechanically by lint:
- * `eslint.config.mjs` denies `forTestsOnly` member access in
- * `packages/runtime-daemon/src/**` outside `__tests__/`, so a
- * production call site fails `pnpm lint` (and CI). A lint-suppressed
- * bypass remains expressible — there the loud name is the review
- * signal.
+ * In-package code can still call `forTestsOnly()` behind an environment check. An ESLint rule
+ * in `eslint.config.mjs` denies `forTestsOnly` access in `packages/runtime-daemon/src` outside
+ * `__tests__/`, so such a call site fails lint.
  */
 export class TestSeedingAppendToken {
   static readonly #singleton: TestSeedingAppendToken = new TestSeedingAppendToken();
 
-  // Nominal-typing brand: a private field is invisible to structural
-  // assignability, so only instances of THIS class satisfy the type.
+  // A private field is invisible to structural typing, so only instances of this class fit.
   readonly #brand = "test-seeding-append" as const;
 
   private constructor() {}
 
-  /** The sole issuance path. TEST-ONLY — see the class doc. */
+  /** The only way to get a token; tests only. */
   static forTestsOnly(): TestSeedingAppendToken {
     return TestSeedingAppendToken.#singleton;
   }
 
   /** Identity check against the module-private singleton (never structural). */
   static isGenuine(candidate: TestSeedingAppendToken | undefined): boolean {
-    // The singleton identity comparison alone decides the verdict. The
-    // trailing `#brand` read is a redundant assertion, NOT a second
-    // check — the singleton always carries the brand, so the conjunct
-    // can never flip the result. It stays because the brand field
-    // exists for nominal typing and this is its one read site, keeping
-    // that intent visible (and the field non-dead) where the token is
-    // consumed.
+    // Identity alone decides; the `#brand` read cannot change the result and only keeps the
+    // brand field read somewhere.
     return (
       candidate !== undefined &&
       candidate === TestSeedingAppendToken.#singleton &&
@@ -130,34 +71,25 @@ export class TestSeedingAppendToken {
   }
 }
 
-// Construction options for `SessionService`.
+/** Construction options for `SessionService`. */
 export interface SessionServiceOptions {
-  // TEST-ONLY. Permits `append()`'s test-seeding writes (see the guard
-  // rationale in the file header). Takes the nominal
-  // identity-checked `TestSeedingAppendToken` — not a boolean —
-  // so the opt-in can never be MANUFACTURED from data: no config value,
-  // env string, or deserialized object is the singleton. Obtaining it
-  // requires a literal `forTestsOnly()` call, which lint denies outside
-  // `__tests__/` (see the token's class doc for the exact guarantee
-  // boundary — an env-keyed guard around a genuine factory call is
-  // in-package code, stopped by the lint gate, not by the type).
-  // Production composition roots construct WITHOUT options and get a
-  // read-only service (`readEvents`/`replay`).
+  /**
+   * Permits `append`'s test-seeding writes; tests only. It takes the identity-checked token, not
+   * a boolean, so no config value or env string can turn it on. A production composition root
+   * passes no options and gets a read-only service.
+   */
   readonly allowTestSeedingAppend?: TestSeedingAppendToken;
 }
 
+/** Reads a session's events and replays them to a snapshot; `append` is a guarded test seeder. */
 export class SessionService {
-  // The Database handle itself is not held — better-sqlite3's prepared
-  // statements internally reference their parent DB, so the statements
-  // alone are sufficient to keep the connection alive for the lifetime
-  // of this service instance.
+  // Only the statements are kept: each one references its database, which keeps the connection
+  // alive.
   readonly #insertStmt: Statement;
   readonly #replayStmt: Statement;
   readonly #allowTestSeedingAppend: boolean;
 
   constructor(db: Database, options?: SessionServiceOptions) {
-    // IDENTITY check against the module-private singleton — a forged or
-    // deserialized object (even one cast to the token type) never passes.
     this.#allowTestSeedingAppend = TestSeedingAppendToken.isGenuine(
       options?.allowTestSeedingAppend,
     );
@@ -181,22 +113,14 @@ export class SessionService {
          WHERE session_id = ?
          ORDER BY sequence ASC`,
       )
-      // Force bigint on numeric columns so monotonic_ns above 2^53 round-
-      // trips losslessly. better-sqlite3's `safeIntegers` is per-statement.
+      // Returns integer columns as bigint so a `monotonic_ns` above 2^53 round-trips exactly.
       .safeIntegers(true);
   }
 
   /**
-   * Append one event to the session log. Synchronous — better-sqlite3
-   * is fully synchronous by design. Throws on UNIQUE(session_id,
-   * sequence) violations (the caller must coordinate sequence assignment).
-   *
-   * GUARDED (precondition): throws unless the service was constructed with
-   * the genuine `TestSeedingAppendToken` — see the file header, the
-   * token's class doc, and `SessionServiceOptions`.
-   *
-   * Returns `undefined` (not `void`): the tests that seed rows call it
-   * directly.
+   * Inserts one event row. Throws unless the service was built with the genuine
+   * `TestSeedingAppendToken`, and on a duplicate (session, sequence), which the caller must
+   * avoid.
    */
   append(event: AppendableEvent): undefined {
     if (!this.#allowTestSeedingAppend) {
@@ -229,10 +153,7 @@ export class SessionService {
     }
   }
 
-  /**
-   * Read all events for a session, ordered by `sequence ASC`. Returns
-   * `[]` for unknown sessions.
-   */
+  /** Returns a session's events ordered by `sequence ASC`, or `[]` for an unknown session. */
   readEvents(sessionId: string): ReadonlyArray<StoredEvent> {
     const rows: ReadonlyArray<SessionEventRow> = this.#replayStmt.all(
       sessionId,
@@ -240,26 +161,13 @@ export class SessionService {
     return rows.map((row) => hydrateRow(row));
   }
 
-  /**
-   * Convenience: replay a session straight to its snapshot. Returns
-   * `null` if the session has no events.
-   */
+  /** Replays a session to its snapshot, or `null` when it has no events. */
   replay(sessionId: string): DaemonSessionSnapshot | null {
     return projectReplay(this.readEvents(sessionId));
   }
 }
 
-// --------------------------------------------------------------------------
-// Row hydration
-// --------------------------------------------------------------------------
-
 function hydrateRow(row: SessionEventRow): StoredEvent {
-  // `safeIntegers=true` returns bigints for ALL integer columns. Convert
-  // `sequence` back to Number — safe because it's a per-session counter
-  // (worst-case decades to overflow Number.MAX_SAFE_INTEGER, see the
-  // `SessionEventRow` block above). `monotonic_ns` stays as bigint
-  // because `process.hrtime.bigint()` legitimately exceeds 2^53 even on
-  // recently-booted hosts.
   const sequence: number = Number(row.sequence);
   return {
     id: row.id,
@@ -277,22 +185,9 @@ function hydrateRow(row: SessionEventRow): StoredEvent {
   };
 }
 
-// Payload parsing is the read-side trust boundary between the on-disk
-// JSON blob and the projector's `Record<string, unknown>` contract. A
-// defective writer that bypasses `SessionService.append()` and stores a
-// non-object JSON value (array, primitive, `null`) would otherwise
-// surface as a misleading downstream `TypeError` ("Cannot read
-// properties of null") or projector "payload.X must be a non-empty
-// string" error — both of which point to the consumer rather than the
-// writer. Catching it here yields a single error site identifying the
-// row and the actual shape returned, which is the right diagnostic.
-//
-// The wire-layer `SessionEventSchema` (packages/contracts/src/event.ts)
-// constrains every V1 variant's payload to an object schema; this
-// boundary mirrors that constraint at the storage seam. will land a
-// payload- canonicalization step that re-validates against the
-// discriminated- union schema on read; until then, structural shape is
-// what we enforce.
+// The read-side trust boundary: a row written by anything other than `append` may hold JSON that
+// is not an object. Failing here names the row, where the consumer would fail with a misleading
+// error. It checks only that the payload is an object; the payload schema is not re-validated.
 function parsePayload(row: SessionEventRow): Record<string, unknown> {
   let parsed: unknown;
   try {

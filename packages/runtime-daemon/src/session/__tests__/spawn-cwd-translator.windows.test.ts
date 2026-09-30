@@ -1,26 +1,10 @@
-// Windows CI integration tests for the daemon-layer cwd translator.
+// Windows-only check that a worktree directory can be torn down while a spawned session is
+// active, without `ERROR_SHARING_VIOLATION`. The pure transform is covered on every platform in
+// `spawn-cwd-translator.test.ts`; here `describe.skipIf` makes this file a no-op elsewhere.
 //
-// Why this file exists separately
-// -------------------------------
-//
-// The sibling `spawn-cwd-translator.test.ts` covers the pure-transform
-// behavior on every platform. This file covers the OS-level invariant:
-// a worktree directory CAN be torn down concurrently with an active
-// spawned session, without surfacing `ERROR_SHARING_VIOLATION`
-// (the `microsoft/node-pty#647` failure mode that motivated the
-// translator). That invariant only manifests on Windows; on Linux/Mac
-// dev boxes these tests no-op via `describe.skipIf`.
-//
-// Why we mock the PtyHost (for now)
-// ---------------------------------
-//
-// The real `NodePtyHost` and `RustSidecarPtyHost` backends are not yet
-// shipped at the time this file lands. Rather than defer the
-// translator's Windows-side regression coverage to a follow-up PR, we
-// land the test infrastructure now with a minimal in-memory `PtyHost`
-// that records the translated `SpawnRequest` and simulates a long-
-// running session via a deferred resolution. Swap in the real
-// `NodePtyHost` once ships — the assertion shape is stable.
+// A recording in-memory `PtyHost` stands in for a real backend, so what is verified is the
+// wire-layer claim that holds the sharing violation at bay: the `cwd` handed to the backend is
+// the stable parent, not the worktree.
 
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,13 +20,6 @@ import type { PtySignal, SpawnRequest, SpawnResponse } from "@ai-sidekicks/contr
 // ----------------------------------------------------------------------------
 // Minimal in-memory PtyHost — recording mock
 // ----------------------------------------------------------------------------
-//
-// TODO: replace with a real `NodePtyHost` instance once the
-// `node-pty` fallback backend ships. The assertion shape — translated
-// `SpawnRequest.cwd === stableParent`, worktree path recoverable from
-// args[4] cmd.exe script — is stable across backends because the
-// translator is platform-agnostic (only the wrapping-shell flavor
-// differs, and we explicitly assert the `windows-cmd` shape here).
 
 class RecordingPtyHost implements PtyHost {
   public readonly spawned: SpawnRequest[] = [];
@@ -73,15 +50,7 @@ class RecordingPtyHost implements PtyHost {
     return await Promise.resolve();
   }
 
-  /**
-   * Structural-conformance stub for the polymorphic `PtyHost.shutdown()`
-   * contract surface added. The recording mock has no sessions to drain
-   * and no sidecar process to wind down — it returns the vacuous drain
-   * result so the `PtyHost` interface check holds. The translator's
-   * behavior is orthogonal to shutdown, so this method is never
-   * exercised by the tests in this file; the existence of the stub is
-   * the assertion.
-   */
+  /** Satisfies the `PtyHost` interface; the recording host has nothing to drain. */
   async shutdown(_options: {
     readonly perSessionTimeoutMs: number;
     readonly hostTimeoutMs: number;
@@ -116,20 +85,8 @@ interface TestContext {
 let ctx: TestContext;
 
 beforeEach(() => {
-  // Use a real temp directory so the Windows teardown assertion
-  // exercises the actual filesystem code path. The mock host does
-  // NOT hold the OS lock on this directory (it's a mock), so the
-  // rmSync below succeeds — what we're proving is that the
-  // translated `SpawnRequest.cwd` we WOULD pass to a real backend
-  // is the stable parent, not the worktree, so a real backend
-  // could not have held the lock.
-  //
-  // We materialize the worktree directory on disk so the teardown
-  // assertion (`rmSync(ctx.worktree, …, { force: false })`) has a
-  // real path to remove. Without this, the previous `force: true`
-  // form silently no-op'd on the missing path and the regression
-  // (dir-creation drift OR ERROR_SHARING_VIOLATION on a real
-  // backend) was unobservable.
+  // The worktree is created on disk so the teardown assertion has a real path to remove; the
+  // recording host holds no OS lock on it.
   const stableParent: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-spawn-cwd-"));
   const worktree: string = join(stableParent, "worktrees", "feature-x");
   mkdirSync(worktree, { recursive: true });
@@ -148,15 +105,6 @@ afterEach(() => {
 // ----------------------------------------------------------------------------
 // Windows CI: ERROR_SHARING_VIOLATION regression
 // ----------------------------------------------------------------------------
-//
-// `describe.skipIf` so the file is a no-op on Linux/Mac dev boxes; it
-// only meaningfully runs on `windows-latest` in CI. The mock PtyHost
-// degrades the test from "end-to-end spawn-and-teardown" to
-// "translation verification at the wire layer" — but the load-bearing
-// claim (the wire-layer `SpawnRequest.cwd` carries the stable parent,
-// not the worktree path) is exactly what holds the Windows
-// `ERROR_SHARING_VIOLATION` failure mode at bay. When a real backend
-// lands swap RecordingPtyHost for it; the assertion stays.
 
 describe.skipIf(process.platform !== "win32")(
   "translateSpawnCwd × PtyHost.spawn — Windows worktree teardown",
@@ -182,30 +130,20 @@ describe.skipIf(process.platform !== "win32")(
       const response: SpawnResponse = await ctx.host.spawn(translated);
       expect(response.kind).toBe("spawn_response");
 
-      // What the PtyHost backend would see — the load-bearing
-      // assertion. The spawn-call cwd MUST be the stable parent,
-      // not the worktree, so the OS cannot hold a lock on the
-      // worktree directory.
+      // What the backend would see: the stable parent, so the OS cannot lock the worktree.
       const seen: SpawnRequest | undefined = ctx.host.spawned[0];
       expect(seen).toBeDefined();
       expect(seen?.cwd).toBe(ctx.stableParent);
       expect(seen?.command).toBe("cmd.exe");
       expect(seen?.args.slice(0, 4)).toEqual(["/d", "/s", "/v:off", "/c"]);
 
-      // The worktree path is recoverable from the wrapped cmd.exe
-      // script — it lives in the command-string layer, not the
-      // spawn-call cwd.
+      // The worktree path survives in the wrapped script.
       expect(seen?.args[4]).toContain(`cd /d "${ctx.worktree}"`);
     });
 
     it("worktree directory can be removed while the mock session is active (Windows teardown sim)", async () => {
-      // The full integration would: spawn a long-running cmd.exe
-      // session against a real backend, attempt rmSync on the
-      // worktree, and assert no ERROR_SHARING_VIOLATION. With the
-      // mock, we exercise the translation + simulate teardown — the
-      // claim that the real backend would not lock the worktree
-      // rests on the translation guarantee proven in the previous
-      // test (the spawn-call cwd is the stable parent).
+      // The mock host never locks anything, so this rests on the translation test above: a real
+      // backend spawned with the stable parent as cwd holds no lock on the worktree.
       const spec: SpawnRequest = {
         kind: "spawn_request",
         command: "cmd.exe",
@@ -223,20 +161,9 @@ describe.skipIf(process.platform !== "win32")(
 
       await ctx.host.spawn(translated);
 
-      // Simulate worktree teardown while the (mock) session is
-      // active. On a real backend with translation correctly
-      // applied, this succeeds because no Windows-level lock is
-      // held on `worktree`. Wrapping in expect().not.toThrow()
-      // makes the regression mode explicit: if the translator ever
-      // forwarded the worktree as the spawn-call cwd, a real
-      // backend would lock it and this rmSync would throw
-      // ERROR_SHARING_VIOLATION.
-      //
-      // `force: false` is load-bearing: without it, a missing
-      // directory (e.g., the fixture stopped creating it) would
-      // silently no-op and the assertion would pass vacuously,
-      // hiding both regressions this test guards (lock-not-released
-      // AND fixture-drift).
+      // If the translator ever forwarded the worktree as cwd, a real backend would lock it and
+      // this would throw `ERROR_SHARING_VIOLATION`. `force: false` matters: a missing directory
+      // would otherwise no-op and pass vacuously.
       expect(() => {
         rmSync(ctx.worktree, { recursive: true, force: false });
       }).not.toThrow();
