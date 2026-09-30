@@ -1397,8 +1397,9 @@ Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): ownersh
 // are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
 // The daemon's provider layer (`packages/runtime-daemon/src/provider/`) realizes this enumeration for the
-// driver-internal shapes; `packages/contracts/src/provider-driver.ts` realizes it for the ones that reach a
-// client (`DriverInterventionResult`, `ProviderCommandEntry`, `ProviderOutputSpeedState`) and holds the
+// driver-internal shapes; `packages/contracts/src/provider-driver.ts` (`DriverInterventionResult`) and
+// `packages/contracts/src/provider-driver-transcript.ts` (`ProviderCommandEntry`, `ProviderOutputSpeedState`)
+// realize it for the ones that reach a client, and `packages/contracts/src/session.ts` holds the
 // `wireFreeFormString` helper both use.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
@@ -1655,7 +1656,7 @@ interface ProviderCommandsUpdate {
 // The daemon-side fold of a run's normalized events into ordered turns (Spec-004 §The canonical
 // transcript is a projection, never a store). It never crosses a wire and is never persisted, so
 // only its IDENTITY is mirrored here: the per-turn element shape is authored by Plan-004 T3.19 in
-// `packages/contracts/src/provider-driver.ts` and is bounded by the Spec-005 normalized taxonomy,
+// `packages/contracts/src/provider-driver-transcript.ts` and is bounded by the Spec-005 normalized taxonomy,
 // which is what makes "anything that never became an event is not in the transcript" true by
 // construction rather than by discipline.
 interface CanonicalTranscriptProjection {
@@ -1852,7 +1853,7 @@ type ApplyInterventionParams =
 // was carry an id a resolver could look up, so the rule had nothing to attach to and CP-012-7 made
 // the retyping a PREREQUISITE of the first change that wires delivery through this carrier.
 // TWO BOUNDS, DELIBERATELY DISTINCT: `DRIVER_WIRE_STEER_ATTACHMENTS_MAX`
-// (`packages/contracts/src/provider-driver.ts#DRIVER_WIRE_STEER_ATTACHMENTS_MAX`) is the wire seam's
+// (`packages/contracts/src/provider-driver-wire.ts#DRIVER_WIRE_STEER_ATTACHMENTS_MAX`) is the wire seam's
 // coarse frame-abuse COUNT ceiling, sized above the policy range; the policy bound is Spec-012's
 // `max_attachments_per_carrier`, which the person can tune (default 10, range 1-50), enforced by the daemon at
 // CARRIER ACCEPTANCE, which refuses the WHOLE carrier `artifact.too_many_attachments` (413,
@@ -2715,9 +2716,9 @@ interface EventEnvelope {
 // Spec-003-owned (§Required Behavior + Run State Machine §Invariants): 0 before any
 // rollback, advancing with each accepted run.rolled_back rewind regardless of the
 // file-leg disposition. The key names are pinned by SOURCE_EPOCH_PAYLOAD_KEY /
-// SOURCE_POSITION_PAYLOAD_KEY in packages/contracts/src/event.ts — a rename is
+// SOURCE_POSITION_PAYLOAD_KEY in packages/contracts/src/event-envelope.ts — a rename is
 // forbidden-non-additive per ADR-018 §Decision #8.
-type SourceEpoch = number; // int >= 0 — SourceEpochSchema in packages/contracts/src/event.ts (Plan-005 T1.9)
+type SourceEpoch = number; // int >= 0 — SourceEpochSchema in packages/contracts/src/event-envelope.ts (Plan-005 T1.9)
 type SourcePosition = number; // int >= 0 — SourcePositionSchema, same file (Plan-005 T1.9); Spec-003 targetPosition vocabulary
 
 type EventCategory =
@@ -2753,7 +2754,10 @@ type EventCategory =
 // Individual event types within each category are enumerated in Spec-005 §Event Type Enumeration.
 
 // ---------------------------------------------------------------------------
-// Payload variants authored in packages/contracts/src/event.ts, which Plan-005
+// Payload variants authored in packages/contracts/src/event-declared-variants.ts
+// (event.compacted and the event_maintenance base) and
+// packages/contracts/src/event-variant-types.ts (usage.model_rerouted, its
+// schema in packages/contracts/src/event.ts), which Plan-005
 // owns, rather than imported from an emitting plan's module (contrast the
 // repo/workspace/worktree family, authored in repo.ts / worktree.ts under
 // emitter-authors-payload); Plan-005 T1.11 registers event.compacted.
