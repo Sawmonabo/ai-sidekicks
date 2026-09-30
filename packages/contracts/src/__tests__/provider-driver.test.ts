@@ -413,7 +413,7 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   });
 
   it("rejects a steer intervention with an empty payload at compile time", () => {
-    // @ts-expect-error — `steer` requires non-empty `content`, so an empty payload is a type error.
+    // @ts-expect-error `steer` requires non-empty `content`
     const malformed: ApplyInterventionParams = {
       type: "steer",
       targetRunId: RUN_ID,
@@ -478,8 +478,9 @@ describe("ProviderDriver contract: off-union capability flag is a type error", (
       callback_tools: false,
       subagents: false,
       transcript_replay: false,
-      // `pause` is deliberately not a driver capability (it is an orchestration-layer construct)
-      // and not an intervention type. An excess key on a `Record<Union, …>` literal is a type error.
+      // `pause` is deliberately not a driver capability (it is an orchestration-layer
+      // construct) and not an intervention type. An excess key on a `Record<Union, …>` literal
+      // is a type error.
       // @ts-expect-error pause is not a DriverCapabilityFlag
       pause: true,
     };

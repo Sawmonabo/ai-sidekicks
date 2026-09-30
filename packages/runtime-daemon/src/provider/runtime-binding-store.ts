@@ -184,7 +184,7 @@ export interface ResumeFunctionLegInjection {
  * which are `"relaunch-input"`, consumed by spawn resolution. Unannotated on purpose: `satisfies`
  * keeps the per-key literals `ResumeLegSpawnConfigKey` reads, and an annotation would widen them.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- read as a type by `ResumeLegSpawnConfigKey`
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- `ResumeLegSpawnConfigKey` reads it
 const SPAWN_CONFIG_RESUME_DISPOSITION = {
   executionPosture: "resume-leg",
   callbackTools: "resume-leg",

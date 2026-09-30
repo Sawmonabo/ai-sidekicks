@@ -17,7 +17,7 @@ import { useHumanFormSubmit } from "../hooks/useHumanFormSubmit.js";
 import { DefaultHumanFormBody } from "../default-human-form-body.js";
 import type { HumanFormBody, HumanFormPhase } from "../human-form-mount.js";
 
-/** What the mount point hands this channel: the open phase, the body to mount, and the submit call. */
+/** What the mount point hands this channel: the open phase, the body to mount, the submit call. */
 export interface HumanFormSubmitBindingProps {
   /** The wait this channel is the submit for. */
   readonly phase: HumanFormPhase;

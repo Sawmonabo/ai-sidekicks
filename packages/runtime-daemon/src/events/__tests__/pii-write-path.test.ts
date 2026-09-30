@@ -541,7 +541,8 @@ describe("refusals on the PII write path", () => {
     // which would silence the error this case exists to surface.
     const bareCiphertext: Uint8Array = new Uint8Array([1, 2, 3]);
 
-    // @ts-expect-error a bare Uint8Array is not PiiPayloadCiphertext — the encrypt stage mints that brand at exactly one site inside pii-indirection.ts
+    // Only the encrypt stage in pii-indirection.ts mints the ciphertext brand.
+    // @ts-expect-error a bare Uint8Array is not PiiPayloadCiphertext
     const forgedCiphertext: PiiPayloadCiphertext = bareCiphertext;
 
     // A runtime read keeps the binding used for lint; the compile is the load-bearing check.

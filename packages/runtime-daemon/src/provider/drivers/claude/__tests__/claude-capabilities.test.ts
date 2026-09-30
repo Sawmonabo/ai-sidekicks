@@ -615,8 +615,8 @@ describe("Claude model catalog", () => {
   });
 
   it("refuses an in-place mutation of the shared declared catalog", () => {
-    // A shallow freeze stops `entry.effortLevels = […]` but not `entry.effortLevels.push(…)`, and
-    // this constant is shared process-wide, so the arrays must be frozen too.
+    // A shallow freeze stops `entry.effortLevels = […]` but not `entry.effortLevels.push(…)`,
+    // and this constant is shared process-wide, so the arrays must be frozen too.
     const declaredEntry = CLAUDE_DECLARED_MODEL_CATALOG[0];
     if (declaredEntry === undefined) {
       throw new Error("the declared catalog is empty");

@@ -399,7 +399,7 @@ export const WorkflowStepFinishedPayloadSchema: z.ZodType<WorkflowStepFinishedPa
   })
   .strict();
 
-/** `workflow.step_failed`: the error, with its failure code if one names it, and the failed item. */
+/** `workflow.step_failed`: the error, its failure code if one names it, and the failed item. */
 export interface WorkflowStepFailedPayload extends WorkflowStepEventPayload {
   error: WorkflowStepError;
   failedItemIndex?: number | undefined;

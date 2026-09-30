@@ -1,6 +1,6 @@
 /**
- * The row shapes and metadata keys the workspace service stores under, and the checks it runs against
- * them: single-row writes, absolute roots, and the metadata readers.
+ * The row shapes and metadata keys the workspace service stores under, and the checks it runs
+ * against them: single-row writes, absolute roots, and the metadata readers.
  */
 
 import {

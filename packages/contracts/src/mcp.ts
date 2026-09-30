@@ -661,7 +661,7 @@ const inventoryEntryArms = <Binding extends z.ZodRawShape>(binding: Binding) =>
     z.object({ ...binding, ...inventoryFactsShape, ...trustUnavailableEntryShape }).strict(),
   ] as const;
 
-/** Parses an {@link McpServerInventoryEntry}; a failure reason on a non-`failed` server is refused. */
+/** Parses an {@link McpServerInventoryEntry}; refuses a failure reason on a non-`failed` server. */
 const McpServerInventoryEntrySchema: z.ZodType<McpServerInventoryEntry> = z
   .union([
     ...inventoryEntryArms(userBindingShape),
