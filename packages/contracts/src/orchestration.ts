@@ -36,6 +36,7 @@ import {
   OrchestrationBudgetStateSchema,
   SessionCostReceiptRequestSchema,
   SessionCostReceiptSchema,
+  UsdMicrosSchema,
   type OrchestrationBudgetReadRequest,
   type OrchestrationBudgetState,
   type SessionCostReceipt,
@@ -43,8 +44,6 @@ import {
 } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
-/** A whole number of micro-dollars. */
-const usdMicrosSchema = z.number().int().nonnegative();
 /** A count of children. */
 const childCountSchema = z.number().int().nonnegative();
 
@@ -146,7 +145,7 @@ export const ChildRunHeadSchema: z.ZodType<ChildRunHead> = z
     effort: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ChildRunHead.effort").optional(),
     viaAgentName: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "viaAgentName").optional(),
     tokens: z.number().int().nonnegative(),
-    spendUsdMicros: usdMicrosSchema,
+    spendUsdMicros: UsdMicrosSchema,
     startedAt: z.iso.datetime({ offset: true }),
     ancestry: z.array(AgentTreeMemberSchema).min(1),
   })

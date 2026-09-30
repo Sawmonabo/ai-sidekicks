@@ -24,8 +24,8 @@ import {
   type UserId,
 } from "./session.js";
 
-/** A whole number of micro-dollars. */
-const usdMicrosSchema = z.number().int().nonnegative();
+/** A cost in whole micro-dollars, the one money unit on the wire. */
+export const UsdMicrosSchema: z.ZodType<number, number> = z.number().int().nonnegative();
 
 /**
  * The party a unit of work is attributed to, resolved by the daemon for each turn and
@@ -62,8 +62,8 @@ export interface AgentSpend {
 export const AgentSpendSchema: z.ZodType<AgentSpend> = z
   .object({
     agent: AgentTreeMemberSchema,
-    ownUsdMicros: usdMicrosSchema,
-    subtreeUsdMicros: usdMicrosSchema,
+    ownUsdMicros: UsdMicrosSchema,
+    subtreeUsdMicros: UsdMicrosSchema,
   })
   .strict()
   .refine((spend) => spend.subtreeUsdMicros >= spend.ownUsdMicros, {
@@ -85,7 +85,7 @@ export interface OrchestrationBudgetState {
 export const OrchestrationBudgetStateSchema: z.ZodType<OrchestrationBudgetState> = z
   .object({
     sessionId: SessionIdSchema,
-    committedSpendUsdMicros: usdMicrosSchema,
+    committedSpendUsdMicros: UsdMicrosSchema,
     agentSpend: z.array(AgentSpendSchema),
   })
   .strict();
@@ -143,7 +143,7 @@ export const SessionCostReceiptAccountRowSchema: z.ZodType<SessionCostReceiptAcc
     providerAccountId: ProviderAccountIdSchema,
     billingMode: BillingModeSchema,
     tokens: z.number().int().nonnegative(),
-    usdMicros: usdMicrosSchema,
+    usdMicros: UsdMicrosSchema,
   })
   .strict();
 
@@ -169,10 +169,10 @@ export const SessionCostReceiptProviderSchema: z.ZodType<SessionCostReceiptProvi
     driverName: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "driverName"),
     accounts: z.array(SessionCostReceiptAccountRowSchema),
     voice: z
-      .object({ seconds: z.number().int().nonnegative(), usdMicros: usdMicrosSchema })
+      .object({ seconds: z.number().int().nonnegative(), usdMicros: UsdMicrosSchema })
       .strict()
       .optional(),
-    subtotalUsdMicros: usdMicrosSchema,
+    subtotalUsdMicros: UsdMicrosSchema,
   })
   .strict();
 

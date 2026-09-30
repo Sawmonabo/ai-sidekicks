@@ -15,6 +15,7 @@ import {
 import { jsonUtf8ByteLength } from "./jsonrpc.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
+import { UsdMicrosSchema } from "./session-cost.js";
 import {
   EventCursorSchema,
   SessionIdSchema,
@@ -203,7 +204,7 @@ export interface WorkflowCost {
 /** Wire schema for {@link WorkflowCost}. */
 export const WorkflowCostSchema: z.ZodType<WorkflowCost> = z
   .object({
-    usdMicros: z.number().int().nonnegative(),
+    usdMicros: UsdMicrosSchema,
     providerAccountId: ProviderAccountIdSchema,
   })
   .strict();
