@@ -1,19 +1,8 @@
-// What one source costs once it reaches the observer: a frame loop that stops, and a
-// budget at rest.
-//
-// The sources themselves are `element-motion.position-observer.test.ts`'s. This file is
-// about the sampling that follows one — because a position observer left armed on every
-// mounted pane is only affordable if all three of these hold: it samples once a frame
-// while something is really moving and stops on the resting frame; it arms nothing at
-// all when the only thing on the page is a loading skeleton pulsing its opacity; and a
-// burst of attribute mutations costs one reading rather than one each.
-//
-// It carries a `ManualClock` for that reason: a frame loop is only assertable against a
-// clock a test advances, and a real one would make every case here a race.
-//
-// The last case is the disposer, which is the same budget stated as a teardown: an
-// observer that left a frame armed mid-animation would keep sampling a pane React has
-// dropped.
+// What one source costs once it reaches the observer, so a position observer can stay armed on
+// every mounted pane: one sample per frame while something really moves, stopping on the resting
+// frame; nothing armed for a loading skeleton's opacity pulse; and a burst of attribute mutations
+// costing one reading. The sources are `element-motion.position-observer.test.ts`'s. A
+// `ManualClock` drives it, since a frame loop is only assertable against a clock the test advances.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -65,10 +54,8 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
   });
 
   it("samples a fixed-size sibling's motion, which carries the element without containing it", () => {
-    // The finding. A rail collapsing beside the pane is neither an ancestor nor a
-    // descendant, and a flex line whose boxes keep their sizes reports no resize
-    // anywhere — so the containment test this arm used to run answered "no" and the
-    // pane's rectangle went unread for the whole animation.
+    // A rail collapsing beside the pane is neither an ancestor nor a descendant and reports no
+    // resize, so a containment test would have left the rectangle unread for the whole animation.
     installFakeResizeObserver();
     const clock = new ManualClock();
     const { ancestor, element } = attachedPair();
@@ -88,8 +75,7 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
 
     clock.runFrame();
     expect(onMove).toHaveBeenCalledTimes(1);
-    // Still animating, so the next frame is armed: the sibling is mid-collapse and
-    // the element is somewhere between where it was and where it is going.
+    // Still animating, so the next frame is armed.
     expect(clock.pendingFrameCount).toBe(1);
 
     motion.settle();
@@ -100,11 +86,9 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
   });
 
   it("arms on an animation nothing announced, at the first invalidation after it starts", async () => {
-    // The finding. `element.animate()` fires neither `transitionrun` nor
-    // `animationstart` — both are CSS vocabularies — and a transform animation on a
-    // constant-size box writes no class, no style attribute, no size, and no child
-    // list. Sources 1 through 4 hear nothing, so the sampler never armed and the
-    // native view sat at coordinates the pane had abandoned for the whole animation.
+    // `element.animate()` fires neither `transitionrun` nor `animationstart`, and a transform
+    // animation on a constant-size box writes no class, style, size or child list, so the
+    // sampler would never arm and the native view would stay at abandoned coordinates.
     installFakeResizeObserver();
     const clock = new ManualClock();
     const { ancestor, element } = attachedPair();
@@ -115,35 +99,30 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
     const detach = observeElementPosition({ element, clock, onMove });
     expect(clock.pendingFrameCount).toBe(0);
 
-    // Exactly what `element.animate()` leaves behind: a running animation in the
-    // document reading, and no event raised anywhere.
+    // What `element.animate()` leaves behind: a running animation and no event anywhere.
     const motion = movingAnimation();
     withDocumentAnimations([motion.animation]);
     expect(clock.pendingFrameCount).toBe(0);
 
-    // The class the component wrote when it decided to animate — source 4, and the
-    // moment source 5 reads the animations.
+    // The class write is source 4, and the moment source 5 reads the animations.
     ancestor.className = "is-collapsing";
     await settleMutationRecords();
 
     expect(clock.pendingFrameCount).toBe(1);
     clock.runFrame();
-    // Still running, so the loop continues from its own reading rather than from a
-    // duration this module was told about.
+    // Still running, so the loop continues from its own reading rather than a known duration.
     expect(clock.pendingFrameCount).toBe(1);
 
     motion.settle();
     clock.runFrame();
-    // And it disarms where the element came to rest, which is the loop's own rule
-    // and not a second one paired with the arm.
+    // It disarms where the element came to rest, by the loop's own rule.
     expect(clock.pendingFrameCount).toBe(0);
     detach();
   });
 
   it("negative control: an invalidation with nothing animating arms no frame", async () => {
-    // Without it the case above would pass against an observer that armed a frame on
-    // every invalidation — a loop the idle-CPU budget forbids, running for the life
-    // of the pane after one class write.
+    // Without it the case above would pass against an observer that armed a frame on every
+    // invalidation, a loop the idle-CPU budget forbids.
     installFakeResizeObserver();
     const clock = new ManualClock();
     const { ancestor, element } = attachedPair();
@@ -161,11 +140,8 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
   });
 
   it("reports a fixed-size sibling resized in one step, which animates nothing", async () => {
-    // The finding, in its non-animated shape. A width written straight onto a
-    // sibling fires no `transitionrun` and no `animationstart`, so the frame sampler
-    // never arms; and the sibling, this element, and the ancestor holding both keep
-    // the sizes they had, so no size observer fires either. The element moved and
-    // every other source in this module says nothing happened.
+    // A width written straight onto a sibling fires no `transitionrun` or `animationstart`, and
+    // the sibling, this element and the ancestor keep their sizes, so no size observer fires.
     installFakeResizeObserver();
     const { ancestor, element } = attachedPair();
     const sibling = document.createElement("div");
@@ -181,9 +157,8 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
   });
 
   it("reports an instant resize beside an ANCESTOR, not only beside the element", async () => {
-    // Why the watch is rooted at the outermost ancestor. A fixed-size box beside the
-    // pane layout moves the pane exactly as one beside the pane does, and a subtree rooted
-    // at the element's own parent contains neither that box nor its mutation.
+    // Why the watch is rooted at the outermost ancestor: a fixed-size box beside the pane layout
+    // moves the pane as one beside the pane does, and a subtree rooted at the parent holds neither.
     installFakeResizeObserver();
     const { element } = attachedPair();
     const ancestorSibling = document.createElement("div");
@@ -200,11 +175,9 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
   });
 
   it("costs one reading for a burst of attribute mutations, not one per mutation", async () => {
-    // The budget this arm has to hold. Every call above reads a rectangle and a
-    // clipping-ancestor walk synchronously, so a per-mutation invalidation would turn
-    // one class-driven relayout into fifty forced layouts. The observer delivers one
-    // callback per delivery turn carrying every record queued in it, which is what
-    // makes the burst free.
+    // The budget: each call reads a rectangle and a clipping-ancestor walk synchronously, so a
+    // per-mutation invalidation would turn one relayout into fifty forced layouts. One callback
+    // per delivery turn carries every queued record.
     installFakeResizeObserver();
     const { ancestor, element } = attachedPair();
     const sibling = document.createElement("div");
@@ -222,9 +195,8 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
   });
 
   it("negative control: an attribute outside the layout filter moves nothing", async () => {
-    // The filter is what keeps a document-wide watch affordable. Without it every
-    // `aria-expanded` toggle and every `data-` flag the console writes would take a
-    // rectangle reading, on a subtree that is the whole document body.
+    // The filter keeps a document-wide watch affordable: without it every `aria-expanded` toggle
+    // and `data-` flag would take a rectangle reading.
     installFakeResizeObserver();
     const { ancestor, element } = attachedPair();
     const sibling = document.createElement("div");
@@ -258,9 +230,8 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
   });
 
   it("stays idle at rest while a loading skeleton pulses somewhere on the page", () => {
-    // The finding, measured where it costs: a skeleton's infinite opacity animation
-    // used to arm the sampler on install and re-arm it on every frame it ran, so the
-    // pane's geometry was read once a frame for as long as anything was loading.
+    // A skeleton's infinite opacity animation would arm the sampler on install and re-arm it every
+    // frame, reading the pane's geometry once a frame for as long as anything loads.
     installFakeResizeObserver();
     const clock = new ManualClock();
     const { element } = attachedPair();
@@ -285,8 +256,8 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
   });
 
   it("negative control: the same skeleton beside a real move still samples the move", () => {
-    // Without it the case above would pass against an observer that had stopped
-    // sampling document motion at all, which is the defect this arm exists for.
+    // Without it the case above would pass against an observer that stopped sampling document
+    // motion at all.
     installFakeResizeObserver();
     const clock = new ManualClock();
     const { ancestor, element } = attachedPair();
@@ -310,8 +281,8 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
   });
 
   it("negative control: nothing moves, so no frame is armed and nothing is sampled", () => {
-    // The idle-CPU budget. A standing frame loop would satisfy every clean case above
-    // and would also spend a frame per pane forever on a console sitting still.
+    // The idle-CPU budget: a standing frame loop would satisfy every clean case above and spend
+    // a frame per pane forever.
     installFakeResizeObserver();
     const clock = new ManualClock();
     const { element } = attachedPair();

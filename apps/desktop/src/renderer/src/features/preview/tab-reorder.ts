@@ -1,48 +1,16 @@
-// Dragging one tab to a new place, and the one piece of arithmetic that is easy to
-// get wrong.
-//
-// Tab drag reorder carries the drag payload on a private MIME type and translates the
-// drop index at the boundary: the registry's move index addresses the list WITHOUT the
-// moved tab, so a tab dragged rightward targets `dropPosition - 1`. The translation is stated
-// once, at the one call site, never rediscovered per handler.
-//
-// So it is stated here, in one function, and `PageTabStrip.tsx` is the only module that
-// calls it. The two facts that make the subtraction necessary
-// are worth writing down, because a reader who has only one of them will delete it:
-//
-//   • A DROP POSITION is a position among the tabs AS DRAWN. There are `n + 1` of them
-//     for `n` tabs — before the first, between each pair, and after the last — and
-//     the dragged tab is still one of the `n` while it is being dragged.
-//   • A MOVE INDEX is a position in the list with the moved page taken OUT of it.
-//     That list has `n - 1` entries, so every drop position to the right of the tab's
-//     own position names a place one further along than it looks.
-//
-// Rightward is therefore `dropPosition - 1` and leftward is `dropPosition` unchanged.
-// Getting it wrong is not a crash: it moves the tab one place short of where the person dropped
-// it, every time, in one direction only — which is the kind of defect that survives a
-// demo and is reported months later as "reordering feels off".
-//
-// WHY THE PAYLOAD IS A PRIVATE MIME TYPE. A drag carrying `text/plain` is a drag any
-// page, any editor, and any other drop target in the window will happily accept, and
-// a tab dropped into the composer would paste a page id as text. The private type is
-// read by the preview's tab strip and nothing else, so a drag that leaves the strip
-// lands nowhere.
+// Dragging one tab to a new place. The drag payload rides a private MIME type, so a tab dropped
+// into the composer or any page cannot paste a page id as text. `pageMoveIndex` holds the one
+// piece of arithmetic that is easy to get wrong; `PageTabStrip.tsx` is its only caller.
 
 /**
- * The drag type the preview's tab drags carry, and the only one they carry.
- *
- * A vendor-shaped string rather than a registered one: the drag never leaves this
- * window, so there is nothing to register it with, and the prefix is what stops it
- * colliding with a type some other feature invents.
+ * The drag type the preview's tab drags carry, and the only one they carry. Vendor-shaped
+ * because the drag never leaves this window; the prefix avoids colliding with another feature's.
  */
 export const PAGE_TAB_DRAG_MEDIA_TYPE = "application/x-meridian-preview-tab";
 
 /**
- * What a drag over the strip may do, read off the drag itself.
- *
- * A drag carrying anything else is not this strip's — a file from the desktop, a link
- * from a page, a selection from the transcript — and the strip neither accepts it nor
- * prevents whatever else in the window would.
+ * Whether a drag carries this strip's type. Any other drag (a desktop file, a page link, a
+ * transcript selection) is neither accepted nor prevented here.
  */
 export function isTabDrag(transfer: DataTransfer): boolean {
   return Array.from(transfer.types).includes(PAGE_TAB_DRAG_MEDIA_TYPE);
@@ -51,17 +19,13 @@ export function isTabDrag(transfer: DataTransfer): boolean {
 /** Put a page's identity on a drag that is starting. */
 export function writeTabDragPayload(transfer: DataTransfer, pageId: string): void {
   transfer.setData(PAGE_TAB_DRAG_MEDIA_TYPE, pageId);
-  // `move` and not `copy`: a tab has one place and dropping it makes a new one, which
-  // is what the cursor should say while the drag is in the air.
+  // `move`, not `copy`: a tab has one place, and the cursor should say so.
   transfer.effectAllowed = "move";
 }
 
 /**
- * Read the dragged page's identity back, or nothing where this drag is not one.
- *
- * `undefined` rather than the empty string a `DataTransfer` hands back for an absent
- * type: an empty page id is a value a caller can pass on by accident, and a missing
- * one is not.
+ * Read the dragged page's identity back, or `undefined` where this drag is not a tab drag or the
+ * payload is empty (an empty page id is one a caller could pass on by accident).
  */
 export function readTabDragPayload(transfer: DataTransfer): string | undefined {
   if (!isTabDrag(transfer)) {
@@ -72,13 +36,13 @@ export function readTabDragPayload(transfer: DataTransfer): string | undefined {
 }
 
 /**
- * Translate a drop position among the drawn tabs into the registry's move index.
+ * Translate a drop position among the drawn tabs into the registry's move index, or `undefined`
+ * where the move is a no-op (dropped at its own position or right after it).
  *
- * The one statement of the rule the header explains. Returns `undefined` where the
- * move is a no-op — a tab dropped at its own position, or at the position immediately
- * after itself, both of which name the position it already occupies — so the caller sends
- * nothing rather than dispatching an act that would answer "moved" for a move that
- * did not happen.
+ * A drop position counts among the tabs as drawn (`n + 1` slots, the dragged tab still in the
+ * list), while a move index counts in the list with the dragged tab taken out. So a rightward
+ * drop is `dropPosition - 1` and a leftward one is unchanged; a mistake moves the tab one place
+ * short, in one direction only.
  */
 export function pageMoveIndex(fromIndex: number, dropPosition: number): number | undefined {
   const moveIndex = dropPosition > fromIndex ? dropPosition - 1 : dropPosition;

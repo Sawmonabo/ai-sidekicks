@@ -1,22 +1,12 @@
 /*
- * The pane chrome's button.
- *
- * No literal color: every value is read back out of a Meridian custom property, and the
- * two hues are spent only on their one meaning each: amber where a person is needed,
- * red where something failed.
- *
- * This sheet enters at the pane's chunk root, `preview-pane-body.ts`. It sits at the
- * feature root because it is the feature's own button shape, which the chrome bar
- * arranges through the custom properties declared below rather than by redeclaring the class.
+ * The pane chrome's button, the feature's one button shape. No literal color: every value is
+ * read from a Meridian custom property.
  */
 
-/* ------------------------------------------------------------------ button */
-
 /*
- * The five custom properties below set this button's arrangement. A bar that composes
- * it into one centered row sets them on its own class; a caller that leaves them unset
- * gets the stacked shape, which is what `revert` restores. Each is a custom property
- * rather than an unconditional declaration, so one bar's arrangement never reaches a
+ * The five custom properties below set this button's arrangement. A bar that composes it into
+ * one centered row sets them on its own class; unset, the stacked shape is what `revert`
+ * restores. They are properties, not declarations, so one bar's arrangement never reaches a
  * control that did not ask for it.
  */
 .meridian-preview-action {

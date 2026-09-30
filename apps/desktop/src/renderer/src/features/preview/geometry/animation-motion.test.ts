@@ -1,9 +1,6 @@
-// Which running animations are allowed to arm a frame loop.
-//
-// Two bounds, and every case below is one of them going wrong in the expensive
-// direction or in the silent one. Too permissive and a loading skeleton's opacity
-// pulse spends a frame per pane forever; too strict and a pane sits at coordinates it
-// abandoned for the whole of an animation, which nothing on screen reports.
+// Which running animations may arm a frame loop. Two bounds, each failing in the expensive
+// direction (a loading skeleton's pulse spends a frame per pane forever) or the silent one (a
+// pane left at coordinates it abandoned).
 
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 
@@ -89,8 +86,8 @@ describe("couldAnimationMove — what is being animated", () => {
   });
 
   it("counts an animation whose effect this build cannot read", () => {
-    // The fail-safe arm. "Cannot tell" and "cannot move it" are different answers,
-    // and only one of them is cheap to be wrong about.
+    // The fail-safe arm: "cannot tell" and "cannot move it" differ, and only one is cheap to get
+    // wrong.
     expect(couldAnimationMove(fakeAnimation("running"), CARRIES_NOTHING)).toBe(true);
   });
 
@@ -109,9 +106,8 @@ describe("couldAnimationMove — what is being animated", () => {
   });
 
   it("negative control: keyframes carrying only timing move nothing", () => {
-    // Without this the property test would be satisfied by a reading that counted
-    // `offset` and `easing`, which every keyframe carries — and that is the
-    // undiscriminated predicate this module replaces, wearing a filter.
+    // Without this, a reading that counted `offset` and `easing`, which every keyframe carries,
+    // would satisfy the property test.
     const painted = attachedElement();
     expect(
       couldAnimationMove(
@@ -173,19 +169,12 @@ describe("couldAnimationMove — where the animated box sits", () => {
   });
 });
 
-// The two closed sets themselves, read as data rather than through the predicate.
-//
-// They were module-level `Set` singletons, which `apps/desktop/AGENTS.md` rejects:
-// a `ReadonlySet` annotation restricts the BINDING and leaves the collection under
-// it mutable for the life of the process, and a container built at module load is
-// state where the module holds a constant. As tuples the declaration is frozen by
-// the compiler and the union is derived from it, so the properties the predicate
-// depends on become checkable here rather than assumed.
+// The two closed sets read as data. As tuples the compiler freezes them and the union derives
+// from them, where a `Set` would stay mutable under its `ReadonlySet` annotation.
 describe("the two closed sets the filter is built from", () => {
   it("keeps every element type a literal, so a typo cannot widen the set to `string`", () => {
-    // The type-level half. `as const` is what makes each tuple's element type the
-    // closed union of its own members; without it both widen to `string[]` and every
-    // downstream derivation silently admits any string at all.
+    // `as const` makes each tuple's element type the closed union of its members; without it both
+    // widen to `string[]` and any string is admitted.
     expectTypeOf<(typeof KEYFRAME_TIMING_KEYS)[number]>().not.toEqualTypeOf<string>();
     expectTypeOf<(typeof PAINT_ONLY_ANIMATED_PROPERTIES)[number]>().not.toEqualTypeOf<string>();
     expectTypeOf<(typeof KEYFRAME_TIMING_KEYS)[number]>().toExtend<string>();
@@ -193,8 +182,8 @@ describe("the two closed sets the filter is built from", () => {
   });
 
   it("normalizes every entry to a distinct name within its own set", () => {
-    // A duplicate is how a set silently shrinks: two spellings that normalize to one
-    // name read as twenty-six entries and cover twenty-five properties.
+    // A duplicate silently shrinks a set: two spellings that normalize to one name read as
+    // twenty-six entries and cover twenty-five properties.
     for (const closedSet of [PAINT_ONLY_ANIMATED_PROPERTIES, KEYFRAME_TIMING_KEYS]) {
       const normalized = closedSet.map((name) => normalizeAnimatedPropertyName(name));
       expect(new Set(normalized).size).toBe(closedSet.length);
@@ -202,9 +191,7 @@ describe("the two closed sets the filter is built from", () => {
   });
 
   it("keeps the two sets disjoint, which is what lets the predicate ask both", () => {
-    // `affectsLayoutOrPosition` excludes a key that is in EITHER set. A name in both
-    // would be an entry whose removal from one changes nothing, which is how a set
-    // stops being the declaration of anything.
+    // A name in both sets would be an entry whose removal from one changes nothing.
     const timingNames = KEYFRAME_TIMING_KEYS.map((key) => normalizeAnimatedPropertyName(key));
     for (const property of PAINT_ONLY_ANIMATED_PROPERTIES) {
       expect(timingNames).not.toContain(normalizeAnimatedPropertyName(property));
@@ -212,9 +199,8 @@ describe("the two closed sets the filter is built from", () => {
   });
 
   it("negative control: the normalization actually folds the two authored spellings", () => {
-    // Without this, a normalizer that returned its argument unchanged would satisfy
-    // both cases above — and would then answer `false` for every camel-cased key
-    // `getKeyframes()` reports, which is the undiscriminated reading again.
+    // Without this, a normalizer returning its argument unchanged would satisfy both cases above
+    // and answer `false` for every camel-cased key.
     expect(normalizeAnimatedPropertyName("background-color")).toBe(
       normalizeAnimatedPropertyName("backgroundColor"),
     );

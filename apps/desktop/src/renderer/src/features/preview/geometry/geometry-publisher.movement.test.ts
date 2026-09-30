@@ -19,14 +19,9 @@ import {
   rect,
 } from "./geometry-publisher.test-support.js";
 
-// The move source, and the reason that had no producer.
-//
-// `layout-mover` was in the invalidation enumeration and no production path raised
-// it: a repo-wide search found it only in this file. So a pane carried by a pane layout
-// reorder, a sibling's relayout, or a rail sliding in kept publishing its old
-// rectangle until something unrelated — a scroll, a window resize, a theme flip —
-// happened to invalidate, and the native view sat over whatever chrome the pane had
-// just moved away from.
+// The move source (`layout-mover`): a pane carried by a pane layout reorder, a sibling's relayout
+// or a sliding rail would otherwise keep its old rectangle until something unrelated invalidated,
+// leaving the native view over the chrome the pane moved away from.
 describe("PaneGeometryPublisher — the move source", () => {
   beforeEach(() => {
     installFakeResizeObserver();
@@ -79,8 +74,8 @@ describe("PaneGeometryPublisher — the move source", () => {
   });
 
   it("coalesces a move and a scroll arriving in one relayout into a single write", async () => {
-    // Three observers firing on one relayout must cost one publish, not three:
-    // publishing per source is what makes a pane drag during a rail collapse.
+    // Three observers firing on one relayout must cost one publish; per-source publishing makes
+    // a pane drag during a rail collapse.
     const hostElement = elementWithRect(rect(0, 0, 100, 100));
     const { publisher, clock, pageHost } = publishingPublisherOver(hostElement);
 
@@ -92,19 +87,16 @@ describe("PaneGeometryPublisher — the move source", () => {
     expect(clock.pendingFrameCount).toBe(1);
     clock.runFrame();
     expect(publisher.publishCount).toBe(2);
-    // The move arrived last, so it is the reading that got written — a second
-    // queued frame would have written the scroll's stale rectangle first.
+    // The move arrived last, so it is the reading written; a second queued frame would have
+    // written the scroll's stale rectangle first.
     expect(pageHost.samples.at(-1)?.reason).toBe("layout-mover");
     publisher.dispose();
   });
 
   it("publishes the pane's new rectangle while a fixed-size sibling animates beside it", () => {
-    // A rail collapsing next to the pane. Nothing resizes — the rail, the pane, and
-    // the row holding both keep the boxes they had — and nothing containing the pane
-    // animates, so neither the size source nor a containment test sees anything. The
-    // pane is nevertheless somewhere else on the screen for the whole animation, and
-    // the native view is painted over whatever it moved away from until this arm
-    // reads where it actually is.
+    // A rail collapsing next to the pane: nothing resizes and nothing containing the pane
+    // animates, so neither the size source nor a containment test sees it, yet the pane is
+    // elsewhere for the whole animation.
     const sibling = trackAttachedRoot(document.createElement("div"));
     document.body.append(sibling);
     const hostElement = elementWithRect(rect(240, 0, 100, 100));
@@ -125,17 +117,14 @@ describe("PaneGeometryPublisher — the move source", () => {
     motion.settle();
     clock.runFrame();
     clock.runFrame();
-    // And it comes to rest: the idle-CPU budget says nothing samples once the
-    // animation is over, and a loop that kept running would satisfy the case above.
+    // It comes to rest: nothing samples once the animation is over.
     expect(clock.pendingCount).toBe(0);
     publisher.dispose();
   });
 
   it("publishes the new rectangle while an animation nothing announced carries the pane", async () => {
-    // The same rail collapse, driven through `element.animate()` instead of a CSS
-    // transition. No `transitionrun`, no `animationstart`, no size change on any
-    // watched box — so before source 5 the sampler never armed and the native view
-    // held the pane's old coordinates for the whole animation.
+    // The same collapse through `element.animate()`: no `transitionrun`, no `animationstart` and
+    // no size change on any watched box.
     const sibling = trackAttachedRoot(document.createElement("div"));
     document.body.append(sibling);
     const hostElement = elementWithRect(rect(240, 0, 100, 100));
@@ -145,11 +134,10 @@ describe("PaneGeometryPublisher — the move source", () => {
 
     const motion = movingAnimation();
     withDocumentAnimations([motion.animation]);
-    // Nothing announced it, so nothing is armed on the strength of the animation
-    // alone. This is the half the finding is about.
+    // Nothing announced it, so the animation alone arms nothing.
     expect(clock.pendingCount).toBe(0);
 
-    // The class the collapsing rail wrote, which is a source this module already had.
+    // The class the collapsing rail wrote.
     sibling.className = "is-collapsing";
     await settleMutationRecords();
     moveElementRect(hostElement, rect(120, 0, 100, 100));
@@ -162,14 +150,14 @@ describe("PaneGeometryPublisher — the move source", () => {
     motion.settle();
     clock.runFrame();
     clock.runFrame();
-    // And it comes to rest: nothing samples once the animation is over.
+    // It comes to rest: nothing samples once the animation is over.
     expect(clock.pendingCount).toBe(0);
     publisher.dispose();
   });
 
   it("negative control: a disposed publisher hears no reorder at all", async () => {
-    // Without the disposer reaching the position sources, a pane that unmounted
-    // would keep sampling for the life of the window, once per pane layout reorder.
+    // Without the disposer reaching the position sources, an unmounted pane would keep sampling
+    // for the life of the window.
     const hostElement = elementWithRect(rect(0, 0, 100, 100));
     const { publisher, clock } = publishingPublisherOver(hostElement);
     publisher.dispose();

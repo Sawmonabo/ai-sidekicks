@@ -1,10 +1,6 @@
-// Which answer the pane is allowed to render, when two acts are in flight.
-//
-// Every case here is an ordering, so each one settles its acts DELIBERATELY out of
-// the order they were dispatched in — a suite that awaited each act before starting
-// the next would exercise a sequence that cannot go wrong and would pass against the
-// defect. The pair that matters is symmetric: an older failure must not displace a
-// newer success, and an older success must not clear a newer failure.
+// Every case settles its acts out of dispatch order: awaiting each act first would exercise a
+// sequence that cannot go wrong. An older failure must not displace a newer success, and an
+// older success must not clear a newer failure.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -69,11 +65,9 @@ function subject(paneId: string, bridge?: PlatformBridge): ActSubject {
 }
 
 /**
- * The hook under one subject, with the re-render that hands it another.
- *
- * `renderHook`'s props are the whole point here: a pane layout rebinding a pane slot keeps the
- * hook instance and changes its inputs, and a suite that could only mount a fresh
- * hook would never reach the interval this module's stamp exists for.
+ * The hook under one subject, with the re-render that hands it another. A pane layout
+ * rebinding a slot keeps the hook instance and changes its inputs, which a fresh mount never
+ * reaches.
  */
 function renderActs(initial: ActSubject): {
   readonly acts: () => PreviewPaneActs;
@@ -117,8 +111,7 @@ describe("the browser pane's act sequence", () => {
   });
 
   it("drops an older act's success rather than letting it clear a newer refusal", async () => {
-    // The same defect with the outcomes swapped, and the reason the guard covers the
-    // whole write: a completion that clears is as much a write as one that refuses.
+    // A completion that clears is as much a write as one that refuses.
     const first = deferredAct();
     const second = deferredAct();
     const { result } = renderHook(() =>
@@ -138,8 +131,7 @@ describe("the browser pane's act sequence", () => {
   });
 
   it("lets a local refusal outrank an act dispatched before it", async () => {
-    // The address guard and the close-tab chord settle without crossing the
-    // boundary, and they are the newest thing the person did when they settle.
+    // The address guard and the close-tab chord settle without crossing the boundary.
     const pending = deferredAct();
     const { result } = renderHook(() =>
       usePreviewPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
@@ -158,8 +150,8 @@ describe("the browser pane's act sequence", () => {
   });
 
   it("keeps reporting the act that was already in flight when a banner was dismissed", async () => {
-    // Dismissal says "I have read this", not "I have started something newer". An
-    // act still running is the newest thing the pane is doing and its failure is news.
+    // Dismissal means "I have read this", not "I started something newer"; the running act's
+    // failure is still news.
     const pending = deferredAct();
     const { result } = renderHook(() =>
       usePreviewPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
@@ -178,8 +170,7 @@ describe("the browser pane's act sequence", () => {
   });
 
   it("negative control: the newest act's own rejection is rendered", async () => {
-    // Without this, a sequence that wrote nothing ever would satisfy the two
-    // dropping cases above and would leave every failed act silent.
+    // Without this, a sequence that wrote nothing would pass the two dropping cases above.
     const only = deferredAct();
     const { result } = renderHook(() =>
       usePreviewPaneActs(FIRST_SUBJECT.bridge, FIRST_SUBJECT.paneId),
@@ -212,9 +203,8 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
   });
 
   it("drops a settlement that lands after the bridge was replaced", async () => {
-    // The other half of the subject, and it fails the same way: a call made on a
-    // bridge this window no longer holds cannot be reporting about the page it holds
-    // now, whatever the pane is called.
+    // A call made on a replaced bridge cannot report about the page the window holds now,
+    // whatever the pane is called.
     const pending = deferredAct();
     const { acts, rebindTo } = renderActs(FIRST_SUBJECT);
 
@@ -229,9 +219,7 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
   });
 
   it("clears a refusal already on screen when the pane is rebound", async () => {
-    // The local arm, which never crosses the boundary and so cannot be dropped by a
-    // token alone: the sentence was rendered and stayed rendered beside a pane it
-    // was not about.
+    // The local arm never crosses the boundary, so a token alone cannot drop it.
     const { acts, rebindTo } = renderActs(FIRST_SUBJECT);
 
     act(() => {
@@ -245,7 +233,7 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
   });
 
   it("still reports the replacement pane's own act", async () => {
-    // The rebind retires the previous subject's acts; it does not retire the hook.
+    // The rebind retires the previous subject's acts, not the hook.
     const { acts, rebindTo } = renderActs(FIRST_SUBJECT);
     rebindTo(SECOND_SUBJECT);
     const afterRebind = deferredAct();
@@ -260,14 +248,9 @@ describe("the act state belongs to the pane the acts were dispatched for", () =>
   });
 
   it("negative control: a re-render that keeps the subject keeps the refusal", async () => {
-    // Without it every case above would pass against a hook that cleared its refusal
-    // on any re-render — and a pane re-renders on every reported navigation, so the
-    // refusal a person is reading would vanish while they read it.
-    //
-    // The refusal driven here is the close-tab chord's, which is the arm that reaches
-    // this hook without crossing the boundary: `PreviewPane` refuses `no-selected-page`
-    // when the chord arrives with nothing to close. The code comes from
-    // `pane-refusals.ts`, the set's one home, so a case cannot outlive a member.
+    // Without it the cases above would pass against a hook that cleared its refusal on any
+    // re-render, and a pane re-renders on every reported navigation. The refusal is the
+    // close-tab chord's, which reaches this hook without crossing the boundary.
     const { acts, rebindTo } = renderActs(FIRST_SUBJECT);
 
     act(() => {

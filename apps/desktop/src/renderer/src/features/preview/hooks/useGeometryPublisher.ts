@@ -1,14 +1,6 @@
-// This pane's rectangle, published to the page host that draws its page.
-//
-// Split from `PreviewPaneContent.tsx`, which draws the pane: this is the binding underneath
-// it — one publisher, the page host it writes to, and the subject both were resolved under
-// — and the three rules that keep it honest across a subject swap. None of them is a
-// rendering decision, and all three are the kind of thing a reader who came for the
-// component's markup would skip.
-//
-// A BINDING OUTLIVES ITS SUBJECT. React keeps a pane instance while the window hands
-// it a different bridge or the pane layout hands it a different pane, so every rule here is
-// about the pass where the state still holds the PREVIOUS binding.
+// Binds this pane's rectangle publisher to the page host that draws its page. A binding outlives
+// its subject: React keeps the pane instance across a new bridge, pane or page host, so the
+// hook must never hold the previous subject's publisher.
 
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
@@ -24,17 +16,9 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import type { PaneSubject } from "../types.js";
 
 /**
- * One publisher over the given page host, for the pane it is for, and the subject both were
- * resolved under.
- *
- * The clock is the window's, so a frozen scenario freezes this publisher's frame with
- * every other timer in the pane. The airspace comes off the document, which an
- * overlay element and this pane share when they are in one window.
- *
- * The motion observation is the publisher's, not this function's: a self-disposal after a
- * `pane-gone` rejection ends the frame loop.
- *
- * Pure: it arms nothing at all.
+ * One publisher over the given page host, for the pane it is for. The clock is the window's,
+ * so a frozen scenario freezes the publisher's frame; the airspace comes off the document,
+ * which an overlay and this pane share within one window. Arms nothing.
  */
 function createGeometryBinding(
   subject: PaneSubject,
@@ -48,25 +32,19 @@ function createGeometryBinding(
   };
 }
 
-/** Ends a binding. Terminal: `dispose` is what the publisher documents it as. */
+/** Ends a binding; `dispose` is terminal. */
 function closeGeometryBinding(bound: BoundGeometryPublisher): void {
   bound.publisher.dispose();
 }
 
-/** Whether a binding's own disposal has already run, however it was reached. */
+/** Whether a binding's disposal has already run, however it was reached. */
 function isGeometryBindingClosed(bound: BoundGeometryPublisher): boolean {
   return bound.publisher.isDisposed;
 }
 
 /**
- * How the holder ends a binding, and how it reads one that already ended.
- *
- * A terminal disposal rather than a release, because `dispose` is what the publisher
- * documents it as: the reading is what lets the holder re-mint for React's second
- * mount instead of committing the corpse the first mount's teardown left. Declared at
- * module level so both members keep one identity across every render — the hook holds
- * them on their own dependency, and a literal built in the body would move the list
- * every pass.
+ * How the holder ends a binding and recognizes one that already ended. Module-level so both
+ * members keep one identity across renders and do not move the hook's dependency list.
  */
 const GEOMETRY_BINDING_DISPOSAL: SubjectScopedDisposal<BoundGeometryPublisher> = {
   dispose: closeGeometryBinding,
@@ -79,39 +57,23 @@ export interface BoundGeometryPublisher extends PaneSubject {
 }
 
 /**
- * Publish this pane's rectangle for the life of the mount, and RENDER what the page host
- * said back.
+ * Publish this pane's rectangle for the life of the mount, and return what the page host said
+ * back.
  *
- * The outcome is subscribed rather than copied. `observe` only queues the first
- * write, so a value read straight after it is `undefined` by construction — and
- * everything after it, the `pane-gone` rejection above all, would then land in the
- * publisher and reach nobody, leaving the viewport silent over a page host that has said
- * this pane is destroyed. `useSyncExternalStore` rather than a
- * `useState` an effect writes into, for `LiveAnnouncerProvider`'s reason: an outcome
- * recorded between this component's render and its subscription is missed by the
- * effect shape, and a missed refusal is silent by construction.
+ * The outcome is subscribed, not copied: `observe` only queues the first write, so a value read
+ * straight after it is `undefined`, and a later `pane-gone` rejection would reach nobody.
+ * `useSyncExternalStore` rather than an effect writing state, which misses an outcome recorded
+ * between render and subscription.
  *
- * THE BINDING IS HELD BY THE CONSOLE'S SUBJECT-SCOPED RESOURCE HOLDER. A binding
- * outlives its subject: React keeps the instance while the window hands it a different
- * bridge or the pane layout hands it a different pane. The three arms that follow are the
- * holder's:
+ * The subject-scoped holder keeps the binding:
+ *   - A changed subject (bridge, pane or page host) opens its binding during the render that
+ *     first sees it, so no pass holds the previous publisher.
+ *   - A double mount finds the binding disposed and gets a fresh one.
+ *   - A self-disposal after a `pane-gone` rejection stays disposed on purpose: re-minting would
+ *     ask a page host that said the pane is gone again on every frame.
  *
- *   • A CHANGED SUBJECT (another bridge, pane or page host) opens its own binding
- *     DURING THE RENDER that first sees it, so there is no pass on which this hook holds
- *     the previous subject's publisher and nothing to compare on the way out.
- *   • A DOUBLE MOUNT is answered by `isGeometryBindingClosed`. React runs the cleanup
- *     and mounts the same instance again, so the second mount would otherwise be
- *     handed the corpse the first one's teardown just disposed; the holder re-mints
- *     rather than committing a resource that will never work again.
- *   • A SELF-DISPOSAL after a `pane-gone` rejection STAYS DISPOSED, because the holder
- *     reads that reading only where its lifetime effect runs. That arm is terminal on
- *     purpose: the page host has said this pane is gone, and re-minting would ask it again
- *     every frame.
- *
- * The attachment below is the one thing the holder does not own, because it is about
- * an ELEMENT rather than a subject: the publisher's own detacher is its disposal, so
- * the effect returns it directly and the holder's `close` is the same act reached the
- * other way — both idempotent, and both terminal by the publisher's own contract.
+ * The element attachment stays here: the publisher's detacher is its disposal, so the effect
+ * returns it directly.
  */
 export function useGeometryPublisher(
   bridge: PlatformBridge,
@@ -127,8 +89,7 @@ export function useGeometryPublisher(
     () => createGeometryBinding({ bridge, paneId }, pageHost, clock),
     [bridge, paneId, pageHost, clock],
   );
-  // The page host is part of the subject: a publisher writes to one page host for
-  // life, so a new page host for the same pane needs a new publisher.
+  // A publisher writes to one page host for life, so a new page host needs a new publisher.
   const subject = useMemo(() => ({ bridge, pageHost }), [bridge, pageHost]);
   const { value: bound } = useSubjectScopedResource(
     subject,

@@ -1,51 +1,30 @@
-// Where the native view is allowed to be, and when it has to get out of the way.
-//
-// The arithmetic half of pane geometry. This module touches no DOM and schedules
-// nothing: it is the pure computation that makes a native rectangle
-// and a DOM layout look like one application, so every rule it carries has a negative
-// control — the clipping-ancestor intersection and the sub-pixel floor on
-// `composePaneGeometrySample`, and the yield-to-overlays rule on `PaneOverlaySource`.
-// The sampling half — four required invalidation sources, read-now / write-next-frame
-// — lives in `geometry-publisher.ts`, which needs a document and cannot be pure.
-//
-// WHAT IS NOT INVENTED HERE. The publish is `browser.setRect`. No code package
-// registers that method, so the publish target is the PAGE HOST rather than a
-// fabricated method string.
-//
-// The two modules beside this one: `page-host.ts` is the page host — what a
-// sample is published TO — and `core/airspace-registry.ts` is the overlay set every
-// overlay primitive registers into, reached through the narrow `PaneOverlaySource`
-// port so the two do not cycle.
+// Where the native view may be and when it yields: the pure arithmetic half of pane geometry,
+// with no DOM and nothing scheduled. The sampling half is `geometry-publisher.ts`, and samples
+// go to the page host in `page-host.ts`. `PaneOverlaySource` is the narrow port onto
+// `lib/airspace-registry.ts`, so the two modules do not cycle.
 
 import { type AirspaceMotionObserver, type AirspaceRect } from "@renderer/lib/airspace-registry.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 
-/** Two-decimal rounding, as the factor: a `toFixed` round trip would be a second
- *  number formatter, which `apps/desktop/AGENTS.md` names a chokepoint breach. */
+/** Two-decimal rounding as a factor; `toFixed` would be a second number formatter. */
 const GEOMETRY_ROUNDING_FACTOR = 100;
 
-/** The edge length below which there is nothing to show. One and not zero, because a
- *  rectangle rounded to two places can be 0.4 px tall and still be a number. */
+/** Below this edge length there is nothing to show; one, since a rounded box can be 0.4 px tall. */
 const MINIMUM_VISIBLE_EDGE_PX = 1;
 
 /**
- * A rectangle in CSS pixels, viewport-relative, already rounded.
- *
- * The airspace's own rect, aliased rather than re-declared: an overlay rectangle and a
- * pane rectangle are compared against each other by `readHiddenReason` below, and two
- * structurally identical declarations of one shape are two closed sets that agree until
- * somebody widens one.
+ * A rectangle in CSS pixels, viewport-relative, already rounded. The airspace's own rect, so
+ * overlay and pane rectangles compare as one shape.
  */
 export type PaneRect = AirspaceRect;
 
-/** Why a sample hides the view: a pane scrolled out of its own scroller, or an
- *  overlay the operator opened. Two different stories, so two members. */
+/** Why a sample hides the view: the pane is below the minimum edge, or an overlay covers it. */
 export const PANE_GEOMETRY_HIDDEN_REASONS = ["below-minimum-edge", "occluded"] as const;
 
+/** One of `PANE_GEOMETRY_HIDDEN_REASONS`. */
 export type PaneGeometryHiddenReason = (typeof PANE_GEOMETRY_HIDDEN_REASONS)[number];
 
-/** Why a sample was taken. Carried on every publish, so a diagnostic can name which
- *  of the required sources is the one that is not firing. */
+/** Why a sample was taken, carried on every publish so a diagnostic can name a silent source. */
 export const GEOMETRY_INVALIDATION_REASONS = [
   "attach",
   "resize-observer",
@@ -56,13 +35,13 @@ export const GEOMETRY_INVALIDATION_REASONS = [
   "overlay-change",
 ] as const;
 
+/** One of `GEOMETRY_INVALIDATION_REASONS`. */
 export type GeometryInvalidationReason = (typeof GEOMETRY_INVALIDATION_REASONS)[number];
 
 /**
- * One reading of where the pane is, and whether the view may be shown there. It
- * travels WHOLE to the page host rather than as four numbers, because a rectangle is
- * never assumed to be still current after an await: a page host handed the sample can
- * compare `key` against what it last applied, and one handed coordinates cannot.
+ * One reading of where the pane is and whether the view may be shown there. It travels whole so
+ * a page host can compare `key` against what it last applied; a rectangle is never assumed
+ * current after an await.
  */
 export interface PaneGeometrySample {
   /** The pane's own box, intersected against every clipping ancestor. */
@@ -79,12 +58,8 @@ export interface PaneGeometrySample {
 }
 
 /**
- * What the publisher needs from the overlay registry, and nothing more — a port rather
- * than an import, so the edge runs one way and the two modules do not cycle.
- *
- * The predicate that consults it always resolves the same way: the VIEW yields. An
- * overlay is never dimmed or displaced to make room for a native rectangle painted
- * above the document.
+ * What the publisher needs from the overlay registry, as a port so the two do not cycle. The
+ * view always yields: an overlay is never dimmed or displaced for a native rectangle.
  */
 export interface PaneOverlaySource {
   /** Every overlay rectangle on screen right now. */
@@ -92,15 +67,9 @@ export interface PaneOverlaySource {
   /** Fires when an overlay opens or closes, so a publisher re-samples immediately. */
   subscribeToChanges(sink: () => void): Unsubscribe;
   /**
-   * Watch every registered overlay ELEMENT for movement, until the answer is called.
-   *
-   * ON THE PORT RATHER THAN LEFT TO WHOEVER MINTS THE PUBLISHER, because an
-   * observation armed outside the publisher outlives every terminal the publisher
-   * has. The registry deliberately arms no frame of its own — the only consumer that
-   * needs an overlay sampled while a transition carries it is the one drawing a
-   * native view — so the consumer installs it, and the consumer is this publisher:
-   * the observation is an invalidation source like the other five, armed by `observe`
-   * and retired by `dispose` beside them.
+   * Watches every registered overlay element for movement until the returned disposer is
+   * called. It is on the port because the registry arms no frame of its own; the publisher
+   * installs it and `dispose` retires it with the other sources.
    */
   installMotionObserver(observe: AirspaceMotionObserver): Unsubscribe;
 }
@@ -116,12 +85,8 @@ export interface PaneGeometryInput {
 }
 
 /**
- * Round a raw box to the sample's precision.
- *
- * Exported because the rounding factor is part of the ARITHMETIC and there may only be
- * one of it: a caller that read a DOM box and rounded it its own way would produce
- * samples that compare unequal to these for the same rectangle, and the publisher's
- * dedupe is a string comparison over exactly those numbers.
+ * Rounds a raw box to the sample's precision. The one rounding, because the publisher's dedupe is
+ * a string comparison over these numbers.
  */
 export function roundPaneRect(box: {
   readonly x: number;
@@ -152,16 +117,10 @@ export function intersectRects(first: PaneRect, second: PaneRect): PaneRect {
 }
 
 /**
- * Compose one sample — the clip, the rounded rectangle, and whether the view may show
- * past the overlays — as a pure function, because a version reachable only by mounting
- * a pane in a real window is one nobody could write a negative control for.
- *
- * The host rectangle is narrowed by EVERY clipping ancestor, because a pane scrolled behind
- * an overflow edge has a valid bounding box that is nowhere the operator can see, and
- * publishing it paints a live web page over the chrome above it. The result hides
- * outright below one pixel on either axis of either the rectangle or the clip: there
- * is nothing left to show, and a hairline of a foreign page bleeding past a boundary
- * reads as a rendering fault rather than as a pane.
+ * Composes one sample as a pure function. The host rectangle is narrowed by every clipping
+ * ancestor, since a pane scrolled behind an overflow edge has a bounding box nowhere visible and
+ * publishing it would paint the page over the chrome. The view hides below one pixel on either
+ * axis of the rectangle or the clip, and when an overlay covers it.
  */
 export function composePaneGeometrySample(input: PaneGeometryInput): PaneGeometrySample {
   const clip = input.clipRects.reduce<PaneRect>(

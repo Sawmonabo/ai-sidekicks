@@ -1,23 +1,9 @@
-/*
- * The preview pane's box.
- *
- * No literal color: every value is read back out of a Meridian custom property, and
- * the two hues are spent only on their one meaning each: amber where a person is
- * needed, red where something failed.
- *
- * Imported by `PreviewPaneContent.tsx`. It carries the pane box and its bands, the
- * chrome bar and its address field.
- */
-
-/* ----------------------------------------------------------------- pane box */
+/* The preview pane's box, chrome bar and address field. No literal color: every value is read
+   from a Meridian custom property. */
 
 /*
- * The pane's body, in two bands: a chrome bar that cannot grow and a
- * viewport that takes whatever is left.
- *
- * It carries no frame of its own. `components/PaneFrame/PaneFrame.css` draws the section, its
- * boundary and its background, and this box grows inside the body region that sheet
- * leaves.
+ * The pane body in two bands: a chrome bar that cannot grow and a viewport that takes the rest.
+ * The frame, boundary and background are drawn by `components/PaneFrame/PaneFrame.css`.
  */
 .meridian-preview-pane {
   display: flex;
@@ -32,9 +18,8 @@
   gap: var(--meridian-space-2);
   padding: var(--meridian-space-2);
   border-block-end: 1px solid var(--meridian-edge);
-  /* The bar is one centered row, so the shared action button takes its inline
-     arrangement here, through the custom properties `../controls.css` declares. The button's own
-     class is never declared outside the sheet that owns it. */
+  /* The bar is one centered row, so the shared button takes its arrangement through the custom
+     properties `../controls.css` declares, never by redeclaring its class here. */
   --meridian-preview-action-align-self: center;
   --meridian-preview-action-display: inline-flex;
   --meridian-preview-action-align-items: center;
@@ -55,9 +40,8 @@
 }
 
 /*
- * The viewport clips, and that is load-bearing rather than tidy: the rectangle
- * this box reports is what a native view is eventually positioned to, and an
- * unclipped box reports coordinates that reach past the pane.
+ * The viewport clips: its reported rectangle positions a native view, and an unclipped box
+ * reports coordinates that reach past the pane.
  */
 .meridian-preview-pane__viewport {
   position: relative;

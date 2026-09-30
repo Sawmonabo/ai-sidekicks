@@ -1,27 +1,11 @@
-// The embedded browser's bounds: its position observer's sibling reach, its settings
-// page's partition fold, and its pane shelf's two row caps. The shelf pair states the
-// line all four sit on the renderer's side of.
-
+// Bounds for the embedded browser's geometry observation.
 /**
- * Boxes beside the pane's ancestry whose intrinsic size the position observer
- * watches.
+ * How many boxes beside the pane's ancestry the position observer watches for a size change.
+ * An auto-sized sibling that grows moves the pane while no other watched box changes, and no
+ * other source sees it.
  *
- * The observer covers content-driven layout by watching each SIBLING of the pane and
- * of its ancestors: an auto-sized sibling that grows on a text-node update or a
- * nested insertion moves the pane while no watched box changes shape, no watched
- * attribute changes, and no ancestor's direct child list moves. Nothing else in the
- * module can see that.
- *
- * Bounded because the sibling count is a property of the DOCUMENT, not of the pane. A
- * pane nested inside a live feed has as many siblings as the feed has rows, and an
- * observer per row is the per-row layout cost the attribute observer's own width rule
- * already refuses. Sixty-four covers every layout the console composes with room to
- * spare; past it the NEAREST siblings are the ones observed, because a box beside the
- * pane moves it further than a box beside the document body does, and the remainder
- * stays covered by the five sources that do not depend on this one.
+ * Bounded because the sibling count belongs to the document, not the pane: a pane nested in a
+ * live feed has a sibling per row, and an observer per row is a per-row layout cost. Past the
+ * cap the nearest siblings are the ones observed, since they move the pane furthest.
  */
 export const POSITION_SIBLING_OBSERVER_CAP = 64;
-
-// Two display bounds over renderer lists, and NEITHER is one of the browser subsystem's
-// resource ceilings — those are the daemon's. Nothing is refused, truncated, or deleted
-// because of these: what is dropped is a row nobody scrolled to.

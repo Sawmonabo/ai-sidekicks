@@ -1,26 +1,7 @@
-// How a pane drawing a native view watches the overlays it has to yield to move.
-//
-// The overlay set lives at the primitive layer and the yield rule lives here. The set
-// is `core/`'s airspace registry, which every
-// overlay primitive registers into; this module is the half of the observation that
-// only a native-view consumer needs, and it is installed by that consumer rather than
-// standing on its own.
-//
-// AN OVERLAY MOVES AFTER IT REGISTERS. Opening and closing are not the only moments a
-// rectangle changes: a popover is positioned AFTER it mounts, a dialog animates in, a
-// toast grows as its text wraps, a rail collapse carries everything inside it. Two of
-// those change the box and the registrant's own size seam reports them. The third does
-// not: an element carried across the screen by a transition changes neither its size
-// nor anything an observer can see, and a transition reports its START and its END and
-// says nothing in between. So a moving overlay is sampled once per animation frame
-// while it is in flight, and the loop stops on the first frame that finds nothing
-// running — that last frame is the one that publishes where the overlay came to rest.
-//
-// NOTHING SAMPLES AT REST, and nothing samples at all while no pane is drawing a view.
-// The console's budgets forbid idle CPU, so the loop is armed by a motion START and by
-// an observation that begins mid-animation, and it disarms itself. The old arrangement
-// ran this for every overlay in the window whether or not anything was yielding to one;
-// installing it from the consumer is what makes "no view, no frame loop" structural.
+// How a pane drawing a native view watches the overlays it yields to move. The overlay set is
+// the airspace registry in `lib/`; this consumer installs the observation, so while no pane draws
+// a view no frame is armed. A transition reports only its start and end, so a moving overlay is
+// sampled once per frame in flight, and the last frame publishes where it came to rest.
 
 import type {
   AirspaceMotionObserver,
@@ -32,12 +13,9 @@ import { hasRunningMotion, observeMotionStarts, sharesMotionWith } from "./eleme
 import { MotionFrameSampler } from "./motion-sampling.js";
 
 /**
- * The observer a native-view consumer installs into its window's airspace.
- *
- * Takes the clock rather than minting one, for the reason the geometry binding gives
- * about its own: a `RealClock` minted privately is invisible to `ManualClock`, which
- * is the instrument the console counts timers with, so a sampler that minted one ran
- * on wall time inside a window whose every other timer was frozen.
+ * The observer a native-view consumer installs into its window's airspace. Takes the clock
+ * rather than minting one, so the sampler runs on the window's clock (frozen in tests) instead
+ * of wall time.
  */
 export function overlayMotionObserver(clock: Clock): AirspaceMotionObserver {
   const observation = new OverlayMotionObservation(clock);
@@ -46,13 +24,9 @@ export function overlayMotionObserver(clock: Clock): AirspaceMotionObserver {
 }
 
 /**
- * One window's overlay-motion observation, shared by every element it is asked to
- * watch.
- *
- * A class rather than a closure per element because the motion-START seam is a
- * document-level listener: one per observation, armed while at least one element is
- * watched and disarmed when the last one goes. A listener per overlay would be one
- * document subscription per open dialog for a signal every one of them reads.
+ * One window's overlay-motion observation, shared by every element it watches. A class because
+ * the motion-start seam is one document-level listener, armed while any element is watched and
+ * disarmed when the last goes, not one per open dialog.
  */
 class OverlayMotionObservation {
   readonly #clock: Clock;
@@ -66,12 +40,8 @@ class OverlayMotionObservation {
   /** Watch one overlay element until the returned disarm is called. */
   public observe(element: Element, onMoved: () => void): Unsubscribe {
     const sampler = new MotionFrameSampler({
-      // An overlay yields to the motion that CARRIES it, which is the same width the
-      // start filter below uses. `hasRunningMotion` runs the box-moving filter, so an
-      // overlay holding a `not-loaded` skeleton — an infinite opacity pulse for as
-      // long as a read is out — arms no frame at all. Unfiltered, one loading dialog
-      // kept a sampler running for the life of the read and reported nothing anybody
-      // could see, which is the permanent frame loop the idle-CPU budget forbids.
+      // An overlay yields to the motion that carries it, the width the start filter below uses.
+      // The box-moving filter keeps a loading skeleton's opacity pulse from arming a frame loop.
       isMotionRunning: () => hasRunningMotion(element),
       clock: this.#clock,
       onFrame: onMoved,
@@ -79,8 +49,7 @@ class OverlayMotionObservation {
     this.#samplersByElement.set(element, sampler);
     this.#armMotionStarts();
     if (hasRunningMotion(element)) {
-      // Observed mid-animation — the case a start event has already been and gone for,
-      // and the one a start listener alone would never sample.
+      // Observed mid-animation: the start event has already come and gone.
       sampler.startIfIdle();
     }
     return () => {
@@ -90,7 +59,7 @@ class OverlayMotionObservation {
     };
   }
 
-  /** How many elements have a frame armed. Zero at rest, and that is the budget. */
+  /** How many elements have a frame armed; zero at rest. */
   public get samplingElementCount(): number {
     let sampling = 0;
     for (const sampler of this.#samplersByElement.values()) {
@@ -124,14 +93,9 @@ class OverlayMotionObservation {
 }
 
 /**
- * Whether the airspace handed over something this window can watch move.
- *
- * The airspace holds an overlay's element opaquely, because `core/` compiles with no
- * DOM lib and reads no property of it. This module reads two — the running animations
- * that say the box is in flight, and the containment that says which motion carries it
- * — so the narrowing happens here, at the one boundary that needs the platform type,
- * and an overlay that is not a DOM element is watched by nothing rather than crashing
- * a sampler on a value it cannot read.
+ * Whether the airspace handed over something this window can watch move. The airspace holds
+ * overlay elements opaquely (it compiles with no DOM lib), so the narrowing to the platform type
+ * happens here, and a non-element overlay is watched by nothing rather than crashing a sampler.
  */
 function isWatchableElement(subject: AirspaceOverlayElement): subject is Element {
   return "getAnimations" in subject && "contains" in subject;

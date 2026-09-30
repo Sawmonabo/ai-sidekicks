@@ -1,56 +1,20 @@
-// How a chord mirror is spelled for one comparison, and what the host has been told.
-//
-// The handback mirror is published and never polled, so the binding beside this file
-// re-publishes exactly when the projected set changes.
-// "Changes" is the whole question, and the two halves of answering it live here
-// together because they are one seam: the KEY a projection is compared by, and the
-// register saying which key the host is currently holding.
-//
-// THE KEY AND THE CHORDS ARE ENCODED AND DECODED IN ONE MODULE, on this package's
-// rule about two sides of one seam. The key is the chord list joined on a space, which
-// is lossless because a space is tinykeys' SEQUENCE separator and `chord-claim.ts`
-// refuses a sequence before it can reach a mirror — so no chord in a projection ever
-// contains one. Splitting a key back was written at the publish site once and got the
-// empty case wrong: `"".split(" ")` is a one-member list holding an empty string, so a
-// mirror holding no chord would have traveled as a mirror holding one unparseable
-// one.
-//
-// AND "NOTHING PUBLISHED" IS A STATE, NOT AN EMPTY VALUE. A truthiness check on the
-// key cannot tell a pane whose window never had a claimable chord from one whose
-// operator has just unbound the last of them. The first owes the host nothing — a host
-// that was told nothing claims nothing. The second owes it an EMPTY publication, and
-// skipping it leaves the old mirror installed in the page host: the host goes on
-// claiming chords the renderer's own projection no longer holds, so it takes each of
-// those keystrokes from the page and hands back a chord the replay declines. The
-// keystroke reaches neither the page nor the console. The register below is what
-// separates the two, by remembering the last key published INCLUDING the empty one.
+// The key a chord mirror is compared by, and the register of what the page host holds.
+// The key joins chords on a space, lossless because `chord-claim.ts` refuses spaced sequences.
+// "Nothing published" is a state, not an empty value: unbinding the last claimable chord owes the
+// host an empty publication, or the old mirror stays installed.
 
-/**
- * What a mirror key joins on, and what a chord may therefore never contain.
- *
- * tinykeys spells a multi-press binding with a space, and a sequence is refused by
- * `chordCarriesApplicationModifier` before it can reach a mirror — so this separator
- * is unambiguous by the projection's own rule rather than by convention.
- */
+/** What a mirror key joins on; no chord contains it, because sequences never reach a mirror. */
 const MIRROR_CHORD_SEPARATOR = " ";
 
 /** The key of a mirror holding no chord, and of a host that has been told nothing. */
 const EMPTY_CHORD_MIRROR_KEY = "";
 
 /**
- * What one pane's page host is currently holding, so a publication can be owed.
+ * What one pane's page host is currently holding, so a publication can be owed. Minted per
+ * subject: a pane rebound to another window addresses a host that has been told nothing.
  *
- * A class with a private field because the whole point is that the field is written
- * in exactly one place — the moment a publication is dispatched — and read in exactly
- * one other. It is minted per SUBJECT by its caller: a pane rebound to another window
- * is addressing a host that has been told nothing, and a register carried across that
- * rebind would decide the new host already holds a mirror it has never seen.
- *
- * A publication is recorded at DISPATCH and not at settlement, which is the safe
- * direction on both arms: a publication that failed leaves the host holding nothing,
- * so a later clear is a no-op, while a publication whose reply was lost may well have
- * landed — and a clear the register decided to skip would leave that mirror installed
- * forever.
+ * Recorded at dispatch, not settlement: a failed publish leaves nothing to clear, while a
+ * lost reply may have landed, and skipping that clear would leave the mirror installed.
  *
  * @consumedBy the preview pane's handback, which tells the host the chords the page claims
  */
@@ -70,11 +34,8 @@ export class ChordMirrorPublication {
 }
 
 /**
- * One projection as a single value an effect can be keyed on.
- *
- * An unreadable registry and an empty projection compose to the same key, and that is
- * correct rather than a conflation: the handback sends both to the page, so both
- * are "this pane claims nothing" and the host is owed the same sentence for either.
+ * One projection as a single value an effect can be keyed on. An unreadable registry and an
+ * empty projection share a key on purpose: the page is owed the same "claims nothing" for both.
  *
  * @consumedBy the preview pane's handback, which tells the host the chords the page claims
  */

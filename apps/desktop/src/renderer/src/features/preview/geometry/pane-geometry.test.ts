@@ -1,10 +1,7 @@
-// The clip-and-hide arithmetic: what rectangle a pane gets, and when it has to disappear.
-//
-// These cases are about the failures the naive version has, not about the happy path —
-// a clipping ancestor that is ignored paints a web page over the chrome, and a
-// sub-pixel rectangle bleeds a hairline of a foreign page past a boundary. Every clean
-// result has a control that fails, because a predicate answering "hidden" to
-// everything would satisfy every visibility assertion in this file.
+// The clip-and-hide arithmetic: what rectangle a pane gets and when it disappears. The cases
+// target the naive version's failures: an ignored clipping ancestor paints a page over the
+// chrome, and a sub-pixel rectangle bleeds a hairline of a foreign page. Each clean result has a
+// control, since a predicate answering "hidden" to everything would satisfy every visibility case.
 
 import { describe, expect, it } from "vitest";
 
@@ -36,8 +33,8 @@ describe("intersectRects", () => {
   });
 
   it("negative control: overlapping rectangles do not come back zero-area", () => {
-    // Without this, an implementation that returned a zero rectangle for everything
-    // would satisfy both the disjoint case and every hidden-state case below.
+    // Without this, an implementation returning a zero rectangle for everything would satisfy the
+    // disjoint case and every hidden-state case.
     const overlap = intersectRects(rect(0, 0, 10, 10), rect(5, 5, 10, 10));
     expect(overlap.width).toBeGreaterThan(0);
     expect(overlap.height).toBeGreaterThan(0);
@@ -89,9 +86,8 @@ describe("composePaneGeometrySample", () => {
   });
 
   it("negative control: an overlay that misses the pane does not hide it", () => {
-    // The occlusion case above would pass over a predicate that hid the view whenever
-    // any overlay existed at all, which is the reading that makes the whole pane
-    // unusable the moment a toast appears in a corner.
+    // The occlusion case would pass over a predicate that hid the view whenever any overlay
+    // existed, which makes the pane unusable when a toast appears in a corner.
     const sample = composePaneGeometrySample({
       ...visibleInput,
       overlayRects: [rect(900, 900, 50, 50)],

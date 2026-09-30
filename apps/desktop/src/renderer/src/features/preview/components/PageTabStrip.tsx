@@ -1,18 +1,7 @@
-// The pane's tab strip: one tab per page the session owns.
-//
-// Each tab carries the page's icon, its title (the host until the title arrives), and a
-// close control; while the page loads, a turning mark takes the icon's place. The strip
-// draws a reading and decides nothing: which tab is current and whether a page is
-// loading are read off the frame. It is present only at
-// two or more pages: with one page or none there is nothing to choose between, and a
-// list nobody has reported is never shown as a session with no pages.
-//
-// NO TAB SEMANTICS, DELIBERATELY. `role="tablist"` promises a `tabpanel` for each tab,
-// and there is no panel here: the page is painted by a native view over the pane's
-// rectangle and is not in this document at all. So the strip is a list of controls,
-// the current one is marked `aria-current`, and a screen reader is told the truth
-// about what it is looking at rather than a shape it can navigate into and find
-// nothing behind.
+// The pane's tab strip: one tab per page, with the page's icon, its title (the host until the
+// title arrives) and a close control. It draws a reading and shows only at two or more pages.
+// Not `role="tablist"`: there is no `tabpanel`, since a native view paints the page over the
+// pane's rectangle, so the strip is a list of controls and the current one is `aria-current`.
 
 import "./PageTabStrip.css";
 
@@ -35,17 +24,15 @@ export interface PageTabStripProps {
   readonly reading: PageListReading;
   readonly onSelect: (pageId: PreviewPageId) => void;
   readonly onClose: (pageId: PreviewPageId) => void;
-  /** `toIndex` addresses the list WITHOUT the moved page. See `tab-reorder.ts`. */
+  /** `toIndex` addresses the list without the moved page. See `tab-reorder.ts`. */
   readonly onReorder: (pageId: PreviewPageId, toIndex: number) => void;
 }
 
 /** One tab per open page, with drag reordering; draws nothing below two pages. */
 export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null {
   const { reading, onSelect, onClose, onReorder } = props;
-  // The drop position a drag is currently over, held only while a drag is in the air. It is
-  // renderer-local by nature — nothing outside this window knows a pointer is down —
-  // and it is `undefined` between drags rather than a stale number, so the drop
-  // indicator cannot be left painted after a drag that ended somewhere else.
+  // The drop position a drag is over, held only during a drag and `undefined` between drags, so
+  // the indicator cannot stay painted after a drag that ended elsewhere.
   const [hoveredDropPosition, setHoveredDropPosition] = useState<number | undefined>(undefined);
   const pages = pagesOf(reading);
   const activePageId = activePageOf(reading)?.pageId;
@@ -61,9 +48,8 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
     if (dragged === undefined) {
       return;
     }
-    // THE ONE CALL SITE. The drop position is a position among the tabs as drawn and the
-    // registry's index addresses the list without the moved page; `pageMoveIndex` is
-    // where that difference is spent, and it is spent here and nowhere else.
+    // The drop position counts tabs as drawn; the registry's index excludes the moved page.
+    // `pageMoveIndex` is the one place that difference is spent.
     const toIndex = pageMoveIndex(fromIndex, dropPosition);
     if (toIndex === undefined) {
       return;
@@ -93,8 +79,7 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
               if (!isTabDrag(event.dataTransfer)) {
                 return;
               }
-              // Preventing the default is what makes this element a drop target at
-              // all; without it the drop never fires and the tab springs back.
+              // Preventing the default makes this element a drop target; without it no drop fires.
               event.preventDefault();
               event.dataTransfer.dropEffect = "move";
               setHoveredDropPosition(index);
@@ -127,8 +112,8 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
             </button>
           </li>
         ))}
-        {/* The trailing drop position. There are `n + 1` places a tab can land among `n`
-            tabs, and without this one the last position is unreachable by drag. */}
+        {/* The trailing drop position: without it the last of the `n + 1` places is
+            unreachable by drag. */}
         <li
           className={
             hoveredDropPosition === pages.length
@@ -154,14 +139,9 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
 }
 
 /**
- * The tab's classes: the base, the selected mark, and the drop marker.
- *
- * THE SELECTED MARK IS A CLASS AND NOT AN ATTRIBUTE SELECTOR. `aria-current` belongs
- * on the interactive element, which is the face inside the item — so a rule keyed on
- * the ITEM's `aria-current` matches nothing and the selected tab is drawn exactly like
- * every other one. That is invisible in every unit case, because no cascade runs
- * there; the browser tier is where it is caught, and this is the shape that keeps the
- * accessible marker and the styling hook from having to be the same thing.
+ * The tab's classes: the base, the selected mark, and the drop marker. The selected mark is a
+ * class because `aria-current` sits on the face inside the item, so a rule keyed on the item's
+ * `aria-current` would match nothing.
  */
 function tabClassName(isSelected: boolean, isDropTarget: boolean): string {
   return [

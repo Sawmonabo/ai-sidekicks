@@ -1,25 +1,14 @@
-// The Web Animations and mutation readings the motion sources arm, under test control:
-// the animation readings `element-motion.ts` takes and the mutation-record settling its
-// ancestry watch needs. The size observer's fake is `tests/helpers/element-resize.ts`,
-// beside the seam it drives, where the terminal tests reach it too.
+// Fakes for the motion sources: Web Animations readings and mutation-record settling. The size
+// observer's fake is `tests/helpers/element-resize.ts`, beside the seam it drives.
 
-/**
- * One animation in a fixed play state, as the Web Animations reading a seam takes.
- *
- * Only `playState` is read by the motion sources — the seams ask whether motion
- * is RUNNING and nothing else about it — so the fake carries that and says so, rather
- * than pretending to be an `Animation` a caller could drive.
- */
+/** One animation in a fixed play state; the motion sources read nothing else about it. */
 export function fakeAnimation(playState: AnimationPlayState): Animation {
   return { playState } as unknown as Animation;
 }
 
 /**
- * One animation whose play state the test moves, read live through the getter.
- *
- * The getter is what makes a frame loop testable: the sampler re-reads the state on
- * every frame, so a case that settles the motion between two frames has to be able to
- * change the answer without handing the sampler a different object.
+ * One animation whose play state the test moves, read live through the getter, so a case can
+ * settle the motion between two sampler frames without handing over a different object.
  */
 export function movingAnimation(): { readonly animation: Animation; settle: () => void } {
   let playState: AnimationPlayState = "running";
@@ -36,13 +25,9 @@ export function movingAnimation(): { readonly animation: Animation; settle: () =
 }
 
 /**
- * One animation with the effect the motion discrimination actually reads: the
- * properties its keyframes name, and the element it runs on.
- *
- * Separate from `fakeAnimation`, which carries only a play state and so reports as
- * unreadable — the fail-safe arm, and the arm every case written before the
- * discrimination landed depends on. A case about WHICH animations count has to hand
- * over an effect, and this is the smallest one that answers both questions.
+ * One animation with the effect the motion filter reads: the properties its keyframes name and
+ * the element it runs on. `fakeAnimation` carries only a play state and so reads as unreadable,
+ * the fail-safe arm.
  */
 export function fakeAnimationOf(options: {
   readonly playState: AnimationPlayState;
@@ -62,7 +47,7 @@ export function fakeAnimationOf(options: {
   } as unknown as Animation;
 }
 
-/** Give one element a Web Animations reading, or take the whole method away. */
+/** Gives one element a Web Animations reading, or takes the method away. */
 export function withAnimations(
   element: Element,
   animations: readonly Animation[] | undefined,
@@ -74,13 +59,9 @@ export function withAnimations(
 }
 
 /**
- * Give the DOCUMENT a Web Animations reading, which the environment these suites run
- * on implements for no node at all.
- *
- * Separate from `withAnimations` rather than folded into it: the document reading is
- * what answers for motion no containment test reaches, so a case has to be able to
- * give the document a running animation while every element in the tree reports none
- * — which is exactly a fixed-size sibling animating beside the subject.
+ * Gives the document a Web Animations reading, which this test environment implements for no
+ * node. Separate from `withAnimations` so a case can run an animation on the document while
+ * every element reports none: a fixed-size sibling animating beside the subject.
  */
 export function withDocumentAnimations(animations: readonly Animation[] | undefined): void {
   Object.defineProperty(document, "getAnimations", {
@@ -90,15 +71,10 @@ export function withDocumentAnimations(animations: readonly Animation[] | undefi
 }
 
 /**
- * Let queued `MutationObserver` records reach their callback.
- *
- * A mutation observer never reports synchronously, so a test that asserted straight
- * after a DOM edit would read the state before delivery every time. A TASK turn and
- * not a microtask one — measured rather than assumed: the DOM implementation these
- * console tiers run on delivers records on a queued task, where the platform
- * delivers them at the end of the microtask checkpoint, and a microtask-only wait
- * reports zero deliveries here. The trailing microtask turn then lets whatever the
- * callback itself scheduled settle before the assertion reads it.
+ * Lets queued `MutationObserver` records reach their callback. A task turn, not a microtask one:
+ * measured, the DOM implementation these tiers run on delivers records on a queued task, and a
+ * microtask-only wait reports zero deliveries. The trailing microtask lets whatever the callback
+ * scheduled settle.
  */
 export async function settleMutationRecords(): Promise<void> {
   await new Promise<void>((resolve) => {
@@ -110,23 +86,16 @@ export async function settleMutationRecords(): Promise<void> {
 const attachedRoots: Element[] = [];
 
 /**
- * Hold a root in the live document until the case ends.
- *
- * Every suite in this directory that attaches an element drives these seams — the
- * predicates, the sampling, the composed position observer, the content-layout
- * wiring, the occlusion registry — and each needs elements that are really attached,
- * because a transition on a detached ancestor bubbles to nothing. A private registry
- * per suite is a teardown loop per suite free to drift, and a root left in the
- * document is an observer the next case's document-wide reading still finds. Stated
- * without a count, because the set is every suite that attaches rather than a list
- * that has to be kept.
+ * Holds a root in the live document until the case ends. Elements must really be attached,
+ * because a transition on a detached ancestor bubbles to nothing, and a root left in the document
+ * is an observer the next case's document-wide reading still finds.
  */
 export function trackAttachedRoot<ElementType extends Element>(root: ElementType): ElementType {
   attachedRoots.push(root);
   return root;
 }
 
-/** `ancestor > element`, both in the live document so events really bubble. */
+/** Builds `ancestor > element`, both in the live document so events really bubble. */
 export function attachedPair(): { readonly ancestor: HTMLElement; readonly element: HTMLElement } {
   const ancestor = document.createElement("div");
   const element = document.createElement("div");
@@ -136,7 +105,7 @@ export function attachedPair(): { readonly ancestor: HTMLElement; readonly eleme
   return { ancestor, element };
 }
 
-/** Every suite's `afterEach` half. Paired with `vi.unstubAllGlobals()` at the call site. */
+/** Every suite's `afterEach` half, paired with `vi.unstubAllGlobals()` at the call site. */
 export function detachAttachedRoots(): void {
   for (const root of attachedRoots.splice(0)) {
     root.remove();

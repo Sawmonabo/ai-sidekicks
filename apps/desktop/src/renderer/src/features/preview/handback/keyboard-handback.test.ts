@@ -1,12 +1,5 @@
-// Who wins a keystroke.
-//
-// Correct behavior for the handback is the absence of a complaint, which is exactly
-// why it needs adversarial cases rather than a happy path: a claim rule that is one
-// modifier too broad takes `S` away from a page's own search box, and a claim rule
-// that is one too narrow silently kills the operator's whole chord set inside a pane.
-// Both failures look like nothing at all until somebody is typing. The vocabulary the
-// decision reads is posed in `chord-claim.test.ts`; what a claimed chord then does is
-// in `keyboard-handback.replay.test.ts`.
+// A claim rule one modifier too broad takes `S` from a page's search box; one too narrow kills
+// the operator's whole chord set inside a pane. Neither shows until somebody is typing.
 
 import { describe, expect, it } from "vitest";
 
@@ -38,8 +31,7 @@ describe("KeyboardHandback.decide", () => {
   });
 
   it("distinguishes an unreadable mirror from an empty console", () => {
-    // The distinction is the whole reason the supplier returns `undefined` rather
-    // than `[]`: a console with no chords installed is a readable answer.
+    // `undefined` rather than `[]`: a console with no chords installed is a readable answer.
     expect(handbackOver([]).mirrorChords()).toStrictEqual([]);
     expect(handbackOver(undefined).mirrorChords()).toBeUndefined();
   });
@@ -76,8 +68,8 @@ describe("KeyboardHandback.decide — the claim is an exact mirrored chord", () 
   });
 
   it("leaves the OTHER platform's modifier with the page", () => {
-    // On macOS control-K is the page's and meta-K is the console's, and a claim rule
-    // that took either would take a page shortcut on every keystroke.
+    // On macOS control-K is the page's and meta-K the console's; a rule taking either would take
+    // page shortcuts.
     expect(handbackOver(["$mod+KeyK"], "darwin").decide(chord({ ctrlKey: true }))).toStrictEqual({
       claimed: false,
       because: "not-mirrored",
@@ -115,14 +107,12 @@ describe("KeyboardHandback.decide — the claim is an exact mirrored chord", () 
   });
 
   it("reads a chord authored either way as one keystroke", () => {
-    // `$mod+k` and `$mod+KeyK` are one binding to the keybinding table, because both
-    // go through the same comparison key. They are one claim here for the same reason.
+    // `$mod+k` and `$mod+KeyK` are one binding to the keybinding table, so one claim here.
     expect(handbackOver(["$mod+k"]).decide(chord({ metaKey: true })).claimed).toBe(true);
   });
 
   it("leaves the page a keystroke whose only mirrored chord does not parse", () => {
-    // Modifiers with no key is a chord `parseChord` refuses. It matches nothing rather
-    // than throwing, so the keystroke stays with the page.
+    // Modifiers with no key is refused by `parseChord`; it matches nothing rather than throwing.
     expect(handbackOver(["$mod+"]).decide(chord({ metaKey: true }))).toStrictEqual({
       claimed: false,
       because: "not-mirrored",
@@ -130,9 +120,8 @@ describe("KeyboardHandback.decide — the claim is an exact mirrored chord", () 
   });
 
   it("negative control: a non-empty mirror does not claim by presence alone", () => {
-    // The rule this replaces returned `claimed: true` for every modified keystroke as
-    // soon as the mirror held anything, so a mirror of one chord took Cmd+C, Cmd+L,
-    // and the rest of the page's shortcuts with it.
+    // A rule that claimed every modified keystroke once the mirror held anything would take
+    // Cmd+C and Cmd+L with it.
     const handback = handbackOver(["$mod+KeyK"]);
 
     expect(handback.decide(chord({ metaKey: true })).claimed).toBe(true);
@@ -141,12 +130,9 @@ describe("KeyboardHandback.decide — the claim is an exact mirrored chord", () 
 });
 
 describe("KeyboardHandback.decide — tinykeys' optional modifiers", () => {
-  // The grammar has two modifier sets. `$mod+[Shift]+KeyK` says "meta-K, and I do not
-  // mind whether shift is down", and a keystroke has no sets at all — only modifiers
-  // that are held. Re-authoring the keystroke as a chord put every held modifier in
-  // the REQUIRED set and left the optional one empty, so a bracketed binding compared
-  // equal to no keystroke in either valid form: the console claimed the chord from the
-  // page and could then never replay it, which is a keystroke that reaches nobody.
+  // `$mod+[Shift]+KeyK` means "meta-K, shift optional", and a keystroke has only held modifiers.
+  // Re-authoring the keystroke as a chord put every held modifier in the required set, so a
+  // bracketed chord matched neither form: claimed from the page and never replayable.
   const OPTIONAL_SHIFT_CHORD = "$mod+[Shift]+KeyK";
 
   it("claims the chord with the optional modifier held", () => {
@@ -162,9 +148,7 @@ describe("KeyboardHandback.decide — tinykeys' optional modifiers", () => {
   });
 
   it("still refuses a REQUIRED modifier that is not held", () => {
-    // The half an over-permissive matcher would break: a chord written without
-    // brackets means the modifier is part of the chord, and a keystroke without it is
-    // the page's.
+    // A chord written without brackets requires the modifier; a keystroke without it is the page's.
     expect(handbackOver(["$mod+Shift+KeyK"]).decide(chord({ metaKey: true }))).toStrictEqual({
       claimed: false,
       because: "not-mirrored",
@@ -172,9 +156,7 @@ describe("KeyboardHandback.decide — tinykeys' optional modifiers", () => {
   });
 
   it("negative control: a modifier outside BOTH sets still leaves the keystroke alone", () => {
-    // Without this the two claiming cases above would pass against a matcher that had
-    // simply stopped looking at modifiers, which takes every modified keystroke on the
-    // page as soon as one bracketed chord is installed.
+    // Without it the claiming cases would pass against a matcher that ignored modifiers.
     expect(
       handbackOver([OPTIONAL_SHIFT_CHORD]).decide(chord({ metaKey: true, altKey: true })),
     ).toStrictEqual({ claimed: false, because: "not-mirrored" });
@@ -194,10 +176,8 @@ describe("KeyboardHandback.decide — tinykeys' optional modifiers", () => {
   });
 
   it("matches a keystroke on the spellings the event itself carries", () => {
-    // The matcher reads `key` and `code`, so a chord authored either way claims a
-    // keystroke that carries both. A keystroke carrying NO code is matched on its key
-    // alone — the fourth rule's direction, toward the page, for a chord the mirror
-    // spells in code.
+    // The matcher reads `key` and `code`. A keystroke with no code is matched on its key alone,
+    // which leaves a code-spelled mirror chord with the page.
     expect(handbackOver(["$mod+KeyK"]).decide(chord({ metaKey: true })).claimed).toBe(true);
     expect(handbackOver(["$mod+k"]).decide(chord({ code: "", metaKey: true })).claimed).toBe(true);
     expect(handbackOver(["$mod+KeyK"]).decide(chord({ code: "", metaKey: true })).claimed).toBe(

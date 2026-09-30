@@ -1,23 +1,9 @@
-// Which panes pay for the overlay motion observation, and for how long.
-//
-// The overlay set lives at the primitive layer and arms no frame inside it: the only
-// consumer that needs an overlay sampled
-// while a transition CARRIES it is one drawing a native view, so that consumer
-// installs the observation and the idle-CPU budget's precondition is that nothing
-// else does. The observation was installed when the binding was MINTED, which put it
-// outside every terminal the publisher has — so this suite reads the airspace's own
-// arming count through the pane, on the three states that separate the two readings:
-//
-//   • a pane whose page host accepts its rectangle, which is the positive control that keeps the
-//     other two from passing over an observation that is never installed at all;
-//   • a pane the page host has declared gone, where the publisher disposes itself mid-frame
-//     and the observation used to survive it for the life of the mount;
-//   • two panes, because the cost is per pane and the retirement has to be too.
-//
-// `AirspaceRegistry.observedOverlayCount` is the instrument rather than a spy on the
-// observer: it counts the armings that are live right now across every installed
-// observer, which is the number the budget is about, and it is the same getter the
-// registry's own suite checks the "nothing is watching" floor with.
+// Which panes pay for the overlay motion observation. The pane that draws a native view is the
+// only consumer that needs overlays sampled during a transition, so nothing else may install it.
+// The suite reads `AirspaceRegistry.observedOverlayCount`, the live armings across every
+// observer, on three states: a page host that accepts the rectangle (the positive control), a
+// page host that declares the pane gone (the publisher disposes itself mid-frame), and two panes,
+// since the cost and its retirement are per pane.
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -44,9 +30,8 @@ const SECOND_TEST_PANE_ID = "pane-browser-2";
 type AirspaceOverlayRegistration = ReturnType<AirspaceRegistry["register"]>;
 
 describe("Preview pane geometry — who watches this window's overlays move", () => {
-  // One overlay for the whole file, registered per case and removed after it: the
-  // count this suite reads is armings, so an overlay left behind by a failed case
-  // would be armed by the next case's pane and read as its own.
+  // One overlay per case, removed after it: the count is armings, so a leftover overlay would be
+  // armed by the next case's pane.
   const registrations: AirspaceOverlayRegistration[] = [];
 
   afterEach(() => {
@@ -57,12 +42,8 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
   });
 
   /**
-   * One overlay in this window's airspace, so an installed observer has something to
-   * arm and the count has something to report.
-   *
-   * A real element, because the registry arms only an overlay that handed one over —
-   * an overlay whose rectangle is computed rather than laid out is correct through
-   * `moved()` and is deliberately not watched.
+   * One overlay in this window's airspace, so an observer has something to arm. A real element,
+   * because the registry arms only an overlay that handed one over.
    */
   function registerOverlay(): void {
     const element = document.createElement("div");
@@ -82,9 +63,7 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
   }
 
   it("arms one observation for a pane whose page host accepts its rectangle", async () => {
-    // The positive control. Without it every other case here is satisfied by a pane
-    // that watches nothing ever, which is the same overlay-yield defect from the
-    // other side: a native view painted over a dialog that slid across it.
+    // The positive control: without it the other cases pass over a pane that watches nothing.
     registerOverlay();
     const built = previewPaneContext();
     await act(async () => {
@@ -104,11 +83,9 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
     });
     expect(armedOverlayObservations()).toBe(1);
 
-    // The rejection lands on the frame this window's frozen clock is holding, and the
-    // publisher disposes itself over it — terminal, because retrying would publish a
-    // rectangle for a pane that no longer exists once per frame forever. The
-    // observation is disposed with it or it is not disposed at all: the holder's own
-    // disposal does not run until the mount ends.
+    // The rejection lands on the frame the frozen clock is holding and the publisher disposes
+    // itself, terminal because retrying would publish for a destroyed pane every frame. The
+    // observation must go with it: the holder's own disposal does not run until the mount ends.
     await releaseQueuedPaneFrames(built.fixture);
 
     expect(armedOverlayObservations()).toBe(0);

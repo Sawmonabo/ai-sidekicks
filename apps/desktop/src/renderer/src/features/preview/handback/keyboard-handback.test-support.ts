@@ -1,15 +1,11 @@
-// The keystroke factory and the handback builder every case in this seam drives.
-//
-// One home for both, because the two production modules are two halves of one
-// question and their suites pose the same keystroke to each: a descriptor factory
-// written twice would drift on the field a case forgot to set, and that field is
-// exactly where a claim rule goes one modifier too wide.
+// The keystroke factory and handback builder every case in this seam drives, in one place so the
+// suites cannot drift on the field a case forgot to set.
 
 import type { ChordPlatform } from "@renderer/lib/chord-format.js";
 import { type ChordDescriptor } from "./chord-claim.js";
 import { KeyboardHandback } from "./keyboard-handback.js";
 
-/** One keystroke, in the fields a claim reads, with meta-K as the unmodified default. */
+/** One keystroke, in the fields a claim reads, defaulting to an unmodified K. */
 export function chord(overrides: Partial<ChordDescriptor> = {}): ChordDescriptor {
   return {
     key: "k",
@@ -24,8 +20,8 @@ export function chord(overrides: Partial<ChordDescriptor> = {}): ChordDescriptor
 }
 
 /**
- * A handback over a fixed chord set. `darwin` by default because meta is the modifier
- * every case reaches for; the platform cases name theirs.
+ * A handback over a fixed chord set. `darwin` by default because meta is the modifier every
+ * case reaches for; the platform cases name theirs.
  */
 export function handbackOver(
   installed: readonly string[] | undefined,

@@ -1,11 +1,5 @@
-// Which chords the console may claim at all, and what a wrong answer costs.
-//
-// Correct behavior for the handback is the absence of a complaint, which is exactly
-// why it needs adversarial cases rather than a happy path: a claim rule that is one
-// modifier too broad takes `S` away from a page's own search box, and a claim rule
-// that is one too narrow silently kills the operator's whole chord set inside a pane.
-// Both failures look like nothing at all until somebody is typing. The decision that
-// consumes this vocabulary is beside it, in `keyboard-handback.test.ts`.
+// A claim rule one modifier too broad takes `S` from a page's search box; one too narrow kills
+// the operator's whole chord set inside a pane. Neither shows until somebody is typing.
 
 import { describe, expect, it } from "vitest";
 
@@ -62,33 +56,27 @@ describe("projectClaimableChords", () => {
   });
 
   it("subtracts only shift from the console's chord vocabulary", () => {
-    // The set is derived, so this asserts the ONE subtraction rather than the members:
-    // a modifier added to the vocabulary shows up here without an edit, and a
-    // shift-only combination — a capital letter — stays with the page.
+    // The set is derived, so assert the one subtraction rather than the members.
     expect(CLAIMABLE_MODIFIER_TOKENS).not.toContain("Shift");
     expect(chordCarriesApplicationModifier("Shift+KeyS")).toBe(false);
   });
 
   it("reads the plus key chord the grammar spells `$mod++`", () => {
-    // A preservation case, not a change: tinykeys splits a press on `+` PRECEDED by a
-    // word character, so `$mod++` is meta-plus, and the printer's splitter is the one
-    // that agrees with the parser about that. It is pinned because the predicate now
-    // reads through that splitter and this is the chord the two disagree on.
+    // tinykeys splits a press on `+` preceded by a word character, so `$mod++` is meta-plus. The
+    // printer's splitter agrees with the parser about that; a split on `+` does not.
     expect(chordCarriesApplicationModifier("$mod++")).toBe(true);
     expect(projectClaimableChords(["$mod++"])).toStrictEqual(["$mod++"]);
   });
 
   it("keeps a multi-press sequence out of the mirror", () => {
-    // `parseChord` refuses a sequence, so a mirrored one is a chord the main process
-    // takes from the page and the renderer can never match: the operator would get a
-    // not-claimable refusal for a keystroke that should simply have reached the page.
+    // `parseChord` refuses a sequence, so a mirrored one would be taken from the page and never
+    // matched.
     expect(chordCarriesApplicationModifier("$mod+KeyK $mod+KeyB")).toBe(false);
     expect(projectClaimableChords(["$mod+KeyK $mod+KeyB"])).toStrictEqual([]);
   });
 
   it("negative control: the sequence rule is not rejecting every modified chord", () => {
-    // A predicate that answered false for everything would satisfy the two cases above
-    // and would empty the mirror, which is the failure the projection exists to avoid.
+    // A predicate answering false for everything would pass the cases above and empty the mirror.
     expect(chordCarriesApplicationModifier("$mod+KeyK")).toBe(true);
     expect(chordCarriesApplicationModifier(" $mod+KeyK ")).toBe(true);
   });
@@ -101,8 +89,7 @@ describe("projectClaimableChords", () => {
   });
 
   it("negative control: the filter is not rejecting everything", () => {
-    // A projection that returned the empty array would satisfy the bare-chord case
-    // above and would also disable every console chord inside a pane.
+    // A projection returning the empty array would pass the bare-chord case and drop every chord.
     expect(projectClaimableChords(["Control+KeyP"])).toHaveLength(1);
   });
 });

@@ -1,18 +1,7 @@
-// The browser pane's controls: the address line, the page tab strip and the page body.
-//
-// The chrome derives nothing. Back and forward are enabled from the view's reported
-// history state and the tabs are drawn from the page list, both handed in as readings,
-// and every control dispatches through the acts it is handed, so the component holds no
-// subscription and no second copy of either. `PreviewPane.tsx` is what the pane layout mounts;
-// this is the body that goes inside `components/PaneFrame`, which draws the section,
-// its accessible name and the actor's hue.
-//
-// The close-tab chord is claimed here: left alone, the platform chord closes the window.
-// The pane captures it, prevents the default, and closes the selected page, or, where no
-// page is selected, refuses locally rather than letting the window take it.
-//
-// One act sequence keeps the refusal banner correct: an older act never overwrites a
-// newer one's answer, so the banner shows what the person last did.
+// The browser pane body: address line, page tab strip and viewport, drawn from readings and
+// dispatching through the acts it is given. The close-tab chord is claimed here, because left
+// alone it closes the window: the pane prevents the default and closes the selected page, or
+// refuses locally when none is selected.
 
 import "./PreviewPaneContent.css";
 
@@ -82,8 +71,8 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
   const paneActs = usePreviewPaneActs(bridge, paneId);
   const { refusal: actRefusal, run: runAct, refuseLocally, dismiss: dismissActRefusal } = paneActs;
   const addressFieldId = useId();
-  // Only a served reading reports a page. Any other arm leaves every history control
-  // disabled and the address field with nothing to follow.
+  // Only a served reading reports a page; any other arm leaves the history controls disabled
+  // and the address field with nothing to follow.
   const reported = navigation.kind === "served" ? navigation.state : undefined;
   const reportedUrl = reported?.address;
 
@@ -124,9 +113,8 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
       event.preventDefault();
       const submitted = addressFieldSubmission(addressField, reportedUrl);
       if (isFileAddress(submitted)) {
-        // The draft is KEPT so the person can correct it. Returning to following
-        // here would replace what they typed with the location they are still on,
-        // which reads as the field having silently eaten the destination.
+        // The draft is kept so the person can correct it; returning to following would replace
+        // what they typed with the location they are still on.
         refuseLocally("file-address", "The address field takes web destinations only.");
         return;
       }
@@ -151,8 +139,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
   const isLoading = reported?.loadState.kind === "loading";
 
   return (
-    // The chord claim rides the frame's own section, so it covers the head the frame
-    // draws above the body as well as everything inside it.
+    // The chord claim rides the frame's section, so it covers the head above the body too.
     <PaneFrame kind="browser" sessionId={sessionId} onKeyDownCapture={onCloseTabChord}>
       <div className="meridian-preview-pane" tabIndex={-1}>
         <PageTabStrip

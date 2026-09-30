@@ -11,13 +11,7 @@ import {
   rect,
 } from "./geometry-publisher.test-support.js";
 
-// The size source, and the seam it is armed through.
-//
-// The publisher used to construct a `ResizeObserver` of its own beside the one
-// `element-motion.ts` already owned — two bodies for one seam, free to drift in
-// feature detection and in whether they disconnect, with nothing that would fail
-// when they did. The arm runs through the seam now, and these are the two
-// behaviors that had to survive the move.
+// The size source, armed through the shared resize seam in `lib/element-resize.ts`.
 describe("PaneGeometryPublisher — the size source", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -62,10 +56,8 @@ describe("PaneGeometryPublisher — the size source", () => {
   });
 
   it("negative control: a platform with no size observer still publishes, coarser", () => {
-    // The feature detection is the seam's now, and this is what it buys: an
-    // absent `ResizeObserver` makes the reading coarser — the delivery above
-    // never comes — rather than throwing inside `observe` and leaving the pane
-    // publishing nothing at all.
+    // Feature detection belongs to the seam: an absent `ResizeObserver` makes the reading coarser
+    // instead of throwing inside `observe` and leaving the pane publishing nothing.
     vi.stubGlobal("ResizeObserver", undefined);
     const { publisher, clock } = publisherOverRecordingPageHost();
 

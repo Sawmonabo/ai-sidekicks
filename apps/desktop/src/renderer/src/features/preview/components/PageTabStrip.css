@@ -1,19 +1,7 @@
-/*
- * The pane chrome's tab strip.
- *
- * No literal color: every value is read back out of a Meridian custom property, and
- * the two hues are spent only on their one meaning each: amber where a person is
- * needed, red where something failed.
- *
- * `.meridian-preview-tabs*` and `.meridian-preview-tab*` are drawn by `PageTabStrip.tsx`,
- * which imports this sheet, and `../tab-reorder.ts`.
- */
+/* The pane chrome's tab strip. No literal color: every value is read from a Meridian property. */
 
-/* --------------------------------------------------------------- tab strip */
-
-/* One row of pages above the address field. The strip scrolls rather than wraps,
-   because a chrome that grows a second row moves the address field down every time a
-   page opens and the page area jumps under the reader's eyes. */
+/* One row above the address field. It scrolls rather than wraps, so a second row never moves
+   the address field down and makes the page area jump. */
 
 .meridian-preview-tabs {
   display: flex;
@@ -49,8 +37,7 @@
   background: var(--meridian-surface-raised);
 }
 
-/* The drop marker is a border rather than an inserted element, so hovering a drop position
-   never reflows the strip and the tab under the cursor does not move away from it. */
+/* The drop marker is a border, not an inserted element, so a hover never reflows the strip. */
 .meridian-preview-tab--drop-before {
   border-inline-start-color: var(--meridian-accent);
 }

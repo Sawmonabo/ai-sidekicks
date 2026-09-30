@@ -1,14 +1,7 @@
-// The publisher's two promises: read now, and write next frame.
-//
-// The cases below are about a publisher's failure modes rather than its output —
-// publishing from inside observer delivery strands the view, retrying a rejected
-// rectangle republishes it once a frame forever, and a burst of five invalidations
-// that costs five writes is the reason a pane drags during a rail collapse. The last
-// case is the control: every claim here about suppression, dedupe, and disposal would
-// hold vacuously against a publisher that never armed or published anything at all.
-//
-// Four suites sit beside this one, each about a different question the publisher
-// answers — who is told what the page host said, and the three sources that make it ask.
+// The publisher's two promises, read now and write next frame, tested through their failure
+// modes: publishing from inside observer delivery strands the view, retrying a rejected rectangle
+// republishes it every frame, and five invalidations costing five writes drags a pane. The last
+// case is the control: the claims would hold vacuously against a publisher that never armed.
 
 import { describe, expect, it } from "vitest";
 
@@ -104,8 +97,7 @@ describe("PaneGeometryPublisher", () => {
   });
 
   it("negative control: an attached host element does arm its sources and does publish", () => {
-    // Every claim above about suppression and disposal would hold vacuously against a
-    // publisher that never armed or published anything.
+    // Without this, the claims above would hold vacuously against a publisher that never armed.
     const pageHost = new RecordingPageHost();
     const { publisher, clock } = publisherOver(pageHost);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
