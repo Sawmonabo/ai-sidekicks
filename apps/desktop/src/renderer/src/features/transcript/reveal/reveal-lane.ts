@@ -19,6 +19,7 @@ export class RevealLane {
   /** Whether this frame gave the lane a share above its fair one. */
   public isCatchingUp = false;
 
+  /** Set when a transition threw. A quarantined lane is never advanced. */
   #isQuarantined = false;
 
   public constructor(laneId: string) {
@@ -32,11 +33,6 @@ export class RevealLane {
   /** The text a consumer may render for this lane. */
   public get publishedText(): string {
     return this.#publishedText;
-  }
-
-  /** Set when a transition threw. A quarantined lane is never advanced. */
-  public get isQuarantined(): boolean {
-    return this.#isQuarantined;
   }
 
   /**
