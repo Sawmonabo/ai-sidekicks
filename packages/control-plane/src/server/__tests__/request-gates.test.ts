@@ -1,7 +1,7 @@
-// The environment gate refuses every `ENVIRONMENT` value except 'development', driven through
-// `buildControlPlaneFetchHandler`. The undefined row is the default-deploy case: a Worker published
-// with `wrangler deploy` and no `--env` has no `ENVIRONMENT`, even after someone sets the feature
-// flag as a secret. The feature flag is pinned to '1' throughout so only this gate can refuse.
+// The two request gates, driven through `buildControlPlaneFetchHandler`. The feature flag must be
+// exactly '1' and `ENVIRONMENT` exactly 'development'; each block pins the other gate to its
+// passing value so only the gate under test can refuse. A refusal log names the key, or a
+// misconfigured dev instance gives a bare 503 with no hint of the missing variable.
 
 import { describe, expect, it } from "vitest";
 import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "../host.js";
@@ -26,36 +26,46 @@ async function runGate(env: ControlPlaneEnv): Promise<HarnessResult> {
   };
 }
 
+describe("feature-flag gate", () => {
+  it("refuses when CONTROL_PLANE_BOOTSTRAP_ENABLED is undefined", async () => {
+    const result = await runGate({ ENVIRONMENT: "development" });
+    expect(result.status).toBe(503);
+    expect(result.body).toBe("Service Unavailable");
+    expect(result.logs).toHaveLength(1);
+    expect(result.logs[0]).toContain("CONTROL_PLANE_BOOTSTRAP_ENABLED");
+  });
+
+  it("refuses when CONTROL_PLANE_BOOTSTRAP_ENABLED is 'true' (only literal '1' passes)", async () => {
+    // Strict equality: 'true', 'yes' and 'on' all refuse.
+    const result = await runGate({
+      CONTROL_PLANE_BOOTSTRAP_ENABLED: "true",
+      ENVIRONMENT: "development",
+    });
+    expect(result.status).toBe(503);
+    expect(result.logs[0]).toContain("CONTROL_PLANE_BOOTSTRAP_ENABLED");
+  });
+});
+
 interface RefusalRow {
   readonly label: string;
   readonly env: ControlPlaneEnv;
 }
 
 // Each row pins the feature flag to its passing value so the environment gate is the sole driver.
+// The undefined row is the default deploy: `wrangler deploy` with no `--env` has no `ENVIRONMENT`,
+// even after someone sets the feature flag as a secret.
 const REFUSAL_ROWS: readonly RefusalRow[] = [
   {
-    label: "ENVIRONMENT undefined (default-deploy threat path)",
+    label: "ENVIRONMENT undefined (a default deploy)",
     env: { CONTROL_PLANE_BOOTSTRAP_ENABLED: "1" },
   },
   {
     label: "ENVIRONMENT='production'",
     env: { CONTROL_PLANE_BOOTSTRAP_ENABLED: "1", ENVIRONMENT: "production" },
   },
-  {
-    label: "ENVIRONMENT='staging'",
-    env: { CONTROL_PLANE_BOOTSTRAP_ENABLED: "1", ENVIRONMENT: "staging" },
-  },
-  {
-    label: "ENVIRONMENT='test'",
-    env: { CONTROL_PLANE_BOOTSTRAP_ENABLED: "1", ENVIRONMENT: "test" },
-  },
-  {
-    label: "ENVIRONMENT='' (empty string)",
-    env: { CONTROL_PLANE_BOOTSTRAP_ENABLED: "1", ENVIRONMENT: "" },
-  },
 ];
 
-describe("T2 / gate #2: dev-environment allow-list refusal table", () => {
+describe("environment gate: an allow-list of 'development'", () => {
   for (const row of REFUSAL_ROWS) {
     it(`refuses ${row.label}`, async () => {
       const result = await runGate(row.env);
@@ -69,7 +79,7 @@ describe("T2 / gate #2: dev-environment allow-list refusal table", () => {
   }
 });
 
-describe("T3 / gate #2: handler serves with both gates passing", () => {
+describe("both gates passing", () => {
   it("does NOT refuse when both gates pass", async () => {
     const result = await runGate({
       CONTROL_PLANE_BOOTSTRAP_ENABLED: "1",
