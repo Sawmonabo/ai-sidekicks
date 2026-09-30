@@ -1,4 +1,5 @@
-//! Wire-format tests for the daemon-to-sidecar protocol that the TS mirror in `packages/contracts`
+//! Tests for the daemon-to-sidecar wire protocol. Every [`Envelope`] variant is serialized and
+//! deserialized back unchanged. The rest pin the wire format the TS mirror in `packages/contracts`
 //! depends on: `kind` is a top-level snake_case key on every envelope, `bytes` fields travel as
 //! base64 strings, a `None` error is absent while a `None` signal code is `null`, and a payload
 //! written the way the TS producer writes it deserializes.
@@ -9,6 +10,135 @@ use sidecar_rust_pty::protocol::{
     PingResponse, PtySignal, ResizeRequest, ResizeResponse, SpawnRequest, SpawnResponse,
     WriteRequest, WriteResponse,
 };
+
+/// Serializes to JSON and deserializes back.
+fn round_trip(envelope: &Envelope) -> Envelope {
+    let json = serde_json::to_string(envelope).expect("serialize must succeed");
+    serde_json::from_str(&json).expect("deserialize must succeed")
+}
+
+#[test]
+fn round_trip_spawn_request() {
+    let envelope = Envelope::SpawnRequest(SpawnRequest {
+        command: "bash".to_string(),
+        args: vec!["-c".to_string(), "echo hello".to_string()],
+        env: vec![
+            ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+            ("HOME".to_string(), "/home/u".to_string()),
+        ],
+        cwd: "/tmp".to_string(),
+        rows: 24,
+        cols: 80,
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_spawn_response() {
+    let envelope = Envelope::SpawnResponse(SpawnResponse {
+        session_id: "01900000-0000-7000-8000-000000000001".to_string(),
+        error: None,
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_resize_request() {
+    let envelope = Envelope::ResizeRequest(ResizeRequest {
+        session_id: "s-1".to_string(),
+        rows: 40,
+        cols: 132,
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_resize_response() {
+    let envelope = Envelope::ResizeResponse(ResizeResponse {
+        session_id: "s-1".to_string(),
+        error: None,
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_write_request() {
+    let envelope = Envelope::WriteRequest(WriteRequest {
+        session_id: "s-1".to_string(),
+        bytes: b"hello\n".to_vec(),
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_write_response() {
+    let envelope = Envelope::WriteResponse(WriteResponse {
+        session_id: "s-1".to_string(),
+        error: None,
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_kill_request_each_signal() {
+    // Every signal, so the `SIG...` rename is exercised on each variant.
+    for signal in [
+        PtySignal::Sigint,
+        PtySignal::Sigterm,
+        PtySignal::Sigkill,
+        PtySignal::Sighup,
+    ] {
+        let envelope = Envelope::KillRequest(KillRequest {
+            session_id: "s-1".to_string(),
+            signal,
+        });
+        assert_eq!(round_trip(&envelope), envelope);
+    }
+}
+
+#[test]
+fn round_trip_kill_response() {
+    let envelope = Envelope::KillResponse(KillResponse {
+        session_id: "s-1".to_string(),
+        error: None,
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_exit_code_notification_signal_terminated() {
+    // A signal-terminated child: `signal_code` is `Some` and `exit_code` is typically 128 plus the
+    // signal number.
+    let envelope = Envelope::ExitCodeNotification(ExitCodeNotification {
+        session_id: "s-1".to_string(),
+        exit_code: 130,
+        signal_code: Some(2),
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_ping_request() {
+    let envelope = Envelope::PingRequest(PingRequest {});
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_ping_response() {
+    let envelope = Envelope::PingResponse(PingResponse {});
+    assert_eq!(round_trip(&envelope), envelope);
+}
+
+#[test]
+fn round_trip_data_frame_stderr() {
+    let envelope = Envelope::DataFrame(DataFrame {
+        session_id: "s-1".to_string(),
+        stream: DataStream::Stderr,
+        seq: u64::MAX,
+        bytes: b"error chunk".to_vec(),
+    });
+    assert_eq!(round_trip(&envelope), envelope);
+}
 
 /// `error: None` is absent on the wire. The TS mirror declares `error?: string`, and emitting
 /// `"error": null` would break its narrowing; `skip_serializing_if` is what this pins.
