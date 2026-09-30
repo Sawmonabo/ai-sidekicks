@@ -25,7 +25,8 @@ function fixtureRepository() {
   const root = mkdtempSync(join(tmpdir(), "mutation-shards-"));
   const source = join(root, "packages", "sample", "src");
   mkdirSync(join(source, "__tests__"), { recursive: true });
-  for (const name of ["heavy.ts", "medium.ts", "light.ts", "unmeasured.ts"]) {
+  // The heaviest file sorts last by name, so only a weight-first deal gives it a shard alone.
+  for (const name of ["weighty.ts", "medium.ts", "light.ts", "unmeasured.ts"]) {
     writeFileSync(join(source, name), "export const value = 1;\n");
   }
   writeFileSync(join(source, "__tests__", "sample.test.ts"), "");
@@ -34,7 +35,7 @@ function fixtureRepository() {
     join(root, "packages", "sample", ".stryker", "incremental.json"),
     JSON.stringify({
       files: {
-        "src/heavy.ts": { mutants: [mutant(2000)] },
+        "src/weighty.ts": { mutants: [mutant(2000)] },
         "src/medium.ts": { mutants: [mutant(500)] },
         "src/light.ts": { mutants: [mutant(400)] },
         "src/deleted.ts": { mutants: [mutant(50)] },
@@ -59,14 +60,14 @@ test("every source file lands in exactly one shard, and the heaviest file gets a
     });
     const shards = JSON.parse(output.toString()).include.map((entry) => entry.mutate.split(","));
     assert.deepEqual(shards.flat().sort(), [
-      "src/heavy.ts",
       "src/light.ts",
       "src/medium.ts",
       "src/unmeasured.ts",
+      "src/weighty.ts",
     ]);
     assert.deepEqual(
-      shards.find((files) => files.includes("src/heavy.ts")),
-      ["src/heavy.ts"],
+      shards.find((files) => files.includes("src/weighty.ts")),
+      ["src/weighty.ts"],
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -106,13 +107,13 @@ test("a merge takes each shard's own files, keeps what no shard re-ran, and drop
       readFileSync(join(root, "packages", "sample", ".stryker", "incremental.json"), "utf8"),
     );
     assert.deepEqual(Object.keys(merged.files).sort(), [
-      "src/heavy.ts",
       "src/light.ts",
       "src/medium.ts",
+      "src/weighty.ts",
     ]);
     assert.equal(merged.files["src/light.ts"].mutants[0].testsCompleted, 7);
     assert.equal(merged.files["src/medium.ts"].mutants[0].testsCompleted, 7);
-    assert.equal(merged.files["src/heavy.ts"].mutants[0].testsCompleted, 2000);
+    assert.equal(merged.files["src/weighty.ts"].mutants[0].testsCompleted, 2000);
     assert.deepEqual(Object.keys(merged.testFiles), ["src/__tests__/sample.test.ts"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
