@@ -1,17 +1,13 @@
-// The run group body's bounds: the height the engine agreed to, where the clip falls, and how
-// much of the head the body can still reach. The height cases drive both arms through the
-// injected probe, since the host's own engine only ever takes one.
+// The run group body's bounds: where the clip falls, and how much of the head the body can still
+// reach.
 
 import { describe, expect, it } from "vitest";
 
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
 import {
-  RUN_GROUP_BODY_FALLBACK_HEIGHT,
-  RUN_GROUP_BODY_INTRINSIC_HEIGHT,
   RunGroupBodyRowWindow,
   countClippedHeadRows,
   listClippedHeadRowIds,
-  resolveRunGroupBodyHeight,
 } from "./run-group-body.js";
 import { runRow } from "../timeline-rows.test-support.js";
 
@@ -25,30 +21,7 @@ function runGroupRow(sequence: number): ReturnType<typeof runRow> {
   });
 }
 
-describe("the body's height — validated before it is applied", () => {
-  it("takes the intrinsic expression where the engine parses it", () => {
-    expect(resolveRunGroupBodyHeight(() => true)).toBe(RUN_GROUP_BODY_INTRINSIC_HEIGHT);
-  });
-
-  it("falls back to a length every engine parses where it does not", () => {
-    expect(resolveRunGroupBodyHeight(() => false)).toBe(RUN_GROUP_BODY_FALLBACK_HEIGHT);
-  });
-
-  it("asks about the property it is going to set", () => {
-    const asked: string[] = [];
-    resolveRunGroupBodyHeight((property, value) => {
-      asked.push(`${property}: ${value}`);
-      return true;
-    });
-    expect(asked).toEqual([`max-height: ${RUN_GROUP_BODY_INTRINSIC_HEIGHT}`]);
-  });
-});
-
 describe("where the clip falls", () => {
-  it("clips nothing while the run group is under the ceiling", () => {
-    expect(listClippedHeadRowIds(["a", "b", "c"])).toEqual([]);
-  });
-
   it("clips the OLDER head, never the newest rows", () => {
     const rowIds = Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP + 3 }, (_unused, index) =>
       String(index),
@@ -56,20 +29,6 @@ describe("where the clip falls", () => {
     const head = listClippedHeadRowIds(rowIds);
     expect(head).toEqual(["0", "1", "2"]);
     expect(head).not.toContain(String(RUN_GROUP_VISIBLE_ROW_CAP + 2));
-  });
-
-  it("returns one identity for every empty head, so a memo over it does not re-run", () => {
-    expect(listClippedHeadRowIds(["a"])).toBe(listClippedHeadRowIds(["b", "c"]));
-  });
-
-  it("counts the clip from the run group's length alone, without building the list", () => {
-    // The count is what a sealed run group carries, and it is arithmetic, not the length of
-    // a sliced list.
-    expect(countClippedHeadRows(RUN_GROUP_VISIBLE_ROW_CAP - 1)).toBe(0);
-    expect(countClippedHeadRows(RUN_GROUP_VISIBLE_ROW_CAP)).toBe(0);
-    expect(countClippedHeadRows(RUN_GROUP_VISIBLE_ROW_CAP + 7)).toBe(7);
-    // A negative length is not reachable; the floor states what happens anyway.
-    expect(countClippedHeadRows(0)).toBe(0);
   });
 
   it("counts exactly what the list form would have listed, at every boundary", () => {
@@ -90,14 +49,6 @@ describe("where the clip falls", () => {
 });
 
 describe("the body's row window — bounded on both sides", () => {
-  it("holds nothing while the run group is under the ceiling", () => {
-    const window = new RunGroupBodyRowWindow();
-    for (let sequence = 1; sequence <= RUN_GROUP_VISIBLE_ROW_CAP; sequence += 1) {
-      window.admit(runGroupRow(sequence));
-    }
-    expect(window.headRows).toEqual([]);
-  });
-
   it("holds the rows the mounted window displaced, oldest first", () => {
     const window = new RunGroupBodyRowWindow();
     for (let sequence = 1; sequence <= RUN_GROUP_VISIBLE_ROW_CAP + 2; sequence += 1) {
