@@ -111,8 +111,10 @@ import type { ExecutionMode } from "@ai-sidekicks/contracts";
 import { openDatabase } from "../../session/migration-runner.js";
 import {
   SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS,
-  TurnSnapshotService,
   runTurnSnapshotGitWithExecFile,
+} from "../turn-snapshot-git.js";
+import { TurnSnapshotService } from "../turn-snapshot-service.js";
+import {
   type TurnSnapshotCaptureResult,
   type TurnSnapshotCaptureStep,
   type TurnSnapshotCaptured,
@@ -121,7 +123,7 @@ import {
   type TurnSnapshotGitRunner,
   type TurnSnapshotRetentionPruneResult,
   type TurnSnapshotRetentionSweepResult,
-} from "../turn-snapshot-service.js";
+} from "../turn-snapshot-types.js";
 
 // ----------------------------------------------------------------------------
 // Constants
