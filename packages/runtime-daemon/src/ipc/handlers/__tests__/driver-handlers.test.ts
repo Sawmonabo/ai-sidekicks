@@ -11,12 +11,10 @@ import type {
   ApplyInterventionParams,
   DriverCapabilityFlag,
   DriverCapabilityReport,
-  GetCapabilitiesResult,
   HandlerContext,
   JsonRpcNotification,
   UserId,
   ProviderCommandBindingGroup,
-  ProviderDriver,
   RunId,
   SessionEvent,
   SessionId,
@@ -58,6 +56,7 @@ import {
   registerDriverSubscribeEvents,
   type DriverSubscribeEventsDeps,
 } from "../driver-subscribe.js";
+import type { GetCapabilitiesResult, ProviderDriver } from "../../../provider/provider-driver.js";
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const TEST_ACTOR_ID = "660e8400-e29b-41d4-a716-446655440001" as UserId;

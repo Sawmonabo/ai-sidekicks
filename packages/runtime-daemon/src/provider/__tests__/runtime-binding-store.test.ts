@@ -4,11 +4,10 @@
 // unsandboxed, the version pair holds its CHECK and records the build that answered, and the
 // resume request is rebuilt from the row.
 
-import type {
-  CallbackToolResult,
-  DriverCliVersionReport,
-  ExecutionPosture,
-  SessionId,
+import {
+  DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
+  type ExecutionPosture,
+  type SessionId,
 } from "@ai-sidekicks/contracts";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,7 +15,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
 import {
-  CONTRACT_VERSION_MAX_LEN,
   ProviderOutputValidationError,
   RESUME_HANDLE_MAX_LEN,
 } from "../provider-output-validation.js";
@@ -32,6 +30,7 @@ import {
   toBindingVersionCarriers,
   type ProviderVersionHandshakeRequest,
 } from "../version-gate.js";
+import type { CallbackToolResult, DriverCliVersionReport } from "../provider-driver.js";
 
 const RUN_ID: string = "run-01J0ND0000NN5J5J5J5J5J5J";
 const OTHER_RUN_ID: string = "run-01J0ND0000NN5K5K5K5K5K5K";
@@ -291,9 +290,9 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
 });
 
 describe("RuntimeBindingStore — contract_version is canonical semver and length-bounded", () => {
-  it("rejects a CONTRACT_VERSION_MAX_LEN+1-length contract_version", () => {
-    const overVersion: string = "1.0.0-" + "a".repeat(CONTRACT_VERSION_MAX_LEN - 6 + 1);
-    expect(overVersion.length).toBe(CONTRACT_VERSION_MAX_LEN + 1);
+  it("rejects a contract_version one character over its cap", () => {
+    const overVersion: string = "1.0.0-" + "a".repeat(DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN - 6 + 1);
+    expect(overVersion.length).toBe(DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN + 1);
 
     const store = makeStore();
     expect(() =>

@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import * as contracts from "../index.js";
 import {
   ArtifactIdSchema,
-  DRIVER_CAPABILITY_FLAGS,
   DriverInterventionResultSchema,
   ProviderToolMetadataSchema,
   type ApplyInterventionParams,
@@ -17,12 +16,6 @@ import {
   type NormalizedProviderToolMetadata,
   type RunId,
 } from "../provider-driver.js";
-import {
-  DriverResumeResultSchema,
-  type DriverResumeResult,
-  type ProviderUsageLimitCause,
-  type RecoveryCondition,
-} from "../provider-driver-recovery.js";
 import { DriverCompactionResultSchema } from "../provider-driver-transcript.js";
 import {
   CompactContextRequestSchema,
@@ -91,40 +84,6 @@ describe("ProviderDriver contract: the capability flag record is closed and tota
   });
 });
 
-describe("DriverResumeResultSchema — the recovery condition is a closed vocabulary", () => {
-  it.each(["recovery-needed", "reauth-required"] as const)(
-    "accepts the %s condition on the failed variant",
-    (recoveryCondition) => {
-      const parsed: DriverResumeResult = DriverResumeResultSchema.parse({
-        status: "failed",
-        recoveryCondition,
-        recoverySpanClassification: "unclassifiable",
-        providerFailureDetail: "provider credential expired",
-      });
-      if (parsed.status === "failed") {
-        expect(parsed.recoveryCondition).toBe(recoveryCondition);
-      } else {
-        throw new Error(`expected the failed variant, got status=${parsed.status}`);
-      }
-    },
-  );
-
-  it("rejects a `failed` object whose recoveryCondition is not a RecoveryCondition member", () => {
-    const result = DriverResumeResultSchema.safeParse({
-      status: "failed",
-      recoveryCondition: "all-good",
-      recoverySpanClassification: "irreversible",
-      providerFailureDetail: "provider session expired",
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      // The defect is an off-union value, not a missing field, so assert the issue's path.
-      const paths = result.error.issues.map((issue) => issue.path.join("."));
-      expect(paths).toContain("recoveryCondition");
-    }
-  });
-});
-
 describe("DriverCompactionResultSchema — the two structural rules, made checkable", () => {
   // The compaction result is composed daemon-side from the wait's own settlement, so no dispatch
   // path parses through this schema. It exists so the two rules are enforced by the type; a later
@@ -176,39 +135,6 @@ describe("ArtifactIdSchema — the attachment element brand", () => {
     // Every consumer imports this symbol rather than declaring a sibling, so there is one
     // source of truth for what an artifact id is.
     expect(contracts.ArtifactIdSchema).toBe(ArtifactIdSchema);
-  });
-});
-
-describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition member", () => {
-  it("keeps the two cause vocabularies mutually unassignable in BOTH directions", () => {
-    // A `RecoveryCondition` must never carry the usage-limit cause; that is a claim about types,
-    // so it is asserted where it can fail. These lines break the build if either union grows
-    // into the other, which would route a self-clearing pause into the operator-remediation
-    // queue. Both directions are checked: a one-way check would pass if `RecoveryCondition`
-    // were widened to contain the cause.
-    // @ts-expect-error — a usage-limit cause is not a recovery condition.
-    const conditionFromCause: RecoveryCondition = "plan-allowance-exhausted";
-    // @ts-expect-error — a recovery condition is not a usage-limit cause.
-    const causeFromCondition: ProviderUsageLimitCause = "reauth-required";
-    void conditionFromCause;
-    void causeFromCondition;
-
-    // The runtime companion: the value sets are disjoint too, so a consumer switching on one can
-    // never fall into the other's arm.
-    const recoveryConditions: readonly RecoveryCondition[] = ["recovery-needed", "reauth-required"];
-    const usageLimitCauses: readonly ProviderUsageLimitCause[] = ["plan-allowance-exhausted"];
-    for (const cause of usageLimitCauses) {
-      expect(recoveryConditions).not.toContain(cause as string);
-    }
-  });
-
-  it("adds no capability flag for it — recognizing a usage limit is every driver's duty", () => {
-    // A flag would let a driver declare the obligation away, leaving a run refused for spend in
-    // the generic failure path with nothing saying why.
-    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(16);
-    for (const flag of DRIVER_CAPABILITY_FLAGS) {
-      expect(flag).not.toMatch(/usage|limit|rate/);
-    }
   });
 });
 

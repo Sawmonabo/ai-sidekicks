@@ -12,17 +12,16 @@
 //   envelope that the clear read path does not expose, so reading `payload.message` here would
 //   silently erase every user turn.
 
+import type { RunId, SessionId } from "@ai-sidekicks/contracts";
+
+import type { StoredEvent } from "../../session/types.js";
 import type {
   CanonicalReasoningDisclosure,
   CanonicalTranscriptProjection,
   CanonicalTranscriptRole,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-  RunId,
-  SessionId,
-} from "@ai-sidekicks/contracts";
-
-import type { StoredEvent } from "../../session/types.js";
+} from "../provider-driver.js";
 
 /**
  * The slice of the session store the fold reads: the signature of `SessionService.readEvents`.

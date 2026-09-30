@@ -3,11 +3,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  CanonicalTranscriptProjection,
-  CanonicalTranscriptSegment,
-  CanonicalTranscriptTurn,
-} from "@ai-sidekicks/contracts";
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
 import {
@@ -52,6 +47,11 @@ import {
   storedEvent,
   type TranscriptFixture,
 } from "./transcript-log-test-doubles.js";
+import type {
+  CanonicalTranscriptProjection,
+  CanonicalTranscriptSegment,
+  CanonicalTranscriptTurn,
+} from "../../provider-driver.js";
 
 const TARGET: MemoTargetIdentity = { providerSessionId: "provider-session-target-1" };
 const OTHER_TARGET: MemoTargetIdentity = { providerSessionId: "provider-session-target-2" };

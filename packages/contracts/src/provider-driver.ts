@@ -1,44 +1,23 @@
-// The normalized surface every provider driver (Codex, Claude) implements, so the session engine
-// never sees provider-native types.
+// The provider-driver shapes a client or another contract reads: run and artifact ids, the
+// interrupt and intervention params, models and modes, capability flags, tool metadata, execution
+// posture, callback-tool declarations and MCP server status. The driver interface and the shapes
+// only the daemon reads are in the daemon.
 //
 // Trust boundaries decide which shapes are Zod schemas and which are plain TypeScript:
-//   - The `ProviderDriver` params are built by the daemon in-process, so they are plain types.
-//   - The capability, handle, model and mode returns are built by the driver, which normalizes
-//     provider output at its own boundary; this layer does not re-parse them. The persisted
-//     `contractVersion` and `resumeHandle` are bounded where they are written.
-//   - Schemas guard what parses untrusted provider output: the result envelopes, the tool metadata
-//     and the driver-normalized seam shapes (callback-tool invocation, MCP server status, provider
-//     command entry, output-speed state). Envelopes and seam shapes are `.strict()` (an unknown key
-//     is a protocol or driver bug); tool metadata strips unknown keys because providers extend it.
+//   - The capability, model and mode returns are built by the driver, which normalizes provider
+//     output at its own boundary; this layer does not re-parse them. The persisted
+//     `contractVersion` is bounded where it is written.
+//   - Schemas guard what parses untrusted provider output: the intervention result, the tool
+//     metadata, and in `provider-driver-transcript.ts` the provider command entry and output-speed
+//     state. All but the tool metadata are `.strict()` (an unknown key is a protocol or driver
+//     bug); tool metadata strips unknown keys because providers extend it.
 //   - The client-facing SDK-seam schemas (`RunIdSchema`, and in `provider-driver-wire.ts`
 //     `InterruptRunParamsSchema` and the list replies) guard client-to-daemon input, a different
 //     boundary with its own length caps.
-//
-// The contract carries no remote-authority handle or control-plane dispatch shape, so a driver may
-// call a remote provider API behind these methods while execution authority stays with the local
-// runtime.
 
 import { z } from "zod";
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import type {
-  ClearSessionGoalParams,
-  DriverAuthProbeResult,
-  DriverResumeResult,
-  ForkConversationParams,
-  ForkConversationResult,
-  SetSessionGoalParams,
-} from "./provider-driver-recovery.js";
-import type {
-  CompactContextParams,
-  DriverCompactionResult,
-  DriverTranscriptExportResult,
-  DriverTranscriptReplayResult,
-  ExportTranscriptParams,
-  ListProviderCommandsParams,
-  ProviderCommandListResult,
-  ReplayTranscriptParams,
-} from "./provider-driver-transcript.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { wireFreeFormString } from "./session.js";
 
 // ---- Branded ID ----
 
@@ -64,161 +43,7 @@ export type ArtifactId = string & { readonly __brand: "ArtifactId" };
 export const ArtifactIdSchema: z.ZodType<ArtifactId, ArtifactId> =
   brandedUuidIdSchema<ArtifactId>("ArtifactId");
 
-// ---- ProviderDriver ----
-
-/**
- * The normalized operations every provider driver implements for the daemon. The daemon-injected
- * callbacks (`onCallbackToolCall`, `onMcpServerStatus`) are `CreateSessionParams` members, not
- * operations.
- */
-export interface ProviderDriver {
-  createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
-  resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
-  startRun(params: StartRunParams): Promise<void>;
-  interruptRun(params: InterruptRunParams): Promise<void>;
-  applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
-  // Gated on `rollback`: an undeclared flag refuses with `driver.capability_unsupported` before
-  // dispatch. `degraded` is the outcome of a driver that was invoked and reported its fallback.
-  forkConversation(params: ForkConversationParams): Promise<ForkConversationResult>;
-  respondToRequest(params: RespondToRequestParams): Promise<void>;
-  // Both goal operations are gated on `session_goals`, like `forkConversation`. A provider that
-  // refuses the goal throws; success returns nothing.
-  setSessionGoal(params: SetSessionGoalParams): Promise<void>;
-  clearSessionGoal(params: ClearSessionGoalParams): Promise<void>;
-  closeSession(params: CloseSessionParams): Promise<void>;
-  listModels(): Promise<ProviderModel[]>;
-  listModes(): Promise<ProviderMode[]>;
-  getCapabilities(): Promise<GetCapabilitiesResult>;
-  // Not capability-gated and required of every driver: a zero-turn authentication probe. No flag
-  // exists for it, so a driver cannot opt out by silence.
-  probeAuth(): Promise<DriverAuthProbeResult>;
-  // Not capability-gated and required of every driver: rendering the canonical transcript is how
-  // a driver declares what it can carry and report losing. Pure: it mutates nothing and starts no
-  // turn. The transcript is passed in because the daemon rebuilds it per call; a driver holding it
-  // would keep a second record of the log.
-  exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult>;
-  // Gated on `transcript_replay`. Reconstitutes a conversation into a fresh provider session and
-  // never writes to the source session. Returns only after the post-replay assertion passes: the
-  // injection surface is untyped on the wire, so a returned success alone proves nothing.
-  replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
-  // Gated on `context_compaction`. Compacts the bound session's provider-side context on user
-  // request only, settling on the provider's typed compaction evidence and never on the request
-  // being accepted (Codex answers an empty ack; Claude's `driver_command` frame only settles).
-  // There is no prompt-injected emulation: a driver that cannot compact declares the flag `false`.
-  // The wait ends at the driver's declared per-binding bound or when the binding stops being
-  // live; a compaction frame that arrives after settlement still normalizes as an unsolicited one.
-  compactContext(params: CompactContextParams): Promise<DriverCompactionResult>;
-  // Gated on `provider_commands`. A live read of the provider's own slash-command and skill
-  // enumeration for the bound session, held as driver-session state and discarded with it (not
-  // persisted or cached). Every entry carries the `(driverName, providerAccountId)` it was read
-  // under; the daemon enforces the routing invariant on that pair.
-  listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult>;
-}
-
 // ---- Method parameters and returns ----
-
-/** What the daemon hands a driver to open a session: config, spawn-bound legs and callbacks. */
-export interface CreateSessionParams {
-  sessionId: SessionId;
-  config: Record<string, unknown>;
-  // Realizes the native-cap-escape admitted cap at spawn for providers that bind budget caps then
-  // (Claude `--max-budget-usd`), so a cap-admitted leg is never launched capless.
-  admittedCostCapUsdMicros?: number | undefined;
-  // The legs below are spawn-bound: a leg that binds at process spawn and receives nothing here
-  // launches without it. Per-run carriers are `StartRunParams`; `ResumeSessionParams` repeats
-  // these because resume is a fresh spawn.
-  executionPosture?: ExecutionPosture | undefined;
-  // The requested accelerated-output mode. Gated on `output_speed` and validated against the
-  // driver's declared `outputSpeedLevels` before spawn, so an out-of-vocabulary value refuses
-  // before reaching the provider. Spawn-bound because the provider reads it at process start.
-  // Requested is not granted: the provider's declared state is observed later as binding-held
-  // `ProviderOutputSpeedState`, and neither value is rewritten into the other.
-  outputSpeed?: string | undefined;
-  // Gated on `callback_tools`. Claude hosts the registry as a daemon-hosted ephemeral MCP server
-  // (`--mcp-config`), where the tools surface as `mcp__<server>__<tool>`.
-  callbackTools?: SessionCallbackTool[] | undefined;
-  // Gated on the `subagents` flag.
-  subagentPolicy?: SubagentPolicy | undefined;
-  // Gated on `structured_output`. A normalized JSON Schema constraining the final output. Claude
-  // binds it per session here (`--json-schema`); Codex per turn via `StartRunParams.outputSchema`.
-  outputSchema?: Record<string, unknown> | undefined;
-  // The provider account this leg is admitted against; omitted, the leg spawns against the node's
-  // default for that provider. Opaque to the driver, which receives an already-constructed spawn
-  // environment: pinning the account's credential home into it and denying ambient credential
-  // names are obligations of the spawn path, not something this member carries or a driver does.
-  //
-  // Server-resolved and server-stamped: a client-supplied value is an input to resolution, never
-  // the recorded outcome. Spawn-bound because a run's paying account is fixed for its lifetime;
-  // resume re-realizes it from the durable record instead of re-resolving the current default.
-  providerAccountId?: string | undefined;
-  // Daemon-injected dispatcher, gated on `callback_tools`. The driver calls it for each provider
-  // callback-tool request and answers the provider with the result, so no invocation goes
-  // unanswered. The daemon's host routes every call through the Cedar approval pipeline.
-  onCallbackToolCall?:
-    | ((invocation: CallbackToolInvocation) => Promise<CallbackToolResult>)
-    | undefined;
-  // Daemon-injected MCP server-status sink, pre-bound to this leg's identity (session id and the
-  // store-minted binding id) at spawn, so a driver cannot misattribute or spoof another leg's rows
-  // and needs no id it does not yet have for the init census it emits during `createSession`.
-  onMcpServerStatus?: McpServerStatusProducer | undefined;
-}
-
-/**
- * What the daemon hands a driver to resume a session in a fresh process; it repeats the
- * spawn-bound legs of `CreateSessionParams`.
- */
-export interface ResumeSessionParams {
-  sessionId: SessionId;
-  resumeHandle: string; // opaque provider-owned handle
-  // Re-threads the run.queued server-stamped admitted cap so the provider-side hard stop survives
-  // a daemon restart and session relaunch.
-  admittedCostCapUsdMicros?: number | undefined;
-  // Resume is a fresh process spawn, so every spawn-bound member of `CreateSessionParams` must be
-  // re-realized here or the resumed leg silently sheds it: a posture-less resume relaunches
-  // unsandboxed, a schema-less one unconstrained. The data legs are rebuilt by the daemon from the
-  // durable `runtime_bindings.spawn_config` written at every spawn, never from the original client
-  // request; the two function legs are re-injected at every spawn, as functions are never stored.
-  executionPosture?: ExecutionPosture | undefined;
-  // A speed-less resume relaunches at the provider's default while `agents.output_speed` still
-  // records the operator's accepted mode. The state the relaunched process declares is observed as
-  // binding-held state, not returned on `DriverResumeResult` (see `ProviderOutputSpeedState`).
-  outputSpeed?: string | undefined;
-  callbackTools?: SessionCallbackTool[] | undefined;
-  subagentPolicy?: SubagentPolicy | undefined;
-  outputSchema?: Record<string, unknown> | undefined;
-  // Read back from the durable `spawn_config` record, never re-resolved: resolving "whichever
-  // account is default now" would move a live run's spend onto an account it was not admitted
-  // against. Same opacity rule as on `CreateSessionParams`.
-  providerAccountId?: string | undefined;
-  // An omitted rebind would strand provider callback-tool requests unanswered on
-  // the resumed leg.
-  onCallbackToolCall?:
-    | ((invocation: CallbackToolInvocation) => Promise<CallbackToolResult>)
-    | undefined;
-  // Re-injected census sink, pre-bound to the resumed leg's identity; the leg re-emits its init
-  // census through it.
-  onMcpServerStatus?: McpServerStatusProducer | undefined;
-}
-
-/** What the daemon hands a driver to start one run: its id, agent config, and per-run options. */
-export interface StartRunParams {
-  runId: RunId;
-  agentConfig: Record<string, unknown>;
-  // The run.queued server-stamped admitted family cap in whole micro-dollars, realized as the
-  // provider's native hard cap on cap-capable legs (Claude `--max-budget-usd`).
-  admittedCostCapUsdMicros?: number | undefined;
-  // Optionals are `?: T | undefined`, not bare `?: T`, under `exactOptionalPropertyTypes`: the
-  // package idiom, which keeps an interface aligned with a schema's inferred type.
-  conversationHistory?: unknown[] | undefined;
-  // The per-run effective posture, the same object the daemon stamps on `run.running`. Codex
-  // realizes it per turn (`turn/start` sandbox params); a provider that binds posture at spawn
-  // realizes it at session boundaries, and a mid-session change there resolves by session
-  // relaunch, never a silent partial application.
-  executionPosture?: ExecutionPosture | undefined;
-  // Per-turn schema-constrained final output (Codex `turn/start.outputSchema`); Claude binds the
-  // same schema at spawn via `CreateSessionParams.outputSchema`. Gated on `structured_output`.
-  outputSchema?: Record<string, unknown> | undefined;
-}
 
 /** Asks a driver to interrupt one run, with an optional reason. */
 export interface InterruptRunParams {
@@ -226,28 +51,6 @@ export interface InterruptRunParams {
   // `| undefined` keeps this aligned with `InterruptRunParamsSchema`, whose `.optional()` infers
   // `string | undefined`.
   reason?: string | undefined;
-}
-
-/** Answers one interactive request a driver raised on a run; `response` is provider-shaped. */
-export interface RespondToRequestParams {
-  runId: RunId;
-  requestId: string;
-  response: unknown;
-}
-
-/** Asks a driver to close one session. */
-export interface CloseSessionParams {
-  sessionId: SessionId;
-}
-
-/**
- * Driver-constructed return of `createSession` and `resumeSession`; both fields are opaque
- * provider-owned blobs. `resumeHandle` is bounded (non-empty, length, NUL-reject) where it is
- * persisted to `runtime_bindings.resume_handle`, not re-parsed here.
- */
-export interface ProviderSessionHandle {
-  providerSessionId: string;
-  resumeHandle: string;
 }
 
 /** One selectable model of one provider, normalized at the driver's boundary (`listModels`). */
@@ -352,13 +155,6 @@ export const DRIVER_BINDING_ID_MAX_LEN = 256;
  * trace or nested-cause chain, and a rejection would lose that signal.
  */
 export const DRIVER_FAILURE_DETAIL_MAX_LEN = 32768;
-/**
- * Max length of `DriverAuthProbeResult.detail`, a short account or plan descriptor; a rejection
- * loses only descriptive text, never the probe `status` that carries the admission decision.
- */
-export const DRIVER_AUTH_DETAIL_MAX_LEN = 512;
-/** Max length of `CallbackToolInvocation.toolCallId`, an opaque provider correlation id. */
-export const DRIVER_TOOL_CALL_ID_MAX_LEN = 256;
 /** Max length of `McpServerStatusEmission.serverName`. */
 export const DRIVER_MCP_SERVER_NAME_MAX_LEN = 128;
 /** Max length of `ProviderCommandEntry.name`. */
@@ -437,51 +233,6 @@ export const ProviderToolMetadataSchema: z.ZodType<
     "ProviderToolMetadata.description",
   ).optional(),
 });
-
-/**
- * The provider CLI version as the spawned process reports it in-band, never from a launcher
- * symlink that may name a different build. `semver` is required so an unparseable version is
- * unrepresentable: the driver fails the report closed and attach refuses as
- * `driver.cli_version_unparseable`; a version below the configured floor refuses as
- * `driver.cli_version_below_floor`. `raw` is bounded where it is persisted, not here.
- */
-export interface DriverCliVersionReport {
-  raw: string;
-  semver: string;
-}
-
-/**
- * Return of `ProviderDriver.getCapabilities()`: the flag matrix, the tool declarations as the
- * provider made them (normalized at the daemon's hydration seam) and the CLI version.
- */
-export interface GetCapabilitiesResult {
-  capabilities: DriverCapabilities;
-  tools: ProviderToolMetadata[];
-  // Required: a capability report without a parseable provider version never reaches the daemon.
-  // It describes this reading rather than a capability, so it rides this wrapper and is not
-  // mirrored onto the event-boundary `CapabilityDetails` (the version floor gates attach only).
-  cliVersion: DriverCliVersionReport;
-  // Present and total over the flag set on a live driver read; absent when the result was rebuilt
-  // by `DriverCapabilitiesWriter.hydrate()` from the durable cache, which stores flag values and
-  // not provenance. Absence means "cache reconstruction", never "unknown provenance": a consumer
-  // that needs provenance re-reads the driver. Not mirrored into `CapabilityDetails` or the
-  // client-facing `driver.listCapabilities` payload.
-  detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
-  // The output-speed value vocabulary: present iff `capabilities.flags.output_speed` is `true`;
-  // absent or empty means the axis is unsettable and a caller carrying `outputSpeed` refuses
-  // rather than forwarding an unvalidated value. Declared statically from the per-driver table,
-  // because reading it from the provider costs a turn-bearing request. Unlike `detectionSource`
-  // it survives `hydrate()`, so the durable cache needs no column for it.
-  outputSpeedLevels?: string[] | undefined;
-}
-
-/**
- * How one flag's value was arrived at on a reading: `probed` by a zero-turn probe whose negative
- * control still refused, or `static` from the driver's own table, used only where no admissible
- * probe exists. A bare union because nothing iterates it at runtime; per-driver totality is a
- * compile-time `Record` in `runtime-daemon/src/provider/capability-probe.ts`.
- */
-export type CapabilityDetectionSource = "static" | "probed";
 
 // ---- Interventions ----
 
@@ -661,140 +412,7 @@ export interface SessionCallbackTool {
   inputSchema: Record<string, unknown>;
 }
 
-/**
- * The invocation a driver hands to the injected dispatcher, built from untrusted provider wire
- * output. This parse is the last point before the value reaches daemon-owned code and guarantees
- * only that strings are bounded and ids well-formed. The dispatcher host does the checks that need
- * the session's registry: an unknown `toolName` answers `failed` without dispatch, and `arguments`
- * are validated against the registered `inputSchema` before any Cedar round-trip, so malformed
- * provider output never reaches the approval pipeline. `toolCallId` is copied verbatim onto the
- * answered result because tool-event pairing is an exact-string match.
- */
-export interface CallbackToolInvocation {
-  toolName: string;
-  arguments: Record<string, unknown>;
-  toolCallId: string;
-  sessionId: SessionId;
-  runId: RunId;
-}
-/** Validates a {@link CallbackToolInvocation}; strict. */
-export const CallbackToolInvocationSchema: z.ZodType<
-  CallbackToolInvocation,
-  CallbackToolInvocation
-> = z
-  .object({
-    toolName: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "CallbackToolInvocation.toolName"),
-    arguments: z.record(z.string(), z.unknown()),
-    toolCallId: wireFreeFormString(
-      DRIVER_TOOL_CALL_ID_MAX_LEN,
-      "CallbackToolInvocation.toolCallId",
-    ),
-    sessionId: SessionIdSchema,
-    // References the shared `RunIdSchema` rather than building a second run-id validator.
-    runId: RunIdSchema,
-  })
-  .strict();
-
-/**
- * The answer the daemon returns to the driver, which relays it to the provider. Daemon-constructed
- * and trusted, so plain TypeScript: trust runs the reverse way from the invocation. Only
- * `completed` may carry `output` and only the failure arms may carry `error`, so "denied with
- * output" and "completed with an error" are unrepresentable. The `?: never` members are
- * structurally absent, so they take no `| undefined` (as in `ExecutionPosture`).
- */
-export type CallbackToolResult =
-  | { status: "completed"; output?: unknown; error?: never }
-  | { status: "denied"; output?: never; error?: string | undefined }
-  | { status: "failed"; output?: never; error?: string | undefined };
-
 // ---- MCP server status ----
 
 /** Connection state of one MCP server. Servers only: support is not visibility of its tools. */
 export type McpServerStatus = "unknown" | "starting" | "connected" | "needs-auth" | "failed";
-
-/**
- * What a driver emits for one MCP server: `serverName` and `status`, nothing else. The driver never
- * supplies leg identity, since the daemon pre-binds the injected producer to the leg at spawn, so a
- * driver cannot misattribute or spoof another leg's rows. `serverName` is untrusted provider or CLI
- * output, so the shape is Zod-parsed at the driver normalization seam.
- */
-export interface McpServerStatusEmission {
-  serverName: string;
-  status: McpServerStatus;
-}
-/** Validates a {@link McpServerStatusEmission}; strict. */
-export const McpServerStatusEmissionSchema: z.ZodType<
-  McpServerStatusEmission,
-  McpServerStatusEmission
-> = z
-  .object({
-    serverName: wireFreeFormString(
-      DRIVER_MCP_SERVER_NAME_MAX_LEN,
-      "McpServerStatusEmission.serverName",
-    ),
-    status: z.enum(["unknown", "starting", "connected", "needs-auth", "failed"]),
-  })
-  .strict();
-
-/**
- * What the consumer reads: the pre-bound producer stamps the leg identity onto every emission.
- * `bindingId` is daemon-stamped, never driver-supplied. Because a run has many bindings, statuses
- * key per `(binding, server)`, so a relaunched leg's fresh census supersedes its own predecessor
- * without clobbering a concurrent live leg's rows.
- */
-export interface McpServerStatusUpdate {
-  sessionId: SessionId;
-  bindingId: string;
-  serverName: string;
-  status: McpServerStatus;
-}
-
-/**
- * The injected status sink. Returns `void`, not `Promise<void>`, unlike the awaited
- * `onCallbackToolCall`: it is fire-and-forget telemetry, and making it awaitable would let a slow
- * consumer back-pressure the provider's status stream.
- */
-export type McpServerStatusProducer = (emission: McpServerStatusEmission) => void;
-
-// ---- Provider-native subagents ----
-
-/**
- * Provider-native subagent policy, daemon-constructed and gated on `subagents`. The daemon is the
- * only cross-session supervisor, so provider subagents run in-session only: their usage aggregates
- * into the run's own budgets and their tool calls flow through the same approval pipeline.
- * Discriminated on `enabled` so a disabled policy carries no limits or definitions ("off but
- * configured" is unrepresentable) and the daemon sends the full arm on enable.
- */
-export type SubagentPolicy =
-  | { enabled: false }
-  | { enabled: true; maxDepth: number; maxConcurrent: number; definitions: SubagentDefinition[] };
-
-/**
- * The unified per-subagent definition each driver maps onto its provider form (Claude `--agents`
- * AgentDefinition; Codex `[agents]` config). Every field beyond `name` is optional because each leg
- * maps what its provider supports and ignores the rest, which the capability matrix grades.
- */
-export interface SubagentDefinition {
-  name: string;
-  description?: string | undefined;
-  model?: string | undefined;
-  tools?: string[] | undefined;
-  permissionMode?: string | undefined;
-  effort?: string | undefined;
-  maxTurns?: number | undefined;
-}
-
-// ---- Driver transport configuration ----
-
-/**
- * How the daemon reaches a driver process; a daemon driver-registry setting, not an RPC payload or
- * a `ProviderDriver` member. Only the Codex leg uses it (`app-server --listen unix://|ws://`,
- * config-gated, off by default); the Claude CLI exposes no local listener, so remote Claude
- * participation is cross-node dispatch. `bearerTokenRef` references the ws bearer credential in
- * daemon config, never the secret value, and is required on the websocket arm so an unauthenticated
- * ws listener is unrepresentable.
- */
-export type DriverTransportConfig =
-  | { transport: "stdio" }
-  | { transport: "unix-socket"; endpoint: string }
-  | { transport: "websocket"; endpoint: string; bearerTokenRef: string };

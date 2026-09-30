@@ -31,7 +31,6 @@ import type {
   MethodRegistry,
   ProviderCommandBindingGroup,
   ProviderCommandListResult,
-  ProviderDriver,
   RunId,
   SessionId,
 } from "@ai-sidekicks/contracts";
@@ -47,6 +46,7 @@ import { DaemonDomainError } from "../domain-error.js";
 import { SessionNotFoundError } from "../session-errors.js";
 
 import { registerDescribedMethod } from "./register-described-method.js";
+import type { ProviderDriver } from "../../provider/provider-driver.js";
 
 /** The registry surface a roster read needs; it excludes `checkCapability`, which is a gate. */
 type DriverRosterSource = Pick<ProviderRegistry, "listAvailable" | "lookup">;

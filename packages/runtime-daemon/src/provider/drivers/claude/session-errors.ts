@@ -4,15 +4,17 @@
  */
 
 import {
-  DRIVER_AUTH_DETAIL_MAX_LEN,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
-  DriverAuthProbeResultSchema,
-  type DriverAuthProbeResult,
   type RecoveryCondition,
   type RunId,
   type SessionId,
 } from "@ai-sidekicks/contracts";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
+import {
+  DRIVER_AUTH_DETAIL_MAX_LEN,
+  DriverAuthProbeResultSchema,
+  type DriverAuthProbeResult,
+} from "../../provider-driver.js";
 
 const UNDESCRIBED_FAILURE_DETAIL =
   "The Claude provider transport failed the resume with no describable detail.";

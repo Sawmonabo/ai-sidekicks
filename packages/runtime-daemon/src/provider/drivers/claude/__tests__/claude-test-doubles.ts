@@ -2,13 +2,7 @@
 // `session-transport.ts`, so a drifted signature fails the typecheck. Nothing here spawns a
 // process, touches the filesystem or reads an environment variable.
 
-import type {
-  ApplyInterventionParams,
-  CreateSessionParams,
-  RunId,
-  SessionId,
-  StartRunParams,
-} from "@ai-sidekicks/contracts";
+import type { ApplyInterventionParams, RunId, SessionId } from "@ai-sidekicks/contracts";
 
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import { PROVIDER_AUTO_UPDATE_OPT_OUT_ENV, type SpawnEnvPair } from "../../../spawn-env.js";
@@ -34,6 +28,7 @@ import type {
   ClaudeUserTextFrame,
   ClaudeUserTextWriteAttempt,
 } from "../session-transport.js";
+import type { CreateSessionParams, StartRunParams } from "../../../provider-driver.js";
 
 /** The session id every test session uses. */
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;

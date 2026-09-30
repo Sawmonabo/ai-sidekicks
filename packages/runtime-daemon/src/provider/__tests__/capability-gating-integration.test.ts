@@ -9,10 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-  type DriverCliVersionReport,
   type ExecutionPosture,
-  type GetCapabilitiesResult,
-  type ProviderDriver,
 } from "@ai-sidekicks/contracts";
 
 import { openDatabase } from "../../session/migration-runner.js";
@@ -23,6 +20,11 @@ import {
 } from "../driver-capabilities-writer.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../provider-registry.js";
 import { RuntimeBindingStore, type RuntimeBindingSpawnConfig } from "../runtime-binding-store.js";
+import type {
+  DriverCliVersionReport,
+  GetCapabilitiesResult,
+  ProviderDriver,
+} from "../provider-driver.js";
 
 const DRIVER_NAME: string = "claude";
 // One shared version makes the binding and the capability cache agree by construction.

@@ -65,10 +65,8 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
 // Declared in `./event-core.js` and re-exported here so importers keep using this file; change
 // any of them there. Type-only re-exports need `export type` under `isolatedModules` and
 // `verbatimModuleSyntax`.
-export type { CapabilityDetails, EventEnvelopeVersion } from "./event-core.js";
+export type { EventEnvelopeVersion } from "./event-core.js";
 export {
-  CAPABILITY_CONTRACT_VERSION_MAX_LEN,
-  CapabilityDetailsSchema,
   EVENT_ENVELOPE_VERSION_MAX_LEN,
   EVENT_ENVELOPE_VERSION_PATTERN,
   EVENT_FIELD_MAX_LEN,

@@ -3,11 +3,12 @@
 // `runtime_bindings` and `driver_contract_meta`, so they live here once. Every rejection is a
 // `ProviderOutputValidationError`, never a raw Zod or SQLite error.
 
-import { DRIVER_CAPABILITY_FLAGS, wireFreeFormString } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
+  wireFreeFormString,
+} from "@ai-sidekicks/contracts";
 import semver from "semver";
-
-/** Maximum length of a provider-declared `contract_version`; equals the SQL CHECK bound. */
-export const CONTRACT_VERSION_MAX_LEN = 64;
 
 /** Maximum length of a provider-owned opaque `resume_handle`; equals the SQL CHECK bound. */
 export const RESUME_HANDLE_MAX_LEN = 4096;
@@ -42,7 +43,7 @@ export class ProviderOutputValidationError extends Error {
 // `=== value` check rejects non-canonical strings instead of normalizing them. Build metadata
 // does not identify a version; storing two builds as different values would fake a change.
 const contractVersionSchema = wireFreeFormString(
-  CONTRACT_VERSION_MAX_LEN,
+  DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
   "contract_version",
 ).refine((value) => semver.valid(value) === value, {
   message:

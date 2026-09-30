@@ -12,14 +12,11 @@ import {
   type DriverCapabilities,
   type DriverCapabilityFlag,
   type DriverCompactionResult,
-  type DriverResumeResult,
   type RunId,
   type SessionId,
   type ApplyInterventionParams,
   type ExecutionPosture,
-  type CallbackToolInvocation,
   type SessionCallbackTool,
-  DriverTranscriptReplayResultSchema,
 } from "@ai-sidekicks/contracts";
 
 import { bindCallbackToolsForSpawn, CallbackToolHost } from "../../../callback-tool-host.js";
@@ -93,6 +90,11 @@ import {
 import { CODEX_COMPACTION_WAIT_MS } from "../provider-commands.js";
 import type { PtySignal, SpawnRequest, SpawnResponse } from "../../../../pty/pty-host-protocol.js";
 import type { PtyHost, DrainResult } from "../../../../pty/pty-host.js";
+import {
+  type DriverResumeResult,
+  type CallbackToolInvocation,
+  DriverTranscriptReplayResultSchema,
+} from "../../../provider-driver.js";
 
 // --------------------------------------------------------------------------
 // Fakes

@@ -3,13 +3,10 @@
  * subagents run at once.
  */
 
-import {
-  type SessionId,
-  type SubagentDefinition,
-  type SubagentPolicy,
-} from "@ai-sidekicks/contracts";
+import { type SessionId } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { ClaudeSessionUnavailableError } from "./session-errors.js";
+import type { SubagentDefinition, SubagentPolicy } from "../../provider-driver.js";
 
 /**
  * Supervised postures never let commands run outside the sandbox: every non-`trusted` posture runs

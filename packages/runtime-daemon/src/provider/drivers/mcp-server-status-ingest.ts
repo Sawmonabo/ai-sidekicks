@@ -2,8 +2,8 @@
 // Each driver maps its own status vocabulary; the bound and the rejection shape are
 // provider-neutral.
 
-import { McpServerStatusEmissionSchema } from "@ai-sidekicks/contracts";
-import type { McpServerStatus, McpServerStatusEmission } from "@ai-sidekicks/contracts";
+import type { McpServerStatus } from "@ai-sidekicks/contracts";
+import { McpServerStatusEmissionSchema, type McpServerStatusEmission } from "../provider-driver.js";
 
 /**
  * A raw row, line or notification a normalizer could not turn into a bounded emission.

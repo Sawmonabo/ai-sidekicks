@@ -12,19 +12,19 @@
 // with two calls under one id cannot be exported as-is, so the repair disambiguates the later
 // call instead of dropping it. That repair is declared, and it is the only id this module mints.
 
-import type {
-  CanonicalTranscriptProjection,
-  CanonicalTranscriptSegment,
-  CanonicalTranscriptTurn,
-  DeclaredLossKind,
-  DriverTranscriptExportResult,
-} from "@ai-sidekicks/contracts";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
 import type { OutboundFrameOrigin } from "../drivers/outbound-frame.js";
 
 import { boundProjectionToPosition, type TranscriptExportBound } from "./canonical-transcript.js";
+import type {
+  CanonicalTranscriptProjection,
+  CanonicalTranscriptSegment,
+  CanonicalTranscriptTurn,
+  DriverTranscriptExportResult,
+} from "../provider-driver.js";
 
 // --------------------------------------------------------------------------
 // Tool-call identity

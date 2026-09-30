@@ -1,4 +1,5 @@
-// Provider-driver shapes for the canonical transcript, context compaction and provider commands.
+// Provider-driver shapes a client also reads: the declared-loss vocabulary of a transcript
+// operation, the compaction result, the provider-command enumeration and the output-speed state.
 
 import { z } from "zod";
 import {
@@ -6,17 +7,11 @@ import {
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
-  type ProviderSessionHandle,
   type RunId,
 } from "./provider-driver.js";
-import { wireFreeFormString, type SessionId } from "./session.js";
+import { wireFreeFormString } from "./session.js";
 
-// ---- Canonical transcript export and replay ----
-
-// The canonical transcript is a projection the daemon folds from the session event log, so its
-// shapes are daemon-constructed and plain TypeScript. Content is bounded, normalized taxonomy:
-// anything a provider held that never became an event is absent by construction, which is what
-// the declared-loss rule surfaces.
+// ---- Declared losses ----
 
 /**
  * The closed vocabulary of what a transcript operation could not carry. A new kind is a deliberate
@@ -55,243 +50,7 @@ export type DeclaredLossKind = (typeof DECLARED_LOSS_KINDS)[number];
 export const DeclaredLossKindSchema: z.ZodType<DeclaredLossKind, DeclaredLossKind> =
   z.enum(DECLARED_LOSS_KINDS);
 
-/** Who authored a turn. The transcript carries no third author in V1. */
-export type CanonicalTranscriptRole = "user" | "assistant";
-
-/**
- * Whether a reasoning block was ever visible to the user. The strip keys on this, not on
- * `reasoningKind`, because a filter matching one kind name would leave that kind's redacted
- * sibling behind and break the multi-turn protocol. Summaries are user-visible, hence canonical.
- */
-export type CanonicalReasoningDisclosure = "private" | "summary";
-
-/**
- * Whether a tool result came from the provider or was minted by the pairing repair. A repaired
- * result is a declared loss, and a consumer that cannot tell the two apart cannot honor that.
- */
-export type CanonicalToolResultProvenance = "provider" | "repaired";
-
-/**
- * One unit of turn content. Every arm carries `position`, the session-log sequence of the event
- * that contributed it: derived provenance projected from the log, never a second record of the
- * session's order. It is required on every arm because a bound filters on it, and an absent
- * position would exempt its segment from every bound. Steps that re-home a segment keep the value,
- * so positions within a turn ascend as the fold builds them but need not once the pairing repair
- * moves a result behind its call. A `tool_call` carries no enclosing-block member while a
- * `tool_result` does, so the strip can never drop a call yet can orphan a result, which is what the
- * pairing repair answers; hence the repair must run after the strip.
- */
-export type CanonicalTranscriptSegment =
-  | {
-      kind: "text";
-      position: number;
-      text: string;
-      // Set when the row's body was unavailable at fold time. `text` is then empty, because the
-      // fold never invents content, and the segment is kept so the turn survives with its
-      // position. Every projection carrying one owes the matching declared loss.
-      contentUnavailable?: boolean | undefined;
-      // Set on the stand-in emitted for an id-less tool result whose enclosing reasoning block
-      // resolved `private` at turn close. The body was read and withheld, so `text` is empty and
-      // `contentUnavailable` stays absent (setting it would claim a read failure that never
-      // happened). It is a `text` arm rather than a `tool_result` because that arm requires
-      // `toolCallId`, and a synthetic id would give the pairing repair a call no provider made. It
-      // rides the segment it governs and survives any positional bound the segment survives;
-      // without it, a bound between the result and its later-logged private reasoning row would
-      // leave the export declaring nothing. Never rendered or exported: the strip drops the segment
-      // and declares `provider_private_reasoning`. One literal because only `private` withholds a
-      // read body; an `unknown` enclosure keeps its placeholder on the `contentUnavailable` path.
-      withheldEnclosure?: "private" | undefined;
-    }
-  | {
-      kind: "reasoning";
-      position: number;
-      blockId: string;
-      // The provider's own block-kind label, carried verbatim for diagnostics; the strip keys on
-      // `disclosure`, not on this.
-      reasoningKind: string;
-      disclosure: CanonicalReasoningDisclosure;
-      text: string;
-    }
-  | {
-      kind: "tool_call";
-      position: number;
-      // The canonical id: replay never re-mints one or reuses one across two calls; the
-      // target-facing id comes from the identity map.
-      toolCallId: string;
-      toolName: string;
-      // The arguments as the provider serialized them; re-encoding a parsed object would change
-      // bytes the target may hash or echo.
-      argumentsJson: string;
-      // As on the `text` arm. An unreadable body leaves `argumentsJson` empty rather than dropping
-      // the call, whose id the pairing repair needs.
-      contentUnavailable?: boolean | undefined;
-    }
-  | {
-      kind: "tool_result";
-      position: number;
-      toolCallId: string;
-      outcome: "succeeded" | "failed";
-      provenance: CanonicalToolResultProvenance;
-      text: string;
-      // Present when the provider emitted this result inside a reasoning block; stripping that
-      // block removes the result and orphans its call, the only way an orphan arises from a
-      // well-formed transcript.
-      enclosingReasoningBlockId?: string | undefined;
-      // How the fold resolved that enclosure at turn close, and the only carrier of that
-      // resolution that survives a positional bound: the block id names a sibling segment a bound
-      // may cut away, while this member rides the result. Recorded only for the two dispositions
-      // that withhold; a portable (`summary`) enclosure and a citation of a block from another turn
-      // leave it absent, since nothing branches on either.
-      //   `private`  the enclosing block was read and is not portable;
-      //   `unknown`  the enclosure could not be established portable (the turn's reasoning row was
-      //              unreadable, or the block carried a disclosure this fold does not classify).
-      //              Fail-closed: content that might be private travels with the block.
-      enclosureDisclosure?: "private" | "unknown" | undefined;
-      // As on the `text` arm.
-      contentUnavailable?: boolean | undefined;
-    };
-
-/** One ordered turn of the canonical transcript. */
-export interface CanonicalTranscriptTurn {
-  // The session-log sequence of the event that opened this turn (its first segment). Turns ascend
-  // strictly in it. Consecutive same-role events coalesce into an open turn and keep their own,
-  // higher, positions on their segments, so this member bounds nothing: a filter on it would admit
-  // every later event folded into a turn that opened early.
-  position: number;
-  role: CanonicalTranscriptRole;
-  segments: readonly CanonicalTranscriptSegment[];
-}
-
-/**
- * The daemon-side fold of a run's normalized events into ordered turns; it never crosses a wire and
- * is never persisted.
- */
-export interface CanonicalTranscriptProjection {
-  sessionId: SessionId;
-  runId: RunId;
-  // The log position this fold was taken at: two folds at one position render identically, and one
-  // taken after an appended event does not.
-  builtAtPosition: number;
-  turns: readonly CanonicalTranscriptTurn[];
-}
-
-/**
- * Input of `exportTranscript`: the folded projection and the boundary it is exported against. The
- * driver retains exactly the segments whose `position` is at or below `boundary` and drops any turn
- * left empty. The filter is per segment, not per turn, because the fold coalesces consecutive
- * same-role events into one turn positioned at the first, so a turn-level filter would carry later
- * events' content across the boundary. It is a deterministic filter over data the driver already
- * holds and equals the fold bounded at the same position, so it is a no-op on an already-bounded
- * projection.
- */
-export interface ExportTranscriptParams {
-  sessionId: SessionId;
-  transcript: CanonicalTranscriptProjection;
-  // Export up to and including this normalized session position, the vocabulary of
-  // `ForkConversationParams.position` and `CanonicalTranscriptSegment.position`.
-  boundary: number;
-}
-
-/** Return of `ProviderDriver.exportTranscript()`. */
-export interface DriverTranscriptExportResult {
-  // Provider-shaped replay frames, untyped on purpose: the pinned injection surface takes an
-  // untyped array and validates neither shape nor tool-call pairing, so the daemon owns both and a
-  // type here would assure a check nobody performs.
-  frames: unknown[];
-  // What the strip and repair steps of the ordered pipeline removed or repaired, by class.
-  declaredLosses: DeclaredLossKind[];
-}
-
-/** Validates a {@link DriverTranscriptExportResult}; strict. */
-export const DriverTranscriptExportResultSchema: z.ZodType<
-  DriverTranscriptExportResult,
-  DriverTranscriptExportResult
-> = z
-  .object({
-    frames: z.array(z.unknown()),
-    declaredLosses: z.array(DeclaredLossKindSchema),
-  })
-  .strict();
-
-/** Params of `replayTranscript`: a fresh target session and the frames to inject into it. */
-export interface ReplayTranscriptParams {
-  // A fresh session handle. Replay never writes to the session the transcript came from.
-  target: ProviderSessionHandle;
-  frames: unknown[];
-}
-
-/**
- * Return of `ProviderDriver.replayTranscript()`. Flat rather than discriminated, unlike
- * `ForkConversationResult`, because `declaredLosses` is required on both arms: an `applied` replay
- * that stripped provider-private reasoning still lost something. The arm-scoped content rule rides
- * the schema below, since expressing it in the type would need the union this shape avoids.
- */
-export interface DriverTranscriptReplayResult {
-  // `degraded` means the memo floor stood in: the conversation moved and the losses say what came
-  // along. It is not a failure; a target that cannot be reached at all throws.
-  status: "applied" | "degraded";
-  declaredLosses: DeclaredLossKind[];
-}
-
-/** Validates a {@link DriverTranscriptReplayResult}; strict, with arm-scoped loss rules. */
-export const DriverTranscriptReplayResultSchema: z.ZodType<
-  DriverTranscriptReplayResult,
-  DriverTranscriptReplayResult
-> = z
-  .object({
-    status: z.enum(["applied", "degraded"]),
-    declaredLosses: z.array(DeclaredLossKindSchema),
-  })
-  .strict()
-  // `degraded` here has one cause, the memo floor standing in, so it must name
-  // `conversation_history_summarized`. Enforced rather than narrated: the flat shape admits
-  // `{status: 'degraded', declaredLosses: []}`, and an empty array claims nothing was dropped, so
-  // that value would tell the caller a summary is the verbatim conversation. Naming the kind
-  // subsumes non-emptiness; a bare `.min(1)` would admit a degraded result declaring some other
-  // loss while hiding the summarization. `applied` keeps full latitude over every other kind,
-  // empty list included. (`.superRefine()` returns `this`, so the envelope stays a `ZodObject` and
-  // the annotation above holds.)
-  //
-  // The inverse rule makes the kind an exact witness of the arm: `applied` with
-  // `conversation_history_summarized` claims both that native replay landed and that a summary
-  // stood in, so a consumer reading `status` and one reading the kind would publish opposite
-  // continuity for the same value.
-  .superRefine((result, ctx) => {
-    if (
-      result.status === "degraded" &&
-      !result.declaredLosses.includes("conversation_history_summarized")
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["declaredLosses"],
-        message:
-          "a replay reported 'degraded' settled on the memo projection, so its declared-loss list must include 'conversation_history_summarized'; this result reports 'degraded' without it.",
-      });
-    }
-    if (
-      result.status === "applied" &&
-      result.declaredLosses.includes("conversation_history_summarized")
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["declaredLosses"],
-        message:
-          "'conversation_history_summarized' names the memo projection standing in for the conversation, which is the 'degraded' settlement; an 'applied' replay cannot declare it, and this result reports 'applied' with it.",
-      });
-    }
-  });
-
 // ---- Compaction and provider commands ----
-
-// Their params are daemon-constructed and binding-addressed: a run has many bindings and each
-// operation acts on exactly one leg. The client-facing verbs take a run (compaction) or an agent
-// (enumeration), and the SDK seam resolves the binding at dispatch.
-
-/** Params of `compactContext` (gated on `context_compaction`); addresses one binding. */
-export interface CompactContextParams {
-  sessionId: SessionId;
-  bindingId: string;
-}
 
 /**
  * The result of a compaction attempt, not of the request, discriminated on `status` so no arm
@@ -350,12 +109,6 @@ export const DriverCompactionResultSchema: z.ZodType<
     })
     .strict(),
 ]);
-
-/** Params of `listProviderCommands` (gated on `provider_commands`); addresses one binding. */
-export interface ListProviderCommandsParams {
-  sessionId: SessionId;
-  bindingId: string;
-}
 
 /**
  * One enumerated provider command or skill. `binding` is the routing key, carried with the data so

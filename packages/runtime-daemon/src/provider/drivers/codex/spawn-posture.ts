@@ -2,14 +2,7 @@
 // launches under, the posture and subagent legs a thread is established with, the per-turn sandbox
 // policy, and the diagnostics for what this provider cannot realize.
 
-import type {
-  CreateSessionParams,
-  ExecutionPosture,
-  ResumeSessionParams,
-  SessionId,
-  StartRunParams,
-  SubagentPolicy,
-} from "@ai-sidekicks/contracts";
+import type { ExecutionPosture, SessionId } from "@ai-sidekicks/contracts";
 import type { CredentialEnvPolicy } from "../../spawn-env.js";
 import type { CodexLifecycleOptions, CodexSessionRecord } from "./session-state.js";
 import {
@@ -27,6 +20,12 @@ import { CodexDriverConfigError } from "./session-errors.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport-diagnostics.js";
 import { CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL } from "./server-requests.js";
 import { isPlainObject } from "./record-readers.js";
+import type {
+  CreateSessionParams,
+  ResumeSessionParams,
+  StartRunParams,
+  SubagentPolicy,
+} from "../../provider-driver.js";
 
 /** Composes what a Codex spawn, thread and turn are established under, and reports the gaps. */
 export class CodexSpawnPosture {

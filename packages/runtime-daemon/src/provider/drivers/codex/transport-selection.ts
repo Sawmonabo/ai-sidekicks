@@ -3,11 +3,9 @@
  * websocket) and composes the command line each choice needs.
  */
 
-import {
-  CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
-  type DriverTransportConfig,
-} from "@ai-sidekicks/contracts";
+import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts";
 import { CodexDriverConfigError } from "./session-errors.js";
+import type { DriverTransportConfig } from "../../provider-driver.js";
 
 /**
  * Line the prelude emits once the tty is configured; nothing is written before it, because early

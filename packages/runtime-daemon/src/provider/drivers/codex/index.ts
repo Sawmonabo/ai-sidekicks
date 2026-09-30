@@ -19,28 +19,11 @@
 
 import type {
   ApplyInterventionParams,
-  ClearSessionGoalParams,
-  CloseSessionParams,
-  CompactContextParams,
-  CreateSessionParams,
-  DriverAuthProbeResult,
   DriverCompactionResult,
   DriverInterventionResult,
-  DriverResumeResult,
-  ForkConversationResult,
-  DriverTransportConfig,
   InterruptRunParams,
-  ListProviderCommandsParams,
   ProviderCommandListResult,
-  DriverTranscriptReplayResult,
-  ProviderDriver,
-  ReplayTranscriptParams,
   ProviderModel,
-  ProviderSessionHandle,
-  ResumeSessionParams,
-  ForkConversationParams,
-  SetSessionGoalParams,
-  StartRunParams,
 } from "@ai-sidekicks/contracts";
 
 import { resolveCodexModelCatalog, type CodexModelCatalogExchange } from "./capabilities.js";
@@ -52,6 +35,25 @@ import {
   type CodexTransportSelection,
 } from "./transport-selection.js";
 import { type CodexLifecycleOptions } from "./session-state.js";
+import type {
+  ClearSessionGoalParams,
+  CloseSessionParams,
+  CompactContextParams,
+  CreateSessionParams,
+  DriverAuthProbeResult,
+  DriverResumeResult,
+  ForkConversationResult,
+  DriverTransportConfig,
+  ListProviderCommandsParams,
+  DriverTranscriptReplayResult,
+  ProviderDriver,
+  ReplayTranscriptParams,
+  ProviderSessionHandle,
+  ResumeSessionParams,
+  ForkConversationParams,
+  SetSessionGoalParams,
+  StartRunParams,
+} from "../../provider-driver.js";
 
 export { CodexAppServerConnection } from "./app-server-connection.js";
 export {

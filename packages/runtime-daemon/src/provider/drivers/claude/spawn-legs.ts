@@ -1,13 +1,7 @@
 // What a Claude process is spawned under: the spawn-bound legs every spawn path realizes, the
 // binding a later run is checked against, and the check itself.
 
-import type {
-  CreateSessionParams,
-  ResumeSessionParams,
-  SessionId,
-  StartRunParams,
-  SubagentPolicy,
-} from "@ai-sidekicks/contracts";
+import type { SessionId } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   type ClaudeSessionTransport,
@@ -32,6 +26,12 @@ import {
   composeClaudeSandboxSettings,
 } from "./spawn-settings.js";
 import { digestOutputSchema, findPostureDivergence } from "./session-posture.js";
+import type {
+  CreateSessionParams,
+  ResumeSessionParams,
+  StartRunParams,
+  SubagentPolicy,
+} from "../../provider-driver.js";
 
 /**
  * Composes the spawn-bound legs of a create or resume and the subagent gate of every spawn,

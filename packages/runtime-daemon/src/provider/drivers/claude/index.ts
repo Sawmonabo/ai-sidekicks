@@ -13,33 +13,35 @@
 
 import type {
   ApplyInterventionParams,
-  CloseSessionParams,
-  CompactContextParams,
-  CreateSessionParams,
-  DriverAuthProbeResult,
   DriverCompactionResult,
-  ListProviderCommandsParams,
   ProviderCommandListResult,
   DriverInterventionResult,
-  DriverResumeResult,
-  ForkConversationResult,
   InterruptRunParams,
-  DriverTranscriptReplayResult,
-  ProviderDriver,
-  ReplayTranscriptParams,
   ProviderModel,
   ProviderOutputSpeedState,
-  ProviderSessionHandle,
-  ResumeSessionParams,
-  ForkConversationParams,
   SessionId,
-  StartRunParams,
 } from "@ai-sidekicks/contracts";
 
 import { resolveClaudeModelCatalog, type ClaudeModelCatalogExchange } from "./capabilities.js";
 import { ClaudeInterventionDispatcher } from "./intervention.js";
 import { ClaudeSessionLifecycle } from "./lifecycle.js";
 import { type ClaudeSessionLifecycleDependencies } from "./session-state.js";
+import type {
+  CloseSessionParams,
+  CompactContextParams,
+  CreateSessionParams,
+  DriverAuthProbeResult,
+  ListProviderCommandsParams,
+  DriverResumeResult,
+  ForkConversationResult,
+  DriverTranscriptReplayResult,
+  ProviderDriver,
+  ReplayTranscriptParams,
+  ProviderSessionHandle,
+  ResumeSessionParams,
+  ForkConversationParams,
+  StartRunParams,
+} from "../../provider-driver.js";
 
 // The public surface is listed by name, not `export *`, so a symbol added to a module does not
 // become public by accident. From `capabilities.ts` only the model-catalog type is public, because

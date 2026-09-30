@@ -1,7 +1,6 @@
 // Seeding a fresh Codex replay target with one `thread/inject_items` request per frame and
 // confirming it by readback, abandoning and closing the target on any failure.
 
-import type { CloseSessionParams, ReplayTranscriptParams } from "@ai-sidekicks/contracts";
 import {
   assertReplayReconstituted,
   PostReplayAssertionFailedError,
@@ -17,6 +16,7 @@ import type { CodexRequestAttempt } from "./app-server-connection.js";
 import { CodexTransportError } from "./session-errors.js";
 import { codexResponsesItemForFrame, readRenderedTranscriptFrameForReplay } from "./thread-view.js";
 import { CODEX_THREAD_INJECT_ITEMS_METHOD } from "./provider-commands.js";
+import type { CloseSessionParams, ReplayTranscriptParams } from "../../provider-driver.js";
 
 /** The replay ledger, the bound readback and the close an abandoned target is torn down through. */
 export interface CodexReplaySeedingDependencies {

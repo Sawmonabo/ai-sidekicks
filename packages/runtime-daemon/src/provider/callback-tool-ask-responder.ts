@@ -3,13 +3,9 @@
  * approval responder. Also shapes the reply content the provider receives.
  */
 
-import {
-  CallbackToolInvocationSchema,
-  type CallbackToolInvocation,
-  type RunId,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import { type RunId, type SessionId } from "@ai-sidekicks/contracts";
 import type { CallbackToolHost } from "./callback-tool-host.js";
+import { CallbackToolInvocationSchema, type CallbackToolInvocation } from "./provider-driver.js";
 
 /**
  * One inbound provider ask carrying the session and run identity the daemon needs to adjudicate

@@ -3,12 +3,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  CanonicalTranscriptProjection,
-  CanonicalTranscriptSegment,
-  DriverTranscriptExportResult,
-} from "@ai-sidekicks/contracts";
-
 import {
   CANONICAL_TRANSCRIPT_PIPELINE,
   SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
@@ -35,6 +29,11 @@ import {
   storedEvent,
   type TranscriptFixture,
 } from "./transcript-log-test-doubles.js";
+import type {
+  CanonicalTranscriptProjection,
+  CanonicalTranscriptSegment,
+  DriverTranscriptExportResult,
+} from "../../provider-driver.js";
 
 // --------------------------------------------------------------------------
 // Fixtures

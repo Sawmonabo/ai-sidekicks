@@ -16,7 +16,7 @@
 //   read the message; a default with a distinguishable code (`-32602`) would let a broken
 //   classifier pass, so that code is only a second accepted shape.
 
-import type { CapabilityDetectionSource, DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import {
   CAPABILITY_DETECTION_TABLES,
@@ -32,6 +32,7 @@ import type {
   DeclareDriverCapabilitiesResult,
   DriverCapabilityDeclarationSink,
 } from "../driver-capabilities-writer.js";
+import type { CapabilityDetectionSource } from "../provider-driver.js";
 
 /** The Claude control-response arm for a subtype the dispatcher does not know. */
 export function claudeUnsupportedSubtypeReply(subtype: string): unknown {

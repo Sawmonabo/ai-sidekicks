@@ -13,12 +13,7 @@
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import type {
-  CanonicalTranscriptProjection,
-  CanonicalTranscriptSegment,
-  CanonicalTranscriptTurn,
-  DeclaredLossKind,
-} from "@ai-sidekicks/contracts";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 import {
   createTranscriptPipelineState,
@@ -28,6 +23,11 @@ import {
   stripNonPortableContent,
   type TranscriptPipelineState,
 } from "./transform-pipeline.js";
+import type {
+  CanonicalTranscriptProjection,
+  CanonicalTranscriptSegment,
+  CanonicalTranscriptTurn,
+} from "../provider-driver.js";
 
 /**
  * The target session a memo is delivered into. Only the provider session id is in the key: a

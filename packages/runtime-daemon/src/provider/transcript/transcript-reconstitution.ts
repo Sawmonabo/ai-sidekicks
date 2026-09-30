@@ -3,13 +3,14 @@
  * target, and renders the disclosure a memo delivery adds.
  */
 
-import type { DeclaredLossKind, DriverTranscriptReplayResult } from "@ai-sidekicks/contracts";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 import {
   type MemoDeliveryCoordinator,
   MemoDeliveryNotEstablishedError,
   type MemoDeliveryRequest,
   type MemoDeliverySettlement,
 } from "./memo-delivery.js";
+import type { DriverTranscriptReplayResult } from "../provider-driver.js";
 
 /**
  * Maps a settlement to the driver-boundary result (`degraded`, never `applied`). `withheld` and

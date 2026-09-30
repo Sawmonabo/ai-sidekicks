@@ -11,11 +11,8 @@
 // The error classes carry a stable `driver.*` code and a leak-safe message with structured
 // `fields`, like `ipc/session-errors.ts`.
 
-import type {
-  DriverCapabilities,
-  DriverCapabilityFlag,
-  ProviderDriver,
-} from "@ai-sidekicks/contracts";
+import type { DriverCapabilities, DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type { ProviderDriver } from "./provider-driver.js";
 
 /**
  * Thrown when a capability check targets a `driverId` that is not registered.

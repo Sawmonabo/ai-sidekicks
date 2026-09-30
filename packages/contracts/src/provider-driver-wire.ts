@@ -103,10 +103,8 @@ export const DRIVER_WIRE_CATALOG_ENTRIES_MAX = 256;
  */
 export const DRIVER_WIRE_STEER_ATTACHMENTS_MAX = 64;
 /**
- * Max length of `DriverCapabilities.contractVersion` on the capability reply. Deliberately equal to
- * `CAPABILITY_CONTRACT_VERSION_MAX_LEN` (`event-core.ts`), which bounds the same field on the
- * `CapabilityDetails` snapshot, so a version that survives one survives the other. A change to
- * either value lands on both.
+ * Max length of a driver's `contractVersion`, on the capability reply and where the daemon stores
+ * it. The daemon's SQL CHECK constraints repeat the value and change with it.
  */
 export const DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN = 64;
 

@@ -2,17 +2,7 @@
 // resuming or forking its thread, then installing the record and rebinding the routing band. A
 // failed resume never becomes a new session: it returns the typed `recovery-needed` failure.
 
-import {
-  DriverResumeResultSchema,
-  ForkConversationResultSchema,
-  type CreateSessionParams,
-  type DriverResumeResult,
-  type ForkConversationParams,
-  type ForkConversationResult,
-  type ProviderSessionHandle,
-  type ResumeSessionParams,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import { type SessionId } from "@ai-sidekicks/contracts";
 import type { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { UsageDeltaAccountant } from "../../usage-delta-accountant.js";
 import type { RuntimeBindingQuarantine } from "../outbound-frame.js";
@@ -35,6 +25,16 @@ import type { CodexNotificationRouting } from "./notification-routing.js";
 import type { CodexProviderCommandCache } from "./provider-command-cache.js";
 import type { CodexTextNeutralization } from "./text-neutralization.js";
 import type { CodexRunRoutes } from "./run-routes.js";
+import {
+  DriverResumeResultSchema,
+  ForkConversationResultSchema,
+  type CreateSessionParams,
+  type DriverResumeResult,
+  type ForkConversationParams,
+  type ForkConversationResult,
+  type ProviderSessionHandle,
+  type ResumeSessionParams,
+} from "../../provider-driver.js";
 
 /**
  * Closes an abandoned connection without letting a teardown fault (an injected disposer is

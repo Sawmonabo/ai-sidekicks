@@ -11,15 +11,17 @@
 //   so malformed provider output never reaches the approval pipeline.
 
 import {
-  DRIVER_TOOL_CALL_ID_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
-  type CallbackToolInvocation,
-  type CallbackToolResult,
   type RunId,
   type SessionCallbackTool,
   type SessionId,
 } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticsEmitter, DriverProviderName } from "./driver-diagnostics.js";
+import {
+  DRIVER_TOOL_CALL_ID_MAX_LEN,
+  type CallbackToolInvocation,
+  type CallbackToolResult,
+} from "./provider-driver.js";
 
 /**
  * One evaluation input, shaped as the `approval.requestCreate` payload the composed `check()`

@@ -1,3 +1,4 @@
+import type { CanonicalTranscriptTurn } from "../provider-driver.js";
 // The post-replay assertion: a replay is verified by what the session answers, never by what the
 // call returned. `replayTranscript` completes only after the reconstituted session is read back
 // and answers consistently with the transcript's tail; zero turns, an unreadable session or a
@@ -7,8 +8,6 @@
 // `Array<JsonValue>`), so a frame the provider does not understand is accepted and dropped, and a
 // successful call over an empty session is ordinary. The comparison rules live here once so no
 // driver can weaken its own verdict.
-
-import type { CanonicalTranscriptTurn } from "@ai-sidekicks/contracts";
 
 /** One frame as the driver wrote it; `text` is empty for a turn whose body was unreadable. */
 export interface SeededTranscriptFrame {

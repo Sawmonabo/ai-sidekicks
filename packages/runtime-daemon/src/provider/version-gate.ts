@@ -15,8 +15,6 @@ import { constants as filesystemConstants } from "node:fs";
 import { access, realpath as realpathFromFilesystem, stat } from "node:fs/promises";
 import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "node:path";
 
-import type { DriverCliVersionReport } from "@ai-sidekicks/contracts";
-
 import {
   DriverCliVersionUnparseableError,
   assertCliVersionMeetsFloor,
@@ -25,6 +23,7 @@ import {
 } from "./capability-refresh.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
 import { PROVIDER_AUTO_UPDATE_OPT_OUT_ENV } from "./spawn-env.js";
+import type { DriverCliVersionReport } from "./provider-driver.js";
 
 // Literals rather than driver-tree imports, which would invert the import direction.
 const CLAUDE_DRIVER: FlooredDriverName = "claude";

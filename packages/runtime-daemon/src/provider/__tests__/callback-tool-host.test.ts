@@ -4,13 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  CallbackToolInvocation,
-  CallbackToolResult,
-  RunId,
-  SessionCallbackTool,
-  SessionId,
-} from "@ai-sidekicks/contracts";
+import type { RunId, SessionCallbackTool, SessionId } from "@ai-sidekicks/contracts";
 
 import {
   bindCallbackToolsForSpawn,
@@ -26,6 +20,7 @@ import {
   type RoutedProviderAsk,
 } from "../callback-tool-ask-responder.js";
 import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../driver-diagnostics.js";
+import type { CallbackToolInvocation, CallbackToolResult } from "../provider-driver.js";
 
 const TEST_SESSION_ID: SessionId = "11111111-1111-4111-8111-111111111111" as SessionId;
 const TEST_RUN_ID: RunId = "22222222-2222-4222-8222-222222222222" as RunId;

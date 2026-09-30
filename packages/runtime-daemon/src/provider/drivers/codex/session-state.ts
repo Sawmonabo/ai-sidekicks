@@ -3,12 +3,7 @@
  * arrived before their run, the lifecycle options, and the readers for frames it routes.
  */
 
-import {
-  type ExecutionPosture,
-  type RunId,
-  type SessionId,
-  type SubagentPolicy,
-} from "@ai-sidekicks/contracts";
+import { type ExecutionPosture, type RunId, type SessionId } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   type ChildThreadAnnouncement,
@@ -44,6 +39,7 @@ import type { CodexSessionConfig } from "./session-config.js";
 import { CodexProviderRequestError, type CodexSessionSlotState } from "./session-errors.js";
 import type { CodexSessionServerRequestResponder } from "./server-requests.js";
 import { isPlainObject } from "./record-readers.js";
+import type { SubagentPolicy } from "../../provider-driver.js";
 
 /** The notification method that reports a finished turn. */
 export const CODEX_TURN_COMPLETED_NOTIFICATION: string = CODEX_TURN_COMPLETED_METHOD;

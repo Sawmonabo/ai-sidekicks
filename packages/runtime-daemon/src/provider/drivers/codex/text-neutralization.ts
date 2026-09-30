@@ -3,7 +3,7 @@
 // settles, its steer fails, its binding is condemned or a resume supersedes it. A trip quarantines
 // the session and the run and reports the run failure.
 
-import type { RunId, SessionId, StartRunParams } from "@ai-sidekicks/contracts";
+import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 import {
   type OutboundFrameTripwire,
   type OutboundTextFrame,
@@ -37,6 +37,7 @@ import {
 } from "./transport-diagnostics.js";
 import { isPlainObject } from "./record-readers.js";
 import type { CodexRunRoutes } from "./run-routes.js";
+import type { StartRunParams } from "../../provider-driver.js";
 
 /** The lifecycle's frame machinery, its session records and the teardown a trip calls back into. */
 export interface CodexTextNeutralizationDependencies {

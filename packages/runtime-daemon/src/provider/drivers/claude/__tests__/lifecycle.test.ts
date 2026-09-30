@@ -6,11 +6,7 @@ import {
   DRIVER_OUTPUT_SPEED_REASON_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
-  DriverResumeResultSchema,
-  DriverTranscriptReplayResultSchema,
-  type CallbackToolResult,
   type ExecutionPosture,
-  type SubagentPolicy,
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
@@ -74,6 +70,12 @@ import {
   CLAUDE_ORDINARY_TURN_RESULT_FRAME,
   CLAUDE_ZERO_TURN_RESULT_FRAME,
 } from "../__fixtures__/turn-evidence-transcripts.js";
+import {
+  DriverResumeResultSchema,
+  DriverTranscriptReplayResultSchema,
+  type CallbackToolResult,
+  type SubagentPolicy,
+} from "../../../provider-driver.js";
 
 interface RecordedTextNeutralizationFailure {
   readonly sessionId: SessionId;

@@ -3,12 +3,7 @@
  * posture and subagent policy into the thread, turn and config overrides Codex takes.
  */
 
-import {
-  SessionIdSchema,
-  type ExecutionPosture,
-  type SessionId,
-  type SubagentPolicy,
-} from "@ai-sidekicks/contracts";
+import { SessionIdSchema, type ExecutionPosture, type SessionId } from "@ai-sidekicks/contracts";
 import { type CredentialEnvPolicy, type SpawnEnvNameMatch } from "../../spawn-env.js";
 import { type CallerDeclaredFrameOrigin } from "../outbound-frame.js";
 import { CodexDriverConfigError } from "./session-errors.js";
@@ -18,6 +13,7 @@ import {
   readRecord,
   readRequiredString,
 } from "./record-readers.js";
+import type { SubagentPolicy } from "../../provider-driver.js";
 
 /**
  * What this driver requires inside the untyped `CreateSessionParams.config`; `env` is the complete

@@ -16,10 +16,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   DRIVER_CAPABILITY_FLAGS,
   ProviderToolMetadataSchema,
-  type CapabilityDetails,
   type DriverCapabilityFlag,
-  type DriverCliVersionReport,
-  type GetCapabilitiesResult,
   type NormalizedProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
 import type { Database, Statement, Transaction } from "better-sqlite3";
@@ -32,6 +29,14 @@ import {
   assertValidGetCapabilitiesResultShape,
   ProviderOutputValidationError,
 } from "./provider-output-validation.js";
+import type { DriverCliVersionReport, GetCapabilitiesResult } from "./provider-driver.js";
+
+// One driver's stored capabilities: every flag, the contract version and the normalized tools.
+interface CapabilityDetails {
+  flags: Record<DriverCapabilityFlag, boolean>;
+  contractVersion: string;
+  tools: readonly NormalizedProviderToolMetadata[];
+}
 
 // The JSON round-trip drops `undefined`-valued keys (an omitted tool `description`).
 function snapshotsEqual(

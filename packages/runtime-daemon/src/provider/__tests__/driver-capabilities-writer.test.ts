@@ -7,8 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-  type DriverCliVersionReport,
-  type GetCapabilitiesResult,
   type ProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
 
@@ -20,6 +18,7 @@ import {
 } from "../driver-capabilities-writer.js";
 import { DRIVER_OUTPUT_SPEED_LEVELS } from "../driver-output-speed.js";
 import { ProviderOutputValidationError } from "../provider-output-validation.js";
+import type { DriverCliVersionReport, GetCapabilitiesResult } from "../provider-driver.js";
 
 const DRIVER_NAME: string = "claude";
 const CONTRACT_VERSION: string = "1.2.3";

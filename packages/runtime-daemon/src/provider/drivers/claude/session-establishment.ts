@@ -8,18 +8,7 @@
 //   (Claude starts a fresh session when the recorded working directory changed).
 // - Every refused attachment is disposed before `failed` is returned.
 
-import {
-  DriverResumeResultSchema,
-  ForkConversationResultSchema,
-  type CreateSessionParams,
-  type DriverResumeResult,
-  type ForkConversationParams,
-  type ForkConversationResult,
-  type ProviderSessionHandle,
-  type RecoveryCondition,
-  type ResumeSessionParams,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import { type RecoveryCondition, type SessionId } from "@ai-sidekicks/contracts";
 import type {
   ClaudeChannelDisposalReason,
   ClaudeResumedSessionAttachment,
@@ -40,6 +29,16 @@ import {
   sanitizeFailureDetail,
 } from "./session-errors.js";
 import { buildClaudeSpawnBinding, type ClaudeSpawnLegComposer } from "./spawn-legs.js";
+import {
+  DriverResumeResultSchema,
+  ForkConversationResultSchema,
+  type CreateSessionParams,
+  type DriverResumeResult,
+  type ForkConversationParams,
+  type ForkConversationResult,
+  type ProviderSessionHandle,
+  type ResumeSessionParams,
+} from "../../provider-driver.js";
 
 // A refused attach hides the previous leg's work; consumers treat it as `irreversible`.
 const CLAUDE_RESUME_SPAN_CLASSIFICATION = "unclassifiable" as const;

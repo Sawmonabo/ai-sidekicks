@@ -301,9 +301,9 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js)$).*$",
+                "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./provider-driver\\.js)$).*$",
               message:
-                "The memo projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the four this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The memo projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },

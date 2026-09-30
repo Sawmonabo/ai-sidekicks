@@ -2,7 +2,7 @@
 // and newer builds but refuses a below-floor, unparseable or foreign reading, and the model catalog
 // reads the provider's recorded `model/list` reply.
 
-import type { DriverCapabilityFlag, DriverCliVersionReport } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -26,6 +26,7 @@ import {
   normalizeCodexModelCatalog,
   refreshCodexCapabilities,
 } from "../capabilities.js";
+import type { DriverCliVersionReport } from "../../../provider-driver.js";
 
 // The Codex column, restated here instead of imported from the module under test, so the
 // assertion is not a tautology.

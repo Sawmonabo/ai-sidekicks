@@ -11,9 +11,10 @@
  * - `mcp_set_servers` replaces a live session's full server set, so no probe may issue it.
  */
 
-import type { CapabilityDetectionSource, DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import type { FlooredDriverName } from "./capability-refresh.js";
+import type { CapabilityDetectionSource } from "./provider-driver.js";
 
 /** The three conjuncts an admissible probe must satisfy; a `static` entry names those that fail. */
 export type ProbeAdmissibilityConjunct =

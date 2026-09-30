@@ -10,17 +10,7 @@
 // - `runId`, `driverName`, `id` and the content of `runtime_metadata` are daemon-controlled: no
 //   CHECK and no Zod guard. `update` runs IMMEDIATE (see the `#updateTxn` field).
 
-import type {
-  CallbackToolInvocation,
-  CallbackToolResult,
-  DriverCliVersionReport,
-  ExecutionPosture,
-  McpServerStatusProducer,
-  ResumeSessionParams,
-  SessionCallbackTool,
-  SessionId,
-  SubagentPolicy,
-} from "@ai-sidekicks/contracts";
+import type { ExecutionPosture, SessionCallbackTool, SessionId } from "@ai-sidekicks/contracts";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {
@@ -30,6 +20,14 @@ import {
   assertValidResumeHandle,
 } from "./provider-output-validation.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
+import type {
+  CallbackToolInvocation,
+  CallbackToolResult,
+  DriverCliVersionReport,
+  McpServerStatusProducer,
+  ResumeSessionParams,
+  SubagentPolicy,
+} from "./provider-driver.js";
 
 /**
  * The daemon-owned record of the spawn-bound configuration, persisted at every binding write.

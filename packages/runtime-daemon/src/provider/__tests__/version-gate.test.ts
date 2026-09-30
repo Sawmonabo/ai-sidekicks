@@ -6,7 +6,6 @@ import { chmod, mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { DriverCliVersionReport } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -37,6 +36,7 @@ import {
   type SpawnedProviderVersionReading,
 } from "../version-gate.js";
 import { CODEX_DRIVER_NAME, refreshCodexCapabilities } from "../drivers/codex/capabilities.js";
+import type { DriverCliVersionReport } from "../provider-driver.js";
 
 /**
  * A handshake transport keyed by resolved path, so the fixture can answer differently for a

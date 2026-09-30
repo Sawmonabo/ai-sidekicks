@@ -3,8 +3,8 @@
  * is spent.
  */
 
-import { type ProviderUsageLimitSignal } from "@ai-sidekicks/contracts";
 import { isPositiveFiniteNumber } from "./turn-evidence.js";
+import type { ProviderUsageLimitSignal } from "../../provider-driver.js";
 
 /** The `type` of the retry frame. */
 export const CLAUDE_API_RETRY_FRAME_TYPE = "system" as const;

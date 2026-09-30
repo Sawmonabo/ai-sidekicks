@@ -10,11 +10,8 @@
  */
 
 import {
-  type CanonicalTranscriptTurn,
   type DriverCapabilities,
   type DriverCapabilityFlag,
-  type DriverCliVersionReport,
-  type GetCapabilitiesResult,
   type ProviderModel,
 } from "@ai-sidekicks/contracts";
 
@@ -38,6 +35,11 @@ import type { ReplayTargetReadbackReader } from "../../transcript/replay-asserti
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getClaudeToolMetadata } from "./tools.js";
+import type {
+  CanonicalTranscriptTurn,
+  DriverCliVersionReport,
+  GetCapabilitiesResult,
+} from "../../provider-driver.js";
 
 /** The registry and capability-table key: daemon-controlled identity, never provider output. */
 export const CLAUDE_DRIVER_NAME = "claude" as const;

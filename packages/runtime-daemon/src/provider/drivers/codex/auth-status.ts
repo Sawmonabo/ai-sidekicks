@@ -3,15 +3,15 @@
  * condition, and normalizes a provider failure into the detail a caller can show.
  */
 
+import { type RecoveryCondition } from "@ai-sidekicks/contracts";
+import { isPlainObject } from "./record-readers.js";
+import type { CodexAppServerConnection } from "./app-server-connection.js";
+import { CodexProviderRequestError } from "./session-errors.js";
 import {
   DRIVER_AUTH_DETAIL_MAX_LEN,
   DriverAuthProbeResultSchema,
   type DriverAuthProbeResult,
-  type RecoveryCondition,
-} from "@ai-sidekicks/contracts";
-import { isPlainObject } from "./record-readers.js";
-import type { CodexAppServerConnection } from "./app-server-connection.js";
-import { CodexProviderRequestError } from "./session-errors.js";
+} from "../../provider-driver.js";
 
 /**
  * Zero-turn auth probe; answerable with `experimentalApi: false`. Preferred over the `codex login

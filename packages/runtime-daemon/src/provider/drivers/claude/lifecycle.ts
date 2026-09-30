@@ -9,25 +9,12 @@
 // it cannot leak a `CLAUDE_CODE_OAUTH_TOKEN`. Errors here carry a registered `driver.*` code.
 
 import {
-  type DriverTranscriptReplayResult,
-  type ReplayTranscriptParams,
-  type CloseSessionParams,
-  type CompactContextParams,
-  type CreateSessionParams,
-  type DriverAuthProbeResult,
   type DriverCompactionResult,
-  type DriverResumeResult,
-  type ForkConversationResult,
   type InterruptRunParams,
-  type ListProviderCommandsParams,
   type ProviderCommandListResult,
   type ProviderOutputSpeedState,
-  type ProviderSessionHandle,
-  type ResumeSessionParams,
-  type ForkConversationParams,
   type RunId,
   type SessionId,
-  type StartRunParams,
 } from "@ai-sidekicks/contracts";
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
@@ -92,6 +79,21 @@ import { attemptClaudeFrameWrite, ClaudeTextNeutralization } from "./text-neutra
 import { buildClaudeResumeFailure, ClaudeSessionEstablishment } from "./session-establishment.js";
 import { ClaudeCompactionDispatch } from "./compaction-dispatch.js";
 import { ClaudeReplaySeeding } from "./replay-seeding.js";
+import type {
+  DriverTranscriptReplayResult,
+  ReplayTranscriptParams,
+  CloseSessionParams,
+  CompactContextParams,
+  CreateSessionParams,
+  DriverAuthProbeResult,
+  DriverResumeResult,
+  ForkConversationResult,
+  ListProviderCommandsParams,
+  ProviderSessionHandle,
+  ResumeSessionParams,
+  ForkConversationParams,
+  StartRunParams,
+} from "../../provider-driver.js";
 
 /** Drives Claude sessions over a `ClaudeSessionTransport`, with per-session slot and metering. */
 export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {

@@ -14,7 +14,6 @@
 import type {
   IdempotencyClass,
   McpServerStatus,
-  McpServerStatusEmission,
   NormalizedProviderToolMetadata,
   ProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
@@ -24,6 +23,7 @@ import {
   type McpServerStatusIngestRejection,
   type McpServerStatusIngestResult,
 } from "../mcp-server-status-ingest.js";
+import type { McpServerStatusEmission } from "../../provider-driver.js";
 
 /** The class an unannotated tool takes: it halts recovery for operator reconciliation. */
 export const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";

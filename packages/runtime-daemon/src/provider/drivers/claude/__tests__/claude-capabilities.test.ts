@@ -4,11 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  DriverCapabilityFlag,
-  DriverCliVersionReport,
-  GetCapabilitiesResult,
-} from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import {
   RecordingCapabilityProbeTransport,
@@ -37,6 +33,7 @@ import {
 } from "../capabilities.js";
 import { CLAUDE_TOOL_CATALOG } from "../tools.js";
 import { makeSilentDriverDiagnostics } from "./claude-test-doubles.js";
+import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../../provider-driver.js";
 
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 

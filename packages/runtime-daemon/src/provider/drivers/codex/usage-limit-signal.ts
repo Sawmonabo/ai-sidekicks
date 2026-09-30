@@ -3,8 +3,8 @@
  * usage-limit signal with the reset boundary the provider reported.
  */
 
-import { type ProviderUsageLimitSignal } from "@ai-sidekicks/contracts";
 import { readCodexRecord } from "./turn-evidence.js";
+import type { ProviderUsageLimitSignal } from "../../provider-driver.js";
 
 /** The `account/rateLimits/read` method, the pull carrier of a rate-limit snapshot (a reply). */
 export const CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD = "account/rateLimits/read" as const;

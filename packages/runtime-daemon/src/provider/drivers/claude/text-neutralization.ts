@@ -3,7 +3,7 @@
 // or a rewind supersedes it. A trip quarantines the session and the run and reports the run
 // failure.
 
-import type { RunId, SessionId, StartRunParams } from "@ai-sidekicks/contracts";
+import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   type OutboundFrameTripwire,
@@ -26,6 +26,7 @@ import {
 import type { ClaudeSessionLifecycleDependencies } from "./session-state.js";
 import { describeFailure } from "./session-errors.js";
 import type { ClaudeRunRoutes } from "./run-routes.js";
+import type { StartRunParams } from "../../provider-driver.js";
 
 /** The lifecycle's frame machinery and the one teardown the tripwire rulings call back into. */
 export interface ClaudeTextNeutralizationDependencies extends Pick<

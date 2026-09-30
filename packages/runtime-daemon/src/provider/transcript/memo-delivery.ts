@@ -3,7 +3,7 @@
  * target gateway, and the coordinator that keeps a repeat send from duplicating the memo.
  */
 
-import type { CanonicalTranscriptProjection, DeclaredLossKind } from "@ai-sidekicks/contracts";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 import type { OutboundTextFrame } from "../drivers/outbound-frame.js";
 import { OutboundTextFrameWriter } from "../drivers/outbound-frame.js";
@@ -21,6 +21,7 @@ import {
   targetTurnsCarryAttributableMemoMarker,
   targetTurnsCarryMemoMarker,
 } from "./memo-marker-reader.js";
+import type { CanonicalTranscriptProjection } from "../provider-driver.js";
 
 /**
  * The frame handed to the gateway, minted `system_narration`; the driver owns encoding. A frame,

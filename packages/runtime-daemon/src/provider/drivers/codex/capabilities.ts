@@ -9,12 +9,7 @@
 // - Each flag is the matrix intersected with a zero-turn probe (`../../capability-probe.ts`);
 //   `detectionSource` records which decided it and is composed only from a live read.
 
-import type {
-  DriverCapabilityFlag,
-  DriverCliVersionReport,
-  GetCapabilitiesResult,
-  ProviderModel,
-} from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag, ProviderModel } from "@ai-sidekicks/contracts";
 
 import {
   applyCapabilityDetection,
@@ -35,6 +30,7 @@ import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getCodexToolMetadata } from "./tools.js";
+import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../provider-driver.js";
 
 /** Canonical driver id for Codex: the `driver_*` table key and the registry id. */
 export const CODEX_DRIVER_NAME = "codex" as const;

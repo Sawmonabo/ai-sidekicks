@@ -2,7 +2,6 @@
 // CapabilityRefreshScheduler, which pairs the capability refresh with the auth probe and keeps a
 // failed, hung or stale-lifetime leg from stopping the poll or writing the wrong auth state.
 
-import type { DriverAuthProbeResult } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
@@ -19,6 +18,7 @@ import {
   type CapabilityRefreshDriverEntry,
   type FlooredDriverName,
 } from "../capability-refresh.js";
+import type { DriverAuthProbeResult } from "../provider-driver.js";
 
 describe("parseCliVersionReport", () => {
   it("derives the canonical semver from a prose-wrapped raw string, preserving raw verbatim", () => {

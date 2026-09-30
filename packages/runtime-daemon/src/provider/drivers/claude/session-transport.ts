@@ -5,15 +5,10 @@
  */
 
 import {
-  type CallbackToolInvocation,
-  type CallbackToolResult,
   type ExecutionPosture,
-  type McpServerStatusProducer,
   type RunId,
   type SessionCallbackTool,
   type SessionId,
-  type StartRunParams,
-  type SubagentPolicy,
 } from "@ai-sidekicks/contracts";
 import { type ThreadFrameRoute } from "../../thread-frame-router.js";
 import { type CumulativeAxisReadings } from "../../usage-delta-accountant.js";
@@ -31,6 +26,13 @@ import type {
   ClaudeWithheldSubagentDefinition,
 } from "./subagent-policy.js";
 import type { ClaudeCallbackMcpServerDescriptor, ClaudeSandboxSettings } from "./spawn-settings.js";
+import type {
+  CallbackToolInvocation,
+  CallbackToolResult,
+  McpServerStatusProducer,
+  StartRunParams,
+  SubagentPolicy,
+} from "../../provider-driver.js";
 
 /**
  * How long a user-triggered compaction waits for typed evidence before it is reported failed; the

@@ -15,12 +15,11 @@
 
 import semver from "semver";
 
-import type { DriverAuthProbeResult, DriverCliVersionReport } from "@ai-sidekicks/contracts";
-
 import { type CapabilityDetectionReading, isCapabilityProbeError } from "./capability-probe.js";
 import type { DeclareDriverCapabilitiesResult } from "./driver-capabilities-writer.js";
 import { type DriverDiagnosticKind, type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 import { CLI_VERSION_RAW_MAX_LEN } from "./provider-output-validation.js";
+import type { DriverAuthProbeResult, DriverCliVersionReport } from "./provider-driver.js";
 
 /** The two drivers the V1 floor table answers for. */
 export type FlooredDriverName = "claude" | "codex";

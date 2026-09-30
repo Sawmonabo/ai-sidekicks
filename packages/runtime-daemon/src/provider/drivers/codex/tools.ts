@@ -12,7 +12,6 @@
 import type {
   IdempotencyClass,
   McpServerStatus,
-  McpServerStatusEmission,
   NormalizedProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
 
@@ -21,6 +20,7 @@ import {
   type McpServerStatusIngestRejection,
   type McpServerStatusIngestResult,
 } from "../mcp-server-status-ingest.js";
+import type { McpServerStatusEmission } from "../../provider-driver.js";
 
 /** The class an unannotated Codex tool closes to. */
 export const DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
