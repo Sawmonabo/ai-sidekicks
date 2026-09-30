@@ -1,8 +1,6 @@
 // The typed `session.*` client over the daemon transport: `create`, `read`
 // and `subscribe`, wrapping a caller-built `JsonRpcClient`.
 //
-//   * `create()` returns a session id; `read()` against the same id returns the
-//     same session.
 //   * `subscribe()` yields events in ascending sequence and resumes strictly
 //     after a consumer-held `afterCursor` on reconnect. The daemon sends them
 //     in frames; a frame marking that changes were dropped for this connection
@@ -66,10 +64,9 @@ export class SessionStreamDroppedError extends Error {
 const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(SessionEventSchema);
 
 /**
- * Subscribe options. Without `afterCursor` the daemon replays from the start of
- * the session (within its retention window); with it, from the event strictly
- * after that cursor. `signal` cancels the subscription early and releases the
- * daemon's subscription entry.
+ * Subscribe options. Without `afterCursor` the daemon replays from the start of the session; with
+ * it, from the event strictly after that cursor. `signal` cancels the subscription early and
+ * releases the daemon's subscription entry.
  */
 export interface SessionSubscribeOptions {
   readonly sessionId: SessionId;
@@ -77,7 +74,7 @@ export interface SessionSubscribeOptions {
   readonly signal?: AbortSignal | undefined;
 }
 
-/** The `session.*` JSON-RPC method names, shared with the daemon's handlers. */
+/** The `session.*` JSON-RPC method names the daemon registers. */
 const SESSION_METHOD_CREATE = "session.create";
 const SESSION_METHOD_READ = "session.read";
 const SESSION_METHOD_SUBSCRIBE = "session.subscribe";
@@ -95,10 +92,6 @@ export interface SessionClient {
  * pipe, in-memory test double) and instantiating the `JsonRpcClient` —
  * including completing the `daemon.hello` handshake before the first
  * mutating call.
- *
- * Daemon-side `$/subscription/notify` frames carry the `SessionEvent` with no
- * cursor envelope, so the subscription synthesizes each cursor from the
- * event's id.
  */
 export function createDaemonSessionClient(client: JsonRpcClient): SessionClient {
   return {
@@ -121,30 +114,21 @@ export function createDaemonSessionClient(client: JsonRpcClient): SessionClient 
 }
 
 /**
- * Daemon-side subscribe — wraps `JsonRpcClient.subscribe` and adapts its
- * `LocalSubscriptionConsumer` of session stream frames into an
- * `AsyncIterable<SessionEventEnvelope>`. The async generator unpacks each
- * frame into its changes, ends on a drop mark, and owns signal-driven cancel (so
- * `for await ... break` releases the daemon's `StreamingPrimitive` entry
- * via `LocalSubscriptionConsumer.cancel()`).
+ * Adapts `JsonRpcClient.subscribe` into an `AsyncIterable<SessionEventEnvelope>`: unpacks each
+ * frame into its changes, ends on a drop mark, and cancels the subscription on `break` or abort.
  */
 async function* daemonSubscribe(
   client: JsonRpcClient,
   options: SessionSubscribeOptions,
 ): AsyncIterable<SessionEventEnvelope> {
-  // Pre-abort fast-exit: if the caller's signal is ALREADY aborted, do not
-  // touch the wire. Returning from an async generator yields zero items, so
-  // the caller's `for await` exits immediately. This keeps timeout / circuit-
-  // breaker paths from spending a daemon round-trip on a subscription they
-  // intend to cancel before any data flows. Must precede `client.subscribe`
-  // because that call synchronously sends the `session.subscribe` envelope
-  // and reserves a server-side `StreamingPrimitive` entry.
+  // An already-aborted signal must not touch the wire: `client.subscribe` sends the request and
+  // reserves a daemon-side subscription entry synchronously.
   if (options.signal?.aborted === true) {
     return;
   }
 
-  // Conditional spread keeps `afterCursor` off the envelope under
-  // `exactOptionalPropertyTypes: true` when omitted.
+  // Spread conditionally so an omitted `afterCursor` stays off the request under
+  // `exactOptionalPropertyTypes`.
   const params = {
     sessionId: options.sessionId,
     ...(options.afterCursor !== undefined ? { afterCursor: options.afterCursor } : {}),
@@ -156,12 +140,8 @@ async function* daemonSubscribe(
     SESSION_STREAM_FRAME_SCHEMA,
   );
 
-  // Wire the caller's AbortSignal through to the subscription's cancel.
-  // We use `addEventListener("abort", ...)` rather than checking
-  // `signal.aborted` mid-loop because the underlying `LocalSubscriptionConsumer`
-  // parks on `next()` between value arrivals — a polling check inside
-  // `for await` would only fire AFTER the next value lands. (The
-  // pre-aborted case is handled above before `client.subscribe` runs.)
+  // A listener, not a check inside the loop: the consumer parks on `next()` between values, so a
+  // loop check would only fire after the next value lands.
   let abortListener: (() => void) | undefined;
   if (options.signal !== undefined) {
     const sig = options.signal;
@@ -169,16 +149,8 @@ async function* daemonSubscribe(
       void subscription.cancel().catch(() => undefined);
     };
     sig.addEventListener("abort", abortListener, { once: true });
-    // Race-close: if the signal aborted between the pre-abort check and this
-    // addEventListener (e.g., during client.subscribe()'s synchronous envelope
-    // dispatch + StreamingPrimitive reservation), the listener missed the
-    // abort event. Re-check sig.aborted now and fire the same cancel path
-    // the listener would have. Without this, the daemon's subscription stays
-    // live and the for-await parks indefinitely on a caller-canceled stream.
-    // Use truthy `sig.aborted` (NOT `=== true`) — `sig` is already narrowed to
-    // `AbortSignal` by the `options.signal !== undefined` block, so TS knows
-    // `sig.aborted` is `boolean`. The `=== true` discipline only matters when
-    // the type might widen via optional chaining.
+    // The signal may have aborted before the listener was added; without this re-check the
+    // subscription stays live and the loop parks forever on a canceled stream.
     if (sig.aborted) {
       sig.removeEventListener("abort", abortListener);
       void subscription.cancel().catch(() => undefined);
@@ -203,10 +175,7 @@ async function* daemonSubscribe(
     if (abortListener !== undefined && options.signal !== undefined) {
       options.signal.removeEventListener("abort", abortListener);
     }
-    // `for await ... return` already invoked the iterator's `return()`,
-    // which calls `subscription.cancel()`. The post-loop cancel here is
-    // idempotent (per `LocalSubscriptionConsumer.cancel()`'s documented contract)
-    // and covers the early-throw case.
+    // Cancel is idempotent; this covers the early-throw path.
     await subscription.cancel().catch(() => undefined);
   }
 }

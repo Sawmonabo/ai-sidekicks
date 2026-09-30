@@ -1,59 +1,24 @@
-// The `driver.*` client SDK surface
+// The `driver.*` client over the local daemon.
 //
-// DAEMON-ONLY, AND THAT IS THE WHOLE DESIGN. There is exactly one factory here
-// and there will not be a second: `createDaemonProviderClient(JsonRpcClient):
-// DriverClient` with no control-plane variant, because driver authority lives
-// in the local daemon, and the absence of that variant is the enforcement. A
-// control-plane factory would be a wire path by which a client executed a
-// provider somewhere other than the node that owns the process; there is no
-// such function to call.
+// There is one factory and no control-plane variant: driver authority lives in the daemon on the
+// node that owns the provider process, so no client can run a provider anywhere else.
 //
-// EIGHT METHODS, AND THE FOUR THAT ARE MISSING ARE THE CONTRACT. `ProviderDriver`
-// carries eighteen operations. Four of them — `createSession`, `resumeSession`,
-// `startRun`, `closeSession` — establish, restore, start, or tear down a
-// session-or-run domain object, which is orchestration's job. They are
-// daemon-internal: no client-facing schema exists for them at the SDK seam, no
-// daemon handler registers them, and this interface does not declare them. A
-// renderer or CLI holding a `DriverClient` therefore cannot mint or destroy
-// runtime state behind the orchestrator's back — it cannot even name the
-// operation. That is also what makes the recovery contract enforceable from this
-// side: a failed resume has no client-reachable route to a replacement session,
-// because no route to session creation exists here at all. Nor is there a
-// route to answer a provider's ask: a person answers one through
-// `approval.resolve` or `question.resolve`.
+// The interface declares no operation that creates, resumes, starts or closes a session or run.
+// Those belong to orchestration inside the daemon, so a renderer or CLI cannot mint or destroy
+// runtime state through this client, and a failed resume has no route to a replacement session. A
+// provider's ask is answered through `approval.resolve` or `question.resolve`.
 //
-// The two console-parity verbs (`driver.compactContext`,
-// `driver.listProviderCommands`) extend THIS interface and THIS factory — never
-// a second client module — taking the client-facing set from six to eight.
-// Both are SESSION-addressed (a binding and an agent are only identified within
-// a session), the deliberate contrast to the globally-unique run id the two
-// run verbs carry, and neither request admits a binding member: the daemon
-// resolves the live binding itself, which is what keeps the routing invariant
-// daemon-enforced rather than trusted to a renderer.
+// `compactContext` and `listProviderCommands` are addressed by session and carry no binding: the
+// daemon resolves the live binding itself instead of trusting the renderer.
 //
-// ZOD AT THE SEAM, IN BOTH DIRECTIONS. Every request/response verb routes
-// through `JsonRpcClient.call`, which validates the request against its schema
-// BEFORE the wire write and the daemon's reply against its result schema BEFORE
-// resolving. That bidirectional guard is why `applyIntervention` can be trusted
-// to hand back a degraded envelope unmutated: `DriverInterventionResultSchema`
-// is `.strict()`, so a daemon answering `{ status: "degraded" }` with the
-// `fallbackAction` dropped, or with an unknown key spliced in, fails the result
-// parse and rejects rather than reaching a caller that would render a fallback
-// hint it never received. The subscription path gets the same treatment on the
-// values it streams: every delivered frame is parsed against `DriverEventSchema`
-// — the contracts-owned narrowing to the seven driver-event categories — so a
-// daemon that filtered wrongly ends the subscription loudly instead of handing a
-// driver-typed consumer an approval or audit row.
+// Every verb validates its request before the wire write and the daemon's reply before resolving.
+// `DriverInterventionResultSchema` is `.strict()`, so a degraded envelope that lost its
+// `fallbackAction` or gained an unknown key rejects instead of reaching a caller. Streamed events
+// are parsed against `DriverEventSchema`, so a daemon that filters wrongly ends the subscription
+// loudly instead of handing a driver consumer an approval or audit row.
 //
-// WHAT THE THREE READS TAKE. `listCapabilities` and `listModes` are written
-// no-arg here, matching the `DriverReadParams` empty-object shape, and
-// `listModels` takes the session whose model control asks, because the catalog
-// it answers is the one that session can run. Each answers with a GROUP
-// LIST keyed by driver name rather than a flat merged array, because model ids
-// collide across providers and carry no vendor marker — a flat reply would
-// strip the provenance a caller needs to keep a Claude-published value from
-// being offered through a Codex-bound agent.
-//
+// Catalog reads answer with a list of groups keyed by driver name, not a flat array: model ids
+// collide across providers, and a flat reply would lose which provider published a value.
 
 import type {
   ApplyInterventionParams,
@@ -93,21 +58,10 @@ import {
 import { JsonRpcSchemaError, type JsonRpcClient } from "./transport/json-rpc-client.js";
 import type { LocalSubscriptionConsumer } from "./transport/types.js";
 
-// --------------------------------------------------------------------------
-// Canonical method names
-// --------------------------------------------------------------------------
-
 /**
- * The eight client-facing `driver.*` JSON-RPC method names, in the canonical
- * dotted-camelCase long form require.
- *
- * Authored as local string constants rather than imported symbols, matching
- * `session-client.ts`'s `SESSION_METHOD_*` table: the wire name is a protocol
- * fact shared with the daemon's `register()` calls, and centralizing it here
- * means a future namespace evolution edits one location per side rather than
- * scattered literals. The daemon's own copies live in `driver-handlers.ts` and
- * `driver-subscribe.ts`; the pair is kept honest by the round-trip tests, which
- * dispatch these exact strings against a registry the daemon bound.
+ * The eight client-facing `driver.*` JSON-RPC method names. The daemon registers the same strings
+ * from the method descriptors in `@ai-sidekicks/contracts`; the round-trip tests dispatch these
+ * exact strings against a registry the daemon bound.
  */
 const DRIVER_METHOD_LIST_CAPABILITIES = "driver.listCapabilities";
 const DRIVER_METHOD_LIST_MODELS = "driver.listModels";
@@ -118,67 +72,37 @@ const DRIVER_METHOD_SUBSCRIBE_EVENTS = "driver.subscribeEvents";
 const DRIVER_METHOD_COMPACT_CONTEXT = "driver.compactContext";
 const DRIVER_METHOD_LIST_PROVIDER_COMMANDS = "driver.listProviderCommands";
 
-/**
- * The request value the two no-arg reads send.
- *
- * A single frozen module-level constant rather than a fresh empty object per
- * call: the value is immutable by contract (`DriverReadParams` is
- * `Record<string, never>`, so there is nothing to vary), and freezing it means a
- * caller that somehow reached it cannot mutate the object a later call sends.
- */
+/** The request the two no-arg reads send, frozen so no caller can alter what a later call sends. */
 const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
 
-// --------------------------------------------------------------------------
-// Consumer surface
-// --------------------------------------------------------------------------
-
 /**
- * The client-facing driver surface: the seven request/response verbs plus
- * `subscribeEvents` — the eight methods.
+ * The client-facing driver surface: seven request/response verbs plus `subscribeEvents`.
  *
- * `compactContext` is the second verb whose refusals are RESOLVED VALUES:
- * `DriverCompactionResult` is a discriminated union, and its `refused` /
- * `failed` arms — the daemon-side `not_permitted` adjudication included — are
- * data a caller branches on, exactly as `applyIntervention`'s `degraded` arm
- * is. Only the fixed-order address/liveness/capability refusals
- * (`session.not_found`, `run.not_found` / `agent.not_found`,
- * `driver.unavailable`, `driver.capability_unsupported`) arrive as
- * `JsonRpcRemoteError`.
+ * `compactContext` and `applyIntervention` resolve refusals as values: a `refused` or `failed`
+ * compaction (including the daemon's `not_permitted`) and a `degraded` intervention are data a
+ * caller branches on. Only address, liveness and capability refusals (`session.not_found`,
+ * `run.not_found`, `agent.not_found`, `driver.unavailable`, `driver.capability_unsupported`)
+ * arrive as `JsonRpcRemoteError`.
  *
- * `interruptRun` resolves `DriverAckResult` (the empty object). That is a
- * genuine success value and not a sentinel: its driver-side operation returns
- * `Promise<void>`, and the daemon answers with the empty object because the
- * method registry `safeParse`s every result and a handler returning
- * `undefined` would fail its own result schema — surfacing a successful
- * interrupt to this client as an internal error. A refusal never arrives as an
- * empty object; it arrives as a `JsonRpcRemoteError` carrying the
- * registered `driver.unavailable` / `driver.capability_unsupported` /
- * `run.not_found` code.
+ * `interruptRun` resolves the empty `DriverAckResult`, a genuine success value: the daemon answers
+ * with `{}` because the method registry parses every result and `undefined` would fail its own
+ * schema. A refusal never arrives as an empty ack.
  *
- * `applyIntervention` is the one verb whose UNSUPPORTED case is a resolved value
- * rather than a rejection. makes an unsupported intervention DATA: the call
- * reaches the driver so it can answer a `degraded` status naming the daemon's
- * fallback, and the daemon deliberately does not pre-gate it on the capability
- * flag, because a gate would replace a usable fallback hint with an error.
- * Callers MUST branch on `status` — treating a resolved promise as "the
- * intervention was applied natively" is the misreading this envelope exists to
- * prevent.
+ * `applyIntervention` reaches the driver even for an unsupported intervention, so it can answer
+ * `degraded` with the daemon's fallback; the daemon does not pre-gate it on the capability flag.
+ * Callers must branch on `status`.
  *
- * `subscribeEvents` returns SYNCHRONOUSLY, unlike the `AsyncIterable` wrapper
- * `sessionClient.subscribe` exposes. It hands the caller the
- * raw consumer handle — `next()` polling, `for await` iteration, and an
- * idempotent `cancel()` — rather than choosing one consumption style for them.
+ * `subscribeEvents` returns synchronously, unlike `sessionClient.subscribe`, and hands back the
+ * raw consumer handle (`next()`, `for await`, idempotent `cancel()`).
  */
 export interface DriverClient {
   /**
    * Read every loaded driver's client-facing capability report, served from the
    * daemon's capability cache with no provider round-trip per call.
    *
-   * A driver the cache cannot substantiate refuses the WHOLE read rather than
-   * being silently omitted from the roster: an omitted driver is
-   * indistinguishable from one that is not loaded, and reporting "no
-   * capabilities" for a driver whose capabilities are merely unknown is the
-   * fail-open reading exists to prevent.
+   * A driver the cache cannot substantiate refuses the whole read instead of being omitted: an
+   * omitted driver looks like one that is not loaded, and "no capabilities" for a driver whose
+   * capabilities are merely unknown would fail open.
    */
   listCapabilities(): Promise<ListCapabilitiesResult>;
 
@@ -195,72 +119,39 @@ export interface DriverClient {
   listModes(): Promise<ListModesResult>;
 
   /**
-   * Trigger a user-initiated context compaction on one run's live
-   * binding. Resolves the discriminated `DriverCompactionResult` — NEVER a bare
-   * acknowledgment, because both provider mechanisms answer before the work is
-   * done and only the typed compaction evidence settles `applied`. Callers MUST
-   * branch on `status`.
+   * Trigger a user-initiated context compaction on one run's live binding. Resolves the
+   * discriminated `DriverCompactionResult`, never a bare ack: both provider mechanisms answer
+   * before the work is done, and only the typed compaction evidence settles `applied`. Callers
+   * must branch on `status`.
    */
   compactContext(params: CompactContextRequest): Promise<DriverCompactionResult>;
 
   /**
-   * Read the provider command/skill enumeration across one agent's live
-   * bindings, grouped per binding with the `(driverName, providerAccountId)`
-   * routing pair on every entry. A live read — the daemon stores no command
-   * registry — and V1 is enumeration and discovery, not a dispatch channel: no
-   * member of the reply is a dispatch handle.
+   * Read the provider command and skill enumeration across one agent's live bindings, grouped per
+   * binding with the `(driverName, providerAccountId)` routing pair on every entry. A live read
+   * for discovery only: no member of the reply is a dispatch handle.
    */
   listProviderCommands(params: ListProviderCommandsRequest): Promise<ProviderCommandListResult>;
 
   /**
    * Open a subscription to one run's driver event stream.
    *
-   * Takes the run id despite the `Provides` line writing this method bare —
-   * that line is shorthand for the return type it was ratified to pin, and its
-   * own `Provides` line states the addressing verbatim
-   * (`driver.subscribeEvents(runId)`). The shipped wire schema
-   * (`DriverSubscribeEventsParamsSchema`, one `runId` member and `.strict()`)
-   * settles it: a no-arg call would fail the daemon's own request parse.
-   *
-   * The value type is `DriverEvent`, not `SessionEvent` — the contracts-owned
-   * union over the seven driver-event categories, which is the return type
-   * ratifies. A caller therefore branches over driver arms only and never has
-   * to type-handle an approval or audit event on a driver stream.
-   * Note that no `run.*` arm appears in that union today: `run_lifecycle` is on
-   * decision #4's category list, but no `run.*` payload variant is registered
-   * with `SessionEventSchema` yet, and `DriverEvent` covers registered arms
-   * rather than census names. Those arms join this type on the day their
-   * emitting plan registers them, with no edit here.
+   * The value type is `DriverEvent`, the contracts-owned union over the seven driver-event
+   * categories, so a caller never has to handle an approval or audit event on a driver stream.
    */
   subscribeEvents(params: DriverSubscribeEventsParams): LocalSubscriptionConsumer<DriverEvent>;
 }
 
-// --------------------------------------------------------------------------
-// Daemon transport factory
-// --------------------------------------------------------------------------
-
 /**
  * Build a `DriverClient` over a daemon transport.
  *
- * The caller owns the underlying `ClientTransport` (Unix socket, Windows named
- * pipe, in-memory test double) and the `JsonRpcClient` construction — including
- * completing the `daemon.hello` handshake before the first MUTATING call. That
- * last point has teeth on this namespace specifically: the daemon marks
- * `interruptRun`, `applyIntervention`, and `compactContext` as mutating and
- * the five reads (`listCapabilities` / `listModels` / `listModes` /
- * `listProviderCommands` / `subscribeEvents`) as not, so a version-mismatched
- * connection keeps the reads and loses exactly the three verbs that drive a
- * live run.
+ * The caller owns the `ClientTransport` and the `JsonRpcClient`, and must complete the
+ * `daemon.hello` handshake before the first mutating call. The daemon marks `interruptRun`,
+ * `applyIntervention` and `compactContext` as mutating and the other five methods as not, so a
+ * version-mismatched connection keeps the reads and loses exactly the three verbs that drive a run.
  *
- * Each of the seven request/response verbs threads its schema pair through
- * `client.call(method, params, ParamsSchema, ResultSchema)`, which owns the
- * bidirectional fail-fast. Nothing is unwrapped, re-shaped, or defaulted on the
- * way through: the daemon's reply IS the return value, so a `degraded`
- * intervention envelope reaches the caller with its `fallbackAction` intact
- * rather than being flattened into a boolean or laundered into a throw.
- *
- * A daemon-side refusal surfaces as `JsonRpcRemoteError` carrying the registered
- * dotted code.
+ * The daemon's reply is the return value, unwrapped and unchanged. A daemon-side refusal surfaces
+ * as `JsonRpcRemoteError` carrying the registered dotted code.
  */
 export function createDaemonProviderClient(client: JsonRpcClient): DriverClient {
   return {
@@ -318,46 +209,16 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
 }
 
 /**
- * Open the `driver.subscribeEvents` subscription — the SDK half of
- * producer/consumer split.
+ * Open the `driver.subscribeEvents` subscription.
  *
- * THE PER-VALUE SCHEMA IS `DriverEventSchema`, AND VALIDATING IT HERE TOO IS
- * DEFENSE IN DEPTH, NOT A SECOND DEFINITION. That derived view is authored
- * once, in its own `packages/contracts/src/driver-event.ts`, so this side
- * imports the schema rather than deriving anything. That is what dissolves the
- * objection that kept this seam on the full `SessionEvent` union: with one home
- * there is no second derivation to drift, and the drift risk was the only
- * argument for validating wide here.
+ * Each streamed value is parsed against `DriverEventSchema`. The daemon already filters non-driver
+ * events, so the schema only refuses against a daemon whose filter regressed or a peer that widened
+ * the stream; the subscription then ends in a `JsonRpcSchemaError` on the `value` phase.
  *
- * The daemon already filters non-driver events out before they reach the wire,
- * so in a correct pairing this schema never refuses anything. It earns its
- * place against an INCORRECT one: a daemon whose filter regressed, or a peer
- * running a version that widened the stream, otherwise hands this client an
- * approval or audit row that parses cleanly and reaches a consumer typed
- * to expect neither. With the narrow schema that value fails per-value
- * validation and the subscription ends in a typed `JsonRpcSchemaError` on the
- * `value` phase, which is the loud failure the SDK boundary exists to give.
- *
- * PARAMS ARE VALIDATED HERE, WHICH DIVERGES FROM THE SIBLING SUBSCRIBE
- * WRAPPER, ON PURPOSE. `sessionClient`'s `daemonSubscribe` notes that
- * subscribe-init params go unvalidated at the SDK boundary —
- * `JsonRpcClient.subscribe` erases them through a passthrough schema — and
- * leans on the daemon's own parse.
- * Two things make that trade wrong for this method. First, the sibling is an
- * async generator, so a malformed request surfaces to the caller on the first
- * iteration; this one hands back a consumer handle SYNCHRONOUSLY, so an
- * unvalidated bad `runId` would leave the caller holding a live-looking handle
- * whose failure only appears at an eventual `next()`, detached from the call
- * that caused it. Second, `DriverSubscribeEventsParamsSchema` is an SDK-seam
- * schema whose stated job is guarding client input crossing into the daemon;
- * skipping it here would leave the daemon's registry as its only reader.
- *
- * The refusal is `JsonRpcSchemaError` on the `params` phase — the SAME typed
- * error `client.call` raises for a caller-side params failure — so a consumer
- * catches one error class across all eight methods rather than a
- * subscription-specific twin. It throws synchronously, before any wire write and
- * before the server-side streaming entry is reserved, which is what keeps a
- * rejected request from orphaning daemon state.
+ * Params are validated here because `JsonRpcClient.subscribe` erases them and this function
+ * returns its handle synchronously: an unvalidated bad `runId` would give the caller a live-looking
+ * handle whose failure only shows at a later `next()`. The refusal is a `JsonRpcSchemaError` on the
+ * `params` phase, thrown before any wire write so no daemon state is orphaned.
  */
 function daemonSubscribeEvents(
   client: JsonRpcClient,

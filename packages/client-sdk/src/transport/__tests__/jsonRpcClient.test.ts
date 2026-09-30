@@ -1,53 +1,6 @@
-// SDK Zod-wrapper test suite.
-//
-//   * typed JSON-RPC client transport surface owed to desktop renderer + CLI
-//     consumers.
-//   * `transport/jsonRpcClient.ts` is the SDK-side wrapping primitive that
-//     mirrors the daemon-side schema-validates-before-dispatch invariant on
-//     the wire's other end. Every outbound payload is Zod-validated BEFORE the
-//     wire write; every inbound payload is Zod-validated BEFORE it surfaces to
-//     the caller.
-//
-// Acceptance Criterion verified here (per task contract):
-//     a) Corrupted server response → `JsonRpcSchemaError(phase: "result")`
-//        (server-corruption signal; the daemon returned a value that does
-//        not match the caller's `resultSchema`). The promise rejects;
-//        the SDK does NOT silently coerce or swallow.
-//     b) Caller-side malformed params → `JsonRpcSchemaError(phase: "params")`
-//        (caller bug; fail-fast BEFORE the wire write). The promise
-//        rejects; the transport's `send` is NEVER called; the pending
-//        request map stays empty.
-//
-// Verification: the test asserts BOTH phases share a single error class
-// (`JsonRpcSchemaError`) discriminated by the `phase` field so test
-// observability and downstream telemetry can route the two surfaces
-// uniformly. The SDK's contract is "fail-fast-with-typed-error on either
-// end of validation"; this file pins both directions of that contract.
-//
-// Test-fixture posture:
-//   * The client-sdk's `package.json` DOES depend on `zod` (devDependencies
-//     + runtime — per package.json line 29). So unlike the daemon-side
-//     fixtures, this file imports `zod` directly and constructs real Zod
-//     schemas for the `paramsSchema` / `resultSchema` slots. This matches
-//     the realistic call-site pattern downstream consumers (sessionClient)
-//     follow.
-//   * The transport double is a hand-rolled in-memory class that captures
-//     outbound `send()` calls in an array and exposes a `dispatchInbound`
-//     method for the test to drive a server-corrupted reply through the
-//     captured `onMessage` handler. Mirrors the pattern documented in the
-//     `JsonRpcClient` JSDoc (jsonRpcClient.ts:560 — "synchronous-resolution
-//     transport (in-memory test double)").
-//
-// What this file does NOT cover:
-//   * Streaming `value` validation (`phase: "value"`) — covered by sibling
-//     subscription-flow tests that exercise `subscribe()` + the
-//     `$/subscription/notify` corruption path. T4's contract is the `call`-
-//     surface validation; the streaming surface has its own corruption
-//     code path validated separately.
-//   * Transport-close error propagation (`JsonRpcTransportClosedError`) —
-//     covered by sibling close-handler tests.
-//   * Successful round-trip (no corruption) — covered by sibling
-//     happy-path tests; T4's scope is corruption-only per the AC.
+// Tests for `JsonRpcClient`: Zod validation at both ends of the wire, subscribe-init
+// registration, cancel idempotency, protocol-version emission and remote-error mapping, driven
+// through a hand-rolled in-memory transport.
 
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -62,29 +15,13 @@ import { JSONRPC_VERSION, SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contr
 import { JsonRpcClient, JsonRpcRemoteError, JsonRpcSchemaError } from "../json-rpc-client.js";
 import type { ClientTransport } from "../types.js";
 
-// ----------------------------------------------------------------------------
-// In-memory ClientTransport double
-// ----------------------------------------------------------------------------
-//
-// Captures every outbound `send(envelope)` call into `sentEnvelopes`. Holds the inbound
-// `onMessage` callback so the test can drive a hand-built reply envelope through the client's
-// dispatcher. Mirrors the pattern from MCP SDK's in-memory transport (reference) but trimmed
-// to the fields T4 actually needs.
+// In-memory transport: records outbound envelopes and lets a test push inbound ones.
 
 class InMemoryTransport implements ClientTransport {
-  /**
-   * Envelopes captured in send-order. Each entry is the JSON-RPC envelope
-   * object the client wrote to the transport — useful for both the params-
-   * phase test (assert empty after fail-fast rejection) AND the result-
-   * phase test (capture the request id for echo correlation).
-   */
+  /** Envelopes the client sent, in send order. */
   public readonly sentEnvelopes: Array<JsonRpcRequest | JsonRpcNotification> = [];
 
-  /**
-   * The client registers exactly ONE inbound dispatcher per transport
-   * (per types.ts:121-124). We capture it here so the test can drive a
-   * server response envelope synchronously.
-   */
+  /** The client's single inbound handler, captured so a test can drive replies. */
   #onMessage: ((msg: JsonRpcResponseEnvelope | JsonRpcNotification) => void) | null = null;
   #onClose: ((reason?: Error) => void) | null = null;
 
@@ -107,12 +44,7 @@ class InMemoryTransport implements ClientTransport {
     return Promise.resolve();
   }
 
-  /**
-   * Drive an inbound envelope through the client's registered handler.
-   * Synchronous — the client's `#handleResponse` resolves the pending
-   * promise inline, so by the time this method returns the `await` on
-   * `client.call(...)` has already settled.
-   */
+  /** Delivers `msg` to the client's handler synchronously. */
   public dispatchInbound(msg: JsonRpcResponseEnvelope | JsonRpcNotification): void {
     if (this.#onMessage === null) {
       throw new Error("dispatchInbound called before onMessage was registered");
@@ -121,15 +53,11 @@ class InMemoryTransport implements ClientTransport {
   }
 }
 
-// ----------------------------------------------------------------------------
-// Corrupted server response → JsonRpcSchemaError(phase: "result")
-// ----------------------------------------------------------------------------
+// Schema violations reject with JsonRpcSchemaError
 
 describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violations", () => {
   it("corrupted server response (result fails resultSchema) rejects with `JsonRpcSchemaError(phase: 'result')`", async () => {
-    // Arrange — a real Zod schema demanding a specific shape on the result.
-    // The server's response will deliberately violate it. We pair this with
-    // a permissive params schema so the params-phase doesn't short-circuit.
+    // A result that violates resultSchema, with valid params so the params phase cannot fire.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
 
@@ -139,13 +67,9 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
       state: z.literal("provisioning"),
     });
 
-    // Act — issue the call. The send happens synchronously per the
-    // InMemoryTransport's `send()` push. We capture the envelope's id so
-    // the test echoes it on the corrupted response (the client's
-    // `#handleResponse` correlates by id and rejects on schema failure).
+    // Keep the request id so the reply can echo it.
     const promise = client.call("session.create", { key: "value" }, paramsSchema, resultSchema);
 
-    // The send was synchronous — capture the request id to echo back.
     expect(transport.sentEnvelopes.length).toBe(1);
     const sentEnvelope = transport.sentEnvelopes[0];
     if (sentEnvelope === undefined) throw new Error("unreachable — length asserted above");
@@ -154,21 +78,12 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
     }
     const requestId = sentEnvelope.id;
 
-    // Sanity — the request envelope carries the canonical fields.
     expect(sentEnvelope.jsonrpc).toBe(JSONRPC_VERSION);
     expect(sentEnvelope.method).toBe("session.create");
-    // `protocolVersion` is REQUIRED at construction
-    // and emitted on every request envelope (matches the substrate's
-    // `transport.invalid_protocol_version` gate). Asserting here pins
-    // the unconditional-emit contract; a regression that re-introduces
-    // the conditional spread would tick this expectation.
+    // protocolVersion is sent unconditionally on every request.
     expect(sentEnvelope.protocolVersion).toBe("2026-05-01");
 
-    // Drive a malformed response. The server returned a `result` whose
-    // shape does NOT match `resultSchema` — `sessionId` is a non-UUID and
-    // `state` is the wrong literal. The client's `#handleResponse` picks
-    // up the pending entry, runs `resultSchema.safeParse(result)`, fails,
-    // and rejects the promise with `JsonRpcSchemaError(phase: "result")`.
+    // Reply with a result that violates resultSchema: a non-UUID id and the wrong state literal.
     const malformedResponse: JsonRpcResponseEnvelope = {
       jsonrpc: JSONRPC_VERSION,
       id: requestId,
@@ -179,7 +94,6 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
     };
     transport.dispatchInbound(malformedResponse);
 
-    // Assert — the promise rejects with the canonical schema error.
     await expect(promise).rejects.toBeInstanceOf(JsonRpcSchemaError);
     let caught: unknown = null;
     try {
@@ -189,39 +103,26 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
     }
     expect(caught).toBeInstanceOf(JsonRpcSchemaError);
     if (caught instanceof JsonRpcSchemaError) {
-      // CRITICAL — the `phase` discriminates server-corruption (`"result"`)
-      // from caller-bug (`"params"`) from streaming-corruption (`"value"`).
+      // phase separates a corrupt result from bad params and a bad streamed value.
       expect(caught.phase).toBe("result");
-      // The Zod issues array is preserved verbatim for downstream
-      // observability.
+      // The Zod issues are kept for diagnostics.
       expect(caught.issues.length).toBeGreaterThan(0);
     }
 
-    // Sanity — the pending map is drained after the rejection (the
-    // `#handleResponse` path deletes the entry before resolving / rejecting).
+    // The pending entry is removed before the result is validated.
     expect(client.pendingCount).toBe(0);
   });
 
   it("caller-side malformed params rejects with `JsonRpcSchemaError(phase: 'params')` BEFORE wire write (fail-fast)", async () => {
-    // Arrange — `paramsSchema` requires a `key: string`. We pass an object
-    // missing that field; `paramsSchema.safeParse(...)` fails inside `call`
-    // BEFORE any wire I/O happens, and the throw becomes a Promise
-    // rejection (since `call` is async).
+    // Params missing `key` fail before any wire I/O.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
 
     const paramsSchema = z.object({ key: z.string() });
     const resultSchema = z.unknown();
 
-    // Act + Assert — the rejection is a Promise rejection (not a sync
-    // throw) per the `async call()` contract. `await expect(...).rejects`
-    // is the canonical Vitest pattern.
-    //
-    // Cast the malformed params to `unknown` and back to `{ key: string }`
-    // so the call site is type-erased — the realistic failure mode is a
-    // runtime caller passing in the wrong shape (e.g. from JSON.parse on
-    // user input), not a TypeScript-detected mismatch. The cast simulates
-    // that runtime path inside an otherwise type-safe test.
+    // The failure is a rejection, not a sync throw, because `call` is async. The cast simulates a
+    // runtime caller passing the wrong shape.
     const malformedParams = { wrongField: 42 } as unknown as { key: string };
     const promise = client.call("session.create", malformedParams, paramsSchema, resultSchema);
 
@@ -234,31 +135,19 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
     }
     expect(caught).toBeInstanceOf(JsonRpcSchemaError);
     if (caught instanceof JsonRpcSchemaError) {
-      // CRITICAL — the `phase` is `"params"` (caller-bug) NOT `"result"`
-      // (server-corruption) NOT `"value"` (streaming-corruption).
+      // phase is "params", not "result" or "value".
       expect(caught.phase).toBe("params");
       expect(caught.issues.length).toBeGreaterThan(0);
     }
 
-    // CRITICAL FAIL-FAST ASSERTIONS — the wire was NEVER written and the
-    // pending request map was NEVER touched. The validation failure
-    // short-circuits before `this.#allocateId()` and the `new Promise`
-    // block where the pending entry would otherwise be registered (per
-    // jsonRpcClient.ts:534-541 — the throw runs INSIDE the async function
-    // body before the Promise constructor). If a regression moved the
-    // params-validation call AFTER `transport.send()`, the assertions
-    // below would fail.
+    // Fail fast: nothing was sent and no pending entry was created, so validation must run
+    // before the entry is parked and before `send`.
     expect(transport.sentEnvelopes.length).toBe(0);
     expect(client.pendingCount).toBe(0);
   });
 
   it("the two phases share one class (`JsonRpcSchemaError`) but discriminate via `.phase`", async () => {
-    // Sanity — both rejections produce instances of the SAME class. This
-    // is the SDK's API contract (per jsonRpcClient.ts:166-186 — single
-    // class with a `phase: "params" | "result" | "value"` discriminator).
-    // Test code routes via `instanceof JsonRpcSchemaError` then switches
-    // on `.phase`; if the SDK split the surface into two classes the
-    // downstream observability would need two `instanceof` branches.
+    // Both failures use one class and differ only by `.phase`.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const paramsSchema = z.object({ key: z.string() });
@@ -293,8 +182,7 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
     }
     expect(resultErr).toBeInstanceOf(JsonRpcSchemaError);
 
-    // Both errors are JsonRpcSchemaError BUT carry different `.phase`
-    // discriminators — the SDK's API contract.
+    // Same class, different phase.
     if (paramsErr instanceof JsonRpcSchemaError && resultErr instanceof JsonRpcSchemaError) {
       expect(paramsErr.phase).toBe("params");
       expect(resultErr.phase).toBe("result");
@@ -303,15 +191,7 @@ describe("JsonRpcClient.call rejects with JsonRpcSchemaError on schema violation
   });
 });
 
-// ----------------------------------------------------------------------------
-// Test infrastructure sanity — the InMemoryTransport double's contract
-// ----------------------------------------------------------------------------
-//
-// Quick smoke tests that the transport double itself satisfies its
-// `ClientTransport` interface contract. Without these, a regression in the
-// transport double could mask T4's substantive assertions (e.g. if `send`
-// silently swallowed envelopes, the params-phase fail-fast assertion would
-// trivially pass even with broken validation).
+// The transport double itself; a broken double would let the fail-fast assertions pass vacuously.
 
 describe("InMemoryTransport double — sanity", () => {
   it("captures sent envelopes in send-order", () => {
@@ -340,57 +220,24 @@ describe("InMemoryTransport double — sanity", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Subscribe-init MUST register synchronously
-// ----------------------------------------------------------------------------
+// Subscribe-init registers the subscription synchronously
 //
-// The race this pins: the subscription used to be registered into
-// `#subscriptions` inside the `subscribe().then` microtask callback, which
-// only runs AFTER the current synchronous frame finishes. When a transport
-// parser delivered the subscribe-init response and the first
-// `$/subscription/notify` frame back-to-back from the same socket read
-// (normal frame coalescing on a stream socket), the notify ran through
-// `#handleNotification` BEFORE the registration microtask fired, hitting the
-// unknown-id silent-drop branch and losing the first event.
-//
-// The daemon-side wire-ordering invariant (daemon writes the subscribe
-// response BEFORE the first notify frame) was a necessary precondition but
-// not sufficient on its own; the SDK had to install `#subscriptions`
-// synchronously in the same frame as the response dispatch. The fix moved
-// registration into `#handleResponse` (between `pending.delete` and
-// `pending.resolve`) so the very next inbound `#handleInbound` call — even
-// if dispatched in the same synchronous parse loop — finds the
-// subscription registered.
-//
-// This test pins that synchronous-registration contract by driving exactly
-// the coalesced delivery scenario through the in-memory transport: it
-// invokes `transport.dispatchInbound(response)` immediately followed by
-// `transport.dispatchInbound(notify)` with NO awaits, microtask drains, or
-// timer ticks between the two calls. If the SDK regressed back to
-// microtask-deferred registration, the notify would land against an empty
-// `#subscriptions` map and `subscription.next()` would never resolve (or
-// would resolve `undefined` once the test transport closed).
-//
-//   * SDK-side wrapping primitive must respect the daemon's
-//     wire-ordering invariant.
-//   * Wire-ordering invariant (daemon side, paired contract).
+// A response and the first notify can arrive in one transport read. If registration waited for a
+// microtask, the notify would hit the unknown-id drop and the first event would be lost.
 
 describe("subscribe-init registers #subscriptions synchronously", () => {
   it("a coalesced response+notify pair (delivered in one synchronous frame) lands the first event", async () => {
-    // Arrange — a value schema for a trivial event payload.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
-    // Act 1 — open the subscription. `subscribe()` returns a handle
-    // synchronously; the init request is on the wire immediately.
+    // subscribe() returns synchronously and the init request is already sent.
     const subscription = client.subscribe<z.infer<typeof valueSchema>>(
       "test.subscribe",
       { topic: "x" },
       valueSchema,
     );
 
-    // Capture the subscribe-init request id from the captured envelope.
     expect(transport.sentEnvelopes.length).toBe(1);
     const sentEnvelope = transport.sentEnvelopes[0];
     if (sentEnvelope === undefined) throw new Error("unreachable — length asserted above");
@@ -400,14 +247,8 @@ describe("subscribe-init registers #subscriptions synchronously", () => {
     const requestId = sentEnvelope.id;
     expect(sentEnvelope.method).toBe("test.subscribe");
 
-    // Act 2 — drive response + notify BACK-TO-BACK in the same synchronous
-    // frame. NO awaits, NO `await Promise.resolve()`, NO timer ticks. This
-    // is the exact coalescing pattern that loses the first event: a single
-    // transport read parses both frames and emits both `onMessage` calls
-    // before any microtask drains.
-    // SubscriptionId schema is UUID-branded — the wrapper validation in
-    // `#handleNotification` runs `SubscriptionNotifyParamsSchema(value)`
-    // which rejects non-UUID ids with a value-phase schema error.
+    // Deliver response and notify back to back with no await between them, as one read would.
+    // The id is a UUID because the notify wrapper schema is UUID-branded.
     const subscriptionId = "11111111-1111-4111-8111-111111111111";
     const response: JsonRpcResponseEnvelope = {
       jsonrpc: JSONRPC_VERSION,
@@ -425,24 +266,18 @@ describe("subscribe-init registers #subscriptions synchronously", () => {
     transport.dispatchInbound(response);
     transport.dispatchInbound(notify);
 
-    // Assert — the queued event surfaces via `next()`. If the SDK had
-    // regressed to microtask-deferred registration, the notify would have
-    // hit the unknown-id silent-drop branch and `next()` would block
-    // forever (or, after we close the transport, resolve `undefined`).
+    // With deferred registration the notify would be dropped and next() would never resolve.
     const first = await subscription.next();
     expect(first).toEqual({ kind: "event", seq: 1 });
 
-    // Sanity — the dispatcher map saw exactly one registration. The
-    // pending map is drained because the init response was correlated.
+    // One registration; the init response cleared the pending entry.
     expect(client.subscriptionCount).toBe(1);
     expect(client.pendingCount).toBe(0);
   });
 
   it("a second notify delivered in the same synchronous frame as the response also lands", async () => {
-    // Stronger variant — TWO notifies coalesced with the response. This
-    // pins the invariant that registration is observable to ALL inbound
-    // frames in the same synchronous parse loop, not just the first one
-    // after the response.
+    // Two notifies coalesced with the response: registration is visible to every frame in the
+    // same read.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
@@ -485,48 +320,13 @@ describe("subscribe-init registers #subscriptions synchronously", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Malformed subscriptionId rejected at SDK boundary
-// ----------------------------------------------------------------------------
+// A malformed subscriptionId is rejected at the SDK boundary
 //
-// `subscribeInitResultSchema` previously accepted any
-// non-empty string for `subscriptionId` (`z.string().min(1)`), looser than
-// the canonical `SubscriptionIdSchema` (RFC 9562 UUID, brand-narrowed to
-// `SubscriptionId`). A daemon-corruption / proxy-injection that returned a
-// non-UUID `subscriptionId` was therefore registered into `#subscriptions`
-// synchronously by `#handleResponse`'s defensive shape extraction
-// (`typeof + length > 0`) AHEAD of the per-pending result-schema parse,
-// leaving an orphan `#subscriptions` entry alive after the consumer-side
-// promise rejected.
-//
-// The fix tightens BOTH gates simultaneously:
-//   1. `subscribeInitResultSchema` now uses `SubscriptionIdSchema` directly
-//      (UUID brand-narrowed). The schema's `.loose()` posture is preserved
-//      so additional fields beyond `subscriptionId` (e.g. cursor) still
-//      pass.
-//   2. `#handleResponse`'s synchronous registration gate switched from a
-//      raw `typeof + length > 0` shape probe to
-//      `subscribeInitResultSchema.safeParse(env.result)`. This keeps the
-//      sync-registration validation IN LOCKSTEP with the resolve-path
-//      schema so a malformed init NEVER registers and the
-//      `subscribe().then(err)` cleanup path's documented assumption ("no
-//      `#subscriptions` entry to clean up here") stays true.
-//
-// This test pins the joint contract: a malformed `subscriptionId` (a) does
-// NOT register synchronously, (b) surfaces as `JsonRpcSchemaError(phase:
-// "result")` on the consumer-side iterator, (c) leaves no orphan entries
-// behind. A regression that loosens either gate (e.g. reverts to
-// `z.string().min(1)`, or restores the raw shape probe) fails one of the
-// three assertions.
-//
-//   * SDK-side wrapping primitive must enforce the canonical
-//     contracts schemas.
-//   * `jsonrpc-streaming.ts:166` — `SubscriptionIdSchema` is the canonical
-//     UUID-branded schema.
+// The registration gate and the result schema both require a UUID, so a non-UUID id neither
+// registers nor leaves an orphan entry behind.
 
 describe("malformed subscriptionId rejected at SDK boundary", () => {
   it("non-UUID subscriptionId fails the init schema; no #subscriptions entry; iterator surfaces JsonRpcSchemaError", async () => {
-    // Arrange — open `subscribe()`, capture the init request id.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
@@ -544,10 +344,7 @@ describe("malformed subscriptionId rejected at SDK boundary", () => {
     }
     const requestId = sentEnvelope.id;
 
-    // Act — drive a response with a NON-UUID `subscriptionId`. Per the F2
-    // fix, the synchronous gate's `subscribeInitResultSchema.safeParse(...)`
-    // rejects this AND the resolve-path schema parse rejects it (same
-    // schema). Registration must NOT land.
+    // A non-UUID id must fail both the registration gate and the resolve-path parse.
     const malformedResponse: JsonRpcResponseEnvelope = {
       jsonrpc: JSONRPC_VERSION,
       id: requestId,
@@ -555,11 +352,7 @@ describe("malformed subscriptionId rejected at SDK boundary", () => {
     };
     transport.dispatchInbound(malformedResponse);
 
-    // Assert (b) — the consumer iterator surfaces the schema error on
-    // `next()`. The pending Promise rejected with `JsonRpcSchemaError(phase:
-    // "result")` because the resolve-path `resultSchema.safeParse(raw)`
-    // (line 617) failed, and `subscribe()`'s `.then(err)` handler called
-    // `completeSubscriptionWithError(state, err)` (line 792).
+    // The iterator surfaces the schema error.
     let caught: unknown = null;
     try {
       await subscription.next();
@@ -568,36 +361,20 @@ describe("malformed subscriptionId rejected at SDK boundary", () => {
     }
     expect(caught).toBeInstanceOf(JsonRpcSchemaError);
     if (caught instanceof JsonRpcSchemaError) {
-      // CRITICAL — the rejected error carries `phase: "result"` (server-
-      // corruption signal) and not `"params"` / `"value"`. The
-      // `JsonRpcSchemaError` class's `phase` discriminator is the SDK's
-      // documented contract for routing observability.
+      // phase "result" marks a corrupt daemon reply.
       expect(caught.phase).toBe("result");
       expect(caught.issues.length).toBeGreaterThan(0);
     }
 
-    // Assert (a) — the synchronous registration gate REJECTED the malformed
-    // init. `client.subscriptionCount` is the introspection knob exposing
-    // `#subscriptions.size` (jsonRpcClient.ts:812-814 — test-surface
-    // accessor). A regression that reverts to the loose `typeof + length`
-    // probe would tick this to 1 (orphan entry); the F2 fix holds it at 0.
+    // The registration gate rejected the malformed init, so there is no orphan entry.
     expect(client.subscriptionCount).toBe(0);
 
-    // Assert (c) — the pending request map is also drained. `#handleResponse`
-    // delegates to `pending.delete(env.id)` BEFORE running the schema
-    // checks (jsonRpcClient.ts:858), so the pending entry is removed
-    // regardless of the validation outcome. Verifying both maps are empty
-    // closes the orphan-entry surface that F2's advisor flag identified.
+    // The pending entry is removed whatever the validation outcome.
     expect(client.pendingCount).toBe(0);
   });
 
   it("a CANONICAL UUID still passes the init schema (sanity — F2 must not over-reject)", async () => {
-    // Sanity guard — the F2 tightening MUST NOT break the canonical happy
-    // path. A response with a valid RFC 9562 UUID `subscriptionId` registers
-    // exactly once and the iterator surfaces subsequent notify values.
-    // This guards against an over-zealous regression that, e.g., picked
-    // a non-loose schema and dropped the additional-fields-allowed
-    // posture.
+    // A canonical UUID still registers, and extra init fields are accepted.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
@@ -614,19 +391,12 @@ describe("malformed subscriptionId rejected at SDK boundary", () => {
     }
     const requestId = sentEnvelope.id;
 
-    // Canonical RFC 9562 UUIDv4 (the literal value here is the same shape
-    // `crypto.randomUUID()` produces; static literal for repeatability).
+    // A canonical UUID; a static literal keeps the test repeatable.
     const subscriptionId = "33333333-3333-4333-8333-333333333333";
     transport.dispatchInbound({
       jsonrpc: JSONRPC_VERSION,
       id: requestId,
-      // Include an additional field beyond `subscriptionId` to verify
-      // `.loose()` (passthrough) semantics survive the F2 tightening. The
-      // SDK's subscribe primitive only consumes `subscriptionId`; the
-      // typed wrapper layer (sessionClient) handles the full shape.
-      // Dropping `.loose()` would mean future subscribe handlers couldn't
-      // piggy-back additional fields on the init response — a contract
-      // regression.
+      // An extra field beside subscriptionId must pass: the init schema is loose.
       result: { subscriptionId, cursor: "evt-0042" },
     });
     transport.dispatchInbound({
@@ -641,36 +411,13 @@ describe("malformed subscriptionId rejected at SDK boundary", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// cancel() idempotency
-// ----------------------------------------------------------------------------
+// cancel() is idempotent
 //
-// `LocalSubscriptionConsumer.cancel()` is documented as
-// idempotent (`types.ts:245-247` — "a second `cancel()` call resolves
-// immediately without re-emitting the wire frame"), but the prior
-// implementation only short-circuited after the state became
-// `"completed"` / `"errored"`. If a caller invoked `cancel()` twice before
-// the first `$/subscription/cancel` RPC resolved, both calls passed the
-// guard and each emitted its own cancel request — violating the public
-// contract and surfacing avoidable failures under concurrent cancellation
-// patterns.
-//
-// The fix adds an `cancelInFlight: Promise<void> | undefined` field to the
-// per-subscription state and splits `#cancelSubscription` into a public
-// guard (terminal-status / cancel-before-init / in-flight) and a private
-// `#emitCancelRpc` wire-emit half. The public guard registers the
-// in-flight promise SYNCHRONOUSLY (before any await) so a second
-// concurrent caller observes a non-undefined `cancelInFlight` and awaits
-// the same promise. The wire frame is emitted exactly once.
-//
-//   * `types.ts:245-247` — cancel idempotency contract.
-//   * SDK-side wrapping primitive must enforce its public surface
-//     contract.
+// Two cancel() calls before the first wire cancel resolves must send one frame.
 
 describe("cancel() idempotency", () => {
   it("concurrent cancel() emits exactly one wire frame; both promises resolve", async () => {
-    // Arrange — open a subscription, drive the init response so status
-    // reaches `"active"`, then issue concurrent `cancel()` calls.
+    // Answer the subscribe-init so the state is active, then cancel twice.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
@@ -681,9 +428,7 @@ describe("cancel() idempotency", () => {
       valueSchema,
     );
 
-    // Capture the subscribe-init request id and ack the response. Status
-    // reaches `"active"` synchronously per the F2 fix's synchronous
-    // registration in `#handleResponse`.
+    // Answer the init; the state is active synchronously.
     const initEnvelope = transport.sentEnvelopes[0];
     if (initEnvelope === undefined || !("id" in initEnvelope)) {
       throw new Error("unreachable — subscribe init emits a request envelope");
@@ -695,29 +440,21 @@ describe("cancel() idempotency", () => {
       result: { subscriptionId },
     });
 
-    // Sanity — registration landed; pending map drained.
+    // Registered, and the pending map is drained.
     expect(client.subscriptionCount).toBe(1);
     expect(client.pendingCount).toBe(0);
 
-    // Act — TWO concurrent `cancel()` calls in the same synchronous frame.
-    // The fix's contract: the second caller's third-guard check observes a
-    // non-undefined `state.cancelInFlight` registered by the first caller
-    // BEFORE its first await, awaits the same promise, and the wire emits
-    // exactly one cancel frame.
+    // Two cancels in one synchronous frame: the second must find the first one in flight.
     const cancelP1 = subscription.cancel();
     const cancelP2 = subscription.cancel();
 
-    // CRITICAL — the wire frame count for cancel methods is 1, not 2.
-    // Filtering by method name is robust to envelope ordering and avoids
-    // brittle indexing assumptions. If a regression removed the in-flight
-    // guard, both callers would push their own envelope and this would
-    // tick to 2.
+    // One cancel frame on the wire, not two.
     const cancelEnvelopes = transport.sentEnvelopes.filter(
       (env) => "method" in env && env.method === SUBSCRIPTION_CANCEL_METHOD,
     );
     expect(cancelEnvelopes.length).toBe(1);
 
-    // Find the cancel request id and ack it so both promises can resolve.
+    // Ack the cancel so both promises resolve.
     const cancelEnvelope = cancelEnvelopes[0];
     if (cancelEnvelope === undefined || !("id" in cancelEnvelope)) {
       throw new Error("unreachable — cancel envelope is a request");
@@ -733,23 +470,16 @@ describe("cancel() idempotency", () => {
     expect(r1).toBeUndefined();
     expect(r2).toBeUndefined();
 
-    // After cancel resolution the subscription is in a terminal state. The
-    // `next()` call drains any queued values then resolves `undefined` per
-    // the documented `pullFromSubscription` contract — the cleanest probe
-    // for the `completed` status.
+    // After cancel the subscription is completed, so next() resolves `undefined`.
     const tail = await subscription.next();
     expect(tail).toBeUndefined();
 
-    // Sanity — `#subscriptions` cleaned up by `#emitCancelRpc` after a
-    // successful daemon ack.
+    // The cancel ack untracked the subscription.
     expect(client.subscriptionCount).toBe(0);
   });
 
   it("post-resolve cancel() is a no-op (third call after settlement emits no new wire frame)", async () => {
-    // Arrange — same active-subscription setup; concurrent cancel followed
-    // by a third call AFTER the first two have settled. Verifies the
-    // terminal-status guard at the top of `#cancelSubscription` intercepts
-    // post-settlement calls before the in-flight guard is even consulted.
+    // A third cancel after settlement hits the terminal guard and sends nothing.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
@@ -791,13 +521,10 @@ describe("cancel() idempotency", () => {
     });
     await Promise.all([cancelP1, cancelP2]);
 
-    // Act — third cancel call AFTER settlement. Status is `"completed"`,
-    // so the terminal-status guard returns immediately without emitting a
-    // wire frame.
+    // After settlement the terminal-status guard returns without a wire frame.
     const cancelP3 = subscription.cancel();
 
-    // Assert — still exactly one cancel envelope on the wire (no new
-    // frame emitted by the post-resolve call).
+    // Still exactly one cancel envelope.
     const cancelEnvelopesAfter = transport.sentEnvelopes.filter(
       (env) => "method" in env && env.method === SUBSCRIPTION_CANCEL_METHOD,
     );
@@ -808,13 +535,8 @@ describe("cancel() idempotency", () => {
   });
 
   it("concurrent cancel() preserves error propagation when daemon nacks (one frame, both observe error path)", async () => {
-    // Arrange — same active-subscription setup; the daemon will respond to
-    // the cancel with a JSON-RPC error response. Both `cancelP1` and
-    // `cancelP2` should observe the same outcome: the catch in
-    // `#emitCancelRpc` swallows the error (so neither caller's
-    // `cancel()` rejects), but the subscription transitions to `"errored"`
-    // via `completeSubscriptionWithError`. A subsequent `subscription.next()`
-    // call should reject with the wire error (`JsonRpcRemoteError`).
+    // The daemon answers the cancel with an error. Neither cancel() rejects; the subscription
+    // becomes errored and next() rejects with the wire error.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
@@ -840,7 +562,7 @@ describe("cancel() idempotency", () => {
     const cancelP1 = subscription.cancel();
     const cancelP2 = subscription.cancel();
 
-    // Exactly one cancel frame on the wire (in-flight guard held).
+    // One cancel frame on the wire.
     const cancelEnvelopes = transport.sentEnvelopes.filter(
       (env) => "method" in env && env.method === SUBSCRIPTION_CANCEL_METHOD,
     );
@@ -851,27 +573,19 @@ describe("cancel() idempotency", () => {
       throw new Error("unreachable — cancel envelope is a request");
     }
 
-    // Daemon NACKs the cancel with a JSON-RPC error. The SDK's
-    // `#issueRequest` reject path surfaces this as `JsonRpcRemoteError`
-    // through `#emitCancelRpc`'s catch, which then runs
-    // `completeSubscriptionWithError` against the shared state.
+    // The daemon nacks the cancel with a JSON-RPC error.
     transport.dispatchInbound({
       jsonrpc: JSONRPC_VERSION,
       id: cancelEnvelope.id,
       error: { code: -32603, message: "internal daemon failure" },
     });
 
-    // Both `cancel()` promises resolve (the catch in `#emitCancelRpc` does
-    // NOT re-raise; it converts the wire error to local `errored` status).
-    // The public `cancel()` contract is "resolve once teardown is settled
-    // locally", regardless of whether the daemon ack was clean.
+    // Both cancel() promises resolve: a failed cancel ends the stream locally instead of
+    // rejecting.
     await expect(cancelP1).resolves.toBeUndefined();
     await expect(cancelP2).resolves.toBeUndefined();
 
-    // The subscription's terminal status is `"errored"` — verified via
-    // the iterator surface (a pending `next()` call rejects with the
-    // wire error per the `pullFromSubscription` contract for
-    // `status === "errored"`).
+    // The subscription is errored: next() rejects with the wire error.
     let nextErr: unknown = null;
     try {
       await subscription.next();
@@ -884,42 +598,18 @@ describe("cancel() idempotency", () => {
       expect(nextErr.message).toBe("internal daemon failure");
     }
 
-    // `#subscriptions` cleaned up by the `#emitCancelRpc` catch path.
+    // The failed cancel also untracked the subscription.
     expect(client.subscriptionCount).toBe(0);
   });
 });
 
-// ----------------------------------------------------------------------------
-// Thenable transport.send rejection propagates
-// ----------------------------------------------------------------------------
+// A send() that returns a thenable without .catch
 //
-// An earlier fix replaced `instanceof Promise` with a duck-typed
-// `then` check on `transport.send()`'s return value, so cross-realm
-// Promises and non-native thenables that satisfy `PromiseLike<void>` get
-// the rejection-handler attached. The first cut called `.catch` directly
-// on the duck-typed value — but `PromiseLike<T>` per the TC39 spec ONLY
-// requires `.then(onFulfilled, onRejected)`. A valid thenable MAY omit
-// `.catch`, in which case the direct call throws synchronously
-// (`TypeError: thenable.catch is not a function`) and the outer try/catch
-// would surface a misleading rejection while the actual transport write
-// may have succeeded. The current shape routes through
-// `Promise.resolve(...).catch(...)` so any thenable is absorbed into a
-// native Promise before `.catch` is invoked.
-//
-// This test asserts the regression by feeding a transport whose `send`
-// returns a literal thenable that lacks `.catch` and rejects via the
-// `.then` second argument. Pre-fix, the call would reject with the
-// synthetic TypeError; post-fix, it rejects with the thenable's
-// authentic error.
+// PromiseLike only requires .then, so the client must not call .catch on send's result directly:
+// it would throw a TypeError and hide the transport's real error.
 
 describe("thenable transport.send rejection propagates", () => {
-  /**
-   * Transport double whose `send` returns a literal thenable WITHOUT
-   * `.catch`. Triggers the regression case: pre-fix the SDK called
-   * `.catch` directly on the duck-typed thenable and threw a synthetic
-   * TypeError; post-fix `Promise.resolve(...)` absorbs the thenable so
-   * the original rejection surfaces.
-   */
+  /** Transport whose `send` returns a thenable that has only `.then` and rejects. */
   class ThenableSendRejectingTransport implements ClientTransport {
     public readonly sentEnvelopes: Array<JsonRpcRequest | JsonRpcNotification> = [];
     #onClose: ((reason?: Error) => void) | null = null;
@@ -932,10 +622,7 @@ describe("thenable transport.send rejection propagates", () => {
     public send(envelope: JsonRpcRequest | JsonRpcNotification): PromiseLike<void> {
       this.sentEnvelopes.push(envelope);
       const err = this.rejectionError;
-      // Literal thenable — implements ONLY `.then(onFulfilled, onRejected)`
-      // per `PromiseLike<T>`. NO `.catch`, NO `.finally`. Rejects via
-      // the second arg on a microtask (matches real-Promise async
-      // rejection semantics).
+      // A thenable with only `.then`, rejecting through its second argument on a microtask.
       return {
         then<TResult1, TResult2>(
           _onFulfilled?: ((value: void) => TResult1 | PromiseLike<TResult1>) | null,
@@ -959,8 +646,7 @@ describe("thenable transport.send rejection propagates", () => {
     }
 
     public onMessage(_handler: (msg: JsonRpcResponseEnvelope | JsonRpcNotification) => void): void {
-      // No-op — this transport tests the send-rejection path only and
-      // never dispatches inbound messages.
+      // Never used: this transport only exercises the send-rejection path.
     }
 
     public onClose(handler: (reason?: Error) => void): void {
@@ -985,11 +671,7 @@ describe("thenable transport.send rejection propagates", () => {
 
     const promise = client.call("test.method", { key: "value" }, paramsSchema, resultSchema);
 
-    // The thenable's `then(onFulfilled, onRejected)` was invoked by
-    // `Promise.resolve(...)` (NOT a direct `.catch` access — that would
-    // have thrown synchronously since the literal thenable has no
-    // `.catch`). The microtask-deferred rejection lands the original
-    // error on the call's promise.
+    // `Promise.resolve` absorbs the thenable; a direct `.catch` would have thrown synchronously.
     let caught: unknown = null;
     try {
       await promise;
@@ -997,63 +679,22 @@ describe("thenable transport.send rejection propagates", () => {
       caught = err;
     }
 
-    // CRITICAL — the rejection MUST be the transport's authentic error,
-    // NOT a synthetic `TypeError: ... is not a function` that pre-fix
-    // would have surfaced when the SDK called `.catch` on the literal
-    // thenable.
+    // The transport's own error, not a TypeError from calling `.catch` on the thenable.
     expect(caught).toBe(sendErr);
     expect((caught as Error).message).toBe("transport write failed");
 
-    // Pending map drained — the `Promise.resolve(...).catch` path
-    // deletes the entry on rejection so subsequent late responses
-    // (e.g., a delayed daemon reply on the same id) don't leak.
+    // The pending entry is deleted on rejection so a late reply cannot leak.
     expect(client.pendingCount).toBe(0);
 
-    // The send envelope was captured (the transport DID push it before
-    // returning the rejecting thenable — emulates the real-world case
-    // where the wire write may succeed even if the thenable rejects).
+    // The envelope was sent before the thenable rejected.
     expect(transport.sentEnvelopes.length).toBe(1);
   });
 });
 
-// ----------------------------------------------------------------------------
-// protocolVersion REQUIRED at construction
-// and emitted on every outbound request envelope
-// ----------------------------------------------------------------------------
+// protocolVersion is required and sent on every request
 //
-// The daemon's substrate gate
-// (`packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
-// rejects every non-handshake JSON-RPC envelope missing or carrying a
-// malformed `protocolVersion` with `-32600 InvalidRequest /
-// transport.invalid_protocol_version`. The SDK side used to hold
-// `JsonRpcClientOptions.protocolVersion` optional and omit the field
-// when constructor opts were unset — so a caller writing
-// `new JsonRpcClient(transport)` got a client whose every non-handshake
-// call would runtime-fail with `-32600`, even though the TypeScript
-// surface signaled the construction was valid. The field closes that gap by
-// being REQUIRED at the type level and emitted
-// unconditionally on every outbound request envelope.
-//
-// This describe block pins THREE wire-emission sites against regressions:
-//
-//   1. `call(method, params, ...)` request envelope.
-//   2. `subscribe(method, params, valueSchema)` init request envelope.
-//   3. The `$/subscription/cancel` envelope emitted by `LocalSubscriptionConsumer.cancel()`.
-//
-// Each test captures an outbound envelope and asserts it carries the
-// caller-advertised `protocolVersion` literal. A regression that
-// re-introduces the conditional spread (`...(this.#protocolVersion !== undefined ? ... : {})`)
-// or makes `opts` optional again would tick at least one of these
-// expectations.
-//
-// The TYPE-LEVEL contract (constructor `opts: JsonRpcClientOptions`,
-// field `protocolVersion: string`) is enforced by `tsc -b` at the
-// monorepo build step — a regression that loosens the field back to
-// optional or makes the constructor's `opts` optional would surface as
-// a TypeScript build failure on this very test file (every `new
-// JsonRpcClient(transport, { protocolVersion: ... })` call site requires
-// the field). No `// @ts-expect-error` belt-and-suspenders is needed
-// because the existing call sites ARE the type-level contract proof.
+// The daemon rejects a non-handshake request without a valid protocolVersion, so the client
+// sends the caller's version on call, subscribe-init and cancel envelopes.
 
 describe("protocolVersion REQUIRED + emitted unconditionally", () => {
   it("call() request envelope carries the caller-advertised protocolVersion", () => {
@@ -1092,11 +733,7 @@ describe("protocolVersion REQUIRED + emitted unconditionally", () => {
   });
 
   it("$/subscription/cancel envelope carries the caller-advertised protocolVersion", async () => {
-    // Drive the full subscribe → ack → cancel flow so the cancel envelope
-    // is emitted onto the transport, then assert it carries the
-    // caller-advertised version (the cancel path goes through `this.call`
-    // internally; this test pins that the internal call path also emits
-    // the version).
+    // Full subscribe, ack, cancel flow: the internal cancel call must also carry the version.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
@@ -1131,8 +768,7 @@ describe("protocolVersion REQUIRED + emitted unconditionally", () => {
     }
     expect(cancelEnvelope.protocolVersion).toBe("2026-05-01");
 
-    // Drain the cancel ack so the test exits cleanly without an unhandled
-    // pending promise.
+    // Ack the cancel so nothing is left pending.
     transport.dispatchInbound({
       jsonrpc: JSONRPC_VERSION,
       id: cancelEnvelope.id,
@@ -1142,10 +778,7 @@ describe("protocolVersion REQUIRED + emitted unconditionally", () => {
   });
 
   it("a different caller-advertised protocolVersion appears verbatim on the wire", () => {
-    // Pin that the SDK does NOT canonicalize / normalize / default the
-    // version — the literal the caller passes is what lands on the
-    // envelope. Guards against a regression that, e.g., introduces a
-    // library-side default and overrides the caller's value.
+    // The caller's version goes out verbatim; the client adds no default.
     const transport = new InMemoryTransport();
     const customVersion = "2027-01-15";
     const client = new JsonRpcClient(transport, { protocolVersion: customVersion });
@@ -1163,15 +796,10 @@ describe("protocolVersion REQUIRED + emitted unconditionally", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// JsonRpcRemoteError surfaces the structured error.data on rejection
-// ----------------------------------------------------------------------------
+// JsonRpcRemoteError carries the structured error.data
 //
-// The daemon's `mapJsonRpcError` projects a typed domain error into the
-// two-layer envelope (numeric `code` + `data: { type, fields? }`). The SDK is
-// the INVERSE seam: a `call()` that observes an `error` response rejects with
-// `JsonRpcRemoteError` carrying that `data` verbatim, so clients discriminate
-// on the dotted `data.type` rather than the coarse numeric `code`.
+// A rejected call exposes `data` verbatim so clients switch on the dotted `data.type` rather than
+// the numeric code.
 
 describe("JsonRpcRemoteError surfaces error.data on rejection", () => {
   it("rejects with data.type + data.fields when the daemon returns a typed domain error", async () => {
@@ -1187,8 +815,7 @@ describe("JsonRpcRemoteError surfaces error.data on rejection", () => {
       throw new Error("unreachable — call() emits a request envelope");
     }
 
-    // Daemon NACKs with a typed domain error: -32602 + data.type/fields — the
-    // exact shape `DaemonDomainError` projects through `mapJsonRpcError`.
+    // A typed domain error: -32602 with data.type and data.fields.
     transport.dispatchInbound({
       jsonrpc: JSONRPC_VERSION,
       id: sentEnvelope.id,
@@ -1216,9 +843,7 @@ describe("JsonRpcRemoteError surfaces error.data on rejection", () => {
   });
 
   it("rejects with data === undefined for a bare numeric error (no data layer)", async () => {
-    // A bare `-32603` with no `data` is a genuine daemon-internal failure; the
-    // SDK surfaces `data: undefined` so clients distinguish it from a
-    // registered domain failure (which always carries `data.type`).
+    // A bare -32603 has no data, which tells it apart from a registered domain failure.
     const transport = new InMemoryTransport();
     const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
     const paramsSchema = z.unknown();
