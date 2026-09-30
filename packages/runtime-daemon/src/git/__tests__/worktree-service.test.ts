@@ -529,6 +529,23 @@ describe("WorktreeService.create", () => {
 // ----------------------------------------------------------------------------
 
 describe("WorktreeService.validateReuse", () => {
+  it("returns a clean, compatible candidate with its provenance", async () => {
+    const service = makeService();
+    const created = await createReadyWorktree(service);
+
+    const candidate = await service.validateReuse({
+      worktreeId: created.worktreeId,
+      repoMountId: REPO_MOUNT_ID,
+      branchName: "feature/login",
+    });
+
+    expect(candidate.dirty).toBe(false);
+    expect(candidate.state).toBe("ready");
+    expect(candidate.fsRoot).toBe(created.fsRoot);
+    expect(candidate.createdBySessionId).toBe(SESSION_ID);
+    expect(candidate.createdByRunId).toBe(RUN_ID);
+  });
+
   it("refuses an incompatible candidate even WITH an acknowledgement", async () => {
     const service = makeService();
     const created = await createReadyWorktree(service);
