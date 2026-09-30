@@ -125,6 +125,18 @@ describe("assertReplayReconstituted", () => {
     expect(verdict.refutation).toBe("no-comparable-content");
   });
 
+  it("still refutes an empty seed when the target answered with invented prose", () => {
+    const verdict = assertReplayReconstituted(
+      seededFrames("", "", ""),
+      answered("", "", "prose nobody seeded"),
+    );
+    expect(verdict.outcome).toBe("refuted");
+    if (verdict.outcome !== "refuted") {
+      throw new Error("unreachable");
+    }
+    expect(verdict.refutation).toBe("no-comparable-content");
+  });
+
   it("forgives line endings and surrounding whitespace, and nothing else", () => {
     const forgiven = assertReplayReconstituted(
       seededFrames("first\r\nsecond", "  padded  "),

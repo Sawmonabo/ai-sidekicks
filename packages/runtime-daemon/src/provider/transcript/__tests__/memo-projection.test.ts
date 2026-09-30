@@ -11,6 +11,7 @@ import type {
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
 import {
+  ContradictoryReplayDispositionError,
   TranscriptReconstitutionRouter,
   memoSettlementAsReplayResult,
   renderReconstitutionDisclosure,
@@ -127,6 +128,10 @@ async function deliverVia(
 class FakeTargetSession {
   readonly turns: string[] = [];
   readonly readOutcomes: Array<"ok" | "fail"> = [];
+  /** The session each reconciliation read was asked about, in order. */
+  readonly readTargetIds: string[] = [];
+  /** The session each send named, in order. */
+  readonly sentTargetIds: string[] = [];
   sendBehavior: "accept" | "apply-then-fail" | "apply-late-then-fail" | "refuse" = "accept";
   sendAttempts = 0;
   readAttempts = 0;
@@ -145,8 +150,11 @@ class FakeTargetSession {
    * Answers the target's whole turn history, never a tail: the port requires a set sufficient to
    * decide marker presence for the entire session.
    */
-  async readTurnsForMarkerReconciliation(): Promise<readonly string[]> {
+  async readTurnsForMarkerReconciliation(
+    targetProviderSessionId: string,
+  ): Promise<readonly string[]> {
     this.readAttempts += 1;
+    this.readTargetIds.push(targetProviderSessionId);
     if (this.readOutcomes.shift() === "fail") {
       throw new Error("target session could not be read");
     }
@@ -155,6 +163,7 @@ class FakeTargetSession {
 
   async sendMemoTurn(frame: MemoOutboundFrame): Promise<void> {
     this.sendAttempts += 1;
+    this.sentTargetIds.push(frame.targetProviderSessionId);
     // `wireText`, not the authored prose: the readback reconciles against what the provider got.
     if (this.sendBehavior === "apply-then-fail") {
       this.turns.push(frame.frame.wireText);
@@ -475,6 +484,98 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     // wants, the input on which the tail is only partly satisfiable.
     expect(transcriptsWithFewerToolExchangesThanProtected).toBeGreaterThan(0);
   });
+
+  it("still evicts a conversation that used no tool at all", () => {
+    // The protected tail is anchored on tool exchanges, so a transcript with none must not protect
+    // itself entirely; that would leave the budget unenforceable on plain back-and-forth talk.
+    const memoProjection = new MemoProjection();
+    const turns: CanonicalTranscriptTurn[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      turns.push(
+        turn(index + 1, index % 2 === 0 ? "user" : "assistant", [
+          { kind: "text", text: `plain exchange ${index.toString()} ${PADDING}` },
+        ]),
+      );
+    }
+    const projection: CanonicalTranscriptProjection = projectionOf(turns);
+
+    const unbounded: MemoRendering = memoProjection.render(requestFor(projection, ROOMY_BUDGET));
+    expect(unbounded.evictedExchangeCount).toBe(0);
+    expect(unbounded.includedExchangeCount).toBe(12);
+
+    const bounded: MemoRendering = memoProjection.render(
+      requestFor(projection, defaultMemoBudgetPolicy(600)),
+    );
+    expect(bounded.evictedExchangeCount).toBeGreaterThan(0);
+    expect(bounded.includedExchangeCount).toBeLessThan(12);
+    // The newest exchange survives whatever the budget.
+    expect(bounded.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
+    expect(bounded.declaredLosses).toContain("context_truncated");
+
+    const starved: MemoRendering = memoProjection.render(
+      requestFor(projection, { ...defaultMemoBudgetPolicy(8), budgetFraction: 0 }),
+    );
+    expect(starved.includedExchangeCount).toBe(1);
+    expect(starved.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
+  });
+
+  it("never emits a memo larger than the ceiling it reports fitting under", () => {
+    // Assembly joins the preamble and every admitted exchange with a newline, so pricing each
+    // exchange alone under-counts by one separator per admission, and the injected estimator does
+    // not owe additivity. Near the ceiling that admits a set that assembles past the budget while
+    // the render reports it fits. Only a sweep of every integer ceiling finds it; one fixed budget
+    // would miss it.
+    const memoProjection = new MemoProjection();
+    const turns: CanonicalTranscriptTurn[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      // Each rendered turn is exactly 72 characters, a whole multiple of the default estimator's
+      // four characters per token, so rounding adds no slack and the separators are measured.
+      turns.push(
+        turn(index + 1, "assistant", [
+          { kind: "text", text: `exchange ${index.toString().padStart(2, "0")} `.padEnd(61, "-") },
+        ]),
+      );
+    }
+    const projection: CanonicalTranscriptProjection = projectionOf(turns);
+
+    const unbounded: MemoRendering = memoProjection.render(requestFor(projection, ROOMY_BUDGET));
+    expect(unbounded.evictedExchangeCount).toBe(0);
+    expect(unbounded.includedExchangeCount).toBe(12);
+
+    let ceilingsTheProtectedFloorOverran = 0;
+    let ceilingsThatFitAfterEviction = 0;
+
+    for (
+      let ceilingTokens = 1;
+      ceilingTokens <= unbounded.estimatedTokens + 4;
+      ceilingTokens += 1
+    ) {
+      const rendering: MemoRendering = memoProjection.render(
+        requestFor(projection, {
+          targetContextWindowTokens: ceilingTokens,
+          budgetFraction: 1,
+          protectedTailToolExchangeCount: DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
+        }),
+      );
+
+      expect(rendering.budgetTokens).toBe(ceilingTokens);
+      if (rendering.exceedsBudget) {
+        ceilingsTheProtectedFloorOverran += 1;
+        continue;
+      }
+      // A render that reports itself within its ceiling is within it, measured over the prose the
+      // settlement carries.
+      expect(rendering.estimatedTokens).toBeLessThanOrEqual(ceilingTokens);
+      if (rendering.evictedExchangeCount > 0) {
+        ceilingsThatFitAfterEviction += 1;
+      }
+    }
+
+    // Vacuity guards: the sweep spans ceilings the protected floor alone overruns and ceilings
+    // where eviction brought the memo back under one, which is where the separators are paid.
+    expect(ceilingsTheProtectedFloorOverran).toBeGreaterThan(0);
+    expect(ceilingsThatFitAfterEviction).toBeGreaterThan(0);
+  });
 });
 
 // Portability transforms the floor reuses
@@ -522,6 +623,14 @@ describe("memo body — portability transforms", () => {
     expect(withSummary.declaredLosses).not.toContain("provider_private_reasoning");
   });
 
+  it("always declares that the conversation was summarized", () => {
+    const memoProjection = new MemoProjection();
+    const rendering: MemoRendering = memoProjection.render(
+      requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
+    );
+    expect(rendering.declaredLosses).toContain("conversation_history_summarized");
+  });
+
   it("declares an unreadable body and names it in the prose the model reads", () => {
     const memoProjection = new MemoProjection();
     const rendering: MemoRendering = memoProjection.render(
@@ -558,6 +667,20 @@ describe("memo body — portability transforms", () => {
     // The turn is still present, with its speaker.
     expect(rendering.includedTurns).toHaveLength(3);
     expect(rendering.text).toContain("[tool call inspect (call-1)]");
+  });
+
+  it("declares nothing of the kind when every body resolved", () => {
+    const memoProjection = new MemoProjection();
+    const rendering: MemoRendering = memoProjection.render(
+      requestFor(
+        projectionOf([
+          turn(1, "user", [{ kind: "text", text: "what did that return?" }]),
+          turn(2, "assistant", [{ kind: "text", text: "an empty list" }]),
+        ]),
+      ),
+    );
+    expect(rendering.declaredLosses).not.toContain("turn_content_unavailable");
+    expect(rendering.text).not.toContain("could not be recovered");
   });
 });
 
@@ -831,6 +954,34 @@ describe("memo reconciliation — reading the continuity marker back", () => {
     expect(settlement.disposition).toBe("delivered");
     expect(target.sendAttempts).toBe(1);
   });
+
+  it("names the target session on every reconciliation read, as the send does", async () => {
+    // Reconciliation decides whether to send into the session the frame names, so an untargeted
+    // read could let an absent marker in one session license a send into another. The identity key
+    // is derived over the target session id, so such an answer would not be about the same key
+    // either. Both reads are asserted, including the post-send readback that settles an ambiguous
+    // send.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-then-fail";
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    // Not the default target, so the id is shown to come from the request.
+    const request: DeliveryDraft = requestFor(projection, ROOMY_BUDGET, OTHER_TARGET);
+
+    const settlement: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(target),
+      request,
+    );
+
+    expect(settlement.disposition).toBe("delivered");
+    expect(target.readAttempts).toBe(2);
+    expect(target.readTargetIds).toStrictEqual([
+      OTHER_TARGET.providerSessionId,
+      OTHER_TARGET.providerSessionId,
+    ]);
+    // One session, read and written: the two must agree or the reconciliation is not about the
+    // send it guards.
+    expect(target.sentTargetIds).toStrictEqual([OTHER_TARGET.providerSessionId]);
+  });
 });
 
 /**
@@ -959,6 +1110,21 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
 
     // An expired wait establishes nothing, so no send follows.
     expect(retry.disposition).toBe("unconfirmed");
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("does not downgrade an outstanding send to a refusal when the target goes unreadable", async () => {
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-late-then-fail";
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    await deliverVia(coordinator, AMBIGUOUS_REQUEST);
+    target.readOutcomes.push("fail");
+    const retry: MemoDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
+
+    // Withheld would assert that nothing landed; an unreadable target establishes no such thing.
+    expect(retry.disposition).toBe("unconfirmed");
+    expect(retry.withheldReason).toBeUndefined();
     expect(target.sendAttempts).toBe(1);
   });
 
@@ -1122,6 +1288,78 @@ describe("memo delivery — once-only is per target, not per memo", () => {
   });
 });
 
+describe("memo delivery — an unreadable target", () => {
+  it("sends nothing when the target cannot be read before the send", async () => {
+    const target = new FakeTargetSession();
+    target.readOutcomes.push("fail");
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    const settlement: MemoDeliverySettlement = await deliverVia(
+      coordinator,
+      requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
+    );
+
+    expect(settlement.disposition).toBe("withheld");
+    expect(settlement.withheldReason).toBe("target-unreadable");
+    expect(target.sendAttempts).toBe(0);
+    expect(target.turns).toHaveLength(0);
+  });
+
+  it("sends nothing further when the target cannot be read after an ambiguous send", async () => {
+    const target = new FakeTargetSession();
+    target.readOutcomes.push("ok", "fail");
+    target.sendBehavior = "apply-then-fail";
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    const settlement: MemoDeliverySettlement = await deliverVia(
+      coordinator,
+      requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
+    );
+
+    // The ambiguity is reported, never resolved by sending again.
+    expect(settlement.disposition).toBe("unconfirmed");
+    expect(settlement.status).toBe("degraded");
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("settles withheld only on a later call, once the barrier orders the read behind the send", async () => {
+    // A rejected send may still be applying, so a readback that finds nothing is not proof of
+    // refusal. Only a second delivery, whose barrier is ordered behind a send that completed
+    // before that call began, settles withheld; the call that made the send cannot.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "refuse";
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const request: DeliveryDraft = {
+      ...requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
+      sendSettlementBarrier: settlementBarrierFor(target),
+    };
+
+    const attempted: MemoDeliverySettlement = await deliverVia(coordinator, request);
+    expect(attempted.disposition).toBe("unconfirmed");
+
+    const settlement: MemoDeliverySettlement = await deliverVia(coordinator, request);
+
+    expect(settlement.disposition).toBe("withheld");
+    expect(settlement.withheldReason).toBe("send-refused");
+    expect(target.turns).toHaveLength(0);
+  });
+
+  it("reports the ambiguity, not a refusal, when no barrier orders the readback", async () => {
+    const target = new FakeTargetSession();
+    target.sendBehavior = "refuse";
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    const settlement: MemoDeliverySettlement = await deliverVia(
+      coordinator,
+      requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
+    );
+
+    expect(settlement.disposition).toBe("unconfirmed");
+    expect(settlement.withheldReason).toBeUndefined();
+    expect(target.turns).toHaveLength(0);
+  });
+});
+
 function seedConversation(fixture: TranscriptFixture): void {
   // The row carries no message: the emitter routes the user's words through the encrypted
   // envelope and the read path returns only the clear half, so the fold reads them from the
@@ -1132,6 +1370,53 @@ function seedConversation(fixture: TranscriptFixture): void {
 }
 
 describe("memo identity key — derived, never stored", () => {
+  it("two independently built folds over one log derive the same key", () => {
+    const first = makeFixture();
+    seedConversation(first);
+    const second = makeFixture();
+    seedConversation(second);
+
+    const firstKey: string = deriveMemoIdentityKey(
+      first.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+      TARGET,
+    );
+    const secondKey: string = deriveMemoIdentityKey(
+      second.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+      TARGET,
+    );
+
+    expect(firstKey).toBe(secondKey);
+    expect(firstKey).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it("survives a restart — a fold rebuilt from the same durable rows derives the same key", () => {
+    const before = makeFixture();
+    seedConversation(before);
+    const keyBeforeRestart: string = deriveMemoIdentityKey(
+      before.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+      TARGET,
+    );
+
+    // A restart keeps the durable rows and the content the port reads; carrying only the log
+    // across would model a restart that lost half the conversation.
+    const after = makeFixture();
+    for (const event of before.log.readEvents()) {
+      after.log.append(event);
+    }
+    for (const [sequence, text] of before.contentSource.userTextBySequence) {
+      after.contentSource.userTextBySequence.set(sequence, text);
+    }
+    for (const [sequence, text] of before.contentSource.assistantTextBySequence) {
+      after.contentSource.assistantTextBySequence.set(sequence, text);
+    }
+    const keyAfterRestart: string = deriveMemoIdentityKey(
+      after.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+      TARGET,
+    );
+
+    expect(keyAfterRestart).toBe(keyBeforeRestart);
+  });
+
   it("does not move when an append in ANOTHER run moves the projection's built position", () => {
     const fixture = makeFixture();
     seedConversation(fixture);
@@ -1152,6 +1437,25 @@ describe("memo identity key — derived, never stored", () => {
     expect(deriveMemoIdentityKey(after, TARGET)).toBe(deriveMemoIdentityKey(before, TARGET));
   });
 
+  it("moves when an appended event changes the transcript's own content", () => {
+    const fixture = makeFixture();
+    seedConversation(fixture);
+    const before: string = deriveMemoIdentityKey(
+      fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+      TARGET,
+    );
+
+    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "user" }));
+    // Content is seeded so the key moves on new words, not on an unavailability marker.
+    fixture.contentSource.userTextBySequence.set(3, "and now deploy");
+    const after: string = deriveMemoIdentityKey(
+      fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+      TARGET,
+    );
+
+    expect(after).not.toBe(before);
+  });
+
   it("distinguishes targets, and is unaffected by the budget that shapes the body", () => {
     const projection: CanonicalTranscriptProjection = generateTranscript(3).projection;
     const memoProjection = new MemoProjection();
@@ -1170,7 +1474,83 @@ describe("memo identity key — derived, never stored", () => {
   });
 });
 
-describe("memo frame — minted through the neutralizing writer", () => {
+describe("memo delivery — nothing durable is written", () => {
+  it("touches only the read and the send on the target, across all four delivery paths", async () => {
+    const observedMemberNames: string[] = [];
+    const request: DeliveryDraft = requestFor(
+      projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
+    );
+
+    // delivered
+    const deliveredTarget = new FakeTargetSession();
+    await deliverVia(
+      new MemoDeliveryCoordinator(recordingGateway(deliveredTarget, observedMemberNames)),
+      request,
+    );
+    // already-delivered
+    const repeatSettlement: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(recordingGateway(deliveredTarget, observedMemberNames)),
+      request,
+    );
+    expect(repeatSettlement.disposition).toBe("already-delivered");
+
+    // withheld
+    const withheldTarget = new FakeTargetSession();
+    withheldTarget.readOutcomes.push("fail");
+    await deliverVia(
+      new MemoDeliveryCoordinator(recordingGateway(withheldTarget, observedMemberNames)),
+      request,
+    );
+
+    // unconfirmed
+    const unconfirmedTarget = new FakeTargetSession();
+    unconfirmedTarget.readOutcomes.push("ok", "fail");
+    unconfirmedTarget.sendBehavior = "apply-then-fail";
+    await deliverVia(
+      new MemoDeliveryCoordinator(recordingGateway(unconfirmedTarget, observedMemberNames)),
+      request,
+    );
+
+    expect([...new Set(observedMemberNames)].sort()).toEqual([
+      "readTurnsForMarkerReconciliation",
+      "sendMemoTurn",
+    ]);
+  });
+});
+
+describe("memo frame — the key is carried as visible characters", () => {
+  it("renders the derived key into the frame the target receives", async () => {
+    const sentFrames: MemoOutboundFrame[] = [];
+    const gateway: MemoTargetGateway = {
+      readTurnsForMarkerReconciliation: async (): Promise<readonly string[]> => [],
+      sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
+        sentFrames.push(frame);
+      },
+    };
+    const projection: CanonicalTranscriptProjection = generateTranscript(11).projection;
+
+    const settlement: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(gateway),
+      requestFor(projection),
+    );
+
+    const marker: string = renderMemoContinuityMarker(
+      settlement.memoIdentityKey,
+      settlement.declaredLosses,
+    );
+    const frame: MemoOutboundFrame | undefined = sentFrames[0];
+    expect(frame).toBeDefined();
+    // Asserted on the frame the target receives, not on the projection or the settlement.
+    expect(frame?.frame.wireText).toContain(marker);
+    expect(frame?.memoIdentityKey).toBe(settlement.memoIdentityKey);
+
+    const markerIndex: number = (frame?.frame.wireText ?? "").indexOf(marker);
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    // The whole marker, loss record included, is one whitespace-free run of printable ASCII so
+    // that it survives a provider's reflow.
+    expect(marker).toMatch(/^[\x21-\x7E]+$/);
+  });
+
   it("reaches the gateway only through a composed frame, minted as system narration", async () => {
     const sentFrames: MemoOutboundFrame[] = [];
     const gateway: MemoTargetGateway = {
@@ -1197,6 +1577,39 @@ describe("memo frame — minted through the neutralizing writer", () => {
     expect(frame?.frame.authoredText).toBe(settlement.rendering.text);
     // The correlation id the tripwire joins a turn back on is present.
     expect((frame?.frame.correlationId ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("uses no invisible or zero-width character anywhere in the frame", async () => {
+    const sentFrames: MemoOutboundFrame[] = [];
+    const gateway: MemoTargetGateway = {
+      readTurnsForMarkerReconciliation: async (): Promise<readonly string[]> => [],
+      sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
+        sentFrames.push(frame);
+      },
+    };
+
+    await deliverVia(
+      new MemoDeliveryCoordinator(gateway),
+      requestFor(generateTranscript(12).projection),
+    );
+
+    const frameText: string = sentFrames[0]?.frame.wireText ?? "";
+    expect(frameText.length).toBeGreaterThan(0);
+    // Zero-width, word-joiner, BOM, variation-selector and Unicode tag characters must never
+    // appear as sentinels. Scanned by code point because a character class holding them is
+    // misleading to read.
+    const invisibleCodePoints: number[] = [...frameText]
+      .map((character) => character.codePointAt(0) ?? 0)
+      .filter(
+        (codePoint) =>
+          (codePoint >= 0x200b && codePoint <= 0x200f) ||
+          (codePoint >= 0x2060 && codePoint <= 0x2064) ||
+          codePoint === 0xfeff ||
+          (codePoint >= 0xfe00 && codePoint <= 0xfe0f) ||
+          (codePoint >= 0xe0000 && codePoint <= 0xe007f),
+      );
+    expect(invisibleCodePoints).toEqual([]);
+    expect(MEMO_CONTINUITY_MARKER_PREFIX).toMatch(/^[\x21-\x7E]+$/);
   });
 });
 
@@ -1251,6 +1664,57 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
       expect(target.sendAttempts).toBe(1);
     }
   });
+
+  it("refuses an applied disposition that also declares the summarization", async () => {
+    // The router builds its result from a literal and never parses one, so the schema's arm
+    // scoping does not apply; unguarded, it would publish native-replay continuity for a
+    // session that holds a bounded prose summary.
+    const target = new FakeTargetSession();
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const router = new TranscriptReconstitutionRouter(coordinator);
+
+    await expect(
+      router.route(
+        { outcome: "applied", declaredLosses: ["conversation_history_summarized"] },
+        addressedTo(
+          coordinator,
+          requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
+        ),
+      ),
+    ).rejects.toBeInstanceOf(ContradictoryReplayDispositionError);
+
+    // Refused, not rerouted: sending a summary would resolve the caller's contradiction by
+    // picking one of its two claims.
+    expect(target.sendAttempts).toBe(0);
+  });
+
+  it("still routes an applied disposition carrying ordinary losses", async () => {
+    // The guard keys on the one loss kind that names the memo floor, not on a non-empty list;
+    // an applied replay that stripped private reasoning is the ordinary case and still routes.
+    const target = new FakeTargetSession();
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const router = new TranscriptReconstitutionRouter(coordinator);
+
+    const settlement: ReconstitutionSettlement = await router.route(
+      {
+        outcome: "applied",
+        declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
+      },
+      addressedTo(
+        coordinator,
+        requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
+      ),
+    );
+
+    expect(settlement.route).toBe("native-replay");
+    if (settlement.route !== "native-replay") {
+      throw new Error("an applied replay is the native-replay route");
+    }
+    expect(settlement.result.declaredLosses).toEqual([
+      "provider_private_reasoning",
+      "tool_call_history_repaired",
+    ]);
+  });
 });
 
 async function collectMemoSettlements(): Promise<MemoDeliverySettlement[]> {
@@ -1286,7 +1750,75 @@ async function collectMemoSettlements(): Promise<MemoDeliverySettlement[]> {
   return [delivered, alreadyDelivered, withheld, unconfirmed];
 }
 
-describe("settlement — a memo is reported degraded, and only once it landed", () => {
+describe("settlement disclosure — a degraded settlement never reads like an applied one", () => {
+  it("renders every memo disposition differently from an applied replay", async () => {
+    const memoSettlements: MemoDeliverySettlement[] = await collectMemoSettlements();
+    expect(memoSettlements.map((settlement) => settlement.disposition)).toEqual([
+      "delivered",
+      "already-delivered",
+      "withheld",
+      "unconfirmed",
+    ]);
+
+    // An applied replay that itself declared a loss: an implementation that inferred degraded
+    // from a non-empty loss list fails here. The applied arm reads the list only to choose
+    // between claiming a full replay and naming what it omitted; the route never comes from it.
+    const appliedWithLoss: ReconstitutionSettlement = {
+      route: "native-replay",
+      result: { status: "applied", declaredLosses: ["provider_private_reasoning"] },
+    };
+    const appliedWithoutLoss: ReconstitutionSettlement = {
+      route: "native-replay",
+      result: { status: "applied", declaredLosses: [] },
+    };
+
+    const renderings: string[] = [
+      renderReconstitutionDisclosure(appliedWithLoss),
+      renderReconstitutionDisclosure(appliedWithoutLoss),
+      ...memoSettlements.map((settlement) =>
+        renderReconstitutionDisclosure({ route: "memo", memo: settlement }),
+      ),
+    ];
+
+    // Every rendering is distinct, applied and memo alike.
+    expect(new Set(renderings).size).toBe(renderings.length);
+
+    const appliedRenderings: string[] = renderings.slice(0, 2);
+    for (const memoRendering of renderings.slice(2)) {
+      expect(appliedRenderings).not.toContain(memoRendering);
+    }
+  });
+
+  it("claims a replay was in full only when the declared-loss list is empty", () => {
+    const disclosure: string = renderReconstitutionDisclosure({
+      route: "native-replay",
+      result: { status: "applied", declaredLosses: [] },
+    });
+
+    expect(disclosure).toContain("in full");
+    expect(disclosure).toContain("nothing was dropped");
+  });
+
+  it("names what an applied replay omitted, and does not call that replay in full", () => {
+    const disclosure: string = renderReconstitutionDisclosure({
+      route: "native-replay",
+      result: {
+        status: "applied",
+        declaredLosses: ["provider_private_reasoning", "turn_content_unavailable"],
+      },
+    });
+
+    // "In full" is reserved for a replay that dropped nothing; a replay that omitted something
+    // names the omissions instead.
+    expect(disclosure).not.toContain("in full");
+    expect(disclosure).toContain("provider_private_reasoning");
+    expect(disclosure).toContain("turn_content_unavailable");
+    expect(disclosure).not.toContain("nothing was dropped");
+    // It is still an applied replay, not a summary.
+    expect(disclosure).toContain("replayed into the new session");
+    expect(disclosure).not.toContain("summarized");
+  });
+
   it("produces no replay result for a settlement that established no delivery", async () => {
     // `degraded` at the driver boundary means the memo floor stood in and the target holds a
     // summary. Stamping it for a settlement that established no delivery would report a
@@ -1323,5 +1855,111 @@ describe("settlement — a memo is reported degraded, and only once it landed", 
       }
     }
     expect(withheld.withheldReason).toBe("target-unreadable");
+  });
+
+  it("still reports an unlanded memo to the user rather than erasing it", async () => {
+    // Routing still settles with a memo disposition: the user must be told the summary did not
+    // arrive, and a throw from the router would lose that disclosure.
+    const target = new FakeTargetSession();
+    target.readOutcomes.push("fail");
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const router = new TranscriptReconstitutionRouter(coordinator);
+
+    const settlement: ReconstitutionSettlement = await router.route(
+      { outcome: "unavailable" },
+      addressedTo(
+        coordinator,
+        requestFor(projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])])),
+      ),
+    );
+
+    expect(settlement.route).toBe("memo");
+    if (settlement.route !== "memo") {
+      throw new Error("an unreadable target still routes to the memo floor");
+    }
+    expect(settlement.memo.disposition).toBe("withheld");
+    expect(renderReconstitutionDisclosure(settlement)).toContain("did not reach the new session");
+    // The memo arm carries no boundary result to be mistaken for one.
+    expect(Object.hasOwn(settlement, "result")).toBe(false);
+  });
+
+  it("says plainly, on every memo path, that the conversation was summarized", async () => {
+    for (const settlement of await collectMemoSettlements()) {
+      const disclosure: string = renderReconstitutionDisclosure({
+        route: "memo",
+        memo: settlement,
+      });
+      expect(disclosure).toContain("summarized");
+      expect(settlement.status).toBe("degraded");
+    }
+  });
+});
+
+describe("memo floor — a result whose enclosure cannot be resolved is withheld", () => {
+  /**
+   * A tool result citing a reasoning block the content port could not read. It uses its own
+   * content source because the suite's answers the empty list for every reasoning row, which
+   * means a row with no blocks, not one whose blocks could not be read.
+   */
+  function foldUnreadableEnclosure(): CanonicalTranscriptProjection {
+    const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
+    fixture.contentSource.userTextBySequence.set(1, "run the tests");
+    // No blocks are seeded for this row, so the port answers that they could not be read.
+    fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.log.append(
+      storedEvent(3, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-1",
+        toolName: "run_tests",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(3, '{"suite":"unit"}');
+    fixture.log.append(storedEvent(4, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(4, {
+      text: "42 passed",
+      enclosingReasoningBlockId: "block-private-1",
+    });
+    return fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+  }
+
+  it("keeps the body out of the summary the new session is handed", async () => {
+    // The memo floor runs the same strip as the export, so the withholding applies here too: a
+    // memo is prose the target model reads, and content that may be private reasoning's must not
+    // appear in it.
+    const projection: CanonicalTranscriptProjection = foldUnreadableEnclosure();
+
+    const target = new FakeTargetSession();
+    const settlement: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(target),
+      requestFor(projection),
+    );
+
+    expect(settlement.disposition).toBe("delivered");
+    expect(settlement.rendering.text).not.toContain("42 passed");
+    expect(settlement.rendering.declaredLosses).toContain("turn_content_unavailable");
+    // The call still renders, so the body is withheld but the exchange is not erased.
+    expect(settlement.rendering.text).toContain("[tool call run_tests (call-1)]");
+    expect(target.turns[0]).not.toContain("42 passed");
+  });
+
+  it("keeps a withheld private-enclosed legacy answer out of the summary", () => {
+    // The fold's stand-in for an unkeyed tool result whose reasoning block is private, beside a
+    // real sibling so the turn survives the strip.
+    const withMarker: CanonicalTranscriptProjection = projectionOf([
+      turn(1, "user", [{ kind: "text", text: "run the tests" }]),
+      turn(2, "assistant", [
+        { kind: "text", text: "", withheldEnclosure: "private" },
+        { kind: "text", text: "all green" },
+      ]),
+    ]);
+
+    const rendering: MemoRendering = new MemoProjection().render(requestFor(withMarker));
+
+    // The marker is consumed before rendering, adds no prose, and declares the private-reasoning
+    // loss.
+    expect(rendering.text).toContain("all green");
+    expect(rendering.text).not.toContain("withheldEnclosure");
+    expect(rendering.declaredLosses).toContain("provider_private_reasoning");
   });
 });
