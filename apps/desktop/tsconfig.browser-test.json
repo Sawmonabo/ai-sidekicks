@@ -1,34 +1,30 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates the three BROWSER-MODE tiers (browser, screenshot,
-  // accessibility) and the helpers they share.
+  // Type-validates the three browser-mode tiers (browser, screenshot, accessibility) and the
+  // helpers they share.
   //
-  // They need their own config because they sit in two contexts at once: they
-  // live under the package-root `tests/` directory, which the Node-context
-  // `tsconfig.test.json` owns, but they import renderer sources and render React
-  // into a real DOM. Left in the Node config they fail for reasons that have
-  // nothing to do with them — `--jsx` not set, `IDBFactory` and `indexedDB`
-  // unresolved, `Document` resolving to Electron's `WebviewTag` — so
-  // `tsconfig.test.json` excludes them and this config picks them up under the
-  // renderer's own compiler options.
+  // They need their own config because they sit in two contexts at once: they live under the
+  // package-root `tests/` directory, which the Node-context `tsconfig.test.json` owns, but they
+  // import renderer sources and render React into a real DOM. In the Node config they fail for
+  // unrelated reasons (`--jsx` not set, `IDBFactory` and `indexedDB` unresolved, `Document`
+  // resolving to Electron's `WebviewTag`), so `tsconfig.test.json` excludes them and this config
+  // picks them up under the renderer's own compiler options.
   //
-  // It extends the RENDERER config rather than the Node one, and overrides
-  // `rootDir`/`outDir` because these files sit outside `src/renderer/` (a
-  // `noEmit` pass still enforces `rootDir` containment, TS6059).
+  // It extends the renderer config rather than the Node one, and overrides `rootDir` and `outDir`
+  // because these files sit outside `src/renderer/` (a `noEmit` pass still enforces `rootDir`
+  // containment, TS6059).
   //
   // `types` carries three entries and each is load-bearing:
-  //   • `vitest/globals` — `describe` / `it` / `expect` on the global scope.
-  //   • `@vitest/browser/matchers` — registers `toMatchScreenshot` and the
-  //     jest-dom matchers on `expect`; without it the screenshot tier does not
-  //     compile. (This is also why `apps/desktop` declares `@vitest/browser`
-  //     directly rather than leaning on it as a transitive dependency: under
-  //     pnpm's strict layout a `types` entry can only name a visible package.)
-  //   • `@vitest/browser-playwright` — its entry point carries
-  //     `declare module "vitest/browser" { interface CDPSession … }`, which is
-  //     what gives `cdp()` its `send` method. `vitest/internal/browser` declares
-  //     `CDPSession` as an EMPTY interface on purpose, as an extension point for
-  //     whichever provider is configured; without this entry the harness's
-  //     `Emulation.setEmulatedMedia` call runs correctly and does not compile.
+  //   • `vitest/globals`: `describe`, `it` and `expect` on the global scope.
+  //   • `@vitest/browser/matchers`: registers `toMatchScreenshot` and the jest-dom matchers on
+  //     `expect`; without it the screenshot tier does not compile. This is also why `apps/desktop`
+  //     declares `@vitest/browser` directly rather than leaning on it transitively: under pnpm's
+  //     strict layout a `types` entry can only name a visible package.
+  //   • `@vitest/browser-playwright`: its entry point carries
+  //     `declare module "vitest/browser" { interface CDPSession … }`, which gives `cdp()` its
+  //     `send` method. `vitest/internal/browser` declares `CDPSession` as an empty interface on
+  //     purpose, as an extension point for whichever provider is configured; without this entry the
+  //     harness's `Emulation.setEmulatedMedia` call runs correctly and does not compile.
   "extends": "./src/renderer/tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
@@ -44,10 +40,9 @@
   "include": [
     "tests/helpers/app-harness.ts",
     "tests/helpers/run-graph-settled.ts",
-    // One glob rather than a line per feature: `tests/helpers/feature-mounts/` is the
-    // mount helpers each feature's screenshot and accessibility suites drive, so a
-    // per-file entry here is a line every feature branch has to remember to add and
-    // exactly one of them will not.
+    // One glob rather than a line per feature: `tests/helpers/feature-mounts/` holds the mount
+    // helpers each feature's screenshot and accessibility suites drive, and a per-file entry is a
+    // line every feature branch has to remember to add.
     "tests/helpers/feature-mounts/**/*",
     "tests/browser/**/*",
     "tests/screenshot/**/*",

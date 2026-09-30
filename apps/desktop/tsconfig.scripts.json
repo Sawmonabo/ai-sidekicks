@@ -1,36 +1,31 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates `scripts/` — the Node-context tools invoked BY NAME from a
-  // package script, as distinct from `build/`, which runs DURING `pnpm build`
-  // and has its own sibling config. Same shape as `tsconfig.build.json`:
-  // `noEmit` plus an isolated buildinfo, so the scripts are typechecked without
-  // entering the project-references graph or the production `dist/` layout.
+  // Type-validates `scripts/`, the Node-context tools invoked by name from a package script, as
+  // distinct from `build/`, which runs during `pnpm build` and has its own sibling config. Same
+  // shape as `tsconfig.build.json`: `noEmit` plus an isolated buildinfo, so the scripts are
+  // typechecked without entering the project-references graph or the production `dist/` layout.
   //
-  // The scripts are TypeScript run through `node --experimental-strip-types`, and this is
-  // the one config that checks them: `tsconfig.test.json` covers `src/**`, `tests/**`
-  // and the scripts' tests, and `tsconfig.build.json` covers `build/**`. The package
-  // `typecheck` script reaches it.
+  // The scripts are TypeScript run through `node --experimental-strip-types`, and this is the one
+  // config that checks them: `tsconfig.test.json` covers `src/**`, `tests/**` and the scripts'
+  // tests, and `tsconfig.build.json` covers `build/**`. The package `typecheck` script reaches it.
   "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "./scripts",
-    // `isolatedDeclarations` (inherited from base) requires either `declaration`
-    // or `composite`; `declaration: true` paired with `noEmit: true` honors the
-    // constraint without writing files (see TS5069). `composite: false` and a
-    // null buildinfo keep this config out of the project-references graph.
+    // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
+    // project-references graph.
     "composite": false,
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false,
-    // These files are executed by `node --experimental-strip-types`, which
-    // resolves the extension it is given and performs no `.mts` → `.mjs`
-    // rewriting. So the relative imports between them name the real file, and
-    // this is the option that permits it — the posture TypeScript documents for
-    // a `noEmit` project whose runtime loads TypeScript directly.
+    // The scripts run under `node --experimental-strip-types`, which resolves the extension it is
+    // given and performs no `.mts` to `.mjs` rewriting, so their relative imports name the real
+    // file; this option permits that (the documented posture for a `noEmit` project whose runtime
+    // loads TypeScript directly).
     "allowImportingTsExtensions": true
   },
   "include": ["scripts/**/*"],
-  // The executables' tests import shared test helpers from `tests/helpers/`, outside
-  // `rootDir`; they are typechecked by `tsconfig.test.json`.
+  // The executables' tests import shared test helpers from `tests/helpers/`, outside `rootDir`;
+  // `tsconfig.test.json` typechecks them.
   "exclude": ["dist", "out", "node_modules", "scripts/**/*.test.ts"]
 }

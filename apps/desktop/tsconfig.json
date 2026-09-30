@@ -1,15 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // The Node-context entry for the desktop package; it
-  // typechecks `src/main/**` + `src/preload/**`. The renderer lives in a separate
-  // composite project at `src/renderer/tsconfig.json` (browser context: DOM lib,
-  // JSX, no Node types) and is wired in via the `references` array below — so
-  // `tsc -b` walks into it and typechecks the .tsx files under their own config
-  // instead of dragging them into this Node-context compilation. The matching
-  // `src/renderer/**` exclude below prevents the `include: ["src/**/*"]` glob
-  // from double-counting the renderer files under this config's Node settings
-  // (which would re-trigger TS17004 / TS6142 / TS2584 by stripping the renderer
-  // of JSX + DOM lib).
+  // The Node-context entry for the desktop package; it typechecks `src/main/**` and
+  // `src/preload/**`. The renderer is a separate composite project at `src/renderer/tsconfig.json`
+  // (browser context: DOM lib, JSX, no Node types) wired in through `references`, so `tsc -b`
+  // typechecks its .tsx files under their own config. The `src/renderer/**` exclude below keeps the
+  // `include: ["src/**/*"]` glob from double-counting the renderer under this config's Node
+  // settings, which would re-trigger TS17004 / TS6142 / TS2584.
   "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "outDir": "./dist",
@@ -23,10 +19,9 @@
     { "path": "./src/renderer" }
   ],
   "include": ["src/**/*"],
-  // `src/**/*.test.ts` is excluded because
-  // the `main-unit` Vitest project co-locates main-process units beside the
-  // modules they cover (`src/main/protocol.test.ts`), and this project EMITS, so
-  // an included test file would compile a `vitest` import into `dist/`.
-  // Type-validation for those files runs under `tsconfig.test.json` (noEmit).
+  // `src/**/*.test.ts` is excluded because the `main-unit` Vitest project co-locates main-process
+  // units beside the modules they cover (for example `src/main/services/renderer-scheme.test.ts`),
+  // and this project emits, so an included test file would compile a `vitest` import into `dist/`.
+  // `tsconfig.test.json` (noEmit) type-validates them.
   "exclude": ["dist", "out", "node_modules", "src/**/*.test.ts", "src/renderer/**"]
 }

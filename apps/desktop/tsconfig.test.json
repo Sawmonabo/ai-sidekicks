@@ -1,59 +1,45 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates test files without emitting. The production `tsconfig.json`
-  // excludes `src/**/*.test.ts` so test files don't ship in `dist/`; this config
-  // covers them via a `noEmit` typecheck pass.
+  // Type-validates test files without emitting. The production `tsconfig.json` excludes
+  // `src/**/*.test.ts` so test files don't ship in `dist/`; this config covers them via a `noEmit`
+  // pass.
   //
-  // This config also covers the package-root `tests/` directory. The smoke
-  // test lives at `apps/desktop/tests/launch.smoke.test.ts`, a sibling of
-  // `src/`. To keep that file typechecked, we drop the `rootDir: ./src`
-  // constraint (which would error on files outside `src/`) and broaden
-  // `include` to the Node-context files under `tests/`. The narrower `dist`
-  // / `node_modules` excludes remain; `rootDir` is omitted so TS infers it
-  // as the longest common ancestor of the include set.
+  // It also covers the package-root `tests/` directory (the smoke test is
+  // `tests/launch.smoke.test.ts`, a sibling of `src/`), so it drops the `rootDir: ./src`
+  // constraint, which would error on files outside `src/`, and TS infers `rootDir` as the longest
+  // common ancestor of the include set.
   "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,
-    // `isolatedDeclarations` (inherited from base) requires either `declaration`
-    // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
-    // the typechecker honors `isolatedDeclarations` constraints without writing
-    // files (see TS5069). `composite: false` and a null buildinfo prevent this
-    // config from polluting the project-references graph.
+    // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
+    // project-references graph.
     "composite": false,
     "declaration": true,
     "declarationMap": false,
     "sourceMap": false,
-    // The bundle tier imports the harnesses under `scripts/budget/`,
-    // which are TypeScript run directly by `node --experimental-strip-types`
-    // Node resolves the extension it is GIVEN and does
-    // no `.mjs` → `.mts` rewriting, so those modules import each other by their
-    // real `.mts` path — and a program that pulls them in needs this option to
-    // accept that path. Legal here because this config is `noEmit`.
+    // The bundle tier imports the harnesses under `scripts/budget/`, TypeScript run directly by
+    // `node --experimental-strip-types`. Node resolves the extension it is given and does no `.mjs`
+    // to `.mts` rewriting, so those modules import each other by their real `.mts` path, and a
+    // program that pulls them in needs this option. Legal here because this config is `noEmit`.
     "allowImportingTsExtensions": true
   },
-  // `files` rather than `include`, deliberately: `exclude` filters `include` and
-  // this path sits under the excluded `src/renderer/**`, while a `files` entry is
-  // unconditional. The declarations are needed because exclusion only filters the
-  // include globs — a test that IMPORTS a renderer module still pulls it into the
-  // program, and the bundle tier does exactly that to name the string it greps
-  // for rather than copying it. Those modules read the renderer's build-time
-  // signals, which are declared here and nowhere else.
+  // `files` rather than `include`, deliberately: `exclude` filters `include`, and this path sits
+  // under the excluded `src/renderer/**`, while a `files` entry is unconditional. The declaration
+  // is needed because exclusion filters only the include globs: a test that imports a renderer
+  // module still pulls it into the program, and the bundle tier does exactly that to name the
+  // string it greps for rather than copying it. Those modules read the renderer's build-time
+  // signals, which that file declares.
   "files": ["src/renderer/src/vite-env.d.ts"],
-  // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units,
-  // the executables' tests under `scripts/`, the smoke and GC launches directly under
-  // `tests/`, and the bundle tier. The other
-  // folders under `tests/` hold DOM or Electron-driving code and are typechecked by
-  // `tsconfig.browser-test.json`, `tsconfig.electron-test.json`,
+  // The Node-context tests: `src/main/**`, `src/preload/**` and `src/shared/**` units, the
+  // executables' tests under `scripts/`, the smoke and GC launches directly under `tests/`, and the
+  // bundle tier. The other folders under `tests/` hold DOM or Electron-driving code and are
+  // typechecked by `tsconfig.browser-test.json`, `tsconfig.electron-test.json`,
   // `tsconfig.bench-test.json` and the renderer's `tsconfig.test.json`. A helper under
   // `tests/helpers/` is typechecked here when a test here imports it.
   "include": ["src/**/*", "scripts/**/*.test.ts", "tests/*.test.ts", "tests/budget/**/*"],
-  // `src/renderer/**` is excluded because the renderer is a separate composite
-  // project (browser context: JSX + DOM lib) wired in via the parent
-  // tsconfig.json `references`. This Node-context test config would otherwise
-  // drag renderer .tsx files into a JSX-less / DOM-less compilation and trip
-  // TS17004 / TS6142 / TS2584 — the same shape of structural blocker the
-  // parent tsconfig.json exclude resolves. Renderer-internal test files are
-  // typechecked by the renderer composite project itself, not by this
-  // Node-context config.
+  // `src/renderer/**` is excluded because the renderer is a separate composite project (browser
+  // context: JSX + DOM lib) wired in via the parent tsconfig.json `references`; a Node-context pass
+  // would drag its .tsx files into a JSX-less, DOM-less compilation and trip TS17004 / TS6142 /
+  // TS2584. The renderer's `tsconfig.test.json` typechecks its test files.
   "exclude": ["dist", "node_modules", "src/renderer/**"]
 }
