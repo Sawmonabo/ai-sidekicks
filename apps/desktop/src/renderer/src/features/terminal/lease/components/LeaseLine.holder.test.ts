@@ -16,7 +16,8 @@ describe("the holding line — a running command holds the shell", () => {
         holderCommandId: COMMAND_ID,
       }),
     );
-    expect(container.textContent).toContain("Running command holds the shell.");
+    // The design leads the sentence with the command's session; only the claim is pinned here.
+    expect(container.textContent).toMatch(/running command holds the shell\./i);
     expect(container.querySelector(".meridian-lease-line__take")).toBeNull();
     // The run's machine is the holding device, and that may be this one; the line still never
     // tells it that it may type.
