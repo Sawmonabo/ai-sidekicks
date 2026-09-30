@@ -1,25 +1,9 @@
-// The three inline cards a transcript row can carry, and the registry each body fills.
+// The inline cards a transcript row can carry (diff, attachment, artifact) and the registry
+// each body fills. The transcript renders them (`features/transcript/rows/InlineCards.tsx`);
+// the repos, composer and inspector features register the bodies. Neither side imports the other.
 //
-// These live in the transcript: a diff card expands to a height cap and then offers
-// "show all". A diff, an attachment, and a published artifact each render as a card
-// INSIDE a row rather than as a pane, because they belong to the turn that produced
-// them.
-//
-// FOUR FEATURES MEET HERE. The transcript renders the cards (`features/transcript/rows/
-// InlineCards.tsx`); the repos feature registers the diff body, the composer the
-// attachment body, and the inspector the artifact body. The transcript imports no body and
-// the bodies import no transcript.
-//
-// WHY THE PROPS CARRY IDENTITY AND NOTHING ELSE
-//
-// A card body needs the artifact's size, its media type, its allow-list verdict — and
-// NONE of those is a wire member that exists. Minting a `ConsoleArtifact` shape here
-// with the members a card would like would be the console inventing wire members, which
-// `store/entities/entities.ts` names as a change this console may not make.
-//
-// So each arm carries the identity its body fetches WITH. The day the typed attachment
-// reference is registered, the local `InlineCardAttachmentRef` below is deleted and
-// the contract type imported in its place — one edit.
+// Props carry identity only: size, media type and allow-list verdict are not wire members, and
+// the renderer must not invent them. Each body fetches with the identity its arm carries.
 
 import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
@@ -29,51 +13,23 @@ import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 const INLINE_CARD_ORIGIN = "inline-cards";
 
 /**
- * Every kind of card a transcript row can carry. Closed.
- *
- * The tuple is the declaration and the union is derived from it, for the reason
- * `routing/panes/pane-kinds.ts` gives about its own set.
+ * Every kind of card a transcript row can carry; the closed tuple `InlineCardKind` derives from.
  */
 export const INLINE_CARD_KINDS = ["diff", "attachment", "artifact"] as const;
 
-/** One inline-card kind. Derived from the enumeration, never restated. */
+/** One inline-card kind. */
 export type InlineCardKind = (typeof INLINE_CARD_KINDS)[number];
 
-/**
- * A reference to an attachment on a message.
- *
- * Renderer-local and identity-only, and it is a placeholder with a named owner
- * rather than a guess: the attachment reference is typed and built outside this
- * console, and until that lands `@ai-sidekicks/contracts` exports no attachment type at
- * all — `SteerPayload.attachments` is `unknown[]` by contract. When the typed reference
- * ships, this interface is deleted and the contract type is imported at the arm below.
- */
+/** A renderer-local, identity-only reference to an attachment on a message. */
 export interface InlineCardAttachmentRef {
-  /** Opaque, wire-verbatim. The only thing the console can honestly hold today. */
+  /** Opaque and wire-verbatim. */
   readonly attachmentId: string;
 }
 
 /**
- * A diff card, over one computed diff.
- *
- * The two identifiers are the ones the registered diff result carries — the
- * `DiffArtifactCreateResponse` in
- * `docs/architecture/contracts/api-payload-contracts.md`, whose members are
- * `diffArtifactId`, `artifactManifestId`, and `createdAt`. They are spelled flat
- * here because that response is flat, so the arm and the wire it is fetched with
- * read as one shape.
- *
- * This arm used to carry a `changeSetId`, which had no producer, no consumer, and no
- * registration anywhere in the corpus: a card body handed one had nothing to fetch
- * with, and the identifier looked exactly like a wire fact while being traceable to
- * nothing. Both members are needed rather than one — the diff and the artifact
- * manifest it mints are two rows, and a body renders the diff while its provenance
- * and retention hang off the manifest.
- *
- * `packages/contracts` exports no diff type yet, so these are plain strings, the
- * same posture (and the same deletion obligation) `InlineCardAttachmentRef` above
- * takes: when the contracts package registers the response, these members take its
- * branded ids and this comment goes with the change.
+ * A diff card, over one computed diff. Both identifiers are needed: the diff and the artifact
+ * manifest it mints are two rows, and a body renders the diff while provenance and retention
+ * hang off the manifest. They are plain strings because the contracts package has no diff type.
  */
 export interface DiffInlineCardProps {
   readonly kind: "diff";
@@ -81,22 +37,11 @@ export interface DiffInlineCardProps {
   readonly diffArtifactId: string;
   readonly artifactManifestId: string;
   /**
-   * The base state of the comparison this diff was taken over, where the row knows it.
-   *
-   * WIRE-NAMED AND ADDITIVE-OPTIONAL, AS A PAIR. `baseRef` and `headRef` are the two
-   * members `DiffArtifactCreateRequest` carries on both of its attribution arms, so a
-   * row that knows what was compared hands the body the same two names the mint was
-   * keyed by rather than a second vocabulary for them. They are OPTIONAL because a row
-   * that only knows a diff artifact exists is an ordinary row — the ids above are what
-   * the turn's own record carries — and they are read as a PAIR because half a
-   * comparison names nothing: a base with no head does not say what a diff is between.
-   *
-   * The registry carries the TYPE and no reading of it. What a body does with a named
-   * comparison is the owning feature's question, and this file sits below every feature
-   * precisely so that answering it here would be the wrong place.
+   * The base state of the comparison, where the row knows it. Optional, and read only as a pair
+   * with `headRef`, since a base with no head names nothing. The registry only carries the type.
    */
   readonly baseRef?: string;
-  /** The head state of that comparison. Read only with `baseRef`, never alone. */
+  /** The head state of the comparison; read only with `baseRef`. */
   readonly headRef?: string;
 }
 
@@ -107,67 +52,41 @@ export interface AttachmentInlineCardProps {
 }
 
 /**
- * A reference to one entity in the console's `artifact` partition.
- *
- * `EntityRef` narrowed to the one kind this card can render, EXTENDED from
- * it rather than restated: `id` keeps its single home, and `kind` is fixed to the
- * literal. The unnarrowed ref admits all twelve kinds, so a caller could hand the
- * artifact card a `run` reference and the body would look the row up in a partition
- * that has never held it — a card that renders as permanently missing, which is
- * indistinguishable from an artifact the fetch has not answered for yet.
- *
- * The narrowing is the whole guard, and deliberately so: this arm is reached from
- * typed call sites inside the renderer, never from a wire payload, so there is no
- * boundary at which an untyped `kind` could arrive and nothing for a runtime check
- * to catch that the compiler has not already refused.
+ * A reference to one entity in the `artifact` partition: `EntityRef` with `kind` fixed. The
+ * narrowing is the whole guard, since a `run` reference would look up a partition that never holds
+ * it and render as permanently missing. Callers are typed, so no runtime check is needed.
  */
 export interface ArtifactEntityRef extends EntityRef {
   readonly kind: "artifact";
 }
 
-/**
- * An artifact card, over one published artifact.
- *
- * Carries an entity reference because `artifact` is already one of the console's
- * own entity kinds — the store partitions artifacts, and a second identity
- * vocabulary for the same rows would be the denormalized copy `store/entities/entities.ts`
- * refuses. It carries the ARTIFACT-partitioned reference specifically, for the
- * reason on that type.
- */
+/** An artifact card, over one published artifact; it reuses the store's entity reference. */
 export interface ArtifactInlineCardProps {
   readonly kind: "artifact";
   readonly artifact: ArtifactEntityRef;
 }
 
-/**
- * The props each card kind's body receives, declared once and indexed by kind.
- *
- * A map rather than three parallel declarations, so `InlineCardProps` below
- * and every per-kind signature in this file are derived from one place. A kind
- * added to `INLINE_CARD_KINDS` without an entry here fails to compile at this
- * type, which is the reminder that a card kind without props is a kind nothing
- * can render.
- */
+/** The props each card kind's body receives, indexed by kind; the per-kind types derive from it. */
 export interface InlineCardPropsByKind {
   readonly diff: DiffInlineCardProps;
   readonly attachment: AttachmentInlineCardProps;
   readonly artifact: ArtifactInlineCardProps;
 }
 
-/** The discriminated union of every card's props. Narrow on `kind`. */
+/** The union of every card's props; narrow on `kind`. */
 export type InlineCardProps = InlineCardPropsByKind[InlineCardKind];
 
 /** What a feature registers to fill one card kind's body. */
 export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineCardKind> {
-  /** The feature that owns it, so an unfilled card names someone. */
+  /** The feature that owns the body. */
   readonly owner: string;
   readonly render: (props: InlineCardPropsByKind[TKind]) => React.ReactNode;
 }
 
+/**
+ * The inline-card bodies by kind; the same owner replaces on hot reload, another owner is refused.
+ */
 export class InlineCardRegistry {
-  // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: a hot reload
-  // re-runs the owning feature's module and must replace, while two owners on one
-  // card kind is a conflict rather than a swap decided by import order.
   readonly #bodiesByKind = new KeyedRegistry<InlineCardKind, InlineCardBodyDescriptor>({
     duplicatePolicy: "owner-scoped",
     describeWhat: "inline card body",
@@ -176,14 +95,9 @@ export class InlineCardRegistry {
   });
 
   /**
-   * Claim one card kind.
-   *
-   * The body is written against ITS OWN arm — `(props: DiffInlineCardProps)` — and
-   * stored in a table whose value type spans all three. TypeScript cannot see that
-   * a body registered under `"diff"` is only ever read back under `"diff"`, because
-   * the relation runs through a `Map` key; the wrapper below is where that relation
-   * is made true at runtime instead of asserted. A mismatched arm refuses by name
-   * rather than reaching a body typed against a different shape.
+   * Claims one card kind. The body is typed against its own arm but stored in a table spanning
+   * all three, so the wrapper checks the kind at runtime and throws a named `RefusalError` on a
+   * mismatch instead of running a body against another shape.
    */
   public register<TKind extends InlineCardKind>(
     kind: TKind,
@@ -201,18 +115,18 @@ export class InlineCardRegistry {
             ),
           );
         }
-        // Sound because of the guard immediately above: `props.kind` and the key
-        // this body was registered under are now known to be the same literal, and
-        // `InlineCardPropsByKind` is keyed by exactly that discriminant.
+        // Sound because the guard above proves `props.kind` is the registered key.
         return descriptor.render(props as InlineCardPropsByKind[TKind]);
       },
     });
   }
 
+  /** Removes the body for one kind. */
   public unregister(kind: InlineCardKind): void {
     this.#bodiesByKind.unregister(kind);
   }
 
+  /** The registered body for a kind, or `undefined` while nobody has filled it. */
   public bodyFor(kind: InlineCardKind): InlineCardBodyDescriptor | undefined {
     return this.#bodiesByKind.get(kind);
   }
@@ -223,21 +137,15 @@ export class InlineCardRegistry {
   }
 
   /**
-   * Render one card. The call the transcript row makes.
-   *
-   * Keyed on the props' OWN discriminant, so the body reached is by construction
-   * the one registered for that arm — the reason the guard in `register` is a
-   * backstop for `bodyFor` rather than the mechanism this path relies
-   * on. An unfilled kind renders nothing here; a caller that needs to TELL an
-   * unfilled kind from a body that rendered nothing asks `bodyFor` instead, which
-   * is the "reserved, not stubbed" question and has its own answer.
+   * Renders one card, keyed on the props' own kind. An unfilled kind renders nothing; a caller
+   * that must tell that from a body that rendered nothing asks `bodyFor`.
    */
   public render(props: InlineCardProps): React.ReactNode {
     return this.#bodiesByKind.get(props.kind)?.render(props);
   }
 }
 
-/** The process-wide registry the repos, composer, and inspector features register into. */
+/** The process-wide registry the repos, composer and inspector features register into. */
 export const inlineCardRegistry: InlineCardRegistry = new InlineCardRegistry();
 
 /** One card kind's body, or `undefined` while nobody has filled it. */

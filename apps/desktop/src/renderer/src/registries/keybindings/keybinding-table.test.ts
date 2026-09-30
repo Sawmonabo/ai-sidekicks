@@ -1,14 +1,6 @@
-// One listener, however many times the table is installed and disposed.
-//
-// The "exactly one listener" guarantee is stated in this module's header and
-// enforced by a single field holding the current disposer. That field is what a
-// STALE disposer can lie about: a disposer returned by an installation that has
-// already been replaced still cleared the field, so the table reported itself
-// uninstalled while the newer listener was still attached, the next `install` was
-// admitted, and every press ran its command twice. Nothing above the table can
-// see that — the registry is asked twice and answers twice, correctly, both
-// times — so the claim has to be held here, on the real table, with a real
-// listener target and a real dispatched press.
+// One listener, however many times the table is installed and disposed. A stale disposer must not
+// clear the installed marker, or the next `install` is admitted and every press runs twice; only
+// the real table with a real target and press can show this.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,14 +8,14 @@ import { CommandRegistry } from "../commands/command-registry.js";
 import { type Keybinding } from "../commands/command-types.js";
 import { KeybindingTable, type KeybindingTarget } from "./keybinding-table.js";
 
-/** A chord with no modifiers, so the press below needs none either. */
+/** A chord with no modifiers, so the press needs none. */
 const CHORD = "KeyJ";
 
 const COMMAND_ID = "test.jump";
 
 const BINDINGS: readonly Keybinding[] = [{ chord: CHORD, commandId: COMMAND_ID }];
 
-/** What one installed table needs, plus the counter its command increments. */
+/** One table plus the counter its command increments. */
 interface TableUnderTest {
   readonly table: KeybindingTable;
   readonly target: KeybindingTarget & EventTarget;
@@ -59,8 +51,7 @@ describe("KeybindingTable — a stale disposer cannot orphan the live listener",
     firstDisposer();
     table.install(target);
 
-    // The disposer of an installation that was already replaced. It owns nothing
-    // any more, so it must not report the table uninstalled.
+    // A replaced installation's disposer owns nothing and must not report the table uninstalled.
     firstDisposer();
 
     expect(table.installed).toBe(true);
@@ -83,9 +74,7 @@ describe("KeybindingTable — a stale disposer cannot orphan the live listener",
   });
 
   it("negative control: install, dispose, install still runs the command exactly once per press", () => {
-    // Without this, a table that refused every second installation outright — or
-    // whose disposer detached nothing — would satisfy the two cases above and
-    // leave the keyboard dead after the first dispose.
+    // Guards against a table that refuses reinstallation or whose disposer detaches nothing.
     const { table, target, runCount } = buildTable();
 
     table.install(target)();

@@ -1,25 +1,8 @@
-// The command registry — one list of every act the console offers.
+// The list of every command the console offers, with recents and search.
 //
-// The command palette has categories, recents, a scoped-context row naming what
-// the command acts on, and one matcher shared with settings search. Categories
-// are `group`; recents are `recordInvocation`; the matcher is `scoreSubsequence`,
-// reached through `command-ranking.ts` rather than re-implemented, because "one
-// matcher" is a claim that fails the moment a second view writes its own
-// ranking.
-//
-// TWO RULES WORTH STATING BEFORE THE CODE:
-//
-//   • A DUPLICATE ID IS AN ERROR, not an overwrite. Two features contributing the
-//     same command id is a wiring bug, and the overwrite arm resolves it by
-//     import order — meaning the surviving command depends on which module the
-//     bundler happened to evaluate last, and the loser fails silently and only
-//     for some builds. The same reasoning the frame's route registry applies to
-//     a second claim on one route.
-//   • ELIGIBILITY IS NEVER PROJECTED. `commandsFor` decides what the palette
-//     OFFERS, from `when` clauses the frame's own context answers; it does not
-//     decide what the daemon will permit. A command whose daemon call may be
-//     refused is still offered, and its refusal is rendered when it comes back:
-//     offer, then render the refusal.
+// A duplicate id is an error, not an overwrite: the survivor would depend on module
+// evaluation order. `commandsFor` decides only what the palette offers from `when` clauses;
+// a command the daemon may refuse is still offered, and the refusal is rendered when it returns.
 
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 
@@ -54,16 +37,8 @@ export type CommandInvocationOutcome =
       readonly reason: string;
     };
 
-/**
- * The console's command list.
- *
- * One instance per window. An auxiliary window registers only the commands it can
- * actually perform, which is what keeps its palette honest about what that window
- * can do — the same reasoning the frame applies to auxiliary route registration.
- */
+/** The window's command list; one instance per window. */
 export class CommandRegistry {
-  // `"throw"`: two contributors claiming one id is a real conflict, and keeping
-  // either one would make which command runs depend on module evaluation order.
   readonly #commandsById = new KeyedRegistry<string, CommandDefinition>({
     duplicatePolicy: "throw",
     describeWhat: "command",
@@ -73,21 +48,17 @@ export class CommandRegistry {
   readonly #recentCommandIds: string[] = [];
   readonly #whenClauses = new WhenClauseCache();
 
-  /** Register one command. Throws `DuplicateRegistrationError` on a repeated id. */
+  /** Registers one command. Throws `DuplicateRegistrationError` on a repeated id. */
   public register(command: CommandDefinition): void {
     this.#commandsById.register(command.id, command);
   }
 
-  /**
-   * Register a set atomically: every id is checked before anything is stored, so
-   * a duplicate half way through a feature's contribution leaves the registry
-   * exactly as it was rather than half-populated.
-   */
+  /** Registers a set atomically: every id is checked first, so a duplicate changes nothing. */
   public registerAll(commands: readonly CommandDefinition[]): void {
     this.#commandsById.registerAll(commands.map((command) => [command.id, command]));
   }
 
-  /** Remove a command. Returns whether it was there. Also drops it from recents. */
+  /** Removes a command and drops it from recents. Returns whether it was registered. */
   public unregister(commandId: string): boolean {
     const removed = this.#commandsById.unregister(commandId);
     const recentIndex = this.#recentCommandIds.indexOf(commandId);
@@ -116,11 +87,8 @@ export class CommandRegistry {
   }
 
   /**
-   * Is this command offered in this context?
-   *
-   * False for an unknown command, false for an unparseable clause, false for a
-   * clause naming a key the context does not carry. Three different reasons, one
-   * fail-closed answer — see `palette/when-clause/when-clause.ts`.
+   * Whether this command is offered in this context. Fails closed: false for an unknown
+   * command, an unparseable clause, or a clause naming a key the context lacks.
    */
   public isVisible(commandId: string, context: WhenClauseContext): boolean {
     const command = this.#commandsById.get(commandId);
@@ -143,11 +111,8 @@ export class CommandRegistry {
   }
 
   /**
-   * Clauses that did not parse, paired with the command each one hid.
-   *
-   * The palette renders these as the `error` kind of nothing. A hidden command
-   * with no visible reason would look like a command that was never contributed,
-   * and those two absences call for different fixes.
+   * Clauses that did not parse, paired with the command each one hid, so the palette can
+   * tell a hidden command from one nobody contributed.
    */
   public clauseDiagnostics(): readonly CommandClauseDiagnostic[] {
     const diagnostics: CommandClauseDiagnostic[] = [];
@@ -163,7 +128,7 @@ export class CommandRegistry {
     return diagnostics;
   }
 
-  /** Record that a command was invoked, moving it to the front of recents. */
+  /** Moves a registered command to the front of recents; ignores unknown ids. */
   public recordInvocation(commandId: string): void {
     if (!this.#commandsById.has(commandId)) {
       return;
@@ -178,19 +143,15 @@ export class CommandRegistry {
     }
   }
 
-  /** Most recently invoked first. In-memory only: recents are per window, per run. */
+  /** Most recently invoked first; in memory only. */
   public recentCommandIds(): readonly string[] {
     return [...this.#recentCommandIds];
   }
 
   /**
-   * Run a command by id, fail-closed on visibility.
-   *
-   * Synchronous, returning the command's own promise rather than awaiting it, so
-   * a keybinding dispatch does not block the key handler on a command that opens
-   * a dialog and resolves minutes later. A synchronous throw inside `run` becomes
-   * a rejected `completion` rather than an exception at the key handler, which
-   * would otherwise abort the rest of the dispatch.
+   * Runs a command by id, failing closed on visibility. Returns the command's promise
+   * without awaiting it, so a key handler never blocks on a long-lived dialog; a synchronous
+   * throw from `run` becomes a rejected `completion` instead of aborting the key dispatch.
    */
   public invoke(commandId: string, context: WhenClauseContext): CommandInvocationOutcome {
     const command = this.#commandsById.get(commandId);
@@ -201,9 +162,7 @@ export class CommandRegistry {
       return { status: "hidden-in-context", commandId };
     }
     if (command.unavailable !== undefined) {
-      // Before `recordInvocation`, deliberately: a row that did not run is not one a
-      // person reached for successfully, and putting it at the top of the recents would
-      // make an outage rewrite the order of the list it closed.
+      // Before `recordInvocation`: a row that did not run must not move to the top of recents.
       return { status: "unavailable", commandId, reason: command.unavailable };
     }
     this.recordInvocation(commandId);
@@ -211,11 +170,7 @@ export class CommandRegistry {
     try {
       completion = Promise.resolve(command.run());
     } catch (error) {
-      // Through the total stringifier rather than `String(...)`, which itself throws
-      // on a null-prototype thrown value — inside the very expression that exists to
-      // report a failure, and inside a `catch` that has already been left, so the
-      // throw escapes `invoke` and aborts the whole key dispatch this arm exists to
-      // keep alive.
+      // `String(...)` throws on a null-prototype value, which would escape `invoke`.
       completion = Promise.reject(
         error instanceof Error ? error : new Error(lossyStringify(error)),
       );
@@ -224,16 +179,8 @@ export class CommandRegistry {
   }
 
   /**
-   * Rank the visible commands against a query.
-   *
-   * An EMPTY query is a different state, not a query that matches everything: it
-   * returns recents first and then the rest in category order, which is what the
-   * palette shows the moment it opens. `scoreSubsequence` refuses an empty query
-   * for the same reason, so the two halves cannot drift.
-   *
-   * Which commands are ELIGIBLE is settled here, by `commandsFor`; what order the
-   * eligible ones come back in is settled by `command-ranking.ts`. A ranker that
-   * could also hide a row would be a second source of truth for eligibility.
+   * Ranks the visible commands against a query. An empty query returns recents first and then
+   * the rest in category order. Eligibility is settled by `commandsFor`, order by the ranking.
    */
   public search(query: string, context: WhenClauseContext): readonly CommandSearchResult[] {
     const trimmedQuery = query.trim();

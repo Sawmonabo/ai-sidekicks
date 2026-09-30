@@ -1,10 +1,5 @@
-// Can two `when` scopes be true at the same time?
-//
-// This is the one question the keybinding table asks about a PAIR of clauses
-// rather than about one, and it is separated from both the parser and the
-// evaluator because it is neither: it is a decision procedure OVER the semantics
-// `when-clause.ts` defines, run once per chord collision at install time and
-// never on the input path.
+// Can two `when` scopes be true at the same time? A decision procedure over the semantics
+// in `when-clause.ts`, run once per chord collision at install time, never on the input path.
 
 import { WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS } from "@renderer/styles/palette.js";
 import {
@@ -17,21 +12,11 @@ import {
 export type WhenClauseOverlap = "overlap" | "disjoint" | "undecided";
 
 /**
- * Can two clauses be true at the same time?
- *
- * This is the real definition of a keybinding conflict — not "the two clauses
- * are spelled the same". `sessionOpen` and `sessionOpen && paneFocused` are
- * spelled differently and still collide; `paneFocused` and `!paneFocused` are
- * both non-empty scopes on one chord and never collide. Deciding it by
- * enumeration over the union of their keys is exact for this grammar, because
- * the grammar has nothing in it but booleans, and it is affordable because the
- * key count is bounded above.
- *
- * `undefined` means "no clause", which is the always-true scope.
- *
- * Past the bound the answer is `"undecided"`, and the caller treats that as a
- * conflict: an unproven disjointness is not a proof, and a silently shadowed
- * keybinding is worse than a refused install a person can see.
+ * Whether two clauses can be true at the same time, which is what makes two bindings conflict.
+ * `sessionOpen` and `sessionOpen && paneFocused` collide; `paneFocused` and `!paneFocused` do
+ * not. Enumerating the union of their keys is exact because the grammar is only booleans.
+ * `undefined` is the always-true scope. Past the key bound the answer is `"undecided"`, which
+ * callers treat as a conflict: a silently shadowed binding is worse than a visible refusal.
  */
 export function whenClausesCanOverlap(
   left: WhenClauseNode | undefined,

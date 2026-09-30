@@ -4,12 +4,8 @@ import type { KeybindingOverrideStore } from "../keybinding-override-store.js";
 import type { KeybindingSnapshot } from "../keybinding-override-types.js";
 
 /**
- * Read the seam from a component, re-rendering when an override is written.
- *
- * `useSyncExternalStore` rather than an effect writing into state: an override
- * written between a render and its subscription is missed by the effect shape, and a
- * keyboard silently disagreeing with the page describing it is the failure this seam
- * exists to prevent.
+ * Reads the override store from a component and re-renders when an override is written. It uses
+ * `useSyncExternalStore` because an effect misses an override written between render and subscribe.
  */
 export function useKeybindingSnapshot(store: KeybindingOverrideStore): KeybindingSnapshot {
   const subscribe = useCallback(

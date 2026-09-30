@@ -1,10 +1,6 @@
-// One owner per pane kind, and the declaration order the pane layout answers in.
-//
-// The pane layout rule stated structurally — a single mount point and a tripwire that fails
-// on a second — is enforced by the registry's `"owner-scoped"` policy. Six features
-// claim pane kinds on six branches, so the failure this file exists for is two of them
-// claiming one kind: without the refusal, which body mounts would depend on module
-// evaluation order, and the loser would be a feature that silently stopped existing.
+// One owner per pane kind, and the declaration order the layout answers in. Without the
+// `"owner-scoped"` refusal, two features claiming one kind would leave the mounted body dependent
+// on module evaluation order and the loser silently missing.
 
 import { describe, expect, it } from "vitest";
 
@@ -22,27 +18,22 @@ import {
   type PaneDescriptor,
 } from "./pane-registry.js";
 
-/** A descriptor whose render is never called: these cases are about the table. */
+/** A descriptor whose render is never called. */
 function descriptor(kind: PaneDescriptor["kind"], owner: string): PaneDescriptor {
   return { kind, owner, render: () => null };
 }
 
 describe("pane registry — one owner per kind", () => {
   it("replaces when the same owner re-claims", () => {
-    // A hot reload re-runs a feature's module. Refusing that would make the console
-    // unreloadable; silently keeping the FIRST would leave the pane layout rendering the
-    // pre-edit body, which reads as an edit that did nothing.
+    // A hot reload re-runs a feature's module; keeping the first body would render a stale pane.
     const registry = new PaneRegistry();
     const beforeEdit = descriptor("diff", "repos-feature");
     const afterEdit = descriptor("diff", "repos-feature");
     registry.register(beforeEdit);
     registry.register(afterEdit);
     expect(registry.registeredPaneKinds()).toStrictEqual(["diff"]);
-    // Identity of the BODY, not shape and not of the descriptor object: the registry
-    // normalizes both registration forms into a descriptor of its own, so what says
-    // which body the pane layout mounts is the `render` it kept. The two registrations are
-    // structurally identical, so a registry that kept the FIRST would satisfy every
-    // shape assertion while the pane layout went on rendering the pre-edit body.
+    // Compares the kept `render` by identity, since the two registrations are structurally
+    // identical and a registry keeping the first would pass any shape assertion.
     expect(registry.descriptorFor("diff")?.render).toBe(afterEdit.render);
     expect(registry.descriptorFor("diff")?.render).not.toBe(beforeEdit.render);
   });
@@ -53,7 +44,7 @@ describe("pane registry — one owner per kind", () => {
     expect(() => {
       registry.register(descriptor("transcript", "second-owner"));
     }).toThrow(DuplicateRegistrationError);
-    // The first owner keeps the kind: a refused claim must not have half-applied.
+    // A refused claim must not half-apply.
     expect(registry.descriptorFor("transcript")?.owner).toBe("transcript-feature");
   });
 
@@ -69,8 +60,7 @@ describe("pane registry — one owner per kind", () => {
 describe("pane registry — declaration order, not registration order", () => {
   it("reports registered kinds in the spec's order", () => {
     const registry = new PaneRegistry();
-    // Registered back to front, so an implementation that reported insertion
-    // order rather than declaration order would answer differently.
+    // Registered back to front, so insertion order would answer differently.
     registry.register(descriptor("agents", "third"));
     registry.register(descriptor("diff", "second"));
     registry.register(descriptor("transcript", "first"));
@@ -94,21 +84,14 @@ describe("pane registry — declaration order, not registration order", () => {
   });
 
   it("negative control: a fresh registry claims nothing on its own", () => {
-    // Every case above reads `registeredPaneKinds`, and all of them would pass
-    // over a registry that reported kinds nobody registered.
+    // Every case above would pass over a registry that reported kinds nobody registered.
     expect(new PaneRegistry().registeredPaneKinds()).toStrictEqual([]);
   });
 });
 
 describe("pane registry — the process-wide instance", () => {
   it("claims a kind on the process-wide registry", () => {
-    // Driven here rather than left to its first caller to discover: no feature
-    // has shipped, so `registeredPaneKinds` is a contract that would otherwise rot
-    // unexercised — the same reason `registries/screens/screen-registry.test.ts` drives its own instance.
-    // The claim goes in through the registry itself: the module-scope convenience
-    // that used to write here was deleted with the arity-five composition, because a
-    // feature that called it would write into production from inside a composition
-    // that had handed it another board.
+    // Driven directly so `registeredPaneKinds` is exercised; the claim goes through the registry.
     try {
       paneRegistry.register(descriptor("workflow-builder", "pane-registry-test"));
       expect(paneRegistry.descriptorFor("workflow-builder")?.owner).toBe("pane-registry-test");
@@ -119,9 +102,7 @@ describe("pane registry — the process-wide instance", () => {
   });
 
   it("negative control: the kind is absent once released", () => {
-    // Without this the case above would pass against a registry that had been
-    // holding the descriptor since some earlier file ran, and would keep passing if
-    // `registeredPaneKinds` stopped reading the registry at all.
+    // Without this, a descriptor left by an earlier file would pass the case above.
     expect(paneRegistry.descriptorFor("workflow-builder")).toBeUndefined();
     expect(registeredPaneKinds()).not.toContain("workflow-builder");
   });
@@ -129,13 +110,7 @@ describe("pane registry — the process-wide instance", () => {
 
 describe("pane opener — a pane that opens another can name itself", () => {
   /**
-   * A pane-layout-shaped opener: it records what it was asked for, exactly as a pane layout
-   * would copy the link onto the new pane's context.
-   *
-   * Driven here rather than left to the pane layout to discover, for the reason
-   * the process-wide instance above is driven here: the pane layout ships on another branch,
-   * so the registry's second parameter would otherwise be a contract nothing exercises
-   * until the first consumer gets it wrong.
+   * An opener that records what it was asked for, as the layout copies the link onto the new pane.
    */
   function recordingOpener(): {
     readonly openPane: PaneOpener;
@@ -156,9 +131,8 @@ describe("pane opener — a pane that opens another can name itself", () => {
     };
   }
 
-  // A worktree, because the address union types `entity` PER KIND and a `diff`
-  // pane is a view of a worktree or a workspace. An artifact reference here is
-  // not a fixture detail the compiler now lets pass.
+  // A worktree, because the address union types `entity` per kind and a `diff` pane views a
+  // worktree or a workspace.
   const diffAddress: PaneAddress = {
     kind: "diff",
     entity: { kind: "worktree", id: "worktree-7" },
@@ -173,9 +147,7 @@ describe("pane opener — a pane that opens another can name itself", () => {
   });
 
   it("negative control: an open with no source pane carries no link", () => {
-    // Without this, the case above would pass over an opener that stamped some
-    // link on every open — and a pane linked to a source it was not opened from
-    // is exactly the state `linkedSourcePaneId` exists to make impossible.
+    // Without this, an opener that stamped a link on every open would pass the case above.
     const { openPane, opens } = recordingOpener();
     openPane(diffAddress);
     expect(opens[0]?.link).toBeUndefined();

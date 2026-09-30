@@ -1,13 +1,7 @@
-// The fail-closed rule, held at the one place it can be broken: negation.
-//
-// The module header states that an unknown context key is FALSE. Read as a
-// two-valued rule that sentence is self-defeating — substituting `false` for an
-// absent key makes `!absentKey` TRUE, so a misspelled identifier does not hide a
-// command, it reveals one, and the registry and the keybinding table both offer
-// and run an act on a state nobody computed. Every case below is a clause whose
-// answer differs between "absent means false" and "absent means unknown", plus
-// the negative controls that keep the rule from being satisfied by an evaluator
-// that simply answers `false` to everything.
+// The fail-closed rule at the place it can break: negation. Treating an absent key as
+// `false` would make `!absentKey` true and reveal a command, so each case differs between
+// "absent means false" and "absent means unknown". Negative controls stop an evaluator that
+// answers `false` to everything from passing.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +9,7 @@ import { whenClausesCanOverlap } from "./when-clause-overlap.js";
 import { parseWhenClause } from "./when-clause-parser.js";
 import { evaluateWhenClause, type WhenClauseContext, type WhenClauseNode } from "./when-clause.js";
 
-/** Parse a clause the way every caller does, and fail loudly if the source is bad. */
+/** Parses a clause the way every caller does and throws if the source is bad. */
 function clause(source: string): WhenClauseNode {
   const parsed = parseWhenClause(source);
   if (!parsed.ok) {
@@ -33,8 +27,7 @@ const SUPPLIED: WhenClauseContext = { sessionActive: true, onSettings: false };
 
 describe("evaluateWhenClause — an unknown key stays unknown through every operator", () => {
   it("does not turn an absent key true by negating it", () => {
-    // The finding, in one line: `!sessionActve` on a context that carries
-    // `sessionActive` must not offer the command.
+    // A typo, `!sessionActve`, on a context carrying `sessionActive` must not offer the command.
     expect(evaluate("!sessionActve", SUPPLIED)).toBe(false);
   });
 
@@ -57,10 +50,7 @@ describe("evaluateWhenClause — an unknown key stays unknown through every oper
   });
 
   it("answers true for a disjunction a supplied key already decides", () => {
-    // The unknown could not have changed this answer, so hiding the command
-    // would be a refusal the clause does not ask for. This is the one arm where
-    // an absent key still permits `true`, and it is the difference between
-    // propagating the unknown and refusing the whole clause outright.
+    // The unknown could not change this answer, so hiding the command would over-refuse.
     expect(evaluate("sessionActve || sessionActive", SUPPLIED)).toBe(true);
   });
 
@@ -69,16 +59,14 @@ describe("evaluateWhenClause — an unknown key stays unknown through every oper
   });
 
   it("treats a non-boolean that slipped past the type as unknown, not as false", () => {
-    // A bridge boundary can hand over a string. Read as `false` it would flip
-    // true under negation exactly the way an absent key did.
+    // A bridge can hand over a string; read as `false` it would flip true under negation.
     const contaminated = { ...SUPPLIED, paneFocused: "yes" } as unknown as WhenClauseContext;
     expect(evaluateWhenClause(clause("paneFocused"), contaminated)).toBe(false);
     expect(evaluateWhenClause(clause("!paneFocused"), contaminated)).toBe(false);
   });
 
   it("negative control: a supplied key still negates, conjoins, and disjoins normally", () => {
-    // Without this, an evaluator that answered `false` to every clause would
-    // satisfy every case above and hide the whole palette.
+    // Without this, an evaluator answering `false` to everything would pass every case above.
     expect(evaluate("sessionActive", SUPPLIED)).toBe(true);
     expect(evaluate("!onSettings", SUPPLIED)).toBe(true);
     expect(evaluate("sessionActive && !onSettings", SUPPLIED)).toBe(true);
@@ -89,9 +77,7 @@ describe("evaluateWhenClause — an unknown key stays unknown through every oper
 
 describe("whenClausesCanOverlap — the conflict decision is unmoved", () => {
   it("still proves a clause and its negation disjoint, and an overlap an overlap", () => {
-    // The overlap check enumerates a full assignment over the union of both
-    // clauses' keys, so no identifier is ever absent inside it. The three-valued
-    // evaluation must therefore leave every conflict verdict exactly as it was.
+    // Overlap enumerates every key of both clauses, so none is absent and verdicts are unaffected.
     expect(whenClausesCanOverlap(clause("paneFocused"), clause("!paneFocused"))).toBe("disjoint");
     expect(whenClausesCanOverlap(clause("sessionOpen"), clause("sessionOpen && paneFocused"))).toBe(
       "overlap",

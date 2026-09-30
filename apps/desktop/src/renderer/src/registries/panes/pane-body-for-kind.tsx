@@ -12,31 +12,16 @@ const PANE_COMPOSITION_ORIGIN = "pane-composition";
 export type PaneContextOf<TKind extends PaneKind> = Extract<PaneContext, { kind: TKind }>;
 
 /**
- * What a body that does not take its own kind's context resolves to.
- *
- * A UNIQUE SYMBOL SO THE FAILURE NAMES THE RULE. The mechanism is an intersection the
- * argument cannot satisfy, and without a distinctive member the compiler reports it as
- * an unassignable anonymous object — a reader would see a type error and not the
- * standard it broke.
+ * The member a body with the wrong context type fails to satisfy. A unique symbol so the compiler
+ * error names the rule instead of an anonymous object.
  */
 declare const PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT: unique symbol;
 
 /**
- * Adapt a body written for ONE pane kind into the render the registry stores.
- *
- * `PaneDescriptor.render` takes the whole `PaneContext` union, because
- * one registry holds every kind. A body does not: an inspector reads an entity the
- * terminal's arm does not carry, which is the property the kind-scoped address union
- * exists to hold. So the narrowing happens once, here, rather than six times in six
- * features with six different answers for the arm that cannot be served.
- *
- * A MISMATCH IS A RENDERED REFUSAL AND NEVER A THROW. The pane layout looks a body up BY kind
- * and hands it a context addressed at that kind, so the arm below is unreachable
- * through the pane layout — but the two untyped boundaries (a restored layout row, a typed
- * route) are where an address arrives without the compiler, and `core/refusal.ts`'s
- * rule is that one bad row loses that row rather than the pane layout. A throw here would take
- * the whole window down for a pane; the refusal keeps the frame and names what was
- * asked for.
+ * Adapts a body written for one pane kind into the render the registry stores, narrowing the whole
+ * `PaneContext` union once here. A mismatch renders a refusal and never throws: the layout looks
+ * bodies up by kind, but a restored layout row or a typed route can arrive untyped, and a throw
+ * would take the whole window down for one pane.
  */
 export function paneBodyForKind<
   TKind extends PaneKind,
@@ -57,23 +42,11 @@ export function paneBodyForKind<
 }
 
 /**
- * Nothing, for a body whose parameter is EXACTLY this kind's context; a refusal
- * otherwise.
- *
- * WHY EXACTNESS AND NOT ASSIGNABILITY. A function parameter is checked
- * contravariantly, so a body annotated with a WIDER type than the context — a
- * `Pick<…>` of two members, a hand-written props interface naming a subset — is
- * assignable and compiled silently. That is how one pane body came to declare its own
- * props type while its sibling used the registry's `PaneContext`: both compiled, and the
- * registry's contract was restated per feature with nothing reporting the divergence. Mutual assignability
- * is what separates "safe" from "the same type".
- *
- * A BODY THAT DECLARES NO PARAMETER IS ADMITTED. Ignoring the context is not restating
- * it — there is no second spelling of the contract to drift from — and most pane
- * bodies in the tree take nothing at all.
- *
- * The tuple wrappers stop both checks distributing over the context union, which would
- * ask the question arm by arm and answer it for a kind nobody named.
+ * Nothing for a body whose parameter is exactly this kind's context; a refusal otherwise.
+ * Exactness, not assignability: parameters are contravariant, so a body typed with a subset such as
+ * a `Pick` or a hand-written props interface would compile and restate the contract per feature.
+ * A body with no parameter is admitted. The tuple wrappers stop the checks distributing over the
+ * context union.
  */
 type ExactPaneBody<
   TKind extends PaneKind,

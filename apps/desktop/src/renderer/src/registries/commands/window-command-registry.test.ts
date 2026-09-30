@@ -1,7 +1,5 @@
-// The window's command registry and the `when` vocabulary it publishes.
-//
-// The vocabulary is checked from both sides: the tuple a feature reads at runtime and
-// the context type the compiler holds must be one set.
+// The window's command registry and its `when` vocabulary; the runtime tuple and the compiler's
+// context type must be one set.
 
 import { describe, expect, it } from "vitest";
 
@@ -13,7 +11,7 @@ import {
   type WindowWhenClauseContext,
 } from "./window-command-registry.js";
 
-/** Every key the console publishes, all false — the shape, not a situation. */
+/** Every published key, all false. */
 const NO_CONTEXT: WindowWhenClauseContext = {
   sessionActive: false,
   onSessions: false,
@@ -23,13 +21,8 @@ const NO_CONTEXT: WindowWhenClauseContext = {
 };
 
 /**
- * The compile-time control for the vocabulary.
- *
- * A context is typed to exactly the published keys, so an invented one is an
- * excess property the compiler refuses at the author's keyboard rather than a
- * clause that quietly evaluates false and hides the command. If the type were ever
- * widened to `Record<string, boolean>`, the suppressed error would stop occurring
- * and this directive would itself become the error.
+ * The compile-time control: an invented key is an excess-property error. If the type were
+ * widened to `Record<string, boolean>`, the directive below would itself become the error.
  */
 const CONTEXT_THE_COMPILER_REJECTS: WindowWhenClauseContext = {
   ...NO_CONTEXT,
@@ -53,8 +46,7 @@ describe("window command registry — the call commands are registered through",
   });
 
   it("leaves the registry untouched when one id in a batch is taken", () => {
-    // Atomic is the whole reason the plural call exists. Half an owner's commands
-    // is a state no caller can reason about, and none of them unwinds it.
+    // Atomicity is why the plural call exists; a half-registered owner cannot be unwound.
     try {
       commandRegistry.register({
         id: "console-commands-test.taken",
@@ -86,9 +78,7 @@ describe("window command registry — the call commands are registered through",
   });
 
   it("negative control: nothing this file registered survives it", () => {
-    // Without this every case above would pass against a call that registered
-    // into a registry nobody reads, and the `has` assertions would be reading
-    // leftovers from the case before.
+    // Guards against `has` assertions above reading leftovers from an earlier case.
     expect(commandRegistry.has("console-commands-test.a")).toBe(false);
     expect(commandRegistry.has("console-commands-test.taken")).toBe(false);
   });
@@ -96,16 +86,12 @@ describe("window command registry — the call commands are registered through",
 
 describe("window command registry — the published when-clause vocabulary", () => {
   it("names exactly the keys the console's own context supplies", () => {
-    // The tuple is the declaration and `WindowWhenClauseContext` is derived from
-    // it, so the compiler already refuses a context that is missing a key or
-    // invents one. This holds the other direction at runtime: that the tuple a
-    // feature READS is the same set, rather than a stale copy of it.
+    // The compiler already checks the derived type; this checks the runtime tuple is the same set.
     expect([...WHEN_CLAUSE_KEYS].sort()).toStrictEqual(Object.keys(NO_CONTEXT).sort());
   });
 
   it("negative control: a key nobody publishes is not in the vocabulary", () => {
-    // Reads the object the `@ts-expect-error` above suppressed, so the directive
-    // is a claim this file executes rather than a comment nobody runs.
+    // Executes the object the `@ts-expect-error` above suppressed.
     expect(Object.keys(CONTEXT_THE_COMPILER_REJECTS)).toContain("sessionActiveish");
     expect(WHEN_CLAUSE_KEYS).not.toContain("sessionActiveish");
     expect(Object.keys(NO_CONTEXT)).not.toContain("sessionActiveish");

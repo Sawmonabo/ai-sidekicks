@@ -1,9 +1,5 @@
-// The composer registry: filled by one feature, mounted by another.
-//
-// The registry is module-scope, so every case releases it in `afterEach`. That is not
-// tidiness — a case that left the registry filled would make the negative control
-// below pass for the wrong reason, and the negative control is what proves the
-// empty read is a real answer rather than a coincidence of ordering.
+// The composer registry is module-scope, so every case releases it in `afterEach`; a leftover
+// entry would make the empty-registry negative control pass for the wrong reason.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -15,7 +11,7 @@ import {
   type ComposerRenderer,
 } from "./composer-registry.js";
 
-/** A body whose props are never read: these cases are about the registry. */
+/** A body whose props are never read. */
 const composerBody: ComposerRenderer = () => null;
 
 afterEach(() => {
@@ -29,8 +25,8 @@ describe("composer registry — one composer per session view", () => {
   });
 
   it("replaces when the same owner re-registers", () => {
-    // A hot reload re-runs the composer feature's module. Keeping the FIRST body
-    // would leave the window rendering the pre-edit composer.
+    // A hot reload re-runs the feature's module; keeping the first body would render the stale
+    // composer.
     const replacement: ComposerRenderer = () => null;
     registerComposer("composer-feature", composerBody);
     registerComposer("composer-feature", replacement);
@@ -42,7 +38,7 @@ describe("composer registry — one composer per session view", () => {
     expect(() => {
       registerComposer("second-owner", () => null);
     }).toThrow(DuplicateRegistrationError);
-    // The refusal must not have half-applied: the first body still renders.
+    // The refusal must not half-apply.
     expect(findComposerRenderer()).toBe(composerBody);
   });
 
@@ -56,10 +52,7 @@ describe("composer registry — one composer per session view", () => {
 
 describe("composer registry — the empty answer", () => {
   it("negative control: an empty registry has no body", () => {
-    // Every case above reads `findComposerRenderer`, and all of them would pass
-    // over a registry that answered with a body nobody registered. This is also the
-    // state the session screen mounts against until the composer feature lands: it
-    // renders nothing rather than a placeholder that looks like a broken feature.
+    // Every case above would pass over a registry that answered with a body nobody registered.
     expect(findComposerRenderer()).toBeUndefined();
   });
 

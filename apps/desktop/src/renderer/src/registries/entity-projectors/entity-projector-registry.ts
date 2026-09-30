@@ -1,34 +1,10 @@
-// One owner per event kind: the registry a feature projects its own events through.
+// One owner per event kind: the registry each feature projects its own events through, so no
+// feature has to aggregate its category client-side outside the store.
 //
-// WHY THIS EXISTS. `SessionStoreRegistry` takes an `EntityProjectorTable` at
-// construction and the composition root supplied a CONSTANT — the frame's own
-// run-lifecycle table. Every other partition `entities.ts` declares (`approval`,
-// `workflow-run`, `browser-page`, `artifact`, and the rest) was therefore
-// unpopulatable by anyone: the feature that owns a view could not fold the events
-// its view renders, because the only projector table was decided one folder below
-// it and closed at build time.
-//
-// What a feature does when it cannot project its own category is read the wire TWICE
-// — once through the read its view already performs, and again through a
-// subscription it should not need — and then hold the result beside the store rather
-// than in it. That is the client-side aggregation the store exists to prevent, and it
-// arrives as a second source of truth for state the log already orders.
-//
-// SO THE TABLE BECOMES A REGISTRY, on the same construction pattern as the pane layout's
-// pane registry (`registries/panes/pane-registry.ts`) and the screen registry: a
-// `KeyedRegistry` with `duplicatePolicy: "owner-scoped"`, so a feature re-registering
-// its own claim replaces (a hot reload re-runs its module) and a DIFFERENT feature
-// claiming a taken event kind is refused by an error naming both owners. Never
-// last-writer-wins: two projectors for one kind is a defect, and keeping the last
-// would make which fold runs depend on module import order.
-//
-// WHY IT LIVES IN `store/` AND THE SEED DOES NOT. The registry is a store concern —
-// it holds what a store is opened with — and `store/` sits below `frame/` in the
-// import order, so this module cannot import the frame's run projectors and does not
-// try. The process-wide instance is minted here EMPTY and seeded by the composition,
-// where `frame/run-projection/run-lifecycle-projector.ts` claims the run-lifecycle kinds under its
-// own name. That ordering is the point: features register, and only then does a
-// window open a session store.
+// It is a `KeyedRegistry` with `duplicatePolicy: "owner-scoped"`, like the pane and screen
+// registries: an owner re-registering replaces its claim (hot reload), and a different owner
+// claiming a taken kind is refused with an error naming both. The process-wide instance starts
+// empty and is seeded in `app/registrations.ts`, before any window opens a session store.
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import type {
@@ -36,6 +12,7 @@ import type {
   EntityProjectorTable,
 } from "@renderer/store/session/entities/entities.js";
 
+/** The event-kind to projector table, with one claiming owner per kind. */
 export class EntityProjectorRegistry {
   readonly #claimsByEventKind = new KeyedRegistry<string, EntityProjectorClaim>({
     duplicatePolicy: "owner-scoped",
@@ -45,18 +22,12 @@ export class EntityProjectorRegistry {
       "one fold per event kind — a second projector would make which one runs depend on module import order",
   });
 
-  /** Claim one event kind. A second claim by a different owner is an error, not a swap. */
+  /** Claims one event kind. A second claim by a different owner is an error, not a swap. */
   public register(eventKind: string, project: EntityProjector, owner: string): void {
     this.#claimsByEventKind.register(eventKind, { project, owner });
   }
 
-  /**
-   * Claim every kind in one table, atomically.
-   *
-   * Atomic because `KeyedRegistry.registerAll` checks the whole batch before storing
-   * any of it: a feature whose table collides half way through leaves the registry as
-   * it was, rather than half-claimed in a state no caller unwinds.
-   */
+  /** Claims every kind in one table atomically; a collision leaves the registry unchanged. */
   public registerAll(projectors: EntityProjectorTable, owner: string): void {
     this.#claimsByEventKind.registerAll(
       Object.entries(projectors).map((entry) => [entry[0], { project: entry[1], owner }] as const),
@@ -64,13 +35,8 @@ export class EntityProjectorRegistry {
   }
 
   /**
-   * The table a store is opened with, frozen.
-   *
-   * A snapshot rather than a live view, and frozen rather than merely typed
-   * `Readonly`: a store folds events for as long as its session is open, and a table
-   * that changed underneath it would mean two events of one kind folding two ways
-   * inside one session. Freezing says so at runtime, where a `Readonly` type says
-   * nothing at all.
+   * The table a store is opened with: a frozen snapshot, so the table cannot change under a
+   * store that folds events for its session's whole life.
    */
   public snapshot(): EntityProjectorTable {
     const projectors: Record<string, EntityProjector> = {};
@@ -92,15 +58,12 @@ export class EntityProjectorRegistry {
 /** One feature's claim on one event kind. */
 interface EntityProjectorClaim {
   readonly project: EntityProjector;
-  /** The feature that owns it, so a conflict and an unprojected kind both name someone. */
+  /** The feature that owns the kind, so a conflict names someone. */
   readonly owner: string;
 }
 
 /**
- * The process-wide registry the composition seeds and every window's stores read.
- *
- * Minted EMPTY. The projectors reach it through `registerFeatureContributions`, which
- * `app/providers.tsx` hands this instance, the same way it hands the screen and pane
- * registries rather than letting the composition reach for them.
+ * The process-wide registry that `registerFeatureContributions` seeds and every window's stores
+ * read.
  */
 export const entityProjectorRegistry: EntityProjectorRegistry = new EntityProjectorRegistry();

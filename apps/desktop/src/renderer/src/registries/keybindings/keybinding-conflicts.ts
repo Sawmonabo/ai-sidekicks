@@ -1,16 +1,6 @@
-// What can be decided about a candidate binding set BEFORE it is installed.
-//
-// Two questions, and they are the same pass: which rows are well formed at all,
-// and which surviving pairs could fire on one keystroke. Both are answered here
-// rather than inside `KeybindingTable` because the Keyboard settings page needs
-// them without committing — `KeybindingTable.conflictsIn` is a pre-flight check,
-// and asking by catching the throw from `setBindings` would mean the table had
-// already been half-replaced.
-//
-// The `Keybinding` type this module validates is declared in `commands/command-types.ts`
-// and installed by `keybinding-table.ts`. The import below is type-only and erased, so the
-// runtime edge runs one way: the table reaches down here, and nothing here
-// reaches back.
+// What can be decided about a candidate binding set before it is installed: which rows are well
+// formed, and which surviving pairs could fire on one keystroke. It lives outside `KeybindingTable`
+// so the Keyboard settings page can ask without committing.
 
 import type { KeybindingPress } from "tinykeys";
 import type { Keybinding } from "../commands/command-types.js";
@@ -28,10 +18,9 @@ export interface KeybindingConflict {
   readonly chord: string;
   readonly commandIds: readonly [string, string];
   /**
-   * `overlapping-scope`: a context exists in which both are live.
-   * `undecidable-scope`: their scopes name more context keys than the overlap
-   * check enumerates, so disjointness is unproven — treated as a conflict,
-   * because an unproven separation is not a separation.
+   * `overlapping-scope`: a context exists in which both are live. `undecidable-scope`: the
+   * scopes name more context keys than the overlap check enumerates, so disjointness is
+   * unproven and counts as a conflict.
    */
   readonly reason: "overlapping-scope" | "undecidable-scope";
   readonly detail: string;
@@ -49,9 +38,9 @@ export interface PreparedBinding {
   readonly binding: Keybinding;
   readonly press: KeybindingPress;
   readonly whenAst: WhenClauseNode | undefined;
-  /** Registration order, the last stable key in the dispatch ordering. */
+  /** Registration order, the last tie-break in dispatch ordering. */
   readonly ordinal: number;
-  /** How many distinct context keys the scope names — more keys is a narrower scope. */
+  /** How many distinct context keys the scope names; more keys is a narrower scope. */
   readonly specificity: number;
 }
 
@@ -62,12 +51,8 @@ export interface PreparedBindingSet {
 }
 
 /**
- * Validate and parse a candidate binding set once.
- *
- * Shared by `setBindings` and the static `conflictsIn` so the settings page's
- * pre-flight check and the real install cannot disagree about which bindings are
- * well formed — a preview that validated differently from the commit would be a
- * second source of truth for the same question.
+ * Validates and parses a candidate binding set once. `setBindings` and `conflictsIn` share it so
+ * a preview and the real install cannot disagree about which bindings are well formed.
  */
 export function prepareBindings(bindings: readonly Keybinding[]): PreparedBindingSet {
   const prepared: PreparedBinding[] = [];
@@ -101,15 +86,9 @@ export function prepareBindings(bindings: readonly Keybinding[]): PreparedBindin
 }
 
 /**
- * Find every pair of bindings that can be live on one chord at one moment.
- *
- * Grouping is by the PARSED chord rather than by the chord string, so `$mod+k`
- * and `$mod+KeyK` — two spellings of one keystroke — are compared against each
- * other instead of passing as unrelated. Scope disjointness is decided by
- * `whenClausesCanOverlap`, which enumerates: `paneFocused` and `!paneFocused` on
- * one chord are two scopes and no conflict, while `sessionOpen` and
- * `sessionOpen && paneFocused` are a conflict even though they are spelled
- * differently.
+ * Finds every pair of bindings that can be live on one chord at once. Grouping is by the parsed
+ * chord, so `$mod+k` and `$mod+KeyK` are compared; scope overlap is decided by
+ * `whenClausesCanOverlap`.
  */
 export function detectConflicts(
   prepared: readonly PreparedBinding[],
@@ -154,11 +133,6 @@ export function detectConflicts(
 }
 
 function describeScope(prepared: PreparedBinding): string {
-  // The CANONICAL rendering, not the author's source text. Two bindings whose
-  // scopes are one clause spelled two ways — `a&&b` against `a && b`, `!(x)`
-  // against `!x` — genuinely conflict, and a report quoting both spellings reads
-  // as though it had found two different scopes and then called them overlapping.
-  // Rendering from the parsed clause makes one clause read one way, which is the
-  // only reason `formatWhenClause` exists.
+  // Canonical rendering, so one clause spelled two ways (`a&&b`, `a && b`) reads one way.
   return prepared.whenAst === undefined ? "always" : formatWhenClause(prepared.whenAst);
 }

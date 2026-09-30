@@ -1,65 +1,27 @@
-// How a COMPONENT contributes commands for as long as it is on screen.
+// Contributes commands for as long as a component is mounted, and binds no chords.
 //
-// The frame's own commands are registered from an effect and removed on unmount
-// (`app/hooks/useWindowCommands.ts`), and a feature's are the same shape for the same
-// reason: they close over a live store, a live bridge, and the rows a pane is
-// currently showing, none of which exists at module scope. What a feature must not
-// copy from the frame is the mechanism — two hand-written register/unregister
-// effects against one module-scoped registry is two places to get the unregister
-// wrong — so the lifecycle lands here once and every component takes it as a hook.
-//
-// IT CONTRIBUTES THROUGH THE CONTRIBUTION REGISTRY AND NOT THROUGH `registerCommands`, and
-// that is the whole point rather than a preference. The palette re-reads the
-// registry once per `commandRevision`, and the only thing that moves the revision
-// is a contribution signal: a component that called `registerCommands`
-// directly would add its rows to a registry the open palette has already memoized
-// against, and the commands would be invisible until something unrelated bumped
-// it. The frame gets away with the plural call because it bumps the revision
-// itself, in the same effect; a pane has no revision to bump.
-//
-// WHICH MOUNT OWNS THE ROWS IS THE CONTRIBUTION REGISTRY'S BOOKKEEPING — NOT THIS HOOK'S.
-// Two mounts of one component would otherwise tear down in the wrong order: the first one's
-// cleanup clearing rows the second still owns, or the second's clearing an owner the
-// first is still on screen under. The register that decides which contribution is
-// live, and what the rows fall back to when it goes, belongs beside the owner-scoped
-// replace it disambiguates — so `contribute` hands back a release scoped to its own
-// contribution and this hook returns it as its effect cleanup. What that buys beyond
-// tidiness is instance scoping: a register at module scope is shared by every
-// composition in the process — a second window, a second test mount building its own
-// registry — and one of them superseding an owner it has no rows in silently disarms
-// the other's release.
-//
-// NO CHORDS. This hook contributes acts and binds no keys: a chord is a
-// window-wide claim, the key-binding table refuses two bindings on one chord, and
-// a pane that bound one would be racing every other pane in the pane layout for it. The
-// keyboard path to these acts is the palette itself, which is one chord for all
-// of them.
+// It goes through the contribution registry rather than `registerCommands`: the palette
+// re-reads only when a contribution signal moves its revision, so direct registration
+// would stay invisible to an open palette. Which of several mounts owns the rows is the
+// registry's bookkeeping; the hook returns the registry's release as its cleanup.
+// A chord is a window-wide claim that panes would race for, so the palette is the keyboard path.
 
 import { useEffect } from "react";
 
 import { commandContributionRegistry } from "../command-contributions.js";
 import type { CommandDefinition } from "../command-types.js";
 
-/** No chords, always. Frozen so a caller cannot make this the exception. */
+/** No chords, always; frozen so a caller cannot add one. */
 const NO_KEY_BINDINGS: readonly [] = Object.freeze([]);
 
 /**
- * Contribute `commands` under `owner` for as long as this component is mounted.
- *
- * `commands` MUST BE REFERENTIALLY STABLE while its contents are unchanged: the
- * effect re-contributes whenever the list's identity changes, and a list rebuilt
- * per render would re-register the owner's rows — and bump the palette's revision
- * — on every keystroke and every streamed run event. Callers memoize on a
- * signature of what the rows SAY and read everything that moves underneath them
- * through a ref, so a run version advancing does not rewrite the palette.
+ * Contributes `commands` under `owner` while the component is mounted. `commands` must be
+ * referentially stable while its contents are unchanged: a new identity re-registers the rows
+ * and bumps the palette revision.
  */
 export function useRegisterCommands(owner: string, commands: readonly CommandDefinition[]): void {
   useEffect(
-    // The release IS the cleanup, and it withdraws this contribution alone. A mount
-    // React has already replaced — a second pane of this kind, a development-mode
-    // remount — tears down after the one that superseded it and takes nothing off the
-    // registry; and a mount torn down while an earlier one is still on screen hands
-    // the rows back to it rather than emptying the owner underneath it.
+    // The release withdraws this contribution alone; see `CommandContributionRelease`.
     () => commandContributionRegistry.contribute({ owner, commands, keyBindings: NO_KEY_BINDINGS }),
     [owner, commands],
   );

@@ -1,30 +1,11 @@
-// What can be said about a candidate binding set before anything is installed, and
-// which chords the host takes before this application is asked.
+// What can be said about a candidate binding set before it is installed, and which chords
+// the host takes before this application sees them.
 //
-// EVERY VERDICT HERE IS THE KEYBINDING SERVICE'S OWN
-//
-// Conflicts come from `KeybindingTable.conflictsIn`, which that module documents as
-// a pre-flight check for exactly this: asking by catching the throw from
-// `setBindings` would mean the table had already been half-replaced. Whether a
-// binding is well formed at all comes from the same service, by offering each
-// candidate to a throwaway table and reading the diagnostic it reports for a row it
-// dropped. Neither question is answered here, and neither may be: a second overlap
-// rule and a second chord parser would agree with the service until the day they did
-// not, and then two views would report a keyboard nobody has.
-//
-// WHY THIS LIVES IN `palette/` AND NOT BESIDE THE KEYBOARD PAGE
-//
-// It was in `settings/pages/keyboard/keybinding-map.ts`, which is where its only reader was.
-// The override store beside this module is now a second reader, and it sits BELOW
-// settings in the console's import order — so leaving the table there would have meant either an
-// upward import or a second copy of the reserved-chord list and the probe loop. The
-// console hoists on the second use, and this is the lowest folder both readers
-// already import.
-//
-// A CHORD CAN BE UNAVAILABLE BECAUSE THE HOST TAKES IT
-//
-// The table below names chords the OPERATING SYSTEM consumes before any application
-// sees them, so a binding on one installs but never fires.
+// Every verdict comes from the keybinding table itself: conflicts from
+// `KeybindingTable.conflictsIn` (a pre-flight check that avoids a half-replaced table), and
+// dropped rows from offering each binding to a throwaway table. A second overlap rule or chord
+// parser here would drift from the table. The reserved-chord table below lists chords the
+// operating system consumes, so a binding on one installs but never fires.
 
 import { CommandRegistry } from "../commands/command-registry.js";
 import { type Keybinding } from "../commands/command-types.js";
@@ -38,12 +19,7 @@ interface ReservedChord {
   readonly reason: string;
 }
 
-/**
- * Chords the operating system takes, per platform, and deliberately short.
- *
- * Only entries that hold on a default installation of the platform itself are
- * listed.
- */
+/** Chords the operating system takes, per platform; only entries that hold on a default install. */
 const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly ReservedChord[]>> = {
   darwin: [
     {
@@ -70,20 +46,20 @@ const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly Reser
   ],
 };
 
-/** A binding the keybinding service refused to install, with its own reason. */
+/** A binding the keybinding table refused to install, with its own reason. */
 export interface DroppedBinding {
   readonly commandId: string;
   readonly chord: string;
   readonly reason: string;
 }
 
-/** Everything the service can say about a binding set without installing it. */
+/** Everything the keybinding table can say about a binding set without installing it. */
 export interface KeybindingAudit {
   readonly conflicts: readonly KeybindingConflict[];
   readonly dropped: readonly DroppedBinding[];
 }
 
-/** The reason this chord is unavailable on this host, or `undefined`. */
+/** The reason the host takes this chord, or `undefined` when it does not. */
 export function reservedChordReason(
   chord: string,
   platform: ChordPlatform = HOST_CHORD_PLATFORM,
@@ -94,19 +70,13 @@ export function reservedChordReason(
 }
 
 /**
- * Ask the keybinding service what is wrong with this set, if anything.
- *
- * Two questions, both answered by the real service. Conflicts come from its
- * pre-flight check over the whole set. Drops are found by offering each binding
- * ALONE to a throwaway table: one binding cannot conflict with itself, so that call
- * cannot throw, and whatever the table declines to install it names in its own
- * diagnostics. The probe table is never installed against a target, so nothing
- * listens and no keystroke reaches it.
+ * Asks the keybinding table what is wrong with this set. Drops are found by offering each binding
+ * alone to a throwaway table, which cannot conflict with itself and so cannot throw; the probe
+ * table is never installed, so no keystroke reaches it.
  */
 export function auditKeybindings(bindings: readonly Keybinding[]): KeybindingAudit {
   const probeTable = new KeybindingTable({
-    // A fresh empty registry rather than the window's: a validation must not be
-    // able to reach the commands whose bindings it is checking.
+    // An empty registry, so validation cannot reach the window's commands.
     registry: new CommandRegistry(),
     readContext: () => ({}),
   });

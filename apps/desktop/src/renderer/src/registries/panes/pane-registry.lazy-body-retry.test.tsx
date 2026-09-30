@@ -1,24 +1,9 @@
-// What a rejected body load leaves behind, and what is able to ask for it again.
-//
-// THE MEMO OUTLIVES EVERY MOUNT, which is what makes this a claim about the registration
-// rather than about a render. A `LoaderBackedBody` belongs to the board, and the board
-// belongs to the window — so a promise kept after it rejected is kept for the life of the
-// window, and every later ask is answered from it: the error boundary's "Try
-// again" remounts a subtree onto the same dead promise, and navigating away and back
-// arrives at it too. The loader is never called a second time, so nothing anywhere is
-// retrying anything, and the region is permanently a failure card with a button that
-// cannot work.
-//
-// WHAT THE CASES BELOW MEASURE IS THE LOADER, not the screen. A memo that kept the
-// rejection and one that released it answer a caller identically — both reject — and
-// differ only in whether the module was requested again. So every case here counts calls,
-// and the mount case counts them too rather than resting on what appeared.
-//
-// AND THE MOUNT CASE IS SHAPED LIKE THE FRAME. `app/router.tsx` calls
-// `descriptor.render(context)` inside its own render body, and that is load-bearing here:
-// the boundary re-renders its own children on a retry, so a child that were a
-// pre-built ELEMENT would be remounted holding whatever component it was created with.
-// The probe below is a component for that reason and no other.
+// What a rejected body load leaves behind. A `LoaderBackedBody` lives as long as the window, so a
+// kept rejected promise would answer every later ask, and the error boundary's "Try again" would
+// remount onto the same dead promise. The cases count loader calls, since keeping and releasing the
+// rejection look identical to a caller. The mount case mirrors `app/router.tsx`, which calls
+// `descriptor.render(context)` in its render body; the probe is a component so a retry does not
+// remount a pre-built element.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { createElement } from "react";
@@ -35,11 +20,8 @@ import { PaneRegistry } from "./pane-registry.js";
 const CHUNK_FETCH_FAILURE = "the diff chunk could not be fetched";
 
 /**
- * A loader that fails its first `failureCount` calls and lands the body after that.
- *
- * The count is the instrument. A registration that re-requested a chunk on every caller
- * and one that requested it once would satisfy every rendering assertion in this file
- * alike, and the difference between them is the whole subject.
+ * A loader that fails its first `failureCount` calls, then lands the body; the call count is the
+ * instrument.
  */
 function loaderFailingBefore(
   failureCount: number,
@@ -60,12 +42,12 @@ function loaderFailingBefore(
   };
 }
 
-/** A body that says it is there, so a landed retry is legible on the screen. */
+/** A body that says it is there, so a landed retry is visible. */
 function diffBody(): React.ReactNode {
   return createElement("p", null, "the diff body");
 }
 
-/** The frame's own mount shape: a component that resolves the descriptor as it renders. */
+/** The router's mount shape: a component that resolves the descriptor as it renders. */
 function MountedDiffPane(props: { readonly registry: PaneRegistry }): React.ReactNode {
   return props.registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"));
 }
@@ -84,9 +66,7 @@ describe("a rejected body load — the registration does not keep the failure", 
   });
 
   it("offers the kind back to the board the moment its load fails", async () => {
-    // The warm walk and the boards read one another through `unloadedKeys`, so this is
-    // where a retained rejection is visible without a mount: the kind reported itself
-    // loaded and the loader had never produced a body.
+    // A retained rejection shows here without a mount: the kind would report itself loaded.
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
     registry.register({ kind: "diff", owner: "repos", body: loader.load });
@@ -99,10 +79,7 @@ describe("a rejected body load — the registration does not keep the failure", 
   });
 
   it("asks once more however many callers were waiting on the failed load", async () => {
-    // Three callers race by construction — the palette's highlighted entry, an address
-    // about to open, and the idle warm — and a release written per CALLER rather than per
-    // minted promise would throw away the load the first retry installed and start a
-    // third fetch for a body two callers were already waiting on.
+    // Callers race, and a release per caller rather than per promise would start a third fetch.
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(1, diffBody);
     registry.register({ kind: "diff", owner: "repos", body: loader.load });
@@ -121,10 +98,7 @@ describe("a rejected body load — the registration does not keep the failure", 
   });
 
   it("negative control: a load that succeeded is never asked for again", async () => {
-    // Without this, every case above would pass over a registration that had simply
-    // stopped memoizing — one fetch per caller, per arrow-key press, forever, which is
-    // the defect the memo exists to prevent and the reason the release is scoped to the
-    // rejected arm alone.
+    // Without this, a registration that stopped memoizing would pass every case above.
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(0, diffBody);
     registry.register({ kind: "diff", owner: "repos", body: loader.load });
@@ -144,9 +118,8 @@ describe("a rejected body load — the error boundary's retry reaches it", () =>
   let restoreThrowOnReport = false;
 
   beforeEach(() => {
-    // `ErrorBoundary.test.tsx`'s discipline, for its reason: the registry throws in a
-    // development build, and a boundary reporting from `componentDidCatch` would turn
-    // that into a second failure inside React's own error handling.
+    // As in `ErrorBoundary.test.tsx`: the registry throws in development, and reporting from
+    // `componentDidCatch` would become a second failure.
     restoreThrowOnReport = import.meta.env.DEV;
     windowTripwires.setThrowOnReport(false);
     windowTripwires.reset();
@@ -178,9 +151,7 @@ describe("a rejected body load — the error boundary's retry reaches it", () =>
   });
 
   it("negative control: a chunk that fails again comes back to the failure card", async () => {
-    // Without this, the case above would pass over a retry that rendered the body from
-    // somewhere other than a second load — and the button would look like it worked on
-    // exactly the damaged install where it cannot.
+    // Without this, a retry that rendered the body without a second load would pass above.
     const registry = new PaneRegistry();
     const loader = loaderFailingBefore(2, diffBody);
     registry.register({ kind: "diff", owner: "repos", body: loader.load });

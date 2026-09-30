@@ -1,73 +1,37 @@
-// What a feature CONTRIBUTES to the palette: an act, and optionally a chord for it.
+// What a feature contributes to the palette: a command and optionally a chord for it.
 //
-// Two declarations and nothing else — no store, no parser, no matcher. They live
-// together and below everything because they are the command registry's two INPUT types, and
-// every module here is either a consumer of them (`CommandRegistry`,
-// `KeybindingTable`) or a decision procedure over them (`command-ranking.ts`,
-// `palette/keybindings/keybinding-conflicts.ts`).
-//
-// WHY THEY ARE NOT DECLARED BESIDE THEIR CONSUMERS. They were, and it closed two
-// cycles: `command-registry.ts` reached down to `command-ranking.ts` for the order
-// while `command-ranking.ts` reached back up for what a command IS, and the
-// keybinding pair did the same over `Keybinding`. Both back-edges were `import
-// type` and therefore erased at runtime, which is exactly what makes the shape
-// worth naming: it is invisible to a bundler and to every reader who assumes
-// erasure settles it, and the layering gate counts type edges (`tsPreCompilationDeps`)
-// precisely so a cycle cannot hide inside one. Hoisting the shared symbol into a
-// module below both is what that gate's own message prescribes.
-//
-// This module imports nothing from this folder, which is the property that makes
-// it a floor rather than one more node in the graph.
+// These are the registry's input types, kept in a module that imports nothing from this
+// folder so `command-registry.ts`, `command-ranking.ts` and `keybinding-conflicts.ts` do not
+// form an import cycle (type-only cycles count in the layering check).
 
 /** One act the console offers. */
 export interface CommandDefinition {
   /** Stable, unique, namespaced by owning feature — `session.rename`, not `rename`. */
   readonly id: string;
-  /** Sentence case, no trailing punctuation, names the act — console copy rules. */
+  /** Sentence case, no trailing punctuation, names the act. */
   readonly title: string;
   /** The palette category this row sits under. Also a secondary match field. */
   readonly group: string;
-  /** A `palette/when-clause/when-clause.ts` expression. Absent means unconditional. */
+  /** A `when-clause/when-clause.ts` expression. Absent means unconditional. */
   readonly when?: string;
   /** Extra words a person might type for this command. Matched below the title. */
   readonly keywords?: readonly string[];
   /**
-   * Perform the act. May be asynchronous; the registry never awaits it.
-   *
-   * A `run` MUST SETTLE. `invoke` hands its promise back and the palette drops it,
-   * deliberately — the dialog must not stay open waiting on a command that opens
-   * another view — so a `run` that rejects reaches no view at all and becomes
-   * an unhandled rejection. A command that can fail catches its own failure and
-   * renders it (`palette/commands/bridge-commands.ts` is the worked example).
+   * Performs the act. The registry never awaits it and the palette drops the promise, so a
+   * rejection becomes an unhandled rejection: a command that can fail must catch and render
+   * its own failure (see `raiseCommandRefusal`).
    */
   readonly run: () => void | Promise<void>;
   /**
-   * Warm whatever `run` is about to open, while a person is still looking at the row.
-   *
-   * OPTIONAL, AND MOST COMMANDS DECLARE NONE. It exists for the one class of command
-   * whose act mounts a loader-backed body: a destination, a pane. The palette calls it
-   * when the row becomes the highlighted one — the moment a person's intent is legible
-   * and the act has not happened — so the chunk is in flight before Enter rather than
-   * after it.
-   *
-   * IT MUST BE IDEMPOTENT AND MUST NOT NAVIGATE. Highlight moves with every arrow key,
-   * so this runs far more often than `run` does and on rows nobody chooses. Both boards'
-   * `preload` satisfy that by construction: the loader's promise is memoized, so a
-   * second call joins the first, and a body already loaded settles immediately.
-   *
-   * It returns nothing rather than a promise, on the same rule `run` follows: the
-   * palette drops what it cannot wait for, and a speculative warm has nobody waiting.
+   * Warms whatever `run` will open (a loader-backed destination or pane body); the palette
+   * calls it when the row is highlighted. It runs on every arrow key, so it must be
+   * idempotent and must not navigate. Returns nothing because nobody waits on it.
    */
   readonly preload?: () => void;
   /**
-   * Why this row cannot be run right now, or absent where it can be.
-   *
-   * A CONTRIBUTOR'S SENTENCE AND NEVER THE PALETTE'S. The palette has no idea why an
-   * act is closed; the feature that owns the act does, so the reason travels on the row
-   * and is rendered verbatim beside it and again in the refusal a press earns. A row
-   * that carries one still LISTS — hiding it would answer "why is this gone" with
-   * silence, and the `when` clause is already the affordance for an act that does not
-   * exist in this scope, which is a different fact from one that exists and is closed.
+   * Why this row cannot run now, in the owning feature's words; absent where it can. The row
+   * still lists and shows the reason beside it and in the refusal a press earns. Use `when`
+   * for an act that does not exist in this scope.
    */
   readonly unavailable?: string;
 }
@@ -77,14 +41,11 @@ export interface Keybinding {
   /** tinykeys syntax, single press, `$mod` for Cmd on macOS and Ctrl elsewhere. */
   readonly chord: string;
   readonly commandId: string;
-  /** A `palette/when-clause/when-clause.ts` expression. Absent means the binding is always live. */
+  /** A `when-clause/when-clause.ts` expression. Absent means the binding is always live. */
   readonly when?: string;
   /**
-   * Fire even while focus is in a text field. Default false.
-   *
-   * Opt-in rather than opt-out because the failure modes are asymmetric: a chord
-   * that wrongly fires while someone is typing destroys their text, and a chord
-   * that wrongly declines makes them reach for a menu.
+   * Fire even while focus is in a text field. Default false: a chord that wrongly fires
+   * while typing destroys text, while one that wrongly declines only sends a person to a menu.
    */
   readonly allowInTextInput?: boolean;
 }

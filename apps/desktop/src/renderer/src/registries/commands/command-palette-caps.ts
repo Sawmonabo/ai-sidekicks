@@ -1,10 +1,7 @@
-// The command palette's list bounds, beside the registry and the ranking that read them.
+// The command palette's list bounds.
 
-/** Commands the palette remembers. Enough to cover a working session's rhythm. */
+/** How many recently run commands the palette remembers. */
 export const COMMAND_PALETTE_RECENTS_CAP = 8;
 
-/**
- * Ranked results the palette renders at once. The list is keyboard-walked, so
- * past this a person is scrolling rather than choosing and should refine instead.
- */
+/** Ranked results rendered at once; beyond this a person should refine the query, not scroll. */
 export const COMMAND_PALETTE_RESULT_CAP = 40;

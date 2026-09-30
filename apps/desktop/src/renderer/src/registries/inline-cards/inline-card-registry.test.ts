@@ -1,10 +1,5 @@
-// Three card kinds, one owner each, and the dispatch that cannot hand a body the
-// wrong arm.
-//
-// The registry stores bodies erased — a table keyed by one union cannot hold three
-// differently-typed renderers — and re-narrows them on the way out. That erasure is
-// the one place a mismatch could reach a body typed against another shape, so it
-// is guarded at runtime rather than asserted, and the guard is driven here.
+// Three card kinds, one owner each, and dispatch that cannot hand a body the wrong arm. Bodies
+// are stored erased, so the runtime guard against a mismatched arm is driven here.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -24,8 +19,7 @@ import {
 const DIFF_CARD: DiffInlineCardProps = {
   kind: "diff",
   runId: "run-7",
-  // The registered diff result's own two identifiers, not an identifier the console
-  // invented: a body handed this arm fetches with exactly these.
+  // The diff result's own two identifiers; a body fetches with exactly these.
   diffArtifactId: "diff-artifact-3",
   artifactManifestId: "artifact-manifest-3",
 };
@@ -74,10 +68,8 @@ describe("inline card registry — a body is only ever handed its own arm", () =
   });
 
   it("refuses a body handed another kind's props rather than running it", () => {
-    // The mismatch is only reachable through `bodyFor`, which hands
-    // back a renderer typed over the whole union. Without the guard, a diff body
-    // would run against attachment props and read `diffArtifactId` off a shape that
-    // has none — a silent `undefined` in the rendered card.
+    // Reachable only through `bodyFor`, which returns a renderer typed over the whole union;
+    // without the guard a diff body would read `diffArtifactId` off attachment props.
     const registry = new InlineCardRegistry();
     registry.register("diff", {
       owner: "repos",
@@ -90,8 +82,7 @@ describe("inline card registry — a body is only ever handed its own arm", () =
   });
 
   it("negative control: the matching arm does not throw", () => {
-    // The case above would pass over a body that threw on every call, which is
-    // the shape a mis-written guard degenerates into.
+    // A guard that threw on every call would pass the case above.
     const registry = new InlineCardRegistry();
     registry.register("diff", {
       owner: "repos",
@@ -120,8 +111,7 @@ describe("inline card registry — one owner per card kind", () => {
 
   it("reports registered kinds in declaration order", () => {
     const registry = new InlineCardRegistry();
-    // Registered back to front, so an implementation reporting insertion order
-    // would answer differently.
+    // Registered back to front, so insertion order would answer differently.
     registry.register("artifact", { owner: "repos", render: () => null });
     registry.register("diff", { owner: "repos", render: () => null });
     expect(registry.registeredCardKinds()).toStrictEqual(["diff", "artifact"]);
@@ -130,17 +120,14 @@ describe("inline card registry — one owner per card kind", () => {
   it("negative control: a fresh registry holds no body and renders nothing", () => {
     const registry = new InlineCardRegistry();
     expect(registry.registeredCardKinds()).toStrictEqual([]);
-    // `undefined` rather than a placeholder: the "reserved, not stubbed" rule —
-    // the row says the card has not been built rather than drawing an empty one.
+    // `undefined`, not a placeholder card.
     expect(registry.render(DIFF_CARD)).toBeUndefined();
   });
 });
 
 describe("inline card registry — a diff card carries the registered diff identity", () => {
   it("hands a body both identifiers the registered diff result names", () => {
-    // Two rows, two ids: a body renders the diff while its provenance and retention
-    // hang off the manifest the diff minted. A card carrying one of them could fetch
-    // only half of what it draws.
+    // Two rows, two ids: a card carrying only one could fetch half of what it draws.
     const registry = new InlineCardRegistry();
     registry.register("diff", {
       owner: "repos",
@@ -151,10 +138,8 @@ describe("inline card registry — a diff card carries the registered diff ident
   });
 
   it("negative control: the retired identifier is not a member of the arm", () => {
-    // `changeSetId` had no producer, no consumer, and no registration anywhere, so a
-    // body reading it got `undefined` and rendered a card about nothing. Asserted as
-    // a compile error rather than a grep, because a grep goes stale and this does
-    // not: the day the member comes back, this stops building.
+    // `changeSetId` names no wire identity; asserted as a compile error so its return breaks the
+    // build.
     // @ts-expect-error `changeSetId` names no registered diff identity
     const retired = DIFF_CARD.changeSetId;
 
@@ -164,8 +149,7 @@ describe("inline card registry — a diff card carries the registered diff ident
 
 describe("inline card registry — an artifact card names an artifact", () => {
   it("accepts a reference from the artifact partition", () => {
-    // The positive half, and it is what makes the refusal below a NARROWING rather
-    // than a type nothing can satisfy.
+    // The positive half: the refusal below is a narrowing, not a type nothing satisfies.
     const artifact: ArtifactEntityRef = { kind: "artifact", id: "artifact-9" };
     const props: ArtifactInlineCardProps = { kind: "artifact", artifact };
 
@@ -173,24 +157,16 @@ describe("inline card registry — an artifact card names an artifact", () => {
   });
 
   it("negative control: a reference from another partition does not compile", () => {
-    // The defect this closes: the member took an unnarrowed `EntityRef`, so
-    // a `run` reference was a legal artifact card. The body would then look the row
-    // up in a partition that has never held it and render as permanently missing —
-    // which reads exactly like an artifact whose fetch has not answered yet.
-    //
-    // A compile-time assertion because the guard IS the type: this arm is built at
-    // typed call sites, so there is no runtime boundary for a check to sit on. The
-    // directive sits on the member rather than the declaration because that is
-    // where the error lands, and it fails the build if the reference ever becomes
-    // legal again.
+    // A `run` reference would render as permanently missing, like an unanswered fetch. The type
+    // is the guard, so this is a compile-time assertion; the directive fails the build if the
+    // reference ever becomes legal.
     const wrongPartition: ArtifactInlineCardProps = {
       kind: "artifact",
       // @ts-expect-error a `run` reference is not an artifact reference
       artifact: { kind: "run", id: "run-7" },
     };
 
-    // Read at runtime too, so the case is not purely a compiler directive: the
-    // value is the one the type refuses, and it is exactly a `run` reference.
+    // Read at runtime too, so the case is not purely a compiler directive.
     expect(wrongPartition.artifact.id).toBe("run-7");
   });
 });
@@ -206,8 +182,8 @@ describe("inline card registry — the module-scope registry", () => {
   });
 
   it("negative control: the kind is absent once released", () => {
-    // `afterEach` released it. Without this case, the one above would pass
-    // against a registry that had been holding the body since an earlier file.
+    // `afterEach` released it; otherwise the case above could pass on a body left by an earlier
+    // file.
     expect(inlineCardBody("attachment")).toBeUndefined();
   });
 });

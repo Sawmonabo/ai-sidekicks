@@ -1,5 +1,4 @@
-// What an override means, what it composes to, and which candidate chords the
-// console refuses before anything is stored.
+// What an override composes to, and which candidate chords are refused before anything is stored.
 
 import { describe, expect, it } from "vitest";
 
@@ -44,8 +43,7 @@ describe("composing the effective table", () => {
   });
 
   it("negative control: an unbound entry for an unshipped command adds nothing", () => {
-    // Without this the arm above would pass over a composer that appended a row for
-    // every override key, including the ones that say "this has no chord".
+    // Without this, a composer appending a row for every override key would pass the case above.
     expect(composeEffectiveBindings(DEFAULTS, { "app.checkForUpdates": null })).toStrictEqual(
       DEFAULTS,
     );
@@ -96,16 +94,14 @@ describe("refusing a candidate chord", () => {
   });
 
   it("lets a command keep the chord it already holds", () => {
-    // The candidate replaces this command's own row rather than joining it, so a
-    // rebinding to the same chord is not a collision with itself.
+    // The candidate replaces the command's own row, so it does not collide with itself.
     expect(
       refuseCandidateChord({ ...candidate, commandId: "frame.goToSessions", chord: "$mod+1" }),
     ).toBeUndefined();
   });
 
   it("negative control: every code the refusals above carry is in the vocabulary", () => {
-    // Without this the codes would be free strings that a view renders and a
-    // reader searches for, and a typo in one would be invisible.
+    // Without this, codes would be free strings and a typo in one would go unnoticed.
     for (const code of ["chord-taken", "chord-reserved", "chord-unbindable"]) {
       expect(KEYBINDING_OVERRIDE_REFUSAL_CODES).toContain(code);
     }

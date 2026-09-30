@@ -1,23 +1,11 @@
-// What a rebinding IS: the override a person authored, the table it composes to, and
-// whether one is admissible at all.
+// What a rebinding is: the override a person authored, the table it composes to, and whether one
+// is admissible. The shipped chords are `contributedKeybindings` in
+// `registries/commands/command-contributions.ts`.
 //
-// The contributed defaults (`contributedKeybindings` in
-// `registries/commands/command-contributions.ts`) stay the chords the app ships.
-// This module holds the other half. Two decisions carry it, and the store beside
-// it adds no third:
-//
-//   • **The effective table is composed, never edited.** The declared table and the
-//     override map are two inputs to one pure function, so "what does this window
-//     install" has a single answer that a test can compute without a store, a
-//     database, or a DOM — and no code path mutates the shipped table in place.
-//   • **A refusal is decided before anything is stored.** A candidate chord is
-//     composed into the whole effective table and offered to the keybinding
-//     service's own pre-flight check. Nothing here re-decides what a chord means or
-//     when two collide: `keybinding-audit.ts` asks the service that will install it.
-//
-// Everything here is pure and synchronous. Who HOLDS the overrides, where they are
-// kept, and what a window does while one is being recorded is
-// `keybinding-override-store.ts`.
+// The effective table is composed from the shipped table and the override map by a pure function,
+// never edited in place. A candidate chord is refused before anything is stored, by composing it
+// into the whole table and asking `keybinding-audit.ts`, so chord meaning and collision rules are
+// not re-decided here. Everything here is pure; the state is in `keybinding-override-store.ts`.
 
 import type { KeyboardMap } from "@shared/preload-api.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
@@ -26,11 +14,8 @@ import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-for
 import { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
 
 /**
- * What a person put on one command: a chord, or `null` for explicitly unbound.
- *
- * `null` says "this command has no chord and I meant that"; an ABSENT entry says "I
- * never touched this one", which is what a reset restores and what leaves the
- * shipped chord in place. The keyboard map main keeps holds exactly this pair.
+ * What a person put on one command: a chord, or `null` for explicitly unbound. An absent entry
+ * means untouched, which keeps the shipped chord and is what a reset restores.
  */
 export type KeybindingOverride = KeyboardMap[string];
 
@@ -41,43 +26,33 @@ export const KEYBINDING_OVERRIDE_REFUSAL_CODES = [
   "chord-taken",
 ] as const;
 
-/** One refusal code. Derived, so the vocabulary is declared exactly once. */
+/** One refusal code. */
 export type KeybindingOverrideRefusalCode = (typeof KEYBINDING_OVERRIDE_REFUSAL_CODES)[number];
 
 /** The subsystem name every refusal this module raises carries. */
 export const KEYBINDING_OVERRIDE_REFUSAL_ORIGIN = "keybinding-overrides";
 
-/**
- * A typed refusal — the console's one refusal shape, narrowed on `code`.
- *
- * `core/refusal.ts` states the arrangement: each producer keeps its own closed code
- * union and widens at its boundary, so this renders through the same three refusal
- * renderings as a persistence refusal, with no translation where both are shown.
- */
+/** The console's refusal shape narrowed to this module's codes, so it renders like any refusal. */
 export interface KeybindingOverrideRefusal extends Refusal {
   readonly code: KeybindingOverrideRefusalCode;
 }
 
 /** What deciding a candidate chord needs beyond the chord and the command. */
 export interface CandidateChordInput {
-  /** The chords the console ships. Overrides are composed onto this table. */
+  /** The chords the console ships; overrides are composed onto this table. */
   readonly defaults: readonly Keybinding[];
-  /** The overrides already held. The candidate is judged against them. */
+  /** The overrides already held; the candidate is judged against them. */
   readonly overrides: KeyboardMap;
   readonly commandId: string;
   readonly chord: string;
-  /** Whose reserved chords to refuse. Defaults to the host being run on. */
+  /** Whose reserved chords to refuse; defaults to the host being run on. */
   readonly platform?: ChordPlatform;
 }
 
 /**
- * Apply an override map to a declared binding table.
- *
- * Three arms, each a decision: an absent entry leaves the shipped binding alone,
- * `null` drops it, a chord replaces it. An override for a command the table does not
- * bind APPENDS one, which is what makes a command shipping with no chord bindable at
- * all — ordered by command id, so two windows holding the same overrides install the
- * same table in the same order.
+ * Applies an override map to a binding table: an absent entry keeps the shipped binding, `null`
+ * drops it, a chord replaces it. An override for an unbound command appends a binding, ordered by
+ * command id so two windows with the same overrides install the same table.
  */
 export function composeEffectiveBindings(
   defaults: readonly Keybinding[],
@@ -104,12 +79,9 @@ export function composeEffectiveBindings(
 }
 
 /**
- * Would this chord install on this command, given these overrides?
- *
- * Reserved first, because a chord the host eats parses perfectly and would otherwise
- * be stored as a binding that can never fire. The other two verdicts are the
- * keybinding service's own, read off the whole candidate table rather than off the
- * one row: a chord is only free relative to everything else installed.
+ * Returns why this chord cannot install on this command given these overrides, or `undefined`.
+ * Reserved chords are checked first, since a chord the host eats parses fine but never fires; the
+ * other verdicts come from the whole candidate table, because a chord is free only relative to it.
  */
 export function refuseCandidateChord(
   input: CandidateChordInput,

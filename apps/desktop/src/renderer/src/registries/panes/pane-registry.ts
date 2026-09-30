@@ -1,32 +1,15 @@
-// The pane layout's single mount registry: one owner per pane kind.
+// The pane layout's single mount registry: one owner per pane kind. The composition hands this
+// table to each feature, which claims the kind it owns; the layout resolves a pane's kind to a
+// descriptor and mounts it. There is no module-scope writer to the process-wide instance, since
+// a feature calling one would compose into production from inside another composition.
 //
-// The pane layout rule, in structural terms: one entity opens one pane, through a single
-// mount point and a tripwire that fails on a second. This module is that mount point. A
-// feature is HANDED this table by the composition and claims the kind it owns inside its
-// own `register<Feature>` entry point; the pane layout resolves a pane's kind to a descriptor
-// and mounts it. There is deliberately no module-scope convenience that writes into the
-// process-wide instance — a feature calling one would compose into production from
-// inside a composition that had handed it somewhere else.
+// It is separate from `screens/screen-registry.ts`: a screen is what a route mounts (at most one),
+// a pane is one of several the layout holds, keyed by the entity it views. Both are
+// `KeyedRegistry` with `duplicatePolicy: "owner-scoped"`.
 //
-// WHY THIS IS NOT `registries/screens/screen-registry.ts`, BESIDE IT IN THIS FOLDER
-//
-// A SCREEN is what a route mounts — one per navigable destination, at most one on
-// screen. A PANE is what the pane layout holds — several at once, opened by the sidebar,
-// keyed by the entity they are a view of. The two tables answer different questions and are
-// keyed by different closed sets, so folding them together would mean one key
-// space in which a route and a pane could collide.
-//
-// What they DO share is the duplicate policy and the reason for it, so both are
-// `KeyedRegistry` with `duplicatePolicy: "owner-scoped"` rather than two
-// hand-rolled tables that agree today.
-//
-// PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A pane layout
-// links two panes when one opens the other — an inspector opened from a transcript row
-// is a view OF that row's pane — and the link travels as an identifier passed in at
-// mount (`PaneContext.linkedSourcePaneId`), never as a handle held. That is
-// the design's independence rule made structural: a linked pane is still moved
-// and closed on its own, because the only thing it has of its source is a
-// string, and a string cannot be dereferenced into a body.
+// A pane may name the pane it was opened from, but only as an id passed in at mount
+// (`PaneContext.linkedSourcePaneId`), never a handle, so a linked pane is still moved and closed
+// on its own.
 
 import { createElement } from "react";
 
@@ -39,26 +22,16 @@ import { PANE_KINDS, type PaneKind } from "@renderer/routing/panes/pane-kinds.js
 /** What a feature registers to claim a pane kind. */
 export interface PaneDescriptor {
   readonly kind: PaneKind;
-  /** The task or feature that owns it, so an unrendered kind names someone. */
+  /** The feature that owns the kind. */
   readonly owner: string;
   readonly render: (context: PaneContext) => React.ReactNode;
 }
 
 /**
- * What a feature hands `register`, in one of exactly two forms.
- *
- * THE COMPONENT FORM is the original: a `render` the registrar already holds, for a
- * body that is on the flagship first paint and therefore belongs in the entry graph.
- *
- * THE LOADER FORM is `body: () => import("./pane/XBody.js")`, for a body that is not.
- * The distinction is a product fact rather than a size threshold — what decides it is
- * whether the pane is painted before a person acts — and `apps/desktop/AGENTS.md`
- * states the rule beside the pane-board one.
- *
- * A UNION AND NOT TWO OPTIONAL MEMBERS. `render?` and `body?` beside each other would
- * make "both" and "neither" representable, and both would have to be answered at run
- * time by a registry that cannot know which the feature meant. The `never` arms are what
- * make the compiler refuse a registration carrying both.
+ * What a feature hands `register`, in one of two forms. The component form is a `render` the
+ * registrar already holds, for a body on the first paint. The loader form is
+ * `body: () => import("./pane/XBody.js")`, for a body painted only after a person acts. A union
+ * with `never` arms, so the compiler refuses a registration carrying both or neither.
  */
 export type PaneRegistration =
   | (ConsolePaneRegistrationBase & {
@@ -70,11 +43,8 @@ export type PaneRegistration =
       readonly render?: never;
     });
 
+/** The pane kinds' descriptors; the same owner replaces on hot reload, another owner is refused. */
 export class PaneRegistry {
-  // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: re-registering
-  // under the same owner replaces (a hot reload re-runs a feature's module), and a
-  // different owner claiming a taken kind is a conflict rather than a swap,
-  // because which body mounts would otherwise depend on module import order.
   readonly #descriptorsByKind = new KeyedRegistry<PaneKind, PaneDescriptor>({
     duplicatePolicy: "owner-scoped",
     describeWhat: "pane kind",
@@ -83,31 +53,20 @@ export class PaneRegistry {
   });
 
   /**
-   * The loader-backed bodies, so `preload` has something to resolve.
-   *
-   * A second table rather than a member on the descriptor, because the descriptor is
-   * what every MOUNT site reads and none of them has any business knowing whether the
-   * body it is about to render arrived as a chunk. Keeping the two apart is what lets
-   * both registration forms produce one resolved descriptor shape.
+   * The loader-backed bodies, so `preload` has something to resolve. Kept apart from the
+   * descriptor so both registration forms produce one descriptor shape for mount sites.
    */
   readonly #loadedBodiesByKind = new Map<PaneKind, LoaderBackedBody<PaneContext>>();
 
   /**
-   * Claim a pane kind. A second claim by a different owner is an error, not a swap.
-   *
-   * A loader-form registration is normalized here: the registry builds the one
-   * `LoaderBackedBody` for it — one memoized promise and one stable lazy component — and
-   * stores the descriptor whose `render` mounts it. So `descriptorFor` answers the same
-   * shape for both forms, and nothing downstream branches on how a body was registered.
+   * Claims a pane kind; a second claim by a different owner is an error, not a swap. A loader-form
+   * registration gets one `LoaderBackedBody` (one memoized promise, one stable lazy component)
+   * and a descriptor whose `render` mounts it, so nothing downstream branches on the form.
    */
   public register(registration: PaneRegistration): void {
     if (registration.body === undefined) {
-      // REGISTERED FIRST, THEN THE LOADER TABLE IS TRIMMED, which is the loader arm's
-      // ordering read from the other side. Deleting first meant a refused registration —
-      // a different owner claiming a taken kind — threw AFTER dropping the loader that
-      // belongs to the descriptor still admitted, and the surviving pane then reported
-      // nothing to `preload` or `unloadedKeys`: warmable one moment and silently not the
-      // next, with no error anywhere naming why. The refusal throws past this line.
+      // Register first, then trim the loader table, so a refused claim throws before dropping the
+      // loader that belongs to the surviving descriptor.
       this.#descriptorsByKind.register(registration.kind, {
         kind: registration.kind,
         owner: registration.owner,
@@ -116,14 +75,12 @@ export class PaneRegistry {
       this.#loadedBodiesByKind.delete(registration.kind);
       return;
     }
-    // The fallback is the pane's own empty chrome, supplied here rather than by the
-    // generic machinery: what a pane reserves while it loads is a pane-shaped question.
+    // The fallback is the pane's own empty chrome.
     const loadedBody = new LoaderBackedBody(registration.body, (context: PaneContext) =>
       createElement(PendingPaneBody, { context }),
     );
-    // Registered BEFORE the descriptor, so a `register` the keyed registry refuses —
-    // a different owner claiming a taken kind — cannot leave a loader behind for a
-    // body that is not the one mounting. The refusal throws past this line.
+    // The keyed registry may refuse below, and it throws before the loader table is written, so a
+    // refused claim leaves no loader behind.
     this.#descriptorsByKind.register(registration.kind, {
       kind: registration.kind,
       owner: registration.owner,
@@ -132,51 +89,36 @@ export class PaneRegistry {
     this.#loadedBodiesByKind.set(registration.kind, loadedBody);
   }
 
+  /** Removes a kind's descriptor and loader. */
   public unregister(kind: PaneKind): void {
     this.#descriptorsByKind.unregister(kind);
     this.#loadedBodiesByKind.delete(kind);
   }
 
   /**
-   * Start this kind's body loading, without opening it.
-   *
-   * The three callers are the palette's highlighted entry, an address about to open
-   * before the route commits, and the idle warm — all of which know a pane is LIKELY
-   * before it is certain, which is exactly the moment a loader can be paid for off the
-   * critical path.
-   *
-   * Idempotent by construction: the promise is memoized on the registration, so calling
-   * this on every arrow-key press costs one fetch. A component-form kind and an
-   * unregistered kind both settle immediately with nothing to do — a caller preloading
-   * an address it has not opened yet must not have to ask first whether the kind is
-   * loader-backed, or every call site would carry a copy of that question.
+   * Starts this kind's body loading without opening it. Idempotent: the promise is memoized, so
+   * repeated calls cost one fetch. A component-form or unregistered kind settles immediately, so
+   * callers need not ask whether the kind is loader-backed.
    */
   public async preload(kind: PaneKind): Promise<void> {
     await this.#loadedBodiesByKind.get(kind)?.load();
   }
 
   /**
-   * Which registered kinds have a body still to load, in declaration order.
-   *
-   * `registeredPaneKinds`' ordering rule, for its reason: the warm walk's order is
-   * observable in what lands first, and registration order would make it depend on which
-   * feature's module evaluated first. Already-resolved kinds are filtered out so a second
-   * walk over a warmed board does nothing rather than re-entering every memo.
+   * Registered kinds whose body is still to load, in declaration order, so the warm walk's order
+   * does not depend on module evaluation. Resolved kinds are filtered out.
    */
   public unloadedKeys(): readonly PaneKind[] {
     return PANE_KINDS.filter((kind) => this.#loadedBodiesByKind.get(kind)?.isResolved === false);
   }
 
+  /** The descriptor registered for a kind, or `undefined`. */
   public descriptorFor(kind: PaneKind): PaneDescriptor | undefined {
     return this.#descriptorsByKind.get(kind);
   }
 
   /**
-   * Which kinds have a body, in DECLARATION order rather than registration order.
-   *
-   * Declaration order because the answer is read by the gallery and by the layout
-   * validator, and both want the spec's order; registration order would make it
-   * depend on which feature's module happened to evaluate first.
+   * Kinds with a body, in declaration order so readers do not depend on module evaluation order.
    */
   public registeredPaneKinds(): readonly PaneKind[] {
     return PANE_KINDS.filter((kind) => this.#descriptorsByKind.has(kind));
@@ -189,7 +131,7 @@ interface ConsolePaneRegistrationBase {
   readonly owner: string;
 }
 
-/** The process-wide registry the features call at module scope. */
+/** The process-wide pane registry. */
 export const paneRegistry: PaneRegistry = new PaneRegistry();
 
 /** Which pane kinds the process-wide registry has a body for. */

@@ -1,5 +1,4 @@
-// The contributions owners make their whole command set through: owner-scoped replace,
-// first-contribution order, and the change signal.
+// Owner-scoped replace, first-contribution order and the change signal of command contributions.
 
 import { describe, expect, it } from "vitest";
 
@@ -12,18 +11,14 @@ import {
 import type { CommandDefinition, Keybinding } from "./command-types.js";
 import { commandRegistry } from "./window-command-registry.js";
 
-/** One act, named by its id and doing nothing — the cases are about the wiring. */
+/** A command that does nothing; the cases are about the wiring. */
 function inertCommand(id: string): CommandDefinition {
   return { id, title: id, group: "Test", run: () => undefined };
 }
 
 /**
- * Withdraw every contribution a case made.
- *
- * The release `contribute` handed back, and never a second empty contribution: an empty
- * one supersedes rather than withdraws, so the register would keep the case's entry
- * and the next case would compose on top of it. Called from a `finally`, which is
- * this file's own idiom for leaving the module-scoped registry as it was found.
+ * Withdraws every contribution a case made, from a `finally`. It uses the returned release,
+ * never an empty contribution, which would supersede rather than withdraw.
  */
 function releaseAll(...releases: readonly CommandContributionRelease[]): void {
   for (const release of releases) {
@@ -49,9 +44,7 @@ describe("command contributions — one owner's whole set, contributed together"
   });
 
   it("replaces its own rows when a feature contributes twice, and nobody else's", () => {
-    // Composition is idempotent everywhere else in the console, and `contribute` is
-    // run again by a hot reload and by every test that composes the features. An
-    // additive registry would raise on the second pass instead.
+    // Hot reload and every composing test re-run `contribute`; an additive registry would raise.
     const releaseNeighbor = commandContributionRegistry.contribute({
       owner: "contribution-test-neighbor",
       commands: [inertCommand("contribution-test.kept")],
@@ -62,9 +55,7 @@ describe("command contributions — one owner's whole set, contributed together"
       commands: [inertCommand("contribution-test.first")],
       keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.first" }],
     });
-    // The re-contribution `useRegisterCommands` performs, in the order React performs it: the
-    // previous effect's cleanup runs before the new one contributes, so the owner
-    // holds one live entry and this is a replace rather than a supersede.
+    // React's order: the old effect's cleanup runs first, so this is a replace, not a supersede.
     releaseFirst();
     const releaseSecond = commandContributionRegistry.contribute({
       owner: "contribution-test-replaced",
@@ -75,8 +66,7 @@ describe("command contributions — one owner's whole set, contributed together"
       expect(commandRegistry.has("contribution-test.first")).toBe(false);
       expect(commandRegistry.has("contribution-test.second")).toBe(true);
       expect(commandRegistry.has("contribution-test.kept")).toBe(true);
-      // The replacing feature keeps the position its FIRST contribution gave it, so a
-      // re-composition cannot reorder the window's chords under a sibling.
+      // The replacing owner keeps its first-contribution position.
       expect(contributedKeybindings().map((binding) => binding.commandId)).toStrictEqual([
         "contribution-test.kept",
         "contribution-test.second",
@@ -87,9 +77,7 @@ describe("command contributions — one owner's whole set, contributed together"
   });
 
   it("tells a listener that the chords changed, and stops when it unsubscribes", () => {
-    // The signal is what makes a feature composed AFTER the window installed its
-    // table reachable at all. Without it the chord is bound into a list nothing
-    // re-reads, which is a keypress that does nothing and reports nothing.
+    // Without the signal, a feature composed after the table was installed is never re-read.
     let signalCount = 0;
     const stopWatching = subscribeToCommandContributions(() => {
       signalCount += 1;
@@ -114,9 +102,7 @@ describe("command contributions — one owner's whole set, contributed together"
   });
 
   it("has already written the contribution when the listener reads it", () => {
-    // Negative control for the emit's POSITION. A signal raised before the map is
-    // written hands the listener the previous table, and every assertion above
-    // still passes — the listener is the only thing that can tell.
+    // Guards the emit's position: a signal before the map write hands the listener the old table.
     let chordsSeenByListener: readonly Keybinding[] = [];
     const stopWatching = subscribeToCommandContributions(() => {
       chordsSeenByListener = contributedKeybindings();
@@ -138,8 +124,7 @@ describe("command contributions — one owner's whole set, contributed together"
   });
 
   it("negative control: no chord this file contributed survives it", () => {
-    // Without this every case above would pass against a registry whose withdrawal did
-    // nothing, and the ordering assertion would be reading the case before it.
+    // Without this, a registry whose withdrawal did nothing would pass every case above.
     expect(contributedKeybindings()).toStrictEqual([]);
     expect(commandRegistry.has("contribution-test.act")).toBe(false);
     expect(commandRegistry.has("contribution-test.kept")).toBe(false);

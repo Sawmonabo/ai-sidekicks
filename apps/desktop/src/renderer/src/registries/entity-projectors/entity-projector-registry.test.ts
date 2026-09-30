@@ -1,13 +1,5 @@
-// The projector board's own rules, apart from the composition that fills it.
-//
-// Two of them, and they are the reasons the board exists rather than a constant:
-// one owner per event kind — refused by name on a conflict, never resolved by
-// import order — and a snapshot a store can hold for a session's whole life without
-// the table moving underneath it.
-//
-// The seam's behavior through a real window is `frame/session-lifecycle`'s to
-// prove; what is here is the registry's own, driven directly so a conflict is a
-// value rather than a failure inside a render.
+// The projector registry's own rules, driven directly: one owner per event kind, refused by
+// name on a conflict, and a snapshot that does not move under a store for a session's life.
 
 import { describe, expect, it } from "vitest";
 
@@ -17,10 +9,10 @@ import type {
 } from "@renderer/store/session/entities/entities.js";
 import { EntityProjectorRegistry } from "./entity-projector-registry.js";
 
-/** A probe kind no taxonomy registers, so nothing else can be claiming it. */
+/** A kind no taxonomy registers, so nothing else claims it. */
 const PROBE_EVENT_KIND = "probe.registered";
 
-/** A projector that names the event it saw, so a snapshot can be shown to hold it. */
+/** A projector that records the event kind it saw. */
 function probeProjector(
   entityId: string,
 ): (event: ProjectedSessionEvent) => readonly EntityMutation[] {
@@ -34,23 +26,19 @@ function probeProjector(
 
 describe("the console's entity-projector board — one owner per event kind", () => {
   it("refuses a second owner's claim on one kind, naming both", () => {
-    // Never last-writer-wins: two folds for one kind would make which one runs
-    // depend on which feature's module evaluated first, and the store would report a
-    // partition built by whichever that happened to be.
+    // Never last-writer-wins: the fold that runs would depend on module evaluation order.
     const registry = new EntityProjectorRegistry();
     registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
     expect(() => {
       registry.register(PROBE_EVENT_KIND, probeProjector("second"), "composer");
     }).toThrowError(/transcript[\s\S]*composer/);
-    // The first claim survives the refusal — a rejected registration is not a
-    // half-applied one.
+    // A rejected registration is not half-applied.
     expect(registry.ownerOf(PROBE_EVENT_KIND)).toBe("transcript");
   });
 
   it("lets one owner re-claim its own kind, as a hot reload does it", () => {
-    // The other half of the owner-scoped policy, and the reason it is not plain
-    // `"throw"`: a feature's module re-evaluating must not raise.
+    // The owner-scoped policy, not plain `"throw"`: a module re-evaluating must not raise.
     const registry = new EntityProjectorRegistry();
     registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
@@ -60,8 +48,7 @@ describe("the console's entity-projector board — one owner per event kind", ()
   });
 
   it("negative control: two owners on two different kinds is not a conflict", () => {
-    // Without it the case above would hold over a registry that refused every
-    // second registration, which is a board no two features could share.
+    // Without it, a registry that refused every second registration would pass the case above.
     const registry = new EntityProjectorRegistry();
 
     expect(() => {
@@ -88,9 +75,7 @@ describe("the console's entity-projector board — one owner per event kind", ()
 
 describe("the console's entity-projector board — the snapshot a store opens with", () => {
   it("carries every claimed kind, and is frozen", () => {
-    // Frozen at runtime rather than merely typed `Readonly`: a store folds for as
-    // long as its session is open, and a table that grew underneath it would fold
-    // two events of one kind two different ways inside one session.
+    // Frozen at runtime: a table that grew under an open store would fold one kind two ways.
     const registry = new EntityProjectorRegistry();
     registry.register(PROBE_EVENT_KIND, probeProjector("first"), "transcript");
 
@@ -108,15 +93,12 @@ describe("the console's entity-projector board — the snapshot a store opens wi
     registry.register("probe.later", probeProjector("later"), "composer");
 
     expect(Object.keys(taken)).toStrictEqual([PROBE_EVENT_KIND]);
-    // The negative control for the case above: the registry really did change, so
-    // the snapshot's stability is a property of the snapshot rather than of a board
-    // nothing wrote to.
+    // Negative control: the registry did change, so stability belongs to the snapshot.
     expect(Object.keys(registry.snapshot())).toContain("probe.later");
   });
 
   it("negative control: a fresh board claims nothing on its own", () => {
-    // Every case above reads a snapshot, and all of them would pass over a board
-    // that reported kinds nobody registered.
+    // Every case above would pass over a board that reported kinds nobody registered.
     expect(new EntityProjectorRegistry().snapshot()).toStrictEqual({});
   });
 });

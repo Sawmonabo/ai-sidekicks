@@ -1,14 +1,6 @@
-// One decoder, two readers: the printer and the conflict comparator.
-//
-// `primitives/chord/chord-format.ts` decodes `KeyK` to `K` so a keycap prints the letter.
-// The binding table decodes the same token for a different reason: `$mod+k` and
-// `$mod+KeyK` are two spellings of ONE keystroke, so installing both is a conflict
-// and not two bindings that happen to fight at runtime.
-//
-// Those are two readers of one function, and this file asserts the agreement from
-// the palette side — the side that would fail silently. If the two ever drift apart
-// again, the printer's own tests still pass (it prints something) while the console
-// quietly double-binds a key, which is the failure worth a test of its own.
+// One decoder, two readers: the printer (`lib/chord-format.ts`) and the conflict comparator.
+// `$mod+k` and `$mod+KeyK` are one keystroke, so this asserts from the binding side the agreement
+// that would otherwise fail silently: the printer's tests would pass while a key is double-bound.
 
 import { describe, expect, it } from "vitest";
 
@@ -17,11 +9,7 @@ import { KeybindingConflictError, KeybindingTable } from "./keybinding-table.js"
 
 describe("chord decoding — the comparator and the printer decode alike", () => {
   it("refuses two spellings of one keystroke as a conflict", () => {
-    // The printer's decoding and the conflict comparator's decoding are the same
-    // function, and this is the half of that which is not about pixels: `$mod+k`
-    // and `$mod+KeyK` ARE one chord, so installing both is a conflict rather than
-    // two bindings that happen to fight at runtime. Were the two decoders to drift
-    // apart again, this passes silently while the console double-binds a key.
+    // `$mod+k` and `$mod+KeyK` are one chord, so installing both must be a conflict.
     const registry = new CommandRegistry();
     registry.registerAll([
       { id: "test.first", title: "First", group: "Test", run: () => undefined },
@@ -38,9 +26,7 @@ describe("chord decoding — the comparator and the printer decode alike", () =>
   });
 
   it("does not call two different keys a conflict", () => {
-    // The negative half: a comparator that normalized too aggressively — folding
-    // `KeyK` to `K` and then `Keyboard` to `board`, say — would refuse bindings
-    // that have nothing to do with each other.
+    // The negative half: over-aggressive normalization would refuse unrelated bindings.
     const registry = new CommandRegistry();
     registry.registerAll([
       { id: "test.first", title: "First", group: "Test", run: () => undefined },

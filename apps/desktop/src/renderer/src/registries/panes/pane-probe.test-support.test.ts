@@ -1,12 +1,5 @@
-// The probe picker, proved over both arms it can take.
-//
-// The picker is the reason two composition suites can prove the pane-board seam
-// without naming a pane kind, so what it answers has to be checked against the
-// closed set rather than against today's board: a picker that ignored what was
-// claimed and a picker that never ran out both pass a suite whose board is mostly
-// empty, and both fail the day the features land. The table below drives the real
-// helper over a claimed set written by hand, which is the only way either arm can
-// be reached today.
+// The probe picker over both arms it can take. It is checked against hand-written claimed sets,
+// since a picker that ignored claims or never ran out would pass a mostly empty board.
 
 import { describe, expect, it } from "vitest";
 
@@ -14,10 +7,10 @@ import { PANE_KINDS, type PaneKind } from "@renderer/routing/panes/pane-kinds.js
 import { firstFreePaneKind, registerFreePaneKindProbe } from "./pane-probe.test-support.js";
 import { PaneRegistry } from "./pane-registry.js";
 
-/** The set's own first and third members, named by position rather than by hand. */
+/** The set's first three members, named by position. */
 const [FIRST_KIND, SECOND_KIND, THIRD_KIND] = PANE_KINDS;
 
-/** One reading of the picker: what it answers for a claimed set. */
+/** What the picker answers for a claimed set. */
 interface PickerCase {
   readonly name: string;
   readonly claimed: readonly PaneKind[];
@@ -41,10 +34,7 @@ describe("pane probe — the kind a composition left free", () => {
   });
 
   it("negative control: the set it picks from is the closed one and is not empty", () => {
-    // Every case above compares against a member of `PANE_KINDS`, so all of them
-    // would pass vacuously over an empty set — `find` answers `undefined` and the
-    // last case expects exactly that. This is what makes the other three mean
-    // something.
+    // Over an empty set every case above would pass vacuously, since `find` answers `undefined`.
     expect(PANE_KINDS.length).toBeGreaterThan(1);
     expect(new Set(PANE_KINDS).size).toBe(PANE_KINDS.length);
   });
@@ -71,9 +61,7 @@ describe("pane probe — registering it", () => {
   });
 
   it("registers nothing when the composition left no kind free", () => {
-    // The arm the board reaches once every feature has landed. The probe reports
-    // that it did nothing, and it must not have unregistered somebody's body to
-    // make room for itself.
+    // The probe reports it did nothing and must not unregister a body to make room.
     const registry = new PaneRegistry();
     for (const kind of PANE_KINDS) {
       registry.register({ kind, owner: "composition", render: () => null });
@@ -86,8 +74,7 @@ describe("pane probe — registering it", () => {
   });
 
   it("negative control: a fresh registry holds nothing on its own", () => {
-    // Without it, the first case would pass over a registry that reported a kind
-    // nobody put in it, which is how a registration assertion goes vacuous.
+    // Without it, a registry reporting a kind nobody registered would pass the first case.
     expect(new PaneRegistry().registeredPaneKinds()).toStrictEqual([]);
   });
 });
