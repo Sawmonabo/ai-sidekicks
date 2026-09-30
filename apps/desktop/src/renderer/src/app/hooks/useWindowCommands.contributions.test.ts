@@ -1,17 +1,9 @@
-// A feature composed after the window installed its chord table still gets its chords.
-//
-// The frame installs one `KeybindingTable` on `window` from an effect, and the
-// features contribute at composition time. Those two moments are not ordered: a
-// feature composed later — a lazily-loaded chunk, a second composition into a window
-// that is already open — binds its chords into a list the table would never read
-// again. The failure is silent in both directions, which is why it needs a case: the
-// palette lists the command, the settings page prints the chord, and the key does
-// nothing.
-//
-// Driven through the REAL composition root and a REAL dispatched press rather than
-// through the hook: what is claimed is that the window's installed table answers the
-// chord, and a table read out of a hook result would be the same list this file
-// already has, asserted against itself.
+// A feature composed after the window installed its chord table still gets its chords. The frame
+// installs one `KeybindingTable` from an effect while features contribute at composition time,
+// and the two are unordered; a late feature (a lazy chunk, a second composition into an open
+// window) would otherwise bind into a list the table never rereads, and the key would do nothing
+// while the palette and settings page show it. Driven through the real composition root and a
+// dispatched press, since a table read from a hook result would be asserted against itself.
 
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,20 +21,19 @@ const CONTRIBUTED_COMMAND_ID = "frameCommandsContributionsTest.act";
 /**
  * A chord no console feature binds, and one no modifier is needed to press.
  *
- * Modifier-free because `$mod` resolves against the real host at listen time, so a
- * press built here would have to guess which modifier this runner's `tinykeys` is
- * watching for — and guessing wrong is a case that passes for the wrong reason.
+ * Modifier-free because `$mod` resolves against the real host at listen time, so a press built
+ * here would have to guess which modifier this runner's `tinykeys` watches for.
  */
 const CONTRIBUTED_CHORD = "F9";
 
+/** Dispatch a keydown for the contributed chord. */
 function pressContributedChord(): void {
   window.dispatchEvent(new KeyboardEvent("keydown", { code: "F9", key: "F9" }));
 }
 
 describe("window commands — chords contributed after the table was installed", () => {
-  // Owner-scoped replace is the withdrawal: contributing nothing under this owner
-  // unregisters the command this file added, so the module-scoped registry is left
-  // as it was found.
+  // Contributing nothing under this owner withdraws what the file added from the module-scoped
+  // registry.
   afterEach(() => {
     commandContributionRegistry.contribute({
       owner: CONTRIBUTING_OWNER,
@@ -63,9 +54,8 @@ describe("window commands — chords contributed after the table was installed",
     };
     const mounted = await mountApp();
 
-    // The press BEFORE the contribution is the negative control, and it is in the
-    // same case on purpose: it shows the chord was not already bound by something
-    // else, so the press after it is measuring this contribution and not the tree.
+    // The press before the contribution is the negative control, in the same case to show the
+    // chord was not already bound by something else.
     pressContributedChord();
     const runsBeforeContribution = runCount;
 
@@ -88,10 +78,8 @@ describe("window commands — chords contributed after the table was installed",
   });
 
   it("stops answering the chord once the window is gone", async () => {
-    // The other half of the same wiring: the effect's cleanup withdraws the
-    // listener it added, so a contribution arriving after unmount reaches no table
-    // — and a leaked subscription would keep answering presses in a window that no
-    // longer exists, which is the shape a stray listener always takes.
+    // The effect's cleanup withdraws its listener, so a contribution after unmount reaches no
+    // table; a leaked subscription would keep answering presses.
     let runCount = 0;
     const mounted = await mountApp();
     act(() => {

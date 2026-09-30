@@ -1,10 +1,6 @@
-// What every session-lifecycle suite needs before it can render anything.
-//
-// One home for the two roles more than one of the sibling suites plays: the probe
-// component that does exactly what the frame does and reports what it saw, and the
-// bridge host it renders inside. It holds nothing a single suite uses — the event
-// builders, the store-identity comparison, and the diagnostics handle each have one
-// reader and stay beside it.
+// What every session-lifecycle suite needs before it can render anything: the probe component
+// that does what the frame does and reports what it saw, and the bridge host it renders inside.
+// Helpers with a single reader stay beside that reader.
 
 import { useRef, type ReactNode } from "react";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
@@ -24,23 +20,20 @@ import { useActiveSessionStore } from "./useActiveSessionStore.js";
 import { useSessionStoreRegistry } from "./useSessionStoreRegistry.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 
+/** What a probe saw on one render: the window's registry and the active session's store. */
 export interface Observation {
   readonly registry: SessionStoreRegistry;
   readonly store: SessionStore | undefined;
 }
 
+/** The session a probe opens, the observer it reports to, and an optional projector board. */
 export interface SessionProbeProps {
   readonly sessionId: string;
   readonly onObserve: (observation: Observation) => void;
   /**
-   * The fold this probe's stores open with. Absent means "what the console composes".
-   *
-   * Optional HERE and required on the hook, which is the distinction that matters:
-   * the hook is the production seam and takes its board from the caller so no window
-   * writes into a registry it did not name, while this probe stands in for
-   * `AppProviders` and every case that is not about the fold would otherwise have to
-   * compose one to say nothing about it. A case that IS about the fold passes its
-   * own, which is also what keeps it out of the process-wide board.
+   * The fold this probe's stores open with; absent means the run-lifecycle projectors the
+   * console composes. Optional here because the probe stands in for `AppProviders`; a case about
+   * the fold passes its own, which keeps it out of the process-wide board.
    */
   readonly projectorRegistry?: EntityProjectorRegistry;
 }
@@ -68,9 +61,8 @@ export function SessionProbe(props: SessionProbeProps): null {
 /**
  * A fixture bridge and the provider around it.
  *
- * Built once per case and closed over, because the provider resolves on bridge
- * IDENTITY: a wrapper that made a new fixture on every render would restart the
- * scenario engine mid-pass and reset the frozen clock underneath it.
+ * Built once per case and closed over, because the provider resolves on bridge identity: a new
+ * fixture per render would restart the scenario engine and reset the frozen clock.
  */
 export function fixtureBridgeHarness(): FixtureBridgeHarness {
   const { bridge, scenarioEngine } = createFixtureBridge({
@@ -98,6 +90,7 @@ export function fixtureBridgeWrapper(): (props: {
   return fixtureBridgeHarness().wrapper;
 }
 
+/** The probe's newest observation; throws when it never rendered. */
 export function lastObservation(observed: readonly Observation[]): Observation {
   const observation = observed.at(-1);
   if (observation === undefined) {
@@ -107,14 +100,10 @@ export function lastObservation(observed: readonly Observation[]): Observation {
 }
 
 /**
- * The caller's projector board, or a fresh one seeded the way the console seeds its
- * own.
+ * The caller's projector board, or a fresh one seeded the way the console seeds its own.
  *
- * A ref rather than a construction in the render body, on `AppProviders`'s own
- * precedent for the frame and draft stores: the hook below keys its plumbing on this
- * identity, so a board rebuilt on every render would re-mint the window's registry
- * under it. Fresh per mount rather than module-scope, so one case's probe kinds never
- * reach another's.
+ * Held in a ref so the board is stable across renders, and fresh per mount rather than module
+ * scope so one case's probe kinds never reach another's.
  */
 function useDefaultedProjectorRegistry(
   supplied: EntityProjectorRegistry | undefined,

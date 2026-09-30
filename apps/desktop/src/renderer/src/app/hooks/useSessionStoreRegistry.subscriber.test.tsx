@@ -1,8 +1,5 @@
-// The window's binder: minted beside the registry, attached, and torn down first.
-//
-// "The hook mints a registry" is only half a claim — the other half is that it
-// mints the binder beside it, attaches it, and tears the two down in the order that
-// cannot have one call into the other.
+// The window's event subscriber: minted beside the registry, attached, and disposed before it so
+// neither calls into the other mid-teardown.
 
 import { render } from "@testing-library/react";
 import { type ReactNode } from "react";
@@ -77,10 +74,9 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
       wrapper,
     });
 
-    // Read through what the composition was handed rather than through a returned
-    // object, because the hook deliberately does not hand the binder out — this is
-    // what the fixture composition puts on the page for the endurance tier, so the
-    // case also proves the tier has something to read.
+    // Read through what the composition was handed, since the hook does not return the
+    // subscriber; this is also what the fixture composition puts on the page for the endurance
+    // tier.
     const diagnostics = diagnosticsHolder.installed;
     expect(diagnostics).toBeDefined();
     expect(diagnostics?.openSessionIds()).toEqual([BOUND_SESSION_ID]);
@@ -89,9 +85,7 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
   });
 
   it("disposes the binder in the same cleanup, before the registry", () => {
-    // Spies over the REAL methods (`vi.spyOn` calls through), so the ordering is
-    // read off the calls the hook actually made rather than off a substitute that
-    // could be ordered any way at all.
+    // `vi.spyOn` calls through, so the order is read off the hook's real calls.
     const disposeBinder = vi.spyOn(SessionEventSubscriber.prototype, "dispose");
     const disposeRegistry = vi.spyOn(SessionStoreRegistry.prototype, "disposeAll");
     const { diagnosticsHolder, wrapper } = compositionHarness();
@@ -109,18 +103,14 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     const registryCallOrder = disposeRegistry.mock.invocationCallOrder[0];
     expect(binderCallOrder).toBeDefined();
     expect(registryCallOrder).toBeDefined();
-    // The binder holds the registry's change subscription, so a registry disposed
-    // first would close every session back through a binder already being torn
-    // down. The order is the assertion.
+    // The subscriber holds the registry's change subscription, so disposing the registry first
+    // would call back into a subscriber already tearing down.
     expect(binderCallOrder ?? 0).toBeLessThan(registryCallOrder ?? 0);
-    // Nothing is left installed once the window is gone.
     expect(diagnosticsHolder.installed).toBeUndefined();
   });
 
   it("negative control: the ordering comparison notices the opposite order", () => {
-    // Without this, `toBeLessThan` over two numbers read from the same counter
-    // would pass on any pair the harness happened to produce — including one
-    // recorded in the wrong order.
+    // Without this, the `toBeLessThan` comparison could pass on an order recorded backwards.
     const disposeBinder = vi.spyOn(SessionEventSubscriber.prototype, "dispose");
     const disposeRegistry = vi.spyOn(SessionStoreRegistry.prototype, "disposeAll");
     const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });

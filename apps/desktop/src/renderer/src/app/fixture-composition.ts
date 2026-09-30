@@ -1,11 +1,6 @@
 // The fixture launch's composition: which scenario a window plays, and the handles a test
-// driver reads off the page.
-//
-// Chosen once, at startup, from the launch the preload exposed. `App.tsx` calls
-// `composeFixtureLaunch` behind the fixture define, so a release bundle carries neither this
-// module nor a scenario, and nothing else in the renderer asks whether it is playing one.
-// The main process has already checked the launch against the catalog, so a scenario or
-// session named here exists.
+// driver reads off the page. The main process has already checked the launch against the
+// catalog, so a scenario or session named here exists.
 
 import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
@@ -26,8 +21,7 @@ import { registerPaneHarnessScreen } from "./pane-harness/register-pane-harness-
 /**
  * The composition this window's launch asks for, or `undefined` for a normal launch.
  *
- * A launch that names a session opens it: the address is written before the first render,
- * so the window store reads it as the window's opening route like any other address. A
+ * A launch that names a session opens it by writing the address before the first render. A
  * fixture launch also registers the pane harness, the screen the endurance tier mounts a
  * registered pane body through.
  */
@@ -46,13 +40,12 @@ export function composeFixtureLaunch(): BridgeComposition | undefined {
 /**
  * A composition playing one scenario from the catalog.
  *
- * Each bridge it builds runs on its scenario engine's frozen clock, and the engine is what
- * the provider disposes and what the scenario control on the page drives.
+ * Each bridge runs on its scenario engine's frozen clock; the engine is what the provider
+ * disposes and the page's scenario control drives.
  *
- * Each install writes one page property and returns a removal that deletes it only while it
- * still holds what this install wrote: several consoles mount into one document in the
- * browser tiers, and a later window's install supersedes an earlier one's, so an
- * unconditional delete on the earlier one's teardown would strip the live window's handle.
+ * A removal deletes its page property only while it still holds what this install wrote:
+ * several consoles mount into one document in the browser tiers, and an earlier window's
+ * teardown must not strip a later window's handle.
  */
 export function createFixtureComposition(scenarioId: string): BridgeComposition {
   const scenario = findScenario(scenarioId);

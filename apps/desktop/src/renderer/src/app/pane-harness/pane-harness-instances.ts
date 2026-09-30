@@ -1,17 +1,6 @@
-// What the pane harness mounts, worked out apart from the markup that mounts it.
-//
-// The harness holds a VARIABLE number of registered pane bodies, and everything that
-// varies per instance — the identity React reconciles by, and the context the body
-// reads its stores from — is decided here. The harness screen beside this module maps the
-// result to elements and decides nothing.
-//
-// Held apart for two reasons. The first is the ordinary one: a per-instance identity
-// rule and a context-composition rule are both testable without a DOM, and neither
-// needs React to state. The second is the rule the harness itself rests on — the
-// thing being measured is what the PANE LAYOUT would mount, which is the descriptor a feature
-// registered, so this module takes `PaneDescriptor` and never a pane component,
-// and a harness that imported one directly would measure a component that happens to
-// sit beside the registration.
+// What the pane harness mounts, worked out apart from the markup: each instance's React key and
+// the context its body reads. Both are testable without a DOM. It takes a `PaneDescriptor` and
+// never a pane component, so the harness measures what the pane layout would mount.
 
 import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
@@ -30,15 +19,9 @@ export interface PaneHarnessInstance {
 /**
  * One instance's identity in this harness.
  *
- * Stable across a count change, which is what makes opening a second instance an
- * ADDITION rather than a re-key that would unmount and rebuild the first — and the
- * per-instance slope the budget's negative control compares depends on the first
- * instance surviving the second one's mount.
- *
- * The SESSION is part of it because the identity has to change when the subject
- * does. Keyed on the kind and the index alone, two addresses differing only in their
- * session produced the same key, so React reconciled the instances rather than
- * rebuilding them and a pane bound to one session went on running against another.
+ * Stable across a count change, so opening a second instance adds one without rebuilding the
+ * first; the budget's per-instance slope depends on that. The session is part of the id so two
+ * addresses that differ only in session never reconcile into one pane.
  */
 export function paneInstanceId(
   address: PaneAddress,
@@ -49,15 +32,11 @@ export function paneInstanceId(
 }
 
 /**
- * What a pane body is handed here, and why each member is the harness screen's own.
+ * What a pane body is handed here.
  *
- * Every store comes off the screen context rather than being minted here: the
- * budget's subject is a pane in a RUNNING console, so the pane reads the window's
- * own bridge, frame store, session store, durable UI state, and drafts — the same
- * five a pane layout would hand it. The two members a pane layout decides and this harness does
- * not are passed absent rather than invented: nothing opened this pane from another
- * pane, and no actor is attributed to it, which is the neutral answer
- * `PaneContext` documents for both.
+ * The bridge and the frame, session, UI-state and draft stores come off the screen context, as
+ * they would from a pane layout, so the pane runs in a real console. Nothing opened the pane
+ * from another pane, so `linkedSourcePaneId` is `undefined`.
  */
 export function paneContextFor(
   context: ScreenContext,
@@ -80,10 +59,7 @@ export function paneContextFor(
 /**
  * The `openInstanceCount` instances of one registered kind, in mount order.
  *
- * The count is the only input that changes while the harness screen is open, and it is read
- * as a floor of zero rather than trusted: a negative count would ask `Array.from` for
- * a negative length, which throws, and a control that had gone one step past its own
- * guard would take the window's error boundary for an arithmetic slip.
+ * The count is floored at zero because a negative length would make `Array.from` throw.
  */
 export function paneHarnessInstances(
   descriptor: PaneDescriptor,

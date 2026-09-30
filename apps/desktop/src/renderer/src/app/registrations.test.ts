@@ -1,9 +1,7 @@
-// What composing every feature does to the registries it is handed.
-//
-// Two failures are expensive here and invisible anywhere else. A registrar that reaches for
-// the window's registry instead of the one it was handed makes a test or a second window
-// write into production. And a fold left out of the composition leaves its partition with
-// no producer, which renders exactly like a session with nothing in it.
+// What composing every feature does to the registries it is handed. A registrar that reaches for
+// the window's registry instead of the one it was handed makes a test or a second window write
+// into production, and a fold left out of the composition leaves its partition with no producer,
+// which renders like an empty session.
 
 import { describe, expect, it } from "vitest";
 

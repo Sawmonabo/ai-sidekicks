@@ -1,25 +1,9 @@
-// The window's plumbing belongs to the bridge it was built from.
-//
-// `PlatformBridgeProvider` replaces its resolution when the `bridge` prop changes —
-// a reconnect, or the fixture's scenario switch — and every window under it renders
-// against the new one from the next commit on. What this file drives is the half
-// below that: the registry and binder were built FROM a bridge, and a hook that did
-// not re-mint them in that same render left a committed frame pairing the NEW bridge
-// with the OLD plumbing — a window reading sessions through a transport nothing was
-// serving, and a binder subscribed to it. Nothing in a snapshot shows that; the
-// screen renders a live session that simply never changes again.
-//
-// SO THE CLAIM IS ABOUT EVERY COMMITTED FRAME, not about where the window settles.
-// The shape this replaced settled correctly by accident: its disposal effect listed
-// `bridge` among dependencies its body never read, so a replacement tore the LIVE
-// plumbing down and rebuilt it only because `disposeAll` happens to set `isDisposed`
-// before the same effect's body reads it — one frame later, with the mismatched frame
-// already committed in between. An assertion about the end state passes on both, so
-// every case here records what each RENDER was handed and asserts over all of them.
-//
-// The witness is which bridge each render was handed alongside which registry: two
-// distinct fixture bridges, and the pairing read in the render body, with no scenario
-// data, no event, and no timing in the assertion.
+// The window's plumbing belongs to the bridge it was built from. `PlatformBridgeProvider`
+// replaces its resolution when the `bridge` prop changes (a reconnect, the fixture's scenario
+// switch), and a hook that did not re-mint the registry and subscriber in that same render would
+// commit a frame pairing the new bridge with the old plumbing: a live session that never changes.
+// The claim is about every committed frame, not where the window settles, so each case records
+// which bridge every render was handed alongside which registry and asserts over all of them.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -41,6 +25,7 @@ interface Observation {
   readonly registry: SessionStoreRegistry;
 }
 
+/** The projector board and the observer a probe reports to. */
 interface RegistryProbeProps {
   readonly projectorRegistry: EntityProjectorRegistry;
   readonly onObserve: (observation: Observation) => void;
@@ -54,10 +39,12 @@ function RegistryProbe(props: RegistryProbeProps): null {
   return null;
 }
 
+/** The bridge the host currently serves, plus the probe's props. */
 interface SwapHostProps extends RegistryProbeProps {
   readonly bridge: PlatformBridge;
 }
 
+/** Provides one bridge to a probe. */
 function SwapHost(props: SwapHostProps): React.JSX.Element {
   return (
     <PlatformBridgeProvider bridge={props.bridge}>
@@ -66,18 +53,13 @@ function SwapHost(props: SwapHostProps): React.JSX.Element {
   );
 }
 
+/** A mounted window and the handles to re-render or unmount it. */
 interface SwapHarness {
   /** Every committed render, in order. */
   readonly observed: readonly Observation[];
   /** Every distinct registry that answered a render, in the order it appeared. */
   readonly registries: () => readonly SessionStoreRegistry[];
-  /**
-   * Re-render under a bridge, and optionally under a different projector board.
-   *
-   * The board is a parameter rather than a second harness because the claim it
-   * carries is about this same hook: the board is NOT the plumbing's subject, so
-   * replacing it must leave a live registry alone.
-   */
+  /** Re-render under a bridge, and optionally a different projector board. */
   readonly renderAgainst: (
     bridge: PlatformBridge,
     projectorRegistry?: EntityProjectorRegistry,
@@ -86,15 +68,10 @@ interface SwapHarness {
 }
 
 /**
- * Mount a window against one bridge and keep the handle that re-renders it under
- * another.
+ * Mount a window against one bridge and keep the handle that re-renders it under another.
  *
- * The projector board is built ONCE and handed to every render, because the hook
- * keys its disposal effect on that identity too: a board rebuilt per render would
- * re-mint the plumbing for a reason this file is not about, and every case here
- * would pass without the bridge ever deciding anything. It is empty on purpose —
- * which fold a store opens with is `useSessionStoreRegistry.registry-wiring.test.tsx`'s
- * subject, and this one is about which bridge the plumbing was built from.
+ * The projector board is built once and empty: which fold a store opens with is the
+ * registry-wiring suite's subject, and only the last case here varies the board on purpose.
  */
 function mountAgainst(bridge: PlatformBridge): SwapHarness {
   const observed: Observation[] = [];
@@ -122,9 +99,7 @@ function mountAgainst(bridge: PlatformBridge): SwapHarness {
 
 describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
   it("never hands one registry to two different bridges", () => {
-    // The same claim from the resource's side, and it holds without knowing what a
-    // registry reads: a plumbing that outlived its bridge is one object two bridges
-    // both rendered against.
+    // A plumbing that outlived its bridge is one registry two bridges both rendered against.
     const harness = mountAgainst(createFixture().bridge);
 
     harness.renderAgainst(createFixture().bridge);
@@ -154,9 +129,8 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     const current = harness.registries().at(-1);
     expect(harness.registries()).toHaveLength(2);
     expect(current).not.toBe(retired);
-    // The old one is not merely dropped. A registry owns apply queues and refresh
-    // schedulers, so a hook that let go of it without disposing it would leave those
-    // running against a bridge nobody is reading.
+    // Dropping is not enough: an undisposed registry leaves its apply queues and refresh
+    // schedulers running against a bridge nobody reads.
     expect(retired.isDisposed).toBe(true);
     expect(current?.isDisposed).toBe(false);
 
@@ -164,9 +138,7 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
   });
 
   it("answers a re-render under the same bridge with the same registry", () => {
-    // The control on every case above: a hook that re-minted on each render would
-    // satisfy them all and fail here, and one that never re-minted would do the
-    // reverse.
+    // Control: a hook that re-minted on every render would pass the cases above and fail here.
     const bridge = createFixture().bridge;
     const harness = mountAgainst(bridge);
 
@@ -181,9 +153,8 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
   });
 
   it("re-mints again on the way back, rather than reviving the one it disposed", () => {
-    // The comparison is against the bridge the plumbing is CURRENTLY held under, not
-    // against the first one ever seen. A hook that remembered only its original
-    // bridge would hand back the disposed registry here.
+    // Compared against the bridge the plumbing is currently held under, not the first one seen;
+    // remembering only the original bridge would hand back the disposed registry.
     const serving = createFixture().bridge;
     const harness = mountAgainst(serving);
     const first = harness.registries().at(-1);
@@ -202,13 +173,9 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
   });
 
   it("leaves live plumbing alone when a dependency that is not its subject changes", () => {
-    // The projector board is deliberately not the plumbing's subject: a registry
-    // takes a SNAPSHOT of it at construction, so a board replaced later is not part
-    // of what this resource is about. The shape this replaced disposed the LIVE
-    // registry anyway — its one effect listed the board among dependencies its
-    // teardown did not read — and then rebuilt it only because `disposeAll` happens
-    // to set `isDisposed` before the body reads it. Between those two moments every
-    // `useOpenSessionStore` consumer reads through a disposed registry.
+    // The projector board is not the plumbing's subject: the registry snapshots it at
+    // construction, and disposing the live registry for a board change would leave every
+    // `useOpenSessionStore` consumer reading through a disposed one.
     const bridge = createFixture().bridge;
     const harness = mountAgainst(bridge);
     const live = harness.registries().at(-1);
@@ -220,9 +187,8 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     expect(harness.registries()[0]).toBe(live);
     expect(live?.isDisposed).toBe(false);
 
-    // Negative control: the subject that IS the plumbing's still retires it, so the
-    // claim above is about which dependency decided rather than about a hook that
-    // stopped re-minting at all.
+    // Negative control: a new bridge still retires it, so the claim is about which dependency
+    // decides, not a hook that stopped re-minting.
     harness.renderAgainst(createFixture().bridge);
     expect(harness.registries()).toHaveLength(2);
     expect(live?.isDisposed).toBe(true);

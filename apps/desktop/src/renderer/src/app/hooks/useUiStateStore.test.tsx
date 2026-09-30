@@ -1,33 +1,13 @@
-// The window's database connection is opened once and closed once.
+// The window's database connection is opened once and closed once. An open IndexedDB connection
+// blocks the next version upgrade, so cases assert through a write, not `isClosed`: a store whose
+// adapter is really closed refuses. The probe records what the hook returned in the render body,
+// because an effect would see only committed renders and the question is which stores a double
+// mount minted.
 //
-// The claim is not about a flag. IndexedDB's contract is that an open connection
-// BLOCKS the next version upgrade, so a console that mounted twice in one renderer
-// process — a test, a hot reload, a host-level remount — left a connection per mount
-// and a later schema change would have waited on windows nobody was looking at. So
-// every case here asserts through a WRITE rather than through `isClosed`: a store
-// whose adapter is really closed refuses, and a flag that said so while the
-// connection stayed open would pass an assertion about the flag.
-//
-// The probe records what the hook RETURNED, in the render body, on purpose: an
-// effect would only see the renders that committed, and the whole question here is
-// which stores were minted across a double mount.
-//
-// The last suite drives the OTHER thing that retires a store: the provider replacing
-// the bridge it was built from. The store reads its clock off that bridge, so a
-// window that kept its store across the replacement went on stamping every record —
-// and ordering the LRU trim that reads only those stamps — from a scenario that had
-// been switched away from.
-//
-// THAT CLAIM IS ABOUT EVERY COMMITTED FRAME, not about where the window settles. The
-// shape this replaced settled correctly by accident: its effect listed `bridge` among
-// dependencies its body never read, so a replacement closed the LIVE store and
-// re-opened only because `close` happens to set `isClosed` before the same effect's
-// body reads it — one frame later, with a frame pairing the new bridge and the old
-// store already committed in between. An assertion about the end state passes on
-// both, so the pairing is recorded per render and asserted over all of them, with the
-// stamp — two scenarios declare two different `startedAtIso`, so their frozen clocks
-// answer `now()` differently without a single beat being advanced — carrying the
-// settled half.
+// The last suite drives the provider replacing the bridge: the store reads its clock off that
+// bridge, so a kept store would stamp records, and order the LRU trim, from a scenario switched
+// away from. The claim is about every committed frame, so the pairing is recorded per render; the
+// stamp carries the settled half, since two scenarios declare different `startedAtIso`.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -48,21 +28,20 @@ import { settle as settleReactWork } from "@test/helpers/settle.js";
 import { useUiStateStore } from "./useUiStateStore.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
+/** The sink a probe reports each returned store to. */
 interface StoreProbeProps {
   readonly onStore: (store: UiStateStore) => void;
 }
 
+/** Renders the hook and reports the store it returned. */
 function StoreProbe(props: StoreProbeProps): null {
   props.onStore(useUiStateStore());
   return null;
 }
 
 /**
- * Mount and let the open settle.
- *
- * Two flushes rather than one: `UiStateStore.opening` resolves a promise whose
- * continuation schedules another, and the re-mint arm adds a state update on top of
- * that.
+ * Mount, then flush twice: `UiStateStore.opening` chains two promises and the re-mint adds an
+ * update.
  */
 async function mountProbe(strict: boolean): Promise<{
   readonly unmount: () => void;
@@ -74,14 +53,9 @@ async function mountProbe(strict: boolean): Promise<{
       stores.push(store);
     }
   };
-  // The hook reads its clock from the bridge resolution, so the probe renders inside
-  // a provider — a SUPPLIED fixture bridge, which the provider never disposes and
-  // never re-resolves, so the double mount below stays the probe's alone.
-  //
-  // `StrictMode` wraps the provider rather than sitting under it, because React
-  // simulates the extra unmount-and-remount for the tree it is the ROOT of: with
-  // the provider outside it the probe rendered twice and its effect ran once, and
-  // the double mount this file exists to drive never happened.
+  // The hook reads its clock from the bridge, so the probe renders inside a provider with a
+  // supplied fixture bridge, which the provider never disposes or re-resolves. `StrictMode`
+  // wraps the provider because React simulates the remount only for the tree it roots.
   const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   const tree = (
     <FixtureBridgeProvider fixture={fixture}>
@@ -136,8 +110,7 @@ describe("useUiStateStore — the connection is closed with the window", () => {
   });
 
   it("negative control: the same write lands while the window is still up", async () => {
-    // Without this, a hook that handed back a store which never worked at all
-    // would satisfy the case above.
+    // Without this, a store that never worked would satisfy the case above.
     const probe = await mountProbe(false);
     const store = probe.stores.at(-1);
     expect(store).toBeDefined();
@@ -156,14 +129,13 @@ describe("useUiStateStore — a StrictMode double mount leaves exactly one open 
   it("re-mints the store its own teardown closed, and leaves no second one open", async () => {
     const probe = await mountProbe(true);
 
-    // The double mount really happened: the first store was closed by the
-    // simulated teardown and a second was minted for the second mount. Without
-    // this the case below would pass over a StrictMode that never ran.
+    // The double mount happened: the simulated teardown closed the first store and the second
+    // mount minted another.
     expect(probe.stores.length).toBeGreaterThan(1);
     expect(probe.stores.filter((store) => !store.isClosed)).toHaveLength(1);
 
-    // And the surviving one is usable: closing on teardown without re-minting
-    // would leave the window holding the corpse.
+    // The survivor is usable; closing without re-minting would leave the window holding a
+    // closed store.
     const surviving = probe.stores.at(-1);
     expect(surviving).toBeDefined();
     if (surviving === undefined) {
@@ -183,7 +155,7 @@ interface StoreObservation {
   readonly store: UiStateStore;
 }
 
-/** The probe above, plus the bridge the same render resolved. */
+/** Reports the bridge and the store the same render resolved. */
 function PairProbe(props: { readonly onObserve: (observation: StoreObservation) => void }): null {
   props.onObserve({ bridge: usePlatformBridge(), store: useUiStateStore() });
   return null;
@@ -192,10 +164,8 @@ function PairProbe(props: { readonly onObserve: (observation: StoreObservation) 
 /**
  * Mount against one bridge and keep the handle that re-renders under another.
  *
- * Distinct from `mountProbe` above, which exists to drive a StrictMode double mount
- * against one fixed bridge. This one never uses StrictMode: the question is what a
- * changed `bridge` prop does, and a simulated remount on top of it would make every
- * case here ambiguous about which arm re-opened the store.
+ * It never uses StrictMode, so a simulated remount cannot make a case ambiguous about which arm
+ * re-opened the store.
  */
 function mountSwappable(fixture: FixtureBridge): {
   readonly observed: readonly StoreObservation[];
@@ -250,9 +220,8 @@ function storesSharedAcrossBridges(observed: readonly StoreObservation[]): reado
 
 describe("useUiStateStore — a replaced bridge retires the store built under the old one", () => {
   it("negative control: the two bridges really do read different times", () => {
-    // Without this the stamp assertions below would hold over two clocks that
-    // answered identically, and a hook that ignored the replacement entirely would
-    // pass them.
+    // Without this the stamp assertions would hold over two identical clocks and pass for a
+    // hook that ignored the replacement.
     const flagship = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const firstRun = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
 
@@ -260,10 +229,8 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
   });
 
   it("commits no frame that writes through a store built on another bridge's clock", async () => {
-    // The case the previous shape failed: it re-opened one commit late, so the render
-    // that first saw the new bridge was handed the store built on the old one's clock
-    // — and a record written in that frame carried a timestamp from a scenario the
-    // window had already left.
+    // Re-opening one commit late would hand the first render under the new bridge a store on
+    // the old clock, stamping a record from a scenario the window had left.
     const flagship = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const firstRun = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const probe = mountSwappable(flagship);
@@ -299,11 +266,10 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
     if (current === undefined) {
       return;
     }
-    // Bound to the NEW bridge: the clock this store stamps from is that bridge's.
+    // Bound to the new bridge's clock.
     await expect(stampWrittenThrough(current)).resolves.toBe(firstRun.scenarioEngine.clock.now());
-    // And the retired connection is closed rather than merely dropped, which is the
-    // whole reason this hook owns a lifetime: an open connection blocks the next
-    // version upgrade whether or not anything is still reading through it.
+    // The retired connection is closed, not merely dropped, since an open one blocks the next
+    // version upgrade.
     expect(retired.isClosed).toBe(true);
     await expect(acceptsAWrite(retired)).resolves.toBe(false);
     await expect(acceptsAWrite(current)).resolves.toBe(true);
@@ -313,9 +279,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
   });
 
   it("answers a re-render under the same bridge with the same store", async () => {
-    // The control on every case above: a hook that re-opened on each render would
-    // satisfy them all and fail here, and one that never re-opened would do the
-    // reverse.
+    // Control: a hook that re-opened on every render would pass the cases above and fail here.
     const flagship = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const probe = mountSwappable(flagship);
     await settleReactWork();
@@ -338,9 +302,7 @@ describe("useUiStateStore — a replaced bridge retires the store built under th
   });
 
   it("re-opens on the way back, rather than reviving the store it closed", async () => {
-    // The comparison is against the bridge the store is CURRENTLY held under, not
-    // against the first one ever seen. A hook that remembered only its original
-    // bridge would hand back the closed store here.
+    // Compared against the bridge the store is currently held under, not the first one seen.
     const flagship = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
     const firstRun = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const probe = mountSwappable(flagship);

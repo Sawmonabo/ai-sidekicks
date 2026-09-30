@@ -1,20 +1,5 @@
-// The window: the stores it keeps, the bindings that keep them live, and the `AppShell`
-// it renders the routed screen in.
-//
-// Everything here runs with a resolved bridge, because `AppBootstrap` above it is the
-// gate.
-//
-//   • **One store per window, created once.** `useRef` rather than `useMemo`: a memo may
-//     be discarded and recomputed, and a recreated store would silently drop every event
-//     applied so far. The two stores that own a resource beyond their memory, the
-//     session registry's subscriptions and the UI-state store's database connection, are
-//     held by hooks instead, because a ref has no teardown.
-//   • **The window store is born on the hash the window opened with.** A store that
-//     started on the default route would publish that default to the hash on the first
-//     pass and overwrite the address the window was opened at.
-//   • **The palette follows the retained session, not the route.** The registry keeps a
-//     session open after the route leaves it, so a command that needs one stays offered
-//     from Settings; the router still reads the route's own session.
+// The window: the stores it keeps, the bindings that keep them live, and the `AppShell` around
+// the routed screen. It runs only with a resolved bridge, because `AppBootstrap` gates it.
 
 import { useLayoutEffect, useRef } from "react";
 
@@ -49,44 +34,47 @@ export interface AppWindowProps {
   readonly readSession: SessionSnapshotReader;
 }
 
-/** The window: its stores and bindings, and the `AppShell` around the screen the route names. */
+/**
+ * The window: its stores and bindings, and the `AppShell` around the screen the route names.
+ *
+ * Refs hold the window and draft stores because a memo may be recomputed and a recreated store
+ * would drop every event applied so far; the registry and UI-state stores own resources
+ * (subscriptions, a database connection), so hooks hold them for teardown. The window store
+ * starts on the opening hash, or it would publish its default route over that address. The
+ * palette follows the retained session, so session commands stay offered from Settings.
+ */
 export function AppWindow(props: AppWindowProps): React.JSX.Element {
-  // Read first, because the window store is born on it; it also keeps the
-  // hash-to-route direction live for every later navigation.
+  // Read first: the window store starts on it.
   const hash = useLocationHash();
 
   const frameStoreRef = useRef<WindowStore>(undefined);
   frameStoreRef.current ??= new WindowStore({ initialRoute: parseRoute(hash) });
   const frameStore = frameStoreRef.current;
 
-  // A hook, because this store owns a database connection; its opening returns at once,
-  // so first paint waits on no storage.
+  // Opening the database connection returns at once, so first paint waits on no storage.
   const uiStateStore = useUiStateStore();
 
-  // A ref is enough: a draft store owns a `Map` and nothing outside its own memory.
+  // A draft store owns only its own memory, so a ref suffices.
   const draftStoreRef = useRef<DraftStore>(undefined);
   draftStoreRef.current ??= new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
   const draftStore = draftStoreRef.current;
 
-  // The stores fold with what the composition claimed, handed in rather than reached for.
   const sessionStoreRegistry = useSessionStoreRegistry(entityProjectorRegistry, props.readSession);
 
   const route = useWindowStore(frameStore, (state) => state.route);
   const lastOpenedSessionId = useWindowStore(frameStore, (state) => state.lastOpenedSessionId);
   const { schemePreference, chooseScheme } = useSchemePreference(frameStore, uiStateStore);
 
-  // The token sheet is already on the document; the scheme attribute follows a setting
-  // only a window with a bridge can read back.
+  // The scheme attribute follows a stored setting only a window with a bridge can read.
   useLayoutEffect(() => {
     applyColorScheme(document, schemePreference);
   }, [schemePreference]);
 
   useHashRouteBinding(frameStore, hash);
 
-  // Every loader-backed body on both boards, warmed on idle after the first frame.
   useLazyBodyIdleWarm(paneRegistry, screenRegistry);
 
-  // Window focus is a refresh reason, not a poll.
+  // Focus triggers a refresh; nothing polls.
   useWindowFocusRefresh(frameStore, sessionStoreRegistry);
 
   const palette = useWindowCommands({
@@ -106,7 +94,6 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
     frameStore,
     sessionStore,
     sessionStoreRegistry,
-    // The board the composition registered every pane body into.
     paneRegistry: paneRegistry,
     uiStateStore,
     draftStore,

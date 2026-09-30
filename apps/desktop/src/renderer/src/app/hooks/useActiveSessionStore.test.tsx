@@ -1,15 +1,6 @@
-// One store per session, however often the frame renders.
-//
-// The shape this replaced built a `SessionStore` inside a render body and kept it in
-// a `Map` held by a ref. Two things were wrong with it and only one is visible in a
-// snapshot: a render pass React discards takes its store — and every event applied
-// to it — with it, and the construction is a side effect performed in the render
-// phase either way. So the cases here are about IDENTITY and about TIMING, and each
-// has a control that fails the way a regression would.
-//
-// The two other claims the hook makes have their own files, one per concern: the
-// window's binder in `useSessionStoreRegistry.subscriber.test.tsx`, and what the registry it
-// mints is wired with in `useSessionStoreRegistry.registry-wiring.test.tsx`.
+// One store per session, however often the frame renders, and none constructed in the render
+// phase (a discarded pass would take its store and every applied event with it). The registry
+// and subscriber wiring have their own `useSessionStoreRegistry.*.test.tsx` files.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -57,9 +48,8 @@ describe("useActiveSessionStore — the session store a render resolves", () => 
       { wrapper: fixtureBridgeWrapper() },
     );
 
-    // The first render happens before any effect has run, so the honest answer
-    // there is "not open yet" — which is precisely what a render that opened the
-    // session itself would have hidden.
+    // The first render precedes every effect, so the answer is "not open yet"; a render that
+    // opened the session itself would have hidden that.
     expect(observed[0]?.store).toBeUndefined();
     expect(lastObservation(observed).store).toBeDefined();
   });
@@ -92,10 +82,8 @@ describe("useActiveSessionStore — the session store a render resolves", () => 
     const { registry } = lastObservation(observed);
     const before = lastObservation(observed).store;
 
-    // A close followed by an open is the one way to get a second store for one
-    // session id past the registry's idempotent `open`. If the cases above could
-    // not tell that apart from the single-store answer, they would be asserting
-    // nothing.
+    // Close then open is the one way past the registry's idempotent `open` to a second store for
+    // one session; if the cases above could not tell that apart, they would assert nothing.
     act(() => {
       registry.close("session-2");
       registry.open("session-2");

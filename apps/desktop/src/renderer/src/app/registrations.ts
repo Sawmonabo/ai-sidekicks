@@ -1,14 +1,10 @@
 // The calls that register every feature's contributions, and nothing else.
 //
-// Each feature owns what it registers, in its own `contributions/`, and publishes the
-// registrar through its `index.ts`. This file calls them: it holds no table and no lookup,
-// so a registry stays the one place its entries live.
-//
-// The one thing it adds is composition across features. A feature may not import another,
-// so where one feature's screen mounts another's component, this file names the pair.
-//
-// Nothing here runs on import. `providers.tsx` calls it once with the window's registries;
-// a test calls it with registries of its own.
+// Each feature owns what it registers and publishes its registrar through its `index.ts`; this
+// file holds no table, so a registry stays the one place its entries live. A feature may not
+// import another, so where one feature's screen mounts another's component, this file names the
+// pair. Nothing here runs on import: `providers.tsx` calls it once with the window's
+// registries, and a test calls it with registries of its own.
 
 import type { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
