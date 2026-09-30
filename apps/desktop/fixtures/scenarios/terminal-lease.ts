@@ -31,6 +31,7 @@
 // shell, which is the frame that carries the most: a named holder and a script behind
 // it that reached every ending. A script that ended on a plain free lease would pin
 // the emptiest frame the terminal pane has.
+import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import type { Scenario, ScenarioBeat } from "../scenario.js";
 
 // Who and what the scenario is about: the session, the people, and the agent's run.
@@ -84,7 +85,7 @@ interface TerminalScenarioRoles {
   /** The other device the lease changes hands to. */
   readonly otherDevice: string;
   /**
-   * The attached agent, whose run's idling is one of the ways a hold ends. The
+   * The session's lead, whose run's idling is one of the ways a hold ends. The
    * RUN binds to the lease, never this id: a run's take names the machine's own
    * device, `owner` above, and the run.
    */
@@ -268,12 +269,22 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
       sequence: 1,
       kind: "session.created",
       actorId: OWNER,
-      // The registered shape, verbatim: the new session's id plus the resolved
-      // config and metadata, both open records the corpus names no key inside. A
-      // session's name is read off `session.list`, and the lifecycle payload
-      // carries no state transition — `session.activated` below is the separate
-      // registered event that reaches `active`.
-      payload: { sessionId: TERMINAL_SCENARIO_SESSION_ID, config: {}, metadata: {} },
+      // The registered shape: the session's shape and the lead born with it, the
+      // agent that later takes the shell. A session's name is read off `session.list`,
+      // and the lifecycle payload carries no state transition — `session.activated`
+      // below is the separate registered event that reaches `active`.
+      payload: composeSessionCreatedPayload({
+        sessionId: TERMINAL_SCENARIO_SESSION_ID,
+        shape: "project",
+        openedBy: OWNER,
+        lead: {
+          agentId: AGENT,
+          name: "Builder",
+          driverName: "codex",
+          modelId: "gpt-5.6-luna",
+        },
+        createdAt: TERMINAL_SCENARIO_STARTED_AT_ISO,
+      }),
     }),
     terminalScenarioBeat({
       atMs: 30,
@@ -287,25 +298,9 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
         actor: OWNER,
       },
     }),
-    terminalScenarioBeat({
-      atMs: 220,
-      sequence: 3,
-      kind: "agent.attached",
-      // The person who attached the agent, not the agent: an agent does not attach
-      // itself, and the envelope actor is who acted.
-      actorId: OWNER,
-      payload: {
-        sessionId: TERMINAL_SCENARIO_SESSION_ID,
-        agentId: AGENT,
-        name: "Builder",
-        driverName: "codex",
-        modelId: "gpt-5.6-luna",
-        actor: OWNER,
-      },
-    }),
     terminalLeaseTransitionBeat({
       atMs: 1200,
-      sequence: 4,
+      sequence: 3,
       holderDeviceId: OTHER_DEVICE,
       previousHolderDeviceId: null,
       reason: "taken",
@@ -313,7 +308,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 1800,
-      sequence: 5,
+      sequence: 4,
       holderDeviceId: null,
       previousHolderDeviceId: OTHER_DEVICE,
       reason: "auto_released_disconnect",
@@ -321,7 +316,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     terminalScenarioBeat({
       atMs: 3000,
-      sequence: 6,
+      sequence: 5,
       kind: "run.queued",
       // The person who started the run, not the agent. `previousState` is absent
       // here and only here: a queued run is being born, and no document names the
@@ -337,7 +332,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     terminalScenarioBeat({
       atMs: 3100,
-      sequence: 7,
+      sequence: 6,
       kind: "run.starting",
       // No actor: the daemon moves a run through its own states, and a user
       // id here would attribute a system transition to a person.
@@ -351,7 +346,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     terminalScenarioBeat({
       atMs: 3200,
-      sequence: 8,
+      sequence: 7,
       kind: "run.running",
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
@@ -368,7 +363,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     // shell as the run's.
     terminalLeaseTransitionBeat({
       atMs: 3300,
-      sequence: 9,
+      sequence: 8,
       holderDeviceId: OWNER,
       holderRunId: TERMINAL_AGENT_RUN_ID,
       holderCommandId: TERMINAL_AGENT_COMMAND_ID,
@@ -377,7 +372,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     terminalScenarioBeat({
       atMs: 3600,
-      sequence: 10,
+      sequence: 9,
       kind: "run.completed",
       // The holding run's first lifecycle transition out of `running` — what the
       // auto-release below is a consequence of, rather than an asserted state.
@@ -391,7 +386,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     }),
     terminalLeaseTransitionBeat({
       atMs: 3700,
-      sequence: 11,
+      sequence: 10,
       holderDeviceId: null,
       previousHolderDeviceId: OWNER,
       reason: "auto_released_run_idle",
@@ -399,7 +394,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     // The held-lease steady state: the holder the pane's header names.
     terminalLeaseTransitionBeat({
       atMs: 4100,
-      sequence: 12,
+      sequence: 11,
       holderDeviceId: OWNER,
       previousHolderDeviceId: null,
       reason: "taken",

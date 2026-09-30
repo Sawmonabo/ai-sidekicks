@@ -8,6 +8,7 @@
 //   * I4 — a reconnect restores from the daemon's state, not a client cache.
 
 import {
+  type AgentId,
   type EventCursor,
   type EventEnvelopeVersion,
   JSONRPC_VERSION,
@@ -30,6 +31,20 @@ import type { ClientTransport } from "../src/transport/types.js";
 // ---------------------------------------------------------------------------
 
 const SESSION_ID: SessionId = "01970000-0000-7000-8000-00000000a001" as SessionId;
+
+/** The session's lead, as every `session.created` here records it. */
+const LEAD = {
+  agentId: "01970000-0000-7000-8000-00000000b001" as AgentId,
+  name: "Implementer",
+  binding: {
+    driverName: "claude",
+    modelId: "claude-opus-4-5",
+    providerAccountId: null,
+    effort: "high",
+  },
+  ancestry: [],
+  createdAt: "2026-04-30T12:00:00.000Z",
+};
 
 // Event ids are UUIDs, which also satisfy `EventCursor.min(1).max(256)`; the
 // client synthesizes each event's cursor from its id.
@@ -199,11 +214,7 @@ function makeSessionCreatedEvent(id: string, sequence: number): SessionEvent {
     occurredAt: "2026-04-30T12:00:00.000Z",
     actor: null,
     version: "1.0" as EventEnvelopeVersion,
-    payload: {
-      sessionId: SESSION_ID,
-      config: { topic: `seq-${id}` },
-      metadata: {},
-    },
+    payload: { sessionId: SESSION_ID, shape: "chat", mainAgent: LEAD },
   };
 }
 
@@ -260,8 +271,6 @@ describe("SessionCreate then SessionRead returns identical session id (round-tri
             session: {
               id: requestedSessionId,
               state: "provisioning",
-              config: { topic: "round-trip" },
-              metadata: {},
               createdAt: "2026-04-30T12:00:00.000Z",
               updatedAt: "2026-04-30T12:00:00.000Z",
               draft: "",
@@ -293,7 +302,6 @@ describe("SessionCreate then SessionRead returns identical session id (round-tri
     // is the SAME id read returns inside its snapshot.
     expect(readResponse.session.id).toBe(createResponse.sessionId);
     expect(readResponse.session.state).toBe("provisioning");
-    expect(readResponse.session.config).toEqual({ topic: "round-trip" });
   });
 });
 
@@ -396,14 +404,10 @@ describe("I4 — Reconnect after lost stream restores from snapshot, NOT client 
       id: EVENT_ID_2,
       sessionId: SESSION_ID,
       sequence: 1,
-      occurredAt: "2026-04-30T12:00:00.000Z",
+      occurredAt: "2026-04-30T12:05:00.000Z",
       actor: null,
       version: "1.0" as EventEnvelopeVersion,
-      payload: {
-        sessionId: SESSION_ID,
-        config: { topic: "snapshot-evolved" },
-        metadata: { revisedBy: "server" },
-      },
+      payload: { sessionId: SESSION_ID, shape: "project", mainAgent: LEAD },
     };
     history = [
       makeSessionCreatedEvent(EVENT_ID_1, 0),

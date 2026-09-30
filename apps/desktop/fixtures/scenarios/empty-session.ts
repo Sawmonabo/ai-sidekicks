@@ -39,8 +39,6 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
         session: {
           id: SESSION_ID,
           state: "active",
-          config: {},
-          metadata: {},
           createdAt: STARTED_AT_ISO,
           updatedAt: STARTED_AT_ISO,
           draft: "",

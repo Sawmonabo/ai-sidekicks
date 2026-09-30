@@ -310,8 +310,8 @@ export function normalizeOccurredAt(occurredAt: string): string {
  * the `action_payload` — opaque to read only by the target node's capability
  * handler — is depth 2 inside a dispatch body, leaving 62 levels; on the event
  * side the envelope wrapper plus its `payload` put every open record at depth 3,
- * leaving 61 (`session.created`'s `config` / `metadata` today; `driver_ask`'s
- * `input` / `response` once their schemas land). That set
+ * leaving 61 (`driver_ask`'s `input` / `response` once their schemas land).
+ * That set
  * is OPEN by construction — it grows as those schemas land — so what the ceiling
  * rests on is the headroom, never a census. The ceiling is a two-way door — no
  * persisted byte depends on it, only the refusal boundary.

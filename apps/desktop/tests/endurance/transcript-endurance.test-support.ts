@@ -29,7 +29,7 @@
 // a cheaper synthetic row would be measuring a rendering path the product does not
 // have.
 
-import { composeOpeningEntries } from "../../fixtures/data/opening-entries.js";
+import { composeOpeningEntry } from "../../fixtures/data/opening-entries.js";
 import {
   assistantOutputEntry,
   runTransitionEntry,
@@ -89,8 +89,8 @@ const ENDURANCE_AGENTS = [
   },
 ] as const;
 
-/** The opening beats every generated session shares: the room, then the cast. */
-const OPENING_BEAT_COUNT = 1 + ENDURANCE_AGENTS.length;
+/** The opening beat every generated session shares: the room, born with its lead. */
+const OPENING_BEAT_COUNT = 1;
 
 /** Beats one run spends on its own lifecycle: queued, starting, running, completed. */
 const RUN_LIFECYCLE_BEAT_COUNT = 4;
@@ -144,15 +144,12 @@ export function createTranscriptEnduranceFixture(
   const at = (): number => entries.length * ENDURANCE_BEAT_INTERVAL_MS;
 
   entries.push(
-    ...composeOpeningEntries({
+    composeOpeningEntry({
       sessionId: SESSION_ID,
+      shape: "project",
       openedBy: USER_YOU,
-      cast: ENDURANCE_AGENTS.map((agent, agentIndex) => ({
-        ...agent,
-        // One beat precedes the cast — the room itself — so the first agent lands on
-        // the tick after it and the walk below picks up where these leave off.
-        attachedAtMs: (1 + agentIndex) * ENDURANCE_BEAT_INTERVAL_MS,
-      })),
+      lead: ENDURANCE_AGENTS[0],
+      createdAt: STARTED_AT_ISO,
     }),
   );
 
@@ -230,8 +227,6 @@ export function createTranscriptEnduranceFixture(
           session: {
             id: SESSION_ID,
             state: "active",
-            config: {},
-            metadata: {},
             createdAt: STARTED_AT_ISO,
             updatedAt: new Date(
               startedAtMs + entries.length * ENDURANCE_BEAT_INTERVAL_MS,

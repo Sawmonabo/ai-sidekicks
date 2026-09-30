@@ -1,15 +1,8 @@
-// The display title a session carries, where it carries one.
+// The session's name, where it has one.
 //
 // Its own module for the one-component rule, and it earns one: a nameless session is
 // rendered by its identifier and never by an invented title, and this is where that
 // rule is obeyed rather than a fragment of the header's arrangement.
-//
-// WHY THE TITLE IS LABELED AS METADATA. No registered session shape carries a
-// first-class name field — `SessionSnapshot` is `id`, `state`, `config`, `metadata`,
-// two timestamps and the draft, and `session.created`'s payload is `.strict()` with no title
-// member at all. A display title is therefore metadata a session happens to carry,
-// and saying so on the element is the difference between rendering a fact and
-// asserting a field that does not exist.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 
@@ -34,10 +27,7 @@ export interface SessionHeaderSessionTitleProps {
 export function SessionTitle(props: SessionHeaderSessionTitleProps): React.JSX.Element | null {
   const { title } = props;
   return title === undefined ? null : (
-    // Labeled as metadata on the element itself, because that is what it IS: no
-    // registered session shape has a name field, and a reader who wonders where the
-    // name came from gets the honest answer from the title attribute.
-    <span className="meridian-session-header__session-title" title="Session metadata title">
+    <span className="meridian-session-header__session-title">
       <WireFigure value={title} />
     </span>
   );

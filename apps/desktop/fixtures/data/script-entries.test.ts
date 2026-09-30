@@ -34,7 +34,7 @@ import {
 const ORDERED_SCRIPT: readonly ScriptEntry[] = [
   { atMs: 0, kind: "session.created", payload: { sessionId: SESSION_ID } },
   { atMs: 40, kind: "user.message", payload: { sessionId: SESSION_ID } },
-  { atMs: 120, kind: "agent.attached", payload: { sessionId: SESSION_ID } },
+  { atMs: 120, kind: "session.renamed", payload: { sessionId: SESSION_ID } },
 ];
 
 function buildOrderedBeats(): ReturnType<typeof composeScriptBeats> {

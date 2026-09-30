@@ -125,7 +125,22 @@ describe("SessionStreamFrameSchema (each `session.subscribe` notify's value)", (
     type: "session.created",
     actor: null,
     version: "1.0",
-    payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
+    payload: {
+      sessionId: SESSION_ID,
+      shape: "chat",
+      mainAgent: {
+        agentId: "44444444-4444-4444-8444-444444444444",
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: "2026-01-22T19:14:35.000Z",
+      },
+    },
   };
   const change = (cursor: string): { cursor: string; event: typeof event } => ({ cursor, event });
 

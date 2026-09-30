@@ -17,14 +17,17 @@
 // scenario's are; that file's header
 // carries the reasoning, and the two consequences visible here are the same two:
 // the identifiers are the UUIDs the branded id types declare, and `session.created`
-// carries `{sessionId, config, metadata}` — the registered payload — rather than a
-// title, which its `.strict()` schema rejects.
+// carries the registered payload — the session's shape and the lead born with it —
+// rather than a title, which its `.strict()` schema rejects.
+import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import type { Scenario } from "../scenario.js";
 
 export const FIRST_RUN_SCENARIO_ID = "first-run";
 
 const SESSION_ID = "019b78c9-0a80-75e5-8510-ada11a5a22a5";
 const USER_YOU = "019b78c9-0a80-79a4-8110-cca0117a0220";
+const AGENT_LEAD = "019b78c9-0a80-7a6e-8110-d1a4c1150201";
+const STARTED_AT_ISO = "2026-01-01T09:00:00.000Z";
 
 export const FIRST_RUN_SCENARIO: Scenario = {
   id: FIRST_RUN_SCENARIO_ID,
@@ -38,7 +41,7 @@ export const FIRST_RUN_SCENARIO: Scenario = {
   // first-run view that could not resolve its own user would render every act it
   // owns as unavailable on the one screen whose whole job is to offer them.
   callerUserId: USER_YOU,
-  startedAtIso: "2026-01-01T09:00:00.000Z",
+  startedAtIso: STARTED_AT_ISO,
   beats: [
     {
       atMs: 0,
@@ -50,9 +53,20 @@ export const FIRST_RUN_SCENARIO: Scenario = {
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "session.created",
-        occurredAt: "2026-01-01T09:00:00.000Z",
+        occurredAt: STARTED_AT_ISO,
         actorId: USER_YOU,
-        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
+        payload: composeSessionCreatedPayload({
+          sessionId: SESSION_ID,
+          shape: "chat",
+          openedBy: USER_YOU,
+          lead: {
+            agentId: AGENT_LEAD,
+            name: "Lead",
+            driverName: "claude",
+            modelId: "claude-sonnet-5",
+          },
+          createdAt: STARTED_AT_ISO,
+        }),
       },
     },
   ],
@@ -66,8 +80,6 @@ export const FIRST_RUN_SCENARIO: Scenario = {
         session: {
           id: SESSION_ID,
           state: "provisioning",
-          config: {},
-          metadata: {},
           createdAt: "2026-01-01T09:00:00.000Z",
           updatedAt: "2026-01-01T09:00:00.000Z",
           draft: "",

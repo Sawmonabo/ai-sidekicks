@@ -5,7 +5,7 @@
 // three places where a fixture that matches the contract's SHAPE can still answer
 // something the live bridge never would: `daemon.subscribe` takes an event name, and
 // a fixture that ignored it would hand a view subscribed to `run.starting`
-// `session.created` and `agent.attached` too, each cast to the type it had asked for.
+// `session.created` and `approval.requested` too, each cast to the type it had asked for.
 // A screenshot or an end-to-end result taken against that is a result the live bridge
 // cannot produce.
 //
@@ -108,15 +108,15 @@ describe("fixture bridge — a subscription delivers only the event it named", (
   it("keeps the two arms independent, so one subscription cannot feed another", () => {
     const fixture = createFixture();
     const streamed = subscribeToSessionStream(fixture);
-    const attached = subscribeThroughBridge(fixture, "agent.attached");
+    const requested = subscribeThroughBridge(fixture, "approval.requested");
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    const attachedBeatCount = concurrentStreamingBeatCountOfKind("agent.attached");
-    expect(attachedBeatCount).toBeGreaterThan(0);
+    const requestedBeatCount = concurrentStreamingBeatCountOfKind("approval.requested");
+    expect(requestedBeatCount).toBeGreaterThan(0);
     expect(streamed.events()).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
-    expect(attached.map((envelope) => envelope.type)).toStrictEqual(
-      Array.from({ length: attachedBeatCount }, () => "agent.attached"),
+    expect(requested.map((envelope) => envelope.type)).toStrictEqual(
+      Array.from({ length: requestedBeatCount }, () => "approval.requested"),
     );
   });
 });
@@ -164,7 +164,7 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(subscribeThroughBridge(fixture, RUN_STATE_EVENT_STREAM)).toStrictEqual([]);
-    expect(subscribeThroughBridge(fixture, "agent.attached")).toStrictEqual([]);
+    expect(subscribeThroughBridge(fixture, "approval.requested")).toStrictEqual([]);
   });
 
   it("negative control: an early subscriber receives each beat exactly once", () => {

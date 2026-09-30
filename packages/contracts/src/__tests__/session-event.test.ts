@@ -91,6 +91,7 @@ import {
 } from "../provider-driver.js";
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
+const AGENT_ID = "44444444-4444-4444-8444-444444444444";
 const VERSION = "1.0";
 
 const buildSessionCreated = () => ({
@@ -104,8 +105,19 @@ const buildSessionCreated = () => ({
   version: VERSION,
   payload: {
     sessionId: SESSION_ID,
-    config: { resourceLimits: { sessions: 10 } },
-    metadata: { source: "cli" },
+    shape: "chat",
+    mainAgent: {
+      agentId: AGENT_ID,
+      name: "Implementer",
+      binding: {
+        driverName: "claude",
+        modelId: "claude-sonnet-5",
+        providerAccountId: null,
+        effort: null,
+      },
+      ancestry: [],
+      createdAt: "2026-01-22T19:14:35.000Z",
+    },
   },
 });
 
@@ -129,9 +141,9 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     const ev: SessionEvent = SessionEventSchema.parse(buildSessionCreated());
 
     if (ev.type === "session.created") {
-      // TypeScript narrows: `ev.payload.config` is typed as
-      // `Record<string, unknown>` here — not `unknown` from the union.
-      expect(ev.payload.config).toEqual({ resourceLimits: { sessions: 10 } });
+      // TypeScript narrows: `ev.payload.mainAgent` is typed as the live
+      // agent entry here — not `unknown` from the union.
+      expect(ev.payload.mainAgent.binding.driverName).toBe("claude");
     } else {
       throw new Error(`expected session.created branch, got ${ev.type}`);
     }

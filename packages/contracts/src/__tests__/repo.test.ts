@@ -676,7 +676,7 @@ describe("SessionEventSchema registration of the six variants", () => {
   it("rejects a foreign payload smuggled onto a repo variant", () => {
     const broken = {
       ...buildRepoEvent("repo.attached", "attached"),
-      payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
+      payload: { sessionId: SESSION_ID, shape: "chat" },
     };
     expect(SessionEventSchema.safeParse(broken).success).toBe(false);
   });

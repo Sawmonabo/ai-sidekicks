@@ -87,11 +87,11 @@ describe("createTranscriptEnduranceFixture", () => {
   });
 
   it("accepts the smallest row count that does fit", () => {
-    // The negative control for the refusal above: 4 opening beats, plus 12 run groups
-    // of 4 lifecycle beats, plus one body row for each of those 12, is 64 — and one
+    // The negative control for the refusal above: 1 opening beat, plus 12 run groups
+    // of 4 lifecycle beats, plus one body row for each of those 12, is 61 — and one
     // row fewer leaves a run group with no body at all.
-    expect(() => createTranscriptEnduranceFixture({ rowCount: 64, runCount: 12 })).not.toThrow();
-    expect(() => createTranscriptEnduranceFixture({ rowCount: 63, runCount: 12 })).toThrow(
+    expect(() => createTranscriptEnduranceFixture({ rowCount: 61, runCount: 12 })).not.toThrow();
+    expect(() => createTranscriptEnduranceFixture({ rowCount: 60, runCount: 12 })).toThrow(
       RangeError,
     );
   });

@@ -64,11 +64,11 @@
 //     refuses anything else. A readable `"agent-scout"` would also have rendered at
 //     a third of the width a real one does, which is a design lie in a fixture
 //     whose whole job is to be measured.
-//   • **`session.created` carries no title.** Its registered payload is
-//     `{sessionId, config, metadata}` and it is `.strict()`, so a `title` member is
-//     rejected outright. A session's display name reaches the console from the
-//     session read, and `session.renamed` is where a later change to it would
-//     arrive — never from the creation event.
+//   • **`session.created` carries no title.** Its registered payload is the session's
+//     shape and the lead born with it, and it is `.strict()`, so a `title` member is
+//     rejected outright. A session's name reaches the console from the sessions
+//     list, and `session.renamed` is where a later change to it would arrive — never
+//     from the creation event.
 
 import {
   composeScriptBeats,
@@ -76,7 +76,11 @@ import {
   createRunEntryBuilders,
 } from "../data/script-entries.js";
 import type { Scenario } from "../scenario.js";
-import { type ScenarioAgent, composeOpeningEntries } from "../data/opening-entries.js";
+import {
+  type ScenarioAgent,
+  composeOpeningEntry,
+  findScenarioMember,
+} from "../data/opening-entries.js";
 
 // The cast and its clock: every identifier in one place.
 
@@ -123,11 +127,9 @@ const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
 /**
  * The four lanes, as the `agents` projection carries them.
  *
- * One table rather than a literal per beat and a second literal per reply: the
- * `agent.attached` payload and the `agent.list` row are two views of one record
- * (the agent lifecycle makes the event replay-complete
- * precisely so the projection can be rebuilt from it), and two hand-written copies
- * of one agent would drift in exactly the direction nothing catches.
+ * One table rather than a literal per beat: the lead in `session.created` and every
+ * beat that names a lane's provider read it, and two hand-written copies of one agent
+ * would drift in exactly the direction nothing catches.
  *
  * The drivers and models are deliberately mixed. A fixture whose whole cast runs
  * one provider cannot show a view what a two-provider session looks like, and
@@ -139,28 +141,24 @@ const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
     name: "Architect",
     driverName: "claude",
     modelId: "claude-opus-5[1m]",
-    attachedAtMs: 150,
   },
   {
     agentId: AGENT_IMPLEMENTER,
     name: "Implementer",
     driverName: "claude",
     modelId: "claude-sonnet-5",
-    attachedAtMs: 200,
   },
   {
     agentId: AGENT_REVIEWER,
     name: "Reviewer",
     driverName: "codex",
     modelId: "gpt-5.6-sol",
-    attachedAtMs: 250,
   },
   {
     agentId: AGENT_SCOUT,
     name: "Scout",
     driverName: "codex",
     modelId: "gpt-5.4-mini",
-    attachedAtMs: 300,
   },
 ];
 
@@ -250,13 +248,15 @@ function approvalEntry(input: {
 const lane = createRunEntryBuilders(SESSION_ID);
 
 const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
-  // The opening, unchanged in shape: the room, the cast in join order, and the
-  // implementer's run opened by the signed-in user. Every view built against this
-  // scenario reads these eight beats, so they stay first and stay as they were.
-  ...composeOpeningEntries({
+  // The opening: the room born with its lead, the architect, and the implementer's run
+  // opened by the signed-in user. Every view built against this scenario reads these
+  // beats, so they stay first and stay as they were.
+  composeOpeningEntry({
     sessionId: SESSION_ID,
+    shape: "project",
     openedBy: USER_YOU,
-    cast: CONCURRENT_STREAMING_AGENTS,
+    lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
+    createdAt: STARTED_AT_ISO,
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 400,
@@ -602,7 +602,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
     "A live session with four agents streaming at once — interleaved turns on four run groups, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
   // Join order IS the hue order. The person first, then the agents in the order
-  // they were attached — which is what a real session's join log looks like.
+  // they joined — which is what a real session's join log looks like.
   userIdsInJoinOrder: [USER_YOU, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER, AGENT_SCOUT],
   // Which of the five this window is. Stated rather than inferred from the head of
   // the join order — that entry is whoever opened the session, on whichever machine,
@@ -625,12 +625,6 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
         session: {
           id: SESSION_ID,
           state: "active",
-          config: {},
-          // The display title, which is metadata a session HAPPENS to carry: no
-          // registered session shape has a first-class name field, and
-          // `session.created` is `.strict()` with no title member at all. So the
-          // console reads one from here or renders the session by its identifier.
-          metadata: { title: "Ship the transcript" },
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T14:20:02.450Z",
           draft: "",

@@ -78,9 +78,9 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
 
   it("reports a registered kind carrying a payload the strict layer rejects", () => {
     // The quieter half. Without this the payload leg could be skipping every beat and
-    // the case above would still be green: `session.created` registers
-    // `{sessionId, config, metadata}` and the variant is `.strict()`, so a `title`
-    // member is a payload no daemon sends.
+    // the case above would still be green: `session.created` registers the session's
+    // shape and its lead and the variant is `.strict()`, so a `title` member is a
+    // payload no daemon sends.
     const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("carries-an-unregistered-payload", (beat) => ({
         ...beat,

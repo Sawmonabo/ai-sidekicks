@@ -9,20 +9,12 @@
 // and borrowing the directory's rule would leave that header blank on exactly the
 // session a first run is looking at.
 //
-// WHERE THE TITLE COMES FROM, AND WHY IT IS `metadata`. No first-class name field
-// exists on any registered session shape: `SessionSnapshot` carries `id`, `state`,
-// `config`, `metadata`, two timestamps and the draft, and `session.created`'s payload is
-// `.strict()` with no title member at all. So a display title is metadata a session
-// carries, read from the scenario's own scripted reply rather than folded out of a
-// beat.
+// NO TITLE. A session's name is the sessions list's, and a scenario scripts only the
+// session read, which carries none, so the identity this derives is untitled.
 
-import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";
 import type { SessionSummary } from "./session-reads.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
-
-/** The subsystem an identity-derivation refusal names as its author. */
-const IDENTITY_ORIGIN = "fixture-session-identity";
 
 /**
  * The identity the scenario declares for one session, or `undefined`.
@@ -45,19 +37,5 @@ export function scenarioSessionIdentity(
   if (typeof state !== "string") {
     return undefined;
   }
-  const title = scriptedSessionReadMember(scenario, "session", "metadata", "title");
-  if (title !== undefined && typeof title !== "string") {
-    // A THROW rather than a dropped title: a scenario is in-tree source, so a
-    // metadata title that is not a string is an authoring defect, and dropping it would
-    // make the session indistinguishable from the ordinary unnamed one the view
-    // must also draw.
-    throw new RefusalError(
-      refuse(
-        IDENTITY_ORIGIN,
-        "session-title-not-a-string",
-        `a scenario declared its session's metadata title as ${typeof title}, and a display title is a string or absent`,
-      ),
-    );
-  }
-  return { sessionId, state, ...(title === undefined ? {} : { title }) };
+  return { sessionId, state };
 }

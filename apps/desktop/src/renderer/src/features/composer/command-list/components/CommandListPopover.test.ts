@@ -20,7 +20,7 @@ import {
   addressedRunIdOfFirstAgent,
   agentPane,
   bridgeEnumerating,
-  composerAgentIds,
+  composerLeadAgentId,
   mountComposer,
   optionNames,
   pressOnList,
@@ -36,7 +36,7 @@ describe("CommandList — one binding's entries reach the list", () => {
   it("lists the addressed run's group and none of the other binding's entries", async () => {
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([...(await scenarioBindingGroups()), UNADDRESSED_CODEX_GROUP]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/");
@@ -52,7 +52,7 @@ describe("CommandList — one binding's entries reach the list", () => {
   it("says this run's binding published nothing when no group can be attributed to it", async () => {
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([UNADDRESSED_CODEX_GROUP]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/");
@@ -72,7 +72,7 @@ describe("CommandList — one binding's entries reach the list", () => {
       bridge: bridgeEnumerating([
         { ...UNADDRESSED_CODEX_GROUP, runId: await addressedRunIdOfFirstAgent() },
       ]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/");
@@ -104,7 +104,7 @@ describe("CommandList — the list activates its active row", () => {
     const counted = registerCountedConsoleCommand();
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID}`);
     const list = await stepIntoList(mounted);
@@ -118,7 +118,7 @@ describe("CommandList — the list activates its active row", () => {
     const counted = registerCountedConsoleCommand();
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID}`);
     const list = await stepIntoList(mounted);
@@ -133,7 +133,7 @@ describe("CommandList — the list activates its active row", () => {
     const recorded: RecordedDaemonCall[] = [];
     const mounted = await mountComposer({
       bridge: recordingBridge(recorded),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
@@ -163,7 +163,7 @@ describe("CommandList — the list activates its active row", () => {
     const counted = registerCountedConsoleCommand();
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
@@ -210,7 +210,7 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
   async function mountFilteredToFlippedEntry(enabled: boolean): Promise<MountedComposer> {
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([await addressedGroupWithFlag(enabled)]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     await typeIntoLine(mounted.line, `/${FLIPPED_ENTRY_NAME}`);
     return mounted;

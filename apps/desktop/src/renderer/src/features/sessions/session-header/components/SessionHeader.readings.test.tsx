@@ -13,16 +13,13 @@ import { SESSION_ID, renderSessionHeader, storeWith } from "./SessionHeader.test
 const DISPLAY_TITLE = "Ship the transcript";
 
 describe("the session header — the session it is naming", () => {
-  it("renders a display title and says on the element that it is metadata", () => {
+  it("renders the session's name", () => {
     const bar = renderSessionHeader(
       <SessionHeader sessionId={SESSION_ID} sessionStore={storeWith()} title={DISPLAY_TITLE} />,
     );
     const title = bar.querySelector(".meridian-session-header__session-title");
 
     expect(title?.textContent).toBe(DISPLAY_TITLE);
-    // No registered session shape carries a name field, so a reader who wonders where
-    // this came from gets the honest answer from the element itself.
-    expect(title?.getAttribute("title")).toBe("Session metadata title");
     // And the id is still there: the title is an addition to the identity, never a
     // replacement for the one unambiguous name the session has.
     expect(bar.querySelector(".meridian-session-header__identity")?.textContent).toContain(

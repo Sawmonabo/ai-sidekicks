@@ -13,8 +13,8 @@
 // `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
 // (`SessionEventSchema`), both in `packages/contracts/src/event.ts`, which is why
-// `session.created` carries `{sessionId, config, metadata}` and `agent.attached`
-// carries `name` rather than the `displayName` that is on no wire in this corpus.
+// `session.created` carries the session's shape and the lead born with it, named
+// as the live agent list names it.
 //
 // IDENTIFIERS ARE UUIDS. `SessionId`, `UserId`, `AgentId`, `RunId`, and
 // `ApprovalRequestId` are branded ids the contracts declare over UUID values, and a
@@ -22,13 +22,16 @@
 // design lie in a fixture whose whole job is to be measured.
 
 import {
+  AgentIdSchema,
   UserIdSchema,
   RunIdSchema,
   SessionIdSchema,
+  type AgentId,
   type UserId,
   type RunId,
   type SessionId,
 } from "@ai-sidekicks/contracts";
+import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import type { Scenario } from "../scenario.js";
 
 // UUID v7 values whose leading bytes are this scenario's own start instant, so a
@@ -38,12 +41,11 @@ import type { Scenario } from "../scenario.js";
 // where a fixture chooses the bytes, and a cast asserts a brand without checking it —
 // so a malformed id surfaced at the first `.strict()` reply that carried it, which
 // takes the whole reply down and names the reply rather than the value. Parsing at
-// declaration fails the module instead, naming the constant. `AGENT_*` stays
-// unbranded: the corpus registers no `AgentId` brand to mint one through.
+// declaration fails the module instead, naming the constant.
 const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a33-3300-75e5-8510-ada11a5a55a5");
 const USER_YOU: UserId = UserIdSchema.parse("019b7a33-3300-79a4-8110-cca0117a0510");
-const AGENT_IMPLEMENTER = "019b7a33-3300-7a6e-8110-d1a4c1150501";
-const AGENT_REVIEWER = "019b7a33-3300-7a6e-8120-d1a4c1150502";
+const AGENT_IMPLEMENTER: AgentId = AgentIdSchema.parse("019b7a33-3300-7a6e-8110-d1a4c1150501");
+const AGENT_REVIEWER: AgentId = AgentIdSchema.parse("019b7a33-3300-7a6e-8120-d1a4c1150502");
 const RUN_ID: RunId = RunIdSchema.parse("019b7a33-3300-740e-8110-d1a4c1150511");
 
 const APPROVAL_RESOLVED = "019b7a33-3300-7f01-8110-d1a4c1150521";
@@ -82,27 +84,18 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
         kind: "session.created",
         occurredAt: "2026-01-01T13:30:00.000Z",
         actorId: USER_YOU,
-        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
-      },
-    },
-    {
-      atMs: 40,
-      event: {
-        id: "019b7a33-3300-7e00-8110-e5e0c3350002",
-        sessionId: SESSION_ID,
-        sequence: 2,
-        kind: "agent.attached",
-        occurredAt: "2026-01-01T13:30:00.040Z",
-        // The person who attached the agent, not the agent.
-        actorId: USER_YOU,
-        payload: {
+        payload: composeSessionCreatedPayload({
           sessionId: SESSION_ID,
-          agentId: AGENT_IMPLEMENTER,
-          name: "Implementer",
-          driverName: "claude",
-          modelId: "claude-sonnet-5",
-          actor: USER_YOU,
-        },
+          shape: "project",
+          openedBy: USER_YOU,
+          lead: {
+            agentId: AGENT_IMPLEMENTER,
+            name: "Implementer",
+            driverName: "claude",
+            modelId: "claude-sonnet-5",
+          },
+          createdAt: "2026-01-01T13:30:00.000Z",
+        }),
       },
     },
     {
@@ -110,7 +103,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
       event: {
         id: "019b7a33-3300-7e00-8110-e5e0c3350003",
         sessionId: SESSION_ID,
-        sequence: 3,
+        sequence: 2,
         // The run every request below was raised by, reaching `running`. The posture
         // is stamped on THIS transition and on no other — the post-setup-gate spawn
         // success, where the resolved workspace root and the effective posture are
@@ -140,7 +133,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
       event: {
         id: "019b7a33-3300-7e00-8110-e5e0c3350004",
         sessionId: SESSION_ID,
-        sequence: 4,
+        sequence: 3,
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:00.200Z",
         actorId: AGENT_IMPLEMENTER,
@@ -160,7 +153,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
       event: {
         id: "019b7a33-3300-7e00-8110-e5e0c3350005",
         sessionId: SESSION_ID,
-        sequence: 5,
+        sequence: 4,
         kind: "approval.approved",
         occurredAt: "2026-01-01T13:30:00.420Z",
         actorId: USER_YOU,
@@ -184,7 +177,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
       event: {
         id: "019b7a33-3300-7e00-8110-e5e0c3350006",
         sessionId: SESSION_ID,
-        sequence: 6,
+        sequence: 5,
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:00.600Z",
         actorId: AGENT_IMPLEMENTER,
@@ -204,7 +197,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
       event: {
         id: "019b7a33-3300-7e00-8110-e5e0c3350008",
         sessionId: SESSION_ID,
-        sequence: 7,
+        sequence: 6,
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:00.900Z",
         actorId: AGENT_IMPLEMENTER,
@@ -227,7 +220,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
       event: {
         id: "019b7a33-3300-7e00-8110-e5e0c3350009",
         sessionId: SESSION_ID,
-        sequence: 8,
+        sequence: 7,
         // The second pending request, and the one that arrived as a provider
         // permission ask: `askId` is the originating `driver_ask` identifier, and it
         // reaches the console HERE and on no read. The pane learns the origin by

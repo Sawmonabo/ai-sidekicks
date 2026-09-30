@@ -147,6 +147,7 @@ import {
   type SessionRestoreFinishedPayload,
 } from "./session-restore.js";
 import { SessionConvertedPayloadSchema, type SessionConvertedPayload } from "./session-convert.js";
+import { SessionCreatedPayloadSchema, type SessionCreatedPayload } from "./session-created.js";
 import {
   SessionIdSchema,
   SessionLifecycleChangePayloadSchema,
@@ -928,21 +929,13 @@ export function withEpochStamp<
 // branch schemas. Same principle as `buildCommonShape()`.
 // --------------------------------------------------------------------------
 
-const sessionCreatedPayloadSchema = z
-  .object({
-    sessionId: SessionIdSchema,
-    config: z.record(z.string(), z.unknown()),
-    metadata: z.record(z.string(), z.unknown()),
-  })
-  .strict();
-
 // --------------------------------------------------------------------------
 // session.created — emitted on session admit.
 // --------------------------------------------------------------------------
 //
-// Payload mirrors the session-bootstrap projection: the new session id
-// (redundant with the envelope's `sessionId`, kept for projector convenience)
-// plus the resolved config + metadata.
+// The payload is session-created.ts's: the new session id (redundant with the
+// envelope's `sessionId`, kept for projector convenience), its shape, its lead,
+// and the fork parent or tried definition where there is one.
 
 // Variant interfaces extend the canonical EventEnvelope, narrowing the
 // tolerant `type` / `category` / `payload` members to the variant's
@@ -956,18 +949,14 @@ const sessionCreatedPayloadSchema = z
 export interface SessionCreatedEvent extends EventEnvelope {
   type: "session.created";
   category: "session_lifecycle";
-  payload: {
-    sessionId: SessionId;
-    config: Record<string, unknown>;
-    metadata: Record<string, unknown>;
-  };
+  payload: SessionCreatedPayload;
 }
 export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("session.created"),
     category: z.literal("session_lifecycle"),
-    payload: sessionCreatedPayloadSchema,
+    payload: SessionCreatedPayloadSchema,
   })
   .strict();
 
@@ -2329,7 +2318,7 @@ export interface HydratedSessionEvent {
 // `z.discriminatedUnion` requires every variant to be a literal-typed
 // ZodObject sharing the same discriminator key. This gives O(1) parse-time
 // dispatch and narrowed inferred types at the consumption site
-// (e.g. `if (e.type === "session.created") e.payload.config // typed`).
+// (e.g. `if (e.type === "session.created") e.payload.mainAgent // typed`).
 //
 // We rebuild the variant schemas here (not the exported `*EventSchema`
 // values) because `z.ZodType<T>` erases the literal-typed `type` field
@@ -2421,7 +2410,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("session.created"),
       category: z.literal("session_lifecycle"),
-      payload: sessionCreatedPayloadSchema,
+      payload: SessionCreatedPayloadSchema,
     })
     .strict(),
   // The six repo/workspace arms. Each shares repo.ts's single
@@ -2744,8 +2733,6 @@ export type SessionEventType =
   | "session.converted"
   | "session.side_question_answered"
   | "session.restore_finished"
-  | "agent.attached"
-  | "agent.detached"
   | "agent.provider_binding_changed"
   | "agent.provider_binding_change_failed"
   | "repo.attached"
@@ -3045,8 +3032,6 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.converted",
   "session.side_question_answered",
   "session.restore_finished",
-  "agent.attached",
-  "agent.detached",
   "agent.provider_binding_changed",
   "agent.provider_binding_change_failed",
   "repo.attached",
@@ -3267,8 +3252,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "session.converted": "session_lifecycle",
   "session.side_question_answered": "session_lifecycle",
   "session.restore_finished": "session_lifecycle",
-  "agent.attached": "session_lifecycle",
-  "agent.detached": "session_lifecycle",
   "agent.provider_binding_changed": "session_lifecycle",
   "agent.provider_binding_change_failed": "session_lifecycle",
   "repo.attached": "session_lifecycle",

@@ -19,6 +19,7 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
+import { scenarioLeadAgentId } from "../../../../../../fixtures/data/opening-entries.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
@@ -149,10 +150,7 @@ export function bridgeHoldingTheEnumeration(): PlatformBridge {
  */
 export async function scenarioBindingGroups(): Promise<readonly ProviderCommandBindingGroup[]> {
   const { bridge } = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
-  const [agentId] = composerAgentIds();
-  if (agentId === undefined) {
-    throw new Error("the composer scenario attaches no agent");
-  }
+  const agentId = scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO);
   // A bare controller nothing ever aborts, which is the line this helper wants: it
   // awaits the read to completion and has no owner who could leave. A `ReadScope`
   // here would put a second module inside a helper whose whole job is to hand the
@@ -195,12 +193,9 @@ export function bridgeEnumerating(groups: readonly ProviderCommandBindingGroup[]
   }).bridge;
 }
 
-/** The scenario's agents, read out of the log rather than restated. */
-export function composerAgentIds(): readonly string[] {
-  return WAITING_FOR_INPUT_SCENARIO.beats
-    .filter((beat) => beat.event.kind === "agent.attached")
-    .map((beat) => beat.event.payload?.["agentId"])
-    .filter((agentId): agentId is string => typeof agentId === "string");
+/** The scenario's lead, read out of the log rather than restated. */
+export function composerLeadAgentId(): string {
+  return scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO);
 }
 
 export function composerSessionStore(): SessionStore {

@@ -58,8 +58,8 @@ import {
 import type { Scenario } from "../scenario.js";
 import {
   type ScenarioAgent,
-  composeAttachedInstant,
-  composeOpeningEntries,
+  composeOpeningEntry,
+  composeScenarioInstant,
   findScenarioMember,
 } from "../data/opening-entries.js";
 
@@ -138,21 +138,18 @@ const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
     name: "Architect",
     driverName: "claude",
     modelId: "claude-opus-5[1m]",
-    attachedAtMs: 120,
   },
   {
     agentId: AGENT_IMPLEMENTER,
     name: "Implementer",
     driverName: "claude",
     modelId: "claude-sonnet-5",
-    attachedAtMs: 160,
   },
   {
     agentId: AGENT_REVIEWER,
     name: "Reviewer",
     driverName: "codex",
     modelId: "gpt-5.6-sol",
-    attachedAtMs: 200,
   },
 ];
 
@@ -186,7 +183,7 @@ const REVIEWER_TOOL_CALL_ID = "call-reviewer-1";
  * The provider the reviewer's lane runs on, read off the cast rather than restated.
  *
  * A subagent is keyed by `(runId, provider, subagentId)`, so this has to be the same
- * string the reviewer's own attach beat carries — and the cast is where it is stated.
+ * string the reviewer's own runs are bound to — and the cast is where it is stated.
  */
 const REVIEWER_PROVIDER = findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REVIEWER).driverName;
 
@@ -194,10 +191,12 @@ const REVIEWER_PROVIDER = findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REV
 const lane = createRunEntryBuilders(SESSION_ID);
 
 const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
-  ...composeOpeningEntries({
+  composeOpeningEntry({
     sessionId: SESSION_ID,
+    shape: "project",
     openedBy: USER_YOU,
-    cast: TRANSCRIPT_STATES_AGENTS,
+    lead: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_ARCHITECT),
+    createdAt: STARTED_AT_ISO,
   }),
   {
     atMs: 280,
@@ -502,7 +501,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
       // extended. Derived from the scenario's own base instant rather than written
       // as a literal, so the countdown and the beat can never disagree about when
       // the ask was raised.
-      expiresAt: composeAttachedInstant(startedAtMs, 3_140 + 600_000),
+      expiresAt: composeScenarioInstant(startedAtMs, 3_140 + 600_000),
     },
   },
 ];
@@ -515,7 +514,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
   purpose:
     "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the run groups and the seams all have something to render.",
   sessionId: SESSION_ID,
-  // Join order IS hue order: the person first, then the agents in attach order,
+  // Join order IS hue order: the person first, then the agents in the order they joined,
   // which is what a real session's join log looks like.
   userIdsInJoinOrder: [USER_YOU, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the roster this window is. Stated rather than read off the head of the
@@ -545,12 +544,12 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
           {
             sequence: 12,
             content: "The two storage backends differ in who owns the row, not in what it holds.",
-            timestamp: composeAttachedInstant(startedAtMs, 2_500),
+            timestamp: composeScenarioInstant(startedAtMs, 2_500),
           },
           {
             sequence: 13,
             content: "A node-local answer is reversible; a control-plane answer is not.",
-            timestamp: composeAttachedInstant(startedAtMs, 2_520),
+            timestamp: composeScenarioInstant(startedAtMs, 2_520),
           },
         ],
       },
@@ -575,8 +574,6 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
         session: {
           id: SESSION_ID,
           state: "active",
-          config: {},
-          metadata: {},
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T11:05:03.060Z",
           draft: "",

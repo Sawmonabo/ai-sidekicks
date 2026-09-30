@@ -155,11 +155,8 @@ describe("the folded bodies", () => {
     expect(subagentHandoffs).toHaveLength(1);
     expect(subagentHandoffs[0]?.wireType).toBe("subagent.started");
     expect(subagentHandoffs[0]?.rowId).toBe(subagentRowIds[0]);
-    // Four in all: the three agent attachments this session always carried, each
-    // naming no subagent identity and so anchored by nothing, plus the one anchor the
-    // pair above draws. The attachments are why a handoff row was reachable from this
-    // scenario before it carried a subagent — what was not reachable was suppression.
-    expect(handoffs).toHaveLength(4);
+    // One in all: the anchor the pair above draws, and nothing else in the log is a handoff.
+    expect(handoffs).toHaveLength(1);
   });
 
   it("names the subagent's identity, without which the pair could not be keyed", () => {

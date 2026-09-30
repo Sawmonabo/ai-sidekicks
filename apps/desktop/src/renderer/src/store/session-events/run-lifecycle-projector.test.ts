@@ -108,10 +108,16 @@ describe("the run-lifecycle projector's claimed kinds", () => {
   });
 
   it("claims no kind outside the category — the control a hand list would fail", () => {
-    // `run.started` reads exactly like a real event and is not one; `agent.attached`
-    // and `usage.token_count` are real and belong to other categories entirely. A
-    // projector claiming any of them would be folding events it cannot read.
-    for (const kind of ["run.started", "agent.attached", "usage.token_count", "session.created"]) {
+    // `run.started` reads exactly like a real event and is not one;
+    // `agent.provider_binding_changed` and `usage.token_count` are real and belong to
+    // other categories entirely. A projector claiming any of them would be folding
+    // events it cannot read.
+    for (const kind of [
+      "run.started",
+      "agent.provider_binding_changed",
+      "usage.token_count",
+      "session.created",
+    ]) {
       expect(RUN_LIFECYCLE_EVENT_KINDS).not.toContain(kind);
       expect(Object.hasOwn(RUN_LIFECYCLE_PROJECTORS, kind)).toBe(false);
     }

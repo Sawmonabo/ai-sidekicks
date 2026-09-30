@@ -147,13 +147,6 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
 // (the `.strict()` modifier rejects unknown keys at parse time, surfacing
 // schema drift early).
 
-// `z.ZodType<T, T>` — see `./internal/branded.ts` for rationale (preserves
-// Input inference when this helper composes into tRPC-consumed request schemas).
-const RecordOfUnknownSchema: z.ZodType<Record<string, unknown>, Record<string, unknown>> = z.record(
-  z.string(),
-  z.unknown(),
-);
-
 /**
  * One session as `session.read` answers it. `draft` is the unsent composer draft the daemon
  * holds for the session, the whole text, and the empty string when none is held: Send clears
@@ -162,8 +155,6 @@ const RecordOfUnknownSchema: z.ZodType<Record<string, unknown>, Record<string, u
 export interface SessionSnapshot {
   id: SessionId;
   state: SessionState;
-  config: Record<string, unknown>;
-  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
   draft: string;
@@ -172,8 +163,6 @@ export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
   .object({
     id: SessionIdSchema,
     state: SessionStateSchema,
-    config: RecordOfUnknownSchema,
-    metadata: RecordOfUnknownSchema,
     // Default `z.iso.datetime()` accepts only Z-suffixed UTC; `{ offset:
     // true }` widens to the full RFC 3339 section 5.6 spec (numeric
     // offsets like "+00:00", "-05:00") which the wire contract permits.

@@ -15,10 +15,8 @@ import {
 // The declaring modules rather than the public entry: both names are read only from
 // this suite, and an entry export no production module imports is a dead export.
 import { foldRunDriverBindings } from "./run-driver-bindings.js";
-import type {
-  StoredEntity,
-  ProjectedSessionEvent,
-} from "@renderer/store/session/entities/entities.js";
+import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
+import { leadCreatedBeat } from "./lead-created-beat.test-support.js";
 import {
   capabilityReadout as readout,
   declaredFlags,
@@ -117,28 +115,13 @@ describe("an unnameable binding says so rather than guessing", () => {
 // loudly its own driver declared them.
 describe("the session's own projection is what names a run's driver", () => {
   const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
-  const CLAUDE_AGENT = "agent-claude";
-  const CODEX_AGENT = "agent-codex";
+  const LEAD_AGENT = "019b7a33-3300-7a6e-8110-d1a4c1150301";
+  const OTHER_AGENT = "019b7a33-3300-7a6e-8120-d1a4c1150302";
 
   const BOTH_DRIVERS_INSTALLED = [
     ["claude", ["steer"]],
     ["codex", []],
   ] as const;
-
-  function agentAttached(
-    sequence: number,
-    agentId: string,
-    driverName: string,
-  ): ProjectedSessionEvent {
-    return {
-      id: `event-${String(sequence)}`,
-      sessionId: SESSION_ID,
-      sequence,
-      kind: "agent.attached",
-      occurredAt: "2026-01-01T00:00:00.000Z",
-      payload: { sessionId: SESSION_ID, agentId, name: "Ada", driverName },
-    };
-  }
 
   function runsBoundTo(
     ...pairs: readonly (readonly [string, string])[]
@@ -151,27 +134,30 @@ describe("the session's own projection is what names a run's driver", () => {
     );
   }
 
-  it("gates each run on its own agent's driver on a node running both", () => {
-    const bindings = foldRunDriverBindings(
-      runsBoundTo([CLAUDE_RUN, CLAUDE_AGENT], [CODEX_RUN, CODEX_AGENT]),
-      [agentAttached(1, CLAUDE_AGENT, "claude"), agentAttached(2, CODEX_AGENT, "codex")],
-    );
-    const capabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), bindings);
+  it("gates the lead's run on the lead's own driver on a node running both", () => {
+    const claudeLed = foldRunDriverBindings(runsBoundTo([CLAUDE_RUN, LEAD_AGENT]), [
+      leadCreatedBeat({ sessionId: SESSION_ID, leadAgentId: LEAD_AGENT, driverName: "claude" }),
+    ]);
+    const codexLed = foldRunDriverBindings(runsBoundTo([CODEX_RUN, LEAD_AGENT]), [
+      leadCreatedBeat({ sessionId: SESSION_ID, leadAgentId: LEAD_AGENT, driverName: "codex" }),
+    ]);
+    const claudeCapabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), claudeLed);
+    const codexCapabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), codexLed);
 
     // The Codex run's own driver declared steer absent, which is a DECLARATION
     // rather than an absence of one — and the Claude run, whose driver declared it,
     // is offered it.
-    expect(readingForRun(capabilities, CODEX_RUN, "steer")).toBe("undeclared");
-    expect(isControlOffered("steer", capabilities, CODEX_RUN)).toBe(false);
-    expect(isControlOffered("steer", capabilities, CLAUDE_RUN)).toBe(true);
+    expect(readingForRun(codexCapabilities, CODEX_RUN, "steer")).toBe("undeclared");
+    expect(isControlOffered("steer", codexCapabilities, CODEX_RUN)).toBe(false);
+    expect(isControlOffered("steer", claudeCapabilities, CLAUDE_RUN)).toBe(true);
   });
 
-  it("withholds the control for a run whose agent nothing attached, and says which fact that is", () => {
+  it("withholds the control for a run whose agent the birth record does not name, and says which fact that is", () => {
     // Three answers and they are three different facts. This is `undefined` — the
     // console cannot say — and never the `false` the case above asserts, so a row
     // whose binding is unknown is never reported as a driver that declined.
-    const bindings = foldRunDriverBindings(runsBoundTo([CODEX_RUN, "agent-nobody-attached"]), [
-      agentAttached(1, CLAUDE_AGENT, "claude"),
+    const bindings = foldRunDriverBindings(runsBoundTo([CODEX_RUN, OTHER_AGENT]), [
+      leadCreatedBeat({ sessionId: SESSION_ID, leadAgentId: LEAD_AGENT, driverName: "claude" }),
     ]);
     const capabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), bindings);
 

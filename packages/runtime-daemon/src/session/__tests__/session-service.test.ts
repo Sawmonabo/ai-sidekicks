@@ -62,7 +62,22 @@ function makeCreatedEvent(): AppendableEvent {
     category: "session_lifecycle",
     type: "session.created",
     actor: OWNER_ID,
-    payload: { sessionId: SESSION_ID, name: "test-session" },
+    payload: {
+      sessionId: SESSION_ID,
+      shape: "chat",
+      mainAgent: {
+        agentId: "44444444-4444-4444-8444-444444444444",
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: "2026-04-27T12:00:00.000Z",
+      },
+    },
     correlationId: null,
     causationId: null,
     version: "1.0",

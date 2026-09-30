@@ -24,7 +24,22 @@ function makeCreatedEvent(): StoredEvent {
     category: "session_lifecycle",
     type: "session.created",
     actor: OWNER_ACTOR_ID,
-    payload: { sessionId: SESSION_ID, name: "test-session" },
+    payload: {
+      sessionId: SESSION_ID,
+      shape: "chat",
+      mainAgent: {
+        agentId: "44444444-4444-4444-8444-444444444444",
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: OCCURRED_AT,
+      },
+    },
     correlationId: null,
     causationId: null,
     version: "1.0",
