@@ -135,6 +135,9 @@
         "src/renderer/src/features/composer/run-controls/hooks/useRunDriverBindings.ts",
         // The inspector's Rules section with Revoke.
         "src/renderer/src/features/inspector/rules/components/RulesSection.tsx",
+        // What the git host reports about a pull request, for the Pull request tab's header,
+        // check rows and review list.
+        "src/renderer/src/features/repos/mounts/hosting-status.ts",
         // The session header's title read and its fixture answer.
         "src/renderer/src/features/sessions/session-header/hooks/useSessionHeaderRead.ts",
         "src/renderer/src/features/sessions/session-header/hooks/useSessionIdentity.ts",

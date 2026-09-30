@@ -4,7 +4,6 @@
 // never drawn as a value the host did not send.
 
 import type {
-  ChangeRequestCheck,
   ChangeRequestCheckStatus,
   ChangeRequestMergeability,
   ChangeRequestReviewDecision,
@@ -110,30 +109,3 @@ export const REVIEWER_VERDICT_PRESENTATION: Readonly<Record<ReviewerVerdict, Sta
  * @consumedBy the pull request tab's review list
  */
 export const NO_REVIEWER_VERDICT_COPY = "No review yet";
-
-/** How many checks sit at each status, plus the tone the whole rollup reads at. */
-export interface CheckRollup {
-  readonly countByStatus: Readonly<Record<ChangeRequestCheckStatus, number>>;
-  readonly total: number;
-  readonly tone: ChipTone;
-}
-
-/**
- * Fold a check list into a count per status and a worst-first tone: any failure is red, else
- * neutral, since a check still running needs nobody.
- */
-export function checkRollup(checks: readonly Pick<ChangeRequestCheck, "status">[]): CheckRollup {
-  const countByStatus: Record<ChangeRequestCheckStatus, number> = {
-    pending: 0,
-    success: 0,
-    failure: 0,
-  };
-  for (const check of checks) {
-    countByStatus[check.status] += 1;
-  }
-  return {
-    countByStatus,
-    total: checks.length,
-    tone: countByStatus.failure > 0 ? "failure" : "neutral",
-  };
-}
