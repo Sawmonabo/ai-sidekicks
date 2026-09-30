@@ -35,98 +35,10 @@ pub fn taskkill_argv(pid: u32) -> Vec<String> {
 mod tests {
     use super::*;
 
-    // The argv must contain /T and /F, select by PID, and render the PID in decimal.
-
     #[test]
-    fn argv_invokes_taskkill_program() {
-        // A different program (`wmic`, `pskill`) would bypass Windows' own tree walk.
-        let argv = taskkill_argv(12345);
-        assert_eq!(argv[0], "taskkill");
-    }
-
-    #[test]
-    fn argv_includes_tree_flag() {
-        // Without /T grandchildren are orphaned.
-        let argv = taskkill_argv(12345);
-        assert!(
-            argv.iter().any(|s| s == "/T"),
-            "argv missing /T flag (descendant-tree termination): {argv:?}"
-        );
-    }
-
-    #[test]
-    fn argv_includes_force_flag() {
-        // Without /F, processes with no message loop survive.
-        let argv = taskkill_argv(12345);
-        assert!(
-            argv.iter().any(|s| s == "/F"),
-            "argv missing /F flag (forceful termination): {argv:?}"
-        );
-    }
-
-    #[test]
-    fn argv_selects_by_pid_not_image_name() {
-        // /IM would kill unrelated peers with the same image name.
-        let argv = taskkill_argv(12345);
-        assert!(
-            argv.iter().any(|s| s == "/PID"),
-            "argv missing /PID selector: {argv:?}"
-        );
-        assert!(
-            !argv.iter().any(|s| s == "/IM"),
-            "argv must not use /IM (image-name selector would kill peers): {argv:?}"
-        );
-    }
-
-    #[test]
-    fn argv_renders_pid_as_decimal() {
-        // taskkill.exe parses decimal only.
-        let argv = taskkill_argv(0x2A);
-        assert!(
-            argv.iter().any(|s| s == "42"),
-            "argv missing decimal-rendered PID '42' for input 0x2A: {argv:?}"
-        );
-    }
-
-    #[test]
-    fn argv_renders_zero_pid() {
-        // The builder is total over u32; the caller must not pass 0.
-        let argv = taskkill_argv(0);
-        assert!(argv.iter().any(|s| s == "0"));
-    }
-
-    #[test]
-    fn argv_renders_max_pid() {
-        // Total over u32; real PIDs are far smaller.
-        let argv = taskkill_argv(u32::MAX);
-        assert!(argv.iter().any(|s| s == &u32::MAX.to_string()));
-    }
-
-    #[test]
-    fn argv_has_exactly_five_slots() {
-        // Pin the argv length so a future addition (e.g., a `/FI`
-        // Pins the length so a new clause is a deliberate change: [program, /T, /F, /PID, <pid>].
-        let argv = taskkill_argv(12345);
-        assert_eq!(
-            argv.len(),
-            5,
-            "argv length is a contract surface; \
-             additions need a deliberate test update: {argv:?}"
-        );
-    }
-
-    #[test]
-    fn argv_pid_is_last_argument() {
-        // The PID must directly follow /PID.
-        let argv = taskkill_argv(12345);
-        let pid_flag_idx = argv
-            .iter()
-            .position(|s| s == "/PID")
-            .expect("/PID flag present");
-        assert_eq!(
-            argv[pid_flag_idx + 1],
-            "12345",
-            "PID value MUST follow /PID flag immediately: {argv:?}"
-        );
+    fn argv_is_the_whole_tree_forced_kill_of_one_decimal_pid() {
+        // The whole argv at once: the program, /T and /F, /PID (never /IM, which would also kill
+        // peers with the same image name), and the PID in decimal right after /PID.
+        assert_eq!(taskkill_argv(0x2A), ["taskkill", "/T", "/F", "/PID", "42"]);
     }
 }
