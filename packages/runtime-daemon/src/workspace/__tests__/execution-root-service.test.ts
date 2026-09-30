@@ -52,14 +52,13 @@ import type {
 } from "../execution-root-service.js";
 import { RepoMountNotFoundError } from "../repo-errors.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
-import type { FilesystemPathProbeFn } from "../workspace-service.js";
+import type { FilesystemPathProbeFn } from "../workspace-row-guards.js";
 import {
   WorkspaceBusyError,
   WorkspaceNotFoundError,
-  WorkspaceService,
   WorkspaceStaleError,
-  type SessionExistenceReader,
-} from "../workspace-service.js";
+} from "../workspace-service-errors.js";
+import { WorkspaceService, type SessionExistenceReader } from "../workspace-service.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures

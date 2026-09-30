@@ -43,18 +43,22 @@ import {
   normalizeWorkspaceLastError,
   scrubCredentials,
   truncateWorkspaceLastError,
+  WORKSPACE_LAST_ERROR_TRUNCATION_MARKER,
+} from "../workspace-last-error.js";
+import {
   WorkspaceBusyError,
   WorkspaceModeUnsupportedError,
   WorkspaceNotFoundError,
-  WorkspaceService,
   WorkspaceServiceInvariantError,
   WorkspaceStaleError,
-  WORKSPACE_LAST_ERROR_TRUNCATION_MARKER,
   WORKSPACE_SERVICE_ERROR_CODES,
-  type FilesystemPathProbeFn,
+} from "../workspace-service-errors.js";
+import {
+  WorkspaceService,
   type SessionExistenceReader,
   type WorkspaceServiceDeps,
 } from "../workspace-service.js";
+import { type FilesystemPathProbeFn } from "../workspace-row-guards.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures

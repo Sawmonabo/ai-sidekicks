@@ -43,7 +43,7 @@ import {
 } from "./trust-envelope.js";
 import type { WorkspaceEventEmitter } from "./workspace-event-emitter.js";
 import { computeRepoMountHealth, type FilesystemPathProbe } from "./workspace-projector.js";
-import type { FilesystemPathProbeFn } from "./workspace-service.js";
+import type { FilesystemPathProbeFn } from "./workspace-row-guards.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 /**

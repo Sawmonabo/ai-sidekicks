@@ -46,7 +46,8 @@ import {
 import { RepoRootResolver } from "../repo-root-resolver.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
 import type { FilesystemPathProbe } from "../workspace-projector.js";
-import { WorkspaceService, type FilesystemPathProbeFn } from "../workspace-service.js";
+import { WorkspaceService } from "../workspace-service.js";
+import { type FilesystemPathProbeFn } from "../workspace-row-guards.js";
 
 const SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000002" as SessionId;

@@ -38,11 +38,8 @@ import {
 import { DaemonDomainError } from "../ipc/domain-error.js";
 
 import { RepoMountNotFoundError } from "./repo-errors.js";
-import {
-  HOLDING_RUN_ID_METADATA_PATH,
-  WorkspaceBusyError,
-  WorkspaceNotFoundError,
-} from "./workspace-service.js";
+import { HOLDING_RUN_ID_METADATA_PATH } from "./workspace-row-guards.js";
+import { WorkspaceBusyError, WorkspaceNotFoundError } from "./workspace-service-errors.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 /** Two minutes, matching the worktree service; the only git call here is a `symbolic-ref` read. */

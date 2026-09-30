@@ -41,7 +41,8 @@ import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, TestSeedingAppendToken } from "../../session/session-service.js";
 import { RepoMountService } from "../repo-mount-service.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
-import { WorkspaceService, WorkspaceStaleError } from "../workspace-service.js";
+import { WorkspaceService } from "../workspace-service.js";
+import { WorkspaceStaleError } from "../workspace-service-errors.js";
 
 // Fixtures
 

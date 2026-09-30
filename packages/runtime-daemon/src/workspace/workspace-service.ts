@@ -11,13 +11,10 @@
  */
 
 import type { Database, Statement } from "better-sqlite3";
-
 import {
   ExecutionModeSchema,
-  JsonRpcErrorCode,
   RepoMountIdSchema,
   WorkspaceIdSchema,
-  WORKSPACE_LAST_ERROR_MAX_LEN,
   type ExecutionMode,
   type VcsType,
   type WorkspaceBindRequest,
@@ -26,16 +23,9 @@ import {
   type WorkspaceListResponse,
   type WorkspaceState,
 } from "@ai-sidekicks/contracts";
-
-import { DaemonDomainError } from "../ipc/domain-error.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
-
 import { RepoMountNotFoundError } from "./repo-errors.js";
-import {
-  DEFAULT_DIRECTORY_READABILITY_PROBE,
-  TrustEnvelopeValidator,
-  type DirectoryReadabilityProbe,
-} from "./trust-envelope.js";
+import { TrustEnvelopeValidator } from "./trust-envelope.js";
 import type { WorkspaceEventEmitter } from "./workspace-event-emitter.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
 import {
@@ -46,257 +36,28 @@ import {
   type FilesystemPathProbe,
   type WorkspaceHealthProjection,
 } from "./workspace-projector.js";
-
-/**
- * The workspace-scoped codes this module raises; the provisioner's `workspace.*` codes are not
- * listed.
- */
-export type WorkspaceServiceErrorCode =
-  | "workspace.not_found"
-  | "workspace.mode_unsupported"
-  | "workspace.stale"
-  | "workspace.busy";
-
-/** Registered `workspace.*` codes raised by this service, in registry order. */
-export const WORKSPACE_SERVICE_ERROR_CODES: readonly WorkspaceServiceErrorCode[] = [
-  "workspace.not_found",
-  "workspace.mode_unsupported",
-  "workspace.stale",
-  "workspace.busy",
-];
-
-/**
- * `workspace.not_found` — the named workspace does not exist (notional HTTP 404). The only
- * carrier here that sets `jsonRpcCode` (`-32602`, as `repo.not_found` does); the others take the
- * mapper's `-32603` default.
- */
-export class WorkspaceNotFoundError extends DaemonDomainError {
-  /** The workspace id that did not resolve. Projects to `data.fields.workspaceId`. */
-  readonly workspaceId: string;
-
-  constructor(workspaceId: string) {
-    super(`workspace ${workspaceId} does not exist`, {
-      code: "workspace.not_found" satisfies WorkspaceServiceErrorCode,
-      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      httpStatus: 404,
-      detail: { workspaceId },
-    });
-    this.workspaceId = workspaceId;
-  }
-}
-
-/**
- * `workspace.mode_unsupported` — the execution mode is unavailable on this mount (notional HTTP
- * 400). Carries the capability matrix's own bounded reason. `availableModes` is copied so a caller
- * that keeps mutating its array cannot rewrite an error already thrown.
- */
-export class WorkspaceModeUnsupportedError extends DaemonDomainError {
-  /** The refused mode. Projects to `data.fields.executionMode`. */
-  readonly executionMode: ExecutionMode;
-  /** The modes that ARE available on the mount. Projects to `data.fields.availableModes`. */
-  readonly availableModes: readonly ExecutionMode[];
-
-  constructor(
-    executionMode: ExecutionMode,
-    availableModes: readonly ExecutionMode[],
-    reason: string,
-  ) {
-    super(`execution mode ${executionMode} is unavailable on this repo mount: ${reason}`, {
-      code: "workspace.mode_unsupported" satisfies WorkspaceServiceErrorCode,
-      httpStatus: 400,
-      detail: { executionMode, availableModes: [...availableModes], reason },
-    });
-    this.executionMode = executionMode;
-    this.availableModes = [...availableModes];
-  }
-}
-
-/**
- * `workspace.stale` — the execution root is gone (notional HTTP 409). Also raised by
- * {@link WorkspaceService.bind} with a `null` subject when the mount root is unreachable. No path
- * is echoed, since a daemon error can reach a remote caller.
- */
-export class WorkspaceStaleError extends DaemonDomainError {
-  /** The stale workspace, or `null` when the subject is a not-yet-created bind. */
-  readonly workspaceId: string | null;
-
-  constructor(workspaceId: string | null) {
-    super(
-      workspaceId === null
-        ? "workspace binding refused: the repo mount's execution root is no longer reachable"
-        : `workspace ${workspaceId} is stale: its execution root is no longer reachable`,
-      {
-        code: "workspace.stale" satisfies WorkspaceServiceErrorCode,
-        httpStatus: 409,
-        detail: workspaceId === null ? {} : { workspaceId },
-      },
-    );
-    this.workspaceId = workspaceId;
-  }
-}
-
-/**
- * `workspace.busy` — the workspace is held by a run (notional HTTP 409). Names the holding run,
- * the caller's only repair affordance, or `null` when the row carries no attribution.
- */
-export class WorkspaceBusyError extends DaemonDomainError {
-  /** The busy workspace. Projects to `data.fields.workspaceId`. */
-  readonly workspaceId: string;
-  /** The run holding it, or `null` when the row carries no attribution. */
-  readonly holdingRunId: string | null;
-
-  constructor(workspaceId: string, holdingRunId: string | null) {
-    super(
-      holdingRunId === null
-        ? `workspace ${workspaceId} is busy`
-        : `workspace ${workspaceId} is busy: held by run ${holdingRunId}`,
-      {
-        code: "workspace.busy" satisfies WorkspaceServiceErrorCode,
-        httpStatus: 409,
-        detail: holdingRunId === null ? { workspaceId } : { workspaceId, holdingRunId },
-      },
-    );
-    this.workspaceId = workspaceId;
-    this.holdingRunId = holdingRunId;
-  }
-}
-
-/**
- * Discriminants for {@link WorkspaceServiceInvariantError}; they differ only in what an operator
- * should inspect, and nothing branches on them.
- */
-export type WorkspaceServiceInvariantKind =
-  /**
-   * A stored row cannot be projected onto the wire shape (bad state, NULL `fs_root` under a
-   * probe-bearing state, a probe of another path, or an id the contracts refuse). A probe of
-   * another path is a bug in this module; the rest is corrupt data.
-   */
-  | "workspace_row_unprojectable"
-  /**
-   * The on-read floor derived a stale transition it could not make durable (locked database, full
-   * disk, size refusal). The row is fine; the write path is the defect.
-   */
-  | "stale_transition_durability_failure"
-  /** A daemon-internal caller asked for a transition the lifecycle does not admit. */
-  | "illegal_state_transition"
-  /**
-   * A caller offered an execution root that is not one complete location (see
-   * {@link assertAbsoluteExecutionRoot}); completing it would widen the approval scope.
-   */
-  | "non_absolute_execution_root";
-
-/**
- * A daemon-internal failure with no registered wire code, so not a `DaemonDomainError`: borrowing
- * a code would misreport the cause. It reaches the IPC boundary as an anonymous `-32603`.
- */
-export class WorkspaceServiceInvariantError extends Error {
-  /** What broke. See {@link WorkspaceServiceInvariantKind}. */
-  readonly kind: WorkspaceServiceInvariantKind;
-  /** The row this failure attaches to, or `null` when no row is implicated. */
-  readonly workspaceId: string | null;
-
-  constructor(
-    message: string,
-    options: {
-      readonly kind: WorkspaceServiceInvariantKind;
-      readonly workspaceId?: string | null;
-      readonly cause?: unknown;
-    },
-  ) {
-    super(message, options.cause === undefined ? undefined : { cause: options.cause });
-    // Mirrors `DaemonDomainError`: the name comes from the constructor that ran.
-    this.name = new.target.name;
-    this.kind = options.kind;
-    this.workspaceId = options.workspaceId ?? null;
-  }
-}
-
-/**
- * Module-private abort signal for `markStale`'s compare-and-swap. The append path inserts the event
- * row after the prelude regardless, so only a throw stops a duplicate `workspace.stale`;
- * `markStale` catches this class and returns `false`.
- */
-class StaleTransitionRaceError extends Error {
-  constructor(workspaceId: string) {
-    super(
-      `WorkspaceService.markStale: workspace ${workspaceId} was staled by another reader ` +
-        `between the read and the write transaction; aborting so no second ` +
-        `workspace.stale event is appended for one transition.`,
-    );
-    this.name = "StaleTransitionRaceError";
-  }
-}
-
-/** Marker appended to a truncated detail; counted inside the cap, which is also the wire cap. */
-export const WORKSPACE_LAST_ERROR_TRUNCATION_MARKER = "...[truncated]";
-
-// URL userinfo (`scheme://user:password@host`): the one credential shape with no recognizable
-// token prefix, so no other pattern catches it.
-const URL_USERINFO_PATTERN = /\b([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/@]+@/g;
-
-// Header-style credentials, including git's `x-access-token` form for GitHub App tokens.
-const HEADER_CREDENTIAL_PATTERN =
-  /((?:authorization|proxy-authorization|private-token|x-auth-token|x-access-token)\s*[:=]\s*)(?:bearer\s+|basic\s+|token\s+)?[^\s,;]+/gi;
-
-const KEY_VALUE_CREDENTIAL_PATTERN =
-  /((?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|token)\s*[:=]\s*)(["']?)[^\s"'&,;]+/gi;
-
-const KNOWN_TOKEN_PREFIX_PATTERN =
-  /\b(?:gh[pousr]_|github_pat_|glpat-|xox[abprs]-|sk-|AKIA)[A-Za-z0-9_-]{8,}/g;
-
-const CREDENTIAL_REDACTION = "***";
-
-/**
- * Remove credential material from a captured failure detail. Over-redaction is the accepted
- * direction (`token: not found` becomes `token: ***`); under-redaction would put a live credential
- * on the wire.
- */
-export function scrubCredentials(rawDetail: string): string {
-  return rawDetail
-    .replace(URL_USERINFO_PATTERN, `$1${CREDENTIAL_REDACTION}@`)
-    .replace(HEADER_CREDENTIAL_PATTERN, `$1${CREDENTIAL_REDACTION}`)
-    .replace(KEY_VALUE_CREDENTIAL_PATTERN, `$1$2${CREDENTIAL_REDACTION}`)
-    .replace(KNOWN_TOKEN_PREFIX_PATTERN, CREDENTIAL_REDACTION);
-}
-
-/**
- * Cut a detail to `WORKSPACE_LAST_ERROR_MAX_LEN` with a marker. The cap counts UTF-16 code units,
- * as Zod's `.max()` does; the cut backs off one unit rather than split a surrogate pair.
- */
-export function truncateWorkspaceLastError(detail: string): string {
-  if (detail.length <= WORKSPACE_LAST_ERROR_MAX_LEN) {
-    return detail;
-  }
-  let cutAt = WORKSPACE_LAST_ERROR_MAX_LEN - WORKSPACE_LAST_ERROR_TRUNCATION_MARKER.length;
-  const lastRetainedUnit = detail.charCodeAt(cutAt - 1);
-  if (lastRetainedUnit >= 0xd800 && lastRetainedUnit <= 0xdbff) {
-    cutAt -= 1;
-  }
-  return `${detail.slice(0, cutAt)}${WORKSPACE_LAST_ERROR_TRUNCATION_MARKER}`;
-}
-
-/**
- * Make a raw failure detail safe to persist and legal on the wire, or `null` when nothing
- * publishable survives. Truncating before scrubbing could cut a credential mid-pattern and leave a
- * live secret.
- */
-export function normalizeWorkspaceLastError(rawDetail: string): string | null {
-  // NULs first: one could split a token past its pattern, and the wire schema forbids them.
-  const nulFree = rawDetail.replace(/\0/g, "");
-  const scrubbed = scrubCredentials(nulFree);
-  // Tested before truncation: the marker's characters would let an over-cap blank detail pass.
-  if (!/\S/.test(scrubbed)) {
-    return null;
-  }
-  return truncateWorkspaceLastError(scrubbed);
-}
-
-/**
- * Measure a path's reachability. The seam is at probe granularity so a test can return a
- * `FilesystemPathProbe` this module did not build. Production sets `probedPath` from its argument
- * only; re-canonicalizing it would defeat the projector's path-match guard.
- */
-export type FilesystemPathProbeFn = (path: string) => Promise<FilesystemPathProbe>;
+import {
+  assertAbsoluteExecutionRoot,
+  assertSingleRowChanged,
+  createDefaultPathProbe,
+  type FilesystemPathProbeFn,
+  HOLDING_RUN_ID_METADATA_PATH,
+  LAST_ERROR_METADATA_PATH,
+  type MountRow,
+  readHoldingRunId,
+  readLastError,
+  type WorkspaceRow,
+  wrapRowFailure,
+} from "./workspace-row-guards.js";
+import {
+  StaleTransitionRaceError,
+  WorkspaceBusyError,
+  WorkspaceModeUnsupportedError,
+  WorkspaceNotFoundError,
+  WorkspaceServiceInvariantError,
+  WorkspaceStaleError,
+} from "./workspace-service-errors.js";
+import { normalizeWorkspaceLastError } from "./workspace-last-error.js";
 
 /**
  * The session-existence predicate a bind checks first (`SessionService.replay` satisfies it; `null`
@@ -333,37 +94,11 @@ export interface WorkspaceServiceDeps {
   readonly newWorkspaceId?: () => string;
 }
 
-/** The `repo_mounts` columns this service reads. */
-interface MountRow {
-  readonly id: string;
-  readonly canonical_root: string;
-  readonly vcs_type: string;
-}
-
-/** The `workspaces` columns this service reads. */
-interface WorkspaceRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly repo_mount_id: string;
-  readonly execution_mode: string;
-  readonly fs_root: string | null;
-  readonly state: string;
-  readonly metadata: string;
-}
-
 /** Inputs for {@link WorkspaceService.bind}. */
 export interface BindWorkspaceInput extends WorkspaceBindRequest {
   /** Envelope actor; defaults to the system actor. */
   readonly actor?: string | null;
 }
-
-// `lastError` crosses the wire on the list response; `holdingRunId` is daemon-internal and never
-// does.
-const LAST_ERROR_METADATA_KEY = "lastError";
-const LAST_ERROR_METADATA_PATH = `$.${LAST_ERROR_METADATA_KEY}`;
-const HOLDING_RUN_ID_METADATA_KEY = "holdingRunId";
-/** The JSON path in `workspaces.metadata` of the run holding a `busy` workspace. */
-export const HOLDING_RUN_ID_METADATA_PATH: string = `$.${HOLDING_RUN_ID_METADATA_KEY}`;
 
 /**
  * Owns every workspace lifecycle transition and statement against `workspaces`, except the detach
@@ -989,128 +724,4 @@ export class WorkspaceService {
       { kind: "illegal_state_transition", workspaceId: row.id },
     );
   }
-}
-
-/**
- * The production probe. Clock first so `checkedAt` is never newer than the observation it stamps
- * (a hung network mount can take seconds).
- */
-function createDefaultPathProbe(): FilesystemPathProbeFn {
-  return async (path: string): Promise<FilesystemPathProbe> => {
-    const checkedAt = new Date().toISOString();
-    let reachable = true;
-    try {
-      await readDirectory(path);
-    } catch {
-      reachable = false;
-    }
-    return { probedPath: path, reachable, checkedAt };
-  };
-}
-
-// One implementation of "can the daemon open this directory?", shared with the trust envelope.
-const readDirectory: DirectoryReadabilityProbe = DEFAULT_DIRECTORY_READABILITY_PROBE;
-
-/** The failure classes attributed to a row; `Extract`, so renaming a parent member breaks here. */
-type RowAttributedInvariantKind = Extract<
-  WorkspaceServiceInvariantKind,
-  "workspace_row_unprojectable" | "stale_transition_durability_failure"
->;
-
-/**
- * Fixed message per attributed class; a total `Record`, so a class added without one fails to
- * compile.
- */
-const ROW_FAILURE_MESSAGES: Record<RowAttributedInvariantKind, string> = {
-  workspace_row_unprojectable: "cannot be projected onto the workspace list response",
-  stale_transition_durability_failure: "derived a stale transition that could not be made durable",
-};
-
-/**
- * Attribute a per-row failure to its workspace, leaving an already-attributed one alone, so a
- * failed stale write is not relabeled `workspace_row_unprojectable` one layer out.
- */
-function wrapRowFailure(
-  error: unknown,
-  workspaceId: string,
-  kind: RowAttributedInvariantKind,
-): WorkspaceServiceInvariantError {
-  if (error instanceof WorkspaceServiceInvariantError) {
-    return error;
-  }
-  return new WorkspaceServiceInvariantError(
-    `workspace "${workspaceId}" ${ROW_FAILURE_MESSAGES[kind]}`,
-    { kind, workspaceId, cause: error },
-  );
-}
-
-/**
- * Refuse an execution root that needs the daemon's own context to become concrete: a relative
- * path, `~`, or a driveless Windows root such as `\repos\app`.
- */
-function assertAbsoluteExecutionRoot(candidate: string, workspaceId: string): void {
-  if (namesOneCompleteLocation(candidate)) {
-    return;
-  }
-  // Not echoed: the IPC sanitizer redacts only absolute-form paths.
-  throw new WorkspaceServiceInvariantError(
-    "execution root does not name one complete location; the daemon would have to " +
-      "supply the missing piece from its own context",
-    { kind: "non_absolute_execution_root", workspaceId },
-  );
-}
-
-// The complete forms: POSIX absolute, Windows drive-absolute (`C:\repos\app`, `C:/repos/app`) and
-// UNC; a lone leading backslash is the driveless root refused above. Not `node:path`'s
-// platform-dependent `isAbsolute`: a root stored on one machine must be recognized on another.
-const ABSOLUTE_PATH_PATTERN = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/;
-
-function namesOneCompleteLocation(candidate: string): boolean {
-  return ABSOLUTE_PATH_PATTERN.test(candidate);
-}
-
-/**
- * Assert a compare-and-swap moved exactly one row. Called inside a `transactionalPrelude`, where
- * the throw aborts the transaction and takes the event row with it. `movedSubject` names the row
- * that failed the predicate (for `bind`'s conditional insert, the repo mount).
- */
-function assertSingleRowChanged(
-  result: { readonly changes: number },
-  workspaceId: string,
-  attemptedAction: string,
-  movedSubject: string = "it",
-): void {
-  if (result.changes !== 1) {
-    throw new WorkspaceServiceInvariantError(
-      `cannot ${attemptedAction} workspace "${workspaceId}": ${movedSubject} left its ` +
-        "expected state before the write committed",
-      { kind: "illegal_state_transition", workspaceId },
-    );
-  }
-}
-
-/**
- * Read one string key from a row's `metadata` blob; a non-string value or an unparseable blob
- * reads as `null`.
- */
-function readMetadataString(row: WorkspaceRow, key: string): string | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(row.metadata);
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null) {
-    return null;
-  }
-  const value = (parsed as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : null;
-}
-
-function readLastError(row: WorkspaceRow): string | null {
-  return readMetadataString(row, LAST_ERROR_METADATA_KEY);
-}
-
-function readHoldingRunId(row: WorkspaceRow): string | null {
-  return readMetadataString(row, HOLDING_RUN_ID_METADATA_KEY);
 }
