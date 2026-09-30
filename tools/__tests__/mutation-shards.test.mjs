@@ -1,6 +1,5 @@
-// The two ways the mutation shards can lose work without failing: a source file
-// that lands in no shard is never mutated, and a merge that drops another
-// shard's results makes every later run re-test those mutants from scratch.
+// The two silent ways the shards lose work: a source file in no shard is never mutated, and a merge
+// that drops another shard's results makes later runs re-test those mutants.
 
 import test from "node:test";
 import assert from "node:assert/strict";

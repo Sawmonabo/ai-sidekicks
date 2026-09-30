@@ -1,30 +1,11 @@
-// Entry-guard invariant for every CLI script in the repo that discriminates
-// "imported as a module" from "invoked as a command".
+// Every repo CLI that tells "imported" from "invoked as a command" must still run when reached
+// through a symlinked directory whose name contains a space. Comparing `import.meta.url` to
+// `file://` plus `process.argv[1]` matches an encoded URL against a raw path, so a space (or `#`,
+// `?`, non-ASCII) or a symlink such as macOS `/tmp` keeps the guard from firing: the CLI does
+// nothing and exits 0. Each script is spawned here with arguments that make a running script exit
+// non-zero with a diagnostic, so a no-op shows up as exit 0 and silence.
 //
-// THE BUG THIS PINS
-// -----------------
-// The naive idiom `import.meta.url === \`file://${process.argv[1]}\`` compares a
-// percent-ENCODED URL against a raw filesystem path. Any path containing a space
-// (or `#`, `?`, non-ASCII) makes the two unequal, so the guard never fires: the
-// CLI does nothing, prints nothing, and exits 0. A second axis breaks the
-// encoding-correct-but-unnormalised spelling `process.argv[1] === fileURLToPath(...)`:
-// an invocation through a symlink (macOS `/tmp` → `/private/tmp`, or a checkout
-// under a symlink) also compares unequal.
-//
-// Both axes produce a SILENT no-op with a success exit code, which for a gate
-// script means "reported success having done nothing".
-//
-// Each script is invoked here through a symlinked directory whose name contains
-// a space, so one fixture exercises both axes at once, and asserted to actually
-// run. Copying the scripts to a temp directory would break their relative
-// imports, so the symlink points at the real repo root.
-//
-// KEEPING THE LIST HONEST
-// -----------------------
-// The list is maintained by hand, so a CLI nobody adds is simply never spawned
-// and this suite reports clean over a script it did not run. Add every new CLI
-// that discriminates invoked-from-imported here, with the arguments that make a
-// RUNNING script exit non-zero and say something.
+// The list is maintained by hand: add every new CLI that has such a guard.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -36,17 +17,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-// A marked table whose column does not sum to its declared Total. Chosen
-// because the violation is entirely WITHIN the file: the gate reaches a
-// non-zero verdict without resolving any repo-relative path, so it behaves
-// identically whether the script is reached through the real root or through
-// the spaced symlink. A fixture that cited a real doc would make the assertion
-// depend on how each script resolves the repo, which is not what is under test.
-// A window factory whose locked `webPreferences` block has drifted on two keys
-// and omits three more. Like the fixture above, the violation is entirely
-// WITHIN the file, so the verdict does not depend on how the script resolves
-// the repo — which is the point, since this script resolves its DEFAULT target
-// through `import.meta.url` and the spaced symlink is exactly what breaks that.
+// A window factory whose locked `webPreferences` block has drifted. The violation is inside the
+// file, so the verdict does not depend on how the script resolves the repo.
 const DRIFTED_WINDOW_FIXTURE = [
   "new BrowserWindow({",
   "  webPreferences: {",
@@ -58,15 +30,8 @@ const DRIFTED_WINDOW_FIXTURE = [
   "",
 ].join("\n");
 
-// Each entry is invoked with arguments guaranteed to make a RUNNING script exit
-// non-zero with a diagnostic. That turns "did the guard fire?" into an
-// observable: guard fires => non-zero + diagnostic; guard no-ops => 0 + silence.
-//
-// `args` is a function of the fixture directory so entries that need a scratch
-// input can build an absolute path to it. `nodeOptions` carries the flags a
-// script needs to load at all — the TypeScript CLIs are run from source under
-// `--experimental-strip-types` exactly as CI and lefthook run them, since a
-// guard that only fires under a build step is not the guard those callers use.
+// `args` takes the fixture directory so an entry can point at a scratch input. `nodeOptions` are
+// the flags a script needs to load; the TypeScript CLIs run from source, as CI and lefthook do.
 const CLI_SCRIPTS = [
   { relativePath: "tools/run-node-tests.mjs", args: () => ["no/such/**/*.test.mjs"] },
   { relativePath: ".claude/skills/plan-execution/scripts/preflight.mjs", args: () => [] },
@@ -89,10 +54,8 @@ const CLI_SCRIPTS = [
   { relativePath: "tools/lefthook-worktree-lock.mjs", args: () => ["no-such-command"] },
 ];
 
-// Node prints an ExperimentalWarning to stderr for `--experimental-strip-types`
-// whether or not the script body ever runs, so an unfiltered stderr check would
-// pass for a no-op TypeScript CLI — the exact false clean this file exists to
-// catch. Strip the interpreter's own chatter before asserting the script spoke.
+// Node warns on stderr for `--experimental-strip-types` even when the script body never runs, so
+// its own chatter is removed before checking that the script spoke.
 function withoutInterpreterWarnings(streamText) {
   return (streamText ?? "")
     .split("\n")
@@ -101,13 +64,7 @@ function withoutInterpreterWarnings(streamText) {
     .trim();
 }
 
-/**
- * Symlink the repo under a directory name containing a space.
- *
- * The symlink is unlinked explicitly before the containing directory is removed:
- * a recursive delete over a link pointing at the working repo is not a risk worth
- * taking on the strength of "fs.rm does not follow symlinks".
- */
+/** Runs `runBody` with the repo symlinked under a directory name containing a space. */
 function withSpacedSymlinkedRepo(runBody) {
   const containingDirectory = mkdtempSync(join(tmpdir(), "entry-guard-"));
   const spacedRepoLink = join(containingDirectory, "repo root with spaces");
@@ -116,14 +73,14 @@ function withSpacedSymlinkedRepo(runBody) {
   try {
     return runBody(spacedRepoLink, containingDirectory);
   } finally {
+    // Unlink first so the recursive delete below never walks a link into the working repo.
     unlinkSync(spacedRepoLink);
     rmSync(containingDirectory, { recursive: true, force: true });
   }
 }
 
 test("the fixture path genuinely exercises the encoding axis", () => {
-  // Without this, a tmpdir that happened to contain no space would leave every
-  // test below passing while proving nothing about the bug.
+  // Without this, a fixture path with no space would let every test below pass proving nothing.
   withSpacedSymlinkedRepo((spacedRepoLink) => {
     const scriptPath = join(spacedRepoLink, "tools/run-node-tests.mjs");
     assert.notEqual(

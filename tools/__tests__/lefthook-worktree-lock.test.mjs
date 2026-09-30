@@ -1,12 +1,9 @@
-// Tests for tools/lefthook-worktree-lock.mjs and tools/lefthook-rc.sh — the
-// repository-wide mutex that stops two linked worktrees from sharing lefthook's
-// unstaged-changes backup.
+// Tests for `tools/lefthook-worktree-lock.mjs` and `tools/lefthook-rc.sh`, the mutex that stops
+// two linked worktrees sharing lefthook's unstaged-changes backup.
 //
-// The properties that matter only exist at a process boundary (one lock file,
-// several processes), so most of this suite spawns the real script rather than
-// importing it. The rc file is exercised by sourcing it from a stand-in for
-// lefthook's generated hook, because its whole contribution is the EXIT trap it
-// installs into that shell — an import could not observe it.
+// The suite spawns the real script, since one lock file shared by several processes exists only at
+// a process boundary. The rc file is sourced from a stand-in hook, because its contribution is the
+// EXIT trap it installs into that shell.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -74,7 +71,7 @@ test("a held lock refuses a second acquirer and names the holder", () => {
     assert.equal(blocked.status, 1);
     assert.match(blocked.stderr, /timed out waiting/);
     assert.match(blocked.stderr, /\/fixture\/worktree/);
-    // The refusal must say what it protects, or the next reader deletes the lock.
+    // The refusal must say what it protects, or a reader deletes the lock.
     assert.match(blocked.stderr, /refusing the commit/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -99,8 +96,7 @@ test("release by a non-owner leaves the lock in place", () => {
     const lockPath = join(directory, "lock");
     assert.equal(acquire(lockPath, process.pid).status, 0);
 
-    // A stray release must never free someone else's window — that would hand two
-    // worktrees the backup simultaneously, which is the whole failure being fixed.
+    // A stray release must not free another owner's lock; that would share the backup.
     assert.equal(release(lockPath, process.pid + 1).status, 0);
     assert.equal(JSON.parse(readFileSync(lockPath, "utf8")).ownerPid, process.pid);
   } finally {
@@ -133,8 +129,7 @@ test("a lock whose owner is alive is never broken, however old it looks", () => 
     const lockPath = join(directory, "lock");
     assert.equal(acquire(lockPath, process.pid).status, 0);
 
-    // `--stale-after-ms=1` makes the age test pass immediately; only the liveness
-    // test stands between this acquirer and a live holder's backup window.
+    // `--stale-after-ms=1` passes the age test at once, so only liveness protects the holder.
     const blocked = acquire(lockPath, process.pid, [
       "--timeout-ms=300",
       "--poll-ms=10",
@@ -171,8 +166,7 @@ test("concurrent acquirers never hold the lock at the same time", () => {
       ].join("\n"),
     );
 
-    // Started through one shell with `&`, because `spawnSync` blocks: run serially
-    // the four windows could never overlap and the assertion below would be vacuous.
+    // Started from one shell with `&`; run serially the windows could never overlap.
     const parallel = spawnSync(
       "sh",
       [
@@ -195,7 +189,7 @@ test("concurrent acquirers never hold the lock at the same time", () => {
       const [leaveVerb, leaveLabel] = entries[index + 1].split(" ");
       assert.equal(enterVerb, "enter");
       assert.equal(leaveVerb, "leave");
-      // An interleaved pair is exactly the overlap this lock exists to prevent.
+      // An interleaved pair is the overlap the lock prevents.
       assert.equal(leaveLabel, enterLabel);
     }
   } finally {
@@ -236,9 +230,8 @@ test("a malformed invocation exits 2 rather than proceeding unprotected", () => 
 });
 
 /**
- * Builds a throwaway git repository holding both scripts plus a stand-in for
- * lefthook's generated hook: the same `[ -f <rc> ] && . <rc>` line the template
- * emits, followed by a body that stands in for `call_lefthook`.
+ * Builds a throwaway git repository with both scripts and a stand-in for lefthook's generated
+ * hook: the `[ -f <rc> ] && . <rc>` line it emits, then a body standing in for `call_lefthook`.
  */
 function makeHookFixture(hookName, hookBody) {
   const root = makeTemporaryDirectory();
@@ -305,10 +298,8 @@ test("the rc file releases the lock and preserves the status when the hook fails
       encoding: "utf8",
       env: { ...process.env, LOCKPATH: lockPath, LOCK_WITNESS_TARGET: witnessPath },
     });
-    // A release that rewrote the hook's verdict would turn a rejected commit into
-    // an accepted one, so the status is as load-bearing as the unlink. The witness
-    // keeps this non-vacuous: without it the assertions also hold when no lock was
-    // ever taken.
+    // A release that rewrote the hook's status would accept a rejected commit. The witness keeps
+    // this from passing when no lock was ever taken.
     assert.equal(result.status, 7);
     assert.equal(JSON.parse(readFileSync(witnessPath, "utf8")).hookName, "pre-commit");
     assert.throws(() => readFileSync(lockPath, "utf8"), { code: "ENOENT" });
@@ -323,8 +314,8 @@ test("the rc file takes no lock for hooks that never touch the backup", () => {
     const lockPath = join(commonGitDirectoryOf(root), "lefthook-unstaged-backup.lock");
     const result = spawnSync("sh", [hookPath], { cwd: root, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    // lefthook only hides unstaged changes for `pre-commit`; serializing the rest
-    // would queue every commit behind an unrelated worktree for no benefit.
+    // lefthook backs up unstaged changes only for `pre-commit`; locking other hooks would queue
+    // commits for nothing.
     assert.throws(() => readFileSync(lockPath, "utf8"), { code: "ENOENT" });
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -350,8 +341,7 @@ test("the rc file skips the lock when an ancestor hook already holds it", () => 
       },
     });
     assert.equal(result.status, 0, result.stderr);
-    // A nested commit must not wait on the ancestor whose completion it is
-    // blocking: that deadlock resolves only by timing out minutes later.
+    // A nested commit must not wait on the ancestor it is blocking, or it times out minutes later.
     assert.equal(readFileSync(witnessPath, "utf8").trim(), "free");
   } finally {
     rmSync(root, { recursive: true, force: true });
