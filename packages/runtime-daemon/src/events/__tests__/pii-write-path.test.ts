@@ -1,15 +1,11 @@
-// The PII partition on the write path: what `writeEventWithPii` keeps out of
-// the canonical bytes, what it hands the encryptor, and what it refuses.
+// The PII partition on the write path: what `writeEventWithPii` keeps out of the canonical bytes,
+// what it hands the encryptor, and what it refuses.
 //
-// Two properties carry the file:
-//
-//   1. Nothing from the PII partition reaches the canonical bytes — neither the
-//      plaintext nor the ciphertext. Canonical bytes are reproducible from the
-//      stored row for as long as it exists, so plaintext that lands there is
-//      never shredded.
-//   2. Every refusal answerable from the input alone fires BEFORE the encrypt
-//      step, so a rejected append spends no AEAD nonce; the refusals that
-//      judge a value the encrypt produces fire after it, and say so.
+//   1. Nothing from the PII partition reaches the canonical bytes, neither plaintext nor
+//      ciphertext. Canonical bytes are reproducible from the stored row for as long as it exists,
+//      so plaintext there would never be shredded.
+//   2. Every refusal answerable from the input alone fires before the encrypt step, so a rejected
+//      append spends no AEAD nonce; refusals that judge the encrypt's output fire after it.
 //
 import { blake3 } from "@noble/hashes/blake3.js";
 import { EventEnvelopeVersionSchema, SessionIdSchema } from "@ai-sidekicks/contracts";
@@ -42,30 +38,20 @@ function bytesToHex(bytes: Uint8Array): string {
 // --------------------------------------------------------------------------
 
 /**
- * A 12-byte pseudo-nonce prefix, so the stub's output carries the `iv ||
- * ciphertext || tag` SHAPE fixes for the real codec even though it has none of
- * its properties.
+ * A 12-byte pseudo-nonce prefix, so the stub's output has the `iv || ciphertext || tag` shape of
+ * the real codec without its properties.
  */
 const TEST_NONCE_PREFIX: Uint8Array = utf8Encoder.encode("test-nonce--");
 
 /**
  * The test-only PII encryptor.
  *
- * NOT AN AEAD, AND THE DIVERGENCES ARE DELIBERATE. Determinism is bought on
- * purpose: it makes every ciphertext in this file reproducible from the
- * fixture, so an assertion can name the expected bytes instead of re-deriving
- * them from whatever the encryptor happened to return. Nothing under test
- * depends on the cipher being real — `writeEventWithPii` stores whatever bytes
- * it is handed and asserts nothing about their width, as an interface that does
- * not fix an AEAD requires.
+ * Not an AEAD. It is deterministic, so an assertion can name the expected bytes, and
+ * `writeEventWithPii` stores whatever bytes it is handed. Seeding by user id and event id mirrors
+ * the real codec's AAD binding: the ciphertext differs for every (user, event) pair.
  *
- * The `userId || eventId` seeding mirrors the real codec's AAD binding
- * in the one observable way a stub can: a ciphertext produced for one
- * (user, event) pair differs bytewise from every other pair's.
- *
- * Call accounting is public because it carries an ORDERING proof: the guards
- * `writeEventWithPii` runs BEFORE the irreversible encrypt step are exactly the
- * ones for which `encryptCallCount` must still be 0 after the throw.
+ * Call accounting is public because it proves ordering: after a guard that runs before the
+ * encrypt step throws, `encryptCallCount` must still be 0.
  */
 class DeterministicTestPiiEncryptor implements PiiEncryptor {
   #encryptCallCount = 0;
@@ -100,7 +86,7 @@ function sealWithTestKeystream(request: PiiEncryptionRequest): Uint8Array {
   return sealed;
 }
 
-/** A stub that returns whatever the test tells it to — bad-injection driver. */
+/** A stub that returns whatever the test tells it to, to inject a bad encryptor result. */
 class FixedResultPiiEncryptor implements PiiEncryptor {
   #encryptCallCount = 0;
   readonly #result: unknown;
@@ -115,26 +101,17 @@ class FixedResultPiiEncryptor implements PiiEncryptor {
 
   encrypt(_request: PiiEncryptionRequest): Promise<Uint8Array> {
     this.#encryptCallCount += 1;
-    // The whole point is to return a value the declared type forbids — that is
-    // the injection bug `writeEventWithPii`'s result guard exists for, and it is
-    // reachable in production because the implementation crosses an injection
-    // boundary this package neither owns nor imports.
+    // A value the declared type forbids: the bug `writeEventWithPii`'s result guard exists for,
+    // reachable because the encryptor is injected.
     return Promise.resolve(this.#result as Uint8Array);
   }
 }
 
 /**
- * A stub that hands back ONE buffer to every caller and rewrites it afterwards —
- * a reusable-scratch implementation the interface permits.
- *
- * `PiiEncryptor` fixes a return TYPE and says nothing about the lifetime of the
- * memory behind it, so an implementation that keeps a scratch array and
- * overwrites it on the next encrypt conforms to the interface completely. This
- * stub exists because the hazard is otherwise untestable: it is a statement about
- * what the CONTRACT allows, not about what any shipped code does.
- *
- * NO IN-REPO IMPLEMENTATION MUTATES A RETURNED BUFFER TODAY, and saying so is
- * part of the test's honesty.
+ * A stub that hands back one buffer to every caller and rewrites it afterwards. `PiiEncryptor`
+ * fixes a return type, not the lifetime of the memory behind it, so a reusable scratch array
+ * conforms. No in-repo implementation mutates a returned buffer; this tests what the contract
+ * allows.
  */
 class ScratchBufferPiiEncryptor implements PiiEncryptor {
   readonly #scratch: Uint8Array;
@@ -148,7 +125,7 @@ class ScratchBufferPiiEncryptor implements PiiEncryptor {
     return this.#scratch;
   }
 
-  /** Stands in for the NEXT encryption writing through the same memory. */
+  /** Stands in for the next encryption writing through the same memory. */
   overwriteScratch(fillByte: number): void {
     this.#scratch.fill(fillByte);
   }
@@ -169,23 +146,17 @@ const FIXTURE_USER_ID = "user-3f9a";
 const FIXTURE_OCCURRED_AT = "2026-03-04T05:06:07.008Z";
 
 /**
- * A string that appears NOWHERE except inside the PII partition.
- *
- * It is the leak detector: the canonical-bytes assertions below check that
- * neither this value nor the member name carrying it survives into the
- * canonical bytes. A single-token regression in composing the stored envelope
- * — spreading `input` instead of `input.payload` — puts the whole partition
- * inside `payload`, which IS canonical, and this sentinel is what catches it.
+ * A string that appears nowhere except inside the PII partition: the leak detector. Composing the
+ * stored envelope by spreading `input` instead of `input.payload` would put the whole partition
+ * inside the canonical `payload`, and this sentinel catches it.
  */
 const PII_PLAINTEXT_SENTINEL = "sentinel-plaintext-do-not-store-b7f2c1";
 const PII_PLAINTEXT_SENTINEL_KEY = "nationalIdentityNumber";
 
 /**
- * ONE factory for every envelope this suite builds.
- *
- * `interactive_request` / `user.message` is a census pairing that carries a
- * user's own content, and the strict layer registers no payload variant for
- * it, so the fixture's payload members are admitted as a tolerant carrier.
+ * The one factory for every envelope this suite builds. `interactive_request` / `user.message`
+ * carries a user's own content and has no registered payload variant, so the payload members are
+ * admitted as a tolerant carrier.
  */
 function buildPiiCarryingEventInput(
   overrides: Partial<PiiCarryingEventInput> = {},
@@ -213,27 +184,18 @@ function buildPiiCarryingEventInput(
 }
 
 /**
- * `canonicalizer.ts`'s `CANONICAL_JSON_MAX_DEPTH`, RESTATED RATHER THAN
- * IMPORTED — and not only because the const is module-private there. Same
- * argument that module makes for not importing `EVENT_ENVELOPE_SEQUENCE_MAX`:
- * a shared const would make the two surfaces agree BY CONSTRUCTION, including
- * agreeing on a value that drifted. The paired cases below — a payload AT this
- * depth is admitted, one level past it is refused — are the drift guard a
- * shared const could not be.
+ * `CANONICAL_JSON_MAX_DEPTH` from `canonicalizer.ts`, restated rather than imported: a shared
+ * constant would agree by construction even after it drifted. The paired cases below (a payload at
+ * this depth is admitted, one level past it is refused) are the drift guard.
  */
 const CANONICAL_JSON_MAX_DEPTH = 64;
 
 /**
- * Builds a `payload` whose DEEPEST container sits at `canonicalDepth`, counted
- * exactly the way `canonicalizer.ts` counts: the projected envelope
- * `canonicalizeEvent` hands the serializer is depth 1, `payload` itself is
- * depth 2, and each further nesting level adds one. So a flat payload is
- * `canonicalDepth = 2`, and the payload tree contributes `canonicalDepth - 2`
- * levels below itself.
- *
- * Counting in the CEILING'S OWN UNIT rather than in payload-local levels is
- * deliberate: the off-by-two between the two framings is exactly the mistake
- * that would turn the boundary control below into a second refusal.
+ * Builds a `payload` whose deepest container sits at `canonicalDepth`, counted as
+ * `canonicalizer.ts` counts: the projected envelope is depth 1, `payload` is depth 2, and each
+ * nesting level adds one, so a flat payload is `canonicalDepth = 2`. Counting in the ceiling's
+ * unit rather than in payload-local levels avoids an off-by-two that would turn the boundary
+ * control into a refusal.
  */
 function buildPayloadNestedToCanonicalDepth(canonicalDepth: number): Record<string, unknown> {
   let node: Record<string, unknown> = {};
@@ -243,10 +205,7 @@ function buildPayloadNestedToCanonicalDepth(canonicalDepth: number): Record<stri
   return node;
 }
 
-/**
- * Narrows a codec result to its PII partition, and throws when the codec
- * returned none, since every arm in this file writes a PII-carrying row.
- */
+/** Narrows a codec result to its PII partition, throwing when it has none. */
 function piiPartitionOf(result: PiiEventWriteResult): {
   readonly ciphertext: Uint8Array;
   readonly userId: string;
@@ -277,28 +236,24 @@ describe("canonical bytes carry nothing from the PII partition", () => {
     );
     const canonicalText: string = utf8Decoder.decode(canonicalizeEvent(result.envelope));
 
-    // The canonical bytes are the ONE place PII must never appear: they are
-    // reproducible from the stored row for as long as it exists, and no
-    // shredding of the PII column reaches them.
+    // The canonical bytes are the one place PII must never appear: they are reproducible from the
+    // stored row, and shredding the PII column does not reach them.
     expect(canonicalText).not.toContain(PII_PLAINTEXT_SENTINEL);
     expect(canonicalText).not.toContain(PII_PLAINTEXT_SENTINEL_KEY);
     expect(canonicalText).not.toContain("Ada Lovelace");
     expect(canonicalText).not.toContain("ada@example.invalid");
-    // Nor the ciphertext, in the encoding it would most plausibly take.
-    // Ciphertext in the canonical bytes would hand an attacker a
+    // Nor the ciphertext in its likeliest encoding: it would give an attacker a
     // length-and-structure oracle over the sealed data.
     expect(canonicalText).not.toContain(bytesToHex(piiPartitionOf(result).ciphertext));
     expect(canonicalText).not.toContain("piiPayload");
     expect(canonicalText).not.toContain("pii_payload");
 
-    // `piiUserId` is `PiiCarryingEventInput`'s member name, and it can only
-    // reach the canonical bytes if the stored envelope spreads `input` instead
-    // of taking `input.payload` — the single-token regression that would carry
-    // `piiPayload` along with it.
+    // `piiUserId` reaches the canonical bytes only if the stored envelope spreads `input` instead
+    // of taking `input.payload`, which would carry `piiPayload` along too.
     expect(canonicalText).not.toContain("piiUserId");
 
-    // The non-PII payload partition IS canonical — without this the assertions
-    // above could pass on an empty payload.
+    // The non-PII payload is canonical; without this the assertions above could pass on an empty
+    // one.
     expect(canonicalText).toContain('"exportFormat":"json"');
   });
 
@@ -306,45 +261,34 @@ describe("canonical bytes carry nothing from the PII partition", () => {
     const input: PiiCarryingEventInput = buildPiiCarryingEventInput();
     await writeEventWithPii(input, encryptor);
 
-    // Exactly one encrypt per row, so the ciphertext heading for the column is
-    // the one sealed for this (user, event) pair.
+    // One encrypt per row, sealed for this (user, event) pair.
     expect(encryptor.encryptCallCount).toBe(1);
     expect(encryptor.lastRequest?.userId).toBe(FIXTURE_USER_ID);
     expect(encryptor.lastRequest?.eventId).toBe(FIXTURE_EVENT_ID);
-    // The plaintext handed to the AEAD is the RFC 8785 serialization of the
-    // partition, which is the convention `PiiEncryptionRequest.plaintext` fixes
-    // for the eventual decrypt counterpart.
+    // The plaintext handed to the AEAD is the RFC 8785 serialization of the partition, as
+    // `PiiEncryptionRequest.plaintext` fixes.
     expect(encryptor.lastRequest?.plaintext).toEqual(canonicalizeJson(input.piiPayload));
   });
 
   it("returns the PII owner's user id, on an event whose actor is not that owner", async () => {
-    // The owner fills the `pii_user_id` column and is the user half of the
-    // AEAD's associated data, which no decrypt can rebuild from the ciphertext.
-    //
-    // `actor` IS NOT A SUBSTITUTE, which is why this case is built on the
-    // divergence rather than on the default fixture where the two coincide.
-    // `PiiEncryptionRequest.userId` documents that `actor` may be an agent id
-    // or `null`; here it is `null`, so an implementation that took the owner
-    // from `actor` would record no owner at all.
+    // The owner fills the `pii_user_id` column and is the user half of the AEAD's associated data,
+    // which no decrypt can rebuild from the ciphertext. `actor` is no substitute (it may be an
+    // agent id or `null`), so this case diverges from the default fixture, where the two coincide.
     const input: PiiCarryingEventInput = buildPiiCarryingEventInput({ actor: null });
     const result: PiiEventWriteResult = await writeEventWithPii(input, encryptor);
 
     expect(result.piiUserId).toBe(FIXTURE_USER_ID);
-    // The divergence is real on this fixture and not incidental: without this,
-    // the assertion above would also pass on an implementation that returned
-    // `actor`, since the default fixture sets both members to the same id.
+    // Confirms the divergence: with equal ids the assertion above would also pass on an
+    // implementation that returned `actor`.
     expect(result.envelope.actor).toBeNull();
-    // And it is the value that was actually bound into the AEAD's associated
-    // data, not a second reading of the input taken after the encrypt.
+    // It is the value bound into the AEAD's associated data, not a second reading of the input.
     expect(result.piiUserId).toBe(encryptor.lastRequest?.userId);
   });
 
   it("copies the encryptor's ciphertext, so a reused scratch buffer cannot change the stored bytes", async () => {
-    // Fixes a return TYPE and no buffer lifetime, so an implementation may hand
-    // back scratch memory and overwrite it on its next call. If the returned
-    // array were the encryptor's own, a later write through it would leave the
-    // caller persisting different bytes into `pii_payload` than the ones sealed
-    // for this row.
+    // The interface fixes a return type, not a buffer lifetime, so an implementation may hand back
+    // scratch memory and overwrite it on its next call. If the returned array were the encryptor's
+    // own, a later write would change the bytes persisted into `pii_payload`.
     const encryptorWithScratch = new ScratchBufferPiiEncryptor(48);
     const result: PiiEventWriteResult = await writeEventWithPii(
       buildPiiCarryingEventInput(),
@@ -353,8 +297,7 @@ describe("canonical bytes carry nothing from the PII partition", () => {
 
     encryptorWithScratch.overwriteScratch(0x5a);
 
-    // Ownership is stated directly: the caller's bytes are not the encryptor's
-    // array, and the overwrite did not reach them.
+    // The caller's bytes are not the encryptor's array, and the overwrite did not reach them.
     expect(result.piiPayload).not.toBe(encryptorWithScratch.scratch);
     expect(result.piiPayload).not.toEqual(encryptorWithScratch.scratch);
     // A copy, not a re-encryption: the bytes are the ones the encryptor returned.
@@ -369,10 +312,9 @@ describe("canonical bytes carry nothing from the PII partition", () => {
 
 describe("refusals on the PII write path", () => {
   it("refuses a non-canonical occurredAt before the encrypt step", async () => {
-    // `normalizeOccurredAt` runs ahead of the encrypt call for the same reason.
-    // Sub-millisecond precision is the refusal that cannot be folded away: the
-    // canonical form cannot represent it, and truncating would store a
-    // timestamp other than the recorded one.
+    // `normalizeOccurredAt` runs ahead of the encrypt. Sub-millisecond precision cannot be folded
+    // away: the canonical form cannot represent it, and truncating would store a different
+    // timestamp.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     await expect(
@@ -385,11 +327,9 @@ describe("refusals on the PII write path", () => {
   });
 
   it("refuses an event_maintenance event before the encrypt step", async () => {
-    // `event_maintenance` rows are never purged, so a PII payload attached to
-    // one would be permanent. The compile-time half
-    // (`piiPayload?: never`) is only one half; the runtime half catches a value
-    // that arrived across a serialization boundary or an `as` cast, which is the
-    // only way this call can be made at all.
+    // `event_maintenance` rows are never purged, so a PII payload on one would be permanent.
+    // `piiPayload?: never` is only the compile-time half; the runtime check catches a value that
+    // arrived across a serialization boundary or an `as` cast.
     const encryptor = new DeterministicTestPiiEncryptor();
     const refusedCategoryInput = {
       ...buildPiiCarryingEventInput(),
@@ -403,10 +343,8 @@ describe("refusals on the PII write path", () => {
   });
 
   it("refuses an empty ciphertext rather than storing nothing", async () => {
-    // The one guard that CANNOT precede the encrypt step — it judges a value
-    // that does not exist until the encryptor has run. No AEAD emits a
-    // zero-length output, so this means the injected implementation returned
-    // nothing while claiming success.
+    // This guard cannot precede the encrypt step: it judges the encryptor's output. No AEAD emits a
+    // zero-length output, so the injected implementation returned nothing while claiming success.
     const encryptor = new FixedResultPiiEncryptor(new Uint8Array(0));
 
     await expect(writeEventWithPii(buildPiiCarryingEventInput(), encryptor)).rejects.toThrow(
@@ -416,27 +354,20 @@ describe("refusals on the PII write path", () => {
   });
 
   it("refuses a non-Uint8Array ciphertext rather than storing coerced bytes", async () => {
-    // A hex STRING is the realistic shape of this bug — it is what a codec
-    // round-tripping through a text column or a JSON boundary hands back — and
-    // it is silent without the guard: the byte-array constructor would coerce
-    // it, and the column would hold bytes the encryptor never produced.
+    // A hex string is what a codec round-tripping through a text column or JSON boundary hands
+    // back; without the guard the byte-array constructor would coerce it and the column would hold
+    // bytes the encryptor never produced.
     const encryptor = new FixedResultPiiEncryptor("6465616462656566");
 
     await expect(writeEventWithPii(buildPiiCarryingEventInput(), encryptor)).rejects.toThrow(
       /received a non-Uint8Array value of type string/,
     );
-    // The OTHER direction of the ordering contract: this refusal legitimately
-    // costs a nonce, because there is no value to judge until the encryptor has
-    // run. Pinned as 1 rather than left unasserted so the encrypt-then-throw
-    // class is a documented member of the contract and not an omission.
+    // This refusal legitimately costs a nonce: there is no value to judge until the encryptor ran.
     expect(encryptor.encryptCallCount).toBe(1);
   });
 
   it("refuses a NaN sequence before the encrypt step", async () => {
-    // The same `Number.isSafeInteger` predicate `canonicalizeEvent` runs, hoisted
-    // ahead of the encrypt; it is total, so the early copy cannot disagree with
-    // the late one — `NaN` is refused here rather than one stage past the point
-    // where the nonce is gone.
+    // The `Number.isSafeInteger` predicate `canonicalizeEvent` runs, hoisted ahead of the encrypt.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     await expect(
@@ -446,11 +377,9 @@ describe("refusals on the PII write path", () => {
   });
 
   it("refuses a sequence past the safe-integer ceiling before the encrypt step", async () => {
-    // The collision case the guard actually exists for, as distinct from `NaN`:
-    // `9007199254740993` collapses onto `9007199254740992`, so two different
-    // events would canonicalize to identical bytes and share a replay key. The
-    // interpolated value in the message is already the COLLAPSED one, which is
-    // the failure made visible rather than a reporting defect.
+    // The collision the guard exists for: `9007199254740993` collapses onto `9007199254740992`, so
+    // two events would canonicalize to identical bytes and share a replay key. The value in the
+    // message is already the collapsed one.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     await expect(
@@ -463,10 +392,8 @@ describe("refusals on the PII write path", () => {
   });
 
   it("reports the SEQUENCE refusal for an input defective in both sequence and occurredAt", async () => {
-    // Refusal order is observable, and the hoisted sequence guard is placed
-    // ahead of `normalizeOccurredAt` on purpose: `canonicalizeEvent`'s own
-    // REFUSAL ORDER note fixes that precedence, so the PII write path and the
-    // plain one must not answer differently for one doubly-defective row.
+    // Refusal order is observable: the sequence guard runs ahead of `normalizeOccurredAt`, as in
+    // `canonicalizeEvent`, so the PII and plain paths answer alike for one doubly-defective row.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     await expect(
@@ -482,10 +409,8 @@ describe("refusals on the PII write path", () => {
   });
 
   it("still admits a valid input at the sequence ceiling (over-refusal control)", async () => {
-    // THE CONTROL FOR THE TWO CASES ABOVE. A guard that refused everything would
-    // satisfy them both, so the boundary is pinned from the accepting side too:
-    // `Number.MAX_SAFE_INTEGER` is representable, must pass, and must reach the
-    // encryptor exactly once.
+    // Control for the two cases above, which a guard refusing everything would satisfy:
+    // `Number.MAX_SAFE_INTEGER` must pass and reach the encryptor once.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     const result: PiiEventWriteResult = await writeEventWithPii(
@@ -498,14 +423,10 @@ describe("refusals on the PII write path", () => {
   });
 
   it("refuses an empty piiUserId BEFORE spending the nonce", async () => {
-    // REFUSAL 5, and the only guard on this path that fronts nothing: no later
-    // stage re-checks this value, and it never reaches the canonical bytes. So
-    // the failure it refuses is invisible to every other check here — the row
-    // would hold PII sealed against an AAD no decrypt can rebuild, under an
-    // owner column that names nobody.
-    //
-    // An EMPTY string is the case with no type-system defense at all: it
-    // satisfies `PiiCarryingEventInput` completely and names no key holder.
+    // No later stage re-checks this value and it never reaches the canonical bytes, so nothing else
+    // would catch it: the row would hold PII sealed against an AAD no decrypt can rebuild, under an
+    // owner column naming nobody. An empty string satisfies `PiiCarryingEventInput` yet names no
+    // key holder.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     await expect(
@@ -515,10 +436,8 @@ describe("refusals on the PII write path", () => {
   });
 
   it("refuses a non-string piiUserId before spending the nonce", async () => {
-    // The other half of the predicate, reachable only through a cast or an
-    // untyped boundary, since the input type declares the member a required
-    // `string`. The message reports a TYPE and never the
-    // value.
+    // Reachable only through a cast or an untyped boundary, since the input type declares a
+    // required `string`. The message reports a type, never the value.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     await expect(
@@ -531,12 +450,8 @@ describe("refusals on the PII write path", () => {
   });
 
   it("still admits an unusual but well-shaped piiUserId (over-refusal control)", async () => {
-    // THE CONTROL FOR THE TWO CASES ABOVE, and it discriminates more than a
-    // refuses-everything guard: a one-character id passes, because refusal 5 is
-    // a SHAPE check and nothing more. Whether `user_keys` actually holds
-    // a row for an id is answerable only across inside a module this one
-    // neither owns nor imports — a well-shaped id naming no key holder is the
-    // encryptor's verdict to give, not this guard's.
+    // Control for the two cases above: a one-character id passes, because this guard checks shape
+    // only. Whether `user_keys` holds a row for the id is the encryptor's verdict to give.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     const result: PiiEventWriteResult = await writeEventWithPii(
@@ -550,30 +465,19 @@ describe("refusals on the PII write path", () => {
   });
 
   it("refuses an over-deep payload only AFTER the encrypt, and is off by one from a standalone walk", async () => {
-    // THE NARROWED HALF OF THE ORDERING CONTRACT, pinned rather than left as
-    // prose, together with the discriminator that decided the narrowing.
-    //
-    // `input.payload`'s nesting IS answerable from the input, and it is refused
-    // late anyway. The canonicalizer exports no depth-only checker, so a pre-check would be
-    // either a second full canonicalization of the row or a duplicate of the
-    // walk carrying a depth-offset correction — and the offset is real: the
-    // first assertion below shows this payload canonicalizing CLEANLY on its
-    // own, because a standalone walk seeds at the payload while
-    // `canonicalizeEvent` seeds at the envelope, one level up. A pre-check
-    // spelled `canonicalizeJson(input.payload)` would therefore ADMIT this
-    // input pre-encrypt and let the real guard refuse it post-encrypt, making
-    // the ordering claim false for exactly this row.
-    //
-    // The `encryptCallCount` assertion is what keeps the docstring's account of
-    // the refusals behind the encrypt honest: hoist this refusal and the
-    // expectation fails, so the docstring gets revisited with the code.
+    // `input.payload`'s nesting is answerable from the input, yet it is refused after the encrypt:
+    // the canonicalizer exports no depth-only checker, so a pre-check would need a second full
+    // canonicalization or a duplicate walk with a depth-offset correction. The offset is real: the
+    // first assertion shows this payload canonicalizing cleanly on its own, because a standalone
+    // walk seeds at the payload while `canonicalizeEvent` seeds at the envelope, one level up. A
+    // pre-check spelled `canonicalizeJson(input.payload)` would admit this input before the
+    // encrypt. The `encryptCallCount` assertion fails if this refusal is hoisted.
     const boundaryPayload: Record<string, unknown> = buildPayloadNestedToCanonicalDepth(
       CANONICAL_JSON_MAX_DEPTH + 1,
     );
     expect(() => canonicalizeJson(boundaryPayload)).not.toThrow();
-    // ...and the offset is EXACTLY one, not merely non-zero: one level deeper
-    // and the standalone walk refuses too. Without this the assertion above
-    // would also pass against a depth guard that never fired at all.
+    // The offset is exactly one: one level deeper and the standalone walk refuses too. Without this
+    // the assertion above would also pass against a depth guard that never fired.
     expect(() =>
       canonicalizeJson(buildPayloadNestedToCanonicalDepth(CANONICAL_JSON_MAX_DEPTH + 2)),
     ).toThrow(
@@ -590,10 +494,8 @@ describe("refusals on the PII write path", () => {
   });
 
   it("admits a payload AT the depth ceiling (over-refusal control)", async () => {
-    // The accepting side of the boundary above: one level shallower passes the
-    // write path, so that case is a boundary rather than "deep payloads are
-    // rejected". Move `CANONICAL_JSON_MAX_DEPTH` in `canonicalizer.ts` without
-    // touching the local restatement and exactly one of this pair fails.
+    // The accepting side of the boundary above. Moving `CANONICAL_JSON_MAX_DEPTH` in
+    // `canonicalizer.ts` without the local restatement fails exactly one of this pair.
     const result: PiiEventWriteResult = await writeEventWithPii(
       buildPiiCarryingEventInput({
         payload: buildPayloadNestedToCanonicalDepth(CANONICAL_JSON_MAX_DEPTH),
@@ -605,11 +507,9 @@ describe("refusals on the PII write path", () => {
   });
 
   it("refuses a NaN inside payload only AFTER the encrypt, from the library's own guard", async () => {
-    // The second member of the post-encrypt class, and a different layer from
-    // the depth ceiling: this throw is `canonicalize@3.0.0`'s, with its bare
-    // wording. `NaN` is a SCALAR, so the depth walk never queues it and no
-    // depth pre-check would catch it either — only serialization does, and it
-    // runs over the stored envelope, which is composed after the encrypt.
+    // A second post-encrypt refusal, from a different layer: this throw is `canonicalize@3.0.0`'s,
+    // with its bare wording. `NaN` is a scalar, so the depth walk never queues it; only
+    // serialization catches it, and that runs over the stored envelope, composed after the encrypt.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     await expect(
@@ -622,10 +522,8 @@ describe("refusals on the PII write path", () => {
   });
 
   it("refuses a NaN inside the PII partition BEFORE the encrypt (the mirror control)", async () => {
-    // The mirror of the case above, and what makes it a statement about WHERE
-    // the value sits rather than about `NaN`: the PII partition is serialized
-    // ahead of the encrypt, so the identical defect one member over is refused
-    // for free.
+    // The mirror of the case above: the PII partition is serialized before the encrypt, so the same
+    // defect one member over is refused for free.
     const encryptor = new DeterministicTestPiiEncryptor();
 
     await expect(
@@ -638,18 +536,15 @@ describe("refusals on the PII write path", () => {
   });
 
   it("keeps the ciphertext brand a COMPILE error — a bare array is not ciphertext", () => {
-    // Self-verifying: an UNUSED `@ts-expect-error` is itself a TS2578 error, so
-    // if the brand ever gained an exported constructor — or an implicit-any
-    // escape hatch — the `tsc -p tsconfig.test.json` pass fails. No `as never` /
-    // `as any` is used on the branded assignment itself: that would silence the
-    // very error the case exists to surface.
+    // An unused `@ts-expect-error` is itself a TS2578 error, so `tsc -p tsconfig.test.json` fails
+    // if the brand ever gains an exported constructor. No `as never` / `as any` on the assignment,
+    // which would silence the error this case exists to surface.
     const bareCiphertext: Uint8Array = new Uint8Array([1, 2, 3]);
 
     // @ts-expect-error a bare Uint8Array is not PiiPayloadCiphertext — the encrypt stage mints that brand at exactly one site inside pii-indirection.ts
     const forgedCiphertext: PiiPayloadCiphertext = bareCiphertext;
 
-    // A runtime read keeps the binding used for lint and anchors the type proof
-    // to an executing assertion; the load-bearing check is the compile.
+    // A runtime read keeps the binding used for lint; the compile is the load-bearing check.
     expect(forgedCiphertext.length).toBe(3);
   });
 });

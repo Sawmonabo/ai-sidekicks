@@ -1,48 +1,28 @@
-// The whole-session purge: one deletion replaces every purgeable row of each
-// session it removes with an audit stub, so the sessions' content is gone and
-// their rows' skeleton survives, and appends one receipt naming every session
-// it removed.
+// The whole-session purge: replaces every purgeable row of each session a person deletes with an
+// audit stub, so the content is gone and the row skeleton survives, then appends one receipt
+// naming every session that lost rows.
 //
-// This is the only operation in this package that MUTATES an already-committed
-// row of the append-only log, and it runs only when a person deletes sessions.
-// Nothing in the background calls it: a kept session's transcript is never
-// thinned, and the background compactor never rewrites a committed column. The
-// caller chooses the sessions and owns the precondition that each is archived or
-// closed and locked against new work while the purge runs; this module does not
-// read session state.
+// It is the only operation in this package that mutates a committed row of the append-only log.
+// Nothing in the background calls it, and the compactor never rewrites a committed column. The
+// caller chooses the sessions and owns the precondition that each is archived or closed and locked
+// against new work while the purge runs; this module does not read session state.
 //
-// Two properties carry the design:
-//
-//   1. NEVER-PURGED CATEGORY. The row selector excludes `event_maintenance` in
-//      SQL, so a row of that family is never read as a candidate:
-//      `event_maintenance` rows record maintenance, this purge's own receipt
-//      included.
-//   2. STORE-CANONICAL-BYTES. The stub projection is canonicalized ONCE to `B`
-//      under `EVENT_CANONICAL_BYTES_MAX`, and `B` is what lands in `payload`, so
-//      the stored stub is canonical JSON within the relay-frame bound.
-//
-// `payload` is a TEXT-affinity column and `B` is a `Uint8Array`. Binding `B` as
-// a Buffer would write a BLOB into that column. The binding is therefore
-// `new TextDecoder().decode(B)`: canonical JSON is valid UTF-8, so the decode is
-// lossless. The decoded string is derived from `B` and never from a second
-// `JSON.stringify`.
-//
-// Before anything is destroyed, the purge checks it is NOT INSIDE AN
-// APPEND-LOCK HOLD, once per deletion. The session append lock is reentrant per
-// owner, so a purge entered inside a hold would acquire nothing for the rows it
-// stubs and run outside the serialization the hold provides.
-//
-// A session that is refused does not stop the deletion: the others are
-// independent, and the person asked for all of them to go. The receipt names
-// each session that lost rows, with the range it stubbed; a session refused
-// before its first stub lost nothing and is not named, and one that stopped part
-// way is named with the range it did stub. Each refusal is on that session's
-// outcome.
-//
-// Locking. Each row is read, projected and rewritten under one hold of its
-// session's append lock; the receipt is appended after every session, outside
-// every hold: the append takes its own lock, and a hold spanning async work
-// would stall every producer on the session.
+//   - `event_maintenance` rows are never purged: the selector excludes them in SQL, and they
+//     record maintenance, this purge's own receipt included.
+//   - The stub projection is canonicalized once to `B` under `EVENT_CANONICAL_BYTES_MAX`, and `B`
+//     is what lands in `payload`, so the stored stub is canonical JSON within that bound. `payload`
+//     is a TEXT-affinity column, and binding a Buffer would write a BLOB, so `B` is bound as
+//     `new TextDecoder().decode(B)`. The decode is lossless because canonical JSON is valid UTF-8,
+//     and the string comes from `B`, never from a second `JSON.stringify`.
+//   - The purge refuses to start inside an append-lock hold. The lock is reentrant per owner, so a
+//     purge entered inside a hold would stub rows outside the serialization the hold provides.
+//   - A refused session does not stop the deletion; the others are independent. The receipt names
+//     each session that lost rows with the range it stubbed, including one that stopped part way;
+//     a session refused before its first stub lost nothing and is not named. Each refusal is on
+//     that session's outcome.
+//   - Each row is read, projected and rewritten under one hold of its session's append lock. The
+//     receipt is appended after every session, outside every hold, because the append takes its
+//     own lock and a hold spanning async work would stall every producer on the session.
 
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
@@ -82,11 +62,10 @@ export const AUDIT_STUB_RETENTION_CLASS = "audit_stub" as const;
 /** The category a purge never touches: maintenance records, its own receipt included. */
 const NEVER_PURGED_EVENT_CATEGORIES: readonly EventCategory[] = ["event_maintenance"];
 
-// The same categories as a SQL literal list, interpolated rather than bound:
-// positional binds would tie each statement's correctness to where the shared
-// WHERE fragment sits in it. `EventCategory` is a closed union of bare
-// identifiers, so there is nothing to escape. Derived from the array so the two
-// cannot drift.
+// The same categories as a SQL literal list, interpolated rather than bound, so no statement's
+// correctness depends on where the shared WHERE fragment sits among positional binds.
+// `EventCategory` is a closed union of bare identifiers, so nothing needs escaping. Derived from
+// the array so the two cannot drift.
 const NEVER_PURGED_CATEGORY_SQL_LIST: string = NEVER_PURGED_EVENT_CATEGORIES.map(
   (category) => `'${category}'`,
 ).join(", ");
@@ -96,21 +75,17 @@ const LIVE_PURGEABLE_WHERE = `retention_class IS NULL
            AND category NOT IN (${NEVER_PURGED_CATEGORY_SQL_LIST})`;
 
 /**
- * Payload members kept VERBATIM in the stub whenever the source payload carries
- * them.
- *
- *   * `runId` + `runVersion`: the terminal-run unique index's expressions on
- *     terminal `run_lifecycle` rows. `trg_run_terminal_key_update` aborts a stub
- *     that drops, retypes or alters either, and dropping them would let a second
- *     terminal for the same run land.
- *   * `executionPosture` + `credentialPolicyRef`: the posture audit record on
- *     `run.running` rows. A trusted-mode row carries no credential reference and
- *     the stub neither requires nor invents one.
- *   * `targetPosition`: the rewind target on `run.rolled_back` rows.
- *   * `sourceEpoch` + `sourcePosition`: the epoch stamp, so a stub of a
- *     stale-epoch row stays attributed to its source epoch.
- *   * `contentLength` + `contentTruncated`: the shape of the sealed body the
- *     same UPDATE destroys.
+ * Payload members kept verbatim in the stub whenever the source payload carries them:
+ *   - `runId` + `runVersion`: the terminal-run unique index's expressions on terminal
+ *     `run_lifecycle` rows. `trg_run_terminal_key_update` aborts a stub that drops, retypes or
+ *     alters either, and dropping them would let a second terminal for the same run land.
+ *   - `executionPosture` + `credentialPolicyRef`: the posture record on `run.running` rows. A
+ *     trusted-mode row carries no credential reference, and the stub neither requires nor invents
+ *     one.
+ *   - `targetPosition`: the rewind target on `run.rolled_back` rows.
+ *   - `sourceEpoch` + `sourcePosition`: the epoch stamp, so the stub of a stale-epoch row stays
+ *     attributed to its source epoch.
+ *   - `contentLength` + `contentTruncated`: the shape of the sealed body the same UPDATE destroys.
  */
 const PRESERVED_PAYLOAD_KEYS: readonly string[] = [
   "runId",
@@ -124,19 +99,16 @@ const PRESERVED_PAYLOAD_KEYS: readonly string[] = [
   CONTENT_TRUNCATED_PAYLOAD_KEY,
 ];
 
-// The receipt's envelope category, type and version. The version is minted
-// through its schema so a literal that stopped satisfying the grammar throws at
-// import rather than at the first receipt.
+// The receipt's envelope category, type and version. The version is parsed through its schema, so
+// a literal that stops satisfying the grammar throws at import rather than at the first receipt.
 const EVENT_MAINTENANCE_CATEGORY: EventCategory = "event_maintenance";
 const PURGE_RECEIPT_TYPE = "event.compacted" as const;
 const PURGE_RECEIPT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
 
 /**
- * The stub projection that replaces a purged row's `payload`.
- *
- * The index signature carries the preserved members, which are written under
- * keys known only at run time. `purgedAt` and `summary` exist only inside these
- * bytes and have no scalar column; every other named member mirrors its column.
+ * The stub projection that replaces a purged row's `payload`. The index signature carries the
+ * preserved members, written under keys known only at run time. `purgedAt` and `summary` exist
+ * only inside these bytes; every other named member mirrors its column.
  */
 type AuditStubProjection = {
   id: string;
@@ -161,9 +133,8 @@ export interface SessionPurgeOutcome {
   readonly fromSequence?: number | undefined;
   readonly toSequence?: number | undefined;
   /**
-   * Present iff this session was refused or its content key could not be
-   * retired. A refusal raised among its rows leaves the rows already stubbed as
-   * stubs, and the receipt names exactly those.
+   * Present iff this session was refused or its content key could not be retired. A refusal among
+   * its rows leaves the rows already stubbed as stubs, and the receipt names exactly those.
    */
   readonly refusedReason?: string | undefined;
 }
@@ -175,17 +146,14 @@ export interface SessionPurgeResult {
   /** One entry per session the deletion was asked to remove, in order. */
   readonly outcomes: readonly SessionPurgeOutcome[];
   /**
-   * Present iff the deletion as a whole was refused or failed: before any
-   * session was touched (the lock-hold check; `outcomes` is then empty), or
-   * when the receipt could not be appended after rows were stubbed.
+   * Present iff the deletion as a whole was refused or failed: before any session was touched
+   * (the lock-hold check; `outcomes` is then empty), or when the receipt could not be appended
+   * after rows were stubbed.
    */
   readonly refusedReason?: string | undefined;
 }
 
-/**
- * The durable append seam for the receipt. Structural, so a test can hand in a
- * recording double.
- */
+/** The durable append seam for the receipt; structural, so a test can pass a recording double. */
 export interface SessionPurgeEventLog {
   append(
     envelope: UnsequencedEventEnvelope,
@@ -202,9 +170,8 @@ export interface SessionPurgeDeps {
   /** Where the receipt is appended. */
   readonly eventLog: SessionPurgeEventLog;
   /**
-   * Retires the session's wrapped content key once the purge has cleared the
-   * last body it sealed. Required: a no-op default would leave dead wrapped
-   * keys accumulating with nothing at the wiring site to say so.
+   * Retires the session's wrapped content key once the purge has cleared the last body it sealed.
+   * Required: a no-op default would let dead wrapped keys accumulate silently.
    */
   readonly contentKeyDisposer: SessionContentKeyDisposer;
   /** One clock for the stub's `purgedAt` and the receipt's timestamps. */
@@ -215,9 +182,8 @@ export interface SessionPurgeDeps {
   readonly newEventId?: () => string;
 }
 
-// Raw read shapes. Every member is `unknown` because column declarations are
-// claims TypeScript never checked, and the read boundary is where they are
-// checked.
+// Raw read shapes. Every member is `unknown` because column types are claims TypeScript never
+// checked; the read boundary is where they are checked.
 interface CandidateRow {
   readonly id: unknown;
   readonly sequence: unknown;
@@ -228,8 +194,8 @@ interface CandidateRow {
   readonly payload: unknown;
 }
 
-// Thrown to abort one session or the whole deletion. Caught in `purge` and turned
-// into a `refusedReason`; never escapes it.
+// Thrown to abort one session or the whole deletion. Caught in `purge` and turned into a
+// `refusedReason`; never escapes it.
 class SessionPurgeRefusal extends Error {
   constructor(message: string) {
     super(message);
@@ -240,12 +206,10 @@ class SessionPurgeRefusal extends Error {
 /**
  * Purges the sessions one deletion removes.
  *
- * Rows commit one per hold, not in one transaction: each row's replace and
- * mark is a single UPDATE and so atomic, and a transaction across every row
- * would hold the session's lock for the whole purge. A purge that stops part
- * way leaves a mixed session, each row either whole or a stub, and a
- * repeated purge resumes it: the `retention_class IS NULL` filter skips the
- * rows already stubbed.
+ * Rows commit one per hold, not in one transaction: each row's replace-and-mark is a single atomic
+ * UPDATE, and a transaction across every row would hold the session's lock for the whole purge. A
+ * purge that stops part way leaves a mixed session, each row either whole or a stub, and a repeated
+ * purge resumes it because the `retention_class IS NULL` filter skips rows already stubbed.
  */
 export class SessionPurge {
   readonly #nodeId: NodeId;
@@ -255,8 +219,8 @@ export class SessionPurge {
   readonly #operationIdFactory: () => string;
   readonly #newEventId: () => string;
 
-  // Prepared in the constructor: every statement names `retention_class`, so a
-  // handle that never ran the migration adding it fails at construction.
+  // Prepared in the constructor: every statement names `retention_class`, so a handle without
+  // that column fails at construction.
   readonly #candidateSequencesStmt: Statement;
   readonly #candidateRowStmt: Statement;
   readonly #stubUpdateStmt: Statement;
@@ -269,8 +233,8 @@ export class SessionPurge {
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
 
-    // Sequences only: each row is re-read under its own hold, so the projection
-    // is built from state observed inside the hold.
+    // Sequences only: each row is re-read under its own hold, so the projection is built from
+    // state observed inside the hold.
     this.#candidateSequencesStmt = deps.db.prepare(
       `SELECT sequence AS sequence
          FROM session_events
@@ -293,13 +257,11 @@ export class SessionPurge {
           AND ${LIVE_PURGEABLE_WHERE}`,
     );
 
-    // The destruction. `payload` is rewritten, never nulled (the column is NOT
-    // NULL and a reader must still find the stub). The PII ciphertext, its owner
-    // stamp and the sealed body go, and so do the correlation links. Left out,
-    // and load-bearing that they are: `monotonic_ns` and `version`, and
-    // `category` / `type`, which the terminal-key trigger's de-scope leg
-    // watches and the stub mirrors. The `retention_class IS NULL` guard makes a
-    // repeated UPDATE a zero-row no-op rather than a double stub.
+    // The destruction. `payload` is rewritten, never nulled: the column is NOT NULL and a reader
+    // must still find the stub. The PII ciphertext, its owner stamp, the sealed body and the
+    // correlation links go. `monotonic_ns`, `version`, `category` and `type` stay, because the
+    // terminal-key trigger requires `category` and `type` unchanged and the stub mirrors them. The
+    // `retention_class IS NULL` guard makes a repeated UPDATE a zero-row no-op, not a double stub.
     this.#stubUpdateStmt = deps.db.prepare(
       `UPDATE session_events
           SET payload = ?,
@@ -316,12 +278,11 @@ export class SessionPurge {
   }
 
   /**
-   * Replace every live purgeable row of each session in `sessionIds` with an
-   * audit stub, append one receipt naming every session that lost rows,
-   * and retire each such session's content key.
+   * Replaces every live purgeable row of each session in `sessionIds` with an audit stub, appends
+   * one receipt naming every session that lost rows, and retires each such session's content key.
    *
-   * Never throws: every failure becomes a `refusedReason`, on the session it
-   * belongs to or on the deletion.
+   * Never throws: every failure becomes a `refusedReason`, on the session it belongs to or on the
+   * deletion.
    */
   async purge(sessionIds: readonly SessionId[]): Promise<SessionPurgeResult> {
     const operationId: string = this.#operationIdFactory();
@@ -343,9 +304,8 @@ export class SessionPurge {
       outcomes.push(await this.#purgeSession(sessionId, purgeInstant));
     }
 
-    // The receipt names every session that lost rows, INCLUDING one that was
-    // refused part way: that is exactly where rows were destroyed, and
-    // destruction must never go unrecorded.
+    // The receipt names every session that lost rows, including one refused part way: destruction
+    // must never go unrecorded.
     const removedSessions: EventCompactedRemovedSession[] = outcomes.flatMap((outcome) =>
       outcome.fromSequence !== undefined && outcome.toSequence !== undefined
         ? [
@@ -366,10 +326,9 @@ export class SessionPurge {
       }
     }
 
-    // The stub UPDATE is a `content_payload = NULL` writer, so the purge may
-    // have cleared the last body a session's wrapped key sealed. The store
-    // re-checks under its own exclusion and is a no-op while any body survives.
-    // A failure here is reported, and it is a delay rather than a leak: the
+    // The stub UPDATE clears `content_payload`, so the purge may have cleared the last body a
+    // session's wrapped key sealed. The store re-checks under its own exclusion and is a no-op
+    // while any body survives. A failure here is reported, and is a delay rather than a leak: the
     // compactor's tick sweeps every unreferenced key.
     const settledOutcomes: SessionPurgeOutcome[] = [];
     for (const outcome of outcomes) {
@@ -416,9 +375,8 @@ export class SessionPurge {
   }
 
   /**
-   * One hold on the session's append lock, spanning read, project, canonicalize
-   * and UPDATE. Returns false when the row was no longer live under the
-   * hold (a concurrent purge stubbed it).
+   * One hold on the session's append lock, spanning read, project, canonicalize and UPDATE.
+   * Returns false when the row was no longer live under the hold (a concurrent purge stubbed it).
    */
   async #stubRow(sessionId: SessionId, sequence: number, purgeInstant: Date): Promise<boolean> {
     return withSessionAppendLock(sessionId, async () => {
@@ -430,9 +388,8 @@ export class SessionPurge {
 
       const eventId: string = readString(row.id, "session_events.id");
       const storedPayload: string = readString(row.payload, "session_events.payload");
-      // Measured off the STORED text: this figure goes into the summary, and a
-      // re-serialization would disagree by whatever key order and whitespace the
-      // original write used.
+      // Measured off the stored text: a re-serialization would disagree by whatever key order and
+      // whitespace the original write used, and this figure goes into the summary.
       const storedPayloadByteLength: number = Buffer.byteLength(storedPayload, "utf8");
       const projection: AuditStubProjection = projectAuditStub(
         sessionId,
@@ -443,10 +400,8 @@ export class SessionPurge {
         purgeInstant,
       );
 
-      // STORE-CANONICAL-BYTES. The UPDATE stores the UTF-8 decoding of the
-      // bounded canonicalization's output. The decode is sound because
-      // `canonicalizeJson` refuses a lone surrogate; without that guard the
-      // decoder would substitute U+FFFD.
+      // The UPDATE stores the UTF-8 decoding of the bounded canonicalization. The decode is sound
+      // because `canonicalizeJson` refuses a lone surrogate; the decoder would substitute U+FFFD.
       const canonicalStubBytes: CanonicalBytes = canonicalizeBoundedStubProjection(
         projection,
         eventId,
@@ -459,9 +414,8 @@ export class SessionPurge {
         sessionId,
       );
       if (result.changes !== 1) {
-        // Under this hold the row was just read live, so a miss means it moved
-        // inside the critical section. Counting it as stubbed would report a row
-        // that still holds its full payload.
+        // The row was just read live under this hold, so a miss means it moved inside the critical
+        // section. Counting it as stubbed would report a row that still holds its full payload.
         throw new SessionPurgeRefusal(
           `audit-stub UPDATE for event ${eventId} (sequence ${String(sequence)}) changed ` +
             `${String(result.changes)} rows, expected 1.`,
@@ -472,14 +426,13 @@ export class SessionPurge {
   }
 
   /**
-   * One receipt per deletion, appended on the daemon-scope sentinel and naming
-   * every session the deletion removed rows from.
+   * Appends one receipt per deletion on the daemon-scope sentinel, naming every session the
+   * deletion removed rows from.
    *
-   * Each range bounds the rows actually stubbed: after a refusal part way the
-   * session's tail still holds full payloads. Never-purged
-   * rows can sit inside a range; a reader that needs per-row truth reads
-   * `retention_class`. Parsed at the emission seam, so a drifted shape fails
-   * here rather than reaching the append.
+   * Each range bounds the rows actually stubbed: after a refusal part way the session's tail still
+   * holds full payloads. Never-purged rows can sit inside a range; a reader that needs per-row
+   * truth reads `retention_class`. The payload is parsed here, so a drifted shape fails before it
+   * reaches the append.
    */
   async #appendReceipt(
     operationId: string,
@@ -522,17 +475,15 @@ function projectAuditStub(
   storedPayloadByteLength: number,
   purgeInstant: Date,
 ): AuditStubProjection {
-  // PARSED, not cast: the category is written into the stub, and a column value
-  // outside the enum would be frozen there by the one operation that destroys
-  // the evidence of how it got there.
+  // Parsed, not cast: a category outside the enum would be frozen into the stub by the one
+  // operation that destroys the evidence of how it got there.
   const category: EventCategory = EventCategorySchema.parse(
     readString(row.category, "session_events.category"),
   );
   const type: string = readString(row.type, "session_events.type");
 
   const projection: AuditStubProjection = {
-    // Each scalar member is taken from the stored row, so the stub mirrors its
-    // columns exactly.
+    // Each scalar member comes from the stored row, so the stub mirrors its columns.
     id: eventId,
     sessionId,
     sequence: readNumber(row.sequence, "session_events.sequence"),
@@ -555,10 +506,9 @@ function projectAuditStub(
 }
 
 /**
- * A one-line summary composed from the row's SHAPE (category, type, field
- * count, byte count) and never from payload values: the stub carries no PII,
- * and interpolating payload content would put it back into bytes kept for the
- * life of the log.
+ * A one-line summary composed from the row's shape (category, type, field count, byte count) and
+ * never from payload values: interpolating payload content would put PII back into bytes kept for
+ * the life of the log.
  */
 function buildStubSummary(
   category: EventCategory,
@@ -574,19 +524,17 @@ function buildStubSummary(
 }
 
 /**
- * Canonicalize a stub projection under `EVENT_CANONICAL_BYTES_MAX`, shortening
- * the locally minted `summary` toward the bound and refusing when the projection
- * stays oversized with `summary` gone.
+ * Canonicalizes a stub projection under `EVENT_CANONICAL_BYTES_MAX`, shortening the locally minted
+ * `summary` toward the bound and throwing a `SessionPurgeRefusal` when the projection stays
+ * oversized with `summary` gone.
  *
- * It can fire because this module reads rows straight off SQLite, including
- * rows written outside the append path's ceiling, and the preserved members are
- * copied verbatim. `summary` is the one member minted here, so it is the one a
- * bound may shorten; the rest are scalar mirrors or preserved evidence.
+ * The bound can bite because rows are read straight off SQLite, including rows written outside
+ * the append path's ceiling, and the preserved members are copied verbatim. `summary` is the only
+ * member minted here, so it is the only one a bound may shorten.
  *
- * Measured on canonical bytes and cut by code points: every code point
- * serializes to at least one byte, so each round removes at least the overage
- * and the loop converges, and cutting by code point never splits a surrogate
- * pair, which `canonicalizeJson` would refuse.
+ * Measured on canonical bytes and cut by code points: every code point serializes to at least one
+ * byte, so each round removes at least the overage and the loop converges, and a code-point cut
+ * never splits a surrogate pair, which `canonicalizeJson` would refuse.
  */
 function canonicalizeBoundedStubProjection(
   projection: AuditStubProjection,
@@ -622,8 +570,8 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// A later failure keeps the earlier cause, because the first explains why the
-// session's purge stopped where it did.
+// A later failure keeps the earlier cause, because the first explains why the session's purge
+// stopped where it did.
 function appendReason(existing: string | undefined, next: string): string {
   return existing === undefined ? next : `${existing}; ${next}`;
 }
@@ -659,9 +607,9 @@ function readNullableString(value: unknown, column: string): string | null {
 }
 
 /**
- * A finite number, accepting a `bigint` only when it round-trips as a safe
- * integer: past 2^53 the nearest double names a different row, and a byte count
- * would be written wrong into a stub kept for the life of the log.
+ * A finite number, accepting a `bigint` only when it is a safe integer: past 2^53 the nearest
+ * double names a different row and would write a wrong figure into a stub kept for the life of
+ * the log.
  */
 function readNumber(value: unknown, column: string): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;

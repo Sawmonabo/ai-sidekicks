@@ -1,10 +1,9 @@
-// Coverage for `Compactor`, the background maintenance pass.
+// Tests for `Compactor`, the background maintenance pass.
 //
-// The first block is the property the pass exists under: nothing in the
-// background removes or rewrites a transcript row. It runs the real content-key
-// store over a real table holding rows that are old, many and body-bearing,
-// every shape a retention trigger once chose to destroy. The remaining blocks
-// pin the pass's own guards and its report, against a recording key store.
+// The first block pins the property the pass exists under: nothing in the background removes
+// or rewrites a transcript row. It runs the real content-key store over a real table of old,
+// many, body-bearing rows. The other blocks pin the pass's guards and report against a
+// recording key store.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -97,13 +96,12 @@ describe("Compactor — nothing in the background removes a transcript row", () 
       database,
       masterKeySource: { read: async (): Promise<Uint8Array> => new Uint8Array(32).fill(11) },
     });
-    // The kept session's key seals the bodies below; the other session's key
-    // seals nothing, which is the one thing the pass may retire.
+    // The kept session's key seals the bodies below; the other key seals nothing, so the pass
+    // may retire it.
     await keyStore.resolveForWrite(KEPT_SESSION);
     await keyStore.resolveForWrite(ABANDONED_KEY_SESSION);
 
-    // Years old, far past any age a retention trigger measured, with message,
-    // reasoning and tool rows whose bodies and PII the screen draws.
+    // Years old, with message, reasoning and tool rows whose bodies and PII the screen draws.
     const transcriptTypes = [
       { category: "session_lifecycle", type: "session.created" },
       { category: "assistant_output", type: "assistant.message" },
@@ -136,9 +134,8 @@ describe("Compactor — nothing in the background removes a transcript row", () 
 });
 
 /**
- * Records the sweep. The store's own predicate and race safety are pinned
- * against a real table in `session-content-partition.test.ts`; what is under
- * test here is the pass around it.
+ * Records the sweep. The store's own predicate and race safety are tested against a real table
+ * in `session-content-partition.test.ts`; this file tests the pass around it.
  */
 class RecordingContentKeyDisposer implements SessionContentKeyDisposer {
   sweeps = 0;
@@ -189,9 +186,8 @@ describe("Compactor — the content-key sweep", () => {
   });
 
   it("distinguishes a sweep that found nothing from one that reclaimed nothing", async () => {
-    // A sweep whose candidates all threw ran, raised no failure of its own and
-    // reclaimed zero, exactly what an idle pass reports; only the skip count
-    // tells them apart.
+    // A sweep whose candidates all threw ran, raised no failure and reclaimed zero, which is
+    // what an idle pass reports too; only the skip count tells them apart.
     const idleResult = await new Compactor({
       contentKeyDisposer: new RecordingContentKeyDisposer(),
     }).tick();
@@ -227,8 +223,8 @@ describe("Compactor — the tick's guards", () => {
   });
 
   it("does nothing when entered inside an append-lock hold", async () => {
-    // The sweep takes each session's append lock, and the lock is reentrant per
-    // owner, so a sweep inside a hold would acquire nothing for that session.
+    // The sweep takes each session's append lock, and the lock is reentrant per owner, so a
+    // sweep inside a hold would acquire nothing for that session.
     const disposer = new RecordingContentKeyDisposer();
     const compactor = new Compactor({ contentKeyDisposer: disposer });
 
@@ -236,14 +232,14 @@ describe("Compactor — the tick's guards", () => {
     expect(insideHold).toEqual({ contentKeysReclaimed: 0, contentKeysSkipped: 0 });
     expect(disposer.sweeps).toBe(0);
 
-    // The paired positive arm, on the same instance.
+    // The same instance sweeps once outside the hold.
     await compactor.tick();
     expect(disposer.sweeps).toBe(1);
   });
 
   it("sweeps from a straggler that inherited the context but outlived the hold", async () => {
-    // A released hold must not keep refusing: a task spawned inside the critical
-    // section and run after release holds nothing.
+    // A released hold must not keep refusing: a task spawned inside the critical section and
+    // run after release holds nothing.
     const disposer = new RecordingContentKeyDisposer();
     const compactor = new Compactor({ contentKeyDisposer: disposer });
 

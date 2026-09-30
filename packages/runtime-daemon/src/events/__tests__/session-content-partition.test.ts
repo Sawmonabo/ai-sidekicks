@@ -1,55 +1,22 @@
-// Contract coverage for the machine-authored content partition — the sealing
-// codec's content half, the session content key store behind it, and the
-// end-to-end append that joins them.
+// Contract coverage for the machine-authored content partition: the sealing codec's content
+// half, the session content key store behind it, and the end-to-end append that joins them.
 //
-// ---------------------------------------------------------------------------
-// THE ENUMERATION THIS FILE OPENS WITH, AND WHY IT IS A TEST
-// ---------------------------------------------------------------------------
+// Three matrices drive the arms as data, and each carries a completeness assertion so a new
+// reason, routing case or refusal arm cannot ship uncovered:
+// - `CODEC_ROUTING_MATRIX`: user PII alone, machine content alone, and both on one row, crossed
+//   with the columns and payload members each must produce. A content-only row (an assistant or
+//   tool row: prose, usually no PII) still goes through the codec.
+// - `KEY_STORE_FAILURE_MATRIX`: every way resolving a session content key fails, mapped to the
+//   reason reported. A blob moved to another session's row and a blob replayed under a
+//   superseded key version must both refuse; otherwise a key is silently substituted and shows
+//   up only as an unreadable body.
+// - `CODEC_REFUSAL_MATRIX`: every arm of the codec's fixed refusal order. The first guard to
+//   fire is the only one a caller sees, so each row names its ordinal and guard block.
+//   Ordinals 1 to 6 fire before encryption and spend no nonce; ordinal 7 (the composed-variant
+//   parse) fires after the seal, so each row states the encrypt count it must observe.
 //
-// Three matrices govern everything below, and all three are declared as DATA
-// that the arms consume rather than as prose an arm might quietly stop
-// matching:
-//
-//   * `CODEC_ROUTING_MATRIX` — the three partition combinations the codec must
-//     route (user PII alone, machine content alone, both on one row)
-//     crossed with what each must produce in the two columns and in the stored
-//     payload. The content-only row is the case the shipped code had no path
-//     for at all: an assistant or tool row carries prose and usually no PII, so
-//     before this partition existed it took the plain append path and the codec
-//     never ran.
-//   * `KEY_STORE_FAILURE_MATRIX` — every way resolving a session content key can
-//     fail, each mapped to the reason the store must report. Two of its rows are
-//     the security-relevant ones: a wrapped blob MOVED to another session's row
-//     and a blob REPLAYED under a superseded key version must both refuse,
-//     because the alternative is a silent key substitution that surfaces only as
-//     an ordinary unreadable body.
-//   * `CODEC_REFUSAL_MATRIX` — every arm of the codec's fixed refusal order,
-//     each row naming the ordinal and the guard block that must answer. The
-//     order is observable (the first guard to fire is the only one a caller
-//     ever sees), so an arm that stopped firing or started firing ahead of a
-//     sibling changes which message matches and fails. Ordinals 1–6 are
-//     pre-encrypt and every one of them carries the no-nonce-spent claim;
-//     ordinal 7 — the composed-variant parse — is documented as firing BEHIND
-//     the seal, and each row states the encrypt count it must observe rather
-//     than inheriting a blanket zero that would be false evidence.
-//
-// A matrix declared and never executed is a comment. All three are executed row
-// by row, and all three carry a completeness assertion so adding a reason, a
-// routing case, or a refusal arm without covering it fails here rather than
-// shipping uncovered. The refusal matrix additionally pins the ordinal range
-// the codec's guard sequence carries, and every arm in it is executed against
-// the real codec, so a renumbered or removed guard lands red on the arm itself.
-//
-// ---------------------------------------------------------------------------
-// NEGATIVE CONTROLS
-// ---------------------------------------------------------------------------
-//
-// Every arm that asserts a refusal is paired with the admitted input one
-// perturbation away, so a guard that stopped refusing (or one that started
-// refusing everything) fails rather than passing on a coincidence. The
-// truncation arms hold the same discipline across the bound: one body under it,
-// one exactly on it, one over it.
-//
+// Each refusal arm is paired with the admitted input one perturbation away. The truncation arms
+// test one body under the bound, one exactly on it, and one over it.
 
 import { randomBytes } from "node:crypto";
 
@@ -109,9 +76,8 @@ const ROTATED_MASTER_KEY = new Uint8Array(SESSION_CONTENT_KEY_BYTES).fill(4);
 let database: DatabaseType;
 
 beforeEach(() => {
-  // The production migration runner, never hand-rolled DDL: the CHECK
-  // constraints and the `session_content_keys` primary key are part of what
-  // these arms assert against.
+  // The production migration runner, never hand-rolled DDL: the CHECK constraints and the
+  // `session_content_keys` primary key are part of what these arms assert against.
   database = openDatabase(":memory:");
   __resetSessionAppendLocksForTest();
 });
@@ -134,15 +100,9 @@ class ScriptedMasterKeySource implements DaemonMasterKeySource {
   failure: Error | undefined;
   readCallCount = 0;
   /**
-   * Runs INSIDE one read, after the key has been captured and before the promise
-   * resolves — the arranged interleaving seam for the mint/rotation race.
-   *
-   * The capture-then-hook order is the whole point rather than an
-   * implementation detail: it models a source that obtained the master key
-   * BEFORE a rotation and resolves with it AFTER, which is precisely the
-   * sequence that lets a first mint wrap under a destroyed master. A hook that
-   * ran before the capture would simply hand back the new key and reproduce
-   * nothing.
+   * Runs inside one read, after the key is captured and before the promise resolves. It models a
+   * source that obtained the master key before a rotation and resolves with it after, which lets a
+   * first mint wrap under a destroyed master.
    */
   beforeRead: (() => void) | undefined;
 
@@ -345,8 +305,8 @@ const KEY_STORE_FAILURE_MATRIX: readonly KeyStoreFailureCase[] = [
     reason: "wrapped_key_unopenable",
     arrange: async (store) => {
       await store.resolveForWrite(SESSION);
-      // The blob is untouched; only the version beside it moves, which is
-      // exactly the rollback a re-wrap's version bump forecloses.
+      // Only the version moves; the blob is untouched. This is the rollback a re-wrap's version
+      // bump forecloses.
       database
         .prepare(`UPDATE session_content_keys SET key_version = 2 WHERE session_id = ?`)
         .run(SESSION);
@@ -406,14 +366,7 @@ const KEY_STORE_FAILURE_MATRIX: readonly KeyStoreFailureCase[] = [
   },
 ];
 
-/**
- * One arm of the codec's fixed pre-encrypt refusal order.
- *
- * The order is OBSERVABLE — the first guard to fire is the only one a caller
- * ever sees — so it is data here rather than prose: an arm that stopped firing,
- * or one that started firing ahead of a sibling, changes which row's `message`
- * matches and fails.
- */
+/** One arm of the codec's fixed refusal order. */
 interface CodecRefusalCase {
   readonly name: string;
   /** The ordinal the module's own documented order gives this guard. */
@@ -423,16 +376,9 @@ interface CodecRefusalCase {
   readonly build: () => RawEventInput;
   readonly message: RegExp;
   /**
-   * How many times the injected encryptor must have run when this arm fires —
-   * ZERO for every arm the codec documents as answerable from the input alone,
-   * and the field exists because refusal 7 is not one of them.
-   *
-   * Stated per arm rather than assumed, because a bare `toBe(0)` is FALSE
-   * EVIDENCE of pre-encrypt ordering on any content-only row: the injected
-   * encryptor is never called for one whatever happens, so the zero says
-   * nothing about when the guard fired. The arms that pin the ordering are the
-   * ones carrying a user partition — where the encrypt step WOULD have
-   * run — and refusal 7's PII arm asserts `1` for exactly that reason.
+   * Encrypt calls the injected encryptor must have made when this arm fires: zero for arms
+   * answerable from the input alone, one for refusal 7 on a user row. A zero on a content-only row
+   * proves nothing about ordering, because the encryptor is never called for one.
    */
   readonly expectedEncryptCalls?: number;
 }
@@ -443,16 +389,10 @@ function contentRowWith(overrides: Record<string, unknown>): RawEventInput {
 }
 
 /**
- * The `type` / `category` / `payload` trio a body-bearing row of `eventType`
- * must carry to satisfy that type's own registered `SessionEventSchema` variant.
- *
- * The trio is what refusal 7 judges, so it cannot be reduced to a type string:
- * the tool variants REQUIRE `toolName` while the assistant ones declare no such
- * member, and the reviewer's denial carries its own approval fields, so
- * `.strict()` rejects any one payload on the others. A loop that supplied one
- * payload for every type would be asserting that the codec seals rows most of
- * which their own schema rejects — which is exactly the defect refusal 7 exists
- * to stop.
+ * The `type` / `category` / `payload` trio a body-bearing row of `eventType` needs to satisfy that
+ * type's own registered `SessionEventSchema` variant. The payloads differ by type: the tool
+ * variants require `toolName`, the assistant ones declare none, and the reviewer's denial carries
+ * approval fields, all under `.strict()`.
  */
 function bodyBearingRowFor(eventType: string): Record<string, unknown> {
   if (eventType === "approval.reviewer_denied") {
@@ -517,10 +457,8 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /piiUserId with no piiPayload/,
   },
   {
-    // The closed set is derived from the contracts union, so this arm is what
-    // stops a body being sealed onto a type whose `.strict()` payload schema
-    // declares none of the content members the codec adds — a row that would be
-    // stored and then rejected by its own schema on the way back out.
+    // The body-bearing set comes from the contracts union. A type whose strict payload schema
+    // declares none of the content members would store a row its own schema rejects on read.
     name: "a content partition on a type that declares no content members",
     ordinal: 1,
     arm: "content on an unregistered type",
@@ -583,11 +521,8 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /content\.contentKey/,
   },
   {
-    // `TextEncoder` substitutes U+FFFD for an unpaired surrogate rather than
-    // refusing, so without this arm the row would store a replacement character
-    // standing where the producer's text was — and the read side's
-    // `fatal: true` decoder would pass it, because the stored UTF-8 is perfectly
-    // valid. The corruption happens on the way in.
+    // `TextEncoder` swaps an unpaired surrogate for U+FFFD instead of refusing, and the read side's
+    // fatal decoder accepts the stored (valid) UTF-8, so only this write-side guard catches it.
     name: "a body carrying an unpaired surrogate",
     ordinal: 6,
     arm: "content body well-formedness",
@@ -598,10 +533,9 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /well-formed UTF-16/,
   },
   {
-    // Refusal 1's fourth arm reads `type` and nothing else, so a body on one of
-    // the body-bearing types under the WRONG category clears it and reaches the seal. The
-    // variant's `category` is a literal, so the row it would have stored is
-    // rejected by its own schema on the way back out.
+    // Refusal 1's fourth arm reads `type` only, so a body-bearing type under the wrong category
+    // reaches the seal. The variant's `category` is a literal, so its own schema would reject the
+    // row on read.
     name: "a body-bearing type under a category its variant does not declare",
     ordinal: 7,
     arm: "composed-variant parse",
@@ -616,8 +550,7 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /payload\.sessionId \(invalid_type\)/,
   },
   {
-    // The tool trio's own required member, which the assistant pair does not
-    // have: one payload shape for every body-bearing type would seal rows their
+    // The tool variants require `toolName`; the assistant ones do not.
     // own schema rejects.
     name: "a tool row with no tool name",
     ordinal: 7,
@@ -631,9 +564,7 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /payload\.toolName \(invalid_type\)/,
   },
   {
-    // The `unrecognized_keys` arm, and the one code whose rendering carries
-    // member NAMES — the only way the message can say WHICH member the strict
-    // layer does not know.
+    // The `unrecognized_keys` code is the one whose message names the offending member.
     name: "a payload carrying a member no variant declares",
     ordinal: 7,
     arm: "composed-variant parse",
@@ -644,11 +575,9 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /payload \(unrecognized_keys: improvisedMember\)/,
   },
   {
-    // THE PII ROUTE, and the arm that pins refusal 7's placement. This row
-    // carries a user partition on a registered type, so the encrypt step
-    // has already run when the parse refuses — `expectedEncryptCalls: 1` is the
-    // assertion, and a `0` here would mean the guard had been hoisted ahead of
-    // the seal and was judging a reconstruction rather than the stored form.
+    // Pins refusal 7's placement: a user partition on a registered type has already been encrypted
+    // when the parse refuses, so `expectedEncryptCalls` is 1. A 0 would mean the guard judged a
+    // reconstruction rather than the stored form.
     name: "a user row whose payload its registered variant rejects",
     ordinal: 7,
     arm: "composed-variant parse",
@@ -659,10 +588,8 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
 ];
 
 /**
- * One macrotask turn. Used by the append-race arm to give an UNGUARDED delete
- * every chance to commit before the arm asserts that it did not — a microtask
- * flush would not, since the lock's queue and the delete both settle on the
- * microtask queue.
+ * One macrotask turn. A microtask flush would not give an unguarded delete the chance to commit,
+ * since the lock's queue and the delete both settle on the microtask queue.
  */
 async function macrotask(): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -687,8 +614,7 @@ function buildKeyStore(): {
 
 describe("content partition routing and key-failure enumeration", () => {
   it("covers every partition combination the codec can be handed", () => {
-    // Three combinations, and the count is the claim: a fourth would mean a new
-    // partition, and a third arm with neither is refused rather than routed.
+    // Three combinations; a fourth would be a new partition, and an input with neither is refused.
     expect(CODEC_ROUTING_MATRIX.map((routingCase) => routingCase.name)).toEqual([
       "user partition alone",
       "machine content partition alone",
@@ -701,9 +627,7 @@ describe("content partition routing and key-failure enumeration", () => {
   });
 
   it("covers every reason a session content key can be unavailable", () => {
-    // The completeness half: the closed reason union has three members and every
-    // one of them is produced by at least one arranged failure below. A fourth
-    // reason added to the store without an arm here fails this assertion.
+    // Every declared reason must be produced by at least one arranged failure below.
     const declaredReasons: readonly SessionContentKeyUnavailableReason[] = [
       "master_key_unavailable",
       "wrapped_key_missing",
@@ -714,18 +638,15 @@ describe("content partition routing and key-failure enumeration", () => {
   });
 
   it("covers every arm of the refusal order the codec publishes", () => {
-    // The count is the claim, in both directions: every ordinal the codec's
-    // guard sequence carries has at least one arm below, and no arm claims an
-    // ordinal outside that range. Each arm is executed against the real codec
-    // further down, so a guard renumbered or removed lands red there.
+    // Every ordinal of the codec's guard sequence has an arm, and no arm claims one outside it.
+    // Each arm runs against the real codec below, so a renumbered or removed guard fails there.
     const coveredOrdinals = [...new Set(CODEC_REFUSAL_MATRIX.map((arm) => arm.ordinal))].sort(
       (left, right) => left - right,
     );
     expect(coveredOrdinals).toEqual([1, 2, 3, 4, 5, 6, 7]);
 
-    // Several ordinals answer through more than one guard block, and the split
-    // is load-bearing: each block carries its own message, so a merged guard
-    // would report the wrong thing for one of the shapes it swallowed.
+    // Several ordinals answer through more than one guard block, each with its own message, so a
+    // merged guard would report the wrong thing for one of the shapes.
     const armsByOrdinal = new Map<number, Set<string>>();
     for (const refusal of CODEC_REFUSAL_MATRIX) {
       const arms = armsByOrdinal.get(refusal.ordinal) ?? new Set<string>();
@@ -739,10 +660,8 @@ describe("content partition routing and key-failure enumeration", () => {
       [4, 1],
       [5, 1],
       [6, 3],
-      // Refusal 7 answers through ONE guard block over every shape the strict
-      // layer can reject — a category mismatch, a missing member, an
-      // unrecognized one — because the block delegates the judgment to the
-      // registered variant rather than enumerating defects of its own.
+      // One guard block covers every shape the strict layer rejects, because it delegates to the
+      // registered variant.
       [7, 1],
     ]);
   });
@@ -751,12 +670,8 @@ describe("content partition routing and key-failure enumeration", () => {
     it(`refuses ${refusal.name}`, async () => {
       const encryptor = new DeterministicPiiEncryptor();
       await expect(writeEventWithPii(refusal.build(), encryptor)).rejects.toThrow(refusal.message);
-      // Arms 1–6 are documented as answerable from the input alone, which is
-      // what makes the ordering claim worth stating: the refusal costs no AEAD
-      // nonce on either partition. Refusal 7 is documented as the one that
-      // fires BEHIND the encrypt, and its PII arm asserts the `1` that proves
-      // it — see `expectedEncryptCalls` for why a blanket zero would be false
-      // evidence on a content-only row.
+      // Refusals 1 to 6 are answerable from the input alone, so they cost no AEAD nonce. Refusal 7
+      // fires after the encrypt; see `expectedEncryptCalls`.
       expect(encryptor.encryptCallCount).toBe(refusal.expectedEncryptCalls ?? 0);
     });
   }
@@ -774,13 +689,11 @@ describe("content partition routing and key-failure enumeration", () => {
       for (const key of routingCase.expected.codecPayloadKeys) {
         expect(Object.hasOwn(payload, key)).toBe(true);
       }
-      // The negative half of the same claim: the content member never leaks
-      // onto a row that carries no body.
+      // The content length member never leaks onto a row that carries no body.
       if (!routingCase.expected.codecPayloadKeys.includes(CONTENT_LENGTH_PAYLOAD_KEY)) {
         expect(Object.hasOwn(payload, CONTENT_LENGTH_PAYLOAD_KEY)).toBe(false);
       }
-      // `contentTruncated` is absent on every row here — none of these bodies is
-      // over the bound, and absence is the completeness signal.
+      // No body here exceeds the bound, so `contentTruncated` is absent.
       expect(Object.hasOwn(payload, CONTENT_TRUNCATED_PAYLOAD_KEY)).toBe(false);
     });
   }
@@ -815,8 +728,7 @@ describe("machine content sealing", () => {
     const result = await seal(input, new DeterministicPiiEncryptor());
     const sealed = result.contentPayload!;
 
-    // The positive control first, so the two refusals below are one perturbation
-    // away from a working open rather than away from nothing.
+    // Positive control first, so each refusal below is one perturbation from a working open.
     expect(openContentPayload(sealed, CONTENT_KEY, SESSION, input.id)).toBe(
       "the assistant said this",
     );
@@ -830,10 +742,7 @@ describe("machine content sealing", () => {
     const input = makeContentOnlyInput();
     const result = await seal(input, new DeterministicPiiEncryptor());
 
-    // The ciphertext itself is nowhere in the canonical form. Serializing the
-    // payload and searching for a prefix of the sealed bytes is the direct
-    // question, and it is asked over the stored members rather than over the
-    // whole result object.
+    // The ciphertext must not appear in the canonical form.
     const canonical = canonicalizeEvent(result.envelope);
     const canonicalText = new TextDecoder().decode(canonical);
     expect(canonicalText).not.toContain(bytesToHex(result.contentPayload!.subarray(0, 8)));
@@ -846,10 +755,8 @@ describe("machine content sealing", () => {
       new DeterministicPiiEncryptor(),
     );
 
-    // A 50 KB body inflates the ciphertext by 50 KB and the canonical bytes by
-    // nothing beyond the `contentLength` integer's own digits — which is the
-    // whole reason a quarter-megabyte tool result cannot push a row past the
-    // canonical ceiling.
+    // A 50 KB body grows the ciphertext by 50 KB but the canonical bytes only by the digits of
+    // `contentLength`, so a large tool result cannot push a row past the canonical ceiling.
     expect(long.contentPayload!.length - short.contentPayload!.length).toBeGreaterThan(49_000);
     expect(long.canonicalByteLength - short.canonicalByteLength).toBeLessThan(10);
   });
@@ -906,15 +813,13 @@ describe("the plaintext bound", () => {
       result.envelope.id,
     );
     expect(new TextEncoder().encode(opened).length).toBe(CONTENT_PAYLOAD_PLAINTEXT_MAX);
-    // No sentinel, sigil, or ellipsis is appended — the marker is the payload
-    // member, and a body that announced its own truncation in its text would be
-    // a body the assistant never wrote.
+    // No sentinel or ellipsis is appended; the payload member is the marker.
     expect(opened).toBe("a".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX));
   });
 
   it("cuts at a codepoint boundary when the bound lands mid-sequence", async () => {
-    // One filler byte short of the bound, then a three-byte codepoint that
-    // straddles it. A byte-exact cut would emit a truncated UTF-8 sequence.
+    // One filler byte short of the bound, then a three-byte codepoint straddling it. A byte-exact
+    // cut would emit a truncated UTF-8 sequence.
     const filler = "a".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX - 1);
     const body = `${filler}${EM_DASH}${EM_DASH}`;
     const result = await seal(makeContentOnlyInput({ body }), new DeterministicPiiEncryptor());
@@ -924,8 +829,7 @@ describe("the plaintext bound", () => {
     expect(payload[CONTENT_LENGTH_PAYLOAD_KEY]).toBe(
       CONTENT_PAYLOAD_PLAINTEXT_MAX - 1 + EM_DASH_BYTES * 2,
     );
-    // The open uses a FATAL decoder, so a mid-codepoint cut would throw here
-    // rather than yield a replacement character.
+    // The open uses a fatal decoder, so a mid-codepoint cut would throw.
     const opened = openContentPayload(
       result.contentPayload!,
       CONTENT_KEY,
@@ -937,9 +841,8 @@ describe("the plaintext bound", () => {
   });
 
   it("cuts a body whose codepoint ends exactly on the bound without loss", async () => {
-    // The negative control for the arm above: the same shape with the multi-byte
-    // codepoint ENDING on the bound rather than straddling it, so nothing is
-    // walked back.
+    // Negative control for the arm above: the codepoint ends on the bound, so nothing is walked
+    // back.
     const filler = "a".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX - EM_DASH_BYTES);
     const body = `${filler}${EM_DASH}${EM_DASH}`;
     const result = await seal(makeContentOnlyInput({ body }), new DeterministicPiiEncryptor());
@@ -955,18 +858,13 @@ describe("the plaintext bound", () => {
   });
 
   it("never asks the encoder to materialize more than the bound", async () => {
-    // THE ALLOCATION CLAIM, ASSERTED AT THE SEAM RATHER THAN ON THE HEAP.
-    // `applyPlaintextBound` computes the pre-truncation byte length by walking
-    // code points, so the only string it ever hands `TextEncoder` is the bounded
-    // prefix. A body eight times the budget is therefore encoded ONCE, at the
-    // budget — an encode-then-cut implementation would materialize all of it
-    // before learning it must be thrown away, which is unbounded allocation on
-    // exactly the input the bound exists to contain.
+    // `applyPlaintextBound` measures the pre-truncation length by walking code points, so the
+    // encoder only ever sees the bounded prefix. An encode-then-cut version would materialize the
+    // whole body first, which is unbounded allocation on the input the bound exists to contain.
     const body = "a".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX * 8);
     const originalEncode = TextEncoder.prototype.encode;
     let widestEncodedBytes = 0;
-    // Installed immediately before the sealing call and removed immediately
-    // after, so no other arm's encoding pollutes the measurement.
+    // Installed only around the sealing call so other encodes do not pollute the measurement.
     TextEncoder.prototype.encode = function recordingEncode(
       this: TextEncoder,
       input?: string,
@@ -983,18 +881,16 @@ describe("the plaintext bound", () => {
     }
 
     expect(widestEncodedBytes).toBeLessThanOrEqual(CONTENT_PAYLOAD_PLAINTEXT_MAX);
-    // The negative control the assertion above needs: the bound still did its
-    // job over the whole body, so this is a claim about HOW the length was
-    // computed rather than about the walk having been skipped.
+    // The bound still applied to the whole body, so the assertion above is about how the length was
+    // computed.
     const payload = result.envelope.payload as Record<string, unknown>;
     expect(payload[CONTENT_LENGTH_PAYLOAD_KEY]).toBe(CONTENT_PAYLOAD_PLAINTEXT_MAX * 8);
     expect(payload[CONTENT_TRUNCATED_PAYLOAD_KEY]).toBe(true);
   });
 
   it("counts astral code points at four bytes without encoding the body", async () => {
-    // The walk's own arithmetic, over the width it is easiest to get wrong: a
-    // surrogate PAIR is one code point of four UTF-8 bytes, not two units of
-    // three. A per-unit sum would report six and truncate a body that fits.
+    // A surrogate pair is one code point of four UTF-8 bytes; a per-unit sum would report six and
+    // truncate a body that fits.
     const seedling = "\u{1F331}";
     const body = seedling.repeat(1_000);
     const result = await seal(makeContentOnlyInput({ body }), new DeterministicPiiEncryptor());
@@ -1008,9 +904,8 @@ describe("the plaintext bound", () => {
   });
 
   it("cuts an astral codepoint whole when the bound lands inside it", async () => {
-    // The four-byte sibling of the em-dash arm: three filler bytes short of the
-    // budget, then a code point that needs four. The whole code point is
-    // dropped, and a fatal decoder proves nothing half of it survived.
+    // Three filler bytes short of the bound, then a four-byte code point. It is dropped whole, and
+    // the fatal decoder proves no half survived.
     const seedling = "\u{1F331}";
     const filler = "a".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX - 3);
     const body = `${filler}${seedling}`;
@@ -1026,15 +921,11 @@ describe("the plaintext bound", () => {
 });
 
 describe("codec refusals over the content partition", () => {
-  // The refusal arms themselves are enumerated and driven by
-  // `CODEC_REFUSAL_MATRIX` above. What stays here is what a per-arm table cannot
-  // say: the admitted input one perturbation away from a refused one, and the
-  // ORDER two defects resolve in.
+  // The refusal arms are driven by `CODEC_REFUSAL_MATRIX`. These cover the admitted input one
+  // perturbation away from a refused one, and the order two defects resolve in.
 
   it("admits a payload one perturbation away from every reserved member", async () => {
-    // The negative control for refusal 2's content arm: the same payload shape
-    // without the reserved member is sealed, so the arm above is refusing the
-    // member rather than the shape.
+    // Negative control for refusal 2: without the reserved member the same payload seals.
     await expect(
       seal(
         makeContentOnlyInput({ payload: { sessionId: SESSION, runId: "run-1" } }),
@@ -1044,9 +935,8 @@ describe("codec refusals over the content partition", () => {
   });
 
   it("admits the producer-owned content type beside the codec-owned members", async () => {
-    // `contentType` is the producer's member and is deliberately NOT reserved:
-    // the producer knows the media type of what it emitted and the codec never
-    // could. This is the boundary of the refusal above.
+    // `contentType` is the producer's member and is deliberately not reserved, since only the
+    // producer knows the media type.
     const result = await seal(
       makeContentOnlyInput({
         payload: { sessionId: SESSION, runId: "run-1", contentType: "text/markdown" },
@@ -1059,18 +949,16 @@ describe("codec refusals over the content partition", () => {
   });
 
   it("keeps the user half rather than routing a half-present row as content", async () => {
-    // The negative control for refusal 1's third arm, and the reason that arm
-    // exists: supplying BOTH halves seals the user partition instead of
-    // silently dropping it, which is what the refused shape would have done.
+    // Negative control for refusal 1's third arm: supplying both halves seals the user partition
+    // rather than dropping it.
     const result = await seal(makePiiCarryingInput(), new DeterministicPiiEncryptor());
     expect(result.piiUserId).toBe(USER);
     expect(result.piiPayload).toBeInstanceOf(Uint8Array);
   });
 
   it("refuses the content partition last, so no earlier refusal's message moves", async () => {
-    // An input defective in BOTH an earlier way and the content way must report
-    // the earlier one. The sequence guard is refusal 3; the content shape guard
-    // is refusal 6.
+    // An input defective in an earlier way and the content way reports the earlier one (sequence is
+    // refusal 3, content shape is refusal 6).
     const doublyDefective = {
       ...makeContentOnlyInput(),
       sequence: 1.5,
@@ -1082,13 +970,10 @@ describe("codec refusals over the content partition", () => {
   });
 
   it("seals a body on every event type the contracts union registers as body-bearing", async () => {
-    // THE CLOSED SET IS READ, NOT RE-TYPED. `BODY_BEARING_EVENT_TYPES` is derived
-    // in the codec from the `SessionEvent` union, so this loop drives whatever
-    // that derivation yields; re-listing the types here would be the second
-    // source of truth the derivation exists to prevent.
+    // Drives whatever `BODY_BEARING_EVENT_TYPES` derives from the `SessionEvent` union; re-listing
+    // the types here would be a second source of truth.
     const bodyBearingTypes = Object.keys(BODY_BEARING_EVENT_TYPES);
-    // Non-vacuity: a derivation that collapsed to `never` would satisfy its own
-    // type annotation and drive nothing at all.
+    // Non-vacuity: a derivation collapsed to `never` would drive nothing.
     expect(bodyBearingTypes.length).toBeGreaterThan(0);
 
     for (const bodyBearingType of bodyBearingTypes) {
@@ -1101,10 +986,8 @@ describe("codec refusals over the content partition", () => {
   });
 
   it("refuses a content partition on an unregistered type before spending the user nonce", async () => {
-    // The refusal matrix drives this arm on a content-ONLY row, where the
-    // encryptor is never called whatever happens. Pairing it with a PII
-    // partition is what makes `encryptCallCount` a real assertion: the encrypt
-    // step WOULD run for this input if the guard did not fire first.
+    // The matrix drives this arm on a content-only row, where the encryptor is never called.
+    // Pairing it with a PII partition makes `encryptCallCount` a real assertion.
     const encryptor = new DeterministicPiiEncryptor();
     const misroutedRow = {
       ...makePiiCarryingInput({ withContent: true }),
@@ -1115,9 +998,8 @@ describe("codec refusals over the content partition", () => {
     await expect(seal(misroutedRow, encryptor)).rejects.toThrow(/content partition on event type/);
     expect(encryptor.encryptCallCount).toBe(0);
 
-    // The perturbation back: the identical row on a registered type seals both
-    // partitions and DOES spend the nonce, so the count above is a fact about
-    // the guard rather than about the fixture.
+    // On a registered type both partitions seal and the nonce is spent, so the count above is about
+    // the guard, not the fixture.
     const admitted = await seal(makePiiCarryingInput({ withContent: true }), encryptor);
     expect(admitted.contentPayload).toBeInstanceOf(Uint8Array);
     expect(encryptor.encryptCallCount).toBe(1);
@@ -1136,8 +1018,7 @@ describe("codec refusals over the content partition", () => {
 
   it("admits a well-formed surrogate pair and refuses every unpaired shape", async () => {
     // The positive control first, so the refusals below are one perturbation
-    // away from a working seal rather than away from nothing. A pair is ordinary
-    // text and must round-trip byte-for-byte.
+    // Positive control first: a pair is ordinary text and round-trips byte for byte.
     const paired = "an emoji \u{1F331} in ordinary prose";
     const result = await seal(
       makeContentOnlyInput({ body: paired }),
@@ -1147,9 +1028,8 @@ describe("codec refusals over the content partition", () => {
       openContentPayload(result.contentPayload!, CONTENT_KEY, SESSION, result.envelope.id),
     ).toBe(paired);
 
-    // Every way a surrogate can be unpaired: a lead alone, a trail alone, a lead
-    // followed by ordinary text, a trail reached before any lead, and a lead in
-    // the final position with nothing after it.
+    // Every unpaired shape: a lone lead, a lone trail, a lead before text, a trail before any lead,
+    // and a lead in the final position.
     const illFormedBodies: readonly string[] = [
       "\ud800",
       "\udc00",
@@ -1165,14 +1045,10 @@ describe("codec refusals over the content partition", () => {
   });
 
   it("stores a row whose type the strict layer registers no variant for", async () => {
-    // THE TOLERANT-CARRIER NEGATIVE CONTROL, and the boundary of refusal 7's
-    // dispatch. `packages/contracts/src/event.ts` requires a reader to persist
-    // an envelope whose `type` it cannot interpret rather than reject it, so a
-    // guard that parsed every row would make this codec the one place the
-    // carrier is not tolerated. This payload would satisfy no registered
-    // variant — it declares a member none of them knows — and the row seals
-    // anyway, because `user.message` is in the census but no payload variant
-    // claims to interpret it.
+    // Negative control for refusal 7's dispatch. The event contract requires a reader to persist an
+    // envelope whose `type` it cannot interpret, so a guard that parsed every row would refuse the
+    // carrier it must tolerate. `user.message` has no registered payload variant, so this payload
+    // seals even though it declares a member no variant knows.
     const result = await seal(
       {
         ...makePiiCarryingInput(),
@@ -1185,8 +1061,8 @@ describe("codec refusals over the content partition", () => {
 
     expect(result.piiPayload).toBeInstanceOf(Uint8Array);
     // The perturbation back: the identical payload on a type WITH a variant is
-    // refused, so the seal above is a fact about the dispatch rather than about
-    // the guard having quietly stopped firing.
+    // On a type with a variant the same payload is refused, so the seal above is about the
+    // dispatch.
     await expect(
       seal(
         makePiiCarryingInput({ payload: { improvisedMember: "a higher-MINOR producer's member" } }),
@@ -1196,9 +1072,8 @@ describe("codec refusals over the content partition", () => {
   });
 
   it("reports the composed-variant refusal after every input-answerable one, so no message moves", async () => {
-    // Refusal 7 is LAST, and an input defective in both an earlier way and the
-    // schema way must report the earlier one. The content key width is
-    // refusal 6.
+    // Refusal 7 is last: an input defective in an earlier way and the schema way reports the
+    // earlier one (the content key width is refusal 6).
     const doublyDefective = contentRowWith({
       payload: { runId: "run-1" },
       content: { body: "prose", contentKey: new Uint8Array(16) },
@@ -1210,8 +1085,7 @@ describe("codec refusals over the content partition", () => {
   });
 
   it("reports the well-formedness refusal after the key-width one, so no message moves", async () => {
-    // The well-formedness arm is LAST within refusal 6. An input defective in
-    // both ways must still report the key width.
+    // The well-formedness arm is last within refusal 6, so a bad key width is reported first.
     const doublyDefective = contentRowWith({
       content: { body: "a lone \ud800 half", contentKey: new Uint8Array(16) },
     });
@@ -1289,8 +1163,8 @@ describe("session content key custody", () => {
     const before = await store.resolveForWrite(SESSION);
     const otherBefore = await store.resolveForWrite(OTHER_SESSION);
 
-    // A body sealed under the inner key BEFORE the rotation, so the arm proves
-    // the rotation moved the envelope and not the material.
+    // A body sealed under the inner key before the rotation shows the rotation moved the envelope,
+    // not the material.
     const sealedBody = await seal(
       makeContentOnlyInput({ contentKey: before.key }),
       new DeterministicPiiEncryptor(),
@@ -1307,8 +1181,8 @@ describe("session content key custody", () => {
       openContentPayload(sealedBody.contentPayload!, after.key, SESSION, sealedBody.envelope.id),
     ).toBe("the assistant said this");
 
-    // The superseded master no longer opens the row, which is what forecloses a
-    // rollback to a destroyed key.
+    // The superseded master no longer opens the row, so a rollback to a destroyed key is
+    // foreclosed.
     masterKeySource.key = MASTER_KEY;
     await expect(store.read(SESSION)).rejects.toMatchObject({
       reason: "wrapped_key_unopenable",
@@ -1322,8 +1196,7 @@ describe("session content key custody", () => {
 
   it("runs inside a caller's exclusive transaction and rolls back with it", () => {
     const { store } = buildKeyStore();
-    // A synchronous seed, because the whole point of the synchronous signature
-    // is that it can be called where no `await` may appear.
+    // Synchronous seed: the signature under test must be callable where no `await` may appear.
     const seedTransaction = database.transaction((sessionId: string): void => {
       database
         .prepare(
@@ -1345,8 +1218,8 @@ describe("session content key custody", () => {
     });
     seedTransaction.exclusive(SESSION);
 
-    // The rotation runs inside the caller's own BEGIN EXCLUSIVE, exactly as
-    // rotate-on-shred will run it beside the user-key re-wrap.
+    // The rotation runs inside the caller's own BEGIN EXCLUSIVE, as rotate-on-shred runs it beside
+    // the user-key re-wrap.
     const rotateAndFail = database.transaction((): void => {
       store.rewrapAll(MASTER_KEY, ROTATED_MASTER_KEY);
       throw new Error("the caller's later step failed");
@@ -1355,8 +1228,8 @@ describe("session content key custody", () => {
       rotateAndFail.exclusive();
     }).toThrow("the caller's later step failed");
 
-    // Rolled back with the caller: the row is still at version 1 under the
-    // previous master, so the two tables cannot end up on different masters.
+    // Rolled back with the caller: the row stays at version 1 under the previous master, so the two
+    // tables cannot end up on different masters.
     expect(
       database
         .prepare(`SELECT key_version FROM session_content_keys WHERE session_id = ?`)
@@ -1392,26 +1265,20 @@ describe("session content key custody", () => {
   // The mint / rotate-on-shred race
   // --------------------------------------------------------------------------
   //
-  // The worst failure this store has, and the one no other arm can reach: a
-  // FIRST mint reads master `M`, loses the CPU at its own `await`, and wakes to
-  // find rotate-on-shred installed `M'` and destroyed `M`. Rotation's own
-  // `BEGIN EXCLUSIVE` cannot help — there is no row yet, because the row is
-  // still in the minter's hand. The blob lands wrapped under a key that no
-  // longer exists, the append succeeds, and every later read of that session's
-  // bodies is permanently undecryptable while every integrity check stays green.
-  //
-  // `ScriptedMasterKeySource.beforeRead` arranges exactly that interleaving.
+  // A first mint reads master `M`, yields at its own `await`, and wakes after rotate-on-shred has
+  // installed `M'` and destroyed `M`. Rotation's `BEGIN EXCLUSIVE` cannot help because no row
+  // exists yet. Without a guard the blob lands wrapped under a destroyed key, and every later
+  // read of that session's bodies fails while integrity checks stay green.
+  // `ScriptedMasterKeySource.beforeRead` arranges that interleaving.
 
   it("never persists a key wrapped under a master that rotation destroyed", async () => {
     const { store, masterKeySource } = buildKeyStore();
-    // A row rotation will genuinely re-wrap, so the arm exercises a real
-    // rotation rather than an epoch bump over an empty table.
+    // A row rotation will really re-wrap, so this is not an epoch bump over an empty table.
     const otherBefore = await store.resolveForWrite(OTHER_SESSION);
     expect(masterKeySource.readCallCount).toBe(1);
 
     masterKeySource.beforeRead = () => {
-      // One-shot: the retry must find a settled world, or the arm would be
-      // testing the retry ceiling instead of the fence.
+      // One-shot, so the retry sees a settled world instead of hitting the retry ceiling.
       masterKeySource.beforeRead = undefined;
       store.rewrapAll(MASTER_KEY, ROTATED_MASTER_KEY);
       masterKeySource.key = ROTATED_MASTER_KEY;
@@ -1422,10 +1289,7 @@ describe("session content key custody", () => {
     // Two reads for this mint: the one that lost the race, and the retry.
     expect(masterKeySource.readCallCount).toBe(3);
 
-    // THE ASSERTION THAT MATTERS. `resolveForWrite` returns a usable key either
-    // way — it opens the row with the master it just wrapped under, destroyed or
-    // not — so the failure is only visible on a LATER read, which is exactly how
-    // it would reach production.
+    // `resolveForWrite` returns a usable key either way, so the failure shows only on a later read.
     const reread = await store.read(SESSION);
     expect(reread.key).toEqual(minted.key);
     // The row rotation did move is still readable too, so one operation did not
@@ -1441,9 +1305,8 @@ describe("session content key custody", () => {
   });
 
   it("fences a concurrent mint even when the rotation itself fails", async () => {
-    // The fence is bumped at `rewrapAll`'s ENTRY, ahead of its own width guard.
-    // Over-signaling costs a racing mint one spurious retry; under-signaling
-    // costs a session its bodies, so the ordering is one-directional on purpose.
+    // The fence is bumped at `rewrapAll`'s entry, ahead of its width guard. Over-signaling costs a
+    // racing mint one spurious retry; under-signaling costs a session its bodies.
     const { store, masterKeySource } = buildKeyStore();
     masterKeySource.beforeRead = () => {
       masterKeySource.beforeRead = undefined;
@@ -1457,10 +1320,9 @@ describe("session content key custody", () => {
   });
 
   it("refuses rather than wrapping under a master that keeps being superseded", async () => {
-    // The retry is BOUNDED, and this is why: a source that rotated on every read
-    // would spin an append forever behind an unbounded loop. The refusal reuses
-    // `master_key_unavailable` rather than minting a fourth reason the read path
-    // could never produce.
+    // The retry is bounded so a source that rotates on every read cannot spin an append forever.
+    // The refusal reuses `master_key_unavailable` rather than adding a reason the read path cannot
+    // produce.
     const { store, masterKeySource } = buildKeyStore();
     masterKeySource.beforeRead = () => {
       store.rewrapAll(masterKeySource.key, ROTATED_MASTER_KEY);
@@ -1489,12 +1351,9 @@ describe("session content key custody", () => {
 });
 
 /**
- * The wrap format, re-derived in the test rather than imported.
- *
- * The store exports its AAD builder and its widths but not its `encrypt`, and
- * that is the right seam: an arm that imported the sealing function would assert
- * the store agrees with itself. This re-derivation is what makes the seeded row
- * above an INDEPENDENT witness to the format the store reads.
+ * The wrap format re-derived here rather than imported, so a seeded row is an independent witness
+ * to the format the store reads. Importing the store's own sealing would only show it agrees with
+ * itself.
  */
 function wrapForTest(
   masterKey: Uint8Array,
@@ -1574,7 +1433,6 @@ describe("appending a row that carries machine-authored prose", () => {
       "hello from the model",
     );
 
-    // The stored payload carries the length and no body.
     const payload = JSON.parse(row.payload) as Record<string, unknown>;
     expect(payload[CONTENT_LENGTH_PAYLOAD_KEY]).toBe(20);
     expect(JSON.stringify(payload)).not.toContain("hello from the model");
@@ -1628,27 +1486,19 @@ describe("appending a row that carries machine-authored prose", () => {
     await expect(
       service.append(makeAssistantEnvelope(), { content: { body: "would be lost" } }),
     ).rejects.toThrow(/contentKeySource/);
-    // Nothing landed: no row, and no half-written key.
     expect(database.prepare(`SELECT COUNT(*) AS total FROM session_events`).get()).toEqual({
       total: 0,
     });
   });
 
   // --------------------------------------------------------------------------
-  // The wrapped DEK's LIFECYCLE — `SessionContentKeyStore.deleteIfUnreferenced`
+  // The wrapped key's lifecycle: `SessionContentKeyStore.deleteIfUnreferenced`
   // --------------------------------------------------------------------------
   //
-  // Without a deletion path a wrapped DEK would outlive every body it sealed,
-  // and `rewrapAll` would re-wrap it on every rotate-on-shred forever. These
-  // arms pin the predicate (retained ciphertext), the death, the rotation's
-  // shrinking working set, and the append race the delete must lose.
-  //
-  // Bodies are cleared here with a direct `content_payload = NULL` UPDATE rather
-  // than by driving a real `SessionPurge`. That is the exact mutation the stub
-  // UPDATE performs and it is what the predicate reads; the purge's own
-  // obligation — that it CALLS this after clearing — is pinned separately in
-  // `session-purge.test.ts`, where the seam is recorded. Splitting them keeps
-  // each arm about one thing.
+  // Without a deletion path a wrapped key outlives every body it sealed, and `rewrapAll`
+  // re-wraps it on every rotate-on-shred. Bodies are cleared here with a direct
+  // `content_payload = NULL` UPDATE, the mutation the predicate reads. That the purge calls this
+  // after clearing is pinned in `session-purge.test.ts`.
   describe("retiring the wrapped session key", () => {
     function clearBody(eventId: string): void {
       database
@@ -1683,7 +1533,7 @@ describe("appending a row that carries machine-authored prose", () => {
       expect(await store.deleteIfUnreferenced(SESSION)).toBe(false);
       expect(keyRowCount(SESSION)).toBe(1);
 
-      // And the survivor still opens — the point of keeping it.
+      // The survivor still opens.
       const resolved = await store.read(SESSION);
       const row = readStoredRow(second.id);
       expect(openContentPayload(row.content_payload!, resolved.key, SESSION, second.id)).toBe(
@@ -1707,9 +1557,7 @@ describe("appending a row that carries machine-authored prose", () => {
     it("is a silent no-op for a session that never held a key", async () => {
       const { store } = buildAppendFixture();
 
-      // Idempotence is what lets every future clearing path call this
-      // unconditionally after a pass instead of reasoning about whether the last
-      // body just went.
+      // Idempotence lets every clearing path call this unconditionally after a pass.
       expect(await store.deleteIfUnreferenced(SESSION)).toBe(false);
       expect(await store.deleteIfUnreferenced(SESSION)).toBe(false);
       expect(keyRowCount(SESSION)).toBe(0);
@@ -1719,8 +1567,8 @@ describe("appending a row that carries machine-authored prose", () => {
       const { service, store } = buildAppendFixture();
       const withBody = makeAssistantEnvelope();
       await service.append(withBody, { content: { body: "a body" } });
-      // A plain append on the same session: no `content_payload`, so it is not a
-      // dependant of this key and must not hold it alive.
+      // A plain append on the same session has no `content_payload`, so it does not hold the key
+      // alive.
       await service.append({
         ...makeAssistantEnvelope(),
         category: "session_lifecycle",
@@ -1745,24 +1593,19 @@ describe("appending a row that carries machine-authored prose", () => {
       clearBody(doomed.id);
       expect(await store.deleteIfUnreferenced(SESSION)).toBe(true);
 
-      // ONE row re-wrapped, not two: the dead session is no longer visited, which
-      // is the cost this lifecycle exists to stop paying on every erasure.
+      // One row re-wrapped, not two: the dead session is no longer visited.
       expect(store.rewrapAll(ROTATED_MASTER_KEY, MASTER_KEY)).toBe(1);
       expect(keyRowCount(OTHER_SESSION)).toBe(1);
     });
 
     // ------------------------------------------------------------------------
-    // THE TABLE-WIDE RECONCILIATION — `sweepUnreferenced`
+    // The table-wide reconciliation: `sweepUnreferenced`
     // ------------------------------------------------------------------------
     //
-    // The per-session call above is the PROMPT path and it has exactly one
-    // attempt: a clearing pass that calls it after clearing loses the obligation
-    // if that call throws or the process exits, because the next pass finds
-    // nothing left to clear and so never calls again. These arms pin the
-    // re-derivable question — which keys exist with no live content row — which
-    // is what makes the prompt path's failure a DELAY rather than a leak, and
-    // which also collects the orphan class the prompt path structurally cannot
-    // see: a key minted by an append that aborted before sealing anything.
+    // `deleteIfUnreferenced` gets one attempt: if it throws or the process exits after a pass
+    // clears bodies, no later pass calls it again. The sweep re-derives the question (which keys
+    // have no live content row), so that failure delays the delete instead of leaking the key. It
+    // also collects keys minted by an append that aborted before sealing anything.
     it("retires every unreferenced key in the table and spares the referenced ones", async () => {
       const { service, store } = buildAppendFixture();
       const doomed = makeAssistantEnvelope();
@@ -1772,12 +1615,11 @@ describe("appending a row that carries machine-authored prose", () => {
 
       clearBody(doomed.id);
 
-      // ONE, not two: the sweep is table-wide but its predicate is per session,
-      // so a session that still seals a body is never a candidate.
+      // One, not two: a session that still seals a body is never a candidate.
       expect(await store.sweepUnreferenced()).toEqual({ reclaimed: 1, skipped: 0 });
       expect(keyRowCount(SESSION)).toBe(0);
       expect(keyRowCount(OTHER_SESSION)).toBe(1);
-      // And the survivor still opens — the sweep took no key that was in use.
+      // The survivor still opens.
       const resolved = await store.read(OTHER_SESSION);
       const row = readStoredRow(survivor.id);
       expect(
@@ -1786,16 +1628,13 @@ describe("appending a row that carries machine-authored prose", () => {
     });
 
     it("collects the arrear a failed prompt disposal left behind", async () => {
-      // THE FAILURE MODE THE SWEEP EXISTS FOR, reproduced end to end: the body
-      // is cleared and the prompt disposal never lands. Nothing in the database
-      // records that a disposal is owed, so no later clearing pass will ever
-      // call again — the sweep is the only thing that can still find this key.
+      // The body is cleared and the prompt disposal never lands. Nothing in the database records
+      // the debt, so the sweep is the only thing that can find this key.
       const { service, store } = buildAppendFixture();
       const only = makeAssistantEnvelope();
       await service.append(only, { content: { body: "the only body" } });
       clearBody(only.id);
-      // The prompt call is simply not made, which is what a throw or a crash at
-      // this exact point leaves behind.
+      // The prompt call is deliberately not made, as after a throw or crash at this point.
       expect(keyRowCount(SESSION)).toBe(1);
 
       expect(await store.sweepUnreferenced()).toEqual({ reclaimed: 1, skipped: 0 });
@@ -1803,9 +1642,8 @@ describe("appending a row that carries machine-authored prose", () => {
     });
 
     it("reports nothing to reclaim while every key still seals a body", async () => {
-      // The negative control: a sweep that returned a nonzero count here — or
-      // that deleted anything — would be destroying live keys, and the bodies
-      // they open would be unreadable with every integrity check still green.
+      // Negative control: a sweep that deleted anything here would destroy live keys and leave
+      // their bodies unreadable.
       const { service, store } = buildAppendFixture();
       const live = makeAssistantEnvelope();
       await service.append(live, { content: { body: "still referenced" } });
@@ -1820,12 +1658,8 @@ describe("appending a row that carries machine-authored prose", () => {
     });
 
     it("passes over a candidate whose disposal throws, counts it, and keeps sweeping", async () => {
-      // ONE BAD SESSION MUST NOT STOP THE PASS — that is the single-attempt
-      // failure this mechanism exists to remove, and rethrowing here would
-      // reintroduce it one layer down. But the pass-over is COUNTED rather than
-      // swallowed: a fault that stops one disposal usually stops all of them,
-      // and a bare reclaim count reports a wholly broken sweep and an idle one
-      // with the same zero.
+      // One bad session must not stop the pass, but the pass-over is counted, not swallowed: a bare
+      // reclaim count would report a wholly broken sweep and an idle one with the same zero.
       class RefusingDisposalStore extends SessionContentKeyStore {
         refuseFor: string | undefined;
 
@@ -1853,8 +1687,7 @@ describe("appending a row that carries machine-authored prose", () => {
       store.refuseFor = SESSION;
 
       expect(await store.sweepUnreferenced()).toEqual({ reclaimed: 1, skipped: 1 });
-      // The sweep reached the SECOND candidate, which it could only do by not
-      // rethrowing the first.
+      // Reaching the second candidate proves the sweep did not rethrow the first.
       expect(keyRowCount(SESSION)).toBe(1);
       expect(keyRowCount(OTHER_SESSION)).toBe(0);
     });
@@ -1866,22 +1699,15 @@ describe("appending a row that carries machine-authored prose", () => {
     });
 
     it("cannot delete the key out from under an in-flight append", async () => {
-      // THE RACE THE APPEND LOCK EXISTS FOR HERE. An append resolves the key and
-      // only LATER inserts the sealed row. Between those two moments the session
-      // legitimately has a key row and zero non-NULL `content_payload` rows —
-      // exactly the state the predicate deletes on. A sweep admitted into that
-      // window destroys the key the in-flight append is sealing under, and the
-      // body it goes on to write can never be opened again. Note what makes this
-      // unrecoverable rather than merely annoying: the append already SELECTed
-      // the wrapped blob, so it seals correctly and reports success; only the
-      // row that could unwrap it is gone.
+      // An append resolves the key and inserts the sealed row later. In between, the session has a
+      // key row and no non-NULL `content_payload`, which is the state the predicate deletes on. A
+      // sweep admitted then would destroy the key the append is sealing under, and the body could
+      // never be opened even though the append reports success.
       //
-      // THE WINDOW IS HELD OPEN DELIBERATELY. The master-key read is gated, and
-      // it sits inside `#openRow` — after the wrapped row has been selected and
-      // before the append's INSERT — so the arrangement is the hazard itself
-      // rather than a proxy for it. The sweep is STARTED FROM THE TEST'S OWN
-      // CONTEXT, outside the append's hold, so the lock's owner-scoped
-      // reentrancy cannot hand it the hold for free.
+      // The master-key read sits inside `#openRow`, after the wrapped row is selected and
+      // before the INSERT, and is gated to hold that window open. The sweep starts from the
+      // test's own context, outside the append's hold, so the lock's owner-scoped reentrancy
+      // cannot grant it the hold.
       class GatedMasterKeySource extends ScriptedMasterKeySource {
         gate: Promise<void> | undefined;
 
@@ -1928,8 +1754,8 @@ describe("appending a row that carries machine-authored prose", () => {
       void sweep.then(() => {
         sweptEarly = true;
       });
-      // Several macrotask turns while the append is provably parked inside its
-      // hold: ample for an unguarded delete to have committed.
+      // Several macrotask turns while the append is parked in its hold: ample for an unguarded
+      // delete to commit.
       await macrotask();
       await macrotask();
       await macrotask();
@@ -1939,8 +1765,7 @@ describe("appending a row that carries machine-authored prose", () => {
       openTheGate();
       await appendPromise;
 
-      // The sweep now sees the inserted row and declines — the key survives, and
-      // so does the body it seals.
+      // The sweep now sees the inserted row and declines, so the key and its body survive.
       expect(await sweep).toBe(false);
       expect(keyRowCount(SESSION)).toBe(1);
       const resolved = await store.read(SESSION);
@@ -1952,34 +1777,22 @@ describe("appending a row that carries machine-authored prose", () => {
   });
 
   // --------------------------------------------------------------------------
-  // THE OTHER END OF THE SAME LIFECYCLE — an append that MINTS and then ABORTS
+  // An append that mints a key and then aborts
   // --------------------------------------------------------------------------
   //
-  // The arms above retire a key when the last body it sealed is CLEARED. These
-  // retire one that never sealed a body at all. `resolveForWrite` mints on a
-  // miss and commits that mint in a transaction of its own — it has to, because
-  // unwrapping blocks on the master key's custody ladder and a better-sqlite3
-  // transaction cannot span an await — so the key row is durable well before
-  // the append knows whether it will produce a row. Every refusal downstream of
-  // that point leaves `session_content_keys` holding a key for a session that
-  // sealed nothing, and on a session whose FIRST content-bearing append is the
-  // one that failed, nothing will ever reference it and nothing will ever mint
-  // it again.
+  // `resolveForWrite` commits its mint in its own transaction (a better-sqlite3 transaction
+  // cannot span an await), so the key row is durable before the append knows whether it will
+  // produce a row. Any refusal after that leaves a key for a session that sealed nothing, and if
+  // it was the session's first content-bearing append, nothing will reference or re-mint it.
   //
-  // TWO LAYERS, PINNED SEPARATELY, because they abort at different places and
-  // one does not imply the other: the codec's own refusals fire before the
-  // INSERT is reached at all, while a throwing prelude or a constraint
+  // Two layers are pinned separately because they abort at different places: the codec's
+  // refusals fire before the INSERT is reached, while a throwing prelude or a constraint
   // violation rolls a reached INSERT back.
   describe("reconciling the key an aborted append minted", () => {
     /**
-     * A disposer that DELEGATES to the real store rather than faking it.
-     *
-     * The delegation is what makes the arms mean something: a stub returning
-     * `false` would let every assertion below pass against a service that never
-     * reclaimed anything. What is added is the call RECORD — needed for the
-     * arm that asserts the reconciliation is not attempted at all — and an
-     * injectable failure, needed for the arm that asserts a disposal fault
-     * never displaces the append's own error.
+     * A disposer that delegates to the real store rather than faking it, so the assertions cannot
+     * pass against a service that never reclaimed anything. It adds a call record and an injectable
+     * failure.
      */
     class RecordingContentKeyDisposer implements SessionContentKeyDisposer {
       readonly disposedSessionIds: string[] = [];
@@ -2028,16 +1841,9 @@ describe("appending a row that carries machine-authored prose", () => {
     }
 
     /**
-     * A content-bearing append that is refused AFTER the mint and BEFORE the
-     * INSERT, by the codec's own refusal 7.
-     *
-     * The unregistered payload member is the lever: `assistant.message`'s
-     * registered variant is `.strict()`, and refusal 7 parses the composed
-     * envelope between the seal and the INSERT. So the mint has committed,
-     * the AEAD seal has been spent, and no row has been written — which is
-     * precisely the state the reconciliation exists for. Chosen over the
-     * canonical-size ceiling because it needs no 32 KiB fixture to reach the
-     * same window.
+     * A content-bearing append refused after the mint and before the INSERT by the codec's refusal
+     * 7: the strict variant rejects the unregistered payload member, so the mint has committed and
+     * no row is written.
      */
     function appendRefusedAfterTheMint(service: EventLogService): Promise<unknown> {
       const envelope = makeAssistantEnvelope();
@@ -2057,11 +1863,8 @@ describe("appending a row that carries machine-authored prose", () => {
         /registered SessionEventSchema variant rejects/,
       );
 
-      // No row, and — the point of the fix — no key either. Before the
-      // reconciliation this session held a wrapped DEK forever: it has no body
-      // for a purge to clear, so no clearing path would ever
-      // reach it, and `rewrapAll` would walk it on every unrelated
-      // user's erasure for the life of the node.
+      // No row and no key. Otherwise the session would hold a wrapped key with no body for a purge
+      // to clear, and `rewrapAll` would walk it on every erasure.
       expect(keyRowCount(SESSION)).toBe(0);
       expect(database.prepare(`SELECT COUNT(*) AS total FROM session_events`).get()).toEqual({
         total: 0,
@@ -2069,13 +1872,9 @@ describe("appending a row that carries machine-authored prose", () => {
     });
 
     it("leaves the orphan behind when no disposer is wired", async () => {
-      // THE NON-VACUITY CONTROL for the arm above, and the honest statement of
-      // the degraded stance in one arm. It proves the mint really does commit
-      // ahead of the refusal — without it, "no key row afterwards" would pass
-      // just as well against a service that never minted one — and it records
-      // that an unwired disposer DELAYS the reclaim rather than losing it: the
-      // compactor's pass-level sweep re-derives this same obligation from
-      // durable state and takes the row on a later tick.
+      // Non-vacuity control: the mint commits ahead of the refusal, so "no key row" above is not
+      // vacuous. An unwired disposer delays the reclaim rather than losing it: the compactor's
+      // pass-level sweep takes the row on a later tick.
       const { service } = buildReconcilingFixture({ withoutDisposer: true });
 
       await expect(appendRefusedAfterTheMint(service)).rejects.toThrow(
@@ -2086,10 +1885,8 @@ describe("appending a row that carries machine-authored prose", () => {
     });
 
     it("keeps the key when an earlier append already sealed a body", async () => {
-      // The reconciliation must be a NO-OP the instant anything is sealed under
-      // the key — it asks the disposer's durable predicate rather than
-      // remembering that it minted, so a later refusal on a live session cannot
-      // destroy the bodies the session already holds.
+      // The reconciliation asks the disposer's durable predicate instead of remembering that it
+      // minted, so a later refusal on a live session cannot destroy bodies it already holds.
       const { service, store } = buildReconcilingFixture();
       const sealed = makeAssistantEnvelope();
       await service.append(sealed, { content: { body: "an earlier body" } });
@@ -2107,10 +1904,8 @@ describe("appending a row that carries machine-authored prose", () => {
     });
 
     it("retires the key when a throwing prelude rolls the row back", async () => {
-      // THE SECOND LAYER. The codec succeeded, the INSERT was reached, and the
-      // prelude aborted the transaction — so the sealed row this append minted
-      // a key for does not exist. Independent of the first layer rather than a
-      // repetition of it: no codec refusal fires on this path at all.
+      // Second layer: the codec succeeded and the INSERT was reached, then the prelude aborted the
+      // transaction. No codec refusal fires on this path.
       const { service } = buildReconcilingFixture();
 
       await expect(
@@ -2129,13 +1924,9 @@ describe("appending a row that carries machine-authored prose", () => {
     });
 
     it("never reaches for the disposer when the aborted append carried no body", async () => {
-      // THE GUARD'S OWN NEGATIVE CONTROL. An append with no content partition
-      // never reached the minting path, so there is nothing it could have
-      // orphaned — and calling anyway would let an unrelated failure delete a
-      // key some OTHER append is about to seal under. Asserted on the CALL
-      // RECORD and not only on the surviving row count, because the delegating
-      // disposer would decline this one anyway and a passing count would prove
-      // nothing about whether the guard ran.
+      // Negative control for the guard: an append with no content partition never minted, and
+      // calling the disposer anyway could delete a key another append is about to seal under.
+      // Asserted on the call record because the delegating disposer would decline anyway.
       const { service, disposer } = buildReconcilingFixture();
       await service.append(makeAssistantEnvelope(), { content: { body: "a live body" } });
       disposer.disposedSessionIds.length = 0;
@@ -2161,10 +1952,8 @@ describe("appending a row that carries machine-authored prose", () => {
     });
 
     it("reports the append's own failure when the disposal itself fails", async () => {
-      // The caller's error describes what went wrong with the APPEND. Replacing
-      // it with a housekeeping fault would hide the real refusal behind a
-      // cleanup one, and the leak that swallowing admits is bounded rather than
-      // permanent — the pass-level sweep re-derives it.
+      // The caller sees the append's own error, not a housekeeping fault. The leak this admits is
+      // bounded because the pass-level sweep re-derives it.
       const { service, disposer } = buildReconcilingFixture();
       disposer.failure = new Error("the disposer itself is broken");
 

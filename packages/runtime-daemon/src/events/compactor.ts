@@ -1,18 +1,15 @@
 // The background compactor: the idle-time maintenance pass over the event log.
 //
-// It is lossless. It never rewrites a committed column of `session_events`, so
-// every row a transcript draws stays byte-for-byte what was written. Removing a
-// session's content is the whole-session purge's job (`session-purge.ts`), which
-// runs only when a person deletes the session.
+// It is lossless: it never rewrites a committed column of `session_events`. Removing a
+// session's content is the whole-session purge's job (`session-purge.ts`).
 //
-// Its one job today is retiring wrapped session content keys that no sealed
-// body uses any more. A key is left behind when the purge's own disposal did not
-// complete, or when an append minted a key and then failed before sealing
-// anything. The pass asks the durable question, which keys exist with no live
-// content row, so nothing it misses is lost: the next pass finds the same keys.
+// Its one job is retiring wrapped session content keys that no sealed body uses. A key is
+// left behind when a purge's own disposal did not complete, or when an append minted a key
+// and then failed before sealing anything. The sweep asks which keys have no live content
+// row, so a key it misses is found again by the next pass.
 //
-// When `tick()` runs is the idle scheduler's decision; this module only guards
-// against running twice at once or inside an append-lock hold.
+// The caller decides when `tick()` runs; this module only refuses to run twice at once or
+// inside an append-lock hold.
 
 import type { SessionContentKeyDisposer } from "./session-content-key-store.js";
 import { isWithinSessionAppendLockHold } from "./session-append-lock.js";
@@ -22,16 +19,11 @@ export interface CompactionPassResult {
   /** Wrapped session content keys the pass retired. */
   readonly contentKeysReclaimed: number;
   /**
-   * Candidates the pass passed over because their own disposal failed. Counted
-   * apart from {@link contentKeySweepFailure}: that one is the sweep not
-   * running, this one is the sweep running and not reclaiming, which a bare
-   * reclaim count of zero cannot tell from an idle, healthy pass.
+   * Candidates whose own disposal failed. Counted apart from
+   * {@link contentKeySweepFailure} so a zero reclaim count can be told from a healthy idle pass.
    */
   readonly contentKeysSkipped: number;
-  /**
-   * Present iff the sweep itself failed. Nothing is lost by a failure: the next
-   * pass derives the same candidates again.
-   */
+  /** Present iff the sweep itself failed; the next pass derives the same candidates again. */
   readonly contentKeySweepFailure?: string | undefined;
 }
 
@@ -41,10 +33,11 @@ export interface CompactorDeps {
   readonly contentKeyDisposer: SessionContentKeyDisposer;
 }
 
+/** Runs the maintenance pass over the event log; see the module header. */
 export class Compactor {
   readonly #contentKeyDisposer: SessionContentKeyDisposer;
 
-  // Re-entry guard for `tick()`; see its docblock.
+  // Single-flight guard for `tick()`.
   #running = false;
 
   constructor(deps: CompactorDeps) {
@@ -52,18 +45,9 @@ export class Compactor {
   }
 
   /**
-   * Run one maintenance pass.
-   *
-   * Two guards, covering different shapes:
-   *
-   *   * SINGLE-FLIGHT (`#running`). A `tick()` entered while one is in flight
-   *     returns an empty result at once, so two passes never race each other's
-   *     reads.
-   *   * NOT INSIDE A HOLD. A `tick()` invoked from inside a live
-   *     `withSessionAppendLock` hold returns an empty result. The single-flight
-   *     flag cannot cover it, since the nested tick is the first one. The sweep
-   *     takes one hold per session, and the lock is reentrant per owner, so a
-   *     sweep inside a hold on session S would acquire nothing for S.
+   * Runs one maintenance pass. Returns an empty result at once when another `tick()` is in
+   * flight, or when called inside a `withSessionAppendLock` hold: the lock is reentrant per
+   * owner, so a sweep inside a hold on session S would acquire nothing for S.
    */
   async tick(): Promise<CompactionPassResult> {
     if (this.#running || isWithinSessionAppendLockHold()) {
