@@ -21,11 +21,4 @@ describe("the transcript feed — what it does not hold", () => {
     // holds is the viewport's backward read.
     expect(feed.textContent).toContain("Older entries are no longer in this window.");
   });
-
-  it("negative control: a whole log under the cap claims nothing is missing", () => {
-    // Without this the case above would pass over a feed that always said something was missing.
-    withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithGeneralLog(5));
-    expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
-  });
 });

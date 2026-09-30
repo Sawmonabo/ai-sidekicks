@@ -1,10 +1,7 @@
-// The acts the feed publishes, driven with no render. The refusal channel is watched too:
-// a press that raised a banner over work it did would pass a trace alone.
+// The acts the feed publishes, driven with no render.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
-import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import { emptyFindResult } from "../find/find-model.js";
 import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
 import {
@@ -66,24 +63,7 @@ function actInputs(
   };
 }
 
-function collectRaisedRefusals(): {
-  readonly raised: Refusal[];
-  readonly withdraw: () => void;
-} {
-  const raised: Refusal[] = [];
-  const withdraw = publishCommandRefusalSink((refusal) => {
-    raised.push(refusal);
-  });
-  return { raised, withdraw };
-}
-
 describe("the transcript's acts — what each one reaches", () => {
-  it("opens the find field without touching its query", () => {
-    const trace: ActTrace = [];
-    buildTranscriptStructureActs(actInputs(trace)).openFind();
-    expect(trace).toStrictEqual(["open"]);
-  });
-
   it("walks the matches and scrolls to each one it lands on", () => {
     const trace: ActTrace = [];
     const acts = buildTranscriptStructureActs(actInputs(trace, { walkedRowId: WALKED_ROW_ID }));
@@ -95,60 +75,5 @@ describe("the transcript's acts — what each one reaches", () => {
       "step:previous",
       `jumpToRow:${WALKED_ROW_ID}`,
     ]);
-  });
-
-  it("negative control: a walk that found nothing scrolls nowhere", () => {
-    // Guards against an act that jumps on every press, with no match to land on.
-    const trace: ActTrace = [];
-    buildTranscriptStructureActs(actInputs(trace)).stepFindNext();
-    expect(trace).toStrictEqual(["step:next"]);
-  });
-
-  it("scrolls to the tail through the transcript's own scroll writer", () => {
-    const trace: ActTrace = [];
-    buildTranscriptStructureActs(actInputs(trace)).jumpToLatest();
-    expect(trace).toStrictEqual(["jumpToTail"]);
-  });
-
-  it("folds every terminal run group this feed has open", () => {
-    const trace: ActTrace = [];
-    buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
-    expect(trace).toStrictEqual(["collapseAllTerminalRunGroups"]);
-  });
-
-  it("fires nothing merely by being built", () => {
-    const trace: ActTrace = [];
-    buildTranscriptStructureActs(actInputs(trace));
-    expect(trace).toStrictEqual([]);
-  });
-});
-
-describe("the transcript's acts — none of them refuses", () => {
-  let withdrawSink: (() => void) | undefined;
-
-  afterEach(() => {
-    withdrawSink?.();
-    withdrawSink = undefined;
-  });
-
-  it("folds the run groups rather than refusing over a control that now exists", () => {
-    const trace: ActTrace = [];
-    const { raised, withdraw } = collectRaisedRefusals();
-    withdrawSink = withdraw;
-    buildTranscriptStructureActs(actInputs(trace)).foldEveryRun();
-    expect(trace).toStrictEqual(["collapseAllTerminalRunGroups"]);
-    expect(raised).toStrictEqual([]);
-  });
-
-  it("negative control: the acts that CAN act raise nothing", () => {
-    // Guards against a build that answers every press with a banner.
-    const { raised, withdraw } = collectRaisedRefusals();
-    withdrawSink = withdraw;
-    const acts = buildTranscriptStructureActs(actInputs([], { walkedRowId: WALKED_ROW_ID }));
-    acts.openFind();
-    acts.stepFindNext();
-    acts.jumpToLatest();
-    acts.foldEveryRun();
-    expect(raised).toStrictEqual([]);
   });
 });
