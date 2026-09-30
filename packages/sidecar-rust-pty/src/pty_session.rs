@@ -435,8 +435,8 @@ const DROP_KILL_ESCALATION_DEADLINE: std::time::Duration = std::time::Duration::
 /// handle, and `kill(pid, 0)` cannot tell the original child from a process that reused its pid.
 /// Never escalating would let a SIGHUP-ignoring child hang shutdown, so a rare SIGKILL to a
 /// recycled pid within the one-second window is accepted: pids are handed out in increasing order
-/// with wraparound (Linux `pid_max` defaults to 32768, macOS to 99999), so the kernel does not
-/// normally reuse one that fast, and the kill can only reach processes the same user owns.
+/// with wraparound, so the kernel does not normally reuse one that fast, and the kill can only
+/// reach processes the same user owns.
 ///
 /// A soft-kill error (usually ESRCH for an already-reaped child) is logged and skips the
 /// escalation, because the child is gone.

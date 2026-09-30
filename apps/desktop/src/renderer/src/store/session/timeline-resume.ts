@@ -3,9 +3,7 @@
 //
 // The decision reads the two members the wire schema carries (`latest` and optional
 // `acknowledged`). The cursor is opaque to the console, so there is no lost-event arm: a lost
-// row reaches the store as the sequence gap it already reconciles. Such an arm needs an ordering
-// the cursor's owner publishes (an exported cursor comparison in the contracts package) or a
-// divergence the daemon reports; neither exists.
+// row reaches the store as the sequence gap it already reconciles.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
