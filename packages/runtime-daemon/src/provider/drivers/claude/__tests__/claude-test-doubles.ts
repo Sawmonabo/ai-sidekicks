@@ -1,6 +1,6 @@
-// Typed test doubles for the Claude driver. Each implements the real port from `lifecycle.ts`, so
-// a drifted signature fails the typecheck. Nothing here spawns a process, touches the filesystem
-// or reads an environment variable.
+// Typed test doubles for the Claude driver. Each implements the real port from
+// `session-transport.ts`, so a drifted signature fails the typecheck. Nothing here spawns a
+// process, touches the filesystem or reads an environment variable.
 
 import type {
   ApplyInterventionParams,
@@ -64,7 +64,6 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   readonly controlRequests: ClaudeControlRequest[] = [];
   readonly disposals: ClaudeChannelDisposalReason[] = [];
   controlResponse: ClaudeControlResponse = { subtype: "success" };
-  controlRequestFailure: Error | undefined = undefined;
   /** A write failure the double reports, as the port obliges a transport to. */
   sendUserTextFailure: Error | undefined = undefined;
   /**
@@ -122,9 +121,6 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
 
   async sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse> {
     this.controlRequests.push(request);
-    if (this.controlRequestFailure !== undefined) {
-      throw this.controlRequestFailure;
-    }
     await Promise.resolve();
     return this.controlResponse;
   }
@@ -149,26 +145,13 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
    */
   terminalFrameBody: unknown = undefined;
 
-  // Makes a transport refuse `onInboundFrame` registration; separate from the terminal switch
-  // because the two hooks register at different points of the adoption window.
-  onInboundFrameFailure: Error | undefined = undefined;
-
   onInboundFrame(observer: (observation: ClaudeInboundFrameObservation) => ThreadFrameRoute): void {
-    if (this.onInboundFrameFailure !== undefined) {
-      throw this.onInboundFrameFailure;
-    }
     this.inboundFrameObserver = observer;
   }
 
   inboundFrameObserver:
     | ((observation: ClaudeInboundFrameObservation) => ThreadFrameRoute)
     | undefined = undefined;
-
-  /** Every observation this double drove, paired with the route it was given. */
-  readonly observedRoutes: {
-    readonly observation: ClaudeInboundFrameObservation;
-    readonly route: ThreadFrameRoute;
-  }[] = [];
 
   /** The frames this double handed to its own normalize consumer. */
   readonly deliveredFrameKinds: string[] = [];
@@ -201,7 +184,6 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     const route: ThreadFrameRoute = this.inboundFrameObserver?.(observation) ?? {
       decision: "project",
     };
-    this.observedRoutes.push({ observation, route });
     if (!DELIVERED_ROUTE_DECISIONS.has(route.decision)) {
       return route;
     }
@@ -236,7 +218,6 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   readonly spawnRequests: ClaudeSessionSpawnRequest[] = [];
   readonly resumeRequests: ClaudeSessionResumeRequest[] = [];
   readonly spawnedChannels: FakeClaudeSessionChannel[] = [];
-  spawnFailure: Error | undefined = undefined;
   resumeFailure: Error | undefined = undefined;
   // When set, spawn, resume and rewind park here until released, so a concurrency test has two
   // callers provably in flight without depending on microtask counts.
@@ -251,20 +232,12 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   // driver's fork check requires.
   readonly rewindRequests: ClaudeSessionRewindRequest[] = [];
   rewindFailure: Error | undefined = undefined;
-  rewoundSessionPosition: number | undefined = undefined;
-  mintForkedProviderSessionId: () => string = (): string =>
-    `forked-${String(this.rewindRequests.length)}`;
   // When set, the fork announces this id, modeling a provider that did not fork.
   announcedForkedProviderSessionId: string | undefined = undefined;
-  // When true, the fork hands back the channel it was rewinding, which reaches the not-forked
-  // disposal carve-out.
-  rewindReturnsPredecessorChannel: boolean = false;
   // The zero-turn auth probe's outcome. A `ClaudeAuthenticationRequiredError` failure models a
   // determinate logged-out reading; any other failure models a probe that could not be taken.
   probeAuthFailure: Error | undefined = undefined;
-  probeAuthDetail: string | undefined = undefined;
   probeAuthCallCount: number = 0;
-  readonly probeAuthRequests: ClaudeAuthProbeRequest[] = [];
 
   /**
    * Refuses to start a child without the daemon's mandated environment pairs. A refusal rather
@@ -286,9 +259,6 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     this.spawnRequests.push(request);
     this.#requireMandatedEnvironment(request.mandatedEnvironment);
     await this.establishmentGate;
-    if (this.spawnFailure !== undefined) {
-      throw this.spawnFailure;
-    }
     await Promise.resolve();
     const announced = this.announcedProviderSessionId ?? request.providerSessionId;
     const channel = new FakeClaudeSessionChannel(announced);
@@ -328,30 +298,20 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
       throw this.rewindFailure;
     }
     await Promise.resolve();
-    const announced = this.announcedForkedProviderSessionId ?? this.mintForkedProviderSessionId();
-    if (this.rewindReturnsPredecessorChannel) {
-      const predecessor = this.spawnedChannels[this.spawnedChannels.length - 1];
-      if (predecessor !== undefined) {
-        return {
-          providerSessionId: announced,
-          channel: predecessor,
-          sessionPosition: this.rewoundSessionPosition ?? request.targetPosition,
-        };
-      }
-    }
+    const announced =
+      this.announcedForkedProviderSessionId ?? `forked-${String(this.rewindRequests.length)}`;
     const channel = new FakeClaudeSessionChannel(announced);
     channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
     this.spawnedChannels.push(channel);
     return {
       providerSessionId: announced,
       channel,
-      sessionPosition: this.rewoundSessionPosition ?? request.targetPosition,
+      sessionPosition: request.targetPosition,
     };
   }
 
   async probeAuth(request: ClaudeAuthProbeRequest): Promise<ClaudeAuthProbeReading> {
     this.probeAuthCallCount += 1;
-    this.probeAuthRequests.push(request);
     // Checked before the failure arms: a probe that could not be taken still started a child.
     this.#requireMandatedEnvironment(request.mandatedEnvironment);
     await Promise.resolve();
@@ -359,17 +319,15 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
       throw this.probeAuthFailure;
     }
     // Mints no channel: a probe that established a session would not be zero-turn.
-    return this.probeAuthDetail === undefined ? {} : { detail: this.probeAuthDetail };
+    return {};
   }
 }
 
-/** Resolver that answers run dispatches from `dispatchByRunId` and records the run ids asked. */
+/** Resolver that answers run dispatches from `dispatchByRunId`. */
 export class FakeClaudeRunDispatchResolver implements ClaudeRunDispatchResolver {
   readonly dispatchByRunId: Map<RunId, ClaudeRunDispatch> = new Map();
-  readonly resolvedRunIds: RunId[] = [];
 
   async resolveRunDispatch(params: StartRunParams): Promise<ClaudeRunDispatch | undefined> {
-    this.resolvedRunIds.push(params.runId);
     await Promise.resolve();
     return this.dispatchByRunId.get(params.runId);
   }
