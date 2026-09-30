@@ -47,10 +47,8 @@ describe("v4.local encrypt / decrypt", () => {
   });
 
   it("throws MacMismatchError when the MAC is tampered", () => {
-    // Body shape is nonce(32) || ciphertext(N) || tag(32); flipping the LSB of
-    // the last body byte (= last byte of the BLAKE2b-MAC tag) is deterministic.
-    // A char-domain flip can land on base64url padding bits and be a no-op
-    // when body length ≡ 4 (mod 6) — see T3 finding. Byte-domain XOR is safe.
+    // Body is nonce(32) || ciphertext(N) || tag(32); flipping the last body byte alters the tag. A
+    // character flip can land on base64url padding bits and change nothing, so flip a byte.
     const key = randomBytes(32);
     const token = encryptV4Local(encoder.encode("payload"), key);
     const head = "v4.local.";
@@ -59,7 +57,7 @@ describe("v4.local encrypt / decrypt", () => {
     bodyBytes[bodyBytes.length - 1]! ^= 0x01;
     const tampered = head + Buffer.from(bodyBytes).toString("base64url");
     expect(() => decryptV4Local(tampered, key)).toThrow(MacMismatchError);
-    // MacMismatchError extends InvalidTokenError — consumers can catch broadly.
+    // MacMismatchError extends InvalidTokenError, so callers can catch broadly.
     try {
       decryptV4Local(tampered, key);
     } catch (e) {
@@ -97,10 +95,8 @@ describe("v4.local encrypt / decrypt", () => {
     expect(decoder.decode(recovered)).toBe("payload");
   });
 
-  // Strict base64url canonicalization: non-canonical textual forms (padding,
-  // invalid chars) must be rejected even when Node's lenient decoder would
-  // otherwise produce bytes that pass MAC verification. Mirrors the v4.public
-  // canonicalization suite — same rationale, same exact-string controls.
+  // Non-canonical base64url (padding, invalid characters) must be rejected even when Node's
+  // lenient decoder yields bytes that pass MAC verification.
   it("rejects a token whose body base64url carries `=` padding", () => {
     const key = randomBytes(32);
     const token = encryptV4Local(encoder.encode("payload"), key);
@@ -124,10 +120,8 @@ describe("v4.local encrypt / decrypt", () => {
     expect(() => decryptV4Local(tampered, key)).toThrow(InvalidTokenError);
   });
 
-  // PASETO section 2 exact-string invariant: `header.payload.` (trailing dot, empty
-  // footer) is a third textual form that would otherwise decrypt against the
-  // same key as `header.payload`. Without this rejection, an attacker can
-  // bypass exact-string replay/revocation caches by appending `.`.
+  // `header.payload.` (trailing dot, empty footer) would otherwise decrypt like `header.payload`,
+  // letting an attacker bypass replay or revocation caches keyed by token text by appending `.`.
   it("rejects a token with a trailing dot and empty footer segment", () => {
     const key = randomBytes(32);
     const token = encryptV4Local(encoder.encode("payload"), key);

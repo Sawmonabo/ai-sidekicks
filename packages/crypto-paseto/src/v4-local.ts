@@ -1,8 +1,7 @@
 import { xchacha20 } from "@noble/ciphers/chacha.js";
 import { blake2b } from "@noble/hashes/blake2.js";
-// `equalBytes` is in @noble/ciphers/utils.js (NOT @noble/hashes/utils.js) in
-// noble 2.x — the constant-time XOR-OR-accumulator implementation lives there.
-// `randomBytes` is exported from both; sourcing both here keeps imports tight.
+// `equalBytes` (constant time) lives in @noble/ciphers, not @noble/hashes; `randomBytes` is in
+// both.
 import { equalBytes, randomBytes } from "@noble/ciphers/utils.js";
 import { pae } from "./pae.js";
 import { InvalidKeyError, InvalidTokenError, MacMismatchError } from "./errors.js";
@@ -15,17 +14,28 @@ const AUTH_INFO = new TextEncoder().encode("paseto-auth-key-for-aead");
 const NONCE_LEN = 32; // PASETO v4.local n
 const TAG_LEN = 32; // BLAKE2b-MAC output
 
+/**
+ * Encrypts `payload` into a `v4.local` token under a 32-byte `key`, with a fresh random nonce per
+ * call. The optional footer is carried in the token; the implicit assertion is authenticated but
+ * not carried. Throws `InvalidKeyError` if the key is not 32 bytes.
+ */
 export function encryptV4Local(
   payload: Uint8Array,
   key: Uint8Array,
   footer?: Uint8Array,
   implicitAssertion?: Uint8Array,
 ): string {
-  // Fresh 32-byte nonce per call (invariant I3). Never reused; never logged.
+  // A nonce must never be reused under one key.
   const nonce = randomBytes(NONCE_LEN);
   return encryptV4LocalDeterministic(payload, key, nonce, footer, implicitAssertion);
 }
 
+/**
+ * Verifies and decrypts a `v4.local` token. The footer and implicit assertion must equal the ones
+ * used to encrypt. Throws `InvalidKeyError` for a bad key, `MacMismatchError` when the tag does not
+ * verify, and `InvalidTokenError` for any other malformed token. Nothing is decrypted before the
+ * tag verifies.
+ */
 export function decryptV4Local(
   token: string,
   key: Uint8Array,
@@ -45,16 +55,14 @@ export function decryptV4Local(
   if (parts.length > 2) {
     throw new InvalidTokenError("v4.local token has too many segments");
   }
-  // PASETO section 2: a token is exactly `header.payload` or `header.payload.footer`.
-  // A trailing dot with empty footer (`v4.local.<body>.`) is non-canonical —
-  // two distinct token strings would otherwise decode to the same secret, and
-  // exact-string controls (replay/revocation caches keyed by token text) would
-  // be defeatable by appending `.`.
+  // A trailing dot with an empty footer (`v4.local.<body>.`) is non-canonical: two token strings
+  // would decode to the same plaintext, and appending `.` would defeat replay or revocation checks
+  // keyed by token text.
   if (parts.length === 2 && parts[1] === "") {
     throw new InvalidTokenError("v4.local token has trailing dot with empty footer");
   }
 
-  // Footer canonicalization: undefined ≡ Uint8Array(0).
+  // An undefined footer is the same as an empty one.
   const expF = footer ?? new Uint8Array(0);
   const tokenFooterB64 = parts[1] ?? "";
 
@@ -91,15 +99,14 @@ export function decryptV4Local(
   const ciphertext = body.subarray(NONCE_LEN, body.length - TAG_LEN);
   const tag = body.subarray(body.length - TAG_LEN);
 
-  // Derive Ek, n2, Ak — identical to encrypt path.
+  // Same key derivation as the encrypt path.
   const tmp = blake2b(concat(ENC_INFO, nonce), { key, dkLen: 56 });
   const ek = tmp.subarray(0, 32);
   const n2 = tmp.subarray(32, 56);
   const ak = blake2b(concat(AUTH_INFO, nonce), { key, dkLen: 32 });
 
-  // Step 4 (decrypt): MAC verify BEFORE decryption (invariant I2). The
-  // constant-time `equalBytes` is non-negotiable on secret material — never
-  // `===`, `Buffer.compare`, or short-circuit byte loops on `tag`.
+  // Verify the MAC before decrypting. The tag comparison must stay constant time: never `===`,
+  // `Buffer.compare` or a short-circuiting loop.
   const ia = implicitAssertion ?? new Uint8Array(0);
   const m2 = pae([HEADER_BYTES, nonce, ciphertext, tokenFooter, ia]);
   const expectedTag = blake2b(m2, { key: ak, dkLen: TAG_LEN });
@@ -108,8 +115,7 @@ export function decryptV4Local(
     throw new MacMismatchError("v4.local MAC mismatch");
   }
 
-  // Step 5 (decrypt): only reached after MAC verifies. XChaCha20 is a stream
-  // cipher — same call shape for encrypt and decrypt.
+  // XChaCha20 is a stream cipher, so decrypting is the same call as encrypting.
   return xchacha20(ek, n2, ciphertext);
 }
 
@@ -121,19 +127,10 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
 }
 
 function base64UrlDecode(s: string): Uint8Array {
-  // PASETO section 2 requires strictly canonical base64url (RFC 4648 section 5, unpadded):
-  // no `=` padding, no whitespace, no characters outside `[A-Za-z0-9_-]`.
-  // Node's `Buffer.from(s, "base64url")` is lenient — it tolerates `=`
-  // padding and silently ignores invalid characters — so two different
-  // textual strings can decode to the same bytes. For v4.local that lets
-  // tampered token text pass MAC verification and breaks exact-string
-  // controls layered on top (e.g., replay/revocation caches keyed by
-  // token string).
-  //
-  // Round-trip canonicalization: decode, then re-encode with Node's canonical
-  // (no-padding) base64url, and require byte equality against the input.
-  // Any deviation (padding, whitespace, alternate alphabet, stray chars)
-  // fails this check. Matches the v4.public decoder for parity.
+  // PASETO requires strictly canonical unpadded base64url. Node's `Buffer.from(s, "base64url")`
+  // tolerates `=` padding and silently skips invalid characters, so different token strings could
+  // decode to the same bytes and defeat replay or revocation checks keyed by token text. Decoding
+  // then re-encoding and comparing to the input rejects any deviation.
   const decoded = new Uint8Array(Buffer.from(s, "base64url"));
   if (Buffer.from(decoded).toString("base64url") !== s) {
     throw new InvalidTokenError("base64url input is not strictly canonical");
@@ -141,8 +138,7 @@ function base64UrlDecode(s: string): Uint8Array {
   return decoded;
 }
 
-// Structural (non-secret) equality for footer comparison. Footer is public
-// metadata; constant-time discipline is not required here.
+// The footer is public, so this comparison need not be constant time.
 function bytesEqualStructural(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;

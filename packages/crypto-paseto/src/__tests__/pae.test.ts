@@ -40,12 +40,8 @@ describe("pae (Pre-Authentication Encoding)", () => {
   });
 
   it("clears the high bit on the length prefix (LE64 high-bit-cleared)", () => {
-    // Construct a piece whose length sets bit 63 of LE64 if left intact.
-    // 2^63 is unreachable via a Uint8Array (max ~2^53 in JS), but we can verify
-    // the high-bit-clear behavior by simulating with a synthetic length via
-    // the implementation's writeLength helper if exposed. Here we settle for
-    // checking that the high byte of any normal length stays zero (high bit
-    // of byte[7] should always be 0 in practice). This is a sanity check.
+    // A length of 2^63 cannot be built from a Uint8Array, so this only checks that the top bit of
+    // byte[7] stays 0 for ordinary lengths.
     const piece = new Uint8Array(0);
     const result = pae([piece]);
     expect(result[7]! & 0x80).toBe(0); // count's MSB cleared
