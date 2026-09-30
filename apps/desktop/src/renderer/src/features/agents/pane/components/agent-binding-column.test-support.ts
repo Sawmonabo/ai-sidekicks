@@ -137,8 +137,10 @@ export function resolvedConfiguration(
   };
 }
 
+/** An agent bound to the default Claude driver. */
 export const AGENT_ON_CLAUDE: AgentListEntry = agentEntry({ agentId: "agent-a" as AgentId });
 
+/** An agent named Runner bound to the Codex driver. */
 export const AGENT_ON_CODEX: AgentListEntry = agentEntry({
   agentId: "agent-b" as AgentId,
   name: "Runner",
