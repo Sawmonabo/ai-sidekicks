@@ -161,7 +161,7 @@ function describeHolder(holder) {
  * Takes the lock, polling until `timeoutMs`. Returns `{ acquired, holder }`; `holder` is the
  * blocking record when the deadline passed. `onWaitStart` fires once, on the first wait.
  */
-export function acquireLock({
+function acquireLock({
   lockPath,
   ownerPid,
   worktree,
@@ -202,7 +202,7 @@ export function acquireLock({
 }
 
 /** Releases only a lock this owner holds. Someone else's lock is never touched. */
-export function releaseLock({ lockPath, ownerPid }) {
+function releaseLock({ lockPath, ownerPid }) {
   const holder = readLockHolder(lockPath);
   if (holder === null) return { released: false, reason: "not-held" };
   if (holder.record?.ownerPid !== ownerPid) return { released: false, reason: "owned-by-other" };
@@ -216,7 +216,7 @@ export function releaseLock({ lockPath, ownerPid }) {
 }
 
 /** Returns the current holder record and file age, or `null` when the lock is free. */
-export function readLockStatus({ lockPath }) {
+function readLockStatus({ lockPath }) {
   return readLockHolder(lockPath);
 }
 
@@ -252,7 +252,7 @@ function optionalInteger(options, key, fallback) {
  * Runs `acquire`, `release` or `status` from argv and returns the exit code: 0 done, 1 timed out or
  * held. Throws `LockUsageError` on bad usage; the entry point turns that into exit code 2.
  */
-export function runCommandLine(argv, { stderr = process.stderr } = {}) {
+function runCommandLine(argv, { stderr = process.stderr } = {}) {
   const { command, options } = parseCommandLine(argv);
   const lockPath = options.lockPath ?? resolveDefaultLockPath(options.worktree ?? process.cwd());
 

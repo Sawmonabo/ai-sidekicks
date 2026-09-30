@@ -42,7 +42,7 @@ function resolvePattern(pattern) {
  * Splits argv into node options to forward, test patterns, and the `--min-files` floor (default 0).
  * Throws when `--min-files` is not given as `--min-files=N` with a non-negative integer.
  */
-export function parseArguments(argv) {
+function parseArguments(argv) {
   const forwardedNodeArguments = [];
   const patterns = [];
   let minimumFiles = 0;
@@ -74,7 +74,7 @@ export function parseArguments(argv) {
  * Resolves each pattern to files. Returns `perPattern` (for reporting empty matches) and `files`,
  * the sorted, de-duplicated union.
  */
-export function resolveTestFiles(patterns) {
+function resolveTestFiles(patterns) {
   const perPattern = patterns.map((pattern) => ({
     pattern,
     files: resolvePattern(pattern),
