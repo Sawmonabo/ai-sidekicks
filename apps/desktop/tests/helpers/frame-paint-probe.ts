@@ -55,15 +55,9 @@ export interface FramesMissing extends FramePaintMeasurement {
 export type FramePaintProbeOutcome = FramesPainted | FramesMissing;
 
 /**
- * The worst driver-side post-readiness figure measured locally over twenty launches, in
- * milliseconds. `frame-paint-probe.test.ts` holds the budget at least two orders of magnitude
- * above it; the budget itself is derived from the cost of failing early versus late, not from
- * this figure.
- */
-export const MEASURED_WORST_LOCAL_MS = 47;
-
-/**
  * Bounds the interval between a renderer signaling readiness and its second animation frame.
+ * The worst local figure over twenty launches was 47 ms; the budget is derived from the cost of
+ * failing early versus late, not from that figure.
  * A class because the frame source is a seam: the Playwright adapter is one implementation and
  * a stub another.
  */
