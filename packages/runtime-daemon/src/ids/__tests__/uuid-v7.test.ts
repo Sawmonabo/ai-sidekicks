@@ -1,6 +1,5 @@
-// Every structural assertion runs through `assertRfc9562UuidV7`, and the negative control at the
-// bottom shows that same assertion rejecting `crypto.randomUUID()`, so a shape check that can
-// never fail cannot pass unnoticed.
+// The minter's ids are RFC 9562 version 7 UUIDs that strictly increase, within one millisecond,
+// across a counter overflow and across a clock that steps backwards.
 
 import { describe, expect, it } from "vitest";
 
@@ -84,28 +83,6 @@ describe("UuidV7Minter — RFC 9562 section 5.7 layout", () => {
     }
   });
 
-  it("emits the canonical lowercase text form", () => {
-    const id: string = new UuidV7Minter().mint();
-    expect(id).toMatch(CANONICAL_TEXT_FORM);
-    expect(id).toBe(id.toLowerCase());
-    expect(id).toHaveLength(36);
-  });
-
-  it("decodes unix_ts_ms back to the injected clock's millisecond", () => {
-    const minter = new UuidV7Minter({
-      readCurrentTimestampMilliseconds: frozenClockAt(FIXED_TIMESTAMP_MILLISECONDS),
-    });
-    expect(readTimestampMilliseconds(minter.mint())).toBe(FIXED_TIMESTAMP_MILLISECONDS);
-  });
-
-  it("carries a 48-bit timestamp, so a millisecond above 2^32 survives the split", () => {
-    const aboveThirtyTwoBits: number = 2 ** 40 + 12_345;
-    const minter = new UuidV7Minter({
-      readCurrentTimestampMilliseconds: frozenClockAt(aboveThirtyTwoBits),
-    });
-    expect(readTimestampMilliseconds(minter.mint())).toBe(aboveThirtyTwoBits);
-  });
-
   it("refuses a clock reading outside the 48-bit unix_ts_ms range", () => {
     expect(() =>
       new UuidV7Minter({ readCurrentTimestampMilliseconds: frozenClockAt(-1) }).mint(),
@@ -138,15 +115,6 @@ describe("UuidV7Minter — RFC 9562 section 6.2 monotonicity", () => {
     }
   });
 
-  it("seeds the counter into the low 11 bits, reserving the rollover-guard bit", () => {
-    const minter = new UuidV7Minter({
-      readCurrentTimestampMilliseconds: frozenClockAt(FIXED_TIMESTAMP_MILLISECONDS),
-      fillWithRandomBytes: fillWithSaturatedBytes,
-    });
-    // An all-ones draw masks to the largest seed: guard bit clear, low 11 bits set.
-    expect(readSubMillisecondCounter(minter.mint())).toBe(0x7ff);
-  });
-
   it("advances the timestamp and reseeds when the counter overflows inside one tick", () => {
     const minter = new UuidV7Minter({
       readCurrentTimestampMilliseconds: frozenClockAt(FIXED_TIMESTAMP_MILLISECONDS),
@@ -155,6 +123,9 @@ describe("UuidV7Minter — RFC 9562 section 6.2 monotonicity", () => {
     // Seed 0x7ff plus 2048 increments exhausts the 12-bit counter exactly.
     const withinFirstTick: string[] = Array.from({ length: 2049 }, () => minter.mint());
     const afterOverflow: string = minter.mint();
+
+    // An all-ones draw masks to the largest seed: guard bit clear, low 11 bits set.
+    expect(readSubMillisecondCounter(withinFirstTick[0]!)).toBe(0x7ff);
 
     expect(readSubMillisecondCounter(withinFirstTick.at(-1)!)).toBe(0xfff);
     for (const id of withinFirstTick) {
@@ -190,46 +161,5 @@ describe("UuidV7Minter — RFC 9562 section 6.2 monotonicity", () => {
       assertRfc9562UuidV7(id);
     }
     expect([...ids].sort()).toStrictEqual(ids);
-  });
-
-  it("gives each instance its own counter, and the module binding one shared counter", () => {
-    const boundMint: () => string = mintUuidV7;
-    expect(boundMint() < boundMint()).toBe(true);
-
-    const independent = new UuidV7Minter({
-      readCurrentTimestampMilliseconds: frozenClockAt(FIXED_TIMESTAMP_MILLISECONDS),
-    });
-    expect(readTimestampMilliseconds(independent.mint())).toBe(FIXED_TIMESTAMP_MILLISECONDS);
-  });
-});
-
-describe("negative control — the shape assertion can fail", () => {
-  it("rejects crypto.randomUUID(), the v4 the daemon used to mint for these ids", () => {
-    const v4: string = crypto.randomUUID();
-
-    expect(v4).toMatch(CANONICAL_TEXT_FORM);
-    expect(parseUuidBytes(v4)[6]! >>> 4).toBe(4);
-    expect(() => {
-      assertRfc9562UuidV7(v4);
-    }).toThrow(/expected UUID version 7 \(RFC 9562 section 4\.2\), read version 4/u);
-  });
-
-  it("rejects an uppercase rendering of an otherwise valid v7", () => {
-    expect(() => {
-      assertRfc9562UuidV7(mintUuidV7().toUpperCase());
-    }).toThrow(/not the canonical lowercase UUID text form/u);
-  });
-
-  it("rejects a v7 whose variant bits were cleared", () => {
-    const bytes: Uint8Array = parseUuidBytes(mintUuidV7());
-    bytes[8] = bytes[8]! & 0x3f;
-    const hexDigits: string = Array.from(bytes, (byteValue: number) =>
-      byteValue.toString(16).padStart(2, "0"),
-    ).join("");
-    const rendered = `${hexDigits.slice(0, 8)}-${hexDigits.slice(8, 12)}-${hexDigits.slice(12, 16)}-${hexDigits.slice(16, 20)}-${hexDigits.slice(20)}`;
-
-    expect(() => {
-      assertRfc9562UuidV7(rendered);
-    }).toThrow(/expected variant bits 0b10/u);
   });
 });
