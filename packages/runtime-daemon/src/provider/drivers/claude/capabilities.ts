@@ -606,14 +606,14 @@ export class ClaudeCapabilityReporter {
  *   and `opus[1m]` both resolve to `claude-opus-5[1m]`. The reserved pointer
  *   `default` names whichever model is currently default rather than naming a
  *   model, so it is collapsed — see {@link normalizeClaudeModelCatalog}.
- * * **The per-model auxiliary axes** (`supportsAdaptiveThinking`,
- *   `supportsFastMode`, `supportsAutoMode`). They are recorded here rather than
- *   flattened into `capabilities`, which carries no registered vocabulary
- *   anywhere and is read by nothing: populating it would mint a tag set ahead
- *   of its reader, and one shared string list cannot mean both "this model has
- *   a fast mode" and whatever the sibling provider's per-model axes mean. At the pin, both `claude-opus-5[1m]` rows carry all three;
- *   `claude-fable-5` and `claude-sonnet-5` carry adaptive-thinking and
- *   auto-mode but not fast-mode; `claude-haiku-4-5-20251001` carries none.
+ * * **Two of the per-model auxiliary axes** (`supportsAdaptiveThinking`,
+ *   `supportsAutoMode`). They are recorded here rather than flattened into
+ *   `capabilities`, which carries no registered vocabulary anywhere and is read
+ *   by nothing: populating it would mint a tag set ahead of its reader. The
+ *   third, `supportsFastMode`, is the model's `fast` member. At the pin, both
+ *   `claude-opus-5[1m]` rows carry all three; `claude-fable-5` and
+ *   `claude-sonnet-5` carry adaptive-thinking and auto-mode but not fast-mode;
+ *   `claude-haiku-4-5-20251001` carries none.
  * * **A provider-wide effort vocabulary.** There is none to copy: the levels
  *   are a per-model list, and `claude-haiku-4-5-20251001` publishes no effort
  *   surface at all — the live instance of the registered "absent = the model
@@ -629,12 +629,14 @@ export class ClaudeCapabilityReporter {
 function declaredClaudeModel(
   id: string,
   name: string,
+  fast: boolean,
   effortLevels?: readonly string[],
 ): ProviderModel {
   return Object.freeze({
     id,
     name,
     capabilities: freezeDeclaredModelArray([]),
+    fast,
     ...(effortLevels === undefined
       ? {}
       : { effortLevels: freezeDeclaredModelArray([...effortLevels]) }),
@@ -670,12 +672,12 @@ const CLAUDE_PINNED_EFFORT_LEVELS: readonly string[] = Object.freeze([
 ]);
 
 export const CLAUDE_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
-  declaredClaudeModel("claude-opus-5[1m]", "Opus (1M context)", CLAUDE_PINNED_EFFORT_LEVELS),
-  declaredClaudeModel("claude-fable-5", "Fable", CLAUDE_PINNED_EFFORT_LEVELS),
-  declaredClaudeModel("claude-sonnet-5", "Sonnet", CLAUDE_PINNED_EFFORT_LEVELS),
+  declaredClaudeModel("claude-opus-5[1m]", "Opus (1M context)", true, CLAUDE_PINNED_EFFORT_LEVELS),
+  declaredClaudeModel("claude-fable-5", "Fable", false, CLAUDE_PINNED_EFFORT_LEVELS),
+  declaredClaudeModel("claude-sonnet-5", "Sonnet", false, CLAUDE_PINNED_EFFORT_LEVELS),
   // No `effortLevels`, and that is the reading rather than an omission: this
   // row answers with no `supportsEffort` and no `supportedEffortLevels`.
-  declaredClaudeModel("claude-haiku-4-5-20251001", "Haiku"),
+  declaredClaudeModel("claude-haiku-4-5-20251001", "Haiku", false),
 ]);
 
 /**
@@ -724,7 +726,7 @@ function readNonEmptyString(source: Record<string, unknown>, key: string): strin
  * short catalog for a shape change and nothing downstream could tell a provider
  * that dropped a model from a parser that failed to see it.
  *
- * Two rules the wire forces, each the reason the corresponding branch exists:
+ * Three rules the wire forces, each the reason the corresponding branch exists:
  *
  *   1. **Alias collapse.** Entries are keyed by `resolvedModel`, not by
  *      `value`: at the pin, four of five `value`s are short aliases
@@ -740,6 +742,10 @@ function readNonEmptyString(source: Record<string, unknown>, key: string): strin
  *      explicitly say `supportsEffort: false`. An absent list stays absent: the
  *      contract reads that as "no effort selection", which is precisely what
  *      the Haiku row means.
+ *   3. **`fast` is the row's `supportsFastMode`.** An absent flag reads as no
+ *      fast mode, as it does on the rows that publish none; a flag that is
+ *      present and not a boolean refuses, because reading it as either answer
+ *      would publish a claim the provider never made.
  */
 export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
   if (typeof payload !== "object" || payload === null) {
@@ -777,7 +783,18 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
     if (existing !== undefined && (fromPointer || !existing.fromPointer)) {
       continue;
     }
-    const model: ProviderModel = { id: resolvedModel, name: displayName, capabilities: [] };
+    const supportsFastMode = entry["supportsFastMode"];
+    if (supportsFastMode !== undefined && typeof supportsFastMode !== "boolean") {
+      throw new ClaudeModelCatalogUnreadableError(
+        `model '${resolvedModel}' has an unreadable \`supportsFastMode\``,
+      );
+    }
+    const model: ProviderModel = {
+      id: resolvedModel,
+      name: displayName,
+      capabilities: [],
+      fast: supportsFastMode === true,
+    };
     const effortLevels = entry["supportedEffortLevels"];
     if (
       entry["supportsEffort"] !== false &&
@@ -822,6 +839,7 @@ export async function resolveClaudeModelCatalog(
       id: model.id,
       name: model.name,
       capabilities: [...model.capabilities],
+      fast: model.fast,
       ...(model.effortLevels === undefined ? {} : { effortLevels: [...model.effortLevels] }),
     }));
   }

@@ -51,6 +51,10 @@ function accountAtGeneration(credentialGeneration: number): ProviderAccount {
     loggedInAt: "2025-12-02T09:00:00.000Z",
     expectedReloginAtEstimate: "2026-01-01T09:00:00.000Z",
     probeEnabled: true,
+    lastRefreshObservedAt: null,
+    windowStartEnabled: true,
+    wakeForWindowStartEnabled: false,
+    memoryImport: null,
   };
 }
 

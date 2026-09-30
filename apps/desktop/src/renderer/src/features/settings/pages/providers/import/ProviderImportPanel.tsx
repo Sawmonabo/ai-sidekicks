@@ -1,27 +1,29 @@
 // Bring a provider transcript in as a session.
 //
-// A person already has a Claude or Codex thread on disk and wants it here rather than
-// retyped. The panel is a form over two fields and one import.
+// A person already has Claude Code or Codex conversations on disk and wants them here
+// rather than retyped. The panel is a form over one choice, the provider, and the
+// import it starts.
 //
-// ONE IMPORT AT A TIME, AND THE BEGIN IS NOT WHERE IT ENDS. The act settles the
-// moment the daemon hands back an import id, which is the moment the READING starts
-// rather than the moment it finishes. A control re-enabled there lets a second submit
-// replace the id, close the first subscription, and leave that import running with
-// nothing on screen reporting it — so what disables the control is the whole of the
-// import, the begin and the stream that follows it, and the two phases keep their own
-// sentences.
+// THE START IS NOT WHERE IT ENDS. The act settles the moment the daemon hands back an
+// import id, which is the moment the READING starts rather than the moment it
+// finishes. A control re-enabled there lets a second submit move the panel's stream to
+// another provider and leave the first import running with nothing on screen reporting
+// it — so what disables the control is the whole of the import, the start and the
+// stream that follows it, and the two phases keep their own sentences.
 //
 // THE IMPORT ITSELF IS NOT HELD HERE, AND THAT IS DELIBERATE. This panel may be
 // rendered behind a disclosure, so anything it held would end the moment somebody
 // looked elsewhere — a closed progress stream, a lost import id, and the guard above
-// bypassed on the way back. `provider-import-model.ts` says the rest; what matters
-// here is that this component is a VIEW over an import and never the place one lives.
-// The two fields are the exception and are correctly the panel's: they are what the
-// NEXT import will be, and a person who has left the form has not typed one yet.
+// bypassed on the way back. `useProviderImport.ts` says the rest; what matters here is
+// that this component is a VIEW over an import and never the place one lives. The
+// provider choice is the exception and is correctly the panel's: it is what the NEXT
+// import will be, and a person who has left the form has not chosen one yet.
 
 import "./provider-import.css";
 
 import { useMemo, useState } from "react";
+
+import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts";
 
 import { ImportProgressLine } from "./ImportProgressLine.js";
 import type { ProviderImportModel } from "./useProviderImport.js";
@@ -34,13 +36,9 @@ export interface ProviderImportPanelProps {
 /** The form that puts one provider import, and the progress line that reports it. */
 export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.Element {
   const { model } = props;
-  const [providerName, setProviderName] = useState("");
-  const [sourceRef, setSourceRef] = useState("");
+  const [provider, setProvider] = useState<ProviderName | undefined>(undefined);
   const { progress, isBeginning, isReading, isUnderway } = model;
 
-  const trimmedProviderName = providerName.trim();
-  const trimmedSourceRef = sourceRef.trim();
-  const isIncomplete = trimmedProviderName.length === 0 || trimmedSourceRef.length === 0;
   const disabledReason = useMemo(() => {
     if (isBeginning) {
       return "The last import is still starting.";
@@ -48,8 +46,8 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
     if (isReading) {
       return "The last import is still being read.";
     }
-    return isIncomplete ? "Both the provider and what to read are needed." : undefined;
-  }, [isBeginning, isReading, isIncomplete]);
+    return provider === undefined ? "Choose the provider to import from." : undefined;
+  }, [isBeginning, isReading, provider]);
 
   return (
     <form
@@ -57,38 +55,32 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
       aria-label="Import a provider session"
       onSubmit={(event) => {
         event.preventDefault();
-        if (disabledReason !== undefined) {
+        if (disabledReason !== undefined || provider === undefined) {
           return;
         }
-        void model.put({ providerName: trimmedProviderName, sourceRef: trimmedSourceRef });
+        void model.put({ provider });
       }}
     >
       <p className="meridian-session-import__lede">
-        Read an existing provider thread into a session.
+        Read a provider's existing conversations into sessions.
       </p>
       <label className="meridian-session-import__field">
         <span className="meridian-session-import__label">Provider</span>
-        <input
+        <select
           className="meridian-session-import__input"
-          value={providerName}
+          value={provider ?? ""}
           disabled={isUnderway}
-          placeholder="claude"
           onChange={(event) => {
-            setProviderName(event.target.value);
+            setProvider(PROVIDER_NAMES.find((name) => name === event.target.value));
           }}
-        />
-      </label>
-      <label className="meridian-session-import__field">
-        <span className="meridian-session-import__label">What to read</span>
-        <input
-          className="meridian-session-import__input"
-          value={sourceRef}
-          disabled={isUnderway}
-          placeholder="The transcript this node can reach"
-          onChange={(event) => {
-            setSourceRef(event.target.value);
-          }}
-        />
+        >
+          <option value="">Choose a provider</option>
+          {PROVIDER_NAMES.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
       </label>
       <button
         type="submit"

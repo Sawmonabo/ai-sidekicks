@@ -238,7 +238,7 @@ describe("DriverClient — no client-facing route mints a replacement session", 
     // catching them keeps the test about routing rather than about payloads.
     const settled = await Promise.allSettled([
       client.listCapabilities(),
-      client.listModels(),
+      client.listModels({ sessionId: TEST_SESSION_ID }),
       client.listModes(),
       client.interruptRun({ runId: TEST_RUN_ID }),
       client.respondToRequest({

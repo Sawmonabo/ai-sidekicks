@@ -25,7 +25,6 @@ import * as providerAccountModule from "../provider-account.js";
 import {
   PROVIDER_ACCOUNT_WIRE_SHAPES,
   ProviderAccountInUseDetailsSchema,
-  ProviderAccountMemoryImportResponseSchema,
   ProviderAccountProbeRequestSchema,
   ProviderAccountProbeResponseSchema,
   ProviderAccountRemoveRequestSchema,
@@ -69,8 +68,12 @@ function validAccount(overrides: Record<string, unknown> = {}): Record<string, u
     healthObservedAt: TIMESTAMP,
     observedAuthMode: "oauth_subscription",
     loggedInAt: TIMESTAMP,
+    lastRefreshObservedAt: null,
     expectedReloginAtEstimate: null,
     probeEnabled: true,
+    windowStartEnabled: true,
+    wakeForWindowStartEnabled: false,
+    memoryImport: null,
     ...overrides,
   };
 }
@@ -602,27 +605,6 @@ describe("the account switch, the memory import, the usage read and their refusa
       ProviderAccountSetCurrentResponseSchema.safeParse({
         account: validAccount(),
         movingSessions: [{ sessionId: SESSION_ID, appliesAt: "turn_boundary" }],
-      }).success,
-    ).toBe(false);
-  });
-
-  it("settles a memory import as a count and a time, or as nothing to import", () => {
-    expect(
-      ProviderAccountMemoryImportResponseSchema.safeParse({
-        outcome: "imported",
-        count: 14,
-        importedAt: TIMESTAMP,
-      }).success,
-    ).toBe(true);
-    expect(
-      ProviderAccountMemoryImportResponseSchema.safeParse({ outcome: "nothingToImport" }).success,
-    ).toBe(true);
-    // An import that copied nothing is `nothingToImport`, never `imported` with zero.
-    expect(
-      ProviderAccountMemoryImportResponseSchema.safeParse({
-        outcome: "imported",
-        count: 0,
-        importedAt: TIMESTAMP,
       }).success,
     ).toBe(false);
   });

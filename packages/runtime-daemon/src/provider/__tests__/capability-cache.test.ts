@@ -32,6 +32,8 @@ import {
 import { DriverCapabilityCache } from "../capability-cache.js";
 import type { DriverCapabilityHydrationResult } from "../driver-capabilities-writer.js";
 import { declaredOutputSpeedLevelsFor } from "../driver-output-speed.js";
+import { CLAUDE_BUILT_IN_TOOLS } from "../drivers/claude/tools.js";
+import { CODEX_BUILT_IN_TOOLS } from "../drivers/codex/tools.js";
 
 function flagsWith(overrides: Partial<Record<DriverCapabilityFlag, boolean>>): DriverCapabilities {
   const flags = Object.fromEntries(
@@ -224,6 +226,40 @@ describe("DriverCapabilityCache — undeclared is unsupported", () => {
   });
 });
 
+describe("DriverCapabilityCache — each driver's built-in tools ride every read", () => {
+  it("answers each driver's own tool list, whether or not it declares an output speed", () => {
+    const cache = new DriverCapabilityCache({
+      hydrateDurableCapabilities: (driverName) =>
+        hydrationHit(flagsWith({ output_speed: driverName === "claude" }), driverName),
+    });
+
+    expect(cache.read("claude").builtInTools).toStrictEqual([...CLAUDE_BUILT_IN_TOOLS]);
+    expect(cache.read("codex").builtInTools).toStrictEqual([...CODEX_BUILT_IN_TOOLS]);
+  });
+
+  it("hands out a copy, so a reader that edits its reply changes no later read", () => {
+    const cache = new DriverCapabilityCache({
+      hydrateDurableCapabilities: () => hydrationHit(flagsWith({}), "codex"),
+    });
+
+    cache.read("codex").builtInTools.push("mutated");
+    expect(cache.read("codex").builtInTools).toStrictEqual([...CODEX_BUILT_IN_TOOLS]);
+  });
+
+  it("REFUSES a cached driver that has no tool list, rather than answering without one", () => {
+    // A driver with a cached capability set and no entry in the tool table was
+    // registered without one; a report with an empty list would read as a
+    // provider that carries no tools of its own.
+    const cache = new DriverCapabilityCache({
+      hydrateDurableCapabilities: () => hydrationHit(flagsWith({}), "gemini"),
+    });
+
+    expect(() => cache.read("gemini")).toThrow(
+      /no built-in tools are declared for driver 'gemini'/,
+    );
+  });
+});
+
 describe("DriverCapabilityCache — the report is the client-facing projection", () => {
   it("drops detectionSource, cliVersion, and tools, and parses against the wire schema", () => {
     // The carve-out belongs in the composition, and the wire schema is the
@@ -236,6 +272,7 @@ describe("DriverCapabilityCache — the report is the client-facing projection",
 
     const report = cache.read("claude");
     expect(Object.keys(report).sort()).toStrictEqual([
+      "builtInTools",
       "capabilities",
       "driverName",
       "outputSpeedLevels",

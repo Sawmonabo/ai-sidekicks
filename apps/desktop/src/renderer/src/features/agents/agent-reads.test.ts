@@ -9,6 +9,7 @@
 // The lifetime half — who holds these reads and what disposes them — is
 // `pane/agents-pane-models.test.ts`.
 
+import type { SessionId } from "@ai-sidekicks/contracts";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -24,8 +25,6 @@ import {
   unscriptedBridge,
 } from "./pane/components/run-links.test-support.js";
 
-const PARENT_RUN_ID = "run-7";
-
 /** A started linkage read over a store this case owns, on frozen time. */
 function startedLinkage(
   sessionStore: SessionStore,
@@ -33,7 +32,6 @@ function startedLinkage(
 ): ReturnType<typeof createChildRunLinks> {
   const read = createChildRunLinks(
     sessionStore,
-    PARENT_RUN_ID,
     clock,
     REJECTING_AGENTS_PANE_CALLS.readChildRunLinks,
   );
@@ -51,7 +49,7 @@ async function settleReads(clock: ManualClock): Promise<void> {
   });
 }
 
-describe("the Agents pane's models — what re-reads one run's child links", () => {
+describe("the Agents pane's models — what re-reads the session's child links", () => {
   it("re-reads once when a run is queued, and once when a create is refused", async () => {
     const sessionStore = initializedStore("session-signal");
     const clock = new ManualClock();
@@ -117,7 +115,11 @@ describe("the Agents pane's models — what re-reads one run's child links", () 
     // an instrument that counted something other than a re-read.
     const sessionStore = initializedStore("session-no-signal");
     const clock = new ManualClock();
-    const catalog = createDriverCatalogRead(unscriptedBridge("agent-catalog-signal").bridge, clock);
+    const catalog = createDriverCatalogRead(
+      unscriptedBridge("agent-catalog-signal").bridge,
+      clock,
+      sessionStore.sessionId as SessionId,
+    );
     catalog.start();
     await settleReads(clock);
     const afterFirstRead = catalog.readCount;

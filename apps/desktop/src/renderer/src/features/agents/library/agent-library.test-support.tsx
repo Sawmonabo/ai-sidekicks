@@ -16,7 +16,12 @@
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
+import type {
+  AgentDefinition,
+  AgentDefinitionId,
+  AgentProviderBinding,
+  ProviderAccountId,
+} from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
@@ -106,22 +111,35 @@ export class RegistryStub {
   }
 }
 
-export function definition(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
+/** One saved definition with every member filled, pinned on Claude. */
+export function definition(overrides: DefinitionOverrides = {}): AgentDefinition {
+  const { definitionId = "definition-1", defaultBinding = {}, ...members } = overrides;
   return {
-    definitionId: "definition-1",
+    definitionId: definitionId as AgentDefinitionId,
     name: "Reviewer",
     description: "Reads a diff and says what it would change.",
-    driverName: "claude",
-    modelId: "claude-opus-4-6",
-    providerAccountId: "account-work",
-    effort: "high",
-    executionPostureMode: "workspace-sandboxed",
+    icon: null,
+    accentHue: null,
+    bindings: {
+      default: {
+        driverName: "claude",
+        modelId: "claude-opus-4-6",
+        providerAccountId: "account-work" as ProviderAccountId,
+        effort: "high",
+        ...defaultBinding,
+      },
+      overrides: [],
+    },
+    executionPostureMode: "sandboxed",
     instructions: "Be exact.",
     goal: "Ship a clean diff.",
     toolAllowlist: ["read", "grep"],
+    turnCap: null,
+    hooks: null,
+    memoryScope: null,
     createdAt: "2026-01-01T10:00:00.000Z",
     updatedAt: "2026-01-02T11:30:00.000Z",
-    ...overrides,
+    ...members,
   };
 }
 
@@ -156,6 +174,12 @@ export async function releaseAnnouncementHold(clock: ManualClock): Promise<void>
     clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
     await crossMacrotaskBoundary();
   });
+}
+
+/** What a case changes on {@link definition}: any member, the id as plain text, and the default binding's members. */
+interface DefinitionOverrides extends Partial<Omit<AgentDefinition, "definitionId">> {
+  readonly definitionId?: string;
+  readonly defaultBinding?: Partial<AgentProviderBinding>;
 }
 
 /**

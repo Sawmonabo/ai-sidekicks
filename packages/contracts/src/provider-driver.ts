@@ -466,11 +466,22 @@ export interface ProviderSessionHandle {
 // `GetCapabilitiesResult.outputSpeedLevels`). Every existing constructor and
 // reader is unaffected: absence still means "no effort axis", and no call site
 // is newly required to supply anything.
+//
+// `fast` is whether the model has a fast output mode, as its provider says:
+// Claude Code's `supportsFastMode` on the model's catalog row, Codex's non-empty
+// service-tier list. A model without one keeps the speed control grayed, so the
+// member is required: a missing reading and "no fast mode" must not look alike.
+//
+// `contextWindow` is the model's window in tokens, as the provider reports it.
+// Absent until a reading has arrived, and a row with no reading shows the model
+// with no figure: nothing fills it from a table or a default.
 export interface ProviderModel {
   id: string;
   name: string;
   capabilities: string[];
   effortLevels?: string[] | undefined;
+  fast: boolean;
+  contextWindow?: number | undefined;
 }
 
 export interface ProviderMode {
@@ -2308,7 +2319,7 @@ export type DriverTransportConfig =
 // six request/response verbs, the subscription leg, and the two console-parity
 // verbs:
 //   `driver.listCapabilities`  DriverReadParams        -> ListCapabilitiesResult
-//   `driver.listModels`        DriverReadParams        -> ListModelsResult
+//   `driver.listModels`        ListModelsRequest       -> ListModelsResult
 //   `driver.listModes`         DriverReadParams        -> ListModesResult
 //   `driver.interruptRun`      InterruptRunParams      -> DriverAckResult
 //   `driver.applyIntervention` ApplyInterventionParams -> DriverInterventionResult
@@ -2323,16 +2334,13 @@ export type DriverTransportConfig =
 // driver-normalized provider output and a second entry schema here would
 // drift from the first.
 //
-// WHY THE THREE READS TAKE NO PARAMETERS. `DriverClient` interface with
-// `listCapabilities()`, `listModels()`, and `listModes()` written no-arg while
-// `interruptRun(p)`, `applyIntervention(p)`, and `respondToRequest(p)` take one.
-// That asymmetry is deliberate and it is a signature, so a `{ driverName }`
-// request here would contradict a ratified line rather than merely differ from
-// it. The refusal arm a per-driver request would have carried is not lost: the
-// reads are served from the daemon's capability cache with no provider
-// round-trip per call, so there is no unavailable driver to refuse ON; the
-// run-addressed verbs below keep `driver.unavailable` reachable where a live
-// binding actually is required.
+// WHAT THE THREE READS TAKE. `driver.listCapabilities` and `driver.listModes`
+// take nothing: capabilities are served from the daemon's capability cache with
+// no provider round-trip per call, so there is no driver to name and none to
+// refuse on. `driver.listModels` takes the session whose model control asks,
+// because the catalog it answers is the one that session can run: a model its
+// account or the session itself cannot run is left out, never grayed. None of
+// the three takes a `{ driverName }`: every reply answers for every driver.
 //
 // WHY THE THREE READS REPLY PER DRIVER. Each reply is a GROUP LIST keyed by
 // `driverName`, never a flat merged array — the same rule
@@ -2353,9 +2361,12 @@ export type DriverTransportConfig =
 // readers are), and no
 // clause routes it to a client, so it is omitted on the stated bias that adding
 // a member later is additive while removing one is a break. `outputSpeedLevels`
-// is the one member that DOES cross, and it must: makes its reader a
-// user-facing control, so a client would otherwise receive `output_speed:
-// true` without the values it has to render.
+// crosses, and it must: makes its reader a user-facing control, so a client
+// would otherwise receive `output_speed: true` without the values it has to
+// render. `builtInTools` crosses too: it is each provider's own fixed tool list,
+// which the tool-allowlist picker offers beside the callback and MCP tools, and
+// it is a different list from `tools`, whose entries carry recovery classes a
+// client never reads.
 
 // Per-field length caps for the SDK seam. Same defense-in-depth posture as the
 // provider-boundary block (the framework layer is authoritative on body size;
@@ -2437,7 +2448,7 @@ export const DRIVER_WIRE_CATALOG_ENTRIES_MAX = 256;
 export const DRIVER_WIRE_STEER_ATTACHMENTS_MAX = 64;
 export const DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN = 64;
 
-// The request shape shared by the three no-arg reads, and the reply shape shared
+// The request shape shared by the two no-arg reads, and the reply shape shared
 // by the two verbs whose driver-side operation returns `Promise<void>`.
 //
 // TWO NAMES FOR ONE STRUCTURE, DELIBERATELY. Both are the empty object, and
@@ -2459,6 +2470,15 @@ export const DriverReadParamsSchema: z.ZodType<DriverReadParams, DriverReadParam
 export type DriverAckResult = Record<string, never>;
 export const DriverAckResultSchema: z.ZodType<DriverAckResult, DriverAckResult> = z
   .object({})
+  .strict();
+
+// `driver.listModels`'s request: the session whose model control is reading the
+// catalog. Strict for the reason the empty envelopes above are.
+export interface ListModelsRequest {
+  sessionId: SessionId;
+}
+export const ListModelsRequestSchema: z.ZodType<ListModelsRequest, ListModelsRequest> = z
+  .object({ sessionId: SessionIdSchema })
   .strict();
 
 // The per-flag boolean shape, DERIVED from `DRIVER_CAPABILITY_FLAGS` rather than
@@ -2500,11 +2520,15 @@ export const DriverCapabilitiesSchema: z.ZodType<DriverCapabilities, DriverCapab
 
 // One driver's entry in the `driver.listCapabilities` reply. See the section
 // header for why this is `GetCapabilitiesResult` minus `detectionSource`,
-// `cliVersion`, and `tools`, and plus `driverName`.
+// `cliVersion`, and `tools`, and plus `driverName` and `builtInTools`.
+//
+// `builtInTools` is the provider's own tool names, in the provider's words, and
+// every driver has them, so the member is required.
 export interface DriverCapabilityReport {
   driverName: string;
   capabilities: DriverCapabilities;
   outputSpeedLevels?: string[] | undefined;
+  builtInTools: string[];
 }
 
 export interface ListCapabilitiesResult {
@@ -2539,6 +2563,9 @@ export const DriverCapabilityReportSchema: z.ZodType<
       )
       .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
       .optional(),
+    builtInTools: z
+      .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "DriverCapabilityReport.builtInTools"))
+      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
   })
   .strict();
 
@@ -2574,6 +2601,8 @@ export const ProviderModelSchema: z.ZodType<ProviderModel, ProviderModel> = z
       .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.effortLevels"))
       .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
       .optional(),
+    fast: z.boolean(),
+    contextWindow: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -2896,7 +2925,7 @@ export interface DriverMethodDescriptors {
   >;
   readonly "driver.listModels": MethodDescriptor<
     "driver.listModels",
-    DriverReadParams,
+    ListModelsRequest,
     ListModelsResult
   >;
   readonly "driver.listModes": MethodDescriptor<
@@ -2944,7 +2973,7 @@ export const DRIVER_METHOD_DESCRIPTORS: DriverMethodDescriptors = defineMethodDe
     method: "driver.listModels",
     procedureType: "query",
     mutating: false,
-    requestSchema: DriverReadParamsSchema,
+    requestSchema: ListModelsRequestSchema,
     responseSchema: ListModelsResultSchema,
   },
   "driver.listModes": {

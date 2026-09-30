@@ -30,9 +30,6 @@ import {
   unscriptedBridge,
 } from "./components/run-links.test-support.js";
 
-const PARENT_RUN_ID = "run-7";
-const OTHER_PARENT_RUN_ID = "run-9";
-
 /** The provider a hook under test is mounted in: that fixture's bridge, on its frozen clock. */
 function windowOver(
   fixture: FixtureBridge,
@@ -162,11 +159,11 @@ describe("the Agents pane's models — the linkage lease", () => {
       initializedStore("session-lease"),
       REJECTING_AGENTS_PANE_CALLS,
     );
-    const lease = models.acquireLinkage(PARENT_RUN_ID);
+    const lease = models.acquireLinkage();
 
     expect(lease.read.isSubscribed).toBe(false);
     expect(lease.read.readCount).toBe(0);
-    expect(models.heldLinkageParentRunId).toBe(PARENT_RUN_ID);
+    expect(models.holdsLinkage).toBe(true);
 
     // And the caller starting it DOES subscribe, so the case above is about who
     // starts the read rather than about a lease that hands back a dead object.
@@ -184,47 +181,23 @@ describe("the Agents pane's models — the linkage lease", () => {
       initializedStore("session-lease"),
       REJECTING_AGENTS_PANE_CALLS,
     );
-    const first = models.acquireLinkage(PARENT_RUN_ID);
-    const second = models.acquireLinkage(PARENT_RUN_ID);
+    const first = models.acquireLinkage();
+    const second = models.acquireLinkage();
     first.read.start();
 
-    // One read, joined — never two projections of one parent run's children.
+    // One read, joined — never two projections of one session's tree.
     expect(second.read).toBe(first.read);
     expect(models.outstandingLinkageLeaseCount).toBe(2);
 
     first.release();
-    expect(models.heldLinkageParentRunId).toBe(PARENT_RUN_ID);
+    first.release();
+    expect(models.holdsLinkage).toBe(true);
     expect(second.read.isSubscribed).toBe(true);
 
     second.release();
     expect(models.outstandingLinkageLeaseCount).toBe(0);
-    expect(models.heldLinkageParentRunId).toBeUndefined();
+    expect(models.holdsLinkage).toBe(false);
     expect(second.read.isSubscribed).toBe(false);
-  });
-
-  it("disposes the previous run's read when a different run is acquired", () => {
-    const { bridge, scenarioEngine } = unscriptedBridge("agent-linkage-rekey");
-    const models = new AgentsPaneModels(
-      bridge,
-      scenarioEngine.clock,
-      initializedStore("session-lease"),
-      REJECTING_AGENTS_PANE_CALLS,
-    );
-    const first = models.acquireLinkage(PARENT_RUN_ID);
-    first.read.start();
-    const second = models.acquireLinkage(OTHER_PARENT_RUN_ID);
-
-    expect(first.read.isSubscribed).toBe(false);
-    expect(second.read).not.toBe(first.read);
-    expect(models.heldLinkageParentRunId).toBe(OTHER_PARENT_RUN_ID);
-
-    // A lease on a set the holder has already replaced releases nothing.
-    first.release();
-    expect(models.heldLinkageParentRunId).toBe(OTHER_PARENT_RUN_ID);
-
-    models.dispose();
-    expect(second.read.isSubscribed).toBe(false);
-    expect(models.heldLinkageParentRunId).toBeUndefined();
   });
 });
 

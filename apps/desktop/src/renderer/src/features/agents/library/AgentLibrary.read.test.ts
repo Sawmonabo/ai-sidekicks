@@ -67,7 +67,7 @@ describe("the agent library — a row", () => {
     // The provenance signature. "The provider's default" is this console's
     // sentence about an absence, and mono would attribute it to the daemon.
     const { container } = renderAgentLibrary(
-      new RegistryStub({ lists: [[definition({ providerAccountId: null })]] }),
+      new RegistryStub({ lists: [[definition({ defaultBinding: { providerAccountId: null } })]] }),
     );
     await settle();
     const saved = savedRegionOf(container);

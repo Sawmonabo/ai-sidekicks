@@ -1,38 +1,57 @@
 // Putting a provider import from its panel, end to end.
 //
 // The panel and the model above it are the real modules and the two calls are plain
-// stubs. What is asserted is what the form sends, that the subscription opens on the id
-// the begin answers with, and that the panel renders the producer's own words at every
-// step until the producer stops — with the control shut until then.
+// stubs. What is asserted is what the form sends, that the stream opens on the provider
+// the form named, and that the panel renders the service's own words at every step
+// until the import it started settles — with the control shut until then.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { ProviderImportId, ProviderImportProgress } from "@ai-sidekicks/contracts";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportBeginCall } from "./useProviderImport.js";
-import type {
-  ImportProgressFrame,
-  ImportProgressStream,
-  ImportProgressSubscribeCall,
-} from "./import-progress.js";
+import type { ImportProgressStream, ImportProgressSubscribeCall } from "./import-progress.js";
+import { chooseProvider } from "./provider-import.test-support.js";
 import { settle } from "@test/helpers/settle.js";
 
-/** The id the stubbed begin answers with, so the subscription can be shown to use it. */
-const IMPORT_ID = "provider-import-3";
+/** The id the stubbed start answers with. */
+const IMPORT_ID = "provider-import-3" as ProviderImportId;
 
-/** The producer's frames, ending on a terminal one. */
-const FRAMES: readonly ImportProgressFrame[] = [
-  { importId: IMPORT_ID, turnsSeen: 7, state: "reading the transcript" },
-  { importId: IMPORT_ID, turnsSeen: 33, state: "reading the transcript" },
-  { importId: IMPORT_ID, turnsSeen: 61, state: "complete" },
+/** How the provider's previous import ended: the first message a stream sends. */
+const PREVIOUS_OUTCOME: ProviderImportProgress = {
+  kind: "settled",
+  provider: "claude",
+  importId: "provider-import-2" as ProviderImportId,
+  settlement: { outcome: "nothingNew", alreadyHere: 4, unreadableFiles: [] },
+};
+
+/** The service's messages for the import this case starts, ending on its outcome. */
+const MESSAGES: readonly ProviderImportProgress[] = [
+  PREVIOUS_OUTCOME,
+  { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 7 },
+  { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 33 },
+  {
+    kind: "settled",
+    provider: "claude",
+    importId: IMPORT_ID,
+    settlement: {
+      outcome: "finished",
+      imported: 58,
+      total: 61,
+      alreadyHere: 4,
+      failures: [{ source: "one.jsonl", reason: "truncated" }],
+      unreadableFiles: [],
+      attachedProjects: ["web"],
+    },
+  },
 ];
 
 /**
- * A stream that waits for the case before each frame, and ends after the last.
+ * A stream that waits for the case before each message.
  *
- * Paced by the case rather than by a clock, so the intermediate reading states are on
- * screen to be asserted at all — a stream that walked itself would batch them into the
- * terminal frame.
+ * Paced by the case rather than by a clock, so the intermediate states are on screen
+ * to be asserted at all — a stream that walked itself would batch them into the last.
  */
 function steppedStream(): {
   readonly stream: ImportProgressStream;
@@ -40,8 +59,8 @@ function steppedStream(): {
 } {
   let release: (() => void) | undefined;
   let isReleased = false;
-  async function* frames(): AsyncGenerator<ImportProgressFrame> {
-    for (const frame of FRAMES) {
+  async function* messages(): AsyncGenerator<ProviderImportProgress> {
+    for (const message of MESSAGES) {
       // A release that arrived before the generator parked is spent here, so the
       // case never depends on which of the two got there first.
       if (!isReleased) {
@@ -50,11 +69,11 @@ function steppedStream(): {
         });
       }
       isReleased = false;
-      yield frame;
+      yield message;
     }
   }
   return {
-    stream: { events: frames(), close: () => undefined },
+    stream: { events: messages(), close: () => undefined },
     step: async () => {
       await act(async () => {
         isReleased = true;
@@ -72,22 +91,6 @@ function ImportHost(props: {
   return <ProviderImportPanel model={useProviderImport(props.begin, props.subscribe)} />;
 }
 
-/** Type into one of the panel's fields, the way a person does. */
-function fill(container: HTMLElement, labelText: string, value: string): void {
-  const field = [...container.querySelectorAll("label")].find((label) =>
-    label.textContent?.startsWith(labelText),
-  );
-  const input = field?.querySelector("input");
-  if (input === null || input === undefined) {
-    throw new Error(`no field labeled ${labelText}`);
-  }
-  act(() => {
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-    setter?.call(input, value);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
-
 /** The panel's own submit control. */
 function submitControl(container: HTMLElement): HTMLButtonElement {
   const button = container.querySelector("button.meridian-session-import__submit");
@@ -102,8 +105,8 @@ function progressText(container: HTMLElement): string {
   return container.querySelector(".meridian-session-import__progress")?.textContent ?? "";
 }
 
-describe("importing a provider session", () => {
-  it("sends the request, follows the producer to its end, then reopens the form", async () => {
+describe("importing a provider's conversations", () => {
+  it("sends the provider, follows its import to the end, then reopens the form", async () => {
     const beginRequests: unknown[] = [];
     const subscribeRequests: unknown[] = [];
     const { stream, step } = steppedStream();
@@ -120,8 +123,8 @@ describe("importing a provider session", () => {
       />,
     );
 
-    fill(view.container, "Provider", "claude");
-    fill(view.container, "What to read", "~/.claude/threads/one.jsonl");
+    expect(submitControl(view.container).disabled).toBe(true);
+    chooseProvider(view.container, "claude");
     act(() => {
       view.container
         .querySelector("form")
@@ -129,29 +132,26 @@ describe("importing a provider session", () => {
     });
     await settle();
 
-    // The form sends what a person typed, and the subscription opens on the id the
-    // begin answered with rather than on anything the form knows.
-    expect(beginRequests).toStrictEqual([
-      { providerName: "claude", sourceRef: "~/.claude/threads/one.jsonl" },
-    ]);
-    expect(subscribeRequests).toStrictEqual([{ importId: IMPORT_ID }]);
+    expect(beginRequests).toStrictEqual([{ provider: "claude" }]);
+    expect(subscribeRequests).toStrictEqual([{ provider: "claude" }]);
 
-    // Step-wise through the producer's frames: each one is on screen in its own words
-    // while the import is running, and the control stays shut for all of them. A
-    // control re-enabled here would let a second submit replace the id and orphan this
-    // reading with nothing on screen reporting it.
-    for (const frame of FRAMES.slice(0, 2)) {
+    // The stream's first message is the LAST import's outcome. It is shown, and it
+    // does not reopen the form: the import this panel started has not settled.
+    await step();
+    expect(progressText(view.container)).toContain("found nothing new");
+    expect(submitControl(view.container).disabled).toBe(true);
+
+    for (const read of [7, 33]) {
       await step();
-      expect(progressText(view.container)).toContain(String(frame.turnsSeen));
-      expect(progressText(view.container)).toContain("Reading");
+      expect(progressText(view.container)).toContain(`Reading — ${String(read)} conversations`);
       expect(submitControl(view.container).disabled).toBe(true);
     }
 
-    // And the moment the producer stops, the form is a form again.
+    // And the moment the import it started settles, the form is a form again.
     await step();
-    expect(progressText(view.container)).toContain("Ended");
-    expect(progressText(view.container)).toContain("complete");
-    expect(progressText(view.container)).toContain("61");
+    expect(progressText(view.container)).toBe(
+      "The last import brought in 58 of 61 conversations; 4 already here. 1 conversation could not be imported. Attached 1 project.",
+    );
     expect(submitControl(view.container).disabled).toBe(false);
   });
 });

@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../agents-caps.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
-import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
+import { agentEntry, resolvedConfiguration } from "./agent-binding-column.test-support.js";
 import { AgentBindingCard } from "./AgentBindingCard.js";
 import { ToolAllowlistLine } from "./ToolAllowlistLine.js";
 
@@ -37,9 +37,7 @@ describe("tool grant line — what each position says", () => {
     // "no question was put" explained itself to nobody using a keyboard or a screen
     // reader. The sentence is in the line now, and it has one home.
     const { container } = render(<ToolAllowlistLine position={{ kind: "not-reported" }} />);
-    expect(lineTextOf(container)).toContain(
-      "carried identity and lifecycle and no resolved configuration",
-    );
+    expect(lineTextOf(container)).toContain("not started from a saved definition");
   });
 
   it("negative control: the sentence is read from the line's own text, not an attribute", () => {
@@ -126,12 +124,9 @@ describe("tool grant line — what each position says", () => {
 });
 
 describe("tool grant line — it is on the card", () => {
-  const ATTACHED_WITH_TOOLS: AgentListEntry = {
-    agentId: "agent-scout",
-    name: "Scout",
-    driverName: "claude",
-    resolvedConfiguration: { toolAllowlist: ["read", "write"] },
-  };
+  const ATTACHED_WITH_TOOLS = agentEntry({
+    resolvedConfiguration: resolvedConfiguration({ toolAllowlist: ["read", "write"] }),
+  });
 
   it("renders the grant for the agent the card was handed", () => {
     const { container } = render(<AgentBindingCard agent={ATTACHED_WITH_TOOLS} />);
@@ -141,7 +136,7 @@ describe("tool grant line — it is on the card", () => {
   it("negative control: an agent with no configuration draws the unanswered arm", () => {
     // Without this the case above would pass over a card that printed one position
     // unconditionally, which is the failure a governance line can least afford.
-    const { container } = render(<AgentBindingCard agent={{ agentId: "agent-scout" }} />);
+    const { container } = render(<AgentBindingCard agent={agentEntry()} />);
     expect(lineTextOf(container)).toContain("Not reported");
     expect(lineTextOf(container)).not.toContain("tools");
   });

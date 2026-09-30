@@ -25,7 +25,12 @@ const SESSION_ID = "session-agents-pane-body";
 /** Calls that answer with nothing to show, so the column settles without a roster. */
 const EMPTY_CALLS: AgentsPaneCalls = {
   listAgents: () => Promise.resolve({ agents: [] }),
-  readChildRunLinks: () => Promise.resolve({ links: [], rejectedCreates: [] }),
+  readChildRunLinks: () =>
+    Promise.resolve({
+      children: [],
+      counts: { live: 0, total: 0, waiting: 0 },
+      rejectedCreates: [],
+    }),
 };
 
 function fixtureBridge(): FixtureBridge {

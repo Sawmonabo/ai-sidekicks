@@ -101,6 +101,7 @@ import {
   InterruptRunParamsSchema,
   InterventionTypeSchema,
   ListCapabilitiesResultSchema,
+  ListModelsRequestSchema,
   ListModelsResultSchema,
   ListModesResultSchema,
   ProviderModelSchema,
@@ -262,7 +263,9 @@ class MockProviderDriver implements ProviderDriver {
   }
 
   public listModels(): Promise<ProviderModel[]> {
-    return Promise.resolve([{ id: "model-1", name: "Model One", capabilities: ["tool_calls"] }]);
+    return Promise.resolve([
+      { id: "model-1", name: "Model One", capabilities: ["tool_calls"], fast: false },
+    ]);
   }
 
   public listModes(): Promise<ProviderMode[]> {
@@ -3062,14 +3065,27 @@ describe("DriverReadParams / DriverAckResult — the two empty envelopes", () =>
     expect(DriverAckResultSchema.parse({})).toEqual({});
   });
 
-  it("REFUSES a driver selector on the read request — the reads are no-arg by ratified signature", () => {
-    // `listCapabilities()` / `listModels()` / `listModes()` no-arg while the
-    // three run-addressed verbs take a param. A `{ driverName }` request would
-    // contradict that signature, and `.strict()` is what makes the
-    // contradiction a refusal instead of a silently ignored key that a caller
-    // would then believe had filtered the reply.
+  it("REFUSES a driver selector on the read request — every reply answers for every driver", () => {
+    // `.strict()` is what makes a `{ driverName }` request a refusal instead of
+    // a silently ignored key that a caller would then believe had filtered the
+    // reply.
     expect(DriverReadParamsSchema.safeParse({ driverName: "claude" }).success).toBe(false);
     expect(DriverAckResultSchema.safeParse({ status: "ok" }).success).toBe(false);
+  });
+});
+
+describe("ListModelsRequest — the catalog is read for one session", () => {
+  const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+
+  it("accepts the session whose model control asks", () => {
+    expect(ListModelsRequestSchema.parse({ sessionId })).toEqual({ sessionId });
+  });
+
+  it("REFUSES a read that names no session, or names a driver", () => {
+    expect(ListModelsRequestSchema.safeParse({}).success).toBe(false);
+    expect(ListModelsRequestSchema.safeParse({ sessionId, driverName: "claude" }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -3125,6 +3141,7 @@ describe("ListCapabilitiesResultSchema — what crosses to a client, and what st
     driverName: "claude",
     capabilities: { flags: { ...allFlagsFalse(), output_speed: true }, contractVersion: "1.0.0" },
     outputSpeedLevels: ["off", "on"],
+    builtInTools: ["Read", "Edit", "Bash"],
   };
 
   it("carries the flags and the output-speed vocabulary", () => {
@@ -3173,6 +3190,24 @@ describe("ListCapabilitiesResultSchema — what crosses to a client, and what st
     ).toBe(false);
   });
 
+  it("carries each driver's built-in tools, and refuses a report without them", () => {
+    // Every driver has tools of its own, so a report without the list is a
+    // composition fault rather than a driver with none.
+    expect(DriverCapabilityReportSchema.parse(report).builtInTools).toEqual([
+      "Read",
+      "Edit",
+      "Bash",
+    ]);
+    const { builtInTools: _tools, ...withoutTools } = report;
+    expect(DriverCapabilityReportSchema.safeParse(withoutTools).success).toBe(false);
+    expect(
+      DriverCapabilityReportSchema.safeParse({
+        ...report,
+        builtInTools: ["x".repeat(DRIVER_WIRE_TOKEN_MAX_LEN + 1)],
+      }).success,
+    ).toBe(false);
+  });
+
   it("REFUSES an empty driverName — the reply quotes the daemon's own registry key", () => {
     expect(
       ListCapabilitiesResultSchema.safeParse({ drivers: [{ ...report, driverName: "" }] }).success,
@@ -3181,13 +3216,21 @@ describe("ListCapabilitiesResultSchema — what crosses to a client, and what st
 });
 
 describe("ListModelsResultSchema / ListModesResultSchema — provenance survives the reply", () => {
-  const claudeModel = { id: "claude-haiku-4-5-20251001", name: "Haiku 4.5", capabilities: [] };
+  const claudeModel = {
+    id: "claude-haiku-4-5-20251001",
+    name: "Haiku 4.5",
+    capabilities: [],
+    fast: false,
+  };
 
   it("groups entries per driver rather than flattening them", () => {
     const parsed = ListModelsResultSchema.parse({
       drivers: [
         { driverName: "claude", models: [claudeModel] },
-        { driverName: "codex", models: [{ id: "gpt-5.6-luna", name: "Luna", capabilities: [] }] },
+        {
+          driverName: "codex",
+          models: [{ id: "gpt-5.6-luna", name: "Luna", capabilities: [], fast: true }],
+        },
       ],
     });
     // The grouping IS the provenance: model ids collide across providers and
@@ -3202,6 +3245,22 @@ describe("ListModelsResultSchema / ListModesResultSchema — provenance survives
     expect(
       ProviderModelSchema.safeParse({ ...claudeModel, effortLevels: ["low", "high"] }).success,
     ).toBe(true);
+  });
+
+  it("REFUSES a model with no fast reading, since no fast mode and no reading must differ", () => {
+    const { fast: _fast, ...withoutFast } = claudeModel;
+    expect(ProviderModelSchema.safeParse(withoutFast).success).toBe(false);
+  });
+
+  it("keeps contextWindow ABSENT until a reading arrives, and takes a whole token count", () => {
+    const parsed = ProviderModelSchema.parse(claudeModel);
+    expect(Object.hasOwn(parsed, "contextWindow")).toBe(false);
+    expect(
+      ProviderModelSchema.parse({ ...claudeModel, contextWindow: 200_000 }).contextWindow,
+    ).toBe(200_000);
+    for (const contextWindow of [0, -1, 200_000.5]) {
+      expect(ProviderModelSchema.safeParse({ ...claudeModel, contextWindow }).success).toBe(false);
+    }
   });
 
   it("bounds model tokens and the per-driver catalog length", () => {

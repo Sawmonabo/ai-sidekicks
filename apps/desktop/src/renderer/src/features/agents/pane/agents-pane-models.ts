@@ -6,12 +6,11 @@
 // policy moves when a view changes how it mounts, and a refresh story moves when
 // the wire grows a signal.
 //
-// A CACHE OF ONE, TWICE OVER. A console shows one session at a time and one run's
-// links at a time, so both caches hold exactly one entry and switching disposes what
-// they held. That is a bound stated by construction rather than a cap with a
-// rationale: neither can grow. The roster is built once with the models and lives as
-// long as they do; one run's child links are built on demand and cached one at a
-// time — asking for a different run disposes the previous read.
+// ONE OF EACH. A console shows one session at a time, and the child-link read answers
+// that session's whole tree, so the models hold at most one roster and one linkage
+// read. That is a bound stated by construction rather than a cap with a rationale:
+// neither can grow. The roster is built once with the models and lives as long as
+// they do; the linkage read is built on the first lease and disposed with the last.
 //
 // ACQUIRING A LINKAGE READ IS NOT STARTING ONE, AND THAT SPLIT IS THE POINT. Starting
 // opens a subscription and arms a scheduler, which React's render phase may abandon
@@ -39,12 +38,11 @@ import {
 } from "../agent-reads.js";
 
 /**
- * One holder's grant of a parent run's child-link read.
+ * One holder's grant of the session's child-link read.
  *
  * A value the taker owns rather than a flag on the models, so releasing is something
- * the effect that acquired it can do without naming the run it acquired for — which
- * matters exactly when the run has since changed underneath it. The read is handed
- * over UNSTARTED: whoever takes the lease starts it from its own mount effect, and
+ * the effect that acquired it does for itself alone. The read is handed over
+ * UNSTARTED: whoever takes the lease starts it from its own mount effect, and
  * `start()` is idempotent, so a second holder joining a live read starts nothing
  * twice.
  */
@@ -53,9 +51,7 @@ export interface ChildRunLinksLease {
   /**
    * Give this grant back.
    *
-   * Idempotent, and terminal for this lease alone: a second call does nothing, and a
-   * lease on a read the models have already replaced releases nothing, because the
-   * read it named was disposed with the run it belonged to.
+   * Idempotent, and terminal for this lease alone: a second call does nothing.
    */
   release: () => void;
 }
@@ -81,7 +77,7 @@ export class AgentsPaneModels {
 
   readonly #clock: Clock;
   readonly #calls: AgentsPaneCalls;
-  #linkage: HeldChildRunLinkage | undefined;
+  #linkage: ChildRunLinksRead | undefined;
   #outstandingLinkageLeaseCount = 0;
   #disposed = false;
 
@@ -111,9 +107,9 @@ export class AgentsPaneModels {
     return this.subject.sessionStore.sessionId;
   }
 
-  /** Which run the held linkage answers for, or `undefined` while none is held. */
-  public get heldLinkageParentRunId(): string | undefined {
-    return this.#linkage?.parentRunId;
+  /** Whether a linkage read is held. */
+  public get holdsLinkage(): boolean {
+    return this.#linkage !== undefined;
   }
 
   /** Linkage leases handed out and not given back. The lifetime assertion, counted. */
@@ -122,31 +118,18 @@ export class AgentsPaneModels {
   }
 
   /**
-   * Take a lease on one parent run's child-link read, building it on the first ask.
+   * Take a lease on the session's child-link read, building it on the first ask.
    *
-   * Asking for a different run disposes the previous read, so no scheduler and no
-   * subscription survives a run the console has left. The read is NOT started here:
-   * starting opens a subscription and arms a scheduler, and the view that takes
-   * the lease does both from a mount effect, where a cleanup exists to undo them.
+   * The read is NOT started here: starting opens a subscription and arms a
+   * scheduler, and the view that takes the lease does both from a mount effect,
+   * where a cleanup exists to undo them.
    */
-  public acquireLinkage(parentRunId: string): ChildRunLinksLease {
-    const held = this.#linkage;
-    if (held !== undefined && held.parentRunId === parentRunId) {
-      this.#outstandingLinkageLeaseCount += 1;
-      return this.#leaseOn(held);
-    }
-    this.#releaseLinkage();
-    const linkage: HeldChildRunLinkage = {
-      parentRunId,
-      read: createChildRunLinks(
-        this.subject.sessionStore,
-        parentRunId,
-        this.#clock,
-        this.#calls.readChildRunLinks,
-      ),
-    };
+  public acquireLinkage(): ChildRunLinksLease {
+    const linkage =
+      this.#linkage ??
+      createChildRunLinks(this.subject.sessionStore, this.#clock, this.#calls.readChildRunLinks);
     this.#linkage = linkage;
-    this.#outstandingLinkageLeaseCount = 1;
+    this.#outstandingLinkageLeaseCount += 1;
     return this.#leaseOn(linkage);
   }
 
@@ -160,20 +143,13 @@ export class AgentsPaneModels {
     this.#releaseLinkage();
   }
 
-  /**
-   * One lease over one held read, keyed on that read's own identity.
-   *
-   * The identity check is what makes a stale release harmless: React runs a mount's
-   * cleanup after the effect that re-keyed the run has already replaced the held
-   * read, and a counter decremented by that cleanup would take the NEW run's read
-   * down with it.
-   */
-  #leaseOn(linkage: HeldChildRunLinkage): ChildRunLinksLease {
+  /** One lease over the held read, counted down once however often it is released. */
+  #leaseOn(linkage: ChildRunLinksRead): ChildRunLinksLease {
     let isReleased = false;
     return {
-      read: linkage.read,
+      read: linkage,
       release: () => {
-        if (isReleased || this.#linkage !== linkage) {
+        if (isReleased) {
           return;
         }
         isReleased = true;
@@ -190,12 +166,6 @@ export class AgentsPaneModels {
     const held = this.#linkage;
     this.#linkage = undefined;
     this.#outstandingLinkageLeaseCount = 0;
-    held?.read.dispose();
+    held?.dispose();
   }
-}
-
-/** The linkage read the models hold, with the run it answers for. */
-interface HeldChildRunLinkage {
-  readonly parentRunId: string;
-  readonly read: ChildRunLinksRead;
 }

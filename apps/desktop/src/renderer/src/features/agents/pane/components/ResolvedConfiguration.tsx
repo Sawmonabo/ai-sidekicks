@@ -6,23 +6,17 @@
 // life. The two change for different reasons.
 //
 // IT IS NEVER RE-READ FROM THE DEFINITION REGISTRY. The registry row may already have
-// moved, and a configuration naming NO definition is never attributed to one.
+// moved, and the agent keeps what it was given.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { AgentResolvedConfiguration } from "@renderer/services/wire-shapes/agents.js";
+import type { AgentResolvedConfiguration } from "@ai-sidekicks/contracts";
 import { type AgentToolAllowlistPosition } from "../tool-allowlist.js";
 import { ToolAllowlist } from "./ToolAllowlist.js";
 import { ProseRow } from "./ProseRow.js";
 
-/**
- * The resolved configuration, fixed for the agent's life and never re-read.
- *
- * The definition row turns on whether one was NAMED, because the configuration is
- * present either way.
- */
+/** The resolved configuration, fixed for the agent's life and never re-read. */
 export function ResolvedConfiguration(props: {
   readonly resolved: AgentResolvedConfiguration;
-  readonly definitionId: string | undefined;
   /**
    * The grant the card already read, handed down rather than re-read here.
    *
@@ -35,19 +29,17 @@ export function ResolvedConfiguration(props: {
   const { resolved } = props;
   return (
     <dl className="meridian-agent-card__resolved">
-      {props.definitionId === undefined ? null : (
-        <div className="meridian-agent-card__resolved-row">
-          <dt>Definition</dt>
-          <dd>
-            <WireFigure value={props.definitionId} />
-          </dd>
-        </div>
-      )}
+      <div className="meridian-agent-card__resolved-row">
+        <dt>Definition</dt>
+        <dd>
+          <WireFigure value={resolved.resolvedFromDefinitionId} />
+        </dd>
+      </div>
       <div className="meridian-agent-card__resolved-row">
         <dt>Execution posture</dt>
         <dd>
-          {resolved.executionPostureMode === undefined ? (
-            <span className="meridian-agent-card__axis-absent">not reported</span>
+          {resolved.executionPostureMode === null ? (
+            <span className="meridian-agent-card__axis-absent">not pinned</span>
           ) : (
             <WireFigure value={resolved.executionPostureMode} />
           )}

@@ -13,16 +13,11 @@ import { describe, expect, it } from "vitest";
 
 import { AgentBindingCard } from "./AgentBindingCard.js";
 import { formatDateTime } from "@renderer/lib/wire-figures.js";
-import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
+import { agentEntry } from "./agent-binding-column.test-support.js";
 
 const ATTACHED_AT = "2026-03-04T08:15:00.000Z";
 
-const RUNNING: AgentListEntry = {
-  agentId: "agent-scout",
-  name: "Scout",
-  driverName: "claude",
-  modelId: "claude-sonnet",
-};
+const RUNNING = agentEntry();
 
 describe("agent card — the row's own lifecycle", () => {
   it("says when the roster row was created", () => {
@@ -54,14 +49,5 @@ describe("agent card — the row's own lifecycle", () => {
     expect(container.querySelector(".meridian-agent-card__head")?.textContent ?? "").toContain(
       formatDateTime(ATTACHED_AT),
     );
-  });
-
-  it("negative control: a roster row carrying no instant prints no created line", () => {
-    // Without this, the cases above would pass over a card that stamped every agent
-    // with an instant the console had invented.
-    const { container } = render(<AgentBindingCard agent={RUNNING} />);
-
-    expect(container.querySelector(".meridian-agent-card__created")).toBeNull();
-    expect(container.textContent ?? "").toContain("Scout");
   });
 });

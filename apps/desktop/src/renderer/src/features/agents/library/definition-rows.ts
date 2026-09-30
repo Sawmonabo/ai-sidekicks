@@ -4,8 +4,8 @@
 
 // WHAT AN AXIS IS, AND WHY EACH ONE CARRIES ITS SOURCE
 //
-// A row is the record's identity (the id and its label) plus one axis per remaining
-// member, and every axis says whether what it shows came off the wire or is the
+// A row is the record's identity (the id and its label) plus one axis per member the
+// list reads, and every axis says whether what it shows came off the wire or is the
 // console's own reading. That is a provenance signature made a value rather than a
 // rendering decision taken twice: the page maps `wire` to the mono figure and `console`
 // to the derived one, and no component has to know which axis is which.
@@ -18,6 +18,9 @@
 //
 // WHAT IS DELIBERATELY NOT PROJECTED
 //
+// Of the bindings, only the default: it is the one used when a caller names no
+// driver, so it is what the row says the definition runs on.
+//
 // The instruction and goal PROSE. Both are free text an operator wrote and either
 // may be pages long; what a list row can honestly say is whether there is any, and
 // the text itself belongs to the editor. A clamped passage in a list is a third
@@ -29,7 +32,7 @@
 // the person has been tuning agents over, so the formatted reading would be
 // wrong rather than merely terse — and a wire string is rendered exactly as it arrived.
 
-import type { AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
+import type { AgentDefinition } from "@ai-sidekicks/contracts";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 
 /**
@@ -147,19 +150,19 @@ export function describeDeletionQuestion(row: AgentDefinitionRow): string {
 }
 
 function projectDefinitionRow(definition: AgentDefinition): AgentDefinitionRow {
+  const binding = definition.bindings.default;
   return {
     definitionId: definition.definitionId,
     name: definition.name,
     description: definition.description,
-    // Every member of the record the header does not already carry, in the order
-    // the stored shape declares them, so a reader can check the projection against
-    // the shape by reading down. An axis for a member that is not there would be a
-    // field invented by a view.
+    // In the order the stored shape declares them, so a reader can check the
+    // projection against the shape by reading down. An axis for a member that is not
+    // there would be a field invented by a view.
     axes: [
-      wireAxis("driver", "Driver", definition.driverName),
-      wireAxis("model", "Model", definition.modelId),
-      pinnedAxis("account", "Account", definition.providerAccountId, "The provider's default"),
-      pinnedAxis("effort", "Effort", definition.effort, "The driver's default"),
+      wireAxis("driver", "Driver", binding.driverName),
+      wireAxis("model", "Model", binding.modelId),
+      pinnedAxis("account", "Account", binding.providerAccountId, "The provider's default"),
+      pinnedAxis("effort", "Effort", binding.effort, "The driver's default"),
       pinnedAxis("posture", "Posture", definition.executionPostureMode, "Not pinned"),
       consoleAxis("tools", "Tools", describeToolAllowlist(definition.toolAllowlist)),
       consoleAxis("instructions", "Instructions", describeProsePresence(definition.instructions)),

@@ -8482,7 +8482,13 @@ describe("CodexDriver model catalog", () => {
     // A level this file never enumerates: the vocabulary is the build's, not
     // this driver's, which is what keeps the catalog current without an edit.
     expect(models).toEqual([
-      { id: "gpt-future-9", name: "GPT-Future-9", capabilities: [], effortLevels: ["glacial"] },
+      {
+        id: "gpt-future-9",
+        name: "GPT-Future-9",
+        capabilities: [],
+        effortLevels: ["glacial"],
+        fast: false,
+      },
     ]);
   });
 

@@ -28,6 +28,7 @@ export function reportFor(driverName: string, declared: readonly DriverCapabilit
       ),
       contractVersion: "1",
     },
+    builtInTools: [],
   };
 }
 

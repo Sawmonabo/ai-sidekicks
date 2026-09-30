@@ -11,7 +11,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
+import type { AgentProviderBinding, ProviderAccountId } from "@ai-sidekicks/contracts";
+import { definition } from "./agent-library.test-support.js";
 import {
   NO_SAVED_DEFINITIONS,
   describeDefinitionSettlement,
@@ -20,44 +21,24 @@ import {
   readDefinitions,
 } from "./definition-rows.js";
 
-/**
- * One stored record, every axis pinned.
- *
- * Written out in full rather than built from partials, so the count assertions
- * below measure the real shape: a helper that defaulted a member would hide exactly
- * the axis a projection had forgotten.
- */
-function definition(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
-  return {
-    definitionId: "definition-1",
-    name: "Reviewer",
-    description: "Reads a diff and says what it would change.",
-    driverName: "claude",
-    modelId: "claude-opus-4-6",
-    providerAccountId: "account-work",
-    effort: "high",
-    executionPostureMode: "workspace-sandboxed",
-    instructions: "Be exact.",
-    goal: "Ship a clean diff.",
-    toolAllowlist: ["read", "grep"],
-    createdAt: "2026-01-01T10:00:00.000Z",
-    updatedAt: "2026-01-02T11:30:00.000Z",
-    ...overrides,
-  };
-}
-
-/** The three members the row header carries, so the axis count is derived and not guessed. */
-const HEADER_MEMBERS = ["definitionId", "name", "description"] as const;
-
 describe("the registry projection — what a row carries", () => {
-  it("gives every member of the record a home, and invents none", () => {
-    // The claim is a COUNT against the record itself rather than a list written
-    // here: an axis list restated in a test drifts from the shape the same way a
-    // second declaration of the shape would.
+  it("reads the driver, model, account and effort off the default binding", () => {
+    // A definition may carry a binding per further provider; the row says what it runs
+    // on when a caller names no driver, which is the default and never an override.
+    const codexOverride: AgentProviderBinding = {
+      driverName: "codex",
+      modelId: "gpt-5.6",
+      providerAccountId: "account-home" as ProviderAccountId,
+      effort: "low",
+    };
     const record = definition();
-    const [row] = projectDefinitionRows([record]);
-    expect(row).toBeDefined();
-    expect(row?.axes).toHaveLength(Object.keys(record).length - HEADER_MEMBERS.length);
+    const [row] = projectDefinitionRows([
+      { ...record, bindings: { ...record.bindings, overrides: [codexOverride] } },
+    ]);
+    const readings = ["driver", "model", "account", "effort"].map(
+      (key) => row?.axes.find((axis) => axis.key === key)?.reading,
+    );
+    expect(readings).toStrictEqual(["claude", "claude-opus-4-6", "account-work", "high"]);
     expect(new Set(row?.axes.map((axis) => axis.key)).size).toBe(row?.axes.length);
   });
 
@@ -82,7 +63,10 @@ describe("the registry projection — what a row carries", () => {
     // `null` is the materialized inherit state, and the sentence that explains it is
     // ours — rendering it as a wire figure would attribute our words to the daemon.
     const [row] = projectDefinitionRows([
-      definition({ providerAccountId: null, effort: null, executionPostureMode: null }),
+      definition({
+        defaultBinding: { providerAccountId: null, effort: null },
+        executionPostureMode: null,
+      }),
     ]);
     const unpinned = ["account", "effort", "posture"].map((key) =>
       row?.axes.find((axis) => axis.key === key),
@@ -98,7 +82,7 @@ describe("the registry projection — what a row carries", () => {
   it("negative control: a pinned axis is not described as a default", () => {
     // Without this, the case above would pass over a projection that ignored the
     // value and always said "default".
-    const [row] = projectDefinitionRows([definition({ effort: "low" })]);
+    const [row] = projectDefinitionRows([definition({ defaultBinding: { effort: "low" } })]);
     const effort = row?.axes.find((axis) => axis.key === "effort");
     expect(effort?.reading).toBe("low");
     expect(effort?.source).toBe("wire");
@@ -107,7 +91,7 @@ describe("the registry projection — what a row carries", () => {
   it("keeps the allowlist's three states three", () => {
     // `null` is the driver's defaults and `[]` is no tools at all. They read alike
     // and mean opposite things, which is why the stored shape keeps them apart.
-    const readingFor = (allowlist: readonly string[] | null): string | undefined =>
+    const readingFor = (allowlist: string[] | null): string | undefined =>
       projectDefinitionRows([definition({ toolAllowlist: allowlist })])[0]?.axes.find(
         (axis) => axis.key === "tools",
       )?.reading;

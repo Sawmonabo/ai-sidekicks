@@ -148,10 +148,6 @@
         // Interrupt and Interrupt everything on the run controls (session design S-105 to
         // S-108; build units A14 and B13).
         "src/renderer/src/features/composer/run-controls/hooks/useRunDriverBindings.ts",
-        // The cost receipt's partition rule, which becomes a daemon test on the receipt fold
-        // (register AGT-7; the inspector's Cost section, session design S-324); the entry
-        // leaves with the rest of the file.
-        "src/renderer/src/features/inspector/cost/cost-receipt-model.ts",
         // The inspector's Rules section with Revoke (session design S-971; build units B10
         // and DM-18).
         "src/renderer/src/features/inspector/rules/components/RulesSection.tsx",

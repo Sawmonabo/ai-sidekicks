@@ -607,6 +607,18 @@ describe("Claude model catalog", () => {
     expect(haiku?.effortLevels).toBeUndefined();
   });
 
+  it("reads each model's fast mode from its own supportsFastMode", () => {
+    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
+
+    // Only the Opus row publishes a fast mode at the pin; a row with no flag has none.
+    expect(models.map((model) => [model.id, model.fast])).toEqual([
+      ["claude-opus-5[1m]", true],
+      ["claude-fable-5", false],
+      ["claude-sonnet-5", false],
+      ["claude-haiku-4-5-20251001", false],
+    ]);
+  });
+
   it("suppresses effortLevels when the row explicitly denies effort support", () => {
     const models = normalizeClaudeModelCatalog({
       models: [
@@ -649,6 +661,11 @@ describe("Claude model catalog", () => {
       "a non-string effort level",
       { models: [{ resolvedModel: "model-x", displayName: "X", supportedEffortLevels: [7] }] },
       /non-string effort level/,
+    ],
+    [
+      "a fast-mode flag that is not a boolean",
+      { models: [{ resolvedModel: "model-x", displayName: "X", supportsFastMode: "yes" }] },
+      /unreadable `supportsFastMode`/,
     ],
   ])("refuses %s", (_label, payload, message) => {
     // Strict rather than tolerant: a reader that skipped the bad row would
@@ -727,7 +744,7 @@ describe("Claude model catalog", () => {
       models: [{ value: "z", resolvedModel: "model-z", displayName: "Z" }],
     }));
 
-    expect(models).toEqual([{ id: "model-z", name: "Z", capabilities: [] }]);
+    expect(models).toEqual([{ id: "model-z", name: "Z", capabilities: [], fast: false }]);
   });
 
   it("never falls back to the declaration when a bound exchange fails", async () => {

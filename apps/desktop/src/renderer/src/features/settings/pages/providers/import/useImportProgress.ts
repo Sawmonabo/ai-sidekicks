@@ -1,15 +1,15 @@
-// Drains one import's progress subscription for as long as the panel is mounted.
+// Drains one provider's import stream for as long as its holder is mounted.
 //
 // The subscribe call is the caller's, taken as an argument. A rejected call, or a stream
 // that rejects part-way, is not caught here: it propagates. The stream is opened once per
-// import and closed on the way out: a subscription left open after the panel unmounts is a
-// producer with no reader. A frame arriving after that installs nowhere, because the
-// disposal flag is read before every publish.
+// provider and closed on the way out: a subscription left open after its holder unmounts
+// is a producer with no reader. A message arriving after that installs nowhere, because
+// the disposal flag is read before every publish.
 
 import { useEffect, useState } from "react";
 
+import type { ProviderImportProgress, ProviderName } from "@ai-sidekicks/contracts";
 import type {
-  ImportProgressFrame,
   ImportProgressReading,
   ImportProgressStream,
   ImportProgressSubscribeCall,
@@ -18,21 +18,21 @@ import type {
 const UNSUBSCRIBED: ImportProgressReading = { status: "unsubscribed" };
 
 /**
- * Drain one import's progress stream for as long as the panel is mounted.
+ * Drain one provider's import stream for as long as its holder is mounted.
  *
- * `importId` is `undefined` until the begin call settles, and that absence is the
+ * `provider` is `undefined` until an import is put, and that absence is the
  * `unsubscribed` arm rather than an empty `open` one: nothing has been asked, and a
  * panel rendering "no progress yet" for a question nobody put is the conflation the
  * console's five-kinds-of-nothing rule exists to prevent.
  */
 export function useImportProgress(
   subscribe: ImportProgressSubscribeCall,
-  importId: string | undefined,
+  provider: ProviderName | undefined,
 ): ImportProgressReading {
   const [reading, setReading] = useState<ImportProgressReading>(UNSUBSCRIBED);
 
   useEffect(() => {
-    if (importId === undefined) {
+    if (provider === undefined) {
       setReading(UNSUBSCRIBED);
       return;
     }
@@ -41,19 +41,19 @@ export function useImportProgress(
     setReading({ status: "open", newest: undefined });
 
     void (async () => {
-      const stream = await subscribe({ importId });
+      const stream = await subscribe({ provider });
       if (isDisposed) {
         stream.close();
         return;
       }
       openStream = stream;
-      let newest: ImportProgressFrame | undefined;
-      for await (const frame of stream.events) {
+      let newest: ProviderImportProgress | undefined;
+      for await (const message of stream.events) {
         if (isDisposed) {
           return;
         }
-        newest = frame;
-        setReading({ status: "open", newest: frame });
+        newest = message;
+        setReading({ status: "open", newest: message });
       }
       if (!isDisposed) {
         setReading({ status: "closed", newest });
@@ -65,7 +65,7 @@ export function useImportProgress(
       openStream?.close();
       openStream = undefined;
     };
-  }, [subscribe, importId]);
+  }, [subscribe, provider]);
 
   return reading;
 }

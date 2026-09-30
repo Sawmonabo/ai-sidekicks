@@ -36,8 +36,12 @@ function validAccount(overrides: Record<string, unknown> = {}): Record<string, u
     healthObservedAt: TIMESTAMP,
     observedAuthMode: "oauth_subscription",
     loggedInAt: TIMESTAMP,
+    lastRefreshObservedAt: null,
     expectedReloginAtEstimate: null,
     probeEnabled: true,
+    windowStartEnabled: true,
+    wakeForWindowStartEnabled: false,
+    memoryImport: null,
     ...overrides,
   };
 }

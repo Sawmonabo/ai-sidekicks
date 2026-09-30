@@ -49,7 +49,12 @@ const SESSION_ID = "session-agents";
 /** The roster this pane shows: two agents on two providers, and no child runs. */
 const AGENTS_PANE_CALLS: AgentsPaneCalls = {
   listAgents: () => Promise.resolve({ agents: [AGENT_ON_CLAUDE, AGENT_ON_CODEX] }),
-  readChildRunLinks: () => Promise.resolve({ links: [], rejectedCreates: [] }),
+  readChildRunLinks: () =>
+    Promise.resolve({
+      children: [],
+      counts: { live: 0, total: 0, waiting: 0 },
+      rejectedCreates: [],
+    }),
 };
 
 /**

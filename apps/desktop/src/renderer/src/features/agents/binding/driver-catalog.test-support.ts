@@ -42,11 +42,20 @@ export const DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
       {
         driverName: "claude",
         models: [
-          { id: "claude-sonnet", name: "Sonnet", capabilities: [], effortLevels: ["low", "high"] },
-          { id: "claude-haiku", name: "Haiku", capabilities: [] },
+          {
+            id: "claude-sonnet",
+            name: "Sonnet",
+            capabilities: [],
+            effortLevels: ["low", "high"],
+            fast: false,
+          },
+          { id: "claude-haiku", name: "Haiku", capabilities: [], fast: false },
         ],
       },
-      { driverName: "codex", models: [{ id: "gpt-5.6", name: "GPT", capabilities: [] }] },
+      {
+        driverName: "codex",
+        models: [{ id: "gpt-5.6", name: "GPT", capabilities: [], fast: true }],
+      },
     ],
   },
   capabilities: {
@@ -57,7 +66,8 @@ export const DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
           flags: driverCapabilityFlags({ model_mutation: true, output_speed: true }),
           contractVersion: "1.0.0",
         },
-        outputSpeedLevels: ["standard", "fast"],
+        outputSpeedLevels: ["off", "on"],
+        builtInTools: ["Read", "Edit"],
       },
       {
         driverName: "codex",
@@ -65,6 +75,7 @@ export const DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
           flags: driverCapabilityFlags({ model_mutation: true }),
           contractVersion: "1.0.0",
         },
+        builtInTools: ["shell"],
       },
     ],
   },
@@ -85,13 +96,33 @@ export const OVERLAPPING_DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
       {
         driverName: "claude",
         models: [
-          { id: "shared-model", name: "Shared", capabilities: [], effortLevels: ["low", "high"] },
-          { id: "claude-only", name: "Claude only", capabilities: [], effortLevels: ["low"] },
+          {
+            id: "shared-model",
+            name: "Shared",
+            capabilities: [],
+            effortLevels: ["low", "high"],
+            fast: false,
+          },
+          {
+            id: "claude-only",
+            name: "Claude only",
+            capabilities: [],
+            effortLevels: ["low"],
+            fast: false,
+          },
         ],
       },
       {
         driverName: "codex",
-        models: [{ id: "shared-model", name: "Shared", capabilities: [], effortLevels: ["low"] }],
+        models: [
+          {
+            id: "shared-model",
+            name: "Shared",
+            capabilities: [],
+            effortLevels: ["low"],
+            fast: true,
+          },
+        ],
       },
     ],
   },
@@ -102,6 +133,7 @@ export const OVERLAPPING_DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
         flags: driverCapabilityFlags({ model_mutation: true }),
         contractVersion: "1.0.0",
       },
+      builtInTools: [],
     })),
   },
 };

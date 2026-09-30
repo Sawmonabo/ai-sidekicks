@@ -9,14 +9,17 @@ import { describe, expect, it } from "vitest";
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../agents-caps.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
-import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
+import {
+  agentEntry,
+  resolvedConfiguration,
+} from "./components/agent-binding-column.test-support.js";
 import {
   NAMELESS_TOOL_ALLOWLIST_WORDING,
   agentToolAllowlistPosition,
   namedToolAllowlistSentence,
 } from "./tool-allowlist.js";
 
-const IDENTITY_ONLY: AgentListEntry = { agentId: "agent-scout" };
+const IDENTITY_ONLY = agentEntry();
 
 /** A list of exactly `count` distinct tool names, which is all these cases need. */
 function toolNames(count: number): readonly string[] {
@@ -24,15 +27,15 @@ function toolNames(count: number): readonly string[] {
 }
 
 describe("agent tool grant — the four positions", () => {
-  it("reads a reply with no resolved configuration as unanswered", () => {
+  it("reads an agent with no resolved configuration as unanswered", () => {
     expect(agentToolAllowlistPosition(IDENTITY_ONLY)).toStrictEqual({ kind: "not-reported" });
   });
 
-  it("reads a configuration with no allowlist member as the provider's default set", () => {
+  it("reads a configuration whose allowlist is null as the provider's default set", () => {
     expect(
       agentToolAllowlistPosition({
         ...IDENTITY_ONLY,
-        resolvedConfiguration: { executionPostureMode: "worktree" },
+        resolvedConfiguration: resolvedConfiguration({ toolAllowlist: null }),
       }),
     ).toStrictEqual({ kind: "driver-default" });
   });
@@ -41,7 +44,7 @@ describe("agent tool grant — the four positions", () => {
     expect(
       agentToolAllowlistPosition({
         ...IDENTITY_ONLY,
-        resolvedConfiguration: { toolAllowlist: [] },
+        resolvedConfiguration: resolvedConfiguration({ toolAllowlist: [] }),
       }),
     ).toStrictEqual({ kind: "no-tools" });
   });
@@ -53,7 +56,9 @@ describe("agent tool grant — the four positions", () => {
     expect(
       agentToolAllowlistPosition({
         ...IDENTITY_ONLY,
-        resolvedConfiguration: { toolAllowlist: ["read", "write", "search"] },
+        resolvedConfiguration: resolvedConfiguration({
+          toolAllowlist: ["read", "write", "search"],
+        }),
       }),
     ).toStrictEqual({ kind: "named", toolNames: ["read", "write", "search"] });
   });
@@ -64,7 +69,7 @@ describe("agent tool grant — the four positions", () => {
     const unreported = agentToolAllowlistPosition(IDENTITY_ONLY);
     const driverDefault = agentToolAllowlistPosition({
       ...IDENTITY_ONLY,
-      resolvedConfiguration: {},
+      resolvedConfiguration: resolvedConfiguration({ toolAllowlist: null }),
     });
     expect(unreported.kind).not.toBe(driverDefault.kind);
   });
@@ -86,7 +91,7 @@ describe("agent tool grant — one position, one set of words", () => {
     // distinguishing the two absences at all, which is the conflation in reverse.
     const wording = NAMELESS_TOOL_ALLOWLIST_WORDING["not-reported"];
     expect(wording.reading).toContain("Not reported");
-    expect(wording.lineSentence).toContain("was not answered");
+    expect(wording.lineSentence).toContain("not started from a saved definition");
     expect(wording.reading).not.toBe(NAMELESS_TOOL_ALLOWLIST_WORDING["driver-default"].reading);
   });
 

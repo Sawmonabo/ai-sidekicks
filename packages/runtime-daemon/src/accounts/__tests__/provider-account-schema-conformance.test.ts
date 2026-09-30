@@ -258,15 +258,21 @@ describe("provider-account contract <-> DDL conformance", () => {
       observed_account_email: "observedAccountEmail",
       observed_account_org_id: "observedAccountOrgId",
       observed_account_org_name: "observedAccountOrgName",
+      observed_account_plan: "observedAccountPlan",
+      last_refresh_observed_at: "lastRefreshObservedAt",
       probe_enabled: "probeEnabled",
+      window_start_enabled: "windowStartEnabled",
+      wake_for_window_start_enabled: "wakeForWindowStartEnabled",
+      // The memory import's outcome, count and time are one member on the wire.
+      memory_import_outcome: "memoryImport",
+      memory_import_count: "memoryImport",
+      memory_imported_at: "memoryImport",
     };
 
     /** Columns the account record deliberately does not project, and why. */
     const COLUMNS_WITH_NO_ACCOUNT_MEMBER: Readonly<Record<string, string>> = {
       credential_home_path:
         "the home reaches an operator only through the readiness remedy's sign-in arm; on every surface a session user can reach, this names a column and nothing else",
-      last_refresh_observed_at:
-        "an input to the re-login estimate; the wire carries the estimate, not its inputs",
       removal_intent:
         "the durable half of the cross-store removal protocol — an intent-marked account is refused at admission and is not a state a client renders",
       created_at: "row bookkeeping with no wire consumer",
@@ -448,6 +454,70 @@ describe("provider-account contract <-> DDL conformance", () => {
       // closed the moment a vendor added a window, which is the opposite of the
       // degrade-honestly posture the rest of this plane takes.
       expect(checkMembersOf(usageWindowsSql, "limit_id")).toEqual([]);
+    });
+  });
+
+  describe("memory import columns", () => {
+    function insertAccount(memoryImport: {
+      outcome: string | null;
+      count: number | null;
+      importedAt: string | null;
+    }): void {
+      db.prepare(
+        `INSERT INTO provider_accounts (account_id, provider, display_label,
+           credential_home_path, billing_mode, memory_import_outcome, memory_import_count,
+           memory_imported_at, created_at, updated_at)
+         VALUES (?, 'claude', 'Work', ?, 'subscription', ?, ?, ?, ?, ?)`,
+      ).run(
+        "account-1",
+        "/homes/account-1",
+        memoryImport.outcome,
+        memoryImport.count,
+        memoryImport.importedAt,
+        "2026-09-30T00:00:00.000Z",
+        "2026-09-30T00:00:00.000Z",
+      );
+    }
+
+    it("stores each outcome the contract names, and no import at all", () => {
+      expect(() => {
+        insertAccount({ outcome: null, count: null, importedAt: null });
+      }).not.toThrow();
+      db.prepare("DELETE FROM provider_accounts").run();
+      expect(() => {
+        insertAccount({ outcome: "imported", count: 3, importedAt: "2026-09-30T00:00:00.000Z" });
+      }).not.toThrow();
+      db.prepare("DELETE FROM provider_accounts").run();
+      expect(() => {
+        insertAccount({ outcome: "nothingToImport", count: null, importedAt: null });
+      }).not.toThrow();
+    });
+
+    it("refuses an outcome whose count and time disagree with it", () => {
+      // An import that copied something without its count or time would read back
+      // as an outcome the wire refuses, and one that copied nothing cannot carry them.
+      expect(() => {
+        insertAccount({ outcome: "imported", count: null, importedAt: null });
+      }).toThrow(/CHECK constraint failed/);
+      expect(() => {
+        insertAccount({ outcome: "imported", count: 3, importedAt: null });
+      }).toThrow(/CHECK constraint failed/);
+      expect(() => {
+        insertAccount({
+          outcome: "nothingToImport",
+          count: 3,
+          importedAt: "2026-09-30T00:00:00.000Z",
+        });
+      }).toThrow(/CHECK constraint failed/);
+      expect(() => {
+        insertAccount({ outcome: "nothingToImport", count: 3, importedAt: null });
+      }).toThrow(/CHECK constraint failed/);
+      expect(() => {
+        insertAccount({ outcome: null, count: 3, importedAt: "2026-09-30T00:00:00.000Z" });
+      }).toThrow(/CHECK constraint failed/);
+      expect(() => {
+        insertAccount({ outcome: "imported", count: 0, importedAt: "2026-09-30T00:00:00.000Z" });
+      }).toThrow(/CHECK constraint failed/);
     });
   });
 });

@@ -7,13 +7,13 @@
 // reads the configuration the roster reports and never the definition registry: a
 // definition edited afterwards reaches no agent that is already running.
 //
-// FOUR POSITIONS, NOT THREE. The registry's own vocabulary keeps three apart — an
-// absent list means the provider's default set, an empty one means no tools, and a
-// populated one means exactly those — and the roster read adds a fourth that is none
-// of them: a reply carrying identity and lifecycle and NO resolved configuration has
-// said nothing about tools at all. Folding that into "the provider's default set" would
-// be the console answering a question nobody put, which is the one thing the position
-// below exists to refuse.
+// FOUR POSITIONS, NOT THREE. The registry's own vocabulary keeps three apart — a null
+// list means the provider's default set, an empty one means no tools, and a populated
+// one means exactly those — and the roster read adds a fourth that is none of them: an
+// agent not started from a saved definition carries NO resolved configuration, and the
+// roster then says nothing about its tools at all. Folding that into "the provider's
+// default set" would be the console answering a question nobody put, which is the one
+// thing the position below exists to refuse.
 //
 // ONE POSITION, ONE READING, FOR THE LINE AND THE ROW THAT BOTH STATE IT. The card says what this
 // agent may reach twice — the governance line above the disclosure and the Tools row
@@ -40,7 +40,7 @@
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../agents-caps.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
-import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
+import type { AgentListEntry } from "@ai-sidekicks/contracts";
 
 /**
  * What the resolved configuration says this agent may reach.
@@ -50,9 +50,9 @@ import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
  * representable, and so a renderer cannot reach the names on an arm that has none.
  */
 export type AgentToolAllowlistPosition =
-  /** The reply carried no resolved configuration. Nothing was said about tools. */
+  /** The agent carries no resolved configuration. Nothing was said about tools. */
   | { readonly kind: "not-reported" }
-  /** A configuration with no allowlist member: the provider's own default set. */
+  /** A configuration whose allowlist is null: the provider's own default set. */
   | { readonly kind: "driver-default" }
   /** A present, empty allowlist: no tools at all, which somebody chose. */
   | { readonly kind: "no-tools" }
@@ -92,7 +92,7 @@ export const NAMELESS_TOOL_ALLOWLIST_WORDING: Readonly<
   "not-reported": {
     reading: "Not reported",
     lineSentence:
-      "This roster reply carried identity and lifecycle and no resolved configuration, so what this agent may reach was not answered.",
+      "This agent was not started from a saved definition, so the roster does not say what it may reach.",
     weight: "absent",
   },
   // Muted, like every other axis whose absence MEANS something: nobody restricted
@@ -140,8 +140,8 @@ export function namedToolAllowlistSentence(toolNames: readonly string[]): string
  * Read one agent's grant off its resolved configuration.
  *
  * The two absences are separated at the top, because they are separated on the wire:
- * `resolvedConfiguration` absent is the roster answering less than the whole row, and
- * `toolAllowlist` absent inside a configuration that IS present is the registry's own
+ * `resolvedConfiguration` absent is an agent not started from a saved definition, and
+ * `toolAllowlist` null inside a configuration that IS present is the registry's own
  * "the provider's default set".
  */
 export function agentToolAllowlistPosition(agent: AgentListEntry): AgentToolAllowlistPosition {
@@ -150,7 +150,7 @@ export function agentToolAllowlistPosition(agent: AgentListEntry): AgentToolAllo
     return { kind: "not-reported" };
   }
   const allowlist = resolved.toolAllowlist;
-  if (allowlist === undefined) {
+  if (allowlist === null) {
     return { kind: "driver-default" };
   }
   if (allowlist.length === 0) {
