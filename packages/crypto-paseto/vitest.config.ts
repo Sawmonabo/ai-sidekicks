@@ -8,10 +8,6 @@ export default defineConfig({
     environment: "node",
     passWithNoTests: false,
     reporters: ["default"],
-    // Stage 1 measurement substrate. Options live in the repo-root
-    // factory so all seven test surfaces share one definition; see
-    // `vitest.shared.ts` for why coverage cannot be hoisted into a single
-    // root config.
     coverage: sharedCoverageOptions(),
     ...sharedTestTimeouts(),
   },
