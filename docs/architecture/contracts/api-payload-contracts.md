@@ -770,23 +770,20 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 ```ts
 // SessionCreate
 interface SessionCreateRequest {
-  config?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
+  clientIdempotencyKey: string; // a UUID
   // Where the new session works, bound in this same call, so no session exists unbound and its shape is
   // known from its first record.
   binding: SessionBinding;
+  // The lead's binding spelled out: its driver, model, account and effort, as the app chose them for a
+  // new session. A create names this, `leadDefinitionId`, or both; beside a definition, it is the binding
+  // the definition runs on. `providerAccountId` null follows the provider's current account.
+  lead?: AgentProviderBinding;
   // The saved definition this session's LEAD runs under: a request that spells its axes out in full
   // names none, and one naming a definition need not respell the axes the definition supplies. It is how
   // Try it starts a scratch session led by the definition under test, and it is the same daemon path a
-  // workflow node and the cross-provider bridge already need — not a choose-your-lead surface. Explicitly
-  // present members override the definition's corresponding field, per field
-  // (`AgentResolvedConfiguration`, §Plan-027).
+  // workflow node and the cross-provider bridge already need — not a choose-your-lead surface. What it
+  // resolved to comes back as the reply's `resolvedConfiguration` (`AgentResolvedConfiguration`, §Plan-027).
   leadDefinitionId?: AgentDefinitionId;
-  // The lead's axes spelled out: its driver, model and effort, the ones the app chose for a new session. A
-  // create names these, `leadDefinitionId`, or both; beside a definition, a member present here overrides
-  // that definition's field. No account is named: the daemon resolves it, the account the definition
-  // pins where it pins one, otherwise the provider's current account.
-  lead?: Pick<AgentProviderBinding, "driverName" | "modelId" | "effort">;
   // A Try-it scratch session for the definition `leadDefinitionId` names. It requires that member and a
   // `chat` binding, so it has no repo. The daemon keeps at most one open scratch session per definition,
   // so a request for a definition that already has one returns that session instead of a second; the
