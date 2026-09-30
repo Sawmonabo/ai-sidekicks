@@ -3244,21 +3244,9 @@ interface RunStateChangeEvent {
   intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run Lifecycle "Intended-close discriminator")
   executionPosture?: ExecutionPosture; // named type in §Plan-004 above (same shape, shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-003 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-005 §Run Lifecycle run-state payload; shape owned by Spec-004, policy semantics per Spec-010 §Required Behavior). Optionality covers non-running rows only: run.running emitters MUST stamp the complete posture object — including credentialPolicyRef, which every run carries.
   trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-014 D-014-8 — the value CP-003-10 adds to Plan-003's trigger set); the InterruptReason values ride run.interrupted on system interrupts (D-014-7). Absent on natural completion and user-initiated paths. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
-  // run.queued linkage (orchestration-created runs only): the OrchestrationRunLinkCarrier fields
-  // threaded into the durable payload as optional additive fields (CP-003-10; Plan-014 D-014-3 —
-  // an orchestration-created child's run_links row is rebuilt from this event alone; a provider's own
-  // subagent's row is written by the provider driver from that provider's subagent notifications,
-  // §Plan-014). Spec-005 §Run Lifecycle (run.queued row).
-  agentId?: AgentId;
-  parentRunId?: RunId;
-  reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached (§Plan-014)
-  internalHelper?: boolean;
-  // run.queued effective config: the admission-resolved OrchestrationRunConfig (request override
-  // else session default) persisted durably so budget/idle enforcement rebuilds replay-stable even
-  // if session defaults change mid-run (Plan-014 D-014-5, I-014-14; Spec-005 §Run Lifecycle run.queued row).
-  effectiveRunConfig?: OrchestrationRunConfig;
-  // ── Path-independent admission stamp — NOT part of the orchestration linkage
-  // block above: run.queued carries it for EVERY provider run, whether admitted via the
+  // A run's linkage and its admission-resolved limits ride the run.queued row alone (RunQueuedLinkage,
+  // §Plan-014), never this stream.
+  // ── Path-independent admission stamp: run.queued carries it for EVERY provider run, whether admitted via the
   // ordinary run.queueCreate path or orchestration admission (the orchestration path threads
   // its value through the OrchestrationRunLinkCarrier; the ordinary path stamps directly at
   // the queue write — CP-003-10 owns the stamp either way). Never client-suppliable.
@@ -5729,7 +5717,7 @@ type InterruptReason = "budget_exhausted" | "idle_timeout"; // D-014-8: the reas
 // workflow's run-an-agent node) and the SDK.
 // The target is EITHER an agent already in the session's agents projection, or a saved
 // definition with no live agent yet, which the daemon resolves at the queue insert and records as
-// run.queued's `resolvedAgent` (RunQueuedAgentResolution below).
+// run.queued's `resolvedAgent` (RunQueuedLinkage below).
 type OrchestrationRunTarget =
   | { targetAgentId: AgentId } // must resolve in the agents projection (agent.not_found)
   | { targetDefinitionId: AgentDefinitionId }; // resolved at the queue insert (agent.definition_not_found / agent.resolution_refused)
@@ -6250,16 +6238,32 @@ interface AgentListEntry {
   createdAt: string;
 }
 
-// run.queued payload, the agent-resolution member (Spec-005 §Run Lifecycle). Present exactly where the
-// request that created the run named a saved definition rather than an agent already in the projection —
-// a peer invocation's own run included. It is the CREATING RECORD of that agent's row, in the one shape
+// run.queued payload, the linkage members (Spec-005 §Run Lifecycle). They ride a run another run or a
+// workflow created, on this row only and never on the run's state stream; an orchestration-created child's
+// run_links row and its per-run limits rebuild from this event alone, while a provider's own subagent's row
+// is written by the provider driver from that provider's subagent notifications. `effectiveRunConfig` is
+// the admission-resolved OrchestrationRunConfig (request override else session default), kept so budget
+// and idle enforcement rebuild the same even if session defaults change mid-run (D-014-5, I-014-14).
+//
+// The run's agent is named ONE way, never both: `agentId` for an agent already in the projection, or
+// `resolvedAgent` where the request that created the run named a saved definition instead — a peer
+// invocation's own run included. `resolvedAgent` is the CREATING RECORD of that agent's row, in the one shape
 // `agent.list` describes an agent: `session.created` mints a session's lead and this member mints an agent
 // resolved from a definition, and no `agent.*` type creates a row. Its `resolvedConfiguration` is present,
 // and that configuration's `resolvedFromDefinitionId` names the definition. Path-independent, like the admission stamps below: the daemon mints the agent's id
 // at the queue insert exactly as it mints the run id, whichever creation path admitted the run.
-interface RunQueuedAgentResolution {
-  resolvedAgent?: AgentListEntry & { resolvedConfiguration: AgentResolvedConfiguration };
-}
+type RunQueuedLinkage = {
+  parentRunId?: RunId;
+  reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
+  internalHelper?: boolean;
+  effectiveRunConfig?: OrchestrationRunConfig;
+} & (
+  | { agentId?: AgentId; resolvedAgent?: never }
+  | {
+      agentId?: never;
+      resolvedAgent: AgentListEntry & { resolvedConfiguration: AgentResolvedConfiguration };
+    }
+);
 
 // Orchestration queue-admission carrier (D-014-13) — IN-PROCESS seam type, not a wire shape, declared
 // in `packages/runtime-daemon/src/orchestration/` and never in `packages/contracts`:
@@ -6271,7 +6275,7 @@ interface OrchestrationRunLinkCarrier {
   parentRunId?: RunId;
   reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
   internalHelper: boolean;
-  agentId: AgentId; // name mirrors the run.queued additive payload field verbatim (CP-003-10); the service maps the resolved target here after agent resolution — the wire's targetAgentId, or the agent minted from its targetDefinitionId
+  agentId: AgentId; // the resolved target (CP-003-10): the wire's targetAgentId, written to run.queued as `agentId`, or the agent minted from its targetDefinitionId, written as `resolvedAgent`
   effectiveRunConfig: OrchestrationRunConfig; // admission-resolved post-merge values (request override else session default), persisted on run.queued so budget/idle enforcement rebuilds replay-stable (D-014-5, I-014-14)
 }
 ```
