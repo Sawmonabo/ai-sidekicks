@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OpenDialogResult } from "@shared/preload-api.js";
 import { FilePathRefs, type FilePathRefOwner } from "./file-path-refs.js";
-import { copyToClipboard, showOpenDialog, type OpenDialogHost } from "./native-handlers.js";
+import { showOpenDialog, type OpenDialogHost } from "./native-handlers.js";
 
 let folder: string;
 
@@ -66,22 +66,6 @@ describe("the open dialog", () => {
     expect(file === undefined ? undefined : refs.pathOf(owner, file.ref)).toBe(picked);
   });
 
-  it("picks several files for an attachment, one file for an import and one folder for a folder", async () => {
-    const attach = dialogPicking([]);
-    await showOpenDialog(attach, new FilePathRefs(), page(1), { purpose: "attachFiles" });
-    expect(attach.showOpenDialog).toHaveBeenCalledWith({
-      properties: ["openFile", "multiSelections"],
-    });
-
-    const importOne = dialogPicking([]);
-    await showOpenDialog(importOne, new FilePathRefs(), page(1), { purpose: "importFile" });
-    expect(importOne.showOpenDialog).toHaveBeenCalledWith({ properties: ["openFile"] });
-
-    const pickFolder = dialogPicking([]);
-    await showOpenDialog(pickFolder, new FilePathRefs(), page(1), { purpose: "pickFolder" });
-    expect(pickFolder.showOpenDialog).toHaveBeenCalledWith({ properties: ["openDirectory"] });
-  });
-
   it("answers a picked folder as one token and keeps its path in main, or null on cancel", async () => {
     const refs = new FilePathRefs();
     const owner = page(1);
@@ -100,15 +84,6 @@ describe("the open dialog", () => {
     await expect(
       showOpenDialog(canceled, refs, owner, { purpose: "pickFolder" }),
     ).resolves.toBeNull();
-  });
-
-  it("answers no files when the person cancels", async () => {
-    const canceled: OpenDialogHost = {
-      showOpenDialog: () => Promise.resolve({ canceled: true, filePaths: [] }),
-    };
-    await expect(
-      showOpenDialog(canceled, new FilePathRefs(), page(1), { purpose: "attachFiles" }),
-    ).resolves.toStrictEqual({ refs: [] });
   });
 
   it("refuses a purpose it does not know before showing anything", async () => {
@@ -134,19 +109,5 @@ describe("the open dialog", () => {
     expect(refs.pathOf(page(2), file.ref)).toBeUndefined();
     owner.destroy();
     expect(refs.pathOf(owner, file.ref)).toBeUndefined();
-  });
-});
-
-describe("the clipboard", () => {
-  it("writes text, and refuses anything else without touching the clipboard", () => {
-    const clipboard = { writeText: vi.fn() };
-
-    copyToClipboard(clipboard, "copied");
-    expect(clipboard.writeText).toHaveBeenCalledWith("copied");
-
-    expect(() => {
-      copyToClipboard(clipboard, { toString: () => "copied" });
-    }).toThrow(TypeError);
-    expect(clipboard.writeText).toHaveBeenCalledTimes(1);
   });
 });

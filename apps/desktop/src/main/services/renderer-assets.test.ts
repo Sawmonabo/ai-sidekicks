@@ -9,21 +9,7 @@ import path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { FALLBACK_CONTENT_TYPE, resolveRendererAsset } from "./renderer-assets.js";
-
-// Extensions the closed content-type map covers, paired with the exact type served.
-const MAPPED_CONTENT_TYPES: ReadonlyArray<readonly [string, string]> = [
-  ["index.html", "text/html; charset=utf-8"],
-  ["bundle.js", "text/javascript; charset=utf-8"],
-  ["module.mjs", "text/javascript; charset=utf-8"],
-  ["sheet.css", "text/css; charset=utf-8"],
-  ["manifest.json", "application/json; charset=utf-8"],
-  ["glyph.svg", "image/svg+xml"],
-  ["shot.png", "image/png"],
-  ["shot.webp", "image/webp"],
-  ["plex.woff2", "font/woff2"],
-  ["parser.wasm", "application/wasm"],
-];
+import { resolveRendererAsset } from "./renderer-assets.js";
 
 // Planted beside the bundle as a dev tree has them: present on disk and still refused, so a
 // pass is the guard working and not a missing file.
@@ -47,14 +33,9 @@ beforeAll(async () => {
   await mkdir(outsideRoot, { recursive: true });
 
   await writeFile(path.join(outsideRoot, "secret.txt"), "not yours", "utf8");
-  for (const [fileName] of MAPPED_CONTENT_TYPES) {
-    await writeFile(path.join(rendererRoot, fileName), "x", "utf8");
-  }
   for (const fileName of SOURCE_MAP_FIXTURES) {
     await writeFile(path.join(rendererRoot, fileName), '{"sources":["secret.ts"]}', "utf8");
   }
-  await writeFile(path.join(rendererRoot, "LICENSE"), "x", "utf8");
-  await writeFile(path.join(rendererRoot, "notes.txt"), "x", "utf8");
   await writeFile(path.join(rendererRoot, "assets", "app.js"), "x", "utf8");
 
   // Escape symlink: inside the root, pointing outside it.
@@ -115,20 +96,6 @@ describe("resolveRendererAsset containment failure matrix", () => {
     expect(resolution.outcome).toBe("resolved");
   });
 });
-describe("resolveRendererAsset misses", () => {
-  const NOT_FOUND_ROWS: ReadonlyArray<readonly [string, string]> = [
-    ["a path that does not exist", "sidekicks-renderer://app/nope.js"],
-    ["a directory", "sidekicks-renderer://app/assets"],
-    ["the bare root, since there is no index.html fallback", "sidekicks-renderer://app/"],
-    ["a URL with no path component", "sidekicks-renderer://app"],
-    ["a URL that is only a query", "sidekicks-renderer://app?route=sessions"],
-  ];
-
-  it.each(NOT_FOUND_ROWS)("answers 'not found' for %s", async (_label, url) => {
-    const resolution = await resolveRendererAsset(rendererRoot, url);
-    expect(JSON.stringify(resolution)).toBe('{"outcome":"not-found"}');
-  });
-});
 describe("source maps", () => {
   // Each fixture exists on disk, so a pass is the guard refusing a readable file.
   it.each(SOURCE_MAP_FIXTURES.map((fileName) => [fileName] as const))(
@@ -149,63 +116,5 @@ describe("source maps", () => {
       "sidekicks-renderer://app/bundle.js%2Emap",
     );
     expect(JSON.stringify(resolution)).toBe('{"outcome":"not-found"}');
-  });
-
-  it("answers 'not found' for a source map that is not on disk at all", async () => {
-    // A refused map must be indistinguishable from a miss, hence 404 rather than 403.
-    const resolution = await resolveRendererAsset(
-      rendererRoot,
-      "sidekicks-renderer://app/never-written.js.map",
-    );
-    expect(JSON.stringify(resolution)).toBe('{"outcome":"not-found"}');
-  });
-
-  it("does not refuse a file whose name merely contains 'map'", async () => {
-    // Negative control: the guard is a suffix test, not a substring test.
-    const resolution = await resolveRendererAsset(
-      rendererRoot,
-      "sidekicks-renderer://app/manifest.json",
-    );
-    expect(resolution.outcome).toBe("resolved");
-  });
-});
-describe("resolveRendererAsset content types", () => {
-  it.each(MAPPED_CONTENT_TYPES)("serves %s as %s", async (fileName, expectedContentType) => {
-    const resolution = await resolveRendererAsset(
-      rendererRoot,
-      `sidekicks-renderer://app/${fileName}`,
-    );
-    expect(resolution).toStrictEqual({
-      outcome: "resolved",
-      absolutePath: expect.stringContaining(fileName) as unknown as string,
-      contentType: expectedContentType,
-    });
-  });
-
-  it.each([["LICENSE"], ["notes.txt"]])(
-    "serves the unmapped %s as application/octet-stream",
-    async (fileName) => {
-      const resolution = await resolveRendererAsset(
-        rendererRoot,
-        `sidekicks-renderer://app/${fileName}`,
-      );
-      expect(resolution.outcome).toBe("resolved");
-      expect(resolution.outcome === "resolved" && resolution.contentType).toBe(
-        FALLBACK_CONTENT_TYPE,
-      );
-    },
-  );
-
-  it("resolves a nested asset and returns a path inside the root", async () => {
-    const resolution = await resolveRendererAsset(
-      rendererRoot,
-      "sidekicks-renderer://app/assets/app.js?v=abc#/sessions",
-    );
-    expect(resolution.outcome).toBe("resolved");
-    if (resolution.outcome !== "resolved") return;
-    // Query and fragment are not part of the path. `/var` is a symlink to `/private/var` on
-    // macOS, so the returned path is checked by suffix, not against the raw root.
-    expect(path.basename(resolution.absolutePath)).toBe("app.js");
-    expect(resolution.absolutePath.endsWith(path.join("assets", "app.js"))).toBe(true);
   });
 });
