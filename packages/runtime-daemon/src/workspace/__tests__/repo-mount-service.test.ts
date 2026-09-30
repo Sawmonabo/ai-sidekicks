@@ -110,6 +110,8 @@ interface GitFixtures {
   readonly repositoryRoot: string;
   /** A directory BELOW `repositoryRoot`, which resolves to the same canonical root. */
   readonly nestedDirectory: string;
+  /** An absolute path that does not exist. */
+  readonly absentPath: string;
   /** An absolute path to a `git` that is not there. */
   readonly missingGitExecutable: string;
 }
@@ -134,6 +136,7 @@ beforeAll(async () => {
     fixtureRoot,
     repositoryRoot,
     nestedDirectory,
+    absentPath: join(fixtureRoot, "does-not-exist"),
     missingGitExecutable: join(fixtureRoot, "definitely-not-a-git-binary"),
   };
 }, 120_000);
@@ -340,6 +343,24 @@ afterEach(() => {
   __resetSessionAppendLocksForTest();
   harness.db.close();
   rmSync(harness.tmpDir, { recursive: true, force: true });
+});
+
+describe("RepoMountService.attach — resolution failure", () => {
+  it("persists NOTHING when the root cannot be resolved", async () => {
+    for (const unresolvable of [
+      gitFixtures.absentPath,
+      // Relative: the resolver refuses it rather than resolving it against the working directory.
+      "relative/not/absolute",
+    ]) {
+      const error = await captureRejection(() =>
+        harness.service.attach({ localPath: unresolvable }),
+      );
+      expect(error).toBeInstanceOf(RepoRootResolutionError);
+      expect((error as RepoRootResolutionError).code).toBe("repo.root_resolution_failed");
+    }
+
+    expect(countMountRows()).toBe(0);
+  });
 });
 
 describe("RepoMountService.attach — active-root uniqueness", () => {

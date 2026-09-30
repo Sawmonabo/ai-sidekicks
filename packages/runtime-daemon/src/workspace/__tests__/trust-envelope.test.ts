@@ -1,7 +1,9 @@
 // Proves the trust-envelope validator never returns an execution root outside the attached mount a
 // bind names: traversal, symlink escapes, prefix collisions, another mount and drive-less win32
-// shapes are refused, and an accepted root comes back symlink-resolved.
+// shapes are refused, an accepted root comes back symlink-resolved, and win32 and case-insensitive
+// filesystems compare paths case-folded.
 
+import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix as posixPath, win32 as win32Path } from "node:path";
@@ -10,11 +12,33 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { TrustEnvelopeViolationError } from "../repo-errors.js";
 import {
+  DEFAULT_REALPATH,
   TrustEnvelopeValidator,
   type DirectoryReadabilityProbe,
   type PathRealpathResolver,
   type WorkspaceExecutionRootCandidate,
 } from "../trust-envelope.js";
+
+/**
+ * Whether the filesystem under `os.tmpdir()` is case-insensitive, found by creating a directory in
+ * one spelling and stat-ing the other. It is probed, not derived from `process.platform`, because
+ * APFS can be case-sensitive and Linux can mount a case-insensitive volume. CI runs the tests on
+ * ubuntu only, where this is false and the gated test skips.
+ */
+const filesystemIsCaseInsensitive: boolean = ((): boolean => {
+  const probeRoot = mkdtempSync(join(tmpdir(), "trust-envelope-case-probe-"));
+  try {
+    mkdirSync(join(probeRoot, "CaseProbe"));
+    statSync(join(probeRoot, "caseprobe"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probeRoot, { recursive: true, force: true });
+  }
+})();
+
+const itOnCaseInsensitiveFilesystem = it.skipIf(!filesystemIsCaseInsensitive);
 
 // Real-filesystem fixtures
 
@@ -162,6 +186,19 @@ describe("accepted execution roots", () => {
     expect(validated).toBe(fixtures.realSubdirectory);
     expect(validated).not.toBe(fixtures.symlinkInsideMount);
   });
+
+  itOnCaseInsensitiveFilesystem(
+    "accepts a mis-cased directory and returns the on-disk spelling",
+    async () => {
+      // Containment compares components case-sensitively off win32, so this binds only because
+      // `realpath` first rewrites the candidate to the on-disk spelling. A JS-walk realpath
+      // would keep `REAL-SUB` and refuse a directory that is inside the mount.
+      const validated = await new TrustEnvelopeValidator().validateExecutionRoot(
+        candidateInMount("REAL-SUB"),
+      );
+      expect(validated).toBe(fixtures.realSubdirectory);
+    },
+  );
 });
 
 describe("an unusable execution root is refused", () => {
@@ -233,6 +270,21 @@ describe("escapes from the mount root are refused", () => {
       );
     }
   });
+
+  it("leaks no path into the message or the wire detail", async () => {
+    // The error must not echo the attempted path, including in `fields`. The carrier takes no
+    // arguments, so this checks the validator found no other way to attach one.
+    const violation = await expectEnvelopeRefusal(
+      new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("link-outside")),
+    );
+    expect(violation.message).not.toContain(fixtures.fixtureRoot);
+    expect(violation.message).not.toContain("link-outside");
+    expect(violation.detail).toBeUndefined();
+    // Positive control: the spread carries the own properties, so the negative check cannot pass
+    // vacuously if they moved onto the prototype.
+    expect(JSON.stringify({ ...violation })).toContain("repo.outside_trust_envelope");
+    expect(JSON.stringify({ ...violation })).not.toContain(fixtures.fixtureRoot);
+  });
 });
 
 describe("win32 path shapes", () => {
@@ -286,6 +338,28 @@ describe("win32 path shapes", () => {
     );
     expect(recorded).toEqual([]);
   });
+
+  it("accepts a candidate whose physical spelling differs only in case", async () => {
+    const validated = await windowsValidator({
+      "C:\\repos\\app\\Src": "C:\\Repos\\App\\Src",
+    }).validateExecutionRoot({
+      mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
+      directory: "Src",
+      attachedMountRoots: [WINDOWS_MOUNT_ROOT],
+    });
+    // Folding applies to the comparison only; the returned root keeps the filesystem's spelling.
+    expect(validated).toBe("C:\\Repos\\App\\Src");
+  });
+
+  it("admits an anchor whose envelope entry differs only in case", async () => {
+    const validated = await windowsValidator({
+      "C:\\repos\\app": "C:\\repos\\app",
+    }).validateExecutionRoot({
+      mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
+      attachedMountRoots: ["C:\\REPOS\\APP"],
+    });
+    expect(validated).toBe(WINDOWS_MOUNT_ROOT);
+  });
 });
 
 describe("case folding stays win32-scoped", () => {
@@ -309,5 +383,15 @@ describe("case folding stays win32-scoped", () => {
         attachedMountRoots: [POSIX_MOUNT_ROOT],
       }),
     );
+  });
+});
+
+describe("the default realpath implementation is pinned", () => {
+  it("is `node:fs/promises.realpath`, never the JS-walk implementation", () => {
+    // Deliberately structural. The callback `node:fs` `realpath` does no case conversion on
+    // case-insensitive filesystems and collapses `..` in its own walk rather than against a
+    // symlink's resolved target, which would reopen the escape. The casing half cannot be
+    // observed on ubuntu-only CI, but this assertion fails on every platform.
+    expect(DEFAULT_REALPATH).toBe(realpath);
   });
 });

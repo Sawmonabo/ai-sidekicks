@@ -1,5 +1,10 @@
-// Proves the `repo_mounts` and `workspaces` constraints refuse a corrupt row: each CHECK admits
-// exactly its contract union, a workspace needs a real mount, and the active-root key is per node.
+// Proves the `repo_mounts` and `workspaces` columns and constraints: each CHECK admits exactly its
+// contract union, a workspace needs a real mount, the active-root key is per node, and a reopen
+// re-runs the migration as a no-op.
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -12,6 +17,17 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { openDatabase } from "../../session/migration-runner.js";
+
+// A `PRAGMA table_info` row, with the field names better-sqlite3 returns.
+interface PragmaColumn {
+  cid: number;
+  name: string;
+  type: string;
+  notnull: 0 | 1;
+  dflt_value: string | null;
+  // 1-based ordinal within the primary key, 0 if the column is not part of it.
+  pk: number;
+}
 
 const FIXTURE_TIMESTAMP: string = "2026-08-04T00:00:00.000Z";
 const FIXTURE_CANONICAL_ROOT: string = "/repos/acme-payments";
@@ -100,6 +116,120 @@ describe("repo_mounts and workspaces constraints", () => {
     );
   }
 
+  it("pins the column shape, single-column PK, and both path columns of `repo_mounts`", () => {
+    const columns = db
+      .prepare("PRAGMA table_info(repo_mounts)")
+      .all() as ReadonlyArray<PragmaColumn>;
+
+    // Columns in creation order.
+    expect(columns.map((column) => column.name)).toEqual([
+      "id",
+      "node_id",
+      "local_path",
+      "canonical_root",
+      "vcs_type",
+      "state",
+      "attached_at",
+      "updated_at",
+      "metadata",
+    ]);
+
+    const byName = new Map(columns.map((column) => [column.name, column]));
+
+    // Every column is TEXT; `metadata` holds serialized JSON, which SQLite has no class for.
+    for (const column of columns) {
+      expect(column.type).toBe("TEXT");
+    }
+
+    // Single-column PK on `id`; the sweep fails if the key is widened to a composite.
+    expect(byName.get("id")?.pk).toBe(1);
+    for (const other of columns.filter((column) => column.name !== "id")) {
+      expect(other.pk).toBe(0);
+    }
+
+    // Both path columns are mandatory: a nullable `canonical_root` would let an unresolved mount
+    // persist, a nullable `local_path` would lose the entered path, and a mount with no
+    // `node_id` is unroutable.
+    for (const required of [
+      "node_id",
+      "local_path",
+      "canonical_root",
+      "vcs_type",
+      "state",
+      "attached_at",
+      "updated_at",
+      "metadata",
+    ]) {
+      expect(byName.get(required)?.notnull).toBe(1);
+    }
+    // `id` is NOT NULL too, because a STRICT table's primary key column is.
+    expect(byName.get("id")?.notnull).toBe(1);
+
+    // SQLite reports a default as its literal DDL text, hence the quoted strings.
+    expect(byName.get("vcs_type")?.dflt_value).toBe("'git'");
+    expect(byName.get("state")?.dflt_value).toBe("'attached'");
+    expect(byName.get("metadata")?.dflt_value).toBe("'{}'");
+    for (const column of columns.filter(
+      (candidate) => !["vcs_type", "state", "metadata"].includes(candidate.name),
+    )) {
+      expect(column.dflt_value).toBeNull();
+    }
+  });
+
+  it("pins the column shape, single-column PK, and nullable `fs_root` of `workspaces`", () => {
+    const columns = db
+      .prepare("PRAGMA table_info(workspaces)")
+      .all() as ReadonlyArray<PragmaColumn>;
+
+    expect(columns.map((column) => column.name)).toEqual([
+      "id",
+      "session_id",
+      "repo_mount_id",
+      "execution_mode",
+      "fs_root",
+      "state",
+      "metadata",
+      "created_at",
+      "updated_at",
+    ]);
+
+    const byName = new Map(columns.map((column) => [column.name, column]));
+
+    for (const column of columns) {
+      expect(column.type).toBe("TEXT");
+    }
+
+    expect(byName.get("id")?.pk).toBe(1);
+    for (const other of columns.filter((column) => column.name !== "id")) {
+      expect(other.pk).toBe(0);
+    }
+
+    // `fs_root` is the only nullable column: a workspace still provisioning has no execution
+    // root, and NOT NULL would force the bind path to invent a placeholder.
+    expect(byName.get("fs_root")?.notnull).toBe(0);
+    for (const required of [
+      "session_id",
+      "repo_mount_id",
+      "execution_mode",
+      "state",
+      "metadata",
+      "created_at",
+      "updated_at",
+    ]) {
+      expect(byName.get(required)?.notnull).toBe(1);
+    }
+    expect(byName.get("id")?.notnull).toBe(1);
+
+    // `execution_mode` has no default: a bind always names its mode.
+    expect(byName.get("state")?.dflt_value).toBe("'preparing'");
+    expect(byName.get("metadata")?.dflt_value).toBe("'{}'");
+    for (const column of columns.filter(
+      (candidate) => !["state", "metadata"].includes(candidate.name),
+    )) {
+      expect(column.dflt_value).toBeNull();
+    }
+  });
+
   it("enforces the state CHECK on `repo_mounts`", () => {
     for (const state of Object.keys(REPO_MOUNT_STATES)) {
       expect(() => {
@@ -187,5 +317,92 @@ describe("repo_mounts and workspaces constraints", () => {
     expect(() => {
       insertRepoMountRow({ id: "mount-other-root", canonicalRoot: "/repos/other-repository" });
     }).not.toThrow();
+  });
+});
+
+// Row shapes for the reopen probes below; members use the SQL column names.
+interface DurableRepoMountRow {
+  canonical_root: string;
+  state: string;
+}
+
+interface DurableWorkspaceRow {
+  repo_mount_id: string;
+  execution_mode: string;
+  state: string;
+}
+
+describe("repo_mounts and workspaces durability across an openDatabase reopen", () => {
+  let databaseDirectory: string;
+  let databasePath: string;
+
+  beforeEach(() => {
+    // A real file: reopening an in-memory database yields a new empty one.
+    databaseDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-repo-workspaces-"));
+    databasePath = join(databaseDirectory, "daemon.sqlite");
+  });
+
+  afterEach(() => {
+    rmSync(databaseDirectory, { recursive: true, force: true });
+  });
+
+  it("re-runs as a no-op on reopen and leaves the persisted rows intact", () => {
+    const firstHandle: DatabaseType = openDatabase(databasePath);
+    try {
+      firstHandle
+        .prepare(
+          `INSERT INTO repo_mounts
+             (id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "mount-durable",
+          "node-alpha",
+          `${FIXTURE_CANONICAL_ROOT}/src/services`,
+          FIXTURE_CANONICAL_ROOT,
+          "git",
+          "attached",
+          FIXTURE_TIMESTAMP,
+          FIXTURE_TIMESTAMP,
+        );
+      firstHandle
+        .prepare(
+          `INSERT INTO workspaces
+             (id, session_id, repo_mount_id, execution_mode, fs_root, state, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "workspace-durable",
+          "session-1",
+          "mount-durable",
+          "bound-root",
+          FIXTURE_CANONICAL_ROOT,
+          "ready",
+          FIXTURE_TIMESTAMP,
+          FIXTURE_TIMESTAMP,
+        );
+    } finally {
+      firstHandle.close();
+    }
+
+    // The reopen runs `applyMigrations` on a database that already has the schema. The DDL has no
+    // `IF NOT EXISTS`, so a broken guard throws "table already exists" here.
+    const reopened: DatabaseType = openDatabase(databasePath);
+    try {
+      const mountRow = reopened
+        .prepare("SELECT canonical_root, state FROM repo_mounts WHERE id = ?")
+        .get("mount-durable") as DurableRepoMountRow;
+      expect(mountRow.canonical_root).toBe(FIXTURE_CANONICAL_ROOT);
+      expect(mountRow.state).toBe("attached");
+
+      const workspaceRow = reopened
+        .prepare("SELECT repo_mount_id, execution_mode, state FROM workspaces WHERE id = ?")
+        .get("workspace-durable") as DurableWorkspaceRow;
+      expect(workspaceRow.repo_mount_id).toBe("mount-durable");
+      expect(workspaceRow.execution_mode).toBe("bound-root");
+      expect(workspaceRow.state).toBe("ready");
+    } finally {
+      reopened.close();
+    }
   });
 });

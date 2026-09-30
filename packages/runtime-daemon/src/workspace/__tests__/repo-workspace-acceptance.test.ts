@@ -290,8 +290,8 @@ function readPayloadsOfType(type: string): readonly LifecycleEventPayload[] {
 }
 
 /** Make `directory` a real git repository, so an attach of it resolves. */
-function initRepository(directory: string): Promise<void> {
-  return runFixtureGit(["init", "-q", directory], fixtures.environment, fixtures.fixtureRoot);
+async function initRepository(directory: string): Promise<void> {
+  await runFixtureGit(["init", "-q", directory], fixtures.environment, fixtures.fixtureRoot);
 }
 
 /** Bind a workspace and complete its provisioning at `fsRoot`, so it is `ready`. */

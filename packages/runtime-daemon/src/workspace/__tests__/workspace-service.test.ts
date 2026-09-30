@@ -542,6 +542,24 @@ describe("assertWritable", () => {
     workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
   });
 
+  it("passes a ready workspace", async () => {
+    await expect(harness.service.assertWritable(workspaceId)).resolves.toBeUndefined();
+    // The gate observed the row; it did not change it.
+    expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
+  });
+
+  it("throws the typed `workspace.stale` refusal for a stale workspace", async () => {
+    harness.db.prepare("UPDATE workspaces SET state = 'stale' WHERE id = ?").run(workspaceId);
+
+    const refusal = await captureRejection(() => harness.service.assertWritable(workspaceId));
+
+    expect(refusal).toBeInstanceOf(WorkspaceStaleError);
+    expect((refusal as WorkspaceStaleError).code).toBe("workspace.stale");
+    expect((refusal as WorkspaceStaleError).httpStatus).toBe(409);
+    expect((refusal as WorkspaceStaleError).workspaceId).toBe(workspaceId);
+  });
+
   it("catches a root that vanished since the last read, and persists the transition", async () => {
     rmSync(harness.gitMountRoot, { recursive: true, force: true });
 

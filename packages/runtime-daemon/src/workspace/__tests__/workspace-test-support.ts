@@ -35,25 +35,25 @@ export function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv 
 }
 
 /**
- * Runs a fixture git command and rejects on any non-zero exit. `cwd` stays inside the fixture root
- * so git cannot discover the repository under development.
+ * Runs a fixture git command, resolving with its stdout and rejecting on any non-zero exit. `cwd`
+ * stays inside the fixture root so git cannot discover the repository under development.
  */
 export function runFixtureGit(
   args: readonly string[],
   environment: NodeJS.ProcessEnv,
   cwd: string,
-): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     execFile(
       "git",
       [...args],
       { encoding: "utf8", env: environment, cwd, timeout: 30_000 },
-      (error, _stdout, stderr) => {
+      (error, stdout, stderr) => {
         if (error !== null) {
           reject(new Error(`fixture git ${args.join(" ")} failed: ${stderr}`));
           return;
         }
-        resolve();
+        resolve(stdout);
       },
     );
   });

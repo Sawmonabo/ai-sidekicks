@@ -1,6 +1,7 @@
 // Proves ExecutionRootService prepares a root only on a writable workspace and the requested
 // branch, carries a reused worktree's recorded base branch, refuses a busy or retired candidate,
-// and retires a worktree it created but could not hand over.
+// records one branch context per mode without writing the workspaces row itself, runs git with
+// hooks neutralized, and retires a worktree it created but could not hand over.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +16,7 @@ import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import {
   WorkspaceBranchMismatchError,
+  WorkspaceBranchNameRequiredError,
   WorktreeCreateFailedError,
   WorktreeReuseConflictError,
 } from "../../git/worktree-errors.js";
@@ -132,6 +134,16 @@ class FakeGit {
 
   verbs(): readonly (string | undefined)[] {
     return this.invocations.map((invocation) => gitVerb(invocation.argv));
+  }
+}
+
+/** Records the directories the service asks to exist. */
+class RecordingFilesystem {
+  readonly createdDirectories: string[] = [];
+
+  createDirectory(path: string): Promise<void> {
+    this.createdDirectories.push(path);
+    return Promise.resolve();
   }
 }
 
@@ -565,6 +577,20 @@ describe("pre-bracket refusals", () => {
     expect(readEventTypes()).toEqual([]);
     expect(readBranchContexts()).toHaveLength(0);
   });
+
+  it("refuses a prepare carrying neither branchName nor runId, before any git call", async () => {
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
+
+    const rejection = await captureRejection(() =>
+      makeService().prepare({ workspaceId: WORKSPACE_ID }),
+    );
+
+    // Only the run-setup gate supplies a run id, so a prepare from the wire must name the branch.
+    expect(rejection).toBeInstanceOf(WorkspaceBranchNameRequiredError);
+    expect(ctx.git.invocations).toHaveLength(0);
+    expect(ctx.worktrees.createInputs).toHaveLength(0);
+    expect(readEventTypes()).toEqual([]);
+  });
 });
 
 describe("branch-name resolution", () => {
@@ -759,6 +785,147 @@ describe("explicit worktree reuse", () => {
     // After the bracket opened, so the workspace parks `stale` with the detail rather than
     // adopting a doomed root.
     expect(readWorkspaceRow().state).toBe("stale");
+  });
+
+  it("preserves a same-workspace candidate's existing row without duplication", async () => {
+    insertWorktreeRow({
+      worktreeId: SEEDED_WORKTREE_ID,
+      branchName: FEATURE_BRANCH,
+      fsRoot: SEEDED_WORKTREE_ROOT,
+    });
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
+    insertBranchContext({
+      id: SEEDED_CONTEXT_ID,
+      workspaceId: WORKSPACE_ID,
+      worktreeId: SEEDED_WORKTREE_ID,
+      baseBranch: SEEDED_BASE_BRANCH,
+      headBranch: FEATURE_BRANCH,
+    });
+
+    const prepared = await makeService().prepare({
+      workspaceId: WORKSPACE_ID,
+      branchName: FEATURE_BRANCH,
+      reuseWorktreeId: SEEDED_WORKTREE_ID,
+    });
+
+    const rows = readBranchContexts();
+    expect(rows).toHaveLength(1);
+    // Preserved (same identity, same provenance), not replaced by a new row with the same values.
+    expect(prepared.branchContextId).toBe(SEEDED_CONTEXT_ID);
+    expect(rows[0]?.base_branch).toBe(SEEDED_BASE_BRANCH);
+    expect(rows[0]?.created_at).toBe(SEEDED_CONTEXT_STAMP);
+  });
+});
+
+describe("branch_contexts polymorphism", () => {
+  it("writes a worktree-referencing row for provisioned-worktree mode", async () => {
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
+
+    const prepared = await makeService().prepare({
+      workspaceId: WORKSPACE_ID,
+      branchName: FEATURE_BRANCH,
+    });
+
+    const row = readBranchContext(prepared.branchContextId);
+    expect(row.worktree_id).toBe(prepared.worktreeId);
+  });
+
+  it("writes a root-less row for bound-root mode, one per prepare", async () => {
+    insertWorkspace({ executionMode: "bound-root", state: "preparing" });
+    ctx.git.headBranch = FEATURE_BRANCH;
+    const service = makeService();
+
+    const first = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH });
+    const row = readBranchContext(first.branchContextId);
+    // The main checkout has no root row, so the context references no worktree.
+    expect(row.worktree_id).toBeNull();
+
+    // A second bound-root prepare accumulates a row. Nothing needs a workspace-scoped "current
+    // row": a run reaches its row through `run_execution_contexts.branch_context_id`. Refreshing
+    // in place would destroy the previous binding's recorded branches, which differ once the user
+    // moves the shared checkout.
+    ctx.git.headBranch = MAIN_BRANCH;
+    const second = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: MAIN_BRANCH });
+
+    expect(readBranchContexts()).toHaveLength(2);
+    expect(second.branchContextId).not.toBe(first.branchContextId);
+    expect(readBranchContext(first.branchContextId).head_branch).toBe(FEATURE_BRANCH);
+    expect(readBranchContext(second.branchContextId).head_branch).toBe(MAIN_BRANCH);
+  });
+});
+
+describe("no raw workspaces write", () => {
+  it("leaves the workspaces row byte-identical when the primitives are stubbed out", async () => {
+    // With the primitives replaced by recording no-ops, any change to the row could only come
+    // from this module's own SQL, so an unchanged row is a direct observation.
+    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
+    const before = readWorkspaceRow();
+
+    const calls: string[] = [];
+    const stubbed: WorkspaceLifecyclePrimitives = {
+      assertWritable: (workspaceId) => {
+        calls.push(`assertWritable:${workspaceId}`);
+        return Promise.resolve();
+      },
+      beginRootPreparation: (workspaceId) => {
+        calls.push(`beginRootPreparation:${workspaceId}`);
+        return Promise.resolve();
+      },
+      completeRootPreparation: (workspaceId, fsRoot) => {
+        calls.push(`completeRootPreparation:${workspaceId}:${fsRoot}`);
+        return Promise.resolve();
+      },
+      failRootPreparation: (workspaceId) => {
+        calls.push(`failRootPreparation:${workspaceId}`);
+        return Promise.resolve();
+      },
+    };
+
+    const prepared = await makeService({ workspaces: stubbed }).prepare({
+      workspaceId: WORKSPACE_ID,
+      branchName: FEATURE_BRANCH,
+    });
+
+    // The service did the work; otherwise "the row is unchanged" would hold for a service that
+    // did nothing.
+    expect(prepared.executionRoot).toContain("/worktrees/");
+    expect(readBranchContexts()).toHaveLength(1);
+    // It asked the primitive to adopt the root rather than writing it.
+    expect(calls).toEqual([`completeRootPreparation:${WORKSPACE_ID}:${prepared.executionRoot}`]);
+    expect(readWorkspaceRow()).toEqual(before);
+    expect(readEventTypes()).toEqual([]);
+  });
+});
+
+const HOOK_NEUTRALIZATION_DIRECTORY: string = join(
+  EXECUTION_ROOTS_DIRECTORY,
+  ".hook-neutralization",
+);
+
+describe("git invocation", () => {
+  it("neutralizes hooks on its one invocation, and creates that directory first", async () => {
+    insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
+    ctx.git.headBranch = FEATURE_BRANCH;
+    const filesystem = new RecordingFilesystem();
+
+    await makeService({ filesystem }).prepare({
+      workspaceId: WORKSPACE_ID,
+      branchName: FEATURE_BRANCH,
+    });
+
+    const invocation = ctx.git.invocations[0];
+    expect(ctx.git.invocations).toHaveLength(1);
+    // First in the argv, so it wins: a command-line `-c` outranks repository, global and system
+    // config, so a repo-local `core.hooksPath` or `core.fsmonitor` cannot take either back.
+    expect(invocation?.argv.slice(0, 4)).toEqual([
+      "-c",
+      `core.hooksPath=${HOOK_NEUTRALIZATION_DIRECTORY}`,
+      "-c",
+      "core.fsmonitor=false",
+    ]);
+    // The directory must exist: git ignores a `core.hooksPath` that does not resolve, which would
+    // silently restore the hooks this flag disables.
+    expect(filesystem.createdDirectories).toEqual([HOOK_NEUTRALIZATION_DIRECTORY]);
   });
 });
 
