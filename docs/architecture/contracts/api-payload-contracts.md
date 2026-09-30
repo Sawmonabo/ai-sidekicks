@@ -197,8 +197,8 @@ type DriverCapabilityFlag =
   | "context_compaction" // compacts the bound session's own provider-side context on user request via compactContext (Spec-004 §User-triggered context compaction)
   | "provider_commands" // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE read, never a stored registry (Spec-004 §The provider command and skill surface)
   | "output_speed"; // declares a user-settable provider-side output-speed mode; BOTH pinned drivers declare it, and detectionSource is STATIC on both because reading the declared state is not zero-turn (Spec-004 §The output-speed axis). Claude realizes the axis through its own fast-output setting; Codex realizes it through the participant-settable per-turn `serviceTier` override on `turn/start` — present in the default, non-field-gated generation — against the speed tiers its model catalog publishes (`Model.serviceTiers`, `defaultServiceTier`, each tier `{ id, name, description }`, with a `Fast` tier carried in upstream source), behind the provider's own `features.fast_mode` gate and surfaced to the person as the composer's `Fast` / `Standard` control and the `/fast` word
-// The shipped executable union
-// (packages/contracts/src/provider-driver.ts) exports every member above, so no member is
+// The executable union
+// (packages/contracts/src/provider-driver.ts) must export every member above, so no member is
 // declarable in doc only. The shipped assertValidCapabilityFlags rejects
 // any snapshot whose key count differs, so the union, the validator, the
 // driver_capabilities.capability_flag CHECK in the one local schema and the conformance tests
@@ -2708,10 +2708,8 @@ interface EventEnvelope {
 // added — the canonical set above is unchanged — and it is part of the v1.0
 // baseline payload contract. The audit-stub projection preserves the sourceEpoch + sourcePosition
 // + runId triple at compaction, on accepted run.rolled_back boundary rows the
-// runId/runVersion/targetPosition rewind cutoff, and on every run-scoped row the
-// runId + resolved originPosition rewind-span detection keys (ORIGIN_POSITION_STUB_KEY
-// in packages/contracts/src/event.ts — Spec-005 §Compacted Event Format),
-// so Plan-003 T3.14's supersede projection keys cross-epoch rows durably even after
+// runId/runVersion/targetPosition rewind cutoff, and on every run-scoped row its runId
+// (Spec-005 §Compacted Event Format), so Plan-003 T3.14's supersede projection keys cross-epoch rows durably even after
 // both the boundary and the stale rows compact. Execution-epoch semantics are
 // Spec-003-owned (§Required Behavior + Run State Machine §Invariants): 0 before any
 // rollback, advancing with each accepted run.rolled_back rewind regardless of the
@@ -2775,8 +2773,10 @@ type EventCategory =
 // relay.pin_refused payload (security_events) — base {nodeId, occurredAt} + the relay's host and the
 // two key-hash prefixes, per Spec-005 §Security Events. The daemon records it on its sentinel session
 // when a pinned relay presents a key other than the one pinned when it was linked, and refuses the
-// connection. Emitted by the relay pin (Plan-028 Phase 3), not by Plan-005. Each prefix is the first
-// 8 bytes of its key hash, never a token.
+// connection. Emitted by the relay pin (Plan-028 Phase 3), not by Plan-005, so its schema,
+// RelayPinRefusedPayloadSchema, is authored in packages/contracts/src/relay.ts under
+// emitter-authors-payload and imported by the union, like the repo/workspace/worktree family.
+// Each prefix is the first 8 bytes of its key hash, never a token.
 interface RelayPinRefusedPayload {
   nodeId: NodeId;
   occurredAt: string; // ISO 8601
