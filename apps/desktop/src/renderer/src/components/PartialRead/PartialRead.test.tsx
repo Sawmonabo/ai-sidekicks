@@ -1,10 +1,6 @@
-// The notices, rendered — and the one thing they must never do.
-//
-// The model's test proves the sentence set; this proves the box. Four claims: a set
-// of served readings renders nothing at all, every other state renders something a
-// person can see, the cause reaches the screen through the refusal primitive rather
-// than as prose this component wrote, and the tree carries exactly one live region
-// per notice — the one the nested primitive already owns.
+// The notices rendered, and the one thing they must never do: create a live region of their own.
+// A set of served readings renders nothing, every other state renders something visible, and the
+// cause reaches the screen through the refusal primitive.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -43,8 +39,7 @@ describe("PartialRead — a view says less than complete, never more", () => {
   });
 
   it("mounts one notice per reading a view holds", () => {
-    // The mechanism, not the discipline: a served snapshot beside an unreadable tail
-    // is one notice, and two incomplete readings are two.
+    // A served snapshot beside an unreadable tail is one notice; two incomplete readings are two.
     const container = renderNotice(
       { kind: "served" },
       STATE_BY_KIND.partial,
@@ -54,9 +49,7 @@ describe("PartialRead — a view says less than complete, never more", () => {
   });
 
   it("negative control: the emptiness check reads the real tree", () => {
-    // Without this an assertion on `innerHTML` could be satisfied by a container
-    // that was never rendered into at all, which would make the clean result above
-    // true of any component whatsoever.
+    // Negative control: `innerHTML` would be empty for a container never rendered into.
     expect(renderNotice(STATE_BY_KIND.partial).innerHTML).toContain("meridian-partial-read");
   });
 });
@@ -70,9 +63,8 @@ describe("PartialRead — what each arm puts on screen", () => {
   });
 
   it("carries the count as a derived figure and never as a wire one", () => {
-    // The console counted these, so the count must not wear the wire
-    // signature. The refusal beneath it still does, which is why the assertion is
-    // scoped to the copy line.
+    // The console counted these, so the count is derived, not wire; the refusal beneath is wire,
+    // so the assertion is scoped to the copy line.
     const copy = renderNotice(STATE_BY_KIND.partial).querySelector(".meridian-partial-read__copy");
     expect(copy?.querySelector(".meridian-figure--derived")?.textContent).toBe("3");
     expect(copy?.querySelector(".meridian-figure--wire")).toBeNull();
@@ -97,13 +89,8 @@ describe("PartialRead — what each arm puts on screen", () => {
 
 describe("PartialRead — the console keeps one announcer", () => {
   /**
-   * How many regions each arm's tree is entitled to, and whose they are.
-   *
-   * Every one belongs to a component this one MOUNTS — the refusal's region
-   * on the three arms that carry a refusal, the `not-loaded` absence's region on the
-   * in-flight arm. The `cut` arm carries neither, and it is the arm that makes the
-   * claim checkable: a wrapper of this component's own would show up there as a
-   * region with no owner.
+   * How many live regions each arm is entitled to. All belong to mounted primitives (the
+   * refusal's, or the `not-loaded` absence's); `cut` has none, so an own wrapper would show there.
    */
   const REGIONS_BY_KIND: Readonly<Record<ReadingStateKind, number>> = {
     served: 0,
@@ -116,11 +103,8 @@ describe("PartialRead — the console keeps one announcer", () => {
   };
 
   it("creates no live region of its own on any arm", () => {
-    // `LiveAnnouncerProvider` states the absolute this holds to: one announcer per
-    // window, and no other component making a region. A wrapper here was a second
-    // region announcing the same sentence, nested inside the refusal's own — which
-    // is announced by both, and which mounts with its content already in it, the
-    // shape screen readers do not reliably announce at all.
+    // One announcer per window: a wrapper here would announce the same sentence twice, mounted
+    // with its content already in it.
     for (const kind of READING_STATE_KINDS) {
       const container = renderNotice(STATE_BY_KIND[kind]);
       expect(liveRegions(container).length, `${kind} regions`).toBe(REGIONS_BY_KIND[kind]);
@@ -128,8 +112,7 @@ describe("PartialRead — the console keeps one announcer", () => {
   });
 
   it("leaves the regions it does mount with the primitive that owns them", () => {
-    // Not merely "one region" but "the refusal's region": a wrapper that took rule
-    // 9's region away and put its own around it would also count one.
+    // Not merely one region but the refusal's: a wrapper replacing it would also count one.
     const refusalRegion = liveRegions(renderNotice(STATE_BY_KIND.partial))[0];
     expect(refusalRegion?.classList.contains("meridian-refusal")).toBe(true);
     const absenceRegion = liveRegions(renderNotice(STATE_BY_KIND.reading))[0];
@@ -137,8 +120,7 @@ describe("PartialRead — the console keeps one announcer", () => {
   });
 
   it("writes the aria-live attribute nowhere", () => {
-    // The absolute as written: the provider's pair are the only `aria-live` nodes in
-    // the console, and they are the only ones carrying `aria-atomic` with it.
+    // The provider's pair are the only `aria-live` nodes in the console.
     for (const kind of READING_STATE_KINDS) {
       const container = renderNotice(STATE_BY_KIND[kind]);
       expect(container.querySelectorAll("[aria-live]").length, `${kind}`).toBe(0);
@@ -146,8 +128,7 @@ describe("PartialRead — the console keeps one announcer", () => {
   });
 
   it("negative control: the region scan finds the regions that are there", () => {
-    // Without this the counts above would also be satisfied by a query that matched
-    // nothing, which would make every arm look clean including a wrapper-bearing one.
+    // Negative control: a query matching nothing would make every arm look clean.
     expect(liveRegions(renderNotice(STATE_BY_KIND.reading)).length).toBe(1);
     expect(REGIONS_BY_KIND.cut).toBeLessThan(REGIONS_BY_KIND.partial);
   });

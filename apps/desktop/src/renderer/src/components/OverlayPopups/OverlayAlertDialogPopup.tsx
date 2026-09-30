@@ -1,18 +1,12 @@
-// An alert dialog's portal, backdrop, and popup — registered in the window's airspace.
-//
-// The destructive sibling of `OverlayDialogPopup`, and a separate primitive rather
-// than a flag on it because the two are different components in the widget library:
-// `AlertDialog.Root` does not dismiss on an outside press, which is the whole reason a
-// confirmation uses it, and a wrapper that took the component as a parameter would be one
-// component choosing between two behaviors a caller cannot see from the call site.
-//
-// The airspace kind is `dialog` and is not a parameter: the closed set of overlay kinds
-// names each by what it is on screen, and a confirmation is a dialog.
+// An alert dialog's portal, backdrop and popup, registered in the window's airspace. Separate from
+// `OverlayDialogPopup` because `AlertDialog.Root` does not dismiss on an outside press. The
+// airspace kind is fixed at `dialog`.
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 
 import { useModalOverlayAirspace } from "@renderer/hooks/useModalOverlayAirspace.js";
 
+/** Props for `OverlayAlertDialogPopup`. */
 export interface OverlayAlertDialogPopupProps {
   /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
   readonly container?: HTMLElement | null | undefined;
@@ -21,6 +15,7 @@ export interface OverlayAlertDialogPopupProps {
   readonly children: React.ReactNode;
 }
 
+/** Portal, backdrop and popup for a confirmation; the caller owns `AlertDialog.Root`. */
 export function OverlayAlertDialogPopup(props: OverlayAlertDialogPopupProps): React.JSX.Element {
   const airspace = useModalOverlayAirspace("dialog");
   return (

@@ -1,29 +1,12 @@
-// Which face draws each glyph — one line per name, with the reason it is there.
+// Which face draws each glyph. `styles/glyphs.ts` owns the names and geometry; this module maps
+// names to faces and sits in `components/` because a face is a React component.
 //
-// `styles/glyphs.ts` owns the NAMES and the geometry every face is held to; this
-// module owns the answer to "what is this name drawn by". It sits in
-// `components/` rather than beside the names because a face is a React component
-// and `styles/` sits below `components/` in the import layering — and because the
-// split is what makes the set's closedness checkable: {@link GLYPH_ICONS} is a
-// `Record<GlyphName, …>`, so a name added to `GLYPH_NAMES` with no row here
-// fails the typecheck rather than rendering nothing at runtime.
-//
-// THE RULE THAT DECIDED EACH ROW, stated once so the rows can be one line each. The
-// design language's layout grammar reserves our own faces for users, runs, and
-// provenance kinds; `styles/glyphs.ts` fixes the vocabulary of parts the rest of
-// the set is drawn from. So a name takes the Tabler face when Tabler publishes the
-// same picture out of those parts, and stays signature when the governing text reserves
-// it, when Tabler softens a corner with an explicit radius instead of with the stroke
-// join, or when Tabler's icon of that name is a different picture. Ten names are
-// borrowed; twenty-three are ours.
-//
-// BOTH HALVES COMPILE THE SAME WAY. `~icons/signature/<name>` resolves against
-// `glyph-faces/signature/<name>.svg` and `~icons/tabler/<name>` against the
-// installed icon set, and both pass through the one normalization in
-// `vitest/icon-compilation.ts` — so a signature face and a borrowed one arrive
-// carrying the same stroke, the same caps and joins, and no fill. Adding a
-// signature glyph is adding an SVG file and a row here; there is no path table
-// to keep in step and no second place a weight can be set.
+// A name takes the Tabler face when Tabler draws the same picture from the set's parts. It stays
+// a signature face when it is reserved as ours (users, runs, provenance kinds), when Tabler
+// rounds a corner with an explicit radius instead of the stroke join, or when Tabler's icon of
+// that name is a different picture. Both collections compile through the one normalization in
+// `vitest/icon-compilation.ts`; a signature face is an SVG under `assets/icons/signature/` plus
+// a row here.
 
 import type { ComponentType, SVGProps } from "react";
 
@@ -36,22 +19,21 @@ import SessionsFace from "~icons/tabler/stack-2";
 import SettingsFace from "~icons/tabler/adjustments-horizontal";
 
 // --- Entity and pane kinds — the breadcrumb's kind glyph.
-// An agent, which the governing text reserves.
+// An agent, which is reserved as ours.
 import AgentFace from "~icons/signature/agent";
-// Runs are reserved by the governing text, and Tabler's `activity` is near-identical — which is why the pairing must be from one hand.
+// Runs are reserved as ours; Tabler's `activity` is near-identical, so the pair must match.
 import RunFace from "~icons/signature/run";
 // The shield is built from straight sides; Tabler's is a twelve-unit arc construction.
 import ApprovalFace from "~icons/signature/approval";
-// A provenance kind, and a container: Tabler's file rounds its corners with an explicit radius, not the join.
+// A provenance kind and a container; Tabler's file rounds its corners with an explicit radius.
 import ArtifactFace from "~icons/signature/artifact";
-// A workspace, the checkout a chat works in: a folder whose corners are softened by the join,
-// not Tabler's two-unit radius.
+// A workspace: a folder softened by the join, not Tabler's two-unit radius.
 import WorkspaceFace from "~icons/signature/workspace";
-// A provenance kind; Tabler's `git-branch` adds an arrow head this set does not draw.
+// A provenance kind; Tabler's `git-branch` adds an arrow head.
 import WorktreeFace from "~icons/signature/worktree";
 // A provenance kind, and a container Tabler rounds with a two-unit radius rather than the join.
 import RepoFace from "~icons/signature/repo";
-// A picture of the pane it opens; Tabler's `timeline` is a line chart and its `list` has no rail.
+// A picture of the pane it opens; Tabler's `timeline` is a line chart, `list` has no rail.
 import TranscriptIcon from "~icons/signature/transcript";
 // A container; Tabler rounds its frame with a two-unit radius rather than the join.
 import TerminalFace from "~icons/signature/terminal";
@@ -59,7 +41,7 @@ import TerminalFace from "~icons/signature/terminal";
 import PreviewIcon from "~icons/signature/preview";
 // Two containers and a connector; Tabler's `sitemap` rounds every node with an explicit radius.
 import WorkflowFace from "~icons/signature/workflow";
-// A container with a split; Tabler's layout frames round their corners with an explicit radius.
+// A container with a split; Tabler's layout frames round corners with an explicit radius.
 import InspectorFace from "~icons/signature/inspector";
 // A provenance kind; Tabler's `git-compare` and `file-diff` are different pictures.
 import DiffFace from "~icons/signature/diff";
@@ -97,24 +79,19 @@ import RewindFace from "~icons/signature/rewind";
 import CopyFace from "~icons/signature/copy";
 // Straight sides throughout; Tabler closes its eraser end with an arc.
 import PencilFace from "~icons/signature/pencil";
-// A container plus an arrow; Tabler rounds the frame's corners with a radius rather than the join.
+// A container plus an arrow; Tabler rounds the frame with a radius rather than the join.
 import ExternalFace from "~icons/signature/external";
-// Three dots as zero-length segments under round caps, which is the set's own dot construction; Tabler draws three circles.
+// Three zero-length segments under round caps; Tabler draws three circles.
 import MoreFace from "~icons/signature/more";
 // Two lines.
 import PlusFace from "~icons/tabler/plus";
 
-/** One compiled face: an `<svg>` that takes whatever props its caller sets. */
+/** One compiled face: an `<svg>` component that forwards every prop to its root. */
 export type GlyphIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
 /**
- * The face every glyph name is drawn by.
- *
- * TOTAL BY TYPE, which is the whole reason the record is written out rather than
- * derived from a directory listing: `Record<GlyphName, GlyphIcon>` makes a name
- * without a face a compile error, and a face without a name an unused import the
- * lint gate reports. A directory scan would answer both questions at runtime, in
- * a bundle, too late for either.
+ * The face every glyph name is drawn by. Total by type: a name without a face is a compile
+ * error, and a face without a name is an unused import.
  */
 export const GLYPH_ICONS: Readonly<Record<GlyphName, GlyphIcon>> = {
   sessions: SessionsFace,

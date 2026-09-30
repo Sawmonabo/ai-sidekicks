@@ -1,9 +1,5 @@
-// One notice, driven by shape rather than by state.
-//
-// The set's own test proves that a view owes a notice per reading it holds; this
-// proves the thing that moved out of it — which primitive each of the four shapes
-// reaches the screen through, and that the component reads the SHAPE and never the
-// state a second time.
+// One notice, driven by shape rather than state: which primitive each of the four shapes reaches
+// the screen through, and that the component never re-reads the state.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -28,9 +24,8 @@ describe("ReadingNotice — the shape is the instruction", () => {
   });
 
   it("leads a counted sentence with the derived figure and never a wire one", () => {
-    // The console counted these, so the count must not wear the wire
-    // signature. The refusal beneath it still does, which is why the assertion is
-    // scoped to the copy line.
+    // The console counted these, so the count is derived, not wire; the refusal beneath is wire,
+    // so the assertion is scoped to the copy line.
     const copy = renderNotice({
       shape: "counted-sentence",
       figure: "3",
@@ -74,9 +69,7 @@ describe("ReadingNotice — the shape is the instruction", () => {
   });
 
   it("negative control: the queries above find what is really there", () => {
-    // Without this every `toBeNull` would also be satisfied by a selector that
-    // matched nothing anywhere, which would make each arm look clean including one
-    // that rendered the wrong primitive.
+    // Negative control: a selector matching nothing would make every `toBeNull` pass.
     const container = renderNotice(readingNoticeFor({ kind: "cut", servedCount: 12 }, "the queue"));
     expect(container.querySelector(".meridian-partial-read")).not.toBeNull();
     expect(container.querySelector(".meridian-figure--derived")?.textContent).toBe("12");

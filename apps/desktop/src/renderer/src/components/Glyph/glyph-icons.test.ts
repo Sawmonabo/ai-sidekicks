@@ -1,25 +1,6 @@
-// Every face the console can draw, read back off the DOM it renders.
-//
-// `styles/glyphs.ts` holds the set to one geometry and one vocabulary of parts.
-// Since the faces are compiled — half of them borrowed from an icon set drawn at
-// a different box and a different weight — neither rule is a property of
-// anything in this tree. Both are properties of
-// what `vitest/icon-compilation.ts` emitted, and the only honest place to check
-// them is on a rendered element.
-//
-// THE WEIGHT IS CHECKED AS A RATIO, not as a number. A face drawn in a 24-unit
-// box needs a wider stroke than one drawn in a 16-unit box to render at the same
-// pixel weight, so what "one set, one weight" means is that every face's
-// `stroke-width` is the same SHARE of its own `viewBox`. Reading the viewBox back
-// off the face is also what makes the check independent of the collection table
-// the plugin holds: a collection that moved its box fails here rather than
-// shipping a set drawn at two weights.
-//
-// AND THE BODY IS CHECKED FOR SILENCE. All five attributes inherit, so a face
-// whose `<path>` kept the stroke it arrived with would draw at that stroke no
-// matter what the root says — the root would be right and the picture wrong.
-// That is exactly the shape an un-normalized Tabler face has, and it is what the
-// negative control plants.
+// Every face, read back off the rendered DOM: the faces are compiled from two icon sets, so
+// geometry is a property of the compiled output. Weight is checked as the stroke's share of
+// its own viewBox, and each face body must set none of the inherited stroke attributes.
 
 import { cleanup, render } from "@testing-library/react";
 import { createElement } from "react";
@@ -37,12 +18,7 @@ import { Glyph, type GlyphProps } from "./Glyph.js";
 /** The share of its own box every face's stroke must occupy. */
 const STROKE_SHARE_OF_BOX = GLYPH_STROKE_WIDTH / GLYPH_VIEWBOX_SIZE;
 
-/**
- * The presentation attributes the glyph set owns.
- *
- * The root must carry all five, and no element below it may carry any: an
- * inherited attribute is overridden by the nearest one that sets it.
- */
+/** Presentation attributes the root must carry and no element below it may override. */
 const GLYPH_SET_PRESENTATION: Readonly<Record<string, string>> = {
   fill: "none",
   stroke: "currentColor",
@@ -99,10 +75,7 @@ function geometryDeparturesOf(label: string, face: SVGSVGElement): readonly stri
 
 /** The one `<svg>` a `Glyph` renders, or a failure that says which name had none. */
 function renderFace(name: GlyphName, size: number, title?: string): SVGSVGElement {
-  // Composed conditionally rather than passed as `title: undefined`, because
-  // `exactOptionalPropertyTypes` makes an absent prop and a present undefined
-  // one two different things — and the component's whole accessibility rule
-  // turns on which of the two it was given.
+  // `exactOptionalPropertyTypes` distinguishes an absent `title` from an undefined one.
   const props: GlyphProps = title === undefined ? { name, size } : { name, size, title };
   const { container } = render(createElement(Glyph, props));
   const face = container.querySelector("svg");
@@ -118,21 +91,15 @@ afterEach(() => {
 
 describe("the glyph faces — the map is total over the name set", () => {
   it("draws every name and names every drawing", () => {
-    // The `Record<GlyphName, …>` type already makes a missing row a compile
-    // error. What it cannot say is that a row holds a component rather than
-    // `undefined`, which is what an icon specifier that resolved to nothing
-    // would leave behind.
+    // The type rejects a missing row; this catches a specifier that resolved to nothing.
     const undrawn = GLYPH_NAMES.filter((name) => GLYPH_ICONS[name] === undefined);
     expect(undrawn).toStrictEqual([]);
     expect(Object.keys(GLYPH_ICONS).sort()).toStrictEqual([...GLYPH_NAMES].sort());
   });
 
   it("draws from both collections, so neither half of the pairing is empty", () => {
-    // The design language asks for a borrowed single-stroke set AND our own signature
-    // glyphs in the same collection. Read as the two BOXES rather than as a count of
-    // distinct components: the geometry below is imposed on both collections, so it
-    // would pass just as cleanly on a build that resolved only one of them — and the
-    // box is the one thing the two do not share.
+    // The geometry check would pass if only one collection resolved; the viewBox is what
+    // the two collections do not share.
     const boxes = new Set(
       GLYPH_NAMES.map((name) => renderFace(name, GLYPH_VIEWBOX_SIZE).getAttribute("viewBox")),
     );
@@ -149,10 +116,8 @@ describe("the glyph faces — one geometry, whichever collection a face came fro
   }
 
   it("negative control: reports a face that kept the weight its icon set drew it at", () => {
-    // Exactly the shape an un-normalized Tabler face has — a 24-unit box with the
-    // set's own 2-unit stroke on the drawing element — which is what the compile
-    // step exists to remove. Without this the sweep above would hold over any
-    // reading at all, including one that found no attributes to compare.
+    // An un-normalized Tabler face: a 24-unit box with its own 2-unit stroke on the path.
+    // Without it the sweep above would hold even if it compared no attributes.
     const raw = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     raw.setAttribute("viewBox", "0 0 24 24");
     const drawn = document.createElementNS("http://www.w3.org/2000/svg", "path");

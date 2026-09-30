@@ -1,29 +1,16 @@
-// The two moments of a reveal, as one component mounted on both sides of it.
+// The two moments of a reveal as one component mounted on both sides of it. It renders nothing:
+// the mechanism is React's effect ordering, which needs a position in the tree, not a node.
 //
-// ONE COMPONENT AND NOT TWO, because the two halves are one claim written from either
-// end: the reserved region records where the keyboard was as it goes, and the loaded body
-// puts it back as it arrives. A second component would be a second place to read before
-// either half made sense, and the pair would drift the first time one of them learned
-// something the other did not.
-//
-// IT RENDERS NOTHING, WHICH IS WHAT LETS IT SIT ANYWHERE. A wrapper element inside a
-// `Suspense` fallback would be a box in a layout the pane layout sizes, and the console already
-// removed one adapter that had to declare `display: contents` to stop a pane layout seeing it.
-// What this needs is not a node but a POSITION in the tree — the effect ordering React
-// guarantees within one commit is the whole mechanism, and an effect needs no DOM.
-//
-// WHY THE ORDERING HOLDS. React destroys a deleted subtree's layout effects during the
-// mutation phase, before its host nodes are detached, and runs an inserted subtree's
-// layout effects afterwards in the layout phase. So on the reveal commit the reserved
-// half records a focus that is still real, and the loaded half restores against a
-// document that already holds the new body. Neither half is reached on a warm mount:
-// `LazyBody` renders no fallback when the module is already in hand, and a suspended
-// subtree's effects do not run until it becomes visible.
+// On the reveal commit React destroys the deleted subtree's layout effects before detaching its
+// nodes, then runs the inserted subtree's layout effects, so the reserved half records a focus
+// that is still real and the loaded half restores against the new body. Neither half runs on a
+// warm mount, and a suspended subtree's effects do not run until it is visible.
 
 import { useLayoutEffect } from "react";
 
 import { type RevealFocusTransfer } from "./reveal-focus-transfer.js";
 
+/** Props for `LazyBodyFocusTransfer`. */
 export interface LazyBodyFocusTransferProps {
   /** The one mount's record, written by the reserved side and read by the loaded one. */
   readonly handoff: RevealFocusTransfer;
@@ -31,15 +18,7 @@ export interface LazyBodyFocusTransferProps {
   readonly phase: "reserved" | "revealed";
 }
 
-/**
- * Carry this mount's focus across its own reveal, from whichever side it is mounted on.
- *
- * It renders an EMPTY FRAGMENT rather than `null`, which is the one shape that is both
- * true and legible: this is a component, it draws nothing, and a fragment says so in the
- * language the tree already reads — a reader resolves a component by the markup it
- * renders or the element type it returns, and a module that resolved neither would read
- * as clean against a rule that had never been applied to it.
- */
+/** Carries this mount's focus across its own reveal, from whichever side it is mounted on. */
 export function LazyBodyFocusTransfer(props: LazyBodyFocusTransferProps): React.JSX.Element {
   const { handoff, phase } = props;
   useLayoutEffect(() => {

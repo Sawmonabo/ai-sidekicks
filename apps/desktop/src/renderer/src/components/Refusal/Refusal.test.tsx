@@ -1,17 +1,7 @@
-// The refusal grammar: three shapes, one contract.
-//
-// The contract is the thing under test, which is why this suite sits beside the
-// module that declares it rather than beside any one shape — every case below
-// drives all three, and a case that drove one would say nothing about the
-// agreement. `RefusalProps` is a `Pick` of
-// `lib/refusal.ts`'s `Refusal`, so a refusal built by `refuse()` reaches
-// every one of the three renderers without a translation step — and the test drives
-// exactly that, because a props shape that merely HAPPENS to have the same two
-// field names would pass a per-component test and fail the moment core renamed one.
-//
-// The rest is the refusal grammar's asymmetry, which is easy to lose in a redesign: the code is
-// mono because it is a wire string, and the message is NOT, because a paragraph set
-// in mono is a paragraph nobody reads. Both are rendered exactly as sent.
+// The refusal grammar: three shapes, one contract. Every case drives all three shapes, and
+// `RefusalProps` is a `Pick` of `lib/refusal.ts`'s `Refusal`, so a refusal from `refuse()` reaches
+// each renderer without translation. The code is mono because it is a wire string; the message is
+// not, and both render exactly as sent.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -46,9 +36,7 @@ function renderShape(element: React.JSX.Element): HTMLElement {
 
 describe("one refusal value reaches all three renderings untranslated", () => {
   it.each(SHAPES)("%s consumes a Refusal by spread", (name, Shape) => {
-    // The adoption proof: no field mapping, no adapter, no second vocabulary. If
-    // `RefusalProps` re-declared its own shape, this spread would be the place the
-    // two drifted apart.
+    // No field mapping or adapter: a re-declared `RefusalProps` would drift apart at this spread.
     const shape = renderShape(<Shape {...REFUSAL} />);
     expect(shape.className).toContain(`meridian-refusal--${name}`);
     expect(shape.textContent).toContain(REFUSAL.code);
@@ -63,17 +51,14 @@ describe("one refusal value reaches all three renderings untranslated", () => {
 
     const message = shape.querySelector(".meridian-refusal__message");
     expect(message?.textContent).toBe(REFUSAL.detail);
-    // The control for the asymmetry: if the message were wrapped in a `WireFigure`
-    // too, it would answer the mono selector — so requiring it not to is what
-    // catches a redesign that set the whole card in mono.
+    // Control: a message wrapped in a `WireFigure` would answer the mono selector.
     expect(message?.classList.contains("meridian-figure--wire")).toBe(false);
   });
 
   it.each(SHAPES)("%s renders the daemon's message verbatim", (_name, Shape) => {
     const message = renderShape(<Shape {...REFUSAL} />).querySelector(".meridian-refusal__message");
     expect(message?.textContent).toBe(REFUSAL.detail);
-    // Trimming, truncating, and appending a console-authored sentence are the three
-    // paraphrases the refusal grammar forbids; each produces a different string.
+    // Trimming, truncating and appending a sentence are the paraphrases the grammar forbids.
     expect(message?.textContent).not.toBe(REFUSAL.detail.trim());
     expect(message?.textContent).not.toContain("Try again");
   });
@@ -85,8 +70,7 @@ describe("one refusal value reaches all three renderings untranslated", () => {
     expect(withAction.querySelector(".meridian-refusal__action button")?.textContent).toBe(
       "Free space",
     );
-    // No action supplied means no action rendered — the renderer never computes a
-    // remedy of its own, because it never computes eligibility.
+    // No action supplied means none rendered; the renderer computes no remedy.
     expect(
       renderShape(<Shape {...REFUSAL} />).querySelector(".meridian-refusal__action"),
     ).toBeNull();
@@ -97,19 +81,15 @@ describe("the shapes announce themselves without talking over the message", () =
   it("announces the inline shape politely and leaves the banner to the announcer", () => {
     expect(renderShape(<InlineRefusal {...REFUSAL} />).getAttribute("role")).toBe("status");
 
-    // The frame announces every banner raise through the one live announcer, so
-    // the banner itself is a plain group: a second live region — inserted already
-    // carrying its text, which most screen readers never read — would at best
-    // double-read the sentence. `role="status"` implies a live region on its own,
-    // so the role is the control here, not only the attribute.
+    // The frame announces banner raises through the one announcer, so the banner is a plain group.
+    // `role="status"` implies a live region, so the role is the control, not only the attribute.
     const banner = renderShape(<RefusalBanner {...REFUSAL} />);
     expect(banner.getAttribute("role")).toBe("group");
     expect(banner.getAttribute("aria-live")).toBeNull();
   });
 
   it("leaves the transcript card out of the live regions", () => {
-    // A card lands in the transcript with everything else that happened; the feed
-    // already announces its own rows, so a second live region would double-read it.
+    // A card lands in the transcript, which already announces its own rows.
     const card = renderShape(<RefusalCard {...REFUSAL} />);
     expect(card.getAttribute("role")).toBeNull();
     expect(card.getAttribute("aria-live")).toBeNull();

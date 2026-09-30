@@ -1,54 +1,25 @@
-// The marker a pane wears while its body's module is still in flight, and the one
-// reader of it.
+// The marker a pane wears while its body's module is in flight, and the one reader of it.
 //
-// WHY A MARKER EXISTS AT ALL. A loader-backed pane body arrives as its own chunk, so
-// between the pane mounting and the module landing there is a frame in which the pane
-// is its chrome and nothing else. That frame is correct — it is what staying light on
-// the machine buys by keeping a body off the initial import graph — but it must never
-// be the frame a screenshot reference is minted from, or the reference records a pane
-// that had not finished loading and every later run is compared against it.
-//
-// So the pending state says so in the DOM, and the screenshot tier's capture helper
-// refuses to photograph a tree that carries one. The attribute is the whole mechanism:
-// there is no timer to tune and no "settled" heuristic to get wrong — either the marker
-// is on the page or it is not.
-//
-// THE PRODUCER AND THE READER SHARE THIS MODULE, which is the package's rule for two
-// sides of one seam: `PendingPaneBody.tsx` stamps the attribute and `findPendingBodies`
-// finds it, and a second spelling of the string in a test would drift the first time the
-// attribute was renamed and the gate would go green over a fallback.
-//
-// AND SO DOES THE BARE PRODUCER. A loader-backed body that is not a PANE and not a ROUTE
-// — a card inside an overlay a person opened, a walkthrough behind a command — has no
-// chrome of its own to reserve, so its fallback is the marker and nothing else. Two
-// modules draw one today, the provider import panel's mount and the schema form's two
-// mounts; `reservedBodyRegion` below is the one construction, beside the attribute it
-// stamps, so no caller spells the element differently from the sweep that looks for it.
+// A loader-backed pane is only its chrome until the module lands. The screenshot tier's capture
+// helper refuses to photograph a tree carrying the marker, so a reference is never minted from
+// an unfinished pane. Producer and reader share this module so the attribute is spelled once.
+// A loader-backed body that is neither a pane nor a route has no chrome to reserve, so its
+// fallback is `reservedBodyRegion` alone.
 
 import { createElement } from "react";
 
 /**
- * The attribute a pending pane body stamps on its own chrome.
- *
- * A `data-` attribute rather than a class name: a class is a styling hook and would
- * invite a rule that made the pending state LOOK like something, and the whole point of
- * this state is that it looks like the pane's own empty frame. Nothing styles it.
+ * The attribute a pending pane body stamps on its chrome. A `data-` attribute, so nothing styles
+ * it.
  */
 export const PENDING_BODY_ATTRIBUTE = "data-meridian-pane-body-pending";
 
-/** The selector form, so no caller composes the brackets itself. */
+/** The selector form of `PENDING_BODY_ATTRIBUTE`. */
 export const PENDING_BODY_SELECTOR: string = `[${PENDING_BODY_ATTRIBUTE}]`;
 
 /**
- * Every pending pane body inside a tree, in document order.
- *
- * Returns the elements rather than a count or a boolean so a caller can say WHICH pane
- * was still loading — a failure that names `workflow-run` is actionable and one that
- * says "something was pending" is a second debugging session.
- *
- * The root itself is included in the search: a caller that captures one pane hands this
- * the pane's own element, and `querySelectorAll` alone would look only at descendants
- * and report a pending pane as settled.
+ * Every pending pane body inside a tree, in document order, so a failure can name which pane
+ * was still loading. The root is searched too, since a capture may hand over one pane's element.
  */
 export function findPendingBodies(root: Element): readonly Element[] {
   const withinRoot = [...root.querySelectorAll(PENDING_BODY_SELECTOR)];
@@ -56,10 +27,8 @@ export function findPendingBodies(root: Element): readonly Element[] {
 }
 
 /**
- * Which pane kinds are still loading inside a tree, for a failure message.
- *
- * Reads the attribute's own value, which the fallback sets to the pane kind, so the
- * message names the pane rather than the number of them.
+ * The marker values (pane kind or body name) of every pending body in a tree, for a failure
+ * message.
  */
 export function listPendingBodyNames(root: Element): readonly string[] {
   return findPendingBodies(root).map(
@@ -68,15 +37,8 @@ export function listPendingBodyNames(root: Element): readonly string[] {
 }
 
 /**
- * The reserved region a loader-backed body with no chrome of its own draws.
- *
- * `hidden` rather than an empty visible box, on `PendingScreenBody`'s reasoning:
- * `display: none` contributes no box, so what the wait costs the layout is nothing and
- * the view around it is drawn exactly as it will be drawn once the chunk lands.
- *
- * The marker's VALUE is the body's own name, which is what makes a refused capture
- * actionable — `listPendingBodyNames` prints it, and "sign-in-card" names the thing that
- * had not arrived where a count would start a second debugging session.
+ * The reserved region for a loader-backed body with no chrome of its own. It is `hidden`, so
+ * it adds no box to the layout; its marker value is `bodyName`, which a refused capture prints.
  */
 export function reservedBodyRegion(bodyName: string): React.ReactNode {
   return createElement("span", { hidden: true, [PENDING_BODY_ATTRIBUTE]: bodyName });

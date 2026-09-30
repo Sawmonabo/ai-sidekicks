@@ -1,12 +1,6 @@
-// The pair, and the one case where the pair is a lie.
-//
-// A windowed row's two ARIA members are one claim about where the row sits in the
-// whole enumeration, and the failure this component exists to prevent is not that
-// they are wrong — it is that they are ABSENT, and the reader is then told the list
-// is as long as the window. So the clean assertions check both members against the
-// enumeration rather than against the mounted slice, and the fail-closed case checks
-// that an index which is not a position declares the set unknown instead of claiming
-// a neighbor's place.
+// The ARIA pair, and the one case where it would be a lie. The failure is the pair being absent,
+// so the assertions check both members against the enumeration, not the mounted slice, and that an
+// index which is not a position declares the set unknown.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -21,11 +15,8 @@ import {
 const NATIVELY_TABBABLE = "button, a[href], input, select, textarea";
 
 /**
- * Every element inside `row` that Tab would reach, `row` itself included.
- *
- * The platform's own rule rather than a proxy for it: a declared `tabindex` decides,
- * and where none is declared the element's own kind does. A count of `[tabindex="0"]`
- * would have reported the defect this file drives as one stop when it was two.
+ * Every element inside `row` that Tab would reach, `row` itself included: a declared `tabindex`
+ * decides, else the element's own kind. Counting `[tabindex="0"]` would miss a native second stop.
  */
 function sequentialTabStops(row: HTMLElement): readonly HTMLElement[] {
   return [row, ...row.querySelectorAll<HTMLElement>("*")].filter((element) => {
@@ -51,17 +42,15 @@ describe("WindowedListRow — a slice says where it sits in the whole", () => {
   });
 
   it("negative control: it does not report the window's length", () => {
-    // The defect in terms: a row that took the mounted count would answer "3 of 12"
-    // for row 3 of four thousand. Asserting the pair against the enumeration is only
-    // meaningful if a window-sized answer is a different string, which this pins.
+    // A row taking the mounted count would say "3 of 12" for row 3 of 4,000; the window-sized
+    // answer must be a different string.
     const row = renderRow(<WindowedListRow as="li" rowIndex={2} totalRowCount={12} />);
     expect(row.getAttribute("aria-setsize")).toBe("12");
     expect(row.getAttribute("aria-setsize")).not.toBe("4000");
   });
 
   it("writes the index attribute the roving lookup reads", () => {
-    // One seam: the module that queries this attribute declares it, so this asserts
-    // the writer against the reader's own name rather than against a literal.
+    // One seam: the reader declares the attribute, so the writer is asserted against its name.
     const row = renderRow(<WindowedListRow as="div" rowIndex={7} totalRowCount={9} />);
     expect(row.dataset["index"]).toBe("7");
   });
@@ -84,10 +73,8 @@ describe("WindowedListRow — a slice says where it sits in the whole", () => {
   });
 
   it("carries the pair on a feed's article, the third role the set admits", () => {
-    // A chronological stream of long entries is a `feed`, whose articles take the
-    // same two members a grid row and a listbox option do — which is the whole test
-    // for membership in this set. Asserted through the component rather than by
-    // reading its type, so what is checked is that the pair is still written.
+    // A `feed`'s articles take the same two members as a grid row and a listbox option; asserted
+    // through the component so the pair is still written.
     const row = renderRow(
       <WindowedListRow as="div" role="article" rowIndex={11} totalRowCount={2400} />,
     );
@@ -98,9 +85,8 @@ describe("WindowedListRow — a slice says where it sits in the whole", () => {
   });
 
   it("negative control: a role the pair is not defined on stays rejected", () => {
-    // Without this, "widen the set" would be satisfied by opening it to any string,
-    // and a role that drops `aria-posinset` would render a claim nothing reads. The
-    // directive is the assertion: deleting it surfaces the union error underneath.
+    // Negative control: a role outside the set drops `aria-posinset`. Deleting the directive
+    // surfaces the union error.
     renderRow(
       // @ts-expect-error — `banner` is not one of the three roles the pair is
       // defined on, so it is not a role a windowed row may take.
@@ -135,9 +121,8 @@ describe("WindowedListRow — the tab stop", () => {
   });
 
   it("marks the element that holds the stop, and marks exactly one", () => {
-    // The roving effect focuses the element the row DECLARED. A row that wrote a tab
-    // index and no marker, or two markers, would leave that lookup guessing — which
-    // is the defect it used to guess its way into.
+    // The roving effect focuses the element the row declared; a tab index with no marker, or two
+    // markers, would leave that lookup guessing.
     const row = renderRow(<WindowedListRow as="li" rowIndex={0} totalRowCount={3} isTabbable />);
     expect(row.hasAttribute(WINDOWED_ROW_TARGET_ATTRIBUTE)).toBe(true);
     expect(row.querySelectorAll(`[${WINDOWED_ROW_TARGET_ATTRIBUTE}]`).length).toBe(0);
@@ -181,18 +166,15 @@ describe("WindowedListRow — a row whose content is a control", () => {
   });
 
   it("leaves a control its native stop where the list is not a composite widget", () => {
-    // A scroll region that is one focus stop of its own has no roving row, so its
-    // controls are reached the way every other control on the page is.
+    // A scroll region that is one focus stop has no roving row; its controls keep native stops.
     const row = renderButtonRow({});
     expect(row.querySelector("button")?.hasAttribute("tabindex")).toBe(false);
     expect(sequentialTabStops(row).map((element) => element.tagName)).toStrictEqual(["BUTTON"]);
   });
 
   it("negative control: content passed as a node leaves the control a second stop", () => {
-    // The defect in terms, and the reason the delegating form exists: the roving index
-    // went on the wrapper and the button kept its native stop, so the active row had
-    // TWO stops and every mounted row was back in the page's tab order. Nothing this
-    // component can write on the wrapper reaches a child it was handed as markup.
+    // The roving index went on the wrapper while the button kept its native stop, giving the active
+    // row two stops. Nothing written on the wrapper reaches a child passed as markup.
     const row = renderRow(
       <WindowedListRow as="li" rowIndex={0} totalRowCount={3} isTabbable>
         <button type="button">row 0</button>
@@ -215,19 +197,16 @@ describe("WindowedListRow — fail-closed on an index that is not a position", (
   });
 
   it("negative control: a valid index at the last position is still a position", () => {
-    // Without this the fail-closed arm could be satisfied by an off-by-one that
-    // refused the whole tail of every enumeration.
+    // Negative control: an off-by-one refusing the tail of every enumeration would pass.
     const row = renderRow(<WindowedListRow as="li" rowIndex={4} totalRowCount={5} />);
     expect(row.getAttribute("aria-setsize")).toBe("5");
     expect(row.getAttribute("aria-posinset")).toBe("5");
   });
 
   it("withholds the index attribute the keyboard resolves against", () => {
-    // The rule applied to the member a person actually moves through the list with.
-    // `windowed-row-index.ts` resolves `[data-index="N"]` with `querySelector`,
-    // which takes the FIRST match, so two rows written with the same out-of-range
-    // index are one row to the keyboard — a position claimed in the one place the
-    // ARIA pair had just refused to claim it.
+    // The same rule for the index attribute: `rowElementAt` in `lib/windowed-row-markers.ts`
+    // resolves `[data-index]` with `querySelector`, which takes the first match, so two
+    // out-of-range rows would be one row.
     for (const rowIndex of [-1, 5, 1.5, Number.NaN]) {
       const row = renderRow(<WindowedListRow as="li" rowIndex={rowIndex} totalRowCount={5} />);
       expect(row.hasAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE), `index ${String(rowIndex)}`).toBe(
@@ -237,9 +216,7 @@ describe("WindowedListRow — fail-closed on an index that is not a position", (
   });
 
   it("negative control: a row that holds a position still carries it", () => {
-    // Without this the withholding above would also be satisfied by a component
-    // that never wrote the attribute at all, which is a list no keyboard can move
-    // through.
+    // Negative control: a component that never wrote the attribute would pass the case above.
     const row = renderRow(<WindowedListRow as="li" rowIndex={3} totalRowCount={5} />);
     expect(row.getAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE)).toBe("3");
   });

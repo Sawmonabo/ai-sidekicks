@@ -1,8 +1,5 @@
-// The inline shape: beside the control that was pressed.
-//
-// `refusal-props.ts` states the grammar all three shapes obey and declares the
-// props they share; this module decides only what "nothing changed" looks like —
-// one line beside the control, with the control still there.
+// The inline shape: one line beside the control that was pressed, with the control still there.
+// `refusal-props.ts` declares the grammar and props all three shapes share.
 
 import "./Refusal.css";
 

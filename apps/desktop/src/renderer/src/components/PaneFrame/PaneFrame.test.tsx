@@ -1,17 +1,5 @@
-// The frame the chrome draws: its two total tables, its name, its key claim.
-//
-// The claims worth a unit are the ones a screenshot cannot make: that the glyph and the
-// title tables answer for EVERY member of the closed pane-kind set (a lookup that fell
-// through would render a nameless frame in whichever pane layout first opened that kind), that a
-// pane is named by its whole trail so two panes of one kind are told apart, and that a
-// pane-level key claim is heard on the HEAD as well as on the body.
-//
-// The kind set is driven rather than listed: a new kind added to `PANE_KINDS` has to
-// fail here, and a test carrying its own copy of the names would pass.
-//
-// What the HOST hands a pane — the two controls and the drag registration — is
-// `PaneFrame.host-seams.test.tsx`', and the registry-address adapter beside this
-// component is `PaneFrame.pane-body.test.tsx`'.
+// The frame the chrome draws: its two total tables, its name and its key claim. Driven from
+// `PANE_KINDS` so a new kind fails here. The host's controls are in `PaneFrame.controls.test.tsx`.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -47,8 +35,7 @@ describe("PaneFrame — every declared kind has a frame", () => {
         </PaneFrame>,
       );
       const crumbs = [...pane.querySelectorAll("li")].map((crumb) => crumb.textContent);
-      // Two crumbs: the session it was addressed at, then the pane's own name — which
-      // the chrome supplies, so no caller can spell it a second way.
+      // Two crumbs: the session, then the pane's own name, which the chrome supplies.
       expect(crumbs, kind).toStrictEqual(["session-1", TITLE_BY_PANE_KIND[kind]]);
       expect(crumbs[1], kind).not.toBe(kind);
       expect(pane.querySelector(".meridian-pane__kind svg"), kind).not.toBeNull();
@@ -57,9 +44,7 @@ describe("PaneFrame — every declared kind has a frame", () => {
   });
 
   it("negative control: the two tables are not one table", () => {
-    // Without this, "every kind has a title" would also be satisfied by a table that
-    // answered the wire-shaped kind string for every entry, which is exactly what the
-    // title table exists not to be.
+    // Negative control: a table answering the wire-shaped kind string would also satisfy this.
     expect(TITLE_BY_PANE_KIND["workflow-run"]).toBe("Workflow run");
     expect(Object.values(TITLE_BY_PANE_KIND)).not.toContain("workflow-run");
   });
@@ -78,8 +63,7 @@ describe("PaneFrame — how the pane names itself", () => {
   });
 
   it("negative control: two workflow-run panes at different addresses are named differently", () => {
-    // Without this the case above would pass over a chrome named by its title alone,
-    // which is the state a pane layout full of `workflow-run` panes is unnavigable in.
+    // Negative control: a chrome named by its title alone would pass the case above.
     const first = renderPaneFrame(
       <PaneFrame kind="workflow-run" sessionId="session-1" runId="run-01">
         <p>body</p>
@@ -113,8 +97,7 @@ describe("PaneFrame — how the pane names itself", () => {
   });
 
   it("negative control: two minted ids do not collide", () => {
-    // Two panes of one kind in one pane layout is the common case, and a literal id would
-    // point both `aria-labelledby` references at whichever element rendered first.
+    // Two panes of one kind are common; a literal id would point both at the first.
     const { container } = render(
       <>
         <PaneFrame kind="terminal" sessionId="session-1">
@@ -163,10 +146,7 @@ describe("PaneFrame — the pane-level key claim", () => {
   }
 
   it("hears a key pressed on the head, which is not inside the body", () => {
-    // THE CASE THE SEAM EXISTS FOR. A feature that wrapped its own body to get the
-    // capture would pass every assertion about the body and hear nothing here, and the
-    // head is where the drag handle, the detach control, and the close control live —
-    // so a pane-level chord pressed while any of them has focus would be lost.
+    // A wrapped body would hear the key but not the head, where the drag handle and controls live.
     const heard: string[] = [];
     const pane = renderClaiming(heard, <p>the browser body</p>);
     const head = pane.querySelector(".meridian-pane__head");
@@ -193,8 +173,8 @@ describe("PaneFrame — the pane-level key claim", () => {
   });
 
   it("negative control: a chrome given no handler binds nothing", () => {
-    // Without this, a chrome that always attached a listener of its own would satisfy
-    // both cases above while claiming keys from a pane that asked for none.
+    // Negative control: an always-attached listener would claim keys for a pane that asked for
+    // none.
     const pane = renderPaneFrame(
       <PaneFrame kind="browser" sessionId="session-1">
         <input aria-label="address" />

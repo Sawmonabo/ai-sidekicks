@@ -1,10 +1,4 @@
-// The chip's two closed decisions: which tones exist, and what `mono` means.
-//
-// Both are pinned here because both fail SILENTLY. A fifth tone added to the union
-// renders a class the stylesheet has no rule for, so the chip looks neutral and the
-// two-hue rule dies without a single test going red. A `mono` chip whose label got
-// trimmed or title-cased still renders — it just no longer says what the daemon
-// said, which is the failure `formatWireString` exists to make impossible.
+// Tone set and `mono` semantics; both fail silently, so they are pinned here.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -36,10 +30,7 @@ describe("Chip — the tone set is closed and each tone is spent once", () => {
       "meridian-chip--failure",
       "meridian-chip--accent",
     ]);
-    // The negative control for the assertion above: if two tones ever collapsed
-    // onto one class — the shape the two-hue rule's "at most one color" fails as — the
-    // literal list would still be four entries long but would not be four
-    // DISTINCT entries.
+    // Negative control: two tones collapsed onto one class would still list four entries.
     expect(new Set(modifiers).size).toBe(CHIP_TONES.length);
   });
 
@@ -51,16 +42,14 @@ describe("Chip — the tone set is closed and each tone is spent once", () => {
 });
 
 describe("Chip — `mono` marks provenance, and provenance is verbatim", () => {
-  // A real wire string with the properties a "tidying" transform would destroy:
-  // outer whitespace and an underscored machine name.
+  // Outer whitespace and an underscored name are what a tidying transform would destroy.
   const wireLabel = "  run.awaiting_approval  ";
 
   it("renders a wire label exactly as received", () => {
     const chip = renderChip(<Chip mono label={wireLabel} />);
     expect(chip.classList.contains("meridian-chip--mono")).toBe(true);
     expect(chip.textContent).toBe(wireLabel);
-    // Negative control: the two most plausible "improvements" both produce a
-    // different string, so the assertion above is not passing vacuously.
+    // Negative control: trimming or de-underscoring would change the string.
     expect(chip.textContent).not.toBe(wireLabel.trim());
     expect(chip.textContent).not.toBe(wireLabel.replaceAll("_", " "));
   });
@@ -77,7 +66,6 @@ describe("Chip — the glyph is decoration and the label carries the meaning", (
     const glyph = chip.querySelector("svg");
     expect(glyph).not.toBeNull();
     expect(glyph?.getAttribute("aria-hidden")).toBe("true");
-    // The label is the accessible content, so the chip still reads as its fact.
     expect(chip.textContent).toBe("needs you");
   });
 

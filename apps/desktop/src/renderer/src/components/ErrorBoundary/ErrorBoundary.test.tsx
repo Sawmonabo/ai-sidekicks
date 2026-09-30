@@ -1,16 +1,7 @@
-// What a caught render failure is RECORDED as.
+// A caught render failure is recorded under its own tripwire kind, not as a store-write breach.
 //
-// The boundary's other behaviors — the fallback card, the retry remount — are read
-// off the screen by the browser and screenshot tiers. The claim that only a unit
-// test can hold is the one about the diagnostic band: a region that threw while
-// rendering mutated no store, so it must not land in the count that says a store
-// was written outside its single `apply`. An operator reads those counts to decide
-// what kind of defect they have, and a rendering bug reported as a state-write
-// breach sends them at the wrong subsystem.
-//
-// Every case therefore asserts on TWO counts — the kind that should move and the
-// kind that must not — and the apply-bypass count is deliberately non-zero before
-// the crash, so "left at its prior count" is a comparison rather than a coincidence.
+// Each case asserts two counts, and the apply-bypass count starts non-zero so "left alone" is a
+// real comparison.
 
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -34,9 +25,7 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
   let restoreThrowOnReport = false;
 
   beforeEach(() => {
-    // The registry throws in a development build, which a boundary reporting from
-    // `componentDidCatch` would turn into a second failure inside React's own
-    // error handling. The recording arm is the one under test here.
+    // The registry throws in a development build, which would fail inside React's own handling.
     restoreThrowOnReport = import.meta.env.DEV;
     windowTripwires.setThrowOnReport(false);
     windowTripwires.reset();
@@ -79,8 +68,7 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
   });
 
   it("negative control: a region that renders reports nothing at all", () => {
-    // Without this, a boundary that reported on every mount would satisfy both
-    // cases above and still be wrong.
+    // Catches a boundary that reports on every mount.
     render(
       <ErrorBoundary regionName="The transcript">
         <CalmRegion />

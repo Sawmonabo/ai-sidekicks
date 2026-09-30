@@ -1,11 +1,6 @@
-// What the mount has to be true of, as opposed to what the announcer computes.
-//
-// `live-announcer.test.ts` owns the queue, the coalescing, and the clock, and
-// `LiveRegion.test.tsx` owns what a region does with an announcement once it has
-// one. These cases own the three things only the React mount can be wrong about:
-// the pair exists, empty, before anything is announced, a component outside the
-// provider is told rather than silently ignored, and the announcer the provider
-// BUILT is the only one it disposes.
+// What only the React mount can be wrong about: the pair exists empty before anything is
+// announced, a component outside the provider is told, and the provider disposes only the
+// announcer it built.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -66,8 +61,7 @@ describe("LiveAnnouncerProvider — a component outside it is told, not ignored"
   });
 
   it("negative control: the same hook inside the provider returns a working announce", () => {
-    // Without this, a hook that threw unconditionally would satisfy the case above
-    // and make every component in the console unrenderable.
+    // Negative control: a hook that always threw would pass the case above.
     const announcer = new LiveAnnouncer({ clock: new ManualClock() });
     let announced: ReturnType<typeof useAnnounce> | undefined;
     const { container } = render(
@@ -103,11 +97,8 @@ describe("LiveAnnouncerProvider — it disposes only the announcer it built", ()
   });
 
   it("negative control: the announcer it built has its clear timer canceled on unmount", () => {
-    // Without this, a provider that disposed nothing at all would satisfy the case
-    // above while leaking one armed `setTimeout` per window that was ever spoken
-    // through. The announcer it builds runs on `RealClock`, so the platform timer
-    // count IS the observation — measured against a baseline, because the renderer
-    // and the DOM shim arm timers of their own.
+    // Negative control: a provider that disposed nothing would leak one armed timer per window.
+    // Measured against a baseline because the renderer and DOM shim arm timers of their own.
     let built: ReturnType<typeof useAnnounce> | undefined;
     vi.useFakeTimers();
     try {

@@ -1,10 +1,5 @@
-// The banner's own half of the grammar: whether a person can put it away.
-//
-// `Refusal.test.tsx` owns everything the three shapes do the same way —
-// the spread, the mono asymmetry, the verbatim message, the action prop, and the
-// live-region posture — and drives all three through the props they share. What is
-// left here is the one member no other shape has, so the refusal below is the one a
-// banner is actually for: what the whole room can do has changed.
+// The banner's own half of the grammar: whether a person can put it away. `Refusal.test.tsx`
+// owns what all three shapes share, so this refusal is one that changes what the whole room can do.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

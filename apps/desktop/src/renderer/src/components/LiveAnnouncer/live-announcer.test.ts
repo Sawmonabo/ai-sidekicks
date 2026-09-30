@@ -1,10 +1,5 @@
-// The announcer's five claims, each with the control that would catch it passing
-// for the wrong reason.
-//
-// Every case drives a `ManualClock`, because the whole mechanism is about WHEN a
-// region's text changes: a real clock would make "the message was still standing"
-// and "the message had already been cleared" the same assertion with a sleep in
-// between.
+// The announcer's claims, each with a control that catches it passing for the wrong reason.
+// Every case drives a `ManualClock`, since the mechanism is about when text changes.
 
 import { describe, expect, it } from "vitest";
 
@@ -51,8 +46,7 @@ describe("LiveAnnouncer — the two lanes are independent speech channels", () =
   });
 
   it("negative control: an unnamed politeness is polite, so nothing lands assertive by default", () => {
-    // Without this, a default of "assertive" would satisfy every case above while
-    // making the console interrupt a reader for a routine change.
+    // Negative control: an "assertive" default would pass the cases above.
     const { announcer } = announcerOnManualClock();
 
     announcer.announce("the panes were reordered");
@@ -71,8 +65,7 @@ describe("LiveAnnouncer — the two lanes are independent speech channels", () =
 
     expect(announcer.state.assertive).toBe("the refusal");
     clock.advance(HOLD_MS);
-    // The polite lane shed its oldest queued entry; the assertive lane, which
-    // never overflowed, still says what it was given.
+    // The polite lane shed its oldest entry; the assertive lane never overflowed.
     expect(announcer.state.polite).toBe("polite two");
   });
 });
@@ -103,9 +96,7 @@ describe("LiveAnnouncer — announcements are serialized, never overwritten", ()
   });
 
   it("negative control: the region does not clear itself while the hold is open", () => {
-    // Without this, an announcer that cleared immediately would satisfy the case
-    // above and announce nothing at all — the region would change and change back
-    // inside one frame.
+    // Negative control: clearing immediately would change and revert the region in one frame.
     const { announcer, clock } = announcerOnManualClock();
 
     announcer.announce("the attach was refused");
@@ -127,8 +118,7 @@ describe("LiveAnnouncer — identical consecutive messages coalesce", () => {
   });
 
   it("negative control: a different sentence behind it is still queued", () => {
-    // Without this, an announcer that dropped everything after the first message
-    // would satisfy the case above by saying nothing at all afterwards.
+    // Negative control: dropping everything after the first message would pass the case above.
     const { announcer, clock } = announcerOnManualClock();
 
     announcer.announce("the same sentence");
@@ -162,8 +152,7 @@ describe("LiveAnnouncer — the queue is bounded and sheds its oldest", () => {
   });
 
   it("negative control: the same burst under a wider cap keeps every message", () => {
-    // Without this, a drain that silently lost messages for some other reason
-    // would look exactly like the cap doing its job.
+    // Negative control: a drain that lost messages for another reason would look like the cap.
     const { announcer, clock } = announcerOnManualClock(LIVE_ANNOUNCEMENT_QUEUE_CAP * 4);
     const overrun = LIVE_ANNOUNCEMENT_QUEUE_CAP + 2;
 
@@ -234,8 +223,7 @@ describe("LiveAnnouncer — dispose is terminal", () => {
   });
 
   it("negative control: an undisposed announcer keeps speaking across the same advance", () => {
-    // Without this, an announcer whose sink was never called again for some other
-    // reason would satisfy the case above and prove nothing about `dispose`.
+    // Negative control: a sink never called for another reason would pass the case above.
     const { announcer, clock } = announcerOnManualClock();
     const seen: LiveAnnouncementState[] = [];
     announcer.subscribe((state) => {

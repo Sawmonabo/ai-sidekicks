@@ -1,64 +1,24 @@
-// The refusal grammar — three shapes, one contract.
+// The refusal grammar: three shapes, one contract. Controls are offered; refusals are rendered,
+// and never hide the control that produced them or re-derive the daemon's rule.
 //
-// The design language's refusal grammar: controls are offered; refusals are rendered, in one of three
-// shapes — **inline** on the control that was pressed, as a **card** in the transcript when
-// the refusal changes history, or as a **banner** across the session screen when it changes
-// what the whole room can do. A refusal never hides the control that produced it and
-// never re-derives the daemon's rule.
+// The shape is a question of blast radius, not severity:
 //
-// Which shape a call site picks is a question about blast radius, not about
-// severity: what did this refusal change for whom?
+//   - inline: nothing changed. It sits beside the control, and the control stays.
+//   - card: the session's history now contains it, so it belongs in the transcript.
+//   - banner: what the whole room can do has changed, so it spans the frame.
 //
-//   • inline  — nothing changed. The act did not happen; the operator can try
-//               something else. It sits beside the control, and the control stays.
-//   • card    — the session's history now contains this refusal. It belongs in the
-//               transcript with everything else that happened.
-//   • banner  — what the whole room can do has changed. It spans the frame.
-//
-// The three are three modules, one component each, and what they SHARE is here so
-// that it is declared once: a shape that grew its own props would be the second
-// vocabulary this contract exists to prevent, and it would drift silently, because
-// each shape is rendered by different callers.
-//
-// Two things every shape does the same way, because they are the rule and not a
-// stylistic choice:
-//
-//   1. **The code is mono, the message is verbatim.** The code is a wire string and
-//      wears the mono signature of a value that came from the wire. The daemon's
-//      message text is shown exactly as sent — the console does not paraphrase it,
-//      shorten it, or add a sentence of its own explaining what the daemon "meant".
-//      The grammar puts the code in mono and the message verbatim, and that asymmetry
-//      is kept:
-//      a paragraph set in mono is a paragraph nobody reads.
-//   2. **The next move is the caller's to supply.** `action` is a prop the caller
-//      fills, not a derivation. The renderer never computes eligibility, so it never computes a
-//      remedy either.
+// Every shape shows the code in mono (a wire string) and the daemon's message verbatim, never
+// paraphrased or shortened. The next move is the caller's `action`; the renderer computes no
+// eligibility and so no remedy.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
- * What every refusal shape renders, PICKED from the one refusal value rather than
- * re-declared beside it.
- *
- * These props used to spell out their own `code: string; detail: string`, which is
- * `lib/refusal.ts`'s shape written a second time — so a rename there would have
- * left this file compiling against a field the console no longer produces. Picking
- * makes the three renderers move with the value: a producer holding a
- * `Refusal` spreads it (`<RefusalCard {...refusal} />`) and a producer
- * holding loose strings still passes them.
- *
- * `origin` is deliberately NOT picked. It exists so a refusal that surfaces three
- * layers from where it was raised still names its author, which is a fact for the
- * diagnostic band and the tripwire record — and the refusal grammar puts only the code
- * and the daemon's message on screen. Rendering a third string here would be the
- * console adding a sentence of its own, which the grammar forbids.
+ * What every refusal shape renders, picked from `Refusal` so the shapes move with it and a
+ * producer can spread one (`<RefusalCard {...refusal} />`). `origin` is left out: it is for
+ * diagnostics, and only the code and the daemon's message go on screen.
  */
 export interface RefusalProps extends Pick<Refusal, "code" | "detail"> {
   /** The operator's next move, when one exists. */
   readonly action?: React.ReactNode;
 }
-
-// NO GLYPH SIZE IS DECLARED HERE. The alert every shape leads with is chrome inside
-// a frame, so the three read as one grammar by taking `GLYPH_SIZE_CHROME` from
-// `styles/glyphs.ts`, the one home for that size — rather than by this
-// module holding a copy the pane chrome would then have to agree with.

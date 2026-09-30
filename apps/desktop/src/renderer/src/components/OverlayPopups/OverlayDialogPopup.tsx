@@ -1,39 +1,20 @@
-// A modal dialog's portal, backdrop, and popup — registered in the window's airspace.
+// A modal dialog's portal, backdrop and popup, registered in the window's airspace once here
+// rather than per overlay, so a consumer cannot mount one without registering it.
 //
-// The airspace rule puts the registration once, at the primitive layer, never per
-// overlay instance, and forbids a consumer registering an overlay by hand at a call
-// site. Both are only enforceable if a consumer cannot MOUNT one by hand either: an
-// attach form that rendered its own `Dialog.Portal` never went near the registration,
-// so there was nothing at that site to forget and the rule had nothing to bite on. So
-// the portal, backdrop, and popup are the primitive and the body is the caller's.
+// The caller keeps `Dialog.Root` (open state, modality, trigger). The airspace kind defaults to
+// `dialog`; the command palette names its own.
 //
-// WHAT STAYS WITH THE CALLER. `Dialog.Root` — the open state, the modality, and the
-// trigger — is state and not airspace, and a caller that wraps its dialog in a
-// combobox root (the palette does) composes those roots itself. What crosses into
-// here is the part of the tree that leaves the layout.
-//
-// THE KIND IS THE CALLER'S TO NAME. The airspace rule enumerates seven overlay kinds
-// and a dialog is one of them, but the command palette is its own — the same three
-// parts, a different thing on screen — so the kind is a parameter defaulted to the
-// common answer rather than fixed here.
-//
-// AND SO IS THE NAME, WHICHEVER WAY THE CALLER GIVES IT. A caller that mounts a
-// `Dialog.Title` has already named its dialog — Base UI hands the popup that title's
-// id as `aria-labelledby` (`DialogPopup`'s own `'aria-labelledby': titleElementId`,
-// measured against the installed 1.7.0) — so `label` is for the caller that heads its
-// popup with an ordinary element instead. It is optional for that reason and not as a
-// relaxation: a `label` passed beside a title is a second spelling of one name that no
-// accessible-name computation ever reads, since `aria-labelledby` wins over
-// `aria-label`, and the two drift the first time one of them is reworded.
-// `OverlayAlertDialogPopup` takes no label at all on the same reasoning.
+// A `Dialog.Title` already names the popup (Base UI sets `aria-labelledby`, which wins over
+// `aria-label`), so `label` is only for a caller that heads its popup with an ordinary element.
 
 import { Dialog } from "@base-ui/react/dialog";
 
 import { useModalOverlayAirspace } from "@renderer/hooks/useModalOverlayAirspace.js";
 import type { AirspaceOverlayKind } from "@renderer/lib/airspace-registry.js";
 
+/** Props for `OverlayDialogPopup`. */
 export interface OverlayDialogPopupProps {
-  /** Which of the console's closed set of overlay kinds this is; `dialog` unless it is its own kind. */
+  /** The overlay kind to register; `dialog` unless it is its own kind. */
   readonly airspaceKind?: AirspaceOverlayKind;
   /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
   readonly container?: HTMLElement | null | undefined;
@@ -46,6 +27,9 @@ export interface OverlayDialogPopupProps {
   readonly children: React.ReactNode;
 }
 
+/**
+ * Portal, backdrop and popup for a modal dialog; registers the popup and backdrop in the airspace.
+ */
 export function OverlayDialogPopup(props: OverlayDialogPopupProps): React.JSX.Element {
   const airspace = useModalOverlayAirspace(props.airspaceKind ?? "dialog");
   return (

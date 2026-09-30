@@ -1,19 +1,5 @@
-// The five kinds of nothing, made countable — and the placement split, made independent of it.
-//
-// "Five absences render differently because the operator's next move differs for
-// each … A renderer that collapses two of these into one is wrong." That is a claim
-// about a SET, so the test drives the set — `NOTHING_KINDS` — rather than five
-// hand-listed kinds beside it, and asserts the property a collapse would break:
-// five distinct kind modifiers, one per kind, at every placement.
-//
-// The second claim is the one that shipped wrong. Shape used to be read off the
-// kind, so `not-checked` was a badge wherever it was mounted — including in place
-// of a whole pane, where a badge reads as a page that failed to finish painting.
-// The two questions are now two props, so the tests drive them as a GRID: five
-// kinds by two placements, each cell asserting the placement's shape and none of
-// them asserting it from the kind. The negative control is the default — a caller
-// that names no placement gets exactly what it got before, which is what keeps the
-// split from being a silent redesign of every existing call site.
+// The five kinds of nothing are countable and distinct, and shape follows placement alone.
+// The tests drive `NOTHING_KINDS` and `NOTHING_PLACEMENTS` as a grid rather than hand-listed kinds.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -72,8 +58,7 @@ describe("Nothing — five absences, and no two of them the same", () => {
         "meridian-nothing--not-checked",
         "meridian-nothing--computing",
       ]);
-      // The control for "a renderer that collapses two of these is wrong": five
-      // entries that are not five DISTINCT entries is exactly that collapse.
+      // Control: five entries that are not five distinct entries is a collapse.
       expect(new Set(modifiers).size).toBe(NOTHING_KINDS.length);
     }
     expect(NOTHING_KINDS).toHaveLength(5);
@@ -82,11 +67,7 @@ describe("Nothing — five absences, and no two of them the same", () => {
 
 describe("Nothing — shape follows placement, and placement alone", () => {
   it("renders the placement's shape for every kind in the set", () => {
-    // The grid, in full: no cell of it reads the kind to decide the shape, which is
-    // the whole claim. `not-checked` at `block` is the cell that used to be
-    // impossible — a badge centered in a pane — and it is not called out here,
-    // because a rule that needs its hardest case called out is a rule with an
-    // exception in it.
+    // No cell reads the kind to decide the shape.
     for (const placement of NOTHING_PLACEMENTS) {
       const shape = SHAPE_BY_PLACEMENT[placement];
       for (const kind of NOTHING_KINDS) {
@@ -106,17 +87,14 @@ describe("Nothing — shape follows placement, and placement alone", () => {
   });
 
   it("negative control: a caller that names no placement renders what it did before", () => {
-    // Without this the grid above would pass over a component that had quietly made
-    // every absence a block, which would move every existing call site — and the
-    // screenshot tier is the only thing that would ever have noticed.
+    // Negative control: catches a component that made every absence a block.
     for (const kind of NOTHING_KINDS) {
       const rendered = renderNothing(<Nothing kind={kind} title="Nothing here" />);
       const shape = SHAPE_BY_PLACEMENT[DEFAULT_PLACEMENT_BY_KIND[kind]];
       expect(rendered.tagName).toBe(shape.tagName);
       expect(rendered.classList.contains(shape.modifier)).toBe(true);
     }
-    // `not-checked` by name, because it is the default most easily lost: the design
-    // language names a dotted BADGE, and it is still one here.
+    // `not-checked` by name: its default is a dotted badge, the easiest one to lose.
     const notChecked = renderNothing(<Nothing kind="not-checked" title="Not checked" />);
     expect(notChecked.tagName).toBe("SPAN");
     expect(notChecked.classList.contains("meridian-nothing--badge")).toBe(true);
@@ -124,8 +102,7 @@ describe("Nothing — shape follows placement, and placement alone", () => {
   });
 
   it("keeps the kind's copy, glyph, and tone across both shapes", () => {
-    // The other half of the split: if placement took the glyph or the second line
-    // with it, the shape would still be right and the kind would have been diluted.
+    // Placement must not take the glyph or the second line with it.
     const blockComputing = renderNothing(
       <Nothing kind="computing" placement="block" title="Working it out" detail="Still going." />,
     );
@@ -148,8 +125,7 @@ describe("Nothing — shape follows placement, and placement alone", () => {
   });
 
   it("says nothing at either shape while the read is in flight", () => {
-    // `not-loaded` is the one kind whose copy is a shape rather than a sentence, so
-    // it is the one kind a placement split could have made speak.
+    // `not-loaded` is the one kind whose copy is a shape; a placement split must not make it speak.
     for (const placement of NOTHING_PLACEMENTS) {
       const rendered = renderNothing(
         <Nothing kind="not-loaded" placement={placement} title="Loading" detail="Ignored." />,
@@ -165,16 +141,14 @@ describe("Nothing — shape follows placement, and placement alone", () => {
 
 describe("Nothing — each kind says what its own next move needs", () => {
   it("says nothing visible while the read is in flight", () => {
-    // A sentence here would be replaced a beat later, so the title is announced and
-    // the shape is skeleton bars in the row's own proportions.
+    // A sentence would be replaced a beat later, so the title is announced and bars are drawn.
     const notLoaded = renderNothing(<Nothing kind="not-loaded" title="Loading the sessions" />);
     expect(notLoaded.getAttribute("aria-busy")).toBe("true");
     expect(notLoaded.querySelectorAll(".meridian-nothing__skeleton-bar")).toHaveLength(3);
     expect(notLoaded.querySelector(".meridian-visually-hidden")?.textContent).toBe(
       "Loading the sessions",
     );
-    // The control: the bars are uneven on purpose — three equal bars read as a
-    // table, and the shape being imitated is a transcript row.
+    // Control: equal bars would read as a table.
     const barWidths = [...notLoaded.querySelectorAll(".meridian-nothing__skeleton-bar")].map(
       (bar) => (bar instanceof HTMLElement ? bar.style.width : ""),
     );
@@ -193,9 +167,8 @@ describe("Nothing — each kind says what its own next move needs", () => {
   });
 
   it("keeps `not-checked` distinct from an answer nobody has", () => {
-    // "No question was put" is neither "no" nor "we do not know", and the two badge
-    // kinds have to be told apart by more than their copy: only `computing` carries
-    // the clock glyph and the live region, because only it is in progress.
+    // Only `computing` carries the clock glyph and the live region; `not-checked` is not in
+    // progress.
     const notChecked = renderNothing(<Nothing kind="not-checked" title="Not checked" />);
     const computing = renderNothing(<Nothing kind="computing" title="Working it out" />);
 

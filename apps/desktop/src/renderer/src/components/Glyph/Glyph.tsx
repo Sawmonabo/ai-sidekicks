@@ -1,25 +1,8 @@
-// One glyph, drawn from the closed set in `styles/glyphs.ts`.
+// One glyph from the closed set in `styles/glyphs.ts`. Stroke, caps, joins and viewBox are
+// normalized at compile time by `vitest/icon-compilation.ts`; this module decides size and name.
 //
-// The component's whole job is to make the set's rendering options
-// non-negotiable. Stroke, caps, joins, fill, and viewBox are baked into each
-// face at compile time by `vitest/icon-compilation.ts` — one normalization over
-// both collections, so a borrowed Tabler face and one of our own arrive at the
-// same weight — and what is left for this module is the pair of decisions a
-// CALLER could otherwise get wrong: how large the glyph renders, and whether it
-// carries a name.
-//
-// Accessibility is decided by one prop rather than by the caller's discipline. A
-// glyph with no `title` is decoration beside text that already says what the
-// control does — it is hidden from assistive technology, because announcing
-// "graphic" beside a label the user has already heard is noise. A glyph WITH a
-// `title` is the control's only name, so it becomes an image carrying that name.
-// There is no third case, which is why an icon-only control in this console cannot
-// ship unlabeled by accident.
-//
-// The face is rendered as a component rather than as a `<path>` inside an `<svg>`
-// this module writes, and the props below land on that face's own root element.
-// A compiled face forwards every prop it is given, so the class, the size, and
-// the accessibility attributes are set exactly where they were before.
+// A glyph with no `title` is decoration and hidden from assistive technology; one with a `title`
+// is an image carrying that name, so an icon-only control cannot ship unlabeled.
 
 import "./Glyph.css";
 
@@ -28,6 +11,7 @@ import { GLYPH_ICONS } from "./glyph-icons.js";
 
 export type { GlyphName };
 
+/** Props for `Glyph`. */
 export interface GlyphProps {
   readonly name: GlyphName;
   /** Rendered edge length in CSS pixels. Square by construction. */
@@ -36,6 +20,7 @@ export interface GlyphProps {
   readonly title?: string;
 }
 
+/** Draws the face for `name` at `size`; `title` makes it an image with that accessible name. */
 export function Glyph(props: GlyphProps): React.JSX.Element {
   const size = props.size ?? GLYPH_DEFAULT_SIZE;
   const isLabeled = props.title !== undefined;

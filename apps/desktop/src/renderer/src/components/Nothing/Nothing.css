@@ -1,21 +1,9 @@
 /*
- * Two shapes, five kinds, and the split between them is the split the markup makes:
+ * Five kinds in two shapes. A kind supplies copy, glyph and tone; the placement supplies the box.
+ * Layout rules are scoped to one shape and color rules to neither, so `not-checked` keeps its
+ * dotted boundary when it stands in for a whole pane.
  *
- * Imported by `Nothing.tsx`, so importing the component brings its styles.
- *
- * Hand-authored, unlike `meridian.css` — that file is generated from
- * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
- * and reads every value back out as a custom property.
- *
- * Design-language rules that govern this sheet: the five kinds of nothing — five
- * absences render as five different shapes, never collapsed. A kind supplies copy, a
- * glyph, and a tone, and the PLACEMENT supplies the box those are carried in. So every
- * layout rule below is scoped to one shape and every color rule to neither — which is
- * what lets `not-checked` keep the dotted boundary the design language names for it
- * while standing in for a whole pane rather than a value.
- *
- * `--block`: an absence standing in for content that is not there. It carries only
- * what all five blocks share; the measure each kind sits on is scoped beside it.
+ * `--block` carries only what all five blocks share; each kind's measure is scoped beside it.
  */
 .meridian-nothing--block {
   display: flex;
@@ -23,11 +11,7 @@
   gap: var(--meridian-space-2);
 }
 
-/*
- * `not-loaded`: a skeleton in the row's shape. The neutral inline-start edge is the
- * transcript row's attribution edge with no attribution yet — which is exactly what is
- * true while the read is in flight. Both belong to the row, so both are the block's.
- */
+/* `not-loaded`: a skeleton in the row's shape, with the transcript row's edge unattributed. */
 .meridian-nothing--block.meridian-nothing--not-loaded {
   padding-block: var(--meridian-space-3);
   padding-inline-start: var(--meridian-space-4);
@@ -87,8 +71,7 @@
   background: var(--meridian-red-ground);
 }
 
-/* The row it becomes when it stands in for a region's content. The two end-side radii only:
-   the start side is the red edge, and a radius there would round the mark itself. */
+/* End-side radii only: a radius on the start side would round the red edge mark. */
 .meridian-nothing--block.meridian-nothing--error {
   padding: var(--meridian-space-3) var(--meridian-space-4);
   border-start-end-radius: var(--meridian-radius-sm);
@@ -113,20 +96,11 @@
 }
 
 /*
- * `--badge`: an absence that qualifies a value sitting beside it. Two of the five
- * kinds are mounted here by default; all five render here when a caller says so.
+ * `--badge`: an absence that qualifies a value beside it. A one-line pill where a line is
+ * available: a minimum height and a wrapping label, not a fixed height and `nowrap`, so a long
+ * label at the reflow floor (`REFLOW_MIN_WIDTH_PX`) wraps instead of forcing a sideways scroll
+ * (WCAG 1.4.10). The `detail` stays the tooltip.
  */
-/* A badge is a one-line pill WHEREVER A LINE IS AVAILABLE, and the sizing says only
-   that. It carried a fixed `block-size` and `white-space: nowrap`, which said
-   something stronger — that the label may never take a second line — and at the
-   reflow floor (`tokens/palette.ts`'s `REFLOW_MIN_WIDTH_PX`) that turned a label
-   longer than its column into content a person has to scroll sideways to read, which
-   is exactly what WCAG 2.2 SC 1.4.10 is about. A minimum rather than a fixed height,
-   and a label that may wrap, changes nothing at any width where the label fits on one
-   line — the box is `border-box`, the content box is well under 1.375rem, and a line
-   that does not reach the end does not wrap — so the pill a person sees on a desktop
-   window is the same pill. The `detail` stays the badge's tooltip regardless: that is
-   a decision about a SECOND STRING and not about this one's line count. */
 .meridian-nothing--badge {
   box-sizing: border-box;
   display: inline-flex;
@@ -138,30 +112,23 @@
   border-radius: var(--meridian-radius-sm);
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
-  /* 1.2 rather than 1 so a wrapped label's two lines are not touching. A single-line
-     badge is unaffected: `min-block-size` is what decides its height either way. */
+  /* Keeps a wrapped label's lines from touching; a one-line badge height is `min-block-size`. */
   line-height: 1.2;
 }
 
-/* A flex item's automatic minimum size is its min-content width, so without this the
-   label refuses to narrow past its longest word and the pill overflows instead of
-   wrapping. `break-word` rather than `anywhere`: a label is the console's own prose
-   and breaks between words first, taking a mid-word break only where one word alone
-   is wider than the column. */
+/* A flex item's minimum size is its min-content width; without this the label overflows instead
+   of wrapping. `break-word` breaks between words first. */
 .meridian-nothing--badge .meridian-nothing__badge-label {
   min-inline-size: 0;
   overflow-wrap: break-word;
 }
 
-/* One bar rather than three, and sized in text units because a badge has no measure
-   of its own for a percentage to be a fraction of. */
+/* One bar, in text units because a badge has no measure for a percentage. */
 .meridian-nothing--badge .meridian-nothing__skeleton-bar {
   inline-size: 6ch;
 }
 
-/* The design language names this one's treatment in terms: a dotted badge. Nobody asked; the
-   dotted boundary says the question is still open rather than answered "no". The
-   boundary is the kind's, so it survives into the block a whole-region mount takes. */
+/* Dotted: nobody asked, so the question is open, not answered "no". Kept in block form. */
 .meridian-nothing--not-checked {
   border: 1px dotted var(--meridian-edge-strong);
 }
@@ -171,9 +138,7 @@
   background: var(--meridian-surface-sunken);
 }
 
-/* The two boundary-bearing kinds carry their border on all four sides, so in block
-   form the measure has to sit inside it — the other three either carry no boundary
-   or carry it on the one edge, where the block's own padding already clears it. */
+/* These two kinds border all four sides, so in block form the measure sits inside the border. */
 .meridian-nothing--block.meridian-nothing--not-checked,
 .meridian-nothing--block.meridian-nothing--computing {
   box-sizing: border-box;

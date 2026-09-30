@@ -1,27 +1,10 @@
-// Session › run › entity › this pane, as far as a pane's address reaches.
+// Session > run > entity > this pane, as far as a pane's address reaches; the one crumb
+// derivation in the console.
 //
-// Its own module for the one-component rule, and the ONE crumb derivation in the
-// console: a second one would let the same pane describe itself two ways — its ids
-// in prose from one, the wire ids straight from the other — depending on which a
-// feature reached for. {@link paneScopeCrumbs} is the derivation, and the component
-// renders what it returns.
-//
-// EVERY ADDRESS CRUMB IS A WIRE STRING and wears the provenance signature that says
-// so, through the one module allowed to format one. The LAST crumb is not: it is the
-// pane's own name, prose from the closed title table, and it is the crumb the trail is
-// currently on.
-//
-// A CRUMB THE ADDRESS DOES NOT CARRY IS LEFT OUT rather than rendered as a
-// placeholder — the trail describes where this pane is, and an em dash standing in for
-// a run would say the pane is scoped to a run it has not got. An address that
-// carries nothing at all says so, because an empty strip reads as a breadcrumb that
-// failed to render.
-//
-// THE SEPARATOR IS A GLYPH AND NOT GENERATED CONTENT. Both are silent to a reader's
-// eye; only one is silent to a screen reader. A `::before { content: "›" }` is
-// announced by assistive technology that reads generated content, and a `Glyph` with
-// no `title` is `aria-hidden` by that component's own contract — so the mark that
-// separates two names cannot be read out as a name.
+// Address crumbs are wire strings and wear the mono signature; the last crumb is the pane's own
+// prose name. A crumb the address lacks is left out, not drawn as a placeholder; an address that
+// names nothing says so. The separator is a `Glyph` (hidden from assistive technology when it has
+// no title), not generated content, which some readers announce.
 
 import { Glyph } from "../Glyph/Glyph.js";
 import { WireFigure } from "../WireFigure/WireFigure.js";
@@ -29,11 +12,8 @@ import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 
 /**
- * Where a pane is, as far as its address reaches.
- *
- * Every member is REQUIRED and may be `undefined`, on `PaneContext`'s
- * precedent: an optional member reads identically whether the pane layout decided the pane is
- * scoped to no run or forgot to resolve one, and only one of those is an answer.
+ * Where a pane is, as far as its address reaches. Every member is required and may be
+ * `undefined`, so "scoped to no run" cannot be confused with "forgot to resolve one".
  */
 export interface PaneScopeAddress {
   readonly sessionId: string | undefined;
@@ -42,11 +22,8 @@ export interface PaneScopeAddress {
 }
 
 /**
- * Which member of the address a crumb came from.
- *
- * Exactly the members of {@link PaneScopeAddress}, and the reason it exists is React
- * keys: an address has AT MOST ONE crumb per scope, so a scope is unique across a
- * trail by construction, while the identifier is not.
+ * Which member of the address a crumb came from; unique per trail, unlike the identifier, so it
+ * keys the list.
  */
 export type PaneScopeName = "session" | "run" | "entity";
 
@@ -57,21 +34,10 @@ export interface PaneScopeCrumb {
 }
 
 /**
- * The wire identifiers a pane's address carries, outermost first, each with its scope.
- *
- * The identifiers are wire-verbatim — they are strings, so they are rendered as
- * received. An entity contributes its `id` and not its `kind`: the kind is already
- * said by the pane's own glyph and title, and repeating it in the trail would make
- * `agent agent-01` the crumb for a pane that says "Sidekicks" two elements away.
- *
- * EACH CRUMB CARRIES ITS SCOPE because the identifier alone cannot key it. Two scopes
- * of one address may hold the same string — a run whose id is its session's is the
- * shape that reaches this first, and nothing in the wire forbids it — and keying
- * sibling `<li>` on the identifier then gives React two children with one key: it
- * warns, and it reconciles the pair as one element, so the second crumb's updates land
- * on the first or are dropped. The scope is not merely unique, it is STABLE: a crumb
- * appearing between two others re-keys nothing, where a positional key would remount
- * every crumb after the insertion.
+ * The wire identifiers a pane's address carries, outermost first, each with its scope. An entity
+ * contributes its `id`, not its `kind`, which the pane's glyph and title already say. The scope
+ * is the key: two scopes may hold the same string, and a positional key would remount later
+ * crumbs when one appears.
  */
 export function paneScopeCrumbs(address: PaneScopeAddress): readonly PaneScopeCrumb[] {
   const carried: readonly { readonly scope: PaneScopeName; readonly value: string | undefined }[] =
@@ -86,22 +52,18 @@ export function paneScopeCrumbs(address: PaneScopeAddress): readonly PaneScopeCr
 /** What the trail says when the address names nothing at all. */
 const NO_ADDRESS_CRUMB = "No session";
 
-/** The address a trail describes, plus the pane's own name and the id that names the list. */
+/** Props for `PaneBreadcrumb`: the address, the pane's own name, and the id that names the list. */
 export interface PaneBreadcrumbProps extends PaneScopeAddress {
   /**
-   * The id the pane's `<section>` points its `aria-labelledby` at.
-   *
-   * It lands on the crumb LIST rather than on the last crumb, because the pane's name
-   * is the whole trail: two `runs` panes in one pane layout are told apart by the session and
-   * the run they are scoped to, and a name of "Runs" twice over tells a reader
-   * navigating regions nothing at all.
+   * The id the pane's `<section>` points `aria-labelledby` at. It names the whole crumb list,
+   * so two panes of one kind are told apart by their session and run.
    */
   readonly crumbsId: string;
   /** The pane's own name, prose, and the crumb the trail is on. */
   readonly currentCrumb: string;
 }
 
-/** The crumbs the address carries, and nothing standing in for the ones it does not. */
+/** The crumbs the address carries, with nothing standing in for the ones it lacks. */
 export function PaneBreadcrumb(props: PaneBreadcrumbProps): React.JSX.Element {
   const scopeCrumbs = paneScopeCrumbs(props);
   return (
@@ -111,8 +73,7 @@ export function PaneBreadcrumb(props: PaneBreadcrumbProps): React.JSX.Element {
           <li className="meridian-pane__crumb-absent">{NO_ADDRESS_CRUMB}</li>
         ) : (
           scopeCrumbs.map((crumb, position) => (
-            // Keyed on the SCOPE and never on the identifier: an address holds at most
-            // one crumb per scope, so the key is unique however the ids collide.
+            // Keyed on the scope: the identifier can collide across scopes.
             <li className="meridian-pane__crumb" key={crumb.scope}>
               {position === 0 ? null : <Glyph name="chevron-right" size={GLYPH_SIZE_CHROME} />}
               <WireFigure value={crumb.value} />
