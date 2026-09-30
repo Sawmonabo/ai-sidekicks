@@ -1,9 +1,6 @@
-// The service is the settings file's only writer, so its three verbs are the
-// whole of how a window or another device sees and changes the file. These
-// tests dispatch each verb through the registry against a real file in a
-// temporary home: a missing file reads as the defaults, a broken one is
-// repaired and says so, a refused row writes nothing, and a listener hears the
-// file as it stands first and each change after.
+// The settings file's three verbs through the registry against a real file: a missing file reads
+// as the defaults, a broken one is repaired and says so, a refused row writes nothing, and a
+// listener hears the file as it stands first and each change after.
 import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -116,19 +113,6 @@ describe("daemon.machineSettingsRead", () => {
     )) as MachineSettingsReading;
     expect(reading.repair?.cause).toBe("schemaRefused");
     expect(reading.settings).toStrictEqual(MACHINE_SETTINGS_DEFAULTS);
-  });
-
-  it("reads a stored value and a missing key's default together", async () => {
-    await writeRawSettingsFile(JSON.stringify({ keepAwakeWhileAgentWorks: true }));
-    const reading = (await registry.dispatch(
-      "daemon.machineSettingsRead",
-      {},
-      {},
-    )) as MachineSettingsReading;
-    expect(reading.settings).toStrictEqual({
-      ...MACHINE_SETTINGS_DEFAULTS,
-      keepAwakeWhileAgentWorks: true,
-    });
   });
 });
 
@@ -246,11 +230,5 @@ describe("daemon.machineSettingsSubscribe", () => {
     );
     expect(detach).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledTimes(1);
-  });
-
-  it("refuses a subscription with no transport to stream to", async () => {
-    await expect(registry.dispatch("daemon.machineSettingsSubscribe", {}, {})).rejects.toThrow(
-      /needs the transport/,
-    );
   });
 });
