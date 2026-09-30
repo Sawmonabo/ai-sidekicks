@@ -6203,24 +6203,14 @@ interface AgentListResponse {
 interface AgentListEntry {
   agentId: AgentId;
   name: string;
-  driverName: string;
-  modelId: string;
-  config: Record<string, unknown>; // driver-scoped persona config; {} when never supplied (agents.config NOT NULL DEFAULT '{}')
-  // Where the agent sits in the session's tree: from the lead down to this agent's parent, read
-  // from the daemon's parent-to-child index (the same source as orchestration.childRunLinkRead's
-  // `ancestry`); empty for the lead.
-  ancestry: AgentTreeMember[];
   // D-014-26: the agent's EFFECTIVE binding — the one it runs under now, never the pending one.
-  // Absent `providerAccountId` = the agent follows the provider's current account (the one marked
-  // `Default`); absent `effort` = the driver's own default for the model; absent `outputSpeed`
-  // = never set, so the provider's own default stands. Each is
-  // served from that member's own column on the agent row — the columns an applying switch commits
-  // its binding into — so every member a caller can move is also a member a caller can read back.
-  // A run-bound member readable only as a PENDING intent would go dark at the moment it applied.
-  providerAccountId?: ProviderAccountId;
-  effort?: string;
-  outputSpeed?: string;
-  // What the PROVIDER declared, as against `outputSpeed` above, which is what was REQUESTED
+  // `providerAccountId` null = the agent follows the provider's current account (the one marked
+  // `Default`); `effort` null = the driver's own default for the model; absent `outputSpeed` = never
+  // set, so the provider's own default stands. Each member is served from its own column on the agent
+  // row, the columns an applying switch commits into, so every member a switch can move is read back
+  // here once it applies; a run-bound member readable only as a PENDING intent would go dark then.
+  binding: AgentProviderBinding;
+  // What the PROVIDER declared, as against `binding.outputSpeed`, which is what was REQUESTED
   // (Spec-004 §The output-speed axis). Projected at response-build time from the
   // binding-held `ProviderOutputSpeedState` — the observation the driver recorded when the
   // declaring handshake arrived — and stored in no column, so it cannot go stale. LIVE-SCOPED on
@@ -6232,7 +6222,7 @@ interface AgentListEntry {
   // happened; or no binding for this agent is live. The middle arm is the one a reader right after
   // a switch will hit — an agent read immediately after a switch applies is expected to show the
   // requested value with this member absent — so consumers render "not yet observed", never "off"
-  // and never a stand-in for `outputSpeed`. Presence stays the discriminator for "this was read
+  // and never a stand-in for `binding.outputSpeed`. Presence stays the discriminator for "this was read
   // from the provider"; absence means nothing has been read YET or ever, which is the same
   // instruction to the reader in every arm.
   //
@@ -6256,6 +6246,10 @@ interface AgentListEntry {
   // definition may have moved since, and the agent keeps what it was given. Its
   // `resolvedFromDefinitionId` is the one home of the definition an agent came from.
   resolvedConfiguration?: AgentResolvedConfiguration;
+  // Where the agent sits in the session's tree: from the lead down to this agent's parent, read
+  // from the daemon's parent-to-child index (the same source as orchestration.childRunLinkRead's
+  // `ancestry`); empty for the lead.
+  ancestry: AgentTreeMember[];
   createdAt: string;
 }
 
