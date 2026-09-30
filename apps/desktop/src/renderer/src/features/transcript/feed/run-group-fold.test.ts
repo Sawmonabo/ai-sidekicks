@@ -52,7 +52,7 @@ function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
 /** That log, folded, with the run group open or shut. */
 function foldedOverOneRun(memberCount: number, isOpen: boolean): TranscriptWindowModel {
   return foldRunGroupHeaders(
-    deriveTranscriptWindow(oneRunLog(memberCount), false),
+    deriveTranscriptWindow(oneRunLog(memberCount)),
     new Set(isOpen ? [RUN_ID] : []),
   ).window;
 }
@@ -77,7 +77,7 @@ describe("an opened run group admits the cap's own window and no more", () => {
     // Reading it the other way round would fade a long run's newest work out of view
     // and leave its opening on screen.
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
-    const everyMemberId = deriveTranscriptWindow(oneRunLog(OVER_CAP_MEMBER_COUNT), false).rows.map(
+    const everyMemberId = deriveTranscriptWindow(oneRunLog(OVER_CAP_MEMBER_COUNT)).rows.map(
       (row: TimelineRow) => row.id,
     );
     const rendered = new Set(renderedMemberKeys(model));
@@ -131,7 +131,7 @@ describe("a run group re-sealed over the rows a narrowing admitted", () => {
 
   /** The run group as the fold sealed it, before any narrowing. */
   function wholeRunGroup(): NonNullable<ReturnType<typeof runGroupOf>> {
-    const runGroup = runGroupOf(deriveTranscriptWindow(oneRunLog(MEMBER_COUNT), false));
+    const runGroup = runGroupOf(deriveTranscriptWindow(oneRunLog(MEMBER_COUNT)));
     if (runGroup === undefined) {
       throw new Error("the fold produced no run group for a finished run");
     }
@@ -175,7 +175,7 @@ describe("a run group re-sealed over the rows a narrowing admitted", () => {
  * disclosure that keyed on the wrong member pass.
  */
 function terminalRunGroup(): RunGroup {
-  const runGroup = deriveTranscriptWindow(oneRunLog(3), false).runGroupByHeaderKey.get(RUN_ID);
+  const runGroup = deriveTranscriptWindow(oneRunLog(3)).runGroupByHeaderKey.get(RUN_ID);
   if (runGroup === undefined) {
     throw new Error("the fixture log produced no terminal run group");
   }

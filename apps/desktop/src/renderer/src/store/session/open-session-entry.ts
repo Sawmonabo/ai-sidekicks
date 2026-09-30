@@ -63,6 +63,11 @@
 // root, which is what keeps `store/` below `services/` in the import direction.
 
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import type { SessionDegradedCause } from "../session-degradation.js";
 import type { EntityProjectorTable } from "./entities/entities.js";
 import { ApplyQueue } from "./apply-queue.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
@@ -174,6 +179,7 @@ export class OpenSessionEntry {
    */
   #unresolvableCursor: string | undefined = undefined;
   readonly #onTimelineResumeSettled: (() => void) | undefined;
+  readonly #releaseCauseCapture: () => void;
 
   public constructor(sessionId: string, options: OpenSessionEntryOptions) {
     this.#onTimelineResumeSettled = options.onTimelineResumeSettled;
@@ -213,6 +219,28 @@ export class OpenSessionEntry {
       ...(options.refreshDebounceMs === undefined ? {} : { debounceMs: options.refreshDebounceMs }),
       ...(options.refreshMaxWaitMs === undefined ? {} : { maxWaitMs: options.refreshMaxWaitMs }),
     });
+    // THE CAUSE GOES TO THE WINDOW'S DIAGNOSTIC CAPTURE AND NEVER TO THE SCREEN, where
+    // one line under the session header says only that the window is catching up. One
+    // warning each time the cause changes, recorded here because every writer of the
+    // cause lands on this store and this entry holds the clock and the session.
+    let recordedCause: SessionDegradedCause | undefined;
+    this.#releaseCauseCapture = this.store.readable.subscribe((state) => {
+      const cause = state.degradedCause;
+      if (cause === recordedCause) {
+        return;
+      }
+      recordedCause = cause;
+      if (cause === undefined) {
+        return;
+      }
+      windowDiagnosticCapture.record({
+        at: diagnosticStampAt(clock),
+        severity: "warning",
+        source: "store/session",
+        kind: "session-degraded",
+        detail: `session ${sessionId}: ${cause}`,
+      });
+    });
   }
 
   /**
@@ -229,6 +257,7 @@ export class OpenSessionEntry {
   }
 
   public dispose(): void {
+    this.#releaseCauseCapture();
     this.applyQueue.dispose();
     this.refreshScheduler.dispose();
   }

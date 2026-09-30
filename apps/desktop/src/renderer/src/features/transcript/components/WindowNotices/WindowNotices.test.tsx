@@ -6,11 +6,7 @@ import { describe, expect, it } from "vitest";
 import { WindowNotices } from "./WindowNotices.js";
 import { type WindowAbsence } from "../../window-notices.js";
 
-const EVERY_NOTICE: readonly WindowAbsence[] = [
-  { kind: "dropped", count: 12 },
-  { kind: "duplicate-key", count: 3 },
-  { kind: "never-received" },
-];
+const EVERY_NOTICE: readonly WindowAbsence[] = [{ kind: "dropped", count: 12 }];
 
 function renderNotices(...absences: readonly WindowAbsence[]): HTMLElement {
   const { container } = render(<WindowNotices absences={absences} subject="entries" />);
@@ -24,7 +20,7 @@ describe("WindowNotices", () => {
   });
 
   it("mounts one notice per thing there is to say", () => {
-    expect(renderNotices(...EVERY_NOTICE).querySelectorAll(".meridian-nothing")).toHaveLength(3);
+    expect(renderNotices(...EVERY_NOTICE).querySelectorAll(".meridian-nothing")).toHaveLength(1);
   });
 
   it("creates no live region, because the console has one announcer", () => {

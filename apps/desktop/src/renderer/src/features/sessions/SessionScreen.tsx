@@ -1,4 +1,5 @@
-// The session screen: the session header, the pane layout, and the composer's region.
+// The session screen: the session header and the catching-up line under it, the pane
+// layout, and the composer's region.
 //
 // This is what a person is looking at when they are looking at a session. It
 // composes three things it does not own — `SessionHeader` (this feature's), the pane layout's
@@ -48,6 +49,7 @@ import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js
 
 import { SessionHeader } from "./session-header/components/SessionHeader.js";
 import { SessionBannerRow } from "./components/SessionBannerRow.js";
+import { SessionCatchUpLine } from "./components/SessionCatchUpLine.js";
 import { SessionPaneLayout } from "./pane-layout/components/SessionPaneLayout.js";
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
 import { usePaneLayoutStore } from "./pane-layout/hooks/usePaneLayoutStore.js";
@@ -84,9 +86,14 @@ export interface SessionScreenProps {
    * caller that forgets it still mounts production's bodies into a composed window.
    */
   readonly paneRegistry: PaneRegistry;
+  /**
+   * Reads one session again, for a person's press. A refusal comes back when that
+   * session is not open, and this screen raises it as a banner.
+   */
+  readonly rereadSession: (sessionId: string) => Refusal | undefined;
 }
 
-/** The session screen: header, pane layout, composer region, and the banner column. */
+/** The session screen: banners, header, catching-up line, pane layout and composer region. */
 export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;
@@ -158,19 +165,35 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
   );
 
+  const rereadSession = props.rereadSession;
+  const tryAgain = useCallback(
+    (sessionIdToReread: string) => {
+      const refusal = rereadSession(sessionIdToReread);
+      if (refusal !== undefined) {
+        raise(refusal);
+      }
+    },
+    [rereadSession, raise],
+  );
+
   const composer = findComposerRenderer();
   const focusedPane = useFocusedPaneAddress(paneLayoutState.panes, paneLayoutState.focusedPaneId);
 
   return (
     <div className="meridian-session-screen">
-      {banners.map((banner) => (
-        <SessionBannerRow
-          key={sessionBannerKey(banner.refusal)}
-          banner={banner}
-          onDismiss={dismiss}
-        />
-      ))}
-      <SessionHeader sessionId={sessionId} sessionStore={props.sessionStore} />
+      <div className="meridian-session-screen__head">
+        {banners.map((banner) => (
+          <SessionBannerRow
+            key={sessionBannerKey(banner.refusal)}
+            banner={banner}
+            onDismiss={dismiss}
+          />
+        ))}
+        <SessionHeader sessionId={sessionId} sessionStore={props.sessionStore} />
+        {props.sessionStore === undefined ? null : (
+          <SessionCatchUpLine sessionStore={props.sessionStore} onTryAgain={tryAgain} />
+        )}
+      </div>
       <SessionPaneLayout
         layout={layout}
         registry={registry}

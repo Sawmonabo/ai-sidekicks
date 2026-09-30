@@ -165,7 +165,7 @@ function fastestFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): nu
   let fastestPass = Number.POSITIVE_INFINITY;
   for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
     const startedAt = performance.now();
-    const transcriptWindow = deriveTranscriptWindow(timeline, false);
+    const transcriptWindow = deriveTranscriptWindow(timeline);
     const elapsedMilliseconds = performance.now() - startedAt;
     if (transcriptWindow.rows.length === 0) {
       throw new Error("the fold produced no rows, so its timing describes nothing");
@@ -220,7 +220,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     expect(timeline).toHaveLength(ENDURANCE_ROW_COUNT);
 
-    const transcriptWindow = deriveTranscriptWindow(timeline, false);
+    const transcriptWindow = deriveTranscriptWindow(timeline);
 
     // Every event the generator scripts is a registered kind the projection places,
     // so every one becomes a row; a window that dropped an event category would
@@ -314,7 +314,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     // case above sensitive rather than merely quiet.
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     const baselineHeapBytes = settledHeapBytes();
-    const heldWindow = deriveTranscriptWindow(timeline, false);
+    const heldWindow = deriveTranscriptWindow(timeline);
     const heldHeapBytes = settledHeapBytes();
     // Read through the held window AFTER the measurement, so it is unambiguously
     // still reachable at the moment the heap was sampled.
@@ -339,7 +339,7 @@ describe("endurance — the transcript's fold over a long session", () => {
  * be eliminated as dead.
  */
 function dropFoldOf(timeline: readonly ProjectedSessionEvent[]): void {
-  const rowCount = deriveTranscriptWindow(timeline, false).rows.length;
+  const rowCount = deriveTranscriptWindow(timeline).rows.length;
   if (rowCount === 0) {
     throw new Error("the fold produced no rows, so nothing was measured");
   }

@@ -169,6 +169,9 @@
         // A footnote's definition at the foot of its reply (session design S-657; build unit
         // A20).
         "src/renderer/src/features/transcript/rows/markdown/footnotes/DefinitionBody.tsx",
+        // The replay of a hole by the position a read kept, the repair the catching-up line
+        // under the session header stands for (session design S-987, S-1089).
+        "src/renderer/src/features/transcript/window/components/TranscriptGapFill.tsx",
         // A run's page refreshing live (build unit WF-15).
         "src/renderer/src/features/workflows/run-page/hooks/useWorkflowRunLiveRefresh.ts"
       ]

@@ -74,7 +74,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
   function foldedRunGroupWindow(): TranscriptWindowModel {
     const sessionStore = openSessionStoreWithTerminalRunGroup();
     return foldRunGroupHeaders(
-      deriveTranscriptWindow(sessionStore.snapshot().timeline, false),
+      deriveTranscriptWindow(sessionStore.snapshot().timeline),
       new Set<string>(),
     ).window;
   }
@@ -95,7 +95,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
 
   it("draws a seam for a row the seam index names, never through the row renderer", () => {
     const sessionStore = openSessionStoreWithSystemMessage();
-    const transcriptWindow = deriveTranscriptWindow(sessionStore.snapshot().timeline, false);
+    const transcriptWindow = deriveTranscriptWindow(sessionStore.snapshot().timeline);
     const seamRowId = [...transcriptWindow.seamByRowId.keys()][0];
     if (seamRowId === undefined) {
       throw new Error("the seam fixture projected no seam row");
@@ -120,7 +120,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
       useTranscriptRowRenderer(
         rendererOptions(
           // A window with neither the header nor any projected row under that key.
-          deriveTranscriptWindow([], false),
+          deriveTranscriptWindow([]),
           { renderTranscriptRow: rowRendererCalls },
         ),
       ),
@@ -169,8 +169,8 @@ describe("the memo behind the row renderer's arm — what a frame redraws", () =
     const sessionStore = openSessionStoreWithTerminalRunGroup();
     const timeline = sessionStore.snapshot().timeline;
     const retention = new TranscriptRowRetention();
-    const before = deriveTranscriptWindow(timeline, false, retention);
-    const after = deriveTranscriptWindow(timeline, false, retention);
+    const before = deriveTranscriptWindow(timeline, retention);
+    const after = deriveTranscriptWindow(timeline, retention);
     const rowKey = before.viewportRows.find((row) => before.rowsByKey.has(row.key))?.key;
     if (rowKey === undefined) {
       throw new Error("the run group fixture projected no retained row");

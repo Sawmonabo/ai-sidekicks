@@ -42,7 +42,7 @@ function findOverVisible(visible: VisibleTranscriptWindow): ReturnType<typeof us
 
 describe("the visible transcript window", () => {
   it("keeps only the rows the viewport reconciled, and counts the rest", () => {
-    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
     const retained = transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const { result } = renderHook(() => useVisibleTranscriptWindow(transcriptWindow, retained));
     expect(result.current.rows).toHaveLength(RETAINED_ROW_COUNT);
@@ -54,7 +54,7 @@ describe("the visible transcript window", () => {
   });
 
   it("walks only rows the viewport can scroll to, and names the matches beyond it", () => {
-    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
     const retained = transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
     const retainedKeys = new Set(retained.map((row) => row.key));
     const { result } = renderHook(() => {
@@ -81,7 +81,7 @@ describe("the visible transcript window", () => {
     // to look at. Handed the log instead of the window — which is what the field was
     // handed before — the same query counts every row and steps to the oldest one,
     // which the viewport reconciled away and `jumpToRow` cannot reach.
-    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
     const retainedKeys = new Set(
       transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT).map((row) => row.key),
     );
@@ -105,7 +105,7 @@ describe("the visible transcript window", () => {
 describe("the clip the window states", () => {
   /** One loaded log, from which a case keeps the whole window or only its tail. */
   function loadedWindow(): TranscriptWindowModel {
-    return deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT), false);
+    return deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
   }
 
   it("says earlier rows exist exactly when the cap took some", () => {

@@ -27,10 +27,7 @@ import { useTranscriptJumpReach } from "./hooks/useTranscriptJumpReach.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 
 /** The loaded projection of a finished run group beside a live run. */
-const LOADED_WINDOW: TranscriptWindowModel = deriveTranscriptWindow(
-  foldedMessageRunGroupLog(),
-  false,
-);
+const LOADED_WINDOW: TranscriptWindowModel = deriveTranscriptWindow(foldedMessageRunGroupLog());
 
 /** A message row of the finished run, which the shut fold keeps off screen. */
 const FOLDED_ROW: TimelineRow = rowOf(projectedRowId(1));

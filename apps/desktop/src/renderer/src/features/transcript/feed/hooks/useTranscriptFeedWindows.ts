@@ -35,6 +35,7 @@ import {
   useTranscriptViewport,
   type TranscriptViewportBinding,
 } from "../../viewport/hooks/useTranscriptViewport.js";
+import { useDuplicateRowKeyCapture } from "../../viewport/hooks/useDuplicateRowKeyCapture.js";
 import { useTranscriptFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
 import { useTranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
 import {
@@ -83,7 +84,7 @@ export interface TranscriptFeedWindows {
 export function useTranscriptFeedWindows(
   inputs: TranscriptFeedWindowsInputs,
 ): TranscriptFeedWindows {
-  // The same reading `<TranscriptReadState>` draws its skeleton rows from, so the empty
+  // The same reading `<TranscriptWindowSkeleton>` draws its rows from, so the empty
   // sentence and the skeleton rows cannot both be on screen.
   const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
   // The fold is the MOUNT's, not the log's: which finished run groups a person has
@@ -127,6 +128,11 @@ export function useTranscriptFeedWindows(
   useEffect(
     () => transcriptWindowDiagnostics.register(diagnosticsSessionId, readWindowDiagnostics),
     [diagnosticsSessionId, readWindowDiagnostics],
+  );
+  useDuplicateRowKeyCapture(
+    diagnosticsSessionId,
+    viewport.snapshot.keyProjection.duplicateKeyCount,
+    inputs.clock,
   );
 
   // A lane whose row this window no longer holds, or holds only inside a run group that

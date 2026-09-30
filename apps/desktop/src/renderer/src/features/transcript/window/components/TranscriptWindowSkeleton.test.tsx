@@ -1,0 +1,58 @@
+// The window's skeleton rows, held to the two facts the store carries.
+//
+// Every case drives a REAL store rather than a stubbed reading: the claim is that the
+// pane follows `initialized` and `degradedCause`, and a fixture that published those
+// two names itself would pass over a component reading neither.
+
+import { render } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { TranscriptWindowSkeleton } from "./TranscriptWindowSkeleton.js";
+import { SessionStore } from "@renderer/store/session/session-store.js";
+
+function openStore(): SessionStore {
+  return new SessionStore({ sessionId: "session-1" });
+}
+
+function skeletonOf(sessionStore: SessionStore): HTMLElement {
+  return render(<TranscriptWindowSkeleton sessionStore={sessionStore} />).container;
+}
+
+describe("before the first read lands", () => {
+  it("draws a window of skeleton rows rather than an empty session", () => {
+    const container = skeletonOf(openStore());
+    expect(container.querySelectorAll(".meridian-transcript-window-skeleton__row")).toHaveLength(
+      12,
+    );
+  });
+
+  it("announces itself as a read in flight", () => {
+    const skeleton = skeletonOf(openStore()).querySelector(".meridian-transcript-window-skeleton");
+    expect(skeleton?.getAttribute("role")).toBe("status");
+    expect(skeleton?.getAttribute("aria-busy")).toBe("true");
+  });
+});
+
+describe("when the first read itself failed", () => {
+  it("draws no skeleton rows for a read that is already over", () => {
+    // `OpenSessionEntry` marks `read-failed` when the first read is refused or
+    // rejects, and leaves the store uninitialized — so a pane that asked
+    // "initialized?" alone drew twelve `aria-busy` skeleton rows for as long as the
+    // failure stood.
+    const sessionStore = openStore();
+    sessionStore.markDegraded("read-failed");
+
+    const container = skeletonOf(sessionStore);
+
+    expect(container.querySelectorAll(".meridian-transcript-window-skeleton__row")).toHaveLength(0);
+    expect(container.querySelector("[aria-busy]")).toBeNull();
+  });
+});
+
+describe("once the window has been read", () => {
+  it("draws nothing at all", () => {
+    const sessionStore = openStore();
+    sessionStore.initialize({ cursor: 0, entities: [] });
+    expect(skeletonOf(sessionStore).textContent).toBe("");
+  });
+});

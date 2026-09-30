@@ -298,7 +298,7 @@ describe("the transcript viewport — the feed", () => {
     expect(screen.getByText("renderer.row_projection_failed")).toBeDefined();
   });
 
-  it("reports a projection that repeated a key rather than dropping the window", () => {
+  it("draws both rows of a projection that repeated a key", () => {
     withLaidOutViewport();
     const rows: readonly ViewportRow[] = [
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-0" },
@@ -313,10 +313,8 @@ describe("the transcript viewport — the feed", () => {
       />,
     );
     // Degraded, never discarded: BOTH rows are in the document under keys of their
-    // own, and the defect is said out loud rather than left as a mystery in the
-    // scrollbar. Sharing the key would have left one row where the projection sent
-    // two, because the library's caches are keyed by item key.
-    expect(screen.getByText("Some entries share an identifier.")).toBeDefined();
+    // own. Sharing the key would have left one row where the projection sent two,
+    // because the library's caches are keyed by item key.
     expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(2);
   });
   it("scrolls the scroll container through the binding its caller owns", () => {

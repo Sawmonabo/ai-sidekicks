@@ -201,6 +201,7 @@ export function workspaceFor(
           draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
           route={{ kind: "session", sessionId: session.sessionId }}
           paneRegistry={testRegistry()}
+          rereadSession={() => undefined}
         />
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>

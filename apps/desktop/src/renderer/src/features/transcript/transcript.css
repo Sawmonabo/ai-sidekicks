@@ -7,8 +7,8 @@
  *
  *   • `.meridian-session-screen-container`, the session screen's wrapper
  *     (`SessionScreenContainer.tsx`, which imports this sheet).
- *   • `.meridian-transcript-feed` and `.meridian-transcript-feed__body`, the feed's grid
- *     (`feed/components/TranscriptFeed.tsx`).
+ *   • `.meridian-transcript-feed`, `.meridian-transcript-feed__head` and
+ *     `.meridian-transcript-feed__body`, the feed's grid (`feed/components/TranscriptFeed.tsx`).
  *   • `.meridian-transcript-retry`, worn by the viewport's failed-row control and by the
  *     ANSI output's.
  *
@@ -50,13 +50,13 @@
 /* --- The loaded transcript -------------------------------------------------- */
 
 /*
- * The whole feed for one session: an optional find strip above, and below it the
- * scrolling window.
+ * The whole feed for one session: the find strip and the notice of rows the window let
+ * go above, and below them the scrolling window.
  *
  * A column grid whose second track is `minmax(0, 1fr)` rather than a flex column,
- * because the find strip appears and disappears and a flex child that could grow
- * would take its height back from the window on every toggle — which moves every
- * row on screen for a reason the reader did not ask for. The grid keeps the
+ * because the find strip and the notice appear and disappear, and a flex child that
+ * could grow would take its height back from the window on every toggle — which moves
+ * every row on screen for a reason the reader did not ask for. The grid keeps the
  * window's track the whole remainder either way.
  */
 .meridian-transcript-feed {
@@ -68,24 +68,39 @@
 }
 
 /*
+ * Everything above the window, in the order it is written: the find strip, the counts
+ * of matches it could not reach, and the notice of the rows the window let go, which
+ * sits at the top of the history that is loaded. One box, so the first track holds
+ * however many are up and none of them can fall past the window into a track of its
+ * own. A grid rather than a block so each keeps the box it had as an item of the feed:
+ * stretched across, and with no margin collapsing into its neighbor's.
+ */
+.meridian-transcript-feed__head {
+  display: grid;
+  min-width: 0;
+}
+
+/*
  * The window's own track.
  *
  * `minmax(0, 1fr)` rather than `1fr`, which is what lets the viewport — and not this
  * row — be the element that scrolls: a `1fr` track floors at its content's min-content
  * height, so the log would grow the row instead of overflowing inside it.
  *
- * PLACED, not auto-placed. With the find strip closed nothing renders in the first
- * track, so an auto-placed body lands there and is sized by its rows, and the skeleton,
- * the catching-up mark or a notice after it takes this track instead. Before the first
- * read that left the window, and the scroll container a person Tabs into, zero pixels
- * tall under the skeleton.
+ * One cell, shared by everything in it: before the first read the skeleton lies over the
+ * empty viewport it stands in for, so the scroll container a person Tabs into keeps the
+ * whole window rather than sitting under it at zero height.
  */
 .meridian-transcript-feed__body {
-  grid-area: 2 / 1;
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
+}
+
+.meridian-transcript-feed__body > * {
+  grid-area: 1 / 1;
 }
 
 .meridian-transcript-retry {

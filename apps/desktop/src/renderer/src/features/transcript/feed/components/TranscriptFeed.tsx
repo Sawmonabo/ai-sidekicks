@@ -61,7 +61,7 @@ import { LoadEarlier } from "../../history/components/LoadEarlier.js";
 import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
 import { TranscriptWindowNotices } from "../../window/components/TranscriptWindowNotices.js";
-import { TranscriptReadState } from "../../window/components/TranscriptReadState.js";
+import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
@@ -142,7 +142,10 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
 
   return (
     <div className="meridian-transcript-feed">
-      <TranscriptFeedHeader findAndJump={findAndJump} />
+      <div className="meridian-transcript-feed__head">
+        <TranscriptFeedHeader findAndJump={findAndJump} />
+        <TranscriptWindowNotices droppedRowCount={visible.prunedAwayRows.length} />
+      </div>
       <div className="meridian-transcript-feed__body">
         <RetainedRowStateProvider channel={rowLeaseChannel}>
           <RowRevealProvider channel={windows.reveal.channel}>
@@ -163,12 +166,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
             />
           </RowRevealProvider>
         </RetainedRowStateProvider>
+        <TranscriptWindowSkeleton sessionStore={props.sessionStore} />
       </div>
-      <TranscriptReadState sessionStore={props.sessionStore} />
-      <TranscriptWindowNotices
-        droppedRowCount={visible.prunedAwayRows.length}
-        hasUnreceivedEntries={transcriptWindow.hasUnreceivedEntries}
-      />
     </div>
   );
 }

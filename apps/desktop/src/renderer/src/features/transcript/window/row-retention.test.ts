@@ -56,12 +56,8 @@ describe("the transcript window's row retention", () => {
     // the entries here would hand the projection fresh payload objects and the rows
     // would rightly take new identities, so the case would be measuring the fixture.
     const entries = log(LOG_ENTRY_COUNT);
-    const before = deriveTranscriptWindow(entries, false, retention);
-    const after = deriveTranscriptWindow(
-      [...entries, logEntry(LOG_ENTRY_COUNT, {})],
-      false,
-      retention,
-    );
+    const before = deriveTranscriptWindow(entries, retention);
+    const after = deriveTranscriptWindow([...entries, logEntry(LOG_ENTRY_COUNT, {})], retention);
 
     // Every row the first pass published is the SAME object in the second, and so is
     // its place in the virtualizer's identity list. Both halves matter: the feed's row
@@ -83,11 +79,10 @@ describe("the transcript window's row retention", () => {
     // this whole mechanism can cause.
     const retention = new TranscriptRowRetention();
     const first = [logEntry(0, { index: 0 }), logEntry(1, { index: 1 })];
-    const before = deriveTranscriptWindow(first, false, retention);
+    const before = deriveTranscriptWindow(first, retention);
     const movedEntry = { ...logEntry(1, { index: 1 }), occurredAt: "2026-06-01T00:00:00.000Z" };
     const after = deriveTranscriptWindow(
       [first[0] as ProjectedSessionEvent, movedEntry],
-      false,
       retention,
     );
 
@@ -108,8 +103,8 @@ describe("the transcript window's row retention", () => {
     // recognizable. Every assertion above would pass over a `toBe` that had quietly
     // become a structural compare; this one fails if it ever does.
     const entries = log(LOG_ENTRY_COUNT);
-    const before = deriveTranscriptWindow(entries, false);
-    const after = deriveTranscriptWindow(entries, false);
+    const before = deriveTranscriptWindow(entries);
+    const after = deriveTranscriptWindow(entries);
 
     for (const row of before.rows) {
       expect(after.rowsByKey.get(row.id)).not.toBe(row);
@@ -128,12 +123,12 @@ describe("the transcript window's row retention", () => {
     // hand back the object it had been holding since the row left.
     const retention = new TranscriptRowRetention();
     const entries = log(LOG_ENTRY_COUNT);
-    const held = deriveTranscriptWindow(entries, false, retention).rows[0];
+    const held = deriveTranscriptWindow(entries, retention).rows[0];
     if (held === undefined) {
       throw new Error("the fixture log projected no rows");
     }
-    deriveTranscriptWindow([], false, retention);
-    const readmitted = deriveTranscriptWindow(entries, false, retention);
+    deriveTranscriptWindow([], retention);
+    const readmitted = deriveTranscriptWindow(entries, retention);
 
     expect(readmitted.rowsByKey.get(held.id)).not.toBe(held);
   });

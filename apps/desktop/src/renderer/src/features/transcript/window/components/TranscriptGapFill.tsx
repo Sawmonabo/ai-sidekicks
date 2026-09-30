@@ -1,24 +1,16 @@
-// What this window can do about the entries it was told about and never received.
+// The replay a window with a hole in what it received asks for.
 //
-// BESIDE THE CATCHING-UP MARK AND NOT IN PLACE OF IT. `pane/window/
-// TranscriptReadState.tsx` says the projection is behind and names the cause. This
-// says what is being done about the hole, which is a different fact and the one a
-// person can act on: a replay from the position this window kept, or — where no read
-// has acknowledged a position — the whole-window re-read the store performs anyway.
+// It says nothing on screen. The one line under the session header says the window is
+// catching up, and nothing else repeats it: no second notice for the missing entries
+// and no note of how the repair is made. What this adds is the repair itself, a replay
+// from the position this window kept; where no read has acknowledged a position, the
+// whole-window re-read the store performs anyway is the repair.
 //
-// FOUR STATES, because two of them render nothing on purpose. A whole window has
-// nothing to say. An ask still in flight has nothing to say EITHER, and that is the
-// deliberate half: the catching-up mark above is already a `computing` absence
-// carrying its own live region, and a second one beside it announces the same sentence
-// twice — which is the nested-status-region defect that pane's own header names. The
-// ask settles in one turn of the call, so what a person sees is the answer.
-//
-// WHY IT MOUNTS AT THE FEATURE'S SESSION SCREEN ROOT. It needs two things that are in hand
-// in exactly one place: the store, for the hole, and the registry, for the position a
-// read acknowledged. `ResumeRefusalBanner` is mounted there for the same
-// reason and says so — the session screen body is handed everything BUT the registry.
+// IT NEEDS TWO THINGS THAT ARE IN HAND IN EXACTLY ONE PLACE: the store, for the hole, and
+// the registry, for the position a read acknowledged. The session screen body is handed
+// everything BUT the registry, so its place is beside `ResumeRefusalBanner`, which sits
+// above that body for the same reason.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { useTimelineResume } from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -35,17 +27,12 @@ export interface TranscriptGapFillProps {
   readonly fillGap: TimelineSubscribeCall;
 }
 
-/**
- * The replay this window can ask for, or nothing at all.
- *
- * `null` for a window with nothing missing, and for the interval an ask is in flight.
- * Both are the ordinary course and neither is this component's to report.
- */
-export function TranscriptGapFill(props: TranscriptGapFillProps): React.JSX.Element | null {
+/** Puts the replay ask for the hole standing now, and renders nothing. */
+export function TranscriptGapFill(props: TranscriptGapFillProps): null {
   const { sessionId } = props.sessionStore;
   const missingFromSequence = useSessionStore(props.sessionStore, readOldestMissingSequence);
   const resume = useTimelineResume(props.registry, sessionId);
-  const fill = useTranscriptGapFill(
+  useTranscriptGapFill(
     {
       sessionId,
       missingFromSequence,
@@ -58,30 +45,7 @@ export function TranscriptGapFill(props: TranscriptGapFillProps): React.JSX.Elem
     },
     props.fillGap,
   );
-  if (fill.status === "whole" || fill.status === "asking") {
-    return null;
-  }
-  if (fill.status === "unanchored") {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="block"
-        title="There is no position to replay from."
-        detail="Entries this window was told about have not arrived, and no read of this session has acknowledged a position the stream could be re-opened after. The whole window is re-read instead, which is the repair already under way."
-      />
-    );
-  }
-  return (
-    <Nothing
-      kind="computing"
-      placement="block"
-      title="Replaying the missing entries."
-      detail={
-        "The stream was re-opened after the last position this window kept. " +
-        "The entries it replays arrive on the subscription this session already holds."
-      }
-    />
-  );
+  return null;
 }
 
 /**

@@ -60,9 +60,9 @@ import { SessionScreenContainer } from "@renderer/features/transcript/SessionScr
  *
  * Zero rather than `-1`, because `composeScriptBeats` numbers a scenario's beats from
  * one: a store rebased at `-1` would see its first beat as sequence one arriving
- * after sequence zero never did, record the gap, and render the never-received
- * absence and a degraded banner — a state neither case here is about, and a difference
- * between the two scenarios only one of them would show.
+ * after sequence zero never did, record the gap and mark itself degraded — a state
+ * neither case here is about, and a difference between the two scenarios only one of
+ * them would show.
  */
 const SCENARIO_BASE_CURSOR = 0;
 

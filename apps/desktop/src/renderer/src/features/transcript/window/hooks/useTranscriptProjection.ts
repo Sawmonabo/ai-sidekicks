@@ -11,7 +11,7 @@ import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcrip
 /**
  * Subscribe to one session's log and project it, UNFURLED.
  *
- * The subscription is the store's `timeline` and its gap list and nothing else, so a
+ * The subscription is the store's `timeline` and nothing else, so a
  * change to an entity partition — a run transition the transcript already saw as a row —
  * does not re-project the log. The store replaces the log's identity only when it
  * admits an event, which is what makes the memo fire exactly then.
@@ -23,7 +23,6 @@ import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcrip
  */
 export function useTranscriptProjection(sessionStore: SessionStore): TranscriptWindowModel {
   const timeline = useSessionStore(sessionStore, readTimeline);
-  const hasUnreceivedEntries = useSessionStore(sessionStore, readHasGaps);
   // One table per SESSION, so a pass has a predecessor to retain from — and so a
   // pane that follows a navigation to another session starts that session with an
   // empty table rather than with the rows of the one it left. Seeded during the
@@ -37,10 +36,7 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptW
     () => new TranscriptRowRetention(),
   );
   const heldRetention = retention.value;
-  return useMemo(
-    () => deriveTranscriptWindow(timeline, hasUnreceivedEntries, heldRetention),
-    [timeline, hasUnreceivedEntries, heldRetention],
-  );
+  return useMemo(() => deriveTranscriptWindow(timeline, heldRetention), [timeline, heldRetention]);
 }
 
 /** The log this window holds. A named function, so the selector identity is stable. */
@@ -48,9 +44,4 @@ function readTimeline(state: {
   readonly timeline: readonly ProjectedSessionEvent[];
 }): readonly ProjectedSessionEvent[] {
   return state.timeline;
-}
-
-/** Whether the store knows of sequences it never received. */
-function readHasGaps(state: { readonly gaps: readonly unknown[] }): boolean {
-  return state.gaps.length > 0;
 }
