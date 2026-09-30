@@ -1,124 +1,15 @@
-// Claude event normalizer.
+// Claude half of the driver normalize boundary, mirroring `../codex/event-normalizer.ts`: a pure,
+// total mapping from a pinned stream-json or control-channel frame kind to its event family.
 //
-// The Claude leg of the driver normalize boundary, and the deliberate mirror
-// of `../codex/event-normalizer.ts` — the two are built as symmetric halves of
-// one seam. A PURE, TOTAL mapping from the pinned Claude stream-json /
-// control-channel frame kind to the normalized event family it belongs to.
-// Nothing here parses a payload, mints an envelope, or touches session state:
-// it answers exactly one question, "which normalized family does this native
-// frame belong to", which is the whole of what this seam is for — a driver
-// emits normalized runtime events, never provider-native types.
+// Rows come from the version-pinned Claude wire census (pin `2.1.251`; vectors in `__fixtures__/`,
+// so a re-pin fails a test) or the disposition contract (`EVENT_DISPOSITION_BY_KIND`). Three of
+// the six families are unreachable from the pin: see {@link CLAUDE_FAMILY_REACHABILITY}.
 //
-// The session engine therefore never sees a Claude `subtype` string; it sees
-// an `EventCategory` and a `SessionEventType`. Of the six required normalized
-// families (run lifecycle, assistant output, tool activity, interactive
-// request, artifact publication, usage/quota telemetry), three are reachable
-// from the pinned Claude census and three are NOT — a fact about the pinned
-// wire rather than a hole in this table. It is recorded as a checked value
-// ({@link CLAUDE_FAMILY_REACHABILITY}) rather than as prose, so the ledger
-// cannot drift away from the mapping it describes.
-//
-// ---------------------------------------------------------------------------
-// Where every row of the table below comes from
-// ---------------------------------------------------------------------------
-//
-// Two sources, and no third:
-//
-//   (1) The version-pinned Claude wire census (pin `2.1.251`; the
-//       schema-constructor census these subtype and stream-surface names come
-//       from was read at `2.1.245` on 2026-08-25 from the native single-file
-//       build and is CARRIED forward to the pin, with every name below
-//       re-verified present in the `2.1.251` binary on 2026-08-28). It records
-//       the fifteen control-request subtypes in full, the
-//       censused-absent-but-answering `mcp_set_servers` and the
-//       `control_response` envelope shape, and the result subtypes, the
-//       `system/api_retry` shape with its `system/api_error` mapping arm, and
-//       the adjacent stream subtypes.
-//   (2) The event-kind disposition contract (`EVENT_DISPOSITION_BY_KIND` in
-//       `@ai-sidekicks/contracts`). Its 35-kind census fixes each normalized
-//       kind's target category and type; its explicitly-discarded boundary
-//       subtypes name nine Claude system-channel wire strings with a reason
-//       apiece; and its current-wire delta families fix FAMILY-level
-//       dispositions for the Claude delta rows (result-subtype, the `api_retry`
-//       typed-error enum, `worker_shutting_down`, the plugin family, the hook
-//       family).
-//
-// Nothing in this table is transcribed from provider prose docs or invented.
-// A golden vector is regenerated rather than transcribed, and that rule governs
-// the wire SHAPES; this file maps frame KINDS, each of which is recorded
-// verbatim in one of the two sources above, and the `__fixtures__/` census
-// vectors carry the census-recorded subset so a re-pin diff shows up as a
-// failing test rather than as prose drift.
-//
-// ---------------------------------------------------------------------------
-// What is deliberately NOT in the closed census (and why)
-// ---------------------------------------------------------------------------
-//
-// Each exclusion below is a frame that is known to exist but has no settled
-// disposition. Excluding it is not a drop: an excluded kind reaches
-// {@link UnknownClaudeWireFrameError}, which the daemon-diagnostic default
-// branch below re-points at a diagnostic record. That is precisely the
-// fail-open half of the normalize-boundary rule — an unknown-but-parseable kind
-// is never dropped and never forced into an envelope. Putting a guessed row in
-// the table instead would convert a loud unknown into a silent fabrication.
-//
-//   - The Claude `assistant` / `user` stream-json MESSAGE frames, and with
-//     them every census kind that only they could feed (`text_delta`,
-//     `thinking`, `tool_start`, `tool_complete`, `content_block_start`,
-//     `content_block_stop`, `user_text`, `todo_update`, `diff`,
-//     `command_output`, `task_create`, `task_update`,
-//     `background_task_terminal`, `background_task_notification`).
-//     The reason is direct: no authless protocol probe exists for this
-//     provider, so there is no way to observe Claude's stream-json handshake
-//     without a token. Nothing therefore records a discriminant for these
-//     frames, and minting one here would give an assumed shape the appearance
-//     of pinned provenance.
-//   - `SubagentStart` / `SubagentStop`. They normalize into
-//     `subagent.started` / `subagent.completed` carrying `parent_tool_use_id`
-//     copied verbatim, and they land in this file as the dedicated
-//     subagent-lifecycle band below ({@link normalizeClaudeSubagentLifecycle})
-//     rather than as census rows: the census carries only wire-census-recorded
-//     kinds, and these two are not among them.
-//   - The four adjacent stream subtypes the census records at the pin but no
-//     disposition table covers: `command_lifecycle`, `queued_notification`,
-//     `model_refusal_fallback`, `model_refusal_no_fallback`. All four are
-//     Binary-probe/Verified additions dated 2026-08-25, which POSTDATES the
-//     35-kind census they would have to join. They are excluded uniformly
-//     rather than selectively: `model_refusal_fallback` could be argued onto
-//     census row 21 (`model_rerouted`) by inference, while its sibling
-//     `model_refusal_no_fallback` is a refusal with no fallback, which ends
-//     the run as `run.failed` with cause `refused` rather than rerouting it.
-//     Mapping one by inference while excluding the other would make the
-//     table's evidence grade inconsistent row to row. `queued_notification` has a second
-//     reason: the vendor describes it as a message "the CLI accepts inbound",
-//     i.e. daemon -> CLI, so an occurrence on the inbound stream is itself the
-//     anomaly the diagnostic exists to surface.
-//   - `prompt_suggestion`. It is recorded as an example of a trailing event
-//     that can arrive after `result`, which is why the driver read loop reads
-//     to EOF — but neither the frame's container nor its subtype position is
-//     recorded, so a census row would have to guess between
-//     `prompt_suggestion` and `system/prompt_suggestion`.
-//   - `set_effort`, `rewind`, and `compact` as control-request subtypes. The
-//     counterexample hunt puts each at count 0 in the registry census. Note
-//     that absence is NOT read here as proof of non-existence — neither
-//     presence nor absence in that census may decide a capability, which is
-//     exactly why `mcp_set_servers` (censused absent, Verified answering at
-//     three builds) IS in the table below and these three, for which no probe
-//     answer is recorded, are not.
-//
-// ---------------------------------------------------------------------------
-// Why `artifact_publication` has no Claude producer
-// ---------------------------------------------------------------------------
-//
-// It has none by the disposition contract's own routing, not for want of a
-// mapping. Row 32 (`diff`) and row 33 (`command_output`) of the disposition
-// table — the two census kinds that carry a file-change capability — both
-// target `tool_activity` / `tool.result`. The `files_persisted` discard reason
-// states the split in one sentence: the file-change capability is "already
-// carried" by those adopted rows "plus `artifact_publication`", i.e. the
-// publication family is reached by the daemon's own artifact surface, never by
-// a provider frame passing through this seam. A row inventing a Claude producer
-// for it would contradict two census rows and one discard reason.
+// Left out on purpose, so the diagnostic default branch reports them instead of a guessed row:
+// the `assistant` / `user` message frames (no authless probe records their shape), the subagent
+// signals (see {@link normalizeClaudeSubagentLifecycle}), `command_lifecycle`,
+// `queued_notification` (daemon-to-CLI, so anomalous inbound), `model_refusal_*`,
+// `prompt_suggestion`, and the `set_effort`, `rewind` and `compact` control subtypes.
 
 import {
   EVENT_DISPOSITION_BY_KIND,
@@ -139,57 +30,18 @@ import {
   type TurnEvidenceClassification,
 } from "../outbound-frame.js";
 
-// --------------------------------------------------------------------------
-// The wire channel a frame arrives on.
-// --------------------------------------------------------------------------
-
 /**
- * Which of Claude's channels carried the frame.
- *
- * `stream` is the stdout stream-json channel (`type: "system"` /
- * `type: "result"`); `control-request` and `control-response` are the two
- * halves of the control channel, both of which the control-request registry
- * census records.
- *
- * Deliberately NOT a direction axis. The control channel carries traffic both
- * ways under the same `control_request` frame type — `can_use_tool` is a
- * CLI-originated ask, while `interrupt` and `mcp_set_servers` are
- * daemon-originated — and the direction is recorded for only some subtypes,
- * so a `direction` member would have to be inferred for the
- * rest. Each row's `reason` (or its family target) carries the direction
- * claim instead, at the evidence grade that row actually has.
- *
- * Carried as OUTPUT rather than demanded as input, for the reason the Codex
- * sibling records for its `transport`: the caller has a frame kind off the
- * wire and needs to learn which channel discipline applies. Making it an input
- * would ask the caller to already know the answer.
+ * Which channel carried the frame: stdout stream-json, or one half of the control channel. Not a
+ * direction axis: control traffic runs both ways under one frame type.
  */
 type ClaudeWireChannel = "stream" | "control-request" | "control-response";
 
-// --------------------------------------------------------------------------
-// The closed census of Claude inbound frame kinds this normalizer maps.
-// --------------------------------------------------------------------------
-
 /**
- * The pinned Claude inbound frame-kind census — every server-originated frame
- * that is both recorded by exact name AND has a settled normalized
- * disposition.
- *
- * Each member is the frame's `type` joined to its subtype with `/`, the same
- * `system/init` and `system/api_retry` spelling the wire census itself uses.
- * {@link composeClaudeWireFrameKind} is the only supported way to build one
- * from a live frame; see its docstring for where the subtype sits on each
- * container, which differs by channel.
- *
- * Closed on purpose: a literal union is what makes the backing record's
- * `satisfies` check a compile-time totality proof, so a kind added here
- * without a mapping row (or a row added without a union member) is a build
- * failure rather than a runtime surprise. The exclusions are enumerated in
- * this module's header comment, each with its reason.
+ * The pinned inbound frame-kind census with a settled disposition: the frame `type` joined to its
+ * subtype by `/`. Closed, so the record's `satisfies` check proves every kind has a row.
  */
 export type ClaudeWireFrameKind =
-  // Stream channel, `type: "system"`. Six carry a disposition; the nine after
-  // them are the "Explicitly-discarded boundary subtypes" table verbatim.
+  // Stream channel, `type: "system"`.
   | "system/init"
   | "system/api_retry"
   | "system/api_error"
@@ -205,15 +57,13 @@ export type ClaudeWireFrameKind =
   | "system/memory_recall"
   | "system/local_command_output"
   | "system/task_progress"
-  // Stream channel, `type: "result"` — the five-member result-subtype census,
-  // dispositioned as a family by the disposition contract's Claude delta row.
+  // Stream channel, `type: "result"`.
   | "result/success"
   | "result/error_max_turns"
   | "result/error_max_budget_usd"
   | "result/error_during_execution"
   | "result/error_max_structured_output_retries"
-  // Control channel, CLI -> daemon. The fifteen censused subtypes plus
-  // `mcp_set_servers`, which the census does not list and three builds answer.
+  // Control channel, CLI -> daemon.
   | "control_request/can_use_tool"
   | "control_request/elicitation"
   | "control_request/request_user_dialog"
@@ -230,52 +80,22 @@ export type ClaudeWireFrameKind =
   | "control_request/get_binary_version"
   | "control_request/apply_flag_settings"
   | "control_request/rewind_files"
-  // Control channel, CLI -> daemon, answering a daemon-originated request.
+  // Control channel, CLI -> daemon, answering a daemon request.
   | "control_response/success"
   | "control_response/error";
 
-// --------------------------------------------------------------------------
-// Emission readiness — the no-silent-loss boundary, made checkable.
-// --------------------------------------------------------------------------
-
 /**
- * Whether a normalized row's target type can legally be built into an
- * envelope YET.
- *
- * A registry flip is not an emission, and the normalize boundary forbids
- * forcing a frame into an envelope against a missing type or a missing union
- * variant. Naming a `SessionEventType` is therefore not license to construct
- * one: the target must ALSO have a payload variant registered in
- * `SessionEventSchema`. `payload-variant-pending` rows are inputs to the daemon
- * diagnostic, never to an envelope builder.
+ * Whether a row's target type can be built into an envelope yet: it needs a payload variant in
+ * `SessionEventSchema`. `payload-variant-pending` rows feed the diagnostic, never an envelope.
  */
 export type ClaudeEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
 
-/**
- * The `SessionEventType` literals with a registered `SessionEventSchema`
- * payload variant, as a set.
- *
- * Derived from the contracts package's own `SESSION_EVENT_TYPES` roster rather
- * than restated here. That roster is annotated `readonly SessionEvent["type"][]`,
- * which binds its membership to the live schema union at COMPILE time, and
- * contracts' own non-vacuity guard asserts set-equality between the roster and
- * the union's branches. So this set widens by itself the moment an emitting
- * plan lands a variant — the readiness answers below cannot go stale, and no
- * mirror of the registered set exists in this package to drift.
- */
+// Derived from `SESSION_EVENT_TYPES`, which is bound to the live schema union at compile time.
 const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set(
   SESSION_EVENT_TYPES,
 );
 
-/**
- * Resolve whether `eventType` may be built into a `SessionEvent` envelope
- * today.
- *
- * Pure and total over `SessionEventType`. Exported because it is the single
- * place the boundary rule is decided, and because both answers must be
- * exercised by a test directly rather than only through whichever Claude
- * targets happen to be registered today.
- */
+/** Whether `eventType` may be built into a `SessionEvent` envelope today. Pure and total. */
 export function resolveClaudeEmissionReadiness(
   eventType: SessionEventType,
 ): ClaudeEmissionReadiness {
@@ -284,32 +104,9 @@ export function resolveClaudeEmissionReadiness(
     : "payload-variant-pending";
 }
 
-// --------------------------------------------------------------------------
-// The normalization result — a two-arm discriminated union.
-// --------------------------------------------------------------------------
-
 /**
- * A frame that carries a session-timeline capability: it normalizes into
- * exactly one event family and names the `SessionEventType` that family
- * emission targets.
- *
- * `normalizedKind` is the row's kind in the closed 35-kind
- * `NormalizedEventKind` census, or `null` for a Claude delta-family member the
- * census does not name. `null` is a real state rather than a defect: the
- * disposition contract records `worker_shutting_down` as wire-layer rather
- * than a registry key, so a non-null kind would have to be invented for it.
- * `eventType` is total either way, which is what downstream consumers actually
- * key on.
- *
- * `emissionReadiness` carries the boundary answer alongside the
- * target so a consumer cannot read `eventType` without also being handed the
- * question of whether it may build one. See {@link ClaudeEmissionReadiness}.
- *
- * Every property is `readonly` and every entry is frozen — the resolver hands
- * out module-level shared singletons, so an unfrozen entry would let one
- * consumer's `entry.family = ...` corrupt the mapping process-wide (the same
- * reasoning `packages/contracts/src/event.ts` records for
- * `EventKindDisposition`).
+ * A frame that normalizes into one event family. `normalizedKind` is `null` for a member the
+ * census does not name (`worker_shutting_down`). Entries are frozen shared singletons.
  */
 export interface ClaudeNormalizedFamilyEmission {
   readonly disposition: "normalized";
@@ -322,19 +119,8 @@ export interface ClaudeNormalizedFamilyEmission {
 }
 
 /**
- * A frame the pin records, that carries no session-timeline capability, and
- * that therefore normalizes to no family at all.
- *
- * The mandatory non-empty `reason` mirrors the `correlate` / `discard` idiom
- * in `EVENT_DISPOSITION_BY_KIND`: under the no-silent-capability-loss
- * default, a non-emission is admissible only with a stated justification, so
- * the type makes an unreasoned one unrepresentable. The `?: never` keys forbid
- * a not-evented row from smuggling a taxonomy target.
- *
- * This is NOT the unknown-frame path — an unknown kind throws (see
- * {@link UnknownClaudeWireFrameError}). It is the path for a KNOWN frame whose
- * record the daemon already owns, or whose capability another census row
- * already carries.
+ * A known frame that carries no timeline capability, so it normalizes to no family. The non-empty
+ * `reason` is mandatory, and the `?: never` keys forbid a taxonomy target.
  */
 interface ClaudeNotEventedFrameDisposition {
   readonly disposition: "not-evented";
@@ -352,44 +138,14 @@ export type ClaudeFrameNormalization =
   | ClaudeNormalizedFamilyEmission
   | ClaudeNotEventedFrameDisposition;
 
-/**
- * A row of the mapping table BEFORE `emissionReadiness` is derived onto it.
- *
- * The readiness answer is computed once when the lookup map is built, from the
- * live `SESSION_EVENT_TYPES` roster, so no row may hand-state it: a stated
- * answer would be a second source of truth for a fact contracts already owns,
- * and it would go stale silently the moment an emitting plan landed a payload
- * variant. Splitting the row type from the result type is what makes that
- * unstateable rather than merely discouraged.
- */
+// A table row before `emissionReadiness` is derived onto it, so no row states a second copy.
 type ClaudeFrameNormalizationTableRow =
   | Omit<ClaudeNormalizedFamilyEmission, "emissionReadiness">
   | ClaudeNotEventedFrameDisposition;
 
-// --------------------------------------------------------------------------
-// Unknown-frame refusal — the single diagnostic seam.
-// --------------------------------------------------------------------------
-
 /**
- * Thrown when a Claude inbound frame kind resolves to no census row.
- *
- * The typed carrier (rather than a bare `Error`) is what lets the routed
- * normalize path replace the refusal with a `DriverDiagnosticRecord` without
- * inspecting a
- * message string: `frameKind` is already the `rawWireType` that record needs.
- * The verbatim kind is preserved rather than sanitized — it is untrusted
- * provider output, so it is carried as data and never interpolated into
- * anything that executes.
- *
- * Discrimination is by CLASS IDENTITY plus `frameKind`, and deliberately NOT
- * by a dotted `code` member — the twin `UnknownCodexInboundFrameError` carries
- * none either. The driver error namespace is a closed census of seven
- * `driver.*` codes, so minting an eighth here would register a wire code
- * nothing declares, and this refusal rides no error envelope at all: the routed
- * normalize path converts it into a daemon diagnostic record, which keys on
- * `frameKind`. The `code` members on the error classes in
- * `../../provider-registry.ts` are not a counter-precedent — each of those
- * names a code that namespace actually lists.
+ * Thrown for a frame kind outside the census. `frameKind` is untrusted provider output, kept
+ * verbatim as data. It has no dotted `code`: the refusal rides no error envelope.
  */
 export class UnknownClaudeWireFrameError extends Error {
   readonly frameKind: string;
@@ -405,32 +161,10 @@ export class UnknownClaudeWireFrameError extends Error {
   }
 }
 
-// --------------------------------------------------------------------------
-// The mapping table.
-// --------------------------------------------------------------------------
-
-// A `satisfies Record<ClaudeWireFrameKind, ClaudeFrameNormalization>` check on
-// a plain object literal, and NOT a `switch`. The record proves totality more
-// strongly than a switch's `never` guard does — a missing key fails the build
-// at the record, whereas a missing switch case only fails if every other arm
-// returns, and excess-property checking rejects a row whose key left the union.
-// It also keeps this file structurally identical to its Codex sibling. The
-// default-branch swap is a one-body edit to `refuseUnmappedClaudeWireFrame`
-// below rather than a restructure of a dispatch, which is the property that
-// mattered.
-//
-// `emissionReadiness` is deliberately absent from the literals: it is derived
-// per row when the lookup map is built, so no row can hand-state an answer
-// that contradicts the live `SessionEventSchema` registration.
+// A `satisfies Record<ClaudeWireFrameKind, ...>` literal, not a `switch`: a missing or excess key
+// fails the build. `emissionReadiness` is derived per row when the lookup map is built.
 const CLAUDE_FRAME_NORMALIZATION_RECORD = {
-  // ------------------------------------------------------------------
-  // Stream channel, `type: "system"` — the six dispositioned subtypes.
-  // ------------------------------------------------------------------
-
-  // Census row 1: "`init` ... adopt `run_lifecycle` (run-start marker) — type
-  // `run.provider_initialized`". The same row pins the limit of this mapping:
-  // "the daemon's `run.*` state transitions stay daemon-emitted, not
-  // provider-init-mapped", so this is a forward marker, not a state change.
+  // A forward marker only: `run.*` transitions stay daemon-emitted, not derived from init.
   "system/init": {
     disposition: "normalized",
     frameKind: "system/init",
@@ -439,13 +173,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     eventType: "run.provider_initialized",
     normalizedKind: "init",
   },
-  // Census row 18 plus the Claude delta row that enriches it: the typed-error
-  // enum "enriches census row 18's `api_retry` kind — the same kind, not a
-  // distinct one". The enum members themselves are carried verbatim by the
-  // payload layer, never validated against a closed set here: that union's
-  // arity is only Derived, since a string census cannot prove a set is closed,
-  // so rejecting an unrecognized member would fail closed on a set the evidence
-  // cannot close.
+  // The typed-error enum members are carried verbatim by the payload layer: a string census
+  // cannot prove the set closed.
   "system/api_retry": {
     disposition: "normalized",
     frameKind: "system/api_retry",
@@ -454,9 +183,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     eventType: "usage.api_retry",
     normalizedKind: "api_retry",
   },
-  // The wire census states the mapping arm verbatim: "the mapping arm is
-  // `system/api_error` -> `system/api_retry`". Same destination as the row
-  // above by the census's own equation, not by this file's inference.
+  // The census maps `system/api_error` onto `system/api_retry`.
   "system/api_error": {
     disposition: "normalized",
     frameKind: "system/api_error",
@@ -465,11 +192,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     eventType: "usage.api_retry",
     normalizedKind: "api_retry",
   },
-  // Census row 20 is the only RENAME in the table, and it names this wire
-  // string explicitly: "the Claude wire string `rate_limit_event` renames onto
-  // `rate_limits`: an account-plane quota snapshot, never context-window
-  // telemetry". It is also the preferred carrier, being a push channel that
-  // does not require the experimental `get_usage` round trip.
+  // The one rename: `rate_limit_event` becomes `rate_limits`, an account quota snapshot. It is the
+  // preferred carrier because it is pushed, with no round trip on the experimental `get_usage`.
   "system/rate_limit_event": {
     disposition: "normalized",
     frameKind: "system/rate_limit_event",
@@ -478,8 +202,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     eventType: "usage.rate_limit_update",
     normalizedKind: "rate_limits",
   },
-  // Census row 19: provider context-window compaction, "distinct from the
-  // daemon `event.compacted` retention pass".
+  // Provider context-window compaction, distinct from the daemon's `event.compacted` pass.
   "system/compact_boundary": {
     disposition: "normalized",
     frameKind: "system/compact_boundary",
@@ -488,14 +211,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     eventType: "usage.context_compacted",
     normalizedKind: "compact_boundary",
   },
-  // Claude delta row: "`worker_shutting_down` ... adopt `run_lifecycle`
-  // diagnostic (mid-run worker-shutdown recovery signal — capability-bearing)
-  // — type `run.worker_shutdown` ... wire-layer rather than a registry key".
-  // Hence `normalizedKind: null`: it is assigned a category and a type but
-  // deliberately no census kind. The container is the system channel by its
-  // siblings in the same delta table; if it turns out to ride another
-  // container, the composed kind misses this row and reaches the diagnostic
-  // seam, which is loud rather than silent.
+  // Wire-layer, not a registry key, so `normalizedKind` is `null`. Assumed on the system channel;
+  // on another it misses this row and reaches the loud diagnostic seam.
   "system/worker_shutting_down": {
     disposition: "normalized",
     frameKind: "system/worker_shutting_down",
@@ -505,12 +222,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: null,
   },
 
-  // ------------------------------------------------------------------
-  // Stream channel, `type: "system"` — the nine explicitly-discarded
-  // boundary subtypes. Reasons are the disposition table's own, quoted
-  // rather than paraphrased so a re-read of that table is a diff.
-  // ------------------------------------------------------------------
-
+  // Discarded system subtypes.
   "system/hook_started": {
     disposition: "not-evented",
     frameKind: "system/hook_started",
@@ -572,20 +284,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
       "intra-task progress; the adopted `task_create` (15) / `task_update` (16) + `todo_update` snapshots carry the durable task state",
   },
 
-  // ------------------------------------------------------------------
-  // Stream channel, `type: "result"` — the five-member result-subtype
-  // family. The Claude delta row disposes the whole family into the
-  // `run_lifecycle` terminal; the split below between the success and the
-  // four failure subtypes is the census's own, via row 6 (`turn_complete`
-  // -> `run.completed`) and row 13 (`error` -> `run.failed`).
-  //
-  // Reading a result frame does NOT end the driver's read loop: trailing
-  // events can arrive after `result`, so the read loop reads to EOF rather
-  // than breaking on `result`. That is the read loop's obligation, not this
-  // table's, but it is the reason no row here is marked
-  // terminal-for-the-stream.
-  // ------------------------------------------------------------------
-
+  // A `result` frame does not end the read loop (trailing events can follow), so the loop reads
+  // to EOF and no row here is terminal for the stream.
   "result/success": {
     disposition: "normalized",
     frameKind: "result/success",
@@ -627,15 +327,9 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: "error",
   },
 
-  // ------------------------------------------------------------------
-  // Control channel, CLI -> daemon. Two of the sixteen are asks aimed at the
-  // person; the rest are answered by the driver's control dispatcher or never
-  // sent, and reach no timeline.
-  // ------------------------------------------------------------------
-
-  // A permission ask: the CLI asks whether a tool may run and the daemon
-  // answers (`{tool_name, input}` -> `{behavior: allow | deny, ...}`). It is
-  // recorded once, as the approval it opens. Claude Code's question tool also
+  // Control channel, CLI -> daemon. Only `can_use_tool` and `elicitation` are asks aimed at the
+  // person; the rest are answered by the driver's control dispatcher or never sent.
+  // A permission ask, recorded once as the approval it opens. Claude Code's question tool also
   // arrives here; `normalizeClaudeCanUseToolRequest` splits it off by tool name.
   "control_request/can_use_tool": {
     disposition: "normalized",
@@ -645,8 +339,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
-  // A tool server's question to the person (an MCP elicitation), recorded as
-  // the same question record the question tool yields.
+  // An MCP elicitation, recorded as the same question record the question tool yields.
   "control_request/elicitation": {
     disposition: "normalized",
     frameKind: "control_request/elicitation",
@@ -662,10 +355,6 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     reason:
       "a host-rendered dialog of a kind the host declares at start (`refusal_fallback_prompt`, `auto_mode_server_fallback` and others); the CLI treats an undeclared kind as one the host cannot display and fails closed, and the daemon declares none, so Claude Code never sends it",
   },
-  // The Claude delta table disposes the whole hook family `discard`, "hook
-  // -lifecycle; daemon-internal orchestration, not an audit-timeline
-  // capability (consistent with the `hook_*` discards above)". This is the
-  // control-channel member of that family.
   "control_request/hook_callback": {
     disposition: "not-evented",
     frameKind: "control_request/hook_callback",
@@ -680,10 +369,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     reason:
       "MCP transport passthrough between the CLI and a configured server; the daemon's own MCP governance surface events its decisions (`mcp.*`), so relaying the transport frame would double-record a plane the daemon already audits",
   },
-  // Censused ABSENT yet Verified answering at 2.1.234 / 2.1.245 / 2.1.246
-  // (a subtype absent from the census above may still answer).
-  // It is in this union because it demonstrably dispatches; it is not-evented
-  // because the daemon is the party that sends it.
+  // Absent from the census yet observed answering at 2.1.234, 2.1.245 and 2.1.246; in the union
+  // because it dispatches, and not-evented because the daemon sends it.
   "control_request/mcp_set_servers": {
     disposition: "not-evented",
     frameKind: "control_request/mcp_set_servers",
@@ -761,14 +448,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
       "daemon-originated file-side rewind; the rollback that drove it is evented by the daemon's intervention surface, and a cloud-hosted session refuses this subtype outright, which is a dispatcher classification rather than a timeline row",
   },
 
-  // ------------------------------------------------------------------
-  // Control channel, CLI -> daemon, answering a daemon-originated request.
-  // The wire census records both arms of the envelope: the error arm as
-  // `{ type: "control_response", response: { subtype: "error", request_id,
-  // error } }`, and a success arm whose body it reproduces verbatim for
-  // `mcp_set_servers` (carried in `__fixtures__/`).
-  // ------------------------------------------------------------------
-
+  // Control channel, CLI -> daemon, answering a daemon-originated request. The census records the
+  // error arm as `{ type: "control_response", response: { subtype: "error", request_id, error } }`.
   "control_response/success": {
     disposition: "not-evented",
     frameKind: "control_response/success",
@@ -785,49 +466,20 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
   },
 } as const satisfies Record<ClaudeWireFrameKind, ClaudeFrameNormalizationTableRow>;
 
-// --------------------------------------------------------------------------
-// Exported census + lookup.
-// --------------------------------------------------------------------------
-
-/**
- * The census as an iterable tuple — the same affordance
- * `NORMALIZED_EVENT_KINDS` gives over `NormalizedEventKind`.
- *
- * Derived from the record's own keys rather than restated, so a tuple / union
- * drift is impossible by construction (the `satisfies` check above already
- * proves the record's keys ARE the union). The explicit annotation keeps the
- * export `--isolatedDeclarations`-clean.
- */
+/** The census as an iterable tuple, derived from the record's own keys so it cannot drift. */
 export const CLAUDE_WIRE_FRAME_KINDS: readonly ClaudeWireFrameKind[] = Object.freeze(
   Object.keys(CLAUDE_FRAME_NORMALIZATION_RECORD) as ClaudeWireFrameKind[],
 );
 
 /**
- * The Claude native frame-kind -> normalized-family mapping, as a
- * prototype-pollution-safe `ReadonlyMap`.
- *
- * A `Map` and NOT the backing object literal, for the reason
- * `packages/contracts/src/event.ts` records at
- * `SESSION_EVENT_CATEGORY_BY_TYPE`: this module's key is composed from
- * untrusted provider-supplied strings, and `lookup["__proto__"]` /
- * `lookup["constructor"]` on an object literal return truthy non-values,
- * whereas `map.get(...)` returns `undefined` for anything but an explicit
- * entry. Here that immunity decides whether a hostile frame kind reaches the
- * timeline as a fabricated normalization or reaches the unknown seam.
- *
- * Entries are frozen singletons, so repeated resolution of one kind is
- * identity-stable — the property the determinism test asserts. The
- * `emissionReadiness` member is derived here, once, from the live registered
- * set rather than hand-stated per row.
+ * The frame-kind to normalization map. A `Map`, not the record, because the key is composed from
+ * untrusted strings and `lookup["__proto__"]` on an object would return a truthy non-value.
  */
 export const CLAUDE_FRAME_NORMALIZATION_BY_KIND: ReadonlyMap<
   ClaudeWireFrameKind,
   ClaudeFrameNormalization
 > = new Map(
-  // Cast justified by the `satisfies` check above: the record's own enumerable
-  // keys are exactly the `ClaudeWireFrameKind` literals (totality +
-  // excess-property checks), so narrowing `Object.entries`' `[string, ...]` is
-  // sound.
+  // Sound by the `satisfies` check above.
   (
     Object.entries(CLAUDE_FRAME_NORMALIZATION_RECORD) as ReadonlyArray<
       [ClaudeWireFrameKind, ClaudeFrameNormalizationTableRow]
@@ -846,68 +498,21 @@ export const CLAUDE_FRAME_NORMALIZATION_BY_KIND: ReadonlyMap<
 );
 
 /**
- * Compose the census key for a live frame from its `type` and its subtype.
- *
- * Pure string composition, deliberately: this function does NOT walk a frame
- * object, because the subtype does not sit in one place across Claude's
- * channels and only some of those positions are recorded. Making the caller
- * supply both halves keeps the position knowledge at the driver core, which
- * reads the frame, instead of encoding an assumed traversal here.
- *
- * The positions that ARE recorded, for the caller's benefit:
- *   - `type: "system"` / `type: "result"` — subtype at the frame's own
- *     `subtype` (written as `system/init`, `system/api_retry`).
- *   - `type: "control_response"` — subtype at `response.subtype`, per the
- *     recorded envelope `{ type: "control_response", response: { subtype:
- *     "error", request_id, error } }`.
- *   - `type: "control_request"` — the registry names the subtypes; the
- *     request body carries them.
- *
- * A `null` subtype yields the bare `type`, which is in the census for no kind
- * today and therefore reaches the diagnostic seam rather than silently
- * matching.
- *
- * @param frameType - The frame's `type`, verbatim off the wire. Untrusted.
- * @param subtype - The frame's subtype, verbatim off the wire, or `null` when
- *   the frame carries none. Untrusted.
+ * Composes the census key from a frame's `type` and subtype; a `null` subtype yields the bare
+ * `type`, which is no census kind and so reaches the diagnostic seam. Inputs are untrusted.
  */
 export function composeClaudeWireFrameKind(frameType: string, subtype: string | null): string {
   return subtype === null ? frameType : `${frameType}/${subtype}`;
 }
 
-/**
- * The bare resolver's refusal for a kind outside the census.
- *
- * The daemon-diagnostic default branch is
- * {@link resolveClaudeFrameEmissionRoute} below — the driver core's entry
- * point, which converts this refusal into a typed `DriverDiagnosticRecord`
- * onto `driver-diagnostics.ts` and never throws. THIS function remains the
- * bare resolver's contract for direct misuse: a caller that bypasses the
- * diagnostic-aware route must still fail loudly rather than silently.
- */
 function refuseUnmappedClaudeWireFrame(frameKind: string): never {
   throw new UnknownClaudeWireFrameError(frameKind);
 }
 
 /**
- * Normalize one Claude inbound frame kind into its family disposition.
- *
- * Total over the pinned census and pure: no I/O, no clock, no mutation, and
- * the same input always yields the identical frozen singleton. A kind outside
- * the census throws {@link UnknownClaudeWireFrameError} — never a silent drop,
- * and never a fabricated family.
- *
- * Fail-open vs fail-closed under the normalize-boundary rule: THIS function is
- * the fail-OPEN half. It is reached only once the frame's bytes have already
- * parsed into a wire message, so its unknown path routes the frame onward to
- * the diagnostic. Bytes that do not parse as a valid provider wire message fail
- * CLOSED at the read loop and never reach here — a
- * malformed frame must not be turned into a partial event by composing a kind
- * out of whatever fields survived.
- *
- * @param frameKind - The composed `type/subtype` key, ideally from
- *   {@link composeClaudeWireFrameKind}. Untrusted provider output: it is used
- *   only as a `Map` key and echoed into the refusal as data.
+ * Normalizes one frame kind that parsed off the wire (unparseable bytes fail closed at the read
+ * loop). Pure and total over the census, returning frozen singletons; throws
+ * {@link UnknownClaudeWireFrameError} for a kind outside it.
  */
 export function normalizeClaudeWireFrame(frameKind: string): ClaudeFrameNormalization {
   const normalization = CLAUDE_FRAME_NORMALIZATION_BY_KIND.get(frameKind as ClaudeWireFrameKind);
@@ -931,11 +536,8 @@ const CLAUDE_QUESTION_TOOL_NORMALIZATION: ClaudeNormalizedFamilyEmission = Objec
 });
 
 /**
- * Normalize one `can_use_tool` control request by the tool it names: Claude
- * Code's question tool is a question to the person and becomes `question.asked`;
- * every other tool is a permission ask and gets the table's `can_use_tool` row.
- *
- * @param toolName - The request's `tool_name`, verbatim off the wire. Untrusted.
+ * Normalizes a `can_use_tool` request by tool name: Claude Code's question tool becomes
+ * `question.asked`, every other tool gets the table's permission-ask row. `toolName` is untrusted.
  */
 export function normalizeClaudeCanUseToolRequest(toolName: string): ClaudeFrameNormalization {
   return toolName === CLAUDE_QUESTION_TOOL_NAME
@@ -943,48 +545,18 @@ export function normalizeClaudeCanUseToolRequest(toolName: string): ClaudeFrameN
     : normalizeClaudeWireFrame("control_request/can_use_tool");
 }
 
-// --------------------------------------------------------------------------
-// Family reachability ledger.
-// --------------------------------------------------------------------------
-
-/**
- * One family's reachability answer: either the frame kinds that reach it, or a
- * stated reason no pinned Claude frame does.
- *
- * The ledger exists because "totality over the six families" is otherwise
- * unfalsifiable prose. Half the families have no Claude producer at this pin,
- * and the difference between "we forgot" and "the disposition contract routes
- * it elsewhere" is the entire value of the record — so `unreachedCensusKinds`
- * names the
- * specific 35-kind census members left unfed, which is what tells the next
- * wire probe what to look for.
- */
+/** One family's reachability: the frame kinds that reach it, or why no pinned frame does. */
 export interface ClaudeFamilyReachability {
   readonly family: EventCategory;
-  /** Frame kinds in the census that normalize into this family. May be empty. */
   readonly reachedBy: readonly ClaudeWireFrameKind[];
-  /**
-   * Census kinds in this family that no pinned Claude frame kind feeds, with
-   * the reason. Empty for a family with no shortfall.
-   */
+  /** Census kinds in this family that no pinned Claude frame kind feeds. */
   readonly unreachedCensusKinds: readonly NormalizedEventKind[];
-  /** Why the shortfall exists, or `null` when there is none. */
   readonly shortfallReason: string | null;
 }
 
 /**
- * The six required normalized families, each with its reachability answer at
- * this pin.
- *
- * Total over those six by construction and asserted so by the test suite. It
- * is NOT a claim that the normalizer only ever emits into six categories — the
- * 35-kind census routes some kinds into `session_lifecycle` and
- * `approval_flow`, which are outside this ledger's scope by design.
- *
- * `reachedBy` is stated rather than computed so that the ledger and the
- * mapping table are two independent statements; the test asserts they agree,
- * which is what makes a silent divergence a build failure instead of a
- * comment that went stale.
+ * The six required families with their reachability at this pin. `reachedBy` is stated, not
+ * computed, so the ledger and the mapping table are independent statements the tests compare.
  */
 export const CLAUDE_FAMILY_REACHABILITY: readonly ClaudeFamilyReachability[] = Object.freeze([
   Object.freeze({
@@ -1060,10 +632,6 @@ export const CLAUDE_FAMILY_REACHABILITY: readonly ClaudeFamilyReachability[] = O
   }),
 ]);
 
-// --------------------------------------------------------------------------
-// The daemon-diagnostic default branch.
-// --------------------------------------------------------------------------
-
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
 export type ClaudeFrameEmissionRoute =
   | { readonly route: "emit"; readonly normalization: ClaudeNormalizedFamilyEmission }
@@ -1071,14 +639,9 @@ export type ClaudeFrameEmissionRoute =
   | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
 
 /**
- * The default branch — the driver core's entry point onto this
- * table. Total over EVERY composed frame kind and never throws: a kind
- * outside the pinned census, an interim `typePending` kind whose literal has
- * not landed, and a censused kind whose target has no registered payload
- * variant all route to a typed `DriverDiagnosticRecord` emitted through the
- * injected `driver-diagnostics.ts` surface — never a `session_events`
- * envelope and never a silent drop. `EVENT_DISPOSITION_BY_KIND` is the single
- * disposition source consulted for the interim-`typePending` verdict.
+ * The driver core's entry point onto the table. Never throws: an unknown kind, an interim
+ * `typePending` kind, or a target without a payload variant routes to a diagnostic record, never
+ * to an envelope or a silent drop.
  */
 export function resolveClaudeFrameEmissionRoute(
   frameKind: string,
@@ -1130,31 +693,18 @@ export function resolveClaudeFrameEmissionRoute(
   return { route: "emit", normalization };
 }
 
-// --------------------------------------------------------------------------
-// Subagent-lifecycle normalization.
-// --------------------------------------------------------------------------
-
 /**
- * The two Claude subagent-lifecycle signals, arriving in the PARENT's own
- * stream with `parent_tool_use_id` on them. Deliberately outside the census
- * union above: the census carries only kinds the version-pinned wire census
- * records, and the message-frame surface is unobservable without credentials
- * — these two are claimed by name instead, normalizing into
- * `subagent.started` / `subagent.completed` and carrying `parent_tool_use_id`
- * copied verbatim.
+ * Wire name of a Claude subagent start, which arrives in the parent's stream with
+ * `parent_tool_use_id`. Claimed by name, outside the census, which holds only recorded kinds.
  */
 export const CLAUDE_SUBAGENT_START_SIGNAL = "SubagentStart" as const;
+/** Wire name of a Claude subagent stop; see {@link CLAUDE_SUBAGENT_START_SIGNAL}. */
 export const CLAUDE_SUBAGENT_STOP_SIGNAL = "SubagentStop" as const;
 
 /** One Claude subagent-lifecycle signal, as the driver core read it. */
 export interface ClaudeSubagentLifecycleSignal {
-  /**
-   * Derived from the two wire-name constants rather than re-spelled, so a wire
-   * rename is a compile error at every reader instead of a silently
-   * never-matching comparison.
-   */
+  /** Derived from the two wire-name constants so a rename is a compile error at every reader. */
   readonly signal: typeof CLAUDE_SUBAGENT_START_SIGNAL | typeof CLAUDE_SUBAGENT_STOP_SIGNAL;
-  /** The provider-attributed subagent identity, verbatim off the wire. */
   readonly subagentId: string;
   /** `parent_tool_use_id`, copied verbatim so the subagent tree pairs. */
   readonly parentToolUseId: string | null;
@@ -1167,23 +717,16 @@ export interface ClaudeSubagentLifecycleNormalization {
   readonly subagentId: string;
   readonly parentToolUseId: string | null;
   /**
-   * The parent-linked announcement the thread-frame router registers a
-   * `SubagentStart` under — the arrival in the parent's OWN stream is the
-   * declared lineage, so the announcement names the session's own thread as
-   * parent. `null` for a `SubagentStop`, which completes an existing
-   * registration rather than creating one.
+   * The router announcement for a `SubagentStart`, naming the session's own thread as parent
+   * (arrival in the parent's stream is the lineage); `null` for a `SubagentStop`.
    */
   readonly announcement: ChildThreadAnnouncement | null;
 }
 
 /**
- * Normalize one Claude subagent-lifecycle signal into its `subagent.started`
- * / `subagent.completed` emission (`tool_activity`, provider-attributed)
- * and, for a start, the router announcement that registers the
- * child ahead of the refusal rule. The subagent identity doubles as the child
- * thread identity — Claude multiplexes children over the parent stream with
- * no thread-id member, so the provider-attributed subagent id IS the child's
- * identity axis.
+ * Normalizes one subagent-lifecycle signal into `subagent.started` / `subagent.completed` and, for
+ * a start, the router announcement. Claude has no thread-id member, so the subagent id is the
+ * child thread id.
  */
 export function normalizeClaudeSubagentLifecycle(
   lifecycleSignal: ClaudeSubagentLifecycleSignal,
@@ -1211,41 +754,18 @@ export function normalizeClaudeSubagentLifecycle(
   });
 }
 
-// --------------------------------------------------------------------------
-// Family classification for the thread-frame router.
-// --------------------------------------------------------------------------
-
 /**
- * Classify one Claude frame kind's FAMILY for the thread-frame router, under
- * the family-scoped routing rule. The censused
- * connection- and account-scoped families — `system/api_retry` →
- * `usage.api_retry`, `rate_limit_event` → `usage.rate_limit_update`, and the
- * capability/initialization and control-channel frames — route without a
- * thread identity, because their own shapes carry none; thread-scoped
- * families demand one; an unlisted shape is `unknown`, never presumed
- * connection-scoped.
- *
- * `observation` is REQUIRED rather than optional. Omitting it silently reverts
- * to kind-only classification, which drops a registered child's spend on this
- * provider (see the carve-out note below) — a defect the type system can only
- * catch if every call site is forced to state what the frame carries. A caller
- * with nothing to declare passes `{ cumulativeUsage: undefined }` explicitly.
+ * Classifies a frame kind's family for the thread-frame router; an unlisted kind is `unknown`,
+ * never presumed connection-scoped. `observation` is required so no call site forgets it and
+ * drops a child's usage; pass `{ cumulativeUsage: undefined }` when there is none.
  */
 export function classifyClaudeFrameFamilyForRouting(
   frameKind: string,
   observation: { readonly cumulativeUsage: unknown },
 ): ThreadFrameFamilyClass {
   const kindClass = classifyClaudeFrameKindForRouting(frameKind);
-  // The usage carve-out is decided by what the frame CARRIES, not only by what
-  // it is called. This provider publishes its cumulative token readings on the
-  // same frames that carry assistant content, and no frame kind is reserved for
-  // usage — so a kind-only classification would route a registered child's
-  // usage-bearing frame to plain transcript suppression, and the child's spend
-  // would be scoped out of existence rather than metered under its own
-  // attribution. Narrowed to already-thread-scoped kinds on purpose: a
-  // connection-scoped frame routes and meters without an identity anyway, and
-  // an unclassified kind must stay fail-closed rather than become routable
-  // because it happened to carry a number.
+  // Decided by what the frame carries: cumulative token readings ride content frames and no kind
+  // is reserved for usage. Thread-scoped kinds only; an unclassified kind stays fail-closed.
   if (observation.cumulativeUsage != null && kindClass.scope === "thread") {
     return { scope: "thread", capability: "usage" };
   }
@@ -1254,10 +774,7 @@ export function classifyClaudeFrameFamilyForRouting(
 
 function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamilyClass {
   switch (frameKind) {
-    // Connection- and account-scoped: retry / rate-limit / initialization
-    // frames (the pinned stream-surface census's connection-scoped class) and
-    // the control channel, which is a connection-level discipline in both
-    // directions.
+    // Connection- and account-scoped, including the control channel (connection-level both ways).
     case "system/api_retry":
     case "system/api_error":
     case "system/rate_limit_event":
@@ -1285,13 +802,11 @@ function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamily
     // Thread-scoped usage: the compaction marker rides the thread it compacts.
     case "system/compact_boundary":
       return { scope: "thread", capability: "usage" };
-    // Subagent lifecycle signals: thread-scoped lifecycle (the start is also
-    // the router's registration input via its parent-linked announcement).
+    // Subagent lifecycle: thread-scoped; the start is also the router's registration input.
     case CLAUDE_SUBAGENT_START_SIGNAL:
     case CLAUDE_SUBAGENT_STOP_SIGNAL:
       return { scope: "thread", capability: "lifecycle" };
-    // Thread-scoped content: the stream-json result terminals and the
-    // remaining system-channel subtypes, all riding the session's own stream.
+    // Thread-scoped content: the result terminals and the remaining system-channel subtypes.
     case "result/success":
     case "result/error_max_turns":
     case "result/error_max_budget_usd":
@@ -1312,80 +827,36 @@ function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamily
   }
 }
 
-// --------------------------------------------------------------------------
-// The terminal-emission boundary.
-// --------------------------------------------------------------------------
-//
-// The Claude leg's half of the boundary the Codex normalizer carries for its
-// own provider. Same two properties, same reasoning, one provider-specific
-// difference worth stating: the Claude leg already carries an explicit
-// intended-close signal on its own transport in `ClaudeChannelDisposalReason
-// .session_closed`, so the lifecycle module has a typed place to read the
-// intent from rather than inferring it from a teardown's timing.
-//
-//   INTENDED CLOSE. `closeSession` signals into this boundary before it
-//   disposes the channel, so the `result/*` terminal the disposal provokes is
-//   stamped as a clean shutdown rather than classified as a crash.
-//
-//   DUPLICATE SUPPRESSION. At most one terminal per `(runId, runVersion)`
-//   epoch, absorbed here rather than left to fail loud on the run-lifecycle
-//   partial unique index.
-//
-// Routing is CONSUMED, never re-decided: only a frame the thread-frame router
-// routed to the session's own thread settles a run, so a subagent's `result/*`
-// never settles the parent's.
+// Terminal emission, as in the Codex normalizer, except `ClaudeChannelDisposalReason` carries an
+// explicit `session_closed` intent, so an intended close is read, not inferred from timing.
+// `closeSession` signals before disposing the channel, so the `result/*` it provokes is a clean
+// shutdown, not a crash. Only a frame routed to the session's own thread settles a run, so a
+// subagent's `result/*` never settles the parent's.
 
-/**
- * The Claude leg's binding for the provider-neutral emission gate.
- *
- * The suppression rule itself lives once at `provider/terminal-emission-gate.ts`
- * — both driver legs feed ONE shared uniqueness index, and two implementations
- * of one invariant is one more than the invariant can survive. What stays here
- * is the Claude-named binding.
- */
+/** The Claude leg's binding for the shared emission gate, whose suppression rule lives once. */
 export type ClaudeTerminalRunFrame = TerminalRunFrame;
 
-/**
- * The Claude terminal-emission gate — one instance per provider session, held
- * by the lifecycle module for that session's lifetime.
- *
- * An empty extension rather than an alias, for the same reason as its Codex
- * sibling: no census-specific gate input exists today, and the named subclass
- * is what a later one would land on.
- */
+/** The Claude terminal-emission gate, one per provider session; empty, like Codex's subclass. */
 export class ClaudeTerminalEmissionGate extends TerminalEmissionGate {}
 
-// --------------------------------------------------------------------------
-// Turn evidence on the terminal `result` frame
-// --------------------------------------------------------------------------
-
-/**
- * The four `result` subtypes that ARE a declared failure.
- *
- * Derived from this module's own frame-kind census rather than restated, so a
- * subtype added to the census joins this set without a second edit. `success`
- * is excluded by construction: it is the subtype a swallowed turn wears, and
- * treating it as a declared failure would make the tripwire unreachable.
- */
+// Derived from the census so a new subtype joins without a second edit. `success` is excluded:
+// it is the subtype a swallowed turn wears.
 const CLAUDE_DECLARED_FAILURE_RESULT_SUBTYPES: ReadonlySet<string> = new Set(
   CLAUDE_WIRE_FRAME_KINDS.filter((kind) => kind.startsWith("result/error_")).map((kind) =>
     kind.slice("result/".length),
   ),
 );
 
-/** Every `result` subtype the pin censuses, failure and success alike. */
 const CLAUDE_RESULT_SUBTYPES: ReadonlySet<string> = new Set(
   CLAUDE_WIRE_FRAME_KINDS.filter((kind) => kind.startsWith("result/")).map((kind) =>
     kind.slice("result/".length),
   ),
 );
 
-/** True for a number that is finite and strictly positive. */
 function isPositiveFiniteNumber(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
-/** True for a non-array object carrying at least one own key. */
 function isNonEmptyRecord(value: unknown): boolean {
   return (
     typeof value === "object" &&
@@ -1396,29 +867,9 @@ function isNonEmptyRecord(value: unknown): boolean {
 }
 
 /**
- * Reads a settling Claude `result` frame for positive, typed evidence that a
- * model turn happened.
- *
- * WHAT IT READS AND WHY. The discriminants are the ones measured side by side
- * against the pinned build — `num_turns`, `duration_api_ms`, `total_cost_usd`,
- * and `modelUsage`. They move together on a real turn and are all zero-valued
- * on an intercepted one.
- *
- * WHAT IT DELIBERATELY DOES NOT READ, which is the sharper half:
- *
- *   * `is_error` does not discriminate. The intercepted run reports `false`;
- *     a genuine turn that ends in a provider-side refusal reports `true`.
- *   * The assistant frame's `message.model === "<synthetic>"` marker does not
- *     discriminate either — the same measurement shows a genuine API-errored
- *     turn rendering synthetic. It is evidence of a locally-composed frame,
- *     never evidence that no turn occurred.
- *   * The `<local-command-stdout>` wrapper and the `is_meta` marker are real
- *     and are NOT consulted. They recognize DISPATCH, and the set of shapes a
- *     command layer can emit is open, so a classifier keyed on them fails open
- *     the day the wrapper changes. This function only ever recognizes the
- *     presence of a turn.
- *
- * No message prose is parsed anywhere in it.
+ * Reads a settling `result` frame for typed evidence that a model turn happened. `num_turns`,
+ * `duration_api_ms`, `total_cost_usd` and `modelUsage` move together on a real turn and are all
+ * zero-valued on an intercepted one (measured on the pinned build).
  */
 export function classifyClaudeTurnEvidence(terminalFrame: unknown): TurnEvidenceClassification {
   if (typeof terminalFrame !== "object" || terminalFrame === null || Array.isArray(terminalFrame)) {
@@ -1433,6 +884,9 @@ export function classifyClaudeTurnEvidence(terminalFrame: unknown): TurnEvidence
     return UNRECOGNIZED_TURN_EVIDENCE;
   }
 
+  // Not read: `is_error` (false on an intercepted run, true on a refused real turn), the
+  // `<synthetic>` model (an API-errored turn renders it too), and the `<local-command-stdout>`
+  // wrapper or `is_meta`, whose shape set is open and would fail open.
   const observations: TurnEvidenceClass[] = [];
   if (
     isPositiveFiniteNumber(frame["num_turns"]) ||
@@ -1450,98 +904,21 @@ export function classifyClaudeTurnEvidence(terminalFrame: unknown): TurnEvidence
   return observedTurnEvidence(...observations);
 }
 
-// --------------------------------------------------------------------------
-// Typed provider usage-limit signal, Claude leg
-// --------------------------------------------------------------------------
-
-/** The retry frame's discriminating `type` / `subtype` pair. */
+/** The `type` of the retry frame. */
 export const CLAUDE_API_RETRY_FRAME_TYPE = "system" as const;
+/** The `subtype` of the retry frame. */
 export const CLAUDE_API_RETRY_FRAME_SUBTYPE = "api_retry" as const;
 
 /**
- * The single `api_retry` typed-error member that names a spent allowance.
- *
- * `billing_error` sits beside it in the same enum and is deliberately NOT a
- * member here: a payment fault is remediated by a human, not by a window turning
- * over, so admitting it would park a run against a boundary that never arrives.
- * That is the same split the Codex leg makes for a depleted credit balance, and
- * it is what keeps this axis meaning "resolves unattended".
+ * The one `api_retry` error member that names a spent allowance. `billing_error` is excluded: a
+ * human fixes a payment fault, so parking a run on it would wait for a boundary that never comes.
  */
 export const CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER = "rate_limit" as const;
 
 /**
- * Classifies a Claude `system/api_retry` frame for a spent usage allowance, or
- * `null` when it states none.
- *
- * THE WEAKER OF THE TWO LEGS, and recorded as such. The Codex account plane
- * publishes a dedicated reached-type enum beside provider-stated reset instants;
- * Claude publishes a retry notification whose typed `error` member names the
- * condition and whose only temporal member is a backoff delay. The frame's shape
- * is graded Derived — a string census cannot prove the `error` union closed —
- * so this leg RECOGNIZES a member
- * and never REJECTS one: an unfamiliar `error` value takes the same `null` path
- * as any other unrecognized shape.
- *
- * RECOGNITION IS TYPED-ONLY, gated on the frame's `type` / `subtype` pair and
- * the typed `error` member. In particular `error_status` — the HTTP status
- * recorded as sitting beside the typed member — is NOT read, on this
- * axis or any other: a bare `429` is emitted for transport-level throttling that
- * no allowance is spent on, so keying on it would park runs the provider is
- * still willing to serve the moment it retried. No message prose is parsed.
- *
- * THE BOUNDARY IS RUNTIME-DERIVED, and the stamp says so. `retry_delay_ms` is
- * when the provider intends to try again, not when the allowance is restored;
- * the frame carries no documented reset field at all. Composing an instant from
- * the delay is still worth doing — an armed schedule beats an unbounded wait —
- * but the consumer must be able to tell it apart from an instant the provider
- * actually stated, which is exactly what the provenance member is for.
- *
- * `observedAtEpochMs` is an EXPLICIT PARAMETER rather than a `Date.now()` read,
- * so this classifier stays pure and total: the same frame with the same clock
- * always yields the same signal, which is what makes the boundary assertable in
- * a test instead of approximable.
- *
- * A recognized refusal with no usable delay still returns the CAUSE. A missing
- * boundary changes only whether a resume is scheduled — never whether the run is
- * known to be limited.
- *
- * `attempt` AND `max_retries` GATE THE SIGNAL. It fires only on the ladder's
- * FINAL ANNOUNCED RETRY — both members present, numeric, and
- * `attempt >= max_retries` — because that is the point at which the provider has
- * committed to failing the request on the next refusal, and a `rate_limit` that
- * persisted across the WHOLE ladder is the strongest typed evidence this frame
- * can offer that an allowance is spent rather than a burst being throttled.
- *
- * WHY A MID-LADDER EMISSION IS WRONG, read off the consumer's own contract
- * rather than argued from taste. Provider-limit pacing parks the phase
- * IMMEDIATELY on any recognized signal — the refusal is itself the proof, and
- * the park happens even when no reset window was reported — while it arms
- * `autoResumeAt` ONLY where the boundary's own
- * provenance is provider-reported. This leg's boundary is `runtime-derived`, so
- * a signal from here parks the phase and arms NO schedule at all. An
- * `attempt: 1, max_retries: 10` frame is the provider still retrying
- * internally, and emitting on it would turn an ordinary transient burst 429 into
- * an UNSCHEDULED park of work the provider was about to complete. The frame
- * cannot distinguish a spent allowance from burst throttling, so emitting on any
- * attempt overclaims a condition the frame does not state, which this axis
- * forbids.
- *
- * ABSENT OR MALFORMED LADDER MEMBERS YIELD `null`, on this axis's own rule that
- * silence means "not known to be limited" rather than "known not to be limited":
- * the run simply continues, and an eventual failure takes the ordinary failure
- * path. Both members are read through `isPositiveFiniteNumber` rather than a
- * bare finite check, and that choice is load-bearing at exactly one value —
- * `max_retries: 0` announces no ladder at all, and a bare check would let
- * `0 >= 0` emit a signal off a frame stating there was nothing to exhaust.
- *
- * THE RESIDUAL, stated rather than absorbed. A final-attempt frame whose last
- * retry then SUCCEEDS yields a signal for a turn that completed: this reads ONE
- * frame and returns no verdict on the run, so the consumer correlates the signal
- * to the run's own outcome rather than treating it as terminal by itself. The
- * mirror residual is the same silence stated above — a provider that abandons
- * its ladder early emits no final-attempt frame, so a genuinely spent allowance
- * can go unrecognized and the run fails ordinarily instead of parking against a
- * boundary nothing stated. Both residuals fail in the recoverable direction.
+ * Classifies a Claude `system/api_retry` frame for a spent usage allowance, or `null`. Typed-only:
+ * it gates on `type`, `subtype` and the `error` member, so an unfamiliar member yields `null`.
+ * A provider that abandons its retry ladder early emits no final attempt and goes unrecognized.
  */
 export function classifyClaudeUsageLimitSignal(
   frame: unknown,
@@ -1551,6 +928,8 @@ export function classifyClaudeUsageLimitSignal(
     return null;
   }
   const record = frame as Record<string, unknown>;
+  // `error_status` is never read: a bare `429` is also emitted for throttling that spends no
+  // allowance, and keying on it would park runs the provider would still serve.
   if (
     record["type"] !== CLAUDE_API_RETRY_FRAME_TYPE ||
     record["subtype"] !== CLAUDE_API_RETRY_FRAME_SUBTYPE ||
@@ -1558,10 +937,9 @@ export function classifyClaudeUsageLimitSignal(
   ) {
     return null;
   }
-  // The ladder gate, applied BEFORE any boundary is composed: a mid-ladder frame
-  // is not a weaker signal to be emitted without a schedule, it is no signal at
-  // all. `isPositiveFiniteNumber` for both members rather than a finite check
-  // — see the docblock's `max_retries: 0` case.
+  // Only the final announced retry signals; a mid-ladder frame is the provider still retrying. The
+  // positive-finite reads also reject `max_retries: 0`, which announces no ladder. A final attempt
+  // that then succeeds still signals, so the consumer correlates it with the run's outcome.
   const attempt = record["attempt"];
   const maxRetries = record["max_retries"];
   if (!isPositiveFiniteNumber(attempt) || !isPositiveFiniteNumber(maxRetries)) {
@@ -1571,6 +949,8 @@ export function classifyClaudeUsageLimitSignal(
     return null;
   }
 
+  // `retry_delay_ms` is when the provider retries, not when the allowance resets (no reset field is
+  // documented); the provenance member lets a consumer tell this from a stated reset.
   const retryDelayMs = record["retry_delay_ms"];
   if (!isPositiveFiniteNumber(retryDelayMs) || !Number.isFinite(observedAtEpochMs)) {
     return { cause: "plan-allowance-exhausted" };

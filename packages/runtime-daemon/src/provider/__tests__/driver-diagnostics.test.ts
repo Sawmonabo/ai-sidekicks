@@ -1,17 +1,6 @@
-// Driver diagnostics + reorder-buffer suite.
-//
-// Spec coverage under test:
-//   • an unrecognized wire shape lands on the daemon diagnostic surface,
-//     never silently dropped. Asserted as: every emitted record reaches the
-//     log sink, the counter sink under its pinned instrument name, and the
-//     bounded recent-record ring.
-//   • reorder-buffer overflow flushes in arrival order with the
-//     `driver.reorder_buffer.overflow` counter, and a pairing timeout sheds
-//     with its own diagnostic; neither is ever silent.
-//
-// Verifies invariant: none directly (the emitter is the substrate the other
-// suites emit through; those invariants are asserted in
-// `usage-delta-accountant.test.ts` and `thread-frame-router.test.ts`).
+// Driver diagnostics emitter and reorder buffer. An unrecognized wire shape reaches the log
+// sink, the counter sink under its instrument name, and the bounded recent-record ring. Buffer
+// overflow flushes in arrival order and a pairing timeout sheds; each emits a diagnostic.
 
 import { describe, expect, it } from "vitest";
 
@@ -55,13 +44,9 @@ describe("DriverDiagnosticsEmitter", () => {
   });
 
   it("pairs EVERY diagnostic kind with a counter name in the `driver.<band>.<condition>` shape", () => {
-    // The kind union and the counter table are paired at COMPILE time by the
-    // table's `satisfies Readonly<Record<DriverDiagnosticKind, string>>`, so a
-    // kind added without a counter is a build error rather than a silent shed.
-    // What that cannot check is the NAME, and a metric name is read by people and
-    // dashboards that the type system never sees — so the shape is asserted here,
-    // over the whole table rather than one entry at a time, which is what keeps
-    // this test non-vacuous as the union grows.
+    // The `Record<DriverDiagnosticKind, string>` type makes a kind without a counter a build
+    // error but cannot check the name, which dashboards read; assert its shape over the whole
+    // table.
     const counterNames = Object.entries(DRIVER_DIAGNOSTIC_COUNTER_NAMES);
     expect(counterNames.length).toBeGreaterThan(0);
     for (const [kind, counterName] of counterNames) {
@@ -69,17 +54,14 @@ describe("DriverDiagnosticsEmitter", () => {
         /^driver\.[a-z0-9_]+\.[a-z0-9_]+$/,
       );
     }
-    // No two kinds may share an instrument: a shared counter makes two distinct
-    // conditions indistinguishable in exactly the place someone looks to tell
-    // them apart.
+    // A shared counter would make two conditions indistinguishable.
     expect(new Set(counterNames.map(([, counterName]) => counterName)).size).toBe(
       counterNames.length,
     );
   });
 
   it("pins the reorder-buffer overflow instrument name verbatim", () => {
-    // The bounded-buffer leg names this counter literally; a rename is a contract change,
-    // not a refactor.
+    // Dashboards read this name literally; a rename is a contract change.
     expect(DRIVER_DIAGNOSTIC_COUNTER_NAMES.reorder_buffer_overflow).toBe(
       "driver.reorder_buffer.overflow",
     );
@@ -221,10 +203,8 @@ describe("NormalizedEventReorderBuffer", () => {
     buffer.admit({ toolCallId: "tool-1", pairingRole: "initiation", event: "start-1" }, 0);
     expect(buffer.seenInitiationCount()).toBe(1);
 
-    // A closed pair can never need its ledger entry again. Retaining it would
-    // make the ledger grow with every tool call for the life of the session,
-    // which on a long-running provider session is unbounded in practice even
-    // though nothing is "leaked" in the buffer itself.
+    // A closed pair never needs its ledger entry again; keeping it would grow the ledger with
+    // every tool call for the life of the session.
     buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 1);
     expect(buffer.seenInitiationCount()).toBe(0);
   });
@@ -250,9 +230,7 @@ describe("NormalizedEventReorderBuffer", () => {
       maxSeenInitiationIds: 2,
     });
 
-    // Three initiations that never complete — the shape a provider produces
-    // when a turn is interrupted mid-tool. Without the cap the ledger keeps
-    // every one of them forever.
+    // Initiations that never complete, as when a turn is interrupted mid-tool.
     for (const ordinal of [1, 2, 3]) {
       buffer.admit(
         {
@@ -267,14 +245,12 @@ describe("NormalizedEventReorderBuffer", () => {
 
     const evictions = emitter.recentRecordsOfKind("reorder_initiation_ledger_evicted");
     expect(evictions).toHaveLength(1);
-    // Oldest first, so the surviving entries are the ones a late completion is
-    // most likely to still be racing.
+    // Oldest first: the survivors are the ones a late completion is most likely still racing.
     expect(evictions[0]?.details["toolCallId"]).toBe("tool-1");
     expect(counterSink.totalFor("driver.reorder_buffer.initiation_ledger_evicted")).toBe(1);
 
-    // The consequence the eviction buys, made explicit: an evicted call's late
-    // completion is held rather than released, and sheds at the pairing
-    // timeout with its own diagnostic — bounded memory, never a silent drop.
+    // An evicted call's late completion is held, then shed at the pairing timeout with its own
+    // diagnostic.
     expect(
       buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 4),
     ).toEqual([]);

@@ -1,9 +1,6 @@
-// Typed test doubles for the Claude driver bands.
-//
-// Every double implements the REAL port from `lifecycle.ts`, so a drifted port
-// signature fails the typecheck rather than silently passing a test against a
-// shape that no longer exists. Nothing here spawns a process, touches the
-// filesystem, or reads an environment variable.
+// Typed test doubles for the Claude driver. Each implements the real port from `lifecycle.ts`, so
+// a drifted signature fails the typecheck. Nothing here spawns a process, touches the filesystem
+// or reads an environment variable.
 
 import type {
   ApplyInterventionParams,
@@ -38,18 +35,21 @@ import type {
   ClaudeUserTextWriteAttempt,
 } from "../lifecycle.js";
 
+/** The session id every test session uses. */
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;
+/** The run id of the first run in a test session. */
 export const TEST_RUN_ID: RunId = "run-1" as RunId;
+/** The run id of a second run in the same test session. */
 export const TEST_SECOND_RUN_ID: RunId = "run-2" as RunId;
+/** The provider session id the driver pins when a test mints one. */
 export const TEST_PINNED_PROVIDER_SESSION_ID: string = "provider-session-pinned";
+/** The binding id a test driver mints. */
 export const TEST_BINDING_ID: string = "binding-1";
 
 /**
- * The route decisions the transport obligation says reach the normalize
- * consumer, mirrored from {@link ClaudeSessionChannel.onInboundFrame}'s DELIVER
- * column. Held here as data so the double cannot drift into "only `project`",
- * which is the exact reading that once made this double enforce a rule the band
- * does not have.
+ * The route decisions that reach the normalize consumer, mirrored from the DELIVER column of
+ * {@link ClaudeSessionChannel.onInboundFrame}. Delivering only `project` would enforce a rule the
+ * lifecycle does not have.
  */
 const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new Set([
   "project",
@@ -57,6 +57,7 @@ const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new
   "carve-out-interactive-request",
 ]);
 
+/** In-memory channel that records every write and control request and lets a test drive frames. */
 export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   readonly providerSessionId: string;
   readonly sentTextFrames: ClaudeUserTextFrame[] = [];
@@ -64,50 +65,21 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   readonly disposals: ClaudeChannelDisposalReason[] = [];
   controlResponse: ClaudeControlResponse = { subtype: "success" };
   controlRequestFailure: Error | undefined = undefined;
-  /**
-   * A write failure the double REPORTS, the way the port obliges a transport to.
-   *
-   * Paired with `sendUserTextDelivery` rather than carrying its own
-   * classification, so a test that sets a failure and forgets the delivery gets
-   * the port's own fail-closed default instead of the convenient arm.
-   */
+  /** A write failure the double reports, as the port obliges a transport to. */
   sendUserTextFailure: Error | undefined = undefined;
   /**
-   * How `sendUserTextFailure` is classified. Defaults to the fail-closed arm for
-   * the same reason the real transport's default is: `unsent` is a positive
-   * claim about bytes, and a double that volunteered it would let a test assert
-   * the forgiving path without anyone having claimed the bytes never left.
+   * How `sendUserTextFailure` is classified. Defaults to fail-closed: `unsent` claims the bytes
+   * never left, and a test must claim that explicitly.
    */
   sendUserTextDelivery: ClaudeUserTextDelivery = "indeterminate";
-  /**
-   * A write failure the double RAISES instead of reporting — a transport in
-   * breach of the port's obligation. Distinct from `sendUserTextFailure`
-   * precisely so the driver's containment of a broken contract is reachable
-   * from a test rather than taken on trust.
-   */
+  /** A write failure the double throws instead of reporting, like a transport breaking the port. */
   sendUserTextRejection: Error | undefined = undefined;
-  /**
-   * Whether a turn terminal can still arrive, as the port defines it. `false`
-   * while the channel is serviceable, which is the state a live double is in.
-   */
+  /** Whether a turn terminal can still arrive, as the port defines it. */
   isClosed = false;
   disposeFailure: Error | undefined = undefined;
-  /**
-   * Every `sendUserText` invocation, failures included.
-   *
-   * `sentTextFrames` deliberately records only WRITTEN frames, so it cannot
-   * answer how many times the driver tried — which is exactly the question a
-   * retry ladder is asserted on. Counted here instead of inferred, so "called
-   * exactly once" and "called twice" are both directly observable.
-   */
+  /** Every `sendUserText` call, failures included; `sentTextFrames` holds only written frames. */
   sendUserTextAttempts = 0;
-  /**
-   * Called at the top of every `sendUserText`, with the 1-based attempt number.
-   *
-   * The seam a test drives a RECOVERING transport from: a ladder that only ever
-   * meets a permanently-failing write proves it stops, and never proves the
-   * second rung can succeed.
-   */
+  /** Called at the top of every `sendUserText` with the 1-based attempt number. */
   onSendUserTextAttempt: ((attemptNumber: number) => void) | undefined = undefined;
 
   constructor(providerSessionId: string) {
@@ -118,22 +90,12 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     return this.sentTextFrames.length + this.controlRequests.length;
   }
 
-  /**
-   * The bytes each frame actually put on the wire, in order.
-   *
-   * Read from `wireText` rather than from the frame object, which is what makes
-   * an assertion on it a BYTE-level assertion: a neutralized frame and its
-   * author's text are different strings, and a test comparing whole frame
-   * objects would pass while reading neither.
-   */
+  /** The bytes each written frame put on the wire, in order (`wireText`, not the author's text). */
   get sentWireTexts(): string[] {
     return this.sentTextFrames.map((frame) => frame.wireText);
   }
 
-  /**
-   * The author's bytes behind each frame, in order — what the daemon persists,
-   * events, replays, and rewinds to. Neutralization must never touch these.
-   */
+  /** The author's bytes behind each written frame; neutralization must never change them. */
   get sentAuthoredTexts(): string[] {
     return this.sentTextFrames.map((frame) => frame.authoredText);
   }
@@ -145,10 +107,7 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
       throw this.sendUserTextRejection;
     }
     if (this.sendUserTextFailure !== undefined) {
-      // The frame is deliberately NOT recorded on either failure arm. A double
-      // that recorded it would make `sentWireTexts` mean "offered" rather than
-      // "written", and every assertion that nothing reached the provider would
-      // pass for the wrong reason.
+      // A failed frame is not recorded, so `sentWireTexts` means "written", not "offered".
       await Promise.resolve();
       return {
         settled: "failed",
@@ -170,12 +129,8 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     return this.controlResponse;
   }
 
-  // Implements the `onTurnTerminal` transport obligation rather than exposing a
-  // bare "fire the listener" switch: `emitStreamFrame` owns the terminal-vs-
-  // non-terminal discriminant exactly as a real transport does, so a test that
-  // drives a `result/*` frame exercises that decision instead of asserting it.
-  // Lets a test model a transport that refuses registration — the last thing
-  // that runs inside the driver's adoption window.
+  // Makes a transport refuse `onTurnTerminal` registration, the last step of the adoption window.
+  // `emitStreamFrame` decides terminal versus non-terminal as a real transport does.
   onTurnTerminalFailure: Error | undefined = undefined;
 
   onTurnTerminal(listener: (terminalFrame: unknown) => void): void {
@@ -188,25 +143,14 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   turnTerminalListener: ((terminalFrame: unknown) => void) | undefined = undefined;
 
   /**
-   * The terminal `result` body this double hands the driver's turn-terminal
-   * hook, overridable per test.
-   *
-   * The default carries POSITIVE turn evidence, so an ordinary terminal does
-   * not trip tripwire and every test in this file that merely needs a turn to
-   * end keeps meaning what it meant. A test exercising the tripwire overrides
-   * it — with a zero-turn body, or with a shape the classifier does not
-   * recognize.
-   *
-   * The double supplies a body at all because the transport obligation says it
-   * must: the hook carries the frame, and a transport that passed nothing would
-   * be handing the driver an unrecognized envelope on every turn.
+   * The terminal `result` body handed to the turn-terminal hook. When unset, a body with positive
+   * turn evidence is used so an ordinary terminal does not trip the text-neutralization tripwire;
+   * a tripwire test overrides it with a zero-turn or unrecognized body.
    */
   terminalFrameBody: unknown = undefined;
 
-  // The `onInboundFrame` half of the same discipline. Registration failure is
-  // kept on its own switch because the two hooks register at different points
-  // of the adoption window, and a test that models a transport refusing one
-  // must not be forced to model it refusing both.
+  // Makes a transport refuse `onInboundFrame` registration; separate from the terminal switch
+  // because the two hooks register at different points of the adoption window.
   onInboundFrameFailure: Error | undefined = undefined;
 
   onInboundFrame(observer: (observation: ClaudeInboundFrameObservation) => ThreadFrameRoute): void {
@@ -230,15 +174,9 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   readonly deliveredFrameKinds: string[] = [];
 
   /**
-   * Drive one inbound stream frame, HONORING the transport obligation in full.
-   *
-   * The double observes before delivering and delivers exactly the decisions
-   * {@link ClaudeSessionChannel.onInboundFrame}'s DELIVER column names, because
-   * a double that delivered regardless — or that delivered only `project` —
-   * would let a routing regression pass every test in this file. The
-   * terminal-vs-non-terminal discriminant stays here too: a real transport
-   * knows which terminal it saw, and it is the transport that hands the hook
-   * the terminal frame body.
+   * Drives one inbound stream frame as a real transport would: observe first, deliver only the
+   * decisions in the DELIVER column of {@link ClaudeSessionChannel.onInboundFrame}, and call the
+   * turn-terminal hook with the frame body for a `result/*` frame.
    */
   emitStreamFrame(
     frameKind: string,
@@ -250,10 +188,8 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
       readonly compactionBoundary?: ClaudeInboundFrameObservation["compactionBoundary"];
     },
   ): ThreadFrameRoute {
-    // Every optional part defaults to `null` rather than being omitted: the
-    // observation is a closed shape under `exactOptionalPropertyTypes`, so an
-    // omitted key would not compile, and a default of `null` keeps every
-    // existing call site meaning exactly what it meant before the shape grew.
+    // Absent parts default to `null`: the observation is a closed shape under
+    // `exactOptionalPropertyTypes`, so a key cannot be omitted.
     const observation: ClaudeInboundFrameObservation = {
       frameKind,
       subagentId: observationParts?.subagentId ?? null,
@@ -278,9 +214,8 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     return route;
   }
 
-  // Parks dispose until a test releases it, so the CLOSING window can be held
-  // open and inspected. The reason is recorded BEFORE parking: a test needs to
-  // know the disposal was actually reached, not merely scheduled.
+  // Parks `dispose` until a test releases it, so the closing window can be inspected. The reason
+  // is recorded before parking, which shows the disposal was reached.
   disposeGate: Promise<void> | undefined = undefined;
 
   async dispose(reason: ClaudeChannelDisposalReason): Promise<void> {
@@ -293,66 +228,49 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   }
 }
 
+/** In-memory transport that records spawn, resume, rewind and probe requests and mints channels. */
 export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
-  // Mutable so a test can model BOTH transports: one that writes the callback
-  // `--mcp-config` and one that does not. Defaults `true` because every
-  // pre-existing spawn assertion in this suite describes a transport that
-  // realizes the registration, and a default of `false` would silently rewrite
-  // what those tests are about instead of adding the new arm beside them.
+  // Whether the transport writes the callback `--mcp-config`; a test sets `false` to model one
+  // that does not.
   realizesCallbackToolRegistration: boolean = true;
   readonly spawnRequests: ClaudeSessionSpawnRequest[] = [];
   readonly resumeRequests: ClaudeSessionResumeRequest[] = [];
   readonly spawnedChannels: FakeClaudeSessionChannel[] = [];
   spawnFailure: Error | undefined = undefined;
   resumeFailure: Error | undefined = undefined;
-  // When set, BOTH establishment paths park here until the test releases it. A
-  // concurrency test needs two callers provably in flight at the same time; a
-  // fake that merely yields a microtask makes that depend on how many ticks the
-  // implementation happens to take, which is not a property worth asserting.
+  // When set, spawn, resume and rewind park here until released, so a concurrency test has two
+  // callers provably in flight without depending on microtask counts.
   establishmentGate: Promise<void> | undefined = undefined;
-  // Applied to every channel this transport mints, so a test can arrange the
-  // failure before the channel it will land on exists.
+  // Applied to every channel this transport mints.
   onTurnTerminalFailure: Error | undefined = undefined;
-  // When set, the spawned/resumed process announces THIS id instead of the one
-  // that was pinned or requested — the fresh-session-on-mismatch behavior the
-  // Claude CLI exhibits, and the mechanism the identity gate catches.
+  // When set, the spawned or resumed process announces this id instead of the pinned or requested
+  // one, as the Claude CLI does when it starts a fresh session on a mismatch.
   announcedProviderSessionId: string | undefined = undefined;
   resumedSessionPosition: number = 12;
-  // The rewind (leg 1) leg. Defaults model the honest happy path: a fork
-  // announces a NEW provider session id, which is exactly what the driver's
-  // fork check requires — a fake that echoed the handle back would make every
-  // rewind test exercise the refusal arm instead.
+  // Rewind defaults to the happy path: the fork announces a new provider session id, which the
+  // driver's fork check requires.
   readonly rewindRequests: ClaudeSessionRewindRequest[] = [];
   rewindFailure: Error | undefined = undefined;
   rewoundSessionPosition: number | undefined = undefined;
   mintForkedProviderSessionId: () => string = (): string =>
     `forked-${String(this.rewindRequests.length)}`;
-  // When set, the fork announces THIS id — the "provider did not fork" arm.
+  // When set, the fork announces this id, modeling a provider that did not fork.
   announcedForkedProviderSessionId: string | undefined = undefined;
-  // When true, the fork hands back the SAME channel object it was rewinding, so
-  // the disposal carve-out in the not-forked arm is reachable.
+  // When true, the fork hands back the channel it was rewinding, which reaches the not-forked
+  // disposal carve-out.
   rewindReturnsPredecessorChannel: boolean = false;
-  // The zero-turn auth probe's outcome. Set the failure to drive the two
-  // negative arms: a `ClaudeAuthenticationRequiredError` for a determinate
-  // logged-out reading, anything else for a probe that could not be taken.
+  // The zero-turn auth probe's outcome. A `ClaudeAuthenticationRequiredError` failure models a
+  // determinate logged-out reading; any other failure models a probe that could not be taken.
   probeAuthFailure: Error | undefined = undefined;
   probeAuthDetail: string | undefined = undefined;
   probeAuthCallCount: number = 0;
   readonly probeAuthRequests: ClaudeAuthProbeRequest[] = [];
 
   /**
-   * Refuses to start a child that was not handed the daemon's mandated pairs.
-   *
-   * The port's obligation modeled as a REFUSAL rather than as a recording,
-   * because a recording only proves what some test remembers to read back. A
-   * spawn path that quietly stopped supplying the pairs would still return a
-   * working channel, and every assertion about the session it established would
-   * keep passing — the lost suppression is invisible from every other property a
-   * test could check. Here it is not invisible: nothing starts without them.
-   *
-   * Keyed on the canonical opt-out table rather than on a written-out pair, so a
-   * re-graded provider entry moves this guard with it instead of leaving it
-   * asserting a value the corpus no longer mandates.
+   * Refuses to start a child without the daemon's mandated environment pairs. A refusal rather
+   * than a recording, because a spawn path that dropped the pairs would still return a working
+   * channel and every other assertion would keep passing. Keyed on the canonical opt-out table so
+   * the guard follows it.
    */
   #requireMandatedEnvironment(mandatedEnvironment: readonly SpawnEnvPair[]): void {
     for (const [name, value] of Object.entries(PROVIDER_AUTO_UPDATE_OPT_OUT_ENV.claude)) {
@@ -434,19 +352,18 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   async probeAuth(request: ClaudeAuthProbeRequest): Promise<ClaudeAuthProbeReading> {
     this.probeAuthCallCount += 1;
     this.probeAuthRequests.push(request);
-    // Checked BEFORE the failure arms, because a probe that could not be taken
-    // still started a child: the obligation is on the spawn, not on the answer.
+    // Checked before the failure arms: a probe that could not be taken still started a child.
     this.#requireMandatedEnvironment(request.mandatedEnvironment);
     await Promise.resolve();
     if (this.probeAuthFailure !== undefined) {
       throw this.probeAuthFailure;
     }
-    // Spawns nothing and mints no channel, which is the point being modeled:
-    // a probe that established a session would not be a zero-turn probe.
+    // Mints no channel: a probe that established a session would not be zero-turn.
     return this.probeAuthDetail === undefined ? {} : { detail: this.probeAuthDetail };
   }
 }
 
+/** Resolver that answers run dispatches from `dispatchByRunId` and records the run ids asked. */
 export class FakeClaudeRunDispatchResolver implements ClaudeRunDispatchResolver {
   readonly dispatchByRunId: Map<RunId, ClaudeRunDispatch> = new Map();
   readonly resolvedRunIds: RunId[] = [];
@@ -458,14 +375,17 @@ export class FakeClaudeRunDispatchResolver implements ClaudeRunDispatchResolver 
   }
 }
 
+/** Minimal `createSession` params for the test session. */
 export function buildCreateSessionParams(): CreateSessionParams {
   return { sessionId: TEST_SESSION_ID, config: { model: "claude-sonnet-4-5" } };
 }
 
+/** Minimal `startRun` params for the first test run. */
 export function buildStartRunParams(): StartRunParams {
   return { runId: TEST_RUN_ID, agentConfig: {} };
 }
 
+/** A steer intervention on the first test run carrying `content`. */
 export function buildSteerParams(content: string): ApplyInterventionParams {
   return {
     type: "steer",
@@ -476,6 +396,7 @@ export function buildSteerParams(content: string): ApplyInterventionParams {
   };
 }
 
+/** An interrupt intervention on the first test run. */
 export function buildInterruptParams(): ApplyInterventionParams {
   return {
     type: "interrupt",
@@ -486,6 +407,7 @@ export function buildInterruptParams(): ApplyInterventionParams {
   };
 }
 
+/** A cancel intervention on the first test run. */
 export function buildCancelParams(): ApplyInterventionParams {
   return {
     type: "cancel",
@@ -496,11 +418,7 @@ export function buildCancelParams(): ApplyInterventionParams {
   };
 }
 
-/**
- * The default log sink writes to the console, which would make every policy
- * diagnostic a line of test output; the emitter still retains its records,
- * which is what the assertions read.
- */
+/** A diagnostics emitter with no console output; it still retains its records for assertions. */
 export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
   return new DriverDiagnosticsEmitter({
     logSink: { record: () => undefined },
@@ -509,13 +427,8 @@ export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
 }
 
 /**
- * A `result` frame body carrying positive turn evidence, for the default
- * terminal a test drives when the tripwire is not what it is testing.
- *
- * The numbers are shaped after the measured ordinary-turn reading recorded in
- * the pinned Claude Code wire census rather than invented: a real turn
- * reports a non-zero turn count, a non-zero API duration, a non-zero cost, and
- * a populated per-model usage map, and all four move together.
+ * A `result` frame body with positive turn evidence: a real turn reports a non-zero turn count,
+ * API duration and cost, and a populated per-model usage map, all together.
  */
 function synthesizeTurnEvidenceResult(frameKind: string): Record<string, unknown> {
   return {

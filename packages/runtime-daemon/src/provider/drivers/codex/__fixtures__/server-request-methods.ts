@@ -1,65 +1,32 @@
-// GOLDEN VECTOR — Codex `ServerRequest` method census.
+// Golden vector: the Codex `ServerRequest` method census (Codex -> daemon callbacks, interactive
+// input and approvals).
+// Pin: codex-cli 0.150.1, from the generated schema (`codex app-server generate-json-schema`).
 //
-//   Source: the pinned Codex wire census, section: — the callback
-//   / interactive / approval
-//                     surface (Codex -> daemon)
-//   Pin             : codex-cli 0.150.1 (the `latest` dist-tag of
-//                     `@openai/codex` at that doc's authoring)
-//   Provenance      : Generated schema (`codex app-server generate-json-schema`
-//                     / `generate-ts`), regenerated 2026-08-28
-//   Trust: Verified at 0.150.1 Derived by: transcribed from the reference's
-//   verbatim
-//                     enumeration. NOTHING here is invented: codex.md records
-//                     `ServerRequest` as carrying exactly ten methods at the
-//                     pin ("the same 10 as at 0.141.0 — the one root that has
-//                     not moved anywhere across the floor") and names all ten.
-//                     The 0.149.1 -> 0.150.1 pin hop left this root untouched:
-//                     zero added, zero removed, and `ServerRequest.json` itself
-//                     byte-identical across the two generations.
+// The pinned reference records `ServerRequest` as exactly ten methods and names all ten; nothing
+// here is invented. This is a method vector, not a payload vector: the reference reproduces no
+// inbound server-request payload body, and a payload file could not be derived honestly from it.
+// Payload-shaped cases go through typed constructors in `__tests__/event-normalizer.test.ts`.
 //
-// WHAT THIS FIXTURE IS, AND WHAT IT IS NOT.
-//
-// It is a METHOD census vector, not a payload vector. codex.md reproduces no
-// inbound server-request or server-notification PAYLOAD body verbatim anywhere
-// — every verbatim shape in it is a client-request params type
-// (`ThreadRollbackParams`, `ThreadForkParams.lastTurnId`, `TurnStartParams`,
-// `ThreadGoalSetParams`, `ThreadInjectItemsParams`) or a value union
-// (`AskForApproval`, `ReviewDecision`). Under the family README's
-// "regenerate, don't transcribe" rule a payload-bearing golden file cannot be
-// honestly derived from this reference, and manufacturing one would give a
-// fabricated shape the appearance of pinned provenance. So this file carries
-// exactly what the reference DOES record verbatim — the method strings, their
-// protocol root, and their experimental gating — and payload-shaped cases go
-// through typed constructors in `__tests__/event-normalizer.test.ts`.
-//
-// Regeneration: when the Codex pin moves, re-run the commands in codex.md.
-// Do not hand-edit a method string here to make a test pass.
+// When the Codex pin moves, regenerate from the schema. Do not hand-edit a method string to make a
+// test pass.
 
 /** One row of the pinned `ServerRequest` method census. */
 export interface CodexServerRequestMethodVector {
   /** The JSON-RPC `method` string, verbatim from the pinned generation. */
   readonly method: string;
   /**
-   * `true` when the reference marks the method EXPERIMENTAL, i.e. a default
-   * app-server connection never receives it and the driver must negotiate
-   * `initialize.capabilities.experimentalApi` to be delivered it.
+   * `true` when the method is experimental: a default app-server connection never receives it, so
+   * the driver must negotiate `initialize.capabilities.experimentalApi`.
    */
   readonly experimentalGatedAtPin: boolean;
-  /** The codex.md subsection the row is read from. */
+  /** The reference subsection the row is read from. */
   readonly referenceSection: string;
 }
 
 /**
- * All ten `ServerRequest` methods at `codex-cli 0.150.1`.
- *
- * codex.md verbatim structure: callback tools (`item/tool/call`); interactive
- * input (`item/tool/requestUserInput` — marked EXPERIMENTAL, "a default
- * app-server session never delivers this method, so interactive-request leg
- * must opt in at `initialize`" — and `mcpServer/elicitation/request`);
- * approvals modern (`item/commandExecution/requestApproval`,
- * `item/fileChange/requestApproval`, `item/permissions/requestApproval`) and
- * legacy (`execCommandApproval`, `applyPatchApproval`); "also
- * `attestation/generate`, `account/chatgptAuthTokens/refresh`".
+ * All ten `ServerRequest` methods at `codex-cli 0.150.1`: the callback tool, interactive input
+ * (`item/tool/requestUserInput` is experimental-gated), approvals (three current, two legacy), and
+ * the attestation and auth-refresh requests.
  */
 export const CODEX_SERVER_REQUEST_METHOD_VECTORS: readonly CodexServerRequestMethodVector[] =
   Object.freeze([
@@ -116,12 +83,7 @@ export const CODEX_SERVER_REQUEST_METHOD_VECTORS: readonly CodexServerRequestMet
   ] as const satisfies readonly CodexServerRequestMethodVector[]);
 
 /**
- * The `ServerRequest` root's arity at the pin, quoted from codex.md
- * "`ServerRequest` carries 10 methods at `0.150.1` — the same 10 as at
- * `0.141.0`".
- *
- * Pinned as a value so the vector list above cannot silently lose or gain a
- * row: the test asserts the list length against this count, which fails loudly
- * if a future edit drops a method rather than re-deriving from a new pin.
+ * The `ServerRequest` arity at the pin. The test compares the vector list length against it, so a
+ * dropped or added row fails loudly.
  */
 export const CODEX_SERVER_REQUEST_METHOD_COUNT_AT_PIN = 10;

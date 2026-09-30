@@ -1,12 +1,5 @@
-// Codex per-tool metadata declaration.
-//
-// Coverage targets (audit-derived, not just the plan ACs):
-//   * a driver declares a per-tool `idempotency_class` alongside
-//     its tool list.
-//   * an undeclared class is treated as `manual_reconcile_only`.
-//   * The default is STRUCTURAL: nothing can leave this module unclassified,
-//     and the driver-local floor is pinned to the contract's own floor so the
-//     two cannot drift apart silently.
+// Codex per-tool metadata: every tool carries an `idempotency_class`, an undeclared class floors
+// at `manual_reconcile_only`, and the driver-local floor matches the contract's own default.
 
 import { ProviderToolMetadataSchema } from "@ai-sidekicks/contracts";
 import type { IdempotencyClass, NormalizedProviderToolMetadata } from "@ai-sidekicks/contracts";
@@ -26,9 +19,8 @@ import {
 } from "../tools.js";
 import type { CodexToolName, McpTaskHandleObservation } from "../tools.js";
 
-// The tools authored WITHOUT an `idempotency_class`, which therefore reach the
-// conservative floor through `closeCodexToolDeclaration`. Restated here
-// independently of the module so the floor is proven, not echoed.
+// Tools authored without an `idempotency_class`; they reach the floor through
+// `closeCodexToolDeclaration`. Restated here so the test does not echo the module.
 const EXPECTED_FLOOR_TOOLS: readonly CodexToolName[] = [
   "commandExecution",
   "fileChange",
@@ -36,7 +28,7 @@ const EXPECTED_FLOOR_TOOLS: readonly CodexToolName[] = [
   "imageGeneration",
 ];
 
-// The tools carrying an explicit non-default classification.
+// Tools carrying an explicit non-default classification.
 const EXPECTED_IDEMPOTENT_TOOLS: readonly CodexToolName[] = ["webSearch", "imageView", "sleep"];
 
 function findTool(name: string): NormalizedProviderToolMetadata {
@@ -73,27 +65,23 @@ describe("Codex tool metadata declaration", () => {
   });
 
   it("pins the driver-local floor to the contract schema's own default", () => {
-    // The floor exists at two boundaries: this module's closing helper
-    // (authoring) and `ProviderToolMetadataSchema`'s `.optional().default(...)`
-    // (the untyped write seam). If they ever disagree, a tool authored without
-    // a class would persist a class the spec did not intend. Prove they agree
-    // by driving the CONTRACT schema with an unannotated tool.
+    // The floor is set in two places: the closing helper in the driver and the contract schema's
+    // default. If they disagree, an unannotated tool persists the wrong class.
     const parsed = ProviderToolMetadataSchema.parse({ name: "unannotated_probe" });
     expect(parsed.idempotency_class).toBe(DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS);
     expect(DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS).toBe("manual_reconcile_only");
   });
 
   it("keeps CODEX_TOOL_NAMES and the emitted census in exact agreement", () => {
-    // `CODEX_TOOL_NAMES` is the seam the normalizer imports. If it drifts from
-    // what is actually declared, the normalizer resolves an identity that has
-    // no `driver_tools` row and recovery dispatch silently misses.
+    // The normalizer imports `CODEX_TOOL_NAMES`; a name missing from the census has no
+    // `driver_tools` row and recovery dispatch would miss it.
     expect(CODEX_TOOL_METADATA.map((tool) => tool.name)).toEqual([...CODEX_TOOL_NAMES]);
     expect(new Set(CODEX_TOOL_NAMES).size).toBe(CODEX_TOOL_NAMES.length);
   });
 
   it("does NOT declare the MCP or dynamic-tool item arms (PR-B / session-registry boundary)", () => {
-    // Declaring either here would assert a class for an identity no receipt
-    // records. This assertion is the tripwire on that boundary.
+    // MCP and dynamic tools are discovered at runtime; declaring them here would assert a class
+    // for an identity no receipt records.
     const declaredNames = CODEX_TOOL_METADATA.map((tool) => tool.name);
     expect(declaredNames).not.toContain("mcpToolCall");
     expect(declaredNames).not.toContain("dynamicToolCall");
@@ -101,9 +89,7 @@ describe("Codex tool metadata declaration", () => {
   });
 
   it("emits rows write seam accepts verbatim", () => {
-    // `DriverCapabilitiesWriter.declare` runs each tool through this schema
-    // before opening its transaction. A census entry that fails here would be
-    // rejected at declaration time rather than caught in review.
+    // `DriverCapabilitiesWriter.declare` parses each tool with this schema before it writes.
     for (const tool of CODEX_TOOL_METADATA) {
       const parsed = ProviderToolMetadataSchema.safeParse(tool);
       expect(parsed.success).toBe(true);
@@ -114,8 +100,7 @@ describe("Codex tool metadata declaration", () => {
   });
 
   it("gives every tool an operator-readable description", () => {
-    // An operator reconciling a halted `manual_reconcile_only` receipt reads
-    // this string; an empty one makes the halt unactionable.
+    // An operator reconciling a halted `manual_reconcile_only` receipt reads this string.
     for (const tool of CODEX_TOOL_METADATA) {
       expect(typeof tool.description).toBe("string");
       expect((tool.description ?? "").length).toBeGreaterThan(0);
@@ -134,10 +119,8 @@ describe("Codex tool metadata declaration", () => {
     if (mutableFirstEntry !== undefined) {
       mutableFirstEntry.idempotency_class = "idempotent";
       mutableFirstEntry.name = "mutated";
-      // Prove the write LANDED. Without this, "the mutation did not leak" and
-      // "the row was frozen so the mutation never happened" are the same
-      // passing test — and the caller-facing promise is that these rows ARE
-      // mutable, since `GetCapabilitiesResult.tools` is a mutable array.
+      // Prove the write landed: `GetCapabilitiesResult.tools` is a mutable array, so a frozen
+      // row would make the no-leak assertions below pass for the wrong reason.
       expect(mutableFirstEntry.name).toBe("mutated");
       expect(mutableFirstEntry.idempotency_class).toBe("idempotent");
     }
@@ -154,10 +137,6 @@ describe("Codex tool metadata declaration", () => {
   });
 });
 
-// ==========================================================================
-// MCP idempotency floor + dormant task-handle seam + status census
-// ==========================================================================
-
 describe("Codex MCP idempotency floor", () => {
   it("classifies an MCP-discovered tool manual_reconcile_only with no annotations", () => {
     expect(classifyMcpDiscoveredTool()).toBe("manual_reconcile_only");
@@ -165,8 +144,8 @@ describe("Codex MCP idempotency floor", () => {
   });
 
   it("LOAD-BEARING NEGATIVE: readOnlyHint/idempotentHint self-claims never upgrade the class", () => {
-    // MCP 2025-11-25 binds clients to treat ToolAnnotations as untrusted. A
-    // server advertising itself maximally safe still lands on the floor.
+    // MCP tool annotations are untrusted; a server advertising itself as maximally safe still
+    // lands on the floor.
     expect(
       classifyMcpDiscoveredTool({
         readOnlyHint: true,
@@ -178,9 +157,8 @@ describe("Codex MCP idempotency floor", () => {
   });
 
   it("pins the MCP floor constant to the spec value and to the driver default", () => {
-    // Same VALUE as the unannotated-builtin default, by spec — but a distinct
-    // RULE (always, vs default-when-absent). The identity is pinned so a
-    // divergence in either direction is loud.
+    // Same value as the unannotated built-in default, but a distinct rule: always, not
+    // default-when-absent.
     expect(MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS).toBe("manual_reconcile_only");
     expect(MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS).toBe(DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS);
   });
@@ -203,9 +181,7 @@ describe("Codex durable MCP task-handle seam (observation active)", () => {
   });
 
   it("hands the sink the dispatch identity alongside the handle", () => {
-    // `commandId` is what makes the observation writable — without it the sink
-    // has an MCP identity and no `command_receipts` row to address. It must
-    // reach the sink verbatim rather than being re-derived downstream.
+    // `commandId` addresses the `command_receipts` row; it must reach the sink verbatim.
     const observations: McpTaskHandleObservation[] = [];
     observeMcpTaskAcceptance(
       (observation) => observations.push(observation),
@@ -223,9 +199,8 @@ describe("Codex durable MCP task-handle seam (observation active)", () => {
   });
 
   it("never calls the sink when the acceptance carries no handle", () => {
-    // A crash before the receiver's acceptance is durably stored reaches this
-    // path: no handle observed, so nothing is offered to the recorder and the
-    // receipt's column stays NULL — the manual_reconcile_only halt.
+    // A crash before the receiver stores its acceptance reaches this path: the receipt's task
+    // column stays NULL, which is the manual_reconcile_only halt.
     const observations: McpTaskHandleObservation[] = [];
     observeMcpTaskAcceptance(
       (observation) => observations.push(observation),
@@ -264,9 +239,9 @@ describe("Codex MCP server-status census normalization", () => {
   });
 
   it("falls back to authStatus only for the definite needs-auth observation", () => {
-    // runtimeStatus null = "unavailable or the configuration changed". A
-    // notLoggedIn authStatus is still a definite needs-auth fact; an auth
-    // MODE (oAuth, bearerToken, unsupported) says nothing about liveness.
+    // runtimeStatus null means unavailable or the configuration changed. `notLoggedIn` is still
+    // a definite needs-auth fact; an auth mode (oAuth, bearerToken, unsupported) says nothing
+    // about liveness.
     const notLoggedIn = normalizeCodexMcpServerStatusList([
       listRow({ runtimeStatus: null, authStatus: "notLoggedIn" }),
     ]);
@@ -319,8 +294,8 @@ describe("Codex MCP server-status census normalization", () => {
       });
       expect(result.emissions).toEqual([{ serverName: "filesystem", status: unified }]);
     }
-    // failed + reauthenticationRequired is the one state an operator can fix;
-    // collapsing it into `failed` would hide that from the census.
+    // failed + reauthenticationRequired is the one failure an operator can fix, so it stays
+    // distinct from `failed`.
     const reauth = normalizeCodexMcpServerStatusNotification({
       name: "filesystem",
       status: "failed",

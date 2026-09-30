@@ -1,22 +1,9 @@
-// Coverage map for `intervention.ts`:
-//   * One generic `applyIntervention` dispatcher plus the degraded-fallback
-//     answer, rather than a per-intervention method set.
-//   * `queue_and_interrupt` is the documented daemon fallback for a provider
-//     with no native steer.
-//   * An intervention type this driver cannot dispatch natively returns a
-//     `degraded` RESULT: never a throw, and never a silent no-op. The
-//     no-silent-no-op conjunct is asserted by counting OUTBOUND TRAFFIC, not by
-//     reading the return value: a degraded steer must send zero user-text frames
-//     and zero control requests, because a driver that delivered the steer text
-//     and then reported `degraded` would double-apply the intervention the daemon
-//     is about to queue.
-//   * The requester's `clientIdempotencyKey` has no pinned wire home on the
-//     interrupt control request, so no substitute is invented: the dispatched
-//     request carries exactly `{ subtype, cancelQueued }`.
-//   * An acknowledged CANCEL that reports surviving queued messages
-//     (`still_queued`, the `interrupt_receipt_v1` receipt) degrades instead of
-//     reading as success; the same field on an INTERRUPT is the contract
-//     working, and applies.
+// Tests for `intervention.ts`. A steer degrades with the `queue_and_interrupt` fallback and sends
+// nothing to the provider: those tests count outbound traffic, because a driver that delivered the
+// steer text and then reported `degraded` would double-apply what the daemon is about to queue.
+// The interrupt request carries only `{ subtype, cancelQueued }`, with no client idempotency key.
+// A cancel whose receipt reports surviving queued messages degrades; the same receipt on an
+// interrupt is normal and applies.
 
 import {
   DRIVER_FALLBACK_ACTION_MAX_LEN,
@@ -70,9 +57,8 @@ function buildDispatcherWithoutLiveRun(): ClaudeInterventionDispatcher {
 
 describe("CLAUDE_STEER_FALLBACK_ACTION", () => {
   it("stays inside the bound the driver result envelope enforces", () => {
-    // The bound is enforced at runtime by the schema parse every result goes
-    // through; this asserts the shipped value against it directly, so a later
-    // edit to the constant fails here rather than only inside a dispatch path.
+    // Every result is schema-parsed at runtime; this checks the constant directly so an edit
+    // fails here rather than only inside a dispatch path.
     expect(CLAUDE_STEER_FALLBACK_ACTION.length).toBeLessThanOrEqual(DRIVER_FALLBACK_ACTION_MAX_LEN);
     expect(CLAUDE_STEER_FALLBACK_ACTION).toBe("queue_and_interrupt");
   });
@@ -192,8 +178,7 @@ describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
 
     const result = await harness.dispatcher.applyIntervention(buildCancelParams());
 
-    // Reporting `applied` here would tell the daemon a user's cancellation
-    // took hold while messages it was meant to stop are still queued to run.
+    // `applied` would tell the daemon the cancel took hold while queued messages still run.
     expect(result).toStrictEqual({ status: "degraded" });
     expect(result.fallbackAction).toBeUndefined();
     expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
@@ -212,8 +197,7 @@ describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
     const harness = buildHarness();
     harness.channel.controlResponse = { subtype: "success" };
 
-    // Absent means "this build reported nothing", never "messages survived".
-    // Degrading here would fail closed on a guarantee the build never made.
+    // Absent means the build reported nothing, not that messages survived.
     await expect(harness.dispatcher.applyIntervention(buildCancelParams())).resolves.toStrictEqual({
       status: "applied",
     });
@@ -226,8 +210,7 @@ describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
       response: { still_queued: ["3f1b0c22-0000-4000-8000-000000000001"] },
     };
 
-    // An interrupt is precisely the operation queued input is meant to outlive;
-    // grading it the way a cancel is graded would degrade the normal path.
+    // Queued input is meant to outlive an interrupt, so survivors are not a failure here.
     await expect(
       harness.dispatcher.applyIntervention(buildInterruptParams()),
     ).resolves.toStrictEqual({ status: "applied" });
@@ -240,8 +223,8 @@ describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
       response: { still_queued: "not-an-array" },
     };
 
-    // The payload crosses the provider trust boundary, so an unreadable receipt
-    // must not turn a delivered cancel into an exception.
+    // The receipt comes from the provider; an unreadable one must not turn a delivered cancel
+    // into an exception.
     await expect(harness.dispatcher.applyIntervention(buildCancelParams())).resolves.toStrictEqual({
       status: "applied",
     });
@@ -252,9 +235,7 @@ describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
 
     await harness.dispatcher.applyIntervention(buildCancelParams());
 
-    // The pinned `interrupt` control request carries no client-supplied id, and
-    // the transport's own `request_id` is correlation state a retry must vary —
-    // so the key travels nowhere rather than into an unregistered wire field.
+    // The interrupt control request has no client-id field, so the key is not sent at all.
     expect(harness.channel.controlRequests).toStrictEqual([
       { subtype: "interrupt", cancelQueued: true },
     ]);
@@ -264,8 +245,7 @@ describe("ClaudeInterventionDispatcher cancel receipt grading", () => {
 describe("ClaudeInterventionDispatcher unrouted intervention types", () => {
   it("degrades instead of throwing when an unrouted type reaches the dispatcher", async () => {
     const harness = buildHarness();
-    // Reachable only from an untyped boundary: the compile-time half of this
-    // guard is the `never` parameter that rejects a fourth arm at build time.
+    // Reachable only from an untyped boundary; the compiler rejects an unrouted type otherwise.
     const unroutedParams = {
       ...buildInterruptParams(),
       type: "pause",

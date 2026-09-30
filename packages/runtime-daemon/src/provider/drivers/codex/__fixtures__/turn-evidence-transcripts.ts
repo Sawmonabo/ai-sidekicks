@@ -1,34 +1,14 @@
-// GOLDEN VECTOR - Codex turn-evidence `turn/completed` payloads.
+// Golden vector: Codex `turn/completed` payloads for the turn-evidence classifier.
+// Pin: codex-cli 0.150.1. The model-output and quota-exhausted vectors were recorded from the
+// pinned binary's `app-server` (initialize, initialized, thread/start, turn/start on a default
+// connection). The command-dispatch vector is synthesized and labeled so.
 //
-//   Source: the pinned Codex wire census, section:
-//                     transport
-//   Pin             : codex-cli 0.150.1
-//   Provenance      : Binary probe for the two RECORDED vectors below - a
-//                     purpose-written stdio client drove the pinned binary's
-//                     `app-server` through initialize -> initialized ->
-//                     thread/start -> turn/start on a default connection on
-//                     2026-08-29, recording every inbound frame until the turn
-//                     settled. SYNTHESIZED for the third, and labeled so on
-//                     the declaration itself.
-//   Trust: Verified at 0.150.1 for the recorded pair.
-//
-// WHY A SYNTHESIZED VECTOR IS HERE AT ALL, stated rather than buried.
-//
-// The pinned app-server performs NO client-side command parsing: a first input
-// element beginning with `/` is echoed back byte-identical as a `userMessage`
-// item and dispatched into a real turn, and that held for a REAL command name
-// (`/status`) as well as an invented one - so the finding is a property of the
-// transport, not an artifact of the name chosen. There is therefore no recorded
-// command-dispatch response to check in for this leg, and the tempting
-// conclusion is that this leg needs no detector.
-//
-// That conclusion is what the tripwire exists to refuse. A provider install can
-// start command-dispatching between two runs, and a leg with no detector would
-// meet exactly the change the rule anticipates with silence. The synthesized
-// vector is what the classifier must catch IF a build ever starts to - which is
-// also why the classifier keys on the ABSENCE of turn evidence rather than on
-// the presence of a recognizable dispatch shape: it has to work against a shape
-// nobody has seen.
+// Why a synthesized vector exists: the pinned app-server does no client-side command parsing. A
+// first input element starting with `/` (a real command such as `/status`, or an invented one) is
+// echoed back as a `userMessage` item and run as a normal turn, so there is no recorded
+// command-dispatch response. A provider install could start dispatching commands between two
+// runs, so the classifier needs a vector for that shape. It keys on the absence of turn evidence,
+// not on a recognizable dispatch shape, so it works against a shape nobody has seen.
 
 /** A turn that produced model output - the negative control. */
 export function codexTurnWithModelOutput(turnId: string): Record<string, unknown> {
@@ -49,9 +29,7 @@ export function codexTurnWithModelOutput(turnId: string): Record<string, unknown
 }
 
 /**
- * SYNTHESIZED - a command-dispatch response: the turn completed, carried no
- * model output, and declared no error. See the header for why it is synthesized
- * and why it is nonetheless checked in.
+ * SYNTHESIZED: a command-dispatch response. The turn completed with no model output and no error.
  */
 export function codexCommandDispatchResponse(turnId: string): Record<string, unknown> {
   return {
@@ -68,15 +46,10 @@ export function codexCommandDispatchResponse(turnId: string): Record<string, unk
 }
 
 /**
- * RECORDED - the quota-exhausted turn: no model output at all, and a TYPED
- * declared failure beside it.
- *
- * The control for the classifier's third evidence class. It reached no model,
- * so a two-way "output or trip" rule would report it as a neutralization
- * failure - poisoning a shared operator-visible field for a completely
- * different cause. Note `itemsView: "notLoaded"` beside an EMPTY item list:
- * that is measured, and it is why turn evidence accrues from in-flight item
- * notifications instead of being read only off this frame.
+ * RECORDED: the quota-exhausted turn, with no model output and a typed declared failure. It is the
+ * control for the classifier's third evidence class: a two-way "output or trip" rule would report
+ * it as a neutralization failure. `itemsView: "notLoaded"` beside an empty item list is measured;
+ * it is why turn evidence accrues from in-flight item notifications, not from this frame alone.
  */
 export function codexQuotaExhaustedTurn(turnId: string): Record<string, unknown> {
   return {

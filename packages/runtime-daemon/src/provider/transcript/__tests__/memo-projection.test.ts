@@ -1,29 +1,14 @@
-// The memo projection floor.
+// Memo projection floor: the properties memo rendering and delivery must hold, by mechanism.
 //
-// Four properties carry this file, and each is asserted as a MECHANISM rather
-// than as a shape:
-//
-//   * PAIRING SURVIVES THE BUDGET. The whole-exchange rule is asserted by
-//     construction over generated transcripts rather than against one fixture,
-//     with both vacuity guards checked explicitly: the corpus must actually
-//     contain calls and results in DIFFERENT turns, and eviction must actually
-//     have fired. A pairing invariant checked over a corpus that never evicted
-//     is a tautology.
-//   * ONCE-ONLY DELIVERY RESTS ON RECONCILIATION, NOT ON A CLEAN RETRY. The
-//     lost-acknowledgment case is asserted against BOTH duplicate-producing
-//     failures — the fake target that applies the frame and then rejects, and
-//     the one that rejects while the frame is STILL BEING APPLIED, which is the
-//     case a sequential retry raced into a second memo. Its negative control
-//     blinds the readback across two coordinators, because that is the only
-//     scope where reconciliation stands alone.
-//   * THE KEY IS DERIVED, NOT STORED. Recomputation across a simulated restart
-//     and across two independently constructed folds is the assertion, and the
-//     discriminating case is an append belonging to ANOTHER run: it moves the
-//     projection's `builtAtPosition` and must not move the key.
-//   * NOTHING DURABLE IS WRITTEN. Asserted as an ABSENCE, through a proxy
-//     recorder observing that the only members touched on the target across all
-//     four delivery paths are the read and the send.
-//
+//   * Pairing survives the budget: a kept tool call always keeps its result, checked over generated
+//     transcripts. The corpus must contain calls and results in different turns and eviction must
+//     fire, or the invariant is a tautology.
+//   * Once-only delivery rests on reading the target back, not on a clean retry. Covered against a
+//     send that lands and then rejects and one that rejects while the frame is still being applied;
+//     the negative control blinds the readback across two coordinators.
+//   * The identity key is derived, not stored: recomputed after a restart and across two folds, and
+//     an append from another run moves `builtAtPosition` but not the key.
+//   * Nothing durable is written: a proxy shows the only target members used are the read and send.
 
 import { describe, expect, it } from "vitest";
 
@@ -86,15 +71,11 @@ const OTHER_TARGET: MemoTargetIdentity = { providerSessionId: "provider-session-
 /** Wide enough that the whole fixture fits, so eviction is opt-in per case. */
 const ROOMY_BUDGET: MemoBudgetPolicy = defaultMemoBudgetPolicy(1_000_000);
 
-// --------------------------------------------------------------------------
 // Fixtures
-// --------------------------------------------------------------------------
 
-// A fixture names a turn's segments without repeating the position on each one —
-// `turn` stamps its own onto all of them, which is a shape the fold really
-// produces (one thinking update yields several segments at one position). Written
-// distributively because a bare `Omit` over a union collapses to the members its
-// arms share, which would let a `tool_call` fixture drop its identifier.
+// A fixture omits each segment's position: `turn` stamps the turn's position onto all of them, as
+// the fold does. Distributive, because a bare `Omit` over a union keeps only the members its arms
+// share and would let a `tool_call` fixture drop its identifier.
 type WithoutPosition<TSegment> = TSegment extends unknown ? Omit<TSegment, "position"> : never;
 type TurnSegmentFixture = WithoutPosition<CanonicalTranscriptSegment>;
 
@@ -117,11 +98,7 @@ function projectionOf(
   return { sessionId: SESSION_ID, runId: RUN_ID, builtAtPosition, turns };
 }
 
-/**
- * A delivery request before a coordinator has established its target. The suite
- * builds these because a `MemoDeliveryRequest` cannot exist without a coordinator
- * to mint the handle, which is the point of the handle.
- */
+/** A delivery request before a coordinator has established its target and minted the handle. */
 type DeliveryDraft = Omit<MemoDeliveryRequest, "target"> & {
   readonly target: MemoTargetIdentity;
 };
@@ -135,13 +112,8 @@ function requestFor(
 }
 
 /**
- * Establishes the draft's target on `coordinator` and delivers it.
- *
- * Every call here is a caller asserting the target is fresh and its own. The
- * suite makes that assertion at each site rather than hiding it in a fixture,
- * because the one thing the establishment gate refuses — carrying an established
- * handle from one coordinator to another — is exactly what this helper does not
- * do.
+ * Establishes the draft's target on `coordinator`. Each call asserts the target is fresh and its
+ * own; the establishment gate refuses an established handle carried to another coordinator.
  */
 function addressedTo(
   coordinator: MemoDeliveryCoordinator,
@@ -158,20 +130,12 @@ async function deliverVia(
 }
 
 /**
- * The target session, faked with the failure modes that matter.
+ * The target session, faked with the failure modes that matter. `readOutcomes` is consumed in
+ * order, so a case can make the pre-send read succeed and the post-send readback fail.
  *
- * `readOutcomes` is consumed in order so a case can make the PRE-send read
- * succeed and the post-send readback fail — the ambiguity the floor is specified
- * against.
- *
- * Two duplicate-producing sends, not one, because they fail at different
- * moments. `apply-then-fail` lands the frame and loses the acknowledgment, which
- * a clean-retry test would not catch. `apply-late-then-fail` is the harder case
- * and the reason the register exists: the acknowledgment times out while the
- * provider is STILL APPLYING the frame, so every readback taken before
- * `applyPendingSends` legitimately finds no marker for a memo that is about to
- * land. A retry that reads one of those snapshots as a refusal sends a second
- * memo into the same conversation.
+ * `apply-then-fail` lands the frame and loses the acknowledgment. `apply-late-then-fail` times out
+ * while the provider is still applying the frame, so readbacks before `applyPendingSends` find no
+ * marker for a memo about to land; a retry that trusts one of them sends a second memo.
  */
 class FakeTargetSession {
   readonly turns: string[] = [];
@@ -195,10 +159,8 @@ class FakeTargetSession {
   }
 
   /**
-   * Answers the target's WHOLE turn history, never a tail — the port requires
-   * a set sufficient to decide marker presence for the entire session, and a
-   * fake that answered a window would make once-only look like it holds while
-   * the contract it rests on went untested.
+   * Answers the target's whole turn history, never a tail: the port requires a set sufficient to
+   * decide marker presence for the entire session.
    */
   async readTurnsForMarkerReconciliation(
     targetProviderSessionId: string,
@@ -214,8 +176,7 @@ class FakeTargetSession {
   async sendMemoTurn(frame: MemoOutboundFrame): Promise<void> {
     this.sendAttempts += 1;
     this.sentTargetIds.push(frame.targetProviderSessionId);
-    // `wireText` rather than the authored prose: the readback must reconcile
-    // against what the provider was actually handed.
+    // `wireText`, not the authored prose: the readback reconciles against what the provider got.
     if (this.sendBehavior === "apply-then-fail") {
       this.turns.push(frame.frame.wireText);
       throw new Error("acknowledgment lost after the frame was applied");
@@ -231,12 +192,7 @@ class FakeTargetSession {
   }
 }
 
-/**
- * An HONEST barrier: it waits for the provider session to go quiet, which means
- * anything still being applied finishes first. A readback taken after it is
- * therefore ordered behind the earlier send rather than racing it — which is the
- * whole of what a caller promises when it supplies one.
- */
+/** An honest barrier: waits for the provider session to go quiet, so pending sends finish first. */
 function settlementBarrierFor(target: FakeTargetSession): MemoSendSettlementBarrier {
   return () => {
     target.applyPendingSends();
@@ -245,10 +201,8 @@ function settlementBarrierFor(target: FakeTargetSession): MemoSendSettlementBarr
 }
 
 /**
- * A barrier that resolves without observing the provider at all — the shape a
- * caller reaches for first, and one no check inside the delivery could tell from
- * an honest wait. Present so the tests can show that the call which made a send
- * never trusts it, rather than hoping no caller ever writes it.
+ * A barrier that resolves without observing the provider. Nothing inside the delivery can tell it
+ * from an honest wait, so the tests show the call that made a send never trusts it.
  */
 const IMMEDIATE_BARRIER: MemoSendSettlementBarrier = () => Promise.resolve();
 
@@ -257,9 +211,8 @@ const EXPIRED_BARRIER: MemoSendSettlementBarrier = () =>
   Promise.reject(new Error("the bounded wait for the provider session expired"));
 
 /**
- * Records every member name read off the gateway. The proxy is the stronger of
- * the two absence assertions: an implementation that grew a claim, lease, or
- * marker operation would show it here even if it never imported a database.
+ * Records every member name read off the gateway, so an implementation that grew a claim, lease or
+ * marker operation shows up even if it never imported a database.
  */
 function recordingGateway(
   target: FakeTargetSession,
@@ -297,8 +250,8 @@ function toolResultIdsIn(turns: readonly CanonicalTranscriptTurn[]): string[] {
 }
 
 /**
- * Whether every turn of `candidate` appears in `whole` in the same relative
- * order. Positions are unique and ascending, so identity is by position.
+ * Whether every turn of `candidate` appears in `whole` in the same order. Positions are unique and
+ * ascending, so identity is by position.
  */
 function isOrderPreservingSubsequence(
   candidate: readonly CanonicalTranscriptTurn[],
@@ -318,9 +271,8 @@ function isOrderPreservingSubsequence(
 }
 
 /**
- * The turns no budget may evict, derived HERE from the exchange partition rather
- * than read off the module under test: the newest exchange, plus the newest
- * `toolExchangeCount` tool-bearing exchanges wherever they sit.
+ * The turns no budget may evict, derived here from the exchange partition rather than read off the
+ * module under test: the newest exchange plus the newest `toolExchangeCount` tool-bearing ones.
  */
 function protectedTurnsOf(
   turns: readonly CanonicalTranscriptTurn[],
@@ -343,9 +295,7 @@ function protectedTurnsOf(
     .flatMap((exchange) => [...exchange.turns]);
 }
 
-// --------------------------------------------------------------------------
-// Generated transcripts — the pairing property's corpus
-// --------------------------------------------------------------------------
+// Generated transcripts: the pairing property's corpus
 
 function createSeededRandom(seed: number): () => number {
   let state: number = seed >>> 0;
@@ -360,16 +310,15 @@ function createSeededRandom(seed: number): () => number {
 
 interface GeneratedTranscript {
   readonly projection: CanonicalTranscriptProjection;
-  /** Pairs whose call and result landed in DIFFERENT turns. Vacuity guard (a). */
+  /** Pairs whose call and result landed in different turns; the corpus must contain some. */
   readonly crossTurnPairCount: number;
 }
 
 const PADDING = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor";
 
 /**
- * Generates a transcript whose tool pairs deliberately straddle turn boundaries,
- * with unpaired calls and orphaned results mixed in so the repair step is
- * exercised too. Deterministic in `seed`, so a failure is reproducible.
+ * Generates a transcript whose tool pairs straddle turn boundaries, with unpaired calls and
+ * orphaned results mixed in so the repair step runs too. Deterministic in `seed`.
  */
 function generateTranscript(seed: number): GeneratedTranscript {
   const random = createSeededRandom(seed);
@@ -391,8 +340,8 @@ function generateTranscript(seed: number): GeneratedTranscript {
 
     const callSegments: TurnSegmentFixture[] = [];
     const callIds: string[] = [];
-    // Deliberately reaches ZERO: a corpus in which every exchange used a tool
-    // never exercises the protected tail's unsatisfiable-anchor arms.
+    // Reaches zero on purpose: a corpus where every exchange used a tool never exercises a
+    // protected tail that cannot be filled.
     const callCount: number = Math.floor(random() * 3);
     for (let callIndex = 0; callIndex < callCount; callIndex += 1) {
       toolCallOrdinal += 1;
@@ -407,8 +356,7 @@ function generateTranscript(seed: number): GeneratedTranscript {
     }
 
     if (random() < 0.35) {
-      // A reasoning block the strip must remove, which orphans nothing but does
-      // exercise the transform this floor reuses.
+      // A reasoning block the strip must remove; it orphans nothing but runs the reused transform.
       callSegments.unshift({
         kind: "reasoning",
         blockId: `block-${exchangeIndex.toString()}`,
@@ -430,9 +378,8 @@ function generateTranscript(seed: number): GeneratedTranscript {
     const resultsInLaterTurn: boolean = random() < 0.55;
 
     if (leaveUnpaired) {
-      // Repair synthesizes the result IN THE CALL'S OWN TURN, so this pair never
-      // straddles — deliberately, since the whole-exchange rule must hold for the
-      // repaired pair too.
+      // Repair synthesizes the result in the call's own turn, so this pair never straddles; the
+      // whole-exchange rule must hold for the repaired pair too.
       pushTurn("assistant", callSegments);
       continue;
     }
@@ -448,8 +395,8 @@ function generateTranscript(seed: number): GeneratedTranscript {
     if (resultsInLaterTurn) {
       pushTurn("assistant", callSegments);
       if (random() < 0.5) {
-        // A user turn BETWEEN the call and its result — the case a
-        // per-turn partition splits and the straddle rule does not.
+        // A user turn between the call and its result: a per-turn partition splits the pair, the
+        // straddle rule does not.
         pushTurn("user", [
           { kind: "text", text: `interjection ${exchangeIndex.toString()} ${PADDING}` },
         ]);
@@ -477,9 +424,7 @@ function generateTranscript(seed: number): GeneratedTranscript {
   return { projection: projectionOf(turns), crossTurnPairCount };
 }
 
-// --------------------------------------------------------------------------
-// 1 — the pairing property, over generated transcripts
-// --------------------------------------------------------------------------
+// The pairing property, over generated transcripts
 
 describe("memo budget — whole-exchange eviction with a protected tail", () => {
   it("never emits a call without its result nor a result without its call, under any budget", () => {
@@ -507,9 +452,8 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
       );
       expect(unbounded.evictedExchangeCount).toBe(0);
 
-      // Spans both regimes on purpose: the tight windows force eviction, the
-      // wide one does not, so guard (b) below distinguishes them rather than
-      // reporting that every render happened to evict.
+      // Spans both regimes: tight windows force eviction and the wide one does not, so guard (b)
+      // below can tell them apart.
       for (const contextWindowTokens of [120, 240, 480, 960, 1920, 100_000]) {
         const rendering: MemoRendering = memoProjection.render(
           requestFor(generated.projection, defaultMemoBudgetPolicy(contextWindowTokens)),
@@ -519,21 +463,19 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
           rendersThatEvicted += 1;
         }
 
-        // The property itself.
         expect(toolCallIdsIn(rendering.includedTurns)).toEqual(
           toolResultIdsIn(rendering.includedTurns),
         );
 
-        // An order-preserving SUBSEQUENCE of the unbounded render — never a
-        // reordering, and never a turn the transforms did not produce. It is
-        // deliberately not a contiguous suffix: protection is per-exchange, so an
-        // older tool exchange may be retained past an evicted newer one.
+        // An order-preserving subsequence of the unbounded render: never a reordering or a turn the
+        // transforms did not produce. Not a contiguous suffix, because protection is per exchange
+        // and an older tool exchange may be kept past an evicted newer one.
         expect(isOrderPreservingSubsequence(rendering.includedTurns, unbounded.includedTurns)).toBe(
           true,
         );
 
-        // Every protected exchange survives, whatever the budget: the newest
-        // exchange, and the newest tool-bearing ones WHEREVER they sit.
+        // Every protected exchange survives any budget: the newest exchange and the newest
+        // tool-bearing ones wherever they sit.
         expect(rendering.includedTurns.length).toBeGreaterThan(0);
         expect(rendering.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
         const includedPositions: ReadonlySet<number> = new Set<number>(
@@ -548,15 +490,13 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
       }
     }
 
-    // Vacuity guard (a): the corpus really does straddle turn boundaries.
+    // Vacuity guard (a): the corpus straddles turn boundaries.
     expect(totalCrossTurnPairs).toBeGreaterThan(0);
-    // Vacuity guard (b): eviction really did fire.
+    // Vacuity guard (b): eviction fired.
     expect(rendersThatEvicted).toBeGreaterThan(0);
     expect(rendersThatEvicted).toBeLessThan(renderCount);
-    // Vacuity guard (c): the corpus contains transcripts carrying FEWER
-    // tool-bearing exchanges than the protected tail wants — the input class on
-    // which the tail is only partly satisfiable, and which a corpus where every
-    // exchange used a tool silently never reaches.
+    // Vacuity guard (c): some transcripts have fewer tool-bearing exchanges than the protected tail
+    // wants, the input on which the tail is only partly satisfiable.
     expect(transcriptsWithFewerToolExchangesThanProtected).toBeGreaterThan(0);
   });
 
@@ -574,16 +514,14 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     expect(toolCallIdsIn(rendering.includedTurns)).toEqual(
       toolResultIdsIn(rendering.includedTurns),
     );
-    // Older exchanges WERE evicted here, so the truncation is real.
+    // Older exchanges were evicted here, so the truncation is real.
     expect(rendering.evictedExchangeCount).toBeGreaterThan(0);
     expect(rendering.declaredLosses).toContain("context_truncated");
   });
 
   it("declares no truncation when a single over-budget exchange arrived whole", () => {
-    // The one place the module's honesty rule is observable: over budget is not
-    // the same as truncated. Nothing was evicted, so nothing was dropped, and
-    // claiming truncation would report a loss against a conversation that
-    // arrived intact.
+    // Over budget is not truncated: nothing was evicted, so claiming truncation would report a loss
+    // against a conversation that arrived intact.
     const memoProjection = new MemoProjection();
 
     const rendering: MemoRendering = memoProjection.render(
@@ -604,10 +542,8 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
   });
 
   it("still evicts a conversation that used no tool at all", () => {
-    // The protected tail is anchored on tool exchanges, so a transcript with
-    // none must not protect itself entirely — that would make the budget
-    // unenforceable on exactly the plain back-and-forth conversations where it
-    // matters most.
+    // The protected tail is anchored on tool exchanges, so a transcript with none must not protect
+    // itself entirely; that would leave the budget unenforceable on plain back-and-forth talk.
     const memoProjection = new MemoProjection();
     const turns: CanonicalTranscriptTurn[] = [];
     for (let index = 0; index < 12; index += 1) {
@@ -640,11 +576,9 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
   });
 
   it("protects the newest tool exchange far from the end, and still evicts around it", () => {
-    // The exchange below is the conversation's ONLY tool exchange, so it is also
-    // its newest one and qualifies for the protected tail on the plain reading of
-    // the rule. Protecting it must not drag everything after it in with it: it is
-    // protected as ONE whole exchange, eviction steps over it, and the budget goes
-    // on binding on the long plain run that follows.
+    // The only tool exchange is also the newest, so it qualifies for the protected tail. It is
+    // protected as one whole exchange without dragging later turns in: eviction steps over it and
+    // the budget still binds on the plain run that follows.
     const memoProjection = new MemoProjection();
     const turns: CanonicalTranscriptTurn[] = [
       turn(1, "user", [{ kind: "text", text: `opening ${PADDING}` }]),
@@ -680,18 +614,17 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     const bounded: MemoRendering = memoProjection.render(
       requestFor(projection, defaultMemoBudgetPolicy(600)),
     );
-    // The budget still binds — eviction fired around the protected exchange.
+    // The budget still binds: eviction fired around the protected exchange.
     expect(bounded.evictedExchangeCount).toBeGreaterThan(0);
     expect(bounded.declaredLosses).toContain("context_truncated");
-    // The ancient exchange is protected WHERE IT SITS, both halves together.
+    // The ancient exchange is protected where it sits, both halves together.
     expect(toolCallIdsIn(bounded.includedTurns)).toEqual(["call-ancient"]);
     expect(toolResultIdsIn(bounded.includedTurns)).toEqual(["call-ancient"]);
     expect(bounded.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
 
-    // The included set is therefore NOT a contiguous suffix: it holds a gap
-    // between the protected exchange and the retained tail. That gap is the
-    // point — an anchored protected region could not produce it without also
-    // protecting everything the gap contains.
+    // The included set is not a contiguous suffix: it has a gap between the protected exchange and
+    // the retained tail, which an anchored protected region could not produce without also
+    // protecting everything in the gap.
     const includedPositions: readonly number[] = bounded.includedTurns.map(
       (includedTurn) => includedTurn.position,
     );
@@ -701,7 +634,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
       (position, index) => index === 0 || position === (includedPositions[index - 1] ?? 0) + 1,
     );
     expect(contiguous).toBe(false);
-    // And the notice does not claim the retained exchanges are the most recent.
+    // The notice does not claim the retained exchanges are the most recent.
     expect(bounded.text).toContain("may not be consecutive");
   });
 
@@ -729,20 +662,16 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
   });
 
   it("never emits a memo larger than the ceiling it reports fitting under", () => {
-    // Assembly joins the preamble and every admitted exchange with a newline, so
-    // pricing each exchange ALONE and summing under-counts by one separator per
-    // admission — and the estimator is injected, so nothing entitles the caller
-    // to assume the parts sum to the whole in the first place. Near the ceiling
-    // that gap admits a set which assembles to more than the budget while the
-    // render still reports itself as fitting. Sweeping every integer ceiling
-    // across the transcript's range is what lands on it; one fixed budget would
-    // miss it by construction.
+    // Assembly joins the preamble and every admitted exchange with a newline, so pricing each
+    // exchange alone under-counts by one separator per admission, and the injected estimator does
+    // not owe additivity. Near the ceiling that admits a set that assembles past the budget while
+    // the render reports it fits. Only a sweep of every integer ceiling finds it; one fixed budget
+    // would miss it.
     const memoProjection = new MemoProjection();
     const turns: CanonicalTranscriptTurn[] = [];
     for (let index = 0; index < 12; index += 1) {
-      // Each rendered turn is exactly 72 characters — a whole multiple of the
-      // default estimator's character rate, so per-exchange rounding contributes
-      // no slack of its own and the separators are what the sweep measures.
+      // Each rendered turn is exactly 72 characters, a whole multiple of the default estimator's
+      // four characters per token, so rounding adds no slack and the separators are measured.
       turns.push(
         turn(index + 1, "assistant", [
           { kind: "text", text: `exchange ${index.toString().padStart(2, "0")} `.padEnd(61, "-") },
@@ -776,25 +705,22 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
         ceilingsTheProtectedFloorOverran += 1;
         continue;
       }
-      // The property: a render that reports itself within its ceiling IS within
-      // it, measured over the prose the settlement actually carries.
+      // A render that reports itself within its ceiling is within it, measured over the prose the
+      // settlement carries.
       expect(rendering.estimatedTokens).toBeLessThanOrEqual(ceilingTokens);
       if (rendering.evictedExchangeCount > 0) {
         ceilingsThatFitAfterEviction += 1;
       }
     }
 
-    // Vacuity guards: the sweep spans both regimes — ceilings the protected
-    // floor alone overruns, and ceilings where eviction brought the memo back
-    // under one, which is the regime the separators are paid in.
+    // Vacuity guards: the sweep spans ceilings the protected floor alone overruns and ceilings
+    // where eviction brought the memo back under one, which is where the separators are paid.
     expect(ceilingsTheProtectedFloorOverran).toBeGreaterThan(0);
     expect(ceilingsThatFitAfterEviction).toBeGreaterThan(0);
   });
 });
 
-// --------------------------------------------------------------------------
-// The two portability transforms this floor reuses
-// --------------------------------------------------------------------------
+// Portability transforms the floor reuses
 
 describe("memo body — portability transforms", () => {
   it("drops private reasoning and declares it, while a visible summary survives as prose", () => {
@@ -876,9 +802,9 @@ describe("memo body — portability transforms", () => {
     );
 
     expect(rendering.declaredLosses).toContain("turn_content_unavailable");
-    // The settlement's declaration does not reach the memo's own text, so the
-    // gap is named there too: an empty body renders to nothing, and a turn of
-    // nothing reads to the model as a turn that never happened.
+    // The settlement's declaration does not reach the memo's own text, so the gap is named there
+    // too: an empty body renders to nothing, and a turn of nothing reads to the model as a turn
+    // that never happened.
     expect(rendering.text).toContain("could not be recovered");
     // The turn is still present, with its speaker.
     expect(rendering.includedTurns).toHaveLength(3);
@@ -900,9 +826,7 @@ describe("memo body — portability transforms", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// 2 + 3 — reconcile-before-every-send
-// --------------------------------------------------------------------------
+// Reconcile before every send
 
 describe("memo delivery — once-only under a lost acknowledgment", () => {
   it("delivers exactly once when the send lands at the target and the acknowledgment is lost", async () => {
@@ -922,17 +846,16 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
     expect(second.disposition).toBe("already-delivered");
     expect(second.memoIdentityKey).toBe(first.memoIdentityKey);
 
-    // The load-bearing assertion is what the TARGET holds, not the disposition.
+    // What the target holds is the load-bearing assertion, not the disposition.
     expect(target.turns).toHaveLength(1);
     expect(target.sendAttempts).toBe(1);
   });
 
   it("negative control — blinding the readback across two coordinators produces the duplicate", async () => {
-    // Blinded and split across two coordinators, because reconciliation only
-    // stands alone there. One coordinator would not duplicate even blinded: it
-    // remembers that its own send went unacknowledged and will not send again on
-    // an absence it cannot trust. Two of them, two processes, or a restart
-    // mid-flight have nothing but the readback, which is what this blinds.
+    // Blinded across two coordinators, the only scope where reconciliation stands alone: one
+    // coordinator remembers its own send went unacknowledged and will not resend on an absence it
+    // cannot trust. Two coordinators, two processes or a restart have only the readback, which this
+    // blinds.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-then-fail";
     target.reportNoTurns = true;
@@ -948,9 +871,8 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
   });
 
   it("finds a memo delivered far back in the conversation and sends no second one", async () => {
-    // The delivered memo, then a long conversation on top of it. Once-only has
-    // to survive this: the user kept talking, the memo scrolled away, and
-    // the caller retries after a restart with no register to consult.
+    // The memo scrolls far back under a long conversation, and the caller retries after a restart
+    // with no register to consult.
     const target = new FakeTargetSession();
     const request: DeliveryDraft = requestFor(
       projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
@@ -978,11 +900,9 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
   });
 
   it("documents the cost of a windowed read — a marker-incomplete answer duplicates", async () => {
-    // NOT a control for the read's naming; it duplicates whatever that operation
-    // is called. It is here because the port's obligation — an answer sufficient
-    // to decide marker presence for the WHOLE session — is the only thing
-    // standing between the case above and this one, and an obligation with no
-    // demonstrated cost reads as a preference.
+    // Not a control for the read's naming. The port's obligation to answer for the whole session is
+    // all that separates the case above from this one; an obligation with no demonstrated cost
+    // reads as a preference.
     class WindowedTargetSession extends FakeTargetSession {
       static readonly WINDOW_TURN_COUNT: number = 20;
 
@@ -1010,8 +930,8 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
       request,
     );
 
-    // The marker is still in the conversation. The window simply cannot see it,
-    // and the user reads the same summary twice.
+    // The marker is still in the conversation; the window cannot see it, so the user reads the
+    // same summary twice.
     expect(retry.disposition).toBe("delivered");
     expect(target.sendAttempts).toBe(2);
     expect(target.turns.filter((turnText) => turnText.includes("continuity-ref:"))).toHaveLength(2);
@@ -1033,11 +953,9 @@ function plainConversation(): CanonicalTranscriptProjection {
 
 describe("memo reconciliation — the losses reported are the DELIVERED summary's", () => {
   it("reports what the delivered summary dropped, not what a later render would", async () => {
-    // The hazard: the summary the new session holds was rendered under a tight
-    // budget and left older exchanges out. A later delivery under a roomier one
-    // finds that summary, sends nothing — and would otherwise report the fresh
-    // render's losses, telling the user a summary they can scroll back and
-    // read carries exchanges it does not.
+    // The delivered summary was rendered under a tight budget and left older exchanges out. A later
+    // delivery under a roomier budget finds it and sends nothing, and must report the delivered
+    // summary's losses rather than the fresh render's.
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
 
@@ -1048,8 +966,8 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
     expect(delivered.disposition).toBe("delivered");
     expect(delivered.declaredLosses).toContain("context_truncated");
 
-    // A fresh coordinator under a budget wide enough to drop nothing, so only
-    // the read decides what is reported.
+    // A fresh coordinator under a budget wide enough to drop nothing, so only the read decides
+    // what is reported.
     const retry: MemoDeliverySettlement = await deliverVia(
       new MemoDeliveryCoordinator(target),
       requestFor(projection, ROOMY_BUDGET),
@@ -1063,9 +981,8 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("declares an upper bound when the delivered summary recorded no losses of its own", async () => {
-    // A summary placed in the conversation before summaries recorded what they
-    // dropped. Nothing can be learned from it, so the report is the floor's whole
-    // producible set — stated as a bound rather than as an account.
+    // A summary placed before summaries recorded what they dropped teaches nothing, so the report
+    // is the whole loss vocabulary, stated as a bound rather than an account.
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
     const request: DeliveryDraft = requestFor(projection, ROOMY_BUDGET);
@@ -1092,11 +1009,9 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("refuses a record that lists nothing, or lists it malformed", async () => {
-    // A vacuous record was previously read as a memo that dropped NOTHING —
-    // the strongest claim the marker can make, drawn from a record that failed
-    // to state anything. This floor declares its own summarization on every
-    // path, so a record that omits it was not written by this writer and its
-    // omissions cannot be accounted for.
+    // A record that lists nothing must not read as a memo that dropped nothing. This floor declares
+    // its summarization on every path, so a record that omits it was not written by this writer and
+    // its omissions cannot be accounted for.
     const projection: CanonicalTranscriptProjection = plainConversation();
     const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
     const marker: string = `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
@@ -1116,8 +1031,8 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
       expect(readDeliveredMemoDeclaredLosses([turnText], memoIdentityKey)).toBeUndefined();
     }
 
-    // And per OCCURRENCE: one readable record does not vouch for the memo beside
-    // it, because a target holding two markers under one key holds two summaries.
+    // Per occurrence: one readable record does not vouch for the memo beside it, since a target
+    // with two markers under one key holds two summaries.
     expect(
       readDeliveredMemoDeclaredLosses(
         [
@@ -1131,8 +1046,8 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
       ),
     ).toBeUndefined();
 
-    // The floor's own single-kind record still reads, so the strictness is about
-    // records this writer cannot produce rather than about short ones.
+    // The floor's own single-kind record still reads: the strictness is about records this writer
+    // cannot produce, not short ones.
     expect(
       readDeliveredMemoDeclaredLosses(
         [`${marker};dropped=conversation_history_summarized`],
@@ -1142,31 +1057,27 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("admits delivery only on a syntactically COMPLETE marker occurrence", () => {
-    // The admission decides whether to skip the only context transfer there is,
-    // so a false yes leaves the target holding nothing while the caller reports
-    // success. A substring test answers yes to any text the key happens to sit
-    // inside — so the two boundaries are what make an occurrence THIS marker
-    // rather than something longer that contains it.
+    // Admission decides whether to skip the only context transfer there is, so a false yes leaves
+    // the target with nothing while the caller reports success. A substring test says yes to any
+    // text the key sits inside; the two boundaries make an occurrence this marker and not something
+    // longer that contains it.
     const projection: CanonicalTranscriptProjection = plainConversation();
     const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
     const marker: string = `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
 
     const notThisMarker: readonly string[] = [
-      // The key RUNS ON into more token characters: a different key that happens
-      // to begin with this one, and a summary this reader knows nothing about.
+      // The key runs on into more token characters: a different key that begins with this one.
       `${marker}0`,
       `${marker}-second`,
       `${marker}_b`,
-      // The token OPENED mid-word. `continuity-ref:` is ordinary lowercase text,
-      // so a longer word ending in it would otherwise open a marker never
-      // written.
+      // The token opened mid-word: `continuity-ref:` is ordinary lowercase text, so a longer word
+      // ending in it would open a marker never written.
       `x${marker}`,
       `discontinuity-ref:${memoIdentityKey}`,
     ];
     for (const turnText of notThisMarker) {
       expect(targetTurnsCarryMemoMarker([turnText], memoIdentityKey)).toBe(false);
-      // And the SAME answer from the record reader, because one grammar serves
-      // both: a marker the admission does not see is not one this may read.
+      // The record reader answers the same, because one grammar serves both.
       expect(readDeliveredMemoDeclaredLosses([turnText], memoIdentityKey)).toBeUndefined();
     }
 
@@ -1176,11 +1087,9 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
       `${marker} and then some prose`,
       `(${marker})`,
       `${marker};dropped=conversation_history_summarized`,
-      // Complete, and its RECORD unreadable — still this marker, so still
-      // delivered. The two questions are separate: presence says a summary is in
-      // the target, and re-sending on an unparseable record would put a second
-      // one there. What the record cannot say is reported as the upper bound
-      // instead, which is the arm asserted above.
+      // Complete with an unreadable record is still this marker, so still delivered: presence says
+      // a summary is in the target, and resending on an unparseable record would add a second.
+      // What the record cannot say is reported as the upper bound, the arm asserted above.
       `${marker};dropped=`,
     ];
     for (const turnText of thisMarker) {
@@ -1189,9 +1098,8 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("sends the memo into a target whose text merely EXTENDS the marker key", async () => {
-    // The consequence, through the coordinator rather than the predicate: the
-    // near-miss must not settle the delivery, because settling it is how the
-    // user's context transfer silently does not happen.
+    // Through the coordinator: a near-miss must not settle the delivery, or the context transfer
+    // silently does not happen.
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
     target.turns.push(
@@ -1208,13 +1116,10 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("sends the memo past a pasted foreign marker rather than settling on it", async () => {
-    // Marker text is plain prose, so a user can paste another
-    // conversation's marker — syntactically complete, valid record and all —
-    // into the target. An admission that matched ANY well-shaped key read that
-    // quotation as a delivery and settled `already-delivered` over a target
-    // holding no memo: the silent-non-delivery direction the admission's own
-    // asymmetry note prices as the worse one. A key this coordinator never
-    // attempted settles nothing.
+    // Marker text is plain prose, so a user can paste another conversation's complete marker into
+    // the target. Matching any well-shaped key would read that as a delivery and settle
+    // already-delivered over a target holding no memo. A key this coordinator never attempted
+    // settles nothing.
     const target = new FakeTargetSession();
     const foreignMemoIdentityKey: string = "ab".repeat(16);
     target.turns.push(
@@ -1262,8 +1167,8 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
         attributable,
       ),
     ).toBe(false);
-    // The grammar is still the strict shared one: an attributable key in a
-    // non-marker shape is not an occurrence at all.
+    // The grammar is still the strict shared one: an attributable key in a non-marker shape is not
+    // an occurrence at all.
     expect(
       targetTurnsCarryAttributableMemoMarker(
         [`${MEMO_CONTINUITY_MARKER_PREFIX}${attributedKey}0`],
@@ -1273,18 +1178,15 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("names the target session on every reconciliation read, as the send does", async () => {
-    // Reconciliation decides whether to send INTO the session the frame names,
-    // so an un-targeted read would let an absent marker in one session license a
-    // send into another — and the memo's identity key is derived over the target
-    // session id, so such an answer would not even be about the same key. Both
-    // reads are asserted, including the post-send readback that settles an
-    // ambiguous send, because a settlement resting on an un-targeted readback is
-    // the same defect one call later.
+    // Reconciliation decides whether to send into the session the frame names, so an untargeted
+    // read could let an absent marker in one session license a send into another. The identity key
+    // is derived over the target session id, so such an answer would not be about the same key
+    // either. Both reads are asserted, including the post-send readback that settles an ambiguous
+    // send.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-then-fail";
     const projection: CanonicalTranscriptProjection = plainConversation();
-    // Deliberately NOT the default target, so the id is shown to come from the
-    // request rather than from whatever this suite happens to use most.
+    // Not the default target, so the id is shown to come from the request.
     const request: DeliveryDraft = requestFor(projection, ROOMY_BUDGET, OTHER_TARGET);
 
     const settlement: MemoDeliverySettlement = await deliverVia(
@@ -1298,16 +1200,14 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
       OTHER_TARGET.providerSessionId,
       OTHER_TARGET.providerSessionId,
     ]);
-    // One session, read and written: the two must agree or the reconciliation
-    // is not about the send it guards.
+    // One session, read and written: the two must agree or the reconciliation is not about the
+    // send it guards.
     expect(target.sentTargetIds).toStrictEqual([OTHER_TARGET.providerSessionId]);
   });
 
   it("declares the upper bound when the delivered memo's record is vacuous", async () => {
-    // The consequence a caller sees: an unreadable record settles as the whole
-    // closed vocabulary, stated as a bound, rather than as an account of
-    // nothing. The vocabulary rather than this build's producible subset — the
-    // two are different sets, and only the wider one is a bound.
+    // An unreadable record settles as the whole closed vocabulary, stated as a bound. The
+    // vocabulary, not this build's producible subset: only the wider set is a bound.
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
     const request: DeliveryDraft = requestFor(projection, ROOMY_BUDGET);
@@ -1329,9 +1229,8 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("refuses to read a record it does not fully understand", async () => {
-    // Fail-closed on the parse, for the same reason the fold fails closed on an
-    // unknown disclosure: understanding a record partly is worse than not
-    // claiming to understand it. The unrecognized token could name any loss.
+    // Fail closed on the parse, as the fold does on an unknown disclosure: understanding a record
+    // partly is worse than not claiming to, and the unrecognized token could name any loss.
     const projection: CanonicalTranscriptProjection = plainConversation();
     const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
 
@@ -1357,16 +1256,11 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("reads a record naming a kind this build produces NOWHERE", () => {
-    // The vocabulary is the wire's, not this workspace's. A record can be
-    // written by a peer daemon running a build whose fold emits a kind no leg
-    // here emits yet, and the reader's job is to PLACE the token rather than to
-    // ask whether the running build has a producer for it.
-    //
-    // Unrecognized, this record would take the refusal above and settle as the
-    // whole bound — reporting a memo that dropped everything the vocabulary can
-    // name, from a writer that said precisely what it dropped. That is the
-    // reader half of why the vocabulary is carried complete here and not
-    // trimmed to what this build emits.
+    // The vocabulary is the wire's, not this workspace's. A peer daemon on a newer build may write
+    // a kind this build never emits, and the reader places the token rather than asking whether
+    // this build produces it. Unrecognized, the record would settle as the whole bound and report
+    // a memo that dropped everything, from a writer that said precisely what it dropped. That is
+    // why the vocabulary is carried complete and not trimmed to what this build emits.
     const projection: CanonicalTranscriptProjection = plainConversation();
     const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
 
@@ -1384,17 +1278,16 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 
   it("reports the delivered summary's losses on an acknowledgment lost after it landed", async () => {
-    // The same rule at the other site where a settlement rests on a marker read
-    // rather than on this call's own acknowledged send. Placing an unrecorded
-    // marker under this memo's key proves the rule is read off the marker: a
-    // marker with no record is provably not the memo this call composed.
+    // The same rule where a settlement rests on a marker read rather than on this call's own
+    // acknowledged send. A marker with no record under this memo's key is provably not the memo
+    // this call composed, so the rule is read off the marker.
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
     const request: DeliveryDraft = requestFor(projection, ROOMY_BUDGET);
     target.sendBehavior = "apply-then-fail";
     target.readOutcomes.push("ok");
-    // Blind the PRE-send read only, so the send is attempted and its readback is
-    // what settles the delivery.
+    // The pre-send read sees nothing, so the send is attempted and its readback settles the
+    // delivery.
     const priorTurn = `an older summary ${MEMO_CONTINUITY_MARKER_PREFIX}${deriveMemoIdentityKey(
       projection,
       TARGET,
@@ -1417,17 +1310,10 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
   });
 });
 
-// --------------------------------------------------------------------------
-// 2b — an ambiguous send is held unconfirmed, never settled off one snapshot
-// --------------------------------------------------------------------------
-
 /**
- * The hazard these pin, in product terms: a send whose acknowledgment is lost may
- * still be landing at the provider. A readback taken the same instant finds no
- * marker — not because the memo will not arrive, but because it has not arrived
- * yet. Treating that one snapshot as proof of refusal is what let a retry send a
- * second memo into a conversation that was already receiving the first, leaving
- * the user reading the same summary twice.
+ * A send whose acknowledgment is lost may still be landing at the provider, so a readback
+ * taken at once finds no marker yet. Settling that one snapshot as a refusal would let a
+ * retry send a second memo into a conversation that is already receiving the first.
  */
 describe("memo delivery — an ambiguous send is held unconfirmed", () => {
   const AMBIGUOUS_REQUEST: DeliveryDraft = requestFor(
@@ -1441,38 +1327,32 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
 
     const first: MemoDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
-    // The acknowledgment timed out and the provider has not finished applying,
-    // so the readback that followed it found nothing. That is not a refusal.
+    // The provider has not finished applying, so the readback found nothing; that is not a refusal.
     expect(first.disposition).toBe("unconfirmed");
     expect(first.withheldReason).toBeUndefined();
     expect(target.sendAttempts).toBe(1);
     expect(target.turns).toHaveLength(0);
 
-    // The caller retries, as a caller with no acknowledgment must. Its own read
-    // still finds nothing, for exactly the same reason.
+    // The retry's read finds nothing for the same reason.
     const retry: MemoDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
     expect(retry.disposition).toBe("unconfirmed");
     expect(target.sendAttempts).toBe(1);
 
-    // The provider finishes applying the FIRST send.
     target.applyPendingSends();
     expect(target.turns).toHaveLength(1);
 
     const afterLanding: MemoDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
-    // The load-bearing assertion is what the TARGET holds: exactly one memo,
-    // from exactly one send, across three delivery calls.
+    // The target holds one memo from one send across three delivery calls.
     expect(afterLanding.disposition).toBe("already-delivered");
     expect(target.sendAttempts).toBe(1);
     expect(target.turns).toHaveLength(1);
   });
 
   it("does not double-send when a barrier is supplied and the first send lands late", async () => {
-    // A barrier cannot answer for the send its own call just made — nothing has
-    // happened yet that it could have waited for. The call that made the
-    // ambiguous send therefore never consults it, so a caller supplying the most
-    // obvious barrier there is cannot talk that call into a refusal.
+    // The call that made the ambiguous send never consults the barrier, so a barrier that
+    // resolves at once cannot talk that call into a refusal.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
     const coordinator = new MemoDeliveryCoordinator(target);
@@ -1493,9 +1373,8 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
   });
 
   it("converges on the late-landing memo when the barrier really waits for it", async () => {
-    // The honest barrier's whole job: waiting for the session to go quiet lets
-    // the first send finish, so the retry's read finds the memo and settles as
-    // the delivery it already is.
+    // A barrier that waits for the session to go quiet lets the first send finish, so the
+    // retry's read finds the memo and settles as already delivered.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
     const coordinator = new MemoDeliveryCoordinator(target);
@@ -1516,10 +1395,9 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
   });
 
   it("sends again once the caller's barrier establishes the earlier send never landed", async () => {
-    // Holding the memo back forever would be its own failure — the user
-    // would silently get no summary. Resolving the old ambiguity and attempting
-    // a new send are two calls, not one: the barrier's word closes the first
-    // send, and the ordinary reconcile that follows opens the second.
+    // Holding the memo back forever would leave the user without a summary. Closing the old
+    // ambiguity and attempting a new send are two calls: the barrier closes the first send,
+    // and the ordinary reconcile that follows opens the second.
     const target = new FakeTargetSession();
     target.sendBehavior = "refuse";
     const coordinator = new MemoDeliveryCoordinator(target);
@@ -1556,7 +1434,7 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
       sendSettlementBarrier: EXPIRED_BARRIER,
     });
 
-    // A bounded wait running out answers nothing, so it authorizes nothing.
+    // An expired wait establishes nothing, so no send follows.
     expect(retry.disposition).toBe("unconfirmed");
     expect(target.sendAttempts).toBe(1);
   });
@@ -1570,7 +1448,7 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
     target.readOutcomes.push("fail");
     const retry: MemoDeliverySettlement = await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
-    // Withheld asserts that nothing landed. Nobody established that here.
+    // Withheld would assert that nothing landed; an unreadable target establishes no such thing.
     expect(retry.disposition).toBe("unconfirmed");
     expect(retry.withheldReason).toBeUndefined();
     expect(target.sendAttempts).toBe(1);
@@ -1585,25 +1463,18 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
     await deliverVia(coordinator, AMBIGUOUS_REQUEST);
     await deliverVia(coordinator, AMBIGUOUS_REQUEST);
 
-    // The memo landed and the blinded read cannot see it, yet no second send is
-    // attempted: an unacknowledged send is remembered, not re-derived from a
-    // reading that may be wrong.
+    // The memo landed and the blind read cannot see it, yet no second send is attempted: an
+    // unacknowledged send is remembered, not re-derived from a read that may be wrong.
     expect(target.sendAttempts).toBe(1);
     expect(target.turns).toHaveLength(1);
   });
 
   it("negative control — a successor that claims the same target afresh duplicates", async () => {
-    // The register claims nothing wider than the object holding it, and is not
-    // durable. This is the cost of that, isolated: a successor that ASSERTS the
-    // still-poisoned target is its own fresh one gets past the establishment
-    // gate, falls back to the pre-send reconcile, reads an absence that is only
-    // an unfinished apply, and sends the summary a second time.
-    //
-    // It is the exact residual the gate leaves and cannot close — nothing here
-    // can tell a fresh provider session id from a reused one — and it is a
-    // caller breaking the abandon-never-reuse rule rather than a hole in it. The
-    // test above shows the path that does NOT require breaking that rule, and
-    // that path is closed.
+    // The register lives in one coordinator and is not durable. A successor that establishes
+    // the still-applying target as its own passes the establishment gate, reads an absence
+    // that is only an unfinished apply, and sends the summary again. Nothing can tell a fresh
+    // provider session id from a reused one; the caller must abandon an ambiguously-sent
+    // target, never reuse it.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
 
@@ -1616,21 +1487,15 @@ describe("memo delivery — an ambiguous send is held unconfirmed", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// 2c — a memo is sent only into a target the sender itself established
-// --------------------------------------------------------------------------
-
 describe("memo delivery — only the coordinator that established a target sends into it", () => {
   const REQUEST_DRAFT: DeliveryDraft = requestFor(
     projectionOf([turn(1, "user", [{ kind: "text", text: "hello" }])]),
   );
 
   it("refuses to send into a target another coordinator established", async () => {
-    // The restart, modeled as callers actually experience it: the coordinator
-    // that made the ambiguous send is gone and its register with it, and what a
-    // successor inherits is the REQUEST — the established target inside it
-    // included. That successor knows nothing about the send still applying, so
-    // it is refused BEFORE it can read an absence and act on it.
+    // A restart: the coordinator that made the ambiguous send and its register are gone, and
+    // the successor inherits only the request, established target included. It knows nothing
+    // about the send still applying, so it is refused before it can read an absence and act.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
     const original = new MemoDeliveryCoordinator(target);
@@ -1644,8 +1509,7 @@ describe("memo delivery — only the coordinator that established a target sends
     const successor = new MemoDeliveryCoordinator(target);
     await expect(successor.deliver(request)).rejects.toBeInstanceOf(UnownedMemoTargetError);
 
-    // Refused ahead of the read as well as the send: a coordinator that may not
-    // send has no business forming an opinion about the target's contents.
+    // The refusal comes before the read as well as before the send.
     expect(target.readAttempts).toBe(readsBeforeTheSuccessor);
     expect(target.sendAttempts).toBe(1);
     target.applyPendingSends();
@@ -1653,11 +1517,9 @@ describe("memo delivery — only the coordinator that established a target sends
   });
 
   it("refuses a handle nothing established, however well-formed", async () => {
-    // The type is nominal, so a bare object literal does not reach here at all.
-    // What does reach here is a correctly-constructed handle naming the right
-    // session — and it is still refused, because what admits a delivery is the
-    // coordinator's own record of having claimed that target, never the value
-    // the handle carries.
+    // The handle type is nominal, so a bare literal cannot be passed. A well-formed handle for
+    // the right session is still refused: admission rests on the coordinator's own record of
+    // establishing the target, not on the value the handle carries.
     const target = new FakeTargetSession();
     const coordinator = new MemoDeliveryCoordinator(target);
 
@@ -1672,10 +1534,8 @@ describe("memo delivery — only the coordinator that established a target sends
   });
 
   it("hands back one handle for a target established twice, and forgets no send", async () => {
-    // Idempotent, because a caller re-establishing a target it already owns is
-    // an ordinary retry. The load-bearing half is the second assertion:
-    // re-establishing must not reset the unconfirmed register, which would hand
-    // back exactly the guarantee that register exists to hold.
+    // Re-establishing an owned target is an ordinary retry, so it returns the same handle. It
+    // must not reset the unconfirmed register, which would lose the guarantee the register holds.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
     const coordinator = new MemoDeliveryCoordinator(target);
@@ -1701,9 +1561,8 @@ describe("memo delivery — overlapping calls for one memo", () => {
   );
 
   it("sends once when two calls for one memo overlap", async () => {
-    // Both calls read the target before either send lands, so both legitimately
-    // find no marker: reconciliation cannot separate them, and the send is the
-    // one act here that cannot be taken back.
+    // Both calls read the target before either send lands, so both find no marker and
+    // reconciliation alone would send twice; a send cannot be taken back.
     const target = new FakeTargetSession();
     const coordinator = new MemoDeliveryCoordinator(target);
 
@@ -1712,7 +1571,6 @@ describe("memo delivery — overlapping calls for one memo", () => {
       deliverVia(coordinator, OVERLAPPING_REQUEST),
     ]);
 
-    // The load-bearing assertion is what the TARGET holds.
     expect(target.turns).toHaveLength(1);
     expect(target.sendAttempts).toBe(1);
     expect(first?.disposition).toBe("delivered");
@@ -1720,9 +1578,8 @@ describe("memo delivery — overlapping calls for one memo", () => {
   });
 
   it("negative control — two coordinators over one target do not share a delivery", async () => {
-    // The exclusion is scoped to one coordinator and claims nothing wider. Two
-    // of them, two processes, or a restart mid-flight all fall back to the
-    // pre-send reconcile, whose window this is.
+    // The exclusion is scoped to one coordinator. Two coordinators, two processes, or a
+    // restart mid-flight fall back to the pre-send reconcile, which has this window.
     const target = new FakeTargetSession();
 
     await Promise.all([
@@ -1746,18 +1603,15 @@ describe("memo delivery — overlapping calls for one memo", () => {
 
     const retry: MemoDeliverySettlement = await deliverVia(coordinator, OVERLAPPING_REQUEST);
 
-    // A settled delivery is not a standing answer: the retry reads the target
-    // again and finds the marker there, rather than being handed the settlement
-    // the earlier pair produced.
+    // A settled delivery is not reused: the retry reads the target again and finds the marker.
     expect(target.readAttempts).toBeGreaterThan(readsBeforeRetry);
     expect(retry.disposition).toBe("already-delivered");
     expect(target.sendAttempts).toBe(1);
   });
 
   it("does not let a withheld delivery stand in for the next one", async () => {
-    // The first settles WITHHELD on an unreadable target. If the flight it
-    // occupied outlived it, the second caller would inherit that refusal and the
-    // memo would never be sent at all.
+    // The first call settles withheld on an unreadable target. If its in-flight entry outlived
+    // it, the second call would inherit that refusal and the memo would never be sent.
     const target = new FakeTargetSession();
     target.readOutcomes.push("fail");
     const coordinator = new MemoDeliveryCoordinator(target);
@@ -1774,10 +1628,6 @@ describe("memo delivery — overlapping calls for one memo", () => {
     expect(target.turns).toHaveLength(1);
   });
 });
-
-// --------------------------------------------------------------------------
-// Once-only is per TARGET — a grown projection is not a second admission
-// --------------------------------------------------------------------------
 
 describe("memo delivery — once-only is per target, not per memo", () => {
   const FIRST_PROJECTION: CanonicalTranscriptProjection = projectionOf([
@@ -1803,21 +1653,20 @@ describe("memo delivery — once-only is per target, not per memo", () => {
       requestFor(GROWN_PROJECTION),
     );
 
-    // The keys differ — this is the seeded target a (target, memo)-scoped read
-    // walks straight past, and the second summary it would have licensed.
+    // The keys differ; a read scoped to (target, memo) would miss the seeded target and send a
+    // second summary.
     expect(grown.memoIdentityKey).not.toBe(first.memoIdentityKey);
     expect(grown.disposition).toBe("already-delivered");
     expect(target.sendAttempts).toBe(1);
-    // The marker found is another memo's; its record cannot account for THIS
-    // projection's omissions, so the losses are the conservative ceiling.
+    // The marker found belongs to another memo and cannot account for this projection's
+    // omissions, so the losses are the conservative ceiling.
     expect(grown.declaredLossSource).toBe("unknown");
   });
 
   it("still settles a restarted coordinator already-delivered on its own memo's marker", async () => {
-    // The attributable-key admission always includes the CURRENT rendering's
-    // key, so a predecessor lifetime's delivery of THIS memo suppresses a
-    // fresh coordinator's resend — the attempted-key register is a widening
-    // for grown projections, not the sole source of attribution.
+    // Admission always includes the current rendering's key, so a restarted coordinator still
+    // recognizes a predecessor's delivery of this same memo; the attempted-key register only
+    // widens that for grown projections.
     const target = new FakeTargetSession();
     const first: MemoDeliverySettlement = await deliverVia(
       new MemoDeliveryCoordinator(target),
@@ -1835,15 +1684,11 @@ describe("memo delivery — once-only is per target, not per memo", () => {
   });
 
   it("re-sends a grown projection after a restart onto a predecessor-seeded target", async () => {
-    // The RECORDED residual of attributable-key admission, pinned so the
-    // choice is read here rather than inferred: the attempted-key register
-    // lives in the coordinator, so a restarted coordinator rendering a GROWN
-    // projection does not recognize its predecessor's marker as its own and
-    // sends one redundant visible summary. Priced acceptable deliberately —
-    // the admission this replaced (settle on ANY well-formed marker) let a
-    // pasted transcript forge suppression of a memo that was never delivered,
-    // and the false-no side costs a duplicate summary while the false-yes
-    // side costs the user their continuity.
+    // Known cost of attributable-key admission: the attempted-key register lives in the
+    // coordinator, so a restarted coordinator rendering a grown projection does not recognize
+    // its predecessor's marker and sends one redundant summary. Settling on any well-formed
+    // marker instead would let pasted text forge suppression of a memo never delivered, which
+    // costs the user their continuity; a duplicate summary costs less.
     const target = new FakeTargetSession();
     const first: MemoDeliverySettlement = await deliverVia(
       new MemoDeliveryCoordinator(target),
@@ -1877,9 +1722,8 @@ describe("memo delivery — once-only is per target, not per memo", () => {
   });
 
   it("holds a grown projection unconfirmed while an earlier memo's send is still ambiguous", async () => {
-    // The register is target-scoped: were it scoped to the (target, memo) pair,
-    // the grown projection's new key would not see the outstanding send and
-    // this call would send beside a memo still landing.
+    // The register is scoped to the target; scoped to (target, memo), the grown projection's new
+    // key would miss the outstanding send and send beside a memo still landing.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-late-then-fail";
     const coordinator = new MemoDeliveryCoordinator(target);
@@ -1910,9 +1754,8 @@ describe("memo delivery — once-only is per target, not per memo", () => {
       sendSettlementBarrier: settlementBarrierFor(target),
     });
 
-    // The earlier memo landed, so the target is seeded and stays seeded. What
-    // it holds is the EARLIER memo, so the loss list is the ceiling, not this
-    // render's own.
+    // The target holds the earlier memo, so the loss list is the conservative ceiling, not
+    // this render's own.
     expect(settled.disposition).toBe("already-delivered");
     expect(settled.declaredLossSource).toBe("unknown");
     expect(target.sendAttempts).toBe(1);
@@ -1955,11 +1798,9 @@ describe("memo delivery — an unreadable target", () => {
   });
 
   it("settles withheld only on a later call, once the barrier orders the read behind the send", async () => {
-    // A rejected send may still be applying,
-    // so a readback that finds nothing is not proof the memo was refused. The
-    // refusal arm now takes a SECOND delivery — one whose barrier is ordered
-    // behind a send that completed before that call began. The call that made
-    // the send cannot reach it at all, whatever the caller passes.
+    // A rejected send may still be applying, so a readback that finds nothing is not proof of
+    // refusal. Only a second delivery, whose barrier is ordered behind a send that completed
+    // before that call began, settles withheld; the call that made the send cannot.
     const target = new FakeTargetSession();
     target.sendBehavior = "refuse";
     const coordinator = new MemoDeliveryCoordinator(target);
@@ -1993,10 +1834,6 @@ describe("memo delivery — an unreadable target", () => {
     expect(target.turns).toHaveLength(0);
   });
 });
-
-// --------------------------------------------------------------------------
-// 4 — key purity
-// --------------------------------------------------------------------------
 
 class RecordedEventLog implements TranscriptEventReader {
   readonly #events: StoredEvent[] = [];
@@ -2073,9 +1910,9 @@ function makeFoldFixture(): FoldFixture {
 }
 
 function seedConversation(fixture: FoldFixture): void {
-  // No message member on the row: the user's words reach the fold through
-  // the content port, because the emitter routes them through the encrypted
-  // envelope and the read path returns only the clear half.
+  // The row carries no message: the emitter routes the user's words through the encrypted
+  // envelope and the read path returns only the clear half, so the fold reads them from the
+  // content port.
   fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "user" }));
   fixture.contentSource.userTextBySequence.set(1, "run the tests");
   fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
@@ -2109,10 +1946,8 @@ describe("memo identity key — derived, never stored", () => {
       TARGET,
     );
 
-    // A restart: nothing in memory survives, the durable rows do — and so does
-    // the content the port reads, which is durable for the same reason the rows
-    // are. Carrying the log across without the content would model a restart
-    // that lost half the conversation, not a restart.
+    // A restart keeps the durable rows and the content the port reads; carrying only the log
+    // across would model a restart that lost half the conversation.
     const after = makeFoldFixture();
     for (const event of before.log.readEvents()) {
       after.log.append(event);
@@ -2146,7 +1981,7 @@ describe("memo identity key — derived, never stored", () => {
       runId: RUN_ID,
     });
 
-    // The projection's own position moved, which is why it cannot key the memo.
+    // The built position moved, which is why it is not part of the key.
     expect(after.builtAtPosition).toBeGreaterThan(before.builtAtPosition);
     expect(deriveMemoIdentityKey(after, TARGET)).toBe(deriveMemoIdentityKey(before, TARGET));
   });
@@ -2160,8 +1995,7 @@ describe("memo identity key — derived, never stored", () => {
     );
 
     fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "user" }));
-    // Seeded, so the key moves because the CONTENT changed — an unseeded row
-    // would move it too, on an unavailability marker rather than on new words.
+    // Content is seeded so the key moves on new words, not on an unavailability marker.
     fixture.contentSource.userTextBySequence.set(3, "and now deploy");
     const after: string = deriveMemoIdentityKey(
       fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
@@ -2213,13 +2047,10 @@ describe("memo identity key — derived, never stored", () => {
   }
 
   it("moves when a WITHHELD enclosure is later resolved portable, so the repair can be sent", () => {
-    // The once-only key's hardest direction. A fold whose reasoning row was
-    // unreadable cannot establish the enclosure portable, resolves it `unknown`,
-    // and withholds the result; a fold rebuilt at a boundary before that row —
-    // or after it became readable — carries the real body. Every OTHER hashed
-    // field is identical across the two, so a key blind to this member settles
-    // the corrected rendering as already-delivered and leaves the target holding
-    // the diminished memo for good.
+    // A fold whose reasoning row was unreadable resolves the enclosure `unknown` and withholds
+    // the result; a fold that can read the row carries the real body. Every other hashed field
+    // is identical, so a key blind to this member would settle the corrected rendering as
+    // already delivered and leave the target holding the diminished memo for good.
     const withheld: string = deriveMemoIdentityKey(projectionEnclosing("unknown"), TARGET);
     const corrected: string = deriveMemoIdentityKey(projectionEnclosing(undefined), TARGET);
 
@@ -2227,18 +2058,15 @@ describe("memo identity key — derived, never stored", () => {
   });
 
   it("distinguishes the two withholding verdicts, which are different facts", () => {
-    // `private` is a block that was READ and is not portable; `unknown` is a
-    // block whose disclosure could not be established at all. They withhold the
-    // same body and say different things about why, and the memo discloses the
-    // reason — so collapsing them would let one rendering settle the other.
+    // `private` is a block that was read and is not portable; `unknown` is a block whose
+    // disclosure could not be established. They withhold the same body for different reasons and
+    // the memo discloses the reason, so collapsing them would let one rendering settle the other.
     expect(deriveMemoIdentityKey(projectionEnclosing("private"), TARGET)).not.toBe(
       deriveMemoIdentityKey(projectionEnclosing("unknown"), TARGET),
     );
 
-    // And PAIRWISE across all three, so the rule reads "a different verdict is a
-    // different memo" rather than as two special cases. It also settles what the
-    // stability test beside this one cannot: a key that never moved at all would
-    // satisfy every equality assertion here.
+    // All three verdicts are pairwise distinct; a key that never moved would pass every
+    // equality assertion in the neighbouring tests.
     const keysByVerdict: Set<string> = new Set<string>([
       deriveMemoIdentityKey(projectionEnclosing("private"), TARGET),
       deriveMemoIdentityKey(projectionEnclosing("unknown"), TARGET),
@@ -2249,10 +2077,8 @@ describe("memo identity key — derived, never stored", () => {
   });
 
   it("stays put when the enclosure verdict AGREES, so an unchanged fold re-sends nothing", () => {
-    // The other direction of the same rule, and the one a too-eager key breaks:
-    // two folds that resolved the enclosure the same way are the same memo, and
-    // a key that moved anyway would send a second summary into a target that
-    // already holds one.
+    // Two folds that resolved the enclosure the same way are the same memo; a key that moved
+    // anyway would send a second summary into a target that already holds one.
     expect(deriveMemoIdentityKey(projectionEnclosing("private"), TARGET)).toBe(
       deriveMemoIdentityKey(projectionEnclosing("private"), TARGET),
     );
@@ -2274,10 +2100,6 @@ describe("memo identity key — derived, never stored", () => {
     expect(deriveMemoIdentityKey(left, TARGET)).not.toBe(deriveMemoIdentityKey(right, TARGET));
   });
 });
-
-// --------------------------------------------------------------------------
-// 5 — no durable claim on any path
-// --------------------------------------------------------------------------
 
 describe("memo delivery — nothing durable is written", () => {
   it("touches only the read and the send on the target, across all four delivery paths", async () => {
@@ -2323,10 +2145,6 @@ describe("memo delivery — nothing durable is written", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// 6 — the key rides the outbound frame, visibly
-// --------------------------------------------------------------------------
-
 describe("memo frame — the key is carried as visible characters", () => {
   it("renders the derived key into the frame the target receives", async () => {
     const sentFrames: MemoOutboundFrame[] = [];
@@ -2349,15 +2167,14 @@ describe("memo frame — the key is carried as visible characters", () => {
     );
     const frame: MemoOutboundFrame | undefined = sentFrames[0];
     expect(frame).toBeDefined();
-    // Asserted on the FRAME, not on the projection or the settlement.
+    // Asserted on the frame the target receives, not on the projection or the settlement.
     expect(frame?.frame.wireText).toContain(marker);
     expect(frame?.memoIdentityKey).toBe(settlement.memoIdentityKey);
 
     const markerIndex: number = (frame?.frame.wireText ?? "").indexOf(marker);
     expect(markerIndex).toBeGreaterThanOrEqual(0);
-    // The whole marker is one whitespace-free run of printable ASCII, which is
-    // what makes it survive a provider's reflow — the record it now carries
-    // included, not just the prefix it leads with.
+    // The whole marker, loss record included, is one whitespace-free run of printable ASCII so
+    // that it survives a provider's reflow.
     expect(marker).toMatch(/^[\x21-\x7E]+$/);
   });
 
@@ -2377,17 +2194,15 @@ describe("memo frame — the key is carried as visible characters", () => {
     );
 
     const frame: MemoOutboundFrame | undefined = sentFrames[0];
-    // A memo is the daemon narrating a prior conversation — neither the
-    // user's own text nor a driver command.
+    // A memo is the daemon narrating a prior conversation, neither the user's text nor a
+    // driver command.
     expect(frame?.frame.origin).toBe("system_narration");
     expect(frame?.frame.tripwireExempt).toBe(false);
-    // Only the writer mints one, so the memo cannot reach the provider around
-    // the neutralization boundary.
+    // Only the frame writer mints a frame, so the memo cannot bypass neutralization.
     expect(frame?.frame.mintedByWriter).toBe(true);
-    // The boundary is TRANSPORT-only: the authored prose is the rendering,
-    // byte for byte, whatever the wire bytes turn out to be.
+    // Neutralization is transport-only: the authored text equals the rendering byte for byte.
     expect(frame?.frame.authoredText).toBe(settlement.rendering.text);
-    // And the correlation value the tripwire joins a turn back on is present.
+    // The correlation id the tripwire joins a turn back on is present.
     expect((frame?.frame.correlationId ?? "").length).toBeGreaterThan(0);
   });
 
@@ -2407,10 +2222,9 @@ describe("memo frame — the key is carried as visible characters", () => {
 
     const frameText: string = sentFrames[0]?.frame.wireText ?? "";
     expect(frameText.length).toBeGreaterThan(0);
-    // Zero-width, word-joiner, BOM, variation selectors, and Unicode tag
-    // characters — the sentinel classes the spec prohibits outright. Scanned by
-    // code point rather than by a character class, because a class holding
-    // combining characters is itself misleading to read.
+    // Zero-width, word-joiner, BOM, variation-selector and Unicode tag characters must never
+    // appear as sentinels. Scanned by code point because a character class holding them is
+    // misleading to read.
     const invisibleCodePoints: number[] = [...frameText]
       .map((character) => character.codePointAt(0) ?? 0)
       .filter(
@@ -2422,14 +2236,9 @@ describe("memo frame — the key is carried as visible characters", () => {
           (codePoint >= 0xe0000 && codePoint <= 0xe007f),
       );
     expect(invisibleCodePoints).toEqual([]);
-    // The marker itself is plain printable ASCII.
     expect(MEMO_CONTINUITY_MARKER_PREFIX).toMatch(/^[\x21-\x7E]+$/);
   });
 });
-
-// --------------------------------------------------------------------------
-// 7 — suppression is the caller's routing decision
-// --------------------------------------------------------------------------
 
 describe("reconstitution routing — the memo is the caller's fallback", () => {
   it("emits no memo when native replay applied — the target is never touched", async () => {
@@ -2474,10 +2283,8 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
       if (settlement.route !== "memo") {
         throw new Error("the non-applied outcomes route to the memo floor");
       }
-      // The boundary result is asked for rather than read off the settlement:
-      // there is no result member on this arm to read, which is what keeps a
-      // memo that never landed from carrying one. This delivery DID land, so
-      // the producer answers instead of throwing.
+      // The memo arm has no result member; the result is requested from the producer, which
+      // answers here because this delivery landed.
       const result = memoSettlementAsReplayResult(settlement.memo);
       expect(result.status).toBe("degraded");
       expect(result.declaredLosses).toContain("conversation_history_summarized");
@@ -2486,11 +2293,9 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
   });
 
   it("refuses an applied disposition that also declares the summarization", async () => {
-    // The router builds its boundary result from a TypeScript literal and never
-    // parses one, so the schema's arm-scoping does not reach this construction.
-    // Left unguarded, the one path that publishes native-replay continuity is
-    // exactly the path that skips the parse — and it would publish it for a
-    // session holding a bounded prose summary.
+    // The router builds its result from a literal and never parses one, so the schema's arm
+    // scoping does not apply; unguarded, it would publish native-replay continuity for a
+    // session that holds a bounded prose summary.
     const target = new FakeTargetSession();
     const coordinator = new MemoDeliveryCoordinator(target);
     const router = new TranscriptReconstitutionRouter(coordinator);
@@ -2505,16 +2310,14 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
       ),
     ).rejects.toBeInstanceOf(ContradictoryReplayDispositionError);
 
-    // Refused rather than rerouted: the memo floor is not consulted, because
-    // sending a summary here would answer the caller's contradiction by picking
-    // one of its two claims.
+    // Refused, not rerouted: sending a summary would resolve the caller's contradiction by
+    // picking one of its two claims.
     expect(target.sendAttempts).toBe(0);
   });
 
   it("still routes an applied disposition carrying ordinary losses", async () => {
-    // The negative control for the guard above: it keys on the one kind that
-    // names the memo floor, not on "the list is non-empty". An applied replay
-    // that stripped private reasoning is the ordinary case and must still route.
+    // The guard keys on the one loss kind that names the memo floor, not on a non-empty list;
+    // an applied replay that stripped private reasoning is the ordinary case and still routes.
     const target = new FakeTargetSession();
     const coordinator = new MemoDeliveryCoordinator(target);
     const router = new TranscriptReconstitutionRouter(coordinator);
@@ -2540,10 +2343,6 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
     ]);
   });
 });
-
-// --------------------------------------------------------------------------
-// 8 — a memo settlement never renders identically to an applied one
-// --------------------------------------------------------------------------
 
 async function collectMemoSettlements(): Promise<MemoDeliverySettlement[]> {
   const request: DeliveryDraft = requestFor(
@@ -2588,11 +2387,9 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
       "unconfirmed",
     ]);
 
-    // The hard case: an APPLIED replay that itself declared a loss. An
-    // implementation that inferred DEGRADED from a non-empty loss list dies
-    // here. (The applied arm does read that list — to choose between claiming
-    // the replay was in full and naming what it omitted — but the route it
-    // reports never comes from it.)
+    // An applied replay that itself declared a loss: an implementation that inferred degraded
+    // from a non-empty loss list fails here. The applied arm reads the list only to choose
+    // between claiming a full replay and naming what it omitted; the route never comes from it.
     const appliedWithLoss: ReconstitutionSettlement = {
       route: "native-replay",
       result: { status: "applied", declaredLosses: ["provider_private_reasoning"] },
@@ -2610,8 +2407,7 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
       ),
     ];
 
-    // Every rendering is distinct — the applied ones from every memo one, and
-    // each memo disposition from every other.
+    // Every rendering is distinct, applied and memo alike.
     expect(new Set(renderings).size).toBe(renderings.length);
 
     const appliedRenderings: string[] = renderings.slice(0, 2);
@@ -2639,25 +2435,22 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
       },
     });
 
-    // "In full" beside a list of what was dropped tells the user two
-    // contradictory things in one sentence. The claim is reserved for the case
-    // that earns it, and the omissions are named on the case that does not.
+    // "In full" is reserved for a replay that dropped nothing; a replay that omitted something
+    // names the omissions instead.
     expect(disclosure).not.toContain("in full");
     expect(disclosure).toContain("provider_private_reasoning");
     expect(disclosure).toContain("turn_content_unavailable");
     expect(disclosure).not.toContain("nothing was dropped");
-    // Still an applied replay, never reworded into a summary.
+    // It is still an applied replay, not a summary.
     expect(disclosure).toContain("replayed into the new session");
     expect(disclosure).not.toContain("summarized");
   });
 
   it("produces no replay result for a settlement that established no delivery", async () => {
-    // The disposition IS the split. `degraded` at the driver boundary means the
-    // memo floor stood in and the conversation can continue on a summary the
-    // target holds — so stamping it for a settlement that established nothing
-    // reports a successful degraded switch into a session that may hold no prior
-    // context at all. The result type has no arm for that, by its own contract:
-    // a target that cannot be reached throws.
+    // `degraded` at the driver boundary means the memo floor stood in and the target holds a
+    // summary. Stamping it for a settlement that established no delivery would report a
+    // successful degraded switch into a session that may hold no prior context, and the result
+    // type has no arm for that, so such a settlement throws.
     const [delivered, alreadyDelivered, withheld, unconfirmed] = await collectMemoSettlements();
     if (
       delivered === undefined ||
@@ -2675,9 +2468,7 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
       expect(() => memoSettlementAsReplayResult(unestablished)).toThrow(
         MemoDeliveryNotEstablishedError,
       );
-      // The disposition rides out on the failure rather than being discarded
-      // with it: a caller that must tell the user what happened has the
-      // settlement, and the reason, in hand.
+      // The error carries the settlement so a caller can tell the user what happened.
       try {
         memoSettlementAsReplayResult(unestablished);
         throw new Error("the unestablished arms must not produce a result");
@@ -2694,10 +2485,8 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
   });
 
   it("still reports an unlanded memo to the user rather than erasing it", async () => {
-    // The refusal above is a boundary-result refusal, not a silence. Routing
-    // still SETTLES: a summary that did not reach the new session is exactly
-    // what the user needs told, and an exception thrown out of the
-    // routing seam would take the disclosure with it.
+    // Routing still settles with a memo disposition: the user must be told the summary did not
+    // arrive, and a throw from the router would lose that disclosure.
     const target = new FakeTargetSession();
     target.readOutcomes.push("fail");
     const coordinator = new MemoDeliveryCoordinator(target);
@@ -2717,7 +2506,7 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
     }
     expect(settlement.memo.disposition).toBe("withheld");
     expect(renderReconstitutionDisclosure(settlement)).toContain("did not reach the new session");
-    // And the settlement carries no boundary result to be mistaken for one.
+    // The memo arm carries no boundary result to be mistaken for one.
     expect(Object.hasOwn(settlement, "result")).toBe(false);
   });
 
@@ -2733,18 +2522,11 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
   });
 });
 
-// --------------------------------------------------------------------------
-// The memo floor withholds an enclosure it cannot resolve, like the export
-// --------------------------------------------------------------------------
-
 describe("memo floor — a result whose enclosure cannot be resolved is withheld", () => {
   /**
-   * A keyed answer citing a reasoning block the content port could NOT read.
-   *
-   * Built on its own content source rather than the suite's: that one answers the
-   * empty list for every reasoning row, which is a row that carried no blocks —
-   * a different fact from a row whose blocks could not be read, and the arm this
-   * case needs is the second one.
+   * A tool result citing a reasoning block the content port could not read. It uses its own
+   * content source because the suite's answers the empty list for every reasoning row, which
+   * means a row with no blocks, not one whose blocks could not be read.
    */
   function foldUnreadableEnclosure(): CanonicalTranscriptProjection {
     const log = new RecordedEventLog();
@@ -2763,8 +2545,7 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
       readAssistantText: (): string | undefined => undefined,
       readUserText: (reference: TranscriptContentReference): string | undefined =>
         reference.sequence === 1 ? "run the tests" : undefined,
-      // ABSENT for the thinking row, which is the port's way of saying the
-      // blocks could not be read.
+      // Undefined is the port's way of saying the blocks could not be read.
       readReasoningBlocks: (): readonly TranscriptReasoningBlock[] | undefined => undefined,
       readToolCallArguments: (): string | undefined => '{"suite":"unit"}',
       readToolResultBody: (): TranscriptToolResultBody | undefined => ({
@@ -2780,9 +2561,9 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
   }
 
   it("keeps the body out of the summary the new session is handed", async () => {
-    // The floor runs the same strip the export does, so the withholding has to
-    // reach here too — a memo is prose the target model reads, which is the one
-    // place content that may be private reasoning's must not surface as text.
+    // The memo floor runs the same strip as the export, so the withholding applies here too: a
+    // memo is prose the target model reads, and content that may be private reasoning's must not
+    // appear in it.
     const projection: CanonicalTranscriptProjection = foldUnreadableEnclosure();
 
     const target = new FakeTargetSession();
@@ -2794,15 +2575,14 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
     expect(settlement.disposition).toBe("delivered");
     expect(settlement.rendering.text).not.toContain("42 passed");
     expect(settlement.rendering.declaredLosses).toContain("turn_content_unavailable");
-    // The turn is still there — the call and the repaired answer both render —
-    // so this is a withheld body rather than an erased exchange.
+    // The call still renders, so the body is withheld but the exchange is not erased.
     expect(settlement.rendering.text).toContain("[tool call run_tests (call-1)]");
     expect(target.turns[0]).not.toContain("42 passed");
   });
 
   it("keeps a withheld private-enclosed legacy answer out of the summary and its key", () => {
-    // The settle's marker for an id-less legacy answer withheld inside a
-    // private block. Beside a real sibling so the turn survives the strip.
+    // The fold's stand-in for an unkeyed tool result whose reasoning block is private, beside a
+    // real sibling so the turn survives the strip.
     const withMarker: CanonicalTranscriptProjection = projectionOf([
       turn(1, "user", [{ kind: "text", text: "run the tests" }]),
       turn(2, "assistant", [
@@ -2817,17 +2597,13 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
 
     const rendering: MemoRendering = new MemoProjection().render(requestFor(withMarker));
 
-    // The floor runs the same strip the export does: the marker is consumed
-    // before rendering, contributes no prose, and declares the enclosing
-    // block's loss.
+    // The marker is consumed before rendering, adds no prose, and declares the private-reasoning
+    // loss.
     expect(rendering.text).toContain("all green");
     expect(rendering.text).not.toContain("withheldEnclosure");
     expect(rendering.declaredLosses).toContain("provider_private_reasoning");
-    // The key is derived over the RAW projection, so the marker IS key
-    // material: a fold that now emits it derives a different identity than the
-    // removal-shaped fold did. That re-key is this file's stated price — a
-    // false no costs one redundant summary and settles at the first re-render —
-    // asserted here so the cost is a recorded decision rather than a surprise.
+    // The key hashes the raw projection, so the marker changes it. The worst case is one
+    // redundant summary, which settles at the next re-render.
     expect(deriveMemoIdentityKey(withMarker, TARGET)).not.toBe(
       deriveMemoIdentityKey(withoutMarker, TARGET),
     );

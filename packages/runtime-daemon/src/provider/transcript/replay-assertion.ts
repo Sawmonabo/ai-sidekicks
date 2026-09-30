@@ -1,43 +1,16 @@
-// The post-replay assertion.
+// The post-replay assertion: a replay is verified by what the session answers, never by what the
+// call returned. `replayTranscript` completes only after the reconstituted session is read back
+// and answers consistently with the transcript's tail; zero turns, an unreadable session or a
+// contradicting tail fails the operation.
 //
-// states the rule this module exists to enforce: a replay is verified by what
-// the session ANSWERS, never by what the call returned. `replayTranscript`
-// therefore completes only after the reconstituted session is read back and
-// answers consistently with the transcript's tail, and a session that answers
-// with zero turns, cannot be read, or contradicts the tail fails the operation.
-//
-// The rule is not defensive pedantry. Both pinned seeding surfaces are UNTYPED
-// at the wire — Codex's `thread/inject_items` takes `Array<JsonValue>` — so a
-// frame the provider does not understand is accepted and dropped rather than
-// refused, and every layer above reads a successful call over a session holding
-// nothing. A provider that lies by omission is the ordinary case here, not the
-// adversarial one, which is why the success return is worth exactly nothing as
-// evidence.
-//
-// Driver-agnostic on purpose. Both legs seed over different transports and both
-// owe the identical verdict, so the comparison rules live once, here, and each
-// driver supplies only what it wrote and what the target answered. A driver that
-// owned its own verdict could weaken it without the weakening being visible in
-// one place.
+// The seeding surfaces are untyped at the wire (Codex's `thread/inject_items` takes
+// `Array<JsonValue>`), so a frame the provider does not understand is accepted and dropped, and a
+// successful call over an empty session is ordinary. The comparison rules live here once so no
+// driver can weaken its own verdict.
 
 import type { CanonicalTranscriptTurn } from "@ai-sidekicks/contracts";
 
-// --------------------------------------------------------------------------
-// What was seeded, and what the target answered
-// --------------------------------------------------------------------------
-
-/**
- * One frame as the DRIVER BELIEVES IT WROTE IT — the daemon's side of the
- * comparison.
- *
- * `text` is the rendered body the driver actually put on the wire for this
- * frame, and an empty string is a legitimate value: a fold that reached a turn
- * whose body could not be read carries the turn with its structural position and
- * an empty body (`turn_content_unavailable`). It is recorded as the empty string
- * rather than as absent so an empty body stays comparable — see
- * {@link assertReplayReconstituted}'s no-comparable-content arm for why a tail
- * made entirely of them is refused rather than silently confirmed.
- */
+/** One frame as the driver wrote it; `text` is empty for a turn whose body was unreadable. */
 export interface SeededTranscriptFrame {
   readonly position: number;
   readonly role: CanonicalTranscriptTurn["role"];
@@ -45,49 +18,22 @@ export interface SeededTranscriptFrame {
 }
 
 /**
- * What the reconstituted session ANSWERED when asked what it holds.
- *
- * `turns` is the target's turn bodies as text, oldest first, for the WHOLE
- * session — the same answer shape `MemoTargetGateway.readTurnsForMarkerReconciliation`
- * is bound to, deliberately, because both readers ask the same provider the same
- * question and a second answer shape would be a second notion of what a target
- * holds. A bounded tail window does not satisfy it: this assertion counts turns,
- * and a window shorter than the transcript answers "fewer turns than seeded" for
- * a replay that in fact applied.
- *
- * `unreadable` is a settlement, never a reason to assume the seed took. It is
- * how a reader reports that the question could not be asked at all.
+ * What the session answered. `turns` is every turn body, oldest first (the assertion counts
+ * turns, so not a tail window); `unreadable` never means the seed took.
  */
 export type ReplayTargetReadback =
   | { readonly kind: "turns"; readonly turns: readonly string[] }
   | { readonly kind: "unreadable"; readonly reason: string };
 
 /**
- * The seam each driver leg binds to reach its target's readback.
- *
- * Keyed by the target's PROVIDER session id — the same key the memo floor's
- * gateway reads by — so the answer is about the session the seed was written
- * into rather than about whatever the reader considers current.
- *
- * Rejecting is equivalent to answering `unreadable`; a leg that catches a
- * rejection MUST convert it into that arm rather than into a pass.
+ * Reads a target back, keyed by its provider session id. A rejection is equivalent to
+ * `unreadable`: a driver that catches one MUST convert it to that arm, never to a pass.
  */
 export type ReplayTargetReadbackReader = (
   targetProviderSessionId: string,
 ) => Promise<ReplayTargetReadback>;
 
-// --------------------------------------------------------------------------
-// The verdict
-// --------------------------------------------------------------------------
-
-/**
- * Why a replay was refuted. Closed, because each arm is a distinct thing that
- * went wrong and a driver's diagnostics distinguish them.
- *
- * There is deliberately no `unknown` member. Every path through
- * {@link assertReplayReconstituted} lands on a named arm or on `confirmed`, and
- * a catch-all would be the place an unanticipated shape quietly became a pass.
- */
+/** Why a replay was refuted. Closed on purpose, so no unanticipated shape can become a pass. */
 export type PostReplayRefutation =
   | "target-unreadable"
   | "answered-zero-turns"
@@ -95,17 +41,11 @@ export type PostReplayRefutation =
   | "no-comparable-content"
   | "tail-mismatch";
 
+/** The assertion's result: confirmed with the counts compared, or refuted with the reason. */
 export type PostReplayVerdict =
   | {
       readonly outcome: "confirmed";
-      /**
-       * How many tail frames were compared body-to-body.
-       *
-       * Always `>= 1`, and that holds only because
-       * {@link assertReplayReconstituted} throws on an empty seed rather than
-       * confirming it. The two facts are stated together so an edit that softens
-       * the throw cannot leave this claim quietly false.
-       */
+      /** How many tail frames were compared body to body; at least 1. */
       readonly comparedTurns: number;
       /** How many turns the target answered with. */
       readonly answeredTurns: number;
@@ -113,56 +53,27 @@ export type PostReplayVerdict =
   | {
       readonly outcome: "refuted";
       readonly refutation: PostReplayRefutation;
-      /** Operator-facing detail. Carries no transcript body — see below. */
+      /** Operator-facing detail. Carries no transcript body. */
       readonly detail: string;
     };
 
 /**
- * How deep into the tail bodies are compared.
- *
- * Three rather than one because a single-turn comparison is satisfied by a
- * provider that kept only the last frame, and rather than all because the
- * comparison's cost is the transcript's length and its evidentiary value is
- * concentrated at the end: binds the answer to be consistent with the
- * transcript's TAIL. The count check below is what covers the interior — a
- * provider that dropped anything anywhere answers with fewer turns than were
- * seeded.
+ * How many tail bodies are compared. One would pass a provider that kept only the last frame;
+ * the turn-count check covers the interior.
  */
 export const POST_REPLAY_TAIL_DEPTH: number = 3;
 
-// --------------------------------------------------------------------------
-// The assertion
-// --------------------------------------------------------------------------
-
-/**
- * Normalizes a turn body for comparison.
- *
- * Line-ending translation and surrounding whitespace are the only
- * transformations a transport is entitled to make to a body it is storing
- * verbatim, so they are the only ones forgiven. Nothing else is: collapsing
- * interior whitespace, case-folding, or comparing by containment would each let
- * a provider that summarized, truncated, or echoed the seed pass an assertion
- * whose entire purpose is to catch exactly that.
- */
+// Only line endings and surrounding whitespace are forgiven; looser matching would let a provider
+// that summarized, truncated or echoed the seed pass.
 function normalizeTurnBodyForComparison(text: string): string {
   return text.replace(/\r\n/g, "\n").trim();
 }
 
 /**
- * The post-replay assertion. Compares what the driver wrote against what the
- * target answered, and returns a verdict.
+ * Compares what the driver wrote against what the target answered. Every ambiguous case refutes:
+ * a refuted replay falls back to the memo projection, a wrong confirmation loses the conversation.
  *
- * Every ambiguous arm refutes. The operation this gates has a supported
- * fallback — a refuted replay settles on the memo projection reported
- * `degraded` — so refusing costs a caller a degradation, while confirming
- * wrongly costs it a provider session that has silently lost the conversation
- * it is about to answer as though it remembered.
- *
- * @throws {RangeError} when `seeded` is empty. An assertion over nothing is
- * vacuous, and returning `confirmed` for it would report that a replay of no
- * frames worked — which is true and useless, and would let a leg that computed
- * an empty seed reach a passing verdict. Callers refuse an empty transcript
- * before they seed; this is the second lock on the same door.
+ * @throws {RangeError} when `seeded` is empty.
  */
 export function assertReplayReconstituted(
   seeded: readonly SeededTranscriptFrame[],
@@ -184,10 +95,7 @@ export function assertReplayReconstituted(
 
   const answeredTurns: number = readback.turns.length;
 
-  // Named separately from the count check below even though it is a special
-  // case of it. This is the shape a provider that accepted every frame and
-  // stored none of them answers with, it is the failure this whole module
-  // exists for, and a diagnostic reading "0 < 4" says far less than the name.
+  // Named apart from the count check: it is the shape of a provider that stored none.
   if (answeredTurns === 0) {
     return {
       outcome: "refuted",
@@ -196,13 +104,8 @@ export function assertReplayReconstituted(
     };
   }
 
-  // MORE turns than were seeded is tolerated; fewer never is. A provider is
-  // entitled to add turns of its own to a session it owns — a system preamble,
-  // a normalization that splits one seeded frame in two — and refusing those
-  // would refuse working replays for a reason that is not a loss. Losing turns
-  // is the one direction that destroys the transcript, and the tail comparison
-  // below is what keeps the tolerated direction from becoming a hole a padded
-  // answer fits through.
+  // More turns than seeded is tolerated (a provider may add a preamble or split a frame); the
+  // tail comparison keeps that from admitting a padded answer.
   if (answeredTurns < seeded.length) {
     return {
       outcome: "refuted",
@@ -224,23 +127,8 @@ export function assertReplayReconstituted(
     normalizeTurnBodyForComparison(turn),
   );
 
-  // A SEEDED tail with no bodies has nothing for the target to be consistent
-  // with: every pair the loop below would compare is `"" === ""`, so the
-  // assertion would silently degrade to the count check alone against a target
-  // that could have stored empty placeholders for frames it discarded. requires
-  // the answer to be consistent with the transcript's TAIL, and a tail with no
-  // content supplies none.
-  //
-  // The predicate reads the EXPECTED side only, deliberately. Reading the
-  // observed side too — "either side carries a body" — would let a target that
-  // answered with prose nobody seeded satisfy the check on the strength of the
-  // content it invented, and would then report the mismatch under this name
-  // instead of the `tail-mismatch` it actually is. What is being asked here is
-  // whether the daemon brought anything worth comparing.
-  //
-  // The honest consequence is stated rather than hidden: a transcript whose tail
-  // is entirely unreadable bodies cannot be replay-verified at all and settles on
-  // the memo floor, which is the fallback that exists for exactly that.
+  // An all-empty seeded tail would compare `"" === ""` and reduce to the count check. Only the
+  // expected side is read, so invented prose still reports as `tail-mismatch`.
   const seededTailCarriesComparableBody: boolean = normalizedExpected.some(
     (text) => text.length > 0,
   );
@@ -258,11 +146,8 @@ export function assertReplayReconstituted(
     if (expected !== observed) {
       const frame: SeededTranscriptFrame | undefined = expectedTail[index];
       const seededPosition: string = frame === undefined ? "unknown" : String(frame.position);
-      // The detail names POSITIONS and LENGTHS and never bodies. This string
-      // reaches driver diagnostics, which are a bounded-retention tier that is
-      // explicitly not a home for transcript content; a mismatch report carrying
-      // the turn it is about would put conversation text there on every failed
-      // replay.
+      // Positions and lengths only: the detail reaches diagnostics, which must not hold transcript
+      // content.
       return {
         outcome: "refuted",
         refutation: "tail-mismatch",
@@ -274,22 +159,10 @@ export function assertReplayReconstituted(
   return { outcome: "confirmed", comparedTurns, answeredTurns };
 }
 
-// --------------------------------------------------------------------------
-// The failure both legs throw
-// --------------------------------------------------------------------------
-
 /**
- * Thrown when the post-replay assertion refutes.
- *
- * THROWN rather than returned as a `degraded` result, and the distinction is
- * load-bearing: `DriverTranscriptReplayResult`'s `degraded` status is reserved
- * for the memo floor and its schema requires the matching
- * `conversation_history_summarized` loss, so returning `degraded` here would
- * report a summarized history to a caller that received neither a replay nor a
- * memo. `ReplayTranscriptParams`' own contract routes an unreachable target to a
- * throw for the same reason. The caller catches, abandons the target, and
- * settles on the memo floor — which is where the `degraded` result is minted, by
- * the component that actually delivered the memo.
+ * Thrown when the assertion refutes, not returned as `degraded` (which
+ * `DriverTranscriptReplayResult` reserves for the memo floor). The caller abandons the target and
+ * settles on the memo floor.
  */
 export class PostReplayAssertionFailedError extends Error {
   readonly refutation: PostReplayRefutation;
@@ -311,19 +184,7 @@ export class PostReplayAssertionFailedError extends Error {
   }
 }
 
-// --------------------------------------------------------------------------
-// The replay-target lifecycle: abandoned, never reused
-// --------------------------------------------------------------------------
-
-/**
- * Why a replay target is no longer usable. Closed.
- *
- * Five arms are failures, in each of which the target's contents are partial or
- * unknowable. The sixth, `replay-completed`, is a SUCCESS — and it belongs in the
- * same union because it retires the target for the same reason the others do: a
- * target that already holds a whole transcript is not a fresh session, and
- * seeding it again writes the conversation into it twice.
- */
+/** Why a replay target is unusable; `replay-completed` retires it too, against a second seeding. */
 export type ReplayTargetAbandonmentCause =
   | "target-not-fresh"
   | "interior-refusal"
@@ -332,7 +193,7 @@ export type ReplayTargetAbandonmentCause =
   | "assertion-refuted"
   | "replay-completed";
 
-/** Thrown when a caller reaches for a target this daemon has already retired. */
+/** Thrown when a caller reaches for a target this daemon has retired. */
 export class ReplayTargetAbandonedError extends Error {
   readonly targetProviderSessionId: string;
   readonly abandonmentCause: ReplayTargetAbandonmentCause;
@@ -348,95 +209,31 @@ export class ReplayTargetAbandonedError extends Error {
 }
 
 /**
- * The per-driver record of which replay targets are burned.
- *
- * A partially-seeded target is ABANDONED, NEVER REUSED — on mid-seeding
- * ambiguity and equally on an interior refusal after an accepted prefix — and
- * the memo settlement always lands in a fresh target. The rule is not fussiness
- * about tidiness: both surviving-session shapes it forbids are conversations a
- * user then reads. A target holding half a transcript and then a memo
- * summarizing the whole of it states the same exchanges twice, once truncated;
- * a target retried after an ambiguous delivery states one exchange twice
- * verbatim. Neither is recoverable afterwards, because nothing downstream can
- * tell a duplicated turn from a repeated one.
- *
- * Abandonment is deliberately UNIFORM across causes, including the case where
- * the very first frame was refused before anything was applied and the target is
- * therefore provably still pristine. Distinguishing that case would buy one
- * saved provider session and cost the invariant its checkability: with the rule
- * uniform, "no surviving session holds both native frames and the memo" is a
- * property of the mechanism, and with it conditional it becomes a property of
- * each caller's case analysis.
- *
- * A target is retired on SUCCESS too, not only on failure. A replay target is
- * single-use by construction — it is established fresh, seeded once, and then
- * belongs to the conversation it now holds — and without the success entry the
- * one guard a driver can apply cheaply is blind to it: a provider's own
- * seeding surface need not advance whatever turn ledger a driver gates freshness
- * on, so a second replay through the same handle would seed the transcript again
- * and the assertion would confirm it (the doubled session answers with more
- * turns than were seeded, which is tolerated, and its tail still matches).
- * Retiring on success makes that reachable only by establishing a new target.
- *
- * Deliberately in-memory and NOT durable, and the restart story is layered
- * rather than assumed. A restart loses the record, but a burned target does not
- * thereby become seedable: a replay dispatch resolves only LIVE session
- * records, so a stale handle refuses outright, and turning it live again takes
- * a resume — an act the one specified caller never performs against a used
- * target, because a durable pending switch re-arms into a NEW application that
- * establishes a FRESH target (a partially-seeded or consumed one is never
- * reused across attempts). The resume path additionally rebuilds the record's
- * turn ledger from the provider's own turn list, so the entrance freshness
- * gate re-arms wherever the provider reports the seeded conversation as turns
- * — though whether the injection surface's items register as turns there is
- * unmeasured at this pin, which is why the caller contract above, not the
- * resume rebuild, is the load-bearing layer. Making this ledger durable would
- * buy enforcement only against a caller already violating that contract, at
- * the price of a table for entries that are unreferenceable in every conforming
- * execution.
- *
- * DELIBERATELY UNCAPPED, and cheaply so: one short string per replay target this
- * process ever established, which is one per reconstitution rather than one per
- * turn or per frame. Evicting a head entry would silently re-admit the oldest
- * burned target, which is the one failure this class exists to prevent, and a
- * daemon uptime long enough for this map to cost memory would have to have
- * reconstituted more sessions than a node hosts.
+ * The per-driver record of burned replay targets, in memory and uncapped (evicting an entry would
+ * re-admit a burned target). Every cause burns the target, even a pristine one; the memo
+ * settlement always lands in a fresh target.
  */
 export class ReplayTargetLedger {
   readonly #abandoned: Map<string, ReplayTargetAbandonmentCause> = new Map();
 
-  /**
-   * Records a target as burned. Idempotent, and FIRST CAUSE WINS: the earliest
-   * cause is the one that made the target unusable, and a later attempt's
-   * failure is a consequence of it rather than a competing explanation.
-   */
+  /** Records a target as burned. Idempotent; the first cause wins. */
   abandon(targetProviderSessionId: string, cause: ReplayTargetAbandonmentCause): void {
     if (!this.#abandoned.has(targetProviderSessionId)) {
       this.#abandoned.set(targetProviderSessionId, cause);
     }
   }
 
-  /**
-   * Retires a target whose replay CONFIRMED, so it can never be seeded twice.
-   *
-   * Its own method rather than a bare `abandon` call at each success site: the
-   * two acts read differently to anyone maintaining a driver leg, and naming the
-   * success one keeps a reader from concluding that a confirmed replay failed.
-   */
+  /** Retires a target whose replay confirmed, so it can never be seeded twice. */
   consume(targetProviderSessionId: string): void {
     this.abandon(targetProviderSessionId, "replay-completed");
   }
 
+  /** The cause a target was abandoned for, or `undefined` if it is still usable. */
   abandonmentCauseFor(targetProviderSessionId: string): ReplayTargetAbandonmentCause | undefined {
     return this.#abandoned.get(targetProviderSessionId);
   }
 
-  /**
-   * Refuses a target this daemon has abandoned.
-   *
-   * Called at the ENTRANCE of a replay, before any frame is written, so a reuse
-   * is refused at zero cost to the provider rather than discovered afterwards.
-   */
+  /** Throws {@link ReplayTargetAbandonedError} for an abandoned target; call before seeding. */
   assertUsable(targetProviderSessionId: string): void {
     const cause: ReplayTargetAbandonmentCause | undefined =
       this.#abandoned.get(targetProviderSessionId);

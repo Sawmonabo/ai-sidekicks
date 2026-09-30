@@ -1,15 +1,6 @@
-// Claude event normalizer.
-//
-// What is under test: a driver emits normalized runtime events rather than
-// leaking provider-native event types, and the required normalized event
-// families are accounted for. The family accounting is asserted against the
-// shared disposition contract (`EVENT_DISPOSITION_BY_KIND` in
-// `@ai-sidekicks/contracts`) rather than against this package's own restatement
-// of it, so the two cannot drift apart quietly.
-//
-// Family coverage itself is verified by the taxonomy tests that own the
-// contract; what is verified HERE is that this normalizer agrees with that
-// taxonomy row for row.
+// Tests for the Claude event normalizer: it emits normalized runtime events, never provider-native
+// types, and agrees row for row with the shared disposition table (`EVENT_DISPOSITION_BY_KIND` in
+// `@ai-sidekicks/contracts`). Family coverage of that table is tested where the table lives.
 
 import { describe, expect, it } from "vitest";
 
@@ -69,16 +60,11 @@ import {
   type ClaudeTerminalRunFrame,
 } from "../event-normalizer.js";
 
-// --------------------------------------------------------------------------
-// Local helpers.
-// --------------------------------------------------------------------------
+// Local helpers
 
 /**
- * The six normalized families a driver is required to produce.
- *
- * Restated here (rather than imported) on purpose: the point of the ledger
- * test is to check the module's ledger against the required list, so importing
- * the module's own idea of the list would make the assertion circular.
+ * The six normalized families a driver must produce. Restated here, not imported, so the ledger
+ * test checks the module against an independent list.
  */
 const REQUIRED_EVENT_FAMILIES: readonly EventCategory[] = [
   "run_lifecycle",
@@ -99,14 +85,9 @@ function expectNormalized(normalization: ClaudeFrameNormalization): ClaudeNormal
 }
 
 /**
- * Typed constructor for a Claude control-request frame.
- *
- * The wire census records the control-request SUBTYPE registry but no request
- * body, and a golden file is regenerated rather than transcribed, so a golden
- * payload file for one cannot be honestly derived. Described-but-not-shown
- * frames are therefore built here, from the member names the census DOES
- * record, and never in `__fixtures__/` where a hand-built body would inherit
- * the pin's provenance stamp.
+ * Typed constructor for a Claude control-request frame. The census records subtypes but no request
+ * body, so frames are built here rather than in `__fixtures__/`, where a hand-built body would
+ * pass for recorded evidence.
  */
 function buildControlRequestFrame(subtype: string): {
   readonly type: "control_request";
@@ -131,9 +112,7 @@ function buildResultFrame(subtype: string): {
   return { type: "result", subtype };
 }
 
-// --------------------------------------------------------------------------
-// Totality over the pinned census.
-// --------------------------------------------------------------------------
+// Totality over the pinned census
 
 describe("Claude wire frame census", () => {
   it("resolves every census member without refusing", () => {
@@ -180,9 +159,7 @@ describe("Claude wire frame census", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Agreement with the shared disposition contract.
-// --------------------------------------------------------------------------
+// Agreement with the shared disposition contract
 
 describe("agreement with EVENT_DISPOSITION_BY_KIND", () => {
   it("names only census kinds, and agrees with the registry on category and type", () => {
@@ -195,9 +172,8 @@ describe("agreement with EVENT_DISPOSITION_BY_KIND", () => {
       }
       const { normalizedKind } = normalization;
       if (normalizedKind === null) {
-        // A Claude delta-family member the census deliberately does not key
-        // (`worker_shutting_down` is wire-layer rather than a registry key).
-        // It still must name a real taxonomy type.
+        // `worker_shutting_down` is a wire-layer frame with no registry kind, but it must still
+        // name a real event type.
         expect(SESSION_EVENT_TYPES.length).toBeGreaterThan(0);
         continue;
       }
@@ -209,8 +185,8 @@ describe("agreement with EVENT_DISPOSITION_BY_KIND", () => {
       if (registryDisposition === undefined) {
         throw new Error("unreachable: assertion above already failed");
       }
-      // Only `adopt` / `rename` rows carry a target; a Claude frame must never
-      // be mapped onto a `correlate` / `discard` census row.
+      // Only `adopt` / `rename` rows carry a target; a Claude frame is never mapped onto a
+      // `correlate` / `discard` row.
       expect(["adopt", "rename"]).toContain(registryDisposition.disposition);
       expect(registryDisposition.category).toBe(normalization.family);
       if (registryDisposition.eventType !== undefined) {
@@ -231,9 +207,7 @@ describe("agreement with EVENT_DISPOSITION_BY_KIND", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Fixture-driven cases: every recorded frame normalizes as expected.
-// --------------------------------------------------------------------------
+// Recorded frames normalize as expected
 
 describe("pinned control-request subtypes", () => {
   it("carries the censused count plus the censused-absent answerer", () => {
@@ -244,7 +218,7 @@ describe("pinned control-request subtypes", () => {
     expect(CLAUDE_CONTROL_REQUEST_SUBTYPE_VECTORS).toHaveLength(
       CLAUDE_CENSUSED_CONTROL_REQUEST_SUBTYPE_COUNT_AT_PIN + 1,
     );
-    // Registry ABSENCE never decides capability: the absent subtype is mapped.
+    // A subtype missing from the registry is still mapped.
     expect(
       CLAUDE_CONTROL_REQUEST_SUBTYPE_VECTORS.some(
         (vector) => vector.subtype === "mcp_set_servers" && !vector.presentInCensusedRegistry,
@@ -337,8 +311,7 @@ describe("pinned control-request subtypes", () => {
       subtype: "success",
       response: { added: [], removed: [], errors: {} },
     });
-    // The envelope that carries it is a control_response, and a control
-    // response is never a timeline row.
+    // A control response is never a timeline row.
     const normalization = normalizeClaudeWireFrame(
       composeClaudeWireFrameKind("control_response", "success"),
     );
@@ -410,10 +383,8 @@ describe("pinned stream surface", () => {
   });
 
   it("keeps the api_retry typed-error list advisory rather than enforcing", () => {
-    // The reference grades the union's arity Derived. The normalizer must
-    // therefore reach the SAME row for a retry frame regardless of which typed
-    // error it carries — including one the census never saw. Anything else
-    // would fail closed on a set no evidence can close.
+    // A string census cannot prove the typed-error union closed, so a retry frame reaches the same
+    // row whichever typed error it carries, including one the census never saw.
     expect(CLAUDE_API_RETRY_TYPED_ERRORS).toContain("unknown");
     expect(CLAUDE_API_RETRY_TYPED_ERRORS).not.toContain("zzq_unrecorded_typed_error");
     const frame = buildSystemFrame("api_retry");
@@ -432,10 +403,8 @@ describe("pinned stream surface", () => {
         const normalization = expectNormalized(normalizeClaudeWireFrame(frameKind));
         expect(normalization.family).toBe("usage_telemetry");
       } else {
-        // command_lifecycle / queued_notification / the model-refusal pair:
-        // Verified present at the pin, covered by no disposition table, so they
-        // reach the unknown-frame seam loudly instead of being mapped by
-        // inference.
+        // Present at the pin but in no disposition table (command_lifecycle, queued_notification,
+        // the model-refusal pair): they reach the unknown-frame seam rather than being guessed.
         expect(() => normalizeClaudeWireFrame(frameKind)).toThrow(UnknownClaudeWireFrameError);
       }
     }
@@ -473,23 +442,18 @@ describe("pinned stream surface", () => {
     const shutdown = expectNormalized(normalizeClaudeWireFrame("system/worker_shutting_down"));
     expect(shutdown.family).toBe("run_lifecycle");
     expect(shutdown.eventType).toBe("run.worker_shutdown");
-    // This delta-family member is assigned a category and a type but
-    // deliberately NO census kind: it is wire-layer rather than a registry key.
+    // It has a category and a type but no registry kind: it is wire-layer, not a registry key.
     expect(shutdown.normalizedKind).toBeNull();
   });
 
   it("stamps the fixtures with the pinned build version", () => {
-    // The PIN, not the build the schema-constructor census was extracted from.
-    // Those came apart at the 2.1.251 re-pin: the census is carried forward from
-    // 2.1.245 while the pin itself moved, so this constant must track the pin a
-    // running build is compared against.
+    // The constant tracks the pinned build a running build is compared against, which is not the
+    // build the schema census was extracted from.
     expect(CLAUDE_WIRE_PIN_VERSION).toBe("2.1.251");
   });
 });
 
-// --------------------------------------------------------------------------
-// The unknown-frame seam.
-// --------------------------------------------------------------------------
+// The unknown-frame seam
 
 describe("unknown frame handling", () => {
   it("refuses with a typed error rather than dropping silently", () => {
@@ -502,22 +466,16 @@ describe("unknown frame handling", () => {
     expect(thrown).toBeInstanceOf(UnknownClaudeWireFrameError);
     const typed = thrown as UnknownClaudeWireFrameError;
     expect(typed.name).toBe("UnknownClaudeWireFrameError");
-    // The verbatim kind is the `rawWireType` the `DriverDiagnosticRecord`
-    // needs, carried as data rather than parsed out of the message.
+    // The diagnostic record needs the verbatim kind as data, not parsed out of the message.
     expect(typed.frameKind).toBe("system/zzq_nonexistent_subtype");
   });
 
   it("mints no dotted wire code, leaving the driver error census closed", () => {
-    // The driver error namespace is a closed seven-code census, and this
-    // refusal rides no error envelope — the routed path turns it into a daemon
-    // diagnostic keyed on `frameKind`. A `code` member here would be an
-    // unregistered eighth `driver.*` code declared in code and registered
-    // nowhere, so its ABSENCE is asserted rather than left to review. The twin
-    // `UnknownCodexInboundFrameError` carries none either.
+    // The refusal rides no error envelope; the routed path turns it into a daemon diagnostic keyed
+    // on `frameKind`. A `code` member would be an unregistered `driver.*` code.
     const error = new UnknownClaudeWireFrameError("system/zzq_nonexistent_subtype");
     expect(Object.hasOwn(error, "code")).toBe(false);
     expect((error as unknown as Record<string, unknown>)["code"]).toBeUndefined();
-    // The two discriminators the seam actually uses.
     expect(error).toBeInstanceOf(UnknownClaudeWireFrameError);
     expect(error.frameKind).toBe("system/zzq_nonexistent_subtype");
   });
@@ -557,9 +515,7 @@ describe("unknown frame handling", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Determinism and immutability.
-// --------------------------------------------------------------------------
+// Determinism and immutability
 
 describe("determinism", () => {
   it("returns the identical frozen singleton for repeated resolution", () => {
@@ -586,9 +542,7 @@ describe("determinism", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Emission readiness — the normalize-boundary rule.
-// --------------------------------------------------------------------------
+// Emission readiness
 
 describe("emission readiness", () => {
   it("answers envelope-constructible only for a type with a registered payload variant", () => {
@@ -601,12 +555,8 @@ describe("emission readiness", () => {
   });
 
   it("answers payload-variant-pending for a census literal with no registered variant", () => {
-    // A registry flip is not an emission: a literal registered in the TAXONOMY
-    // is not thereby buildable into an envelope. The case is derived
-    // from the live contract rather than hard-coded, so this test asserts the
-    // function's contract instead of pinning a particular literal's current
-    // registration state — hard-coding one would turn an emitting plan landing
-    // its payload variant into a failure of THIS suite.
+    // A type in the taxonomy is not necessarily buildable into an envelope. The case is derived
+    // from the live contract so registering a payload variant later does not fail this test.
     const registered = new Set<SessionEventType>(SESSION_EVENT_TYPES);
     const pendingTarget = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].find(
       (candidate) => !registered.has(candidate),
@@ -633,9 +583,7 @@ describe("emission readiness", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Family reachability ledger.
-// --------------------------------------------------------------------------
+// Family reachability ledger
 
 describe("family reachability ledger", () => {
   it("is total over the six required families, and no wider", () => {
@@ -680,9 +628,7 @@ describe("family reachability ledger", () => {
         named += 1;
       }
     }
-    // A ledger that named nothing would be a family-level claim with no
-    // actionable content; the point is to tell the next wire probe what to
-    // look for.
+    // An empty ledger would tell the next wire probe nothing about what to look for.
     expect(named).toBeGreaterThan(0);
   });
 
@@ -706,17 +652,14 @@ describe("family reachability ledger", () => {
     );
     expect(entry).toBeDefined();
     expect(entry?.reachedBy).toStrictEqual([]);
-    // The contract routes both file-change census kinds to `tool_activity`, which
-    // is why no Claude row can target the publication family without
-    // contradicting the taxonomy.
+    // The contract routes both file-change kinds to `tool_activity`, so no Claude row can target
+    // the publication family.
     expect(EVENT_DISPOSITION_BY_KIND.get("diff")?.category).toBe("tool_activity");
     expect(EVENT_DISPOSITION_BY_KIND.get("command_output")?.category).toBe("tool_activity");
   });
 });
 
-// --------------------------------------------------------------------------
-// Emission routing, family classification, subagent lifecycle.
-// --------------------------------------------------------------------------
+// Emission routing, family classification, subagent lifecycle
 
 describe("resolveClaudeFrameEmissionRoute", () => {
   function makeDiagnostics() {
@@ -753,8 +696,7 @@ describe("resolveClaudeFrameEmissionRoute", () => {
       expect(route.record.provider).toBe("claude");
     }
     expect(diagnostics.emittedRecordCount()).toBe(1);
-    // The bare resolver keeps its throwing contract for direct misuse; the
-    // diagnostic route is the driver-core entry point.
+    // The bare resolver still throws; the diagnostic route is the driver-core entry point.
     expect(() => normalizeClaudeWireFrame("system/unheard_of")).toThrow(
       UnknownClaudeWireFrameError,
     );
@@ -818,18 +760,15 @@ describe("classifyClaudeFrameFamilyForRouting", () => {
   });
 
   it("re-classifies a thread-scoped frame that CARRIES a usage reading as thread-scoped usage", () => {
-    // This provider reserves no frame kind for usage: the cumulative readings
-    // ride the same frames as assistant content. Classifying by kind alone
-    // would route a registered child's usage-bearing frame to plain transcript
-    // suppression, and the child's spend would be scoped out of existence
-    // instead of metered under its own attribution.
+    // Usage readings ride the same frames as assistant content, so classifying by kind alone
+    // would suppress a child's usage-bearing frame and lose the child's spend.
     expect(
       classifyClaudeFrameFamilyForRouting("system/task_progress", {
         cumulativeUsage: { namedTurnId: null, cumulative: { input: 10 } },
       }),
     ).toEqual({ scope: "thread", capability: "usage" });
 
-    // Same kind, no reading: unchanged.
+    // Same kind without a reading is unchanged.
     expect(
       classifyClaudeFrameFamilyForRouting("system/task_progress", { cumulativeUsage: null }),
     ).toEqual({ scope: "thread", capability: "content" });
@@ -837,12 +776,11 @@ describe("classifyClaudeFrameFamilyForRouting", () => {
 
   it("a usage reading never PROMOTES a connection-scoped or unlisted kind into a thread-scoped one", () => {
     const carriedReading = { cumulativeUsage: { namedTurnId: null, cumulative: { input: 10 } } };
-    // Connection-scoped frames route and meter without an identity already.
+    // Connection-scoped frames already route without an identity.
     expect(classifyClaudeFrameFamilyForRouting("system/init", carriedReading)).toEqual({
       scope: "connection",
     });
-    // And an unlisted kind stays fail-closed: a frame does not become routable
-    // because it happened to carry a number.
+    // An unlisted kind stays unknown even when it carries a number.
     expect(classifyClaudeFrameFamilyForRouting("novel/unheard_of", carriedReading)).toEqual({
       scope: "unknown",
     });
@@ -858,8 +796,7 @@ describe("normalizeClaudeSubagentLifecycle", () => {
     expect(normalization.family).toBe("tool_activity");
     expect(normalization.eventType).toBe("subagent.started");
     expect(normalization.parentToolUseId).toBe("toolu_01");
-    // The arrival in the parent's own stream IS the declared lineage, and the
-    // subagent id doubles as the child thread identity.
+    // Arriving in the parent's stream declares the lineage; the subagent id is the child thread id.
     expect(normalization.announcement).toEqual({
       childThreadId: "subagent-7",
       declaredParentThreadId: "session-thread",
@@ -886,24 +823,17 @@ describe("normalizeClaudeSubagentLifecycle", () => {
         "session-thread",
       );
       expect(normalization.eventType).toBe(expectedEventType);
-      // Registered union members on the tool_activity roster — the child's
-      // only timeline presence, and it survives transcript suppression.
+      // These are the child's only timeline presence and survive transcript suppression.
       expect(TOOL_ACTIVITY_EVENT_TYPES).toContain(normalization.eventType);
     }
   });
 });
 
-// --------------------------------------------------------------------------
-// The terminal-emission boundary.
-// --------------------------------------------------------------------------
+// The terminal-emission boundary
 //
-// What is under test:
-//   * A daemon-initiated close is stamped `intendedClose` so the recovery
-//     classifier reads a clean shutdown as a clean shutdown rather than as a
-//     crash.
-//   * At most one terminal per `(runId, runVersion)` epoch reaches the emission
-//     pipeline, so the ordinary post-interrupt double is absorbed at the driver
-//     rather than failing loud against the run-lifecycle partial unique index.
+// A daemon-initiated close is stamped `intendedClose` so recovery reads it as a clean shutdown.
+// At most one terminal per `(runId, runVersion)` epoch reaches emission, so the post-interrupt
+// double is absorbed at the driver instead of failing against the run-lifecycle unique index.
 
 describe("ClaudeTerminalEmissionGate", () => {
   const PROJECTED_ROUTE = { decision: "project" } as const;
@@ -942,9 +872,7 @@ describe("ClaudeTerminalEmissionGate", () => {
   });
 
   it("suppresses a second terminal for the SAME epoch", () => {
-    // The ordinary post-interrupt double. Absorbed here rather than left to
-    // fail loud against the schema backstop on a condition the driver could
-    // have handled.
+    // The ordinary post-interrupt double.
     const gate = new ClaudeTerminalEmissionGate();
     gate.admitTerminalFrame(terminalFrame());
 
@@ -956,8 +884,7 @@ describe("ClaudeTerminalEmissionGate", () => {
   });
 
   it("admits a NEW epoch for the same run", () => {
-    // The key is the epoch, not the run: a re-dispatched run version is a
-    // different settlement and must not be swallowed by its predecessor's.
+    // The key is the epoch, not the run: a re-dispatched run version settles separately.
     const gate = new ClaudeTerminalEmissionGate();
     gate.admitTerminalFrame(terminalFrame());
 
@@ -966,9 +893,8 @@ describe("ClaudeTerminalEmissionGate", () => {
   });
 
   it("settles no run for a frame the router did not route to the session's thread", () => {
-    // Routing is CONSUMED, never re-decided: a child thread's terminal must not
-    // settle the parent's run, and this boundary adds no second source of truth
-    // for whose stream a frame came from.
+    // The router decides whose stream a frame came from; a child's terminal must not settle the
+    // parent's run.
     const gate = new ClaudeTerminalEmissionGate();
 
     const decision = gate.admitTerminalFrame(
@@ -976,13 +902,12 @@ describe("ClaudeTerminalEmissionGate", () => {
     );
 
     expect(decision).toStrictEqual({ emit: false, suppressionReason: "not-the-session-thread" });
-    // And it consumed no epoch, so the parent's own terminal still settles.
+    // It consumed no epoch, so the parent's own terminal still settles.
     expect(gate.hasSettledEpoch("run-1", 1)).toBe(false);
   });
 
   it("evicts oldest-first so the memory stays proportional to the hazard", () => {
-    // A long session's run count is unbounded while the window a duplicate
-    // arrives in is not.
+    // A long session's run count is unbounded; the window a duplicate arrives in is not.
     const gate = new ClaudeTerminalEmissionGate({ settledEpochMemory: 2 });
     gate.admitTerminalFrame(terminalFrame({ runId: "run-a" }));
     gate.admitTerminalFrame(terminalFrame({ runId: "run-b" }));
@@ -994,24 +919,17 @@ describe("ClaudeTerminalEmissionGate", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Typed provider usage-limit signal, Claude leg
-// --------------------------------------------------------------------------
+// Typed usage-limit signal from the api_retry frame
 //
-// Frames below carry the member set the wire census records verbatim for the
-// retry channel: `{ type: "system", subtype: "api_retry", attempt, max_retries,
-// retry_delay_ms, error_status, error }`, with `error_status` sitting beside the
-// typed `error`.
+// Frames carry the member set the wire census records for the retry channel: `{ type: "system",
+// subtype: "api_retry", attempt, max_retries, retry_delay_ms, error_status, error }`.
 
 /** A fixed observation clock, so the derived boundary is asserted, not approximated. */
 const RETRY_OBSERVED_AT_EPOCH_MS = Date.parse("2026-08-31T12:00:00.000Z");
 
-// The default names the ladder's FINAL announced attempt, and that value is
-// LOAD-BEARING rather than arbitrary. Every negative control below asserts
-// `null` for a reason about the typed `error` member; a mid-ladder default would
-// let the attempt gate satisfy all of them, and the block would keep passing
-// while it silently stopped testing what it claims. The census pins this
-// frame's member NAMES and no example values, so nothing transcribed moves here.
+// The default is the ladder's final announced attempt on purpose: the negative controls below
+// assert `null` because of the typed `error` member, and a mid-ladder default would let the
+// attempt gate produce that `null` instead.
 function apiRetryFrame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     type: "system",
@@ -1039,9 +957,8 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
   });
 
   it("emits the signal with a RUNTIME-DERIVED boundary composed from the backoff", () => {
-    // The provider states a delay, not a reset. The instant is still worth
-    // arming a schedule on, and the provenance stamp is what stops a consumer
-    // showing it as the provider's own answer.
+    // The provider states a delay, not a reset; the provenance stamp stops a consumer showing the
+    // derived instant as the provider's own answer.
     expect(classifyClaudeUsageLimitSignal(apiRetryFrame(), RETRY_OBSERVED_AT_EPOCH_MS)).toEqual({
       cause: "plan-allowance-exhausted",
       resetBoundary: { resetsAt: "2026-08-31T12:01:00.000Z", provenance: "runtime-derived" },
@@ -1064,13 +981,9 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
   });
 
   it("fires ONLY on the ladder's final announced attempt, never mid-ladder", () => {
-    // Provider-limit pacing parks the phase IMMEDIATELY on any recognized
-    // signal and arms a schedule only for a provider-reported boundary — and
-    // this leg's boundary is runtime-derived.
-    // So a signal off `attempt: 1, max_retries: 10`, where the provider is still
-    // retrying internally, is an UNSCHEDULED park of work that was about to
-    // complete. Asserted across the ladder rather than at one point, so a gate
-    // that merely moved the threshold would fail here.
+    // A recognized signal parks the work at once and, with a runtime-derived boundary, arms no
+    // schedule; a signal while the provider is still retrying would park work about to complete.
+    // Several attempts are checked so a gate that only moved the threshold still fails.
     for (const attempt of [1, 2, 9]) {
       expect(
         classifyClaudeUsageLimitSignal(
@@ -1079,9 +992,7 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
         ),
       ).toBeNull();
     }
-    // The final announced retry — the point the provider has committed to
-    // failing the request on the next refusal — and anything past it, because a
-    // ladder that overran its own announced ceiling has certainly reached it.
+    // The final announced retry, and anything past it, has exhausted the ladder.
     for (const attempt of [10, 11]) {
       expect(
         classifyClaudeUsageLimitSignal(
@@ -1093,16 +1004,10 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
   });
 
   it("takes the null path when the ladder members are absent, malformed, or announce no ladder", () => {
-    // FAIL-CLOSED on this axis's own rule: silence means "not known to be
-    // limited", never "known not to be limited". The run continues and an
-    // eventual failure takes the ordinary failure path, which is the recoverable
-    // direction — the opposite of parking a run against a boundary composed from
-    // members the frame did not state.
+    // No signal means "not known to be limited": the run continues and a later failure takes the
+    // ordinary failure path, rather than parking against a boundary the frame did not state.
 
-    // A frame carrying NEITHER member. Written out rather than built from the
-    // fixture, because the property under test is the absence of keys the
-    // fixture always supplies — the pair is no longer merely unread, so a frame
-    // that omits it is not recognized at all.
+    // A frame with neither member, written out because the helper always supplies both.
     expect(
       classifyClaudeUsageLimitSignal(
         { type: "system", subtype: "api_retry", retry_delay_ms: 60000, error: "rate_limit" },
@@ -1113,16 +1018,13 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
     const unusableLadders: readonly Record<string, unknown>[] = [
       { attempt: undefined, max_retries: 10 },
       { attempt: 10, max_retries: undefined },
-      // The string form a JSON producer can emit for a number: `"10" >= "10"` is
-      // true, so a comparison written without the numeric guard would emit here.
+      // `"10" >= "10"` is true, so a comparison without the numeric guard would emit here.
       { attempt: "10", max_retries: "10" },
       { attempt: "10", max_retries: 10 },
       { attempt: 10, max_retries: null },
       { attempt: Number.NaN, max_retries: 10 },
       { attempt: 10, max_retries: [10] },
-      // `max_retries: 0` announces NO ladder at all. A bare finite check would
-      // let `0 >= 0` emit a signal off a frame stating there was nothing to
-      // exhaust — the one value the positive-number guard is load-bearing at.
+      // `max_retries: 0` announces no ladder; a bare finite check would let `0 >= 0` emit.
       { attempt: 0, max_retries: 0 },
       { attempt: -1, max_retries: -1 },
     ];
@@ -1153,9 +1055,7 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
   });
 
   it("SEEDED DISCRIMINATING CONTROL — usage-limit prose plus a 429 produce NO signal", () => {
-    // Every one of these carries the HTTP status a status-matcher would fire on
-    // and the prose a text-matcher would fire on, while the typed `error` member
-    // says something else. All must be silent.
+    // Each frame carries a 429 and usage-limit prose, but its typed `error` says otherwise.
     const proseAndStatusFrames: readonly unknown[] = [
       apiRetryFrame({
         error: "server_error",
@@ -1183,9 +1083,8 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
   });
 
   it("does not read `error_status` — a bare 429 is not evidence an allowance is spent", () => {
-    // Positive control for the negative claim above: the SAME frame recognized
-    // on its typed member is silent the moment that member changes, while the
-    // status stays 429 throughout.
+    // Positive control: the same frame is recognized on its typed member and silent once that
+    // member changes, with the status 429 throughout.
     expect(
       classifyClaudeUsageLimitSignal(
         apiRetryFrame({ error_status: 429 }),
@@ -1198,7 +1097,7 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
         RETRY_OBSERVED_AT_EPOCH_MS,
       ),
     ).toBeNull();
-    // And the typed member alone is enough — no status present at all.
+    // The typed member alone is enough.
     const { error_status: _omitted, ...withoutStatus } = apiRetryFrame();
     expect(
       classifyClaudeUsageLimitSignal(withoutStatus, RETRY_OBSERVED_AT_EPOCH_MS),
@@ -1206,11 +1105,8 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
   });
 
   it("recognizes EXACTLY ONE member of the pinned typed-error census", () => {
-    // Checked against the census fixture rather than a list written down here,
-    // so a member added to the pin cannot quietly land in the recognized set —
-    // and so the deliberate exclusions are checked rather than merely asserted.
-    // `billing_error` is the sharpest of them: a payment fault is a human's to
-    // fix, so a park against a reset boundary would never lift.
+    // Checked against the census fixture so a member added to the pin cannot silently join the
+    // recognized set. `billing_error` must stay excluded: a payment fault never lifts on a reset.
     const recognized = CLAUDE_API_RETRY_TYPED_ERRORS.filter(
       (errorMember) =>
         classifyClaudeUsageLimitSignal(
@@ -1223,10 +1119,8 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
   });
 
   it("RECOGNIZES rather than REJECTS — an unfamiliar member takes the ordinary null path", () => {
-    // The reference grades the `error` union's arity Derived, so failing closed
-    // on an unrecognized member would turn a set the evidence cannot close into
-    // an enforced allow-list. Silence is the same answer as for any other shape
-    // the driver has not been taught, and it throws nothing.
+    // The census cannot prove the `error` union closed, so an unfamiliar member gets the ordinary
+    // null answer rather than an error.
     expect(() =>
       classifyClaudeUsageLimitSignal(
         apiRetryFrame({ error: "some_future_member" }),

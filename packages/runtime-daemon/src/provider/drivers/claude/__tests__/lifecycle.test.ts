@@ -1,26 +1,7 @@
-// Coverage map for `lifecycle.ts`:
-//   * The five lifecycle operations of the normalized driver surface
-//     (`createSession`, `resumeSession`, `startRun`, `interruptRun`,
-//     `closeSession`), including the spawn-bound parity legs a resume must
-//     re-realize because resume is a FRESH process spawn.
-//   * A resume-handle failure surfaces `provider failure` detail plus a visible
-//     recovery condition.
-//   * A failed resume returns the typed `failed` arm AND leaves no replacement
-//     Claude session behind: the refused channel is disposed, no route is
-//     registered, and the canonical session is left free for an explicit
-//     re-create. Exercised across all four failure mechanisms this band can see
-//     (transport rejection, identity divergence, contract-invalid position, and a
-//     resume attempted beside a live session), plus the `reauth-required`
-//     classification a typed credential failure must produce. The enforcement
-//     check — no `createSession()` call is issued, watched by a spy on the
-//     driver's own method — runs against every one of those four mechanisms.
-//   * Positive controls for the spawn-bound realization gate: an agreeing
-//     posture and output schema each START a run, so a guard that refused too
-//     much could not hide behind the mismatch tests.
-//   * The zero-turn auth probe classifies the transport's reading onto the
-//     contract's three values, is TOTAL over every throw, and keeps
-//     `unauthenticated` distinguishable from `indeterminate` through a typed
-//     error rather than a message-substring test.
+// Covers `lifecycle.ts`: the five lifecycle operations (`createSession`, `resumeSession`,
+// `startRun`, `interruptRun`, `closeSession`), the spawn-bound parity a resume must re-realize
+// because it is a fresh process spawn, a failed resume that leaves no replacement session behind,
+// positive controls for the spawn-bound realization gate, and the zero-turn auth probe.
 
 import {
   DRIVER_OUTPUT_SPEED_REASON_MAX_LEN,
@@ -111,9 +92,7 @@ function buildHarness(
     diagnostics,
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
-    // Required rather than optional: a trip's run terminal is the only
-    // user-visible surface a swallowed turn has, so no construction site may
-    // leave it unbound.
+    // Required so no construction site can leave a swallowed turn without a user-visible terminal.
     onTextNeutralizationFailure: (sessionId, runId, failure) => {
       textNeutralizationFailures.push({
         sessionId,
@@ -152,11 +131,9 @@ const TRUSTED_POSTURE: ExecutionPosture = {
   writableRoots: ["/workspace"],
 };
 
-// Every way this band can refuse a resume. One specific check runs against all
-// of them — no `createSession()` call is issued, watched by a mock spy on the
-// driver's `createSession` method — because the typed `failed` arm alone cannot
-// distinguish a driver that refused from one that refused AND quietly spawned a
-// replacement behind the daemon's back.
+// Every way this band can refuse a resume. Each is checked for a spy-observed absence of any
+// `createSession()` call, because the typed `failed` arm alone cannot tell a refusal from a
+// refusal that quietly spawned a replacement.
 const RESUME_FAILURE_MECHANISMS: ReadonlyArray<{
   readonly label: string;
   readonly arrange: (harness: LifecycleHarness) => Promise<void> | void;
@@ -326,8 +303,8 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
 
   it("a provider answering with a FRESH session is refused and disposed", async () => {
     const harness = buildHarness();
-    // The documented Claude behavior on a working-directory mismatch: the
-    // resume silently becomes a brand-new session announcing its own id.
+    // Claude's documented behavior on a working-directory mismatch: the resume silently becomes
+    // a new session announcing its own id.
     harness.transport.announcedProviderSessionId = "provider-session-fresh";
 
     const result = await harness.lifecycle.resumeSession({
@@ -423,9 +400,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     async ({ arrange }) => {
       const harness = buildHarness();
       await arrange(harness);
-      // Spied AFTER arrangement so the live-session mechanism's own setup call is
-      // not counted: what the invariant forbids is a create issued IN ANSWER TO
-      // the failure.
+      // Spied after arrangement so the live-session mechanism's own setup call is not counted.
       const createSessionSpy = vi.spyOn(harness.lifecycle, "createSession");
       const spawnCountBeforeResume = harness.transport.spawnRequests.length;
 
@@ -436,8 +411,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
 
       expect(result.status).toBe("failed");
       expect(createSessionSpy).not.toHaveBeenCalled();
-      // The spy only watches the driver's own entry point, so assert the spawn
-      // count directly too: a replacement reached by any other path moves it.
+      // The spy sees only the driver's own entry point, so assert the spawn count directly too.
       expect(harness.transport.spawnRequests).toHaveLength(spawnCountBeforeResume);
     },
   );
@@ -481,11 +455,9 @@ describe("ClaudeSessionLifecycle.startRun", () => {
   });
 
   it("refuses a second dispatch while the run's opening frame is still pending", async () => {
-    // The one-frame-per-run-key invariant the tripwire's settle attributes by:
-    // position 0 gets the terminal's real classification and every later frame
-    // under the key is ruled unrecognized, which trips. A duplicate dispatch
-    // admitted here would therefore quarantine the session over the duplicate,
-    // not over a swallowed user.
+    // The tripwire attributes a settle by one frame per run key: position 0 gets the real
+    // classification and later frames are unrecognized, so a duplicate dispatch would
+    // quarantine the session.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -499,17 +471,15 @@ describe("ClaudeSessionLifecycle.startRun", () => {
       fields: { reason: "run_already_dispatched" },
     });
 
-    // Refused before compose and register: the duplicate reached the wire as
-    // nothing, and the first dispatch's turn still settles benignly — one frame,
-    // one real classification, no false trip.
+    // Refused before compose and register: nothing reached the wire, and the first dispatch's
+    // turn still settles benignly.
     expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
     harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
   });
 
   it("admits a re-dispatch once the first opening frame's turn has settled", async () => {
-    // The guard keys on the PENDING frame and on nothing longer-lived: a run
-    // whose turn settled holds no frame, so dispatching it again is admitted.
+    // The guard keys on the pending frame only: a run whose turn settled may be dispatched again.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -528,11 +498,9 @@ describe("ClaudeSessionLifecycle.startRun", () => {
   });
 
   it("refuses a DIFFERENT run's start while another run's opening frame is pending", async () => {
-    // The session-scoped completion of the duplicate guard: Claude's settling
-    // envelope carries no run id, so with two runs' frames pending on one
-    // session the tripwire could rule only the oldest-bound run on the real
-    // verdict and every other unrecognized — quarantining a healthy session
-    // over a perfectly valid queued start.
+    // Claude's settling envelope carries no run id, so with two runs' frames pending on one
+    // session the tripwire could classify only the oldest correctly and would quarantine a
+    // healthy session over a valid queued start.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -592,10 +560,8 @@ describe("ClaudeSessionLifecycle.startRun", () => {
   });
 });
 
-// Positive controls for `#assertSpawnBoundRealization`. Without these, a guard
-// that refuses too much would be invisible: every mismatch test above would still
-// refuse — correctly, but by accident — and the happy-path test declares neither
-// axis, so both checks pass there on `undefined` alone.
+// Positive controls for `#assertSpawnBoundRealization`: without them a guard that refuses too
+// much would pass every mismatch test above by accident.
 describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs start)", () => {
   function arrangeDispatch(harness: LifecycleHarness): void {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -613,8 +579,8 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
     });
     arrangeDispatch(harness);
 
-    // A distinct object carrying the same posture: the daemon re-materializes the
-    // posture per call, so a reference-equality guard would refuse every real run.
+    // A distinct object with the same posture: the daemon re-materializes it per call, so a
+    // reference-equality guard would refuse every real run.
     await harness.lifecycle.startRun({
       ...buildStartRunParams(),
       executionPosture: { ...SANDBOXED_POSTURE },
@@ -640,13 +606,9 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
   });
 });
 
-// `ExecutionPosture` is an intersection of two discriminated unions: `mode`,
-// `networkAccess`, `allowedDomains` (allowed-domains arm only), `writableRoots`,
-// `profileName`, and `credentialPolicyRef` (sandboxed arms only). Comparing a
-// projection of that — as an earlier revision did, on `mode` + `networkAccess`
-// alone — admits a run into a process whose sandbox differs on an axis nobody
-// checked, and the run's recorded effective posture is then a lie. One test per
-// axis, so a re-narrowing cannot pass by covering only the popular ones.
+// `ExecutionPosture` is an intersection of two discriminated unions, so a comparison over `mode`
+// and `networkAccess` alone would admit a run into a process whose sandbox differs on another
+// axis. One test per axis keeps a re-narrowing from passing on the popular ones.
 describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
   const ALLOWED_DOMAINS_POSTURE: ExecutionPosture = {
     mode: "workspace-sandboxed",
@@ -724,9 +686,8 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
     const harness = buildHarness();
     await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
 
-    // The detail rides the error MESSAGE (`fields` carries only the closed-set
-    // reason), so an operator reading a refusal learns WHICH axis diverged
-    // without having to diff two postures by hand.
+    // The detail rides the error message (`fields` holds only the closed-set reason), so an
+    // operator learns which axis diverged.
     await expect(
       harness.lifecycle.startRun({
         ...buildStartRunParams(),
@@ -739,9 +700,8 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
     const harness = buildHarness();
     await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
 
-    // A caller that lists the same roots and domains in another order has
-    // declared the SAME posture; refusing it would force relaunches over
-    // serialization order rather than over a real difference.
+    // The same roots and domains in another order are the same posture; refusing would force
+    // relaunches over serialization order.
     await harness.lifecycle.startRun({
       ...buildStartRunParams(),
       executionPosture: {
@@ -774,17 +734,14 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
     const harness = buildHarness();
     await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
 
-    // The one-directional rule is unchanged by the axis widening.
     await harness.lifecycle.startRun(buildStartRunParams());
 
     expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 });
 
-// A boolean "is a schema bound?" admits a run carrying schema B into a process
-// spawned with schema A, so the provider constrains output to a shape the run
-// never asked for. Identity is a canonical digest: key ORDER is not semantic in
-// JSON, array order is.
+// A boolean "is a schema bound?" would admit a run carrying schema B into a process spawned with
+// schema A. Identity is a canonical digest: key order is not semantic in JSON, array order is.
 describe("ClaudeSessionLifecycle.startRun output-schema identity", () => {
   const SPAWN_SCHEMA: Record<string, unknown> = {
     type: "object",
@@ -947,11 +904,9 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
     ).resolves.toBeUndefined();
   });
 
-  // A dispose that rejects leaves a provider process RUNNING. Freeing the slot
-  // then would let the next create spawn a second process under one canonical
-  // session — the double-process hazard the slot claim exists to prevent,
-  // reached by a different road — so the slot is quarantined with the channel
-  // retained, which is the only remaining handle on that process.
+  // A dispose that rejects leaves a provider process running, so the slot is quarantined with the
+  // channel retained (the only handle on that process); freeing it would allow a second process
+  // under one canonical session.
   it("quarantines the session when disposal fails, and still surfaces the failure", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -972,11 +927,8 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
 
     // (a) Routes go unconditionally: no run may reach a closing process.
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
-    // (b) The slot is held, so no second process can be spawned beneath it. The
-    // reason stays the closed-set `session_already_live` — the slot IS taken —
-    // while the message names quarantine, so an operator can tell a live session
-    // from a process that would not die. No reason arm is minted for a state
-    // nothing branches on.
+    // (b) The slot is held so no second process can be spawned beneath it. The reason stays the
+    // closed-set `session_already_live` while the message names quarantine.
     await expect(harness.lifecycle.createSession(buildCreateSessionParams())).rejects.toMatchObject(
       {
         code: "driver.unavailable",
@@ -1018,8 +970,8 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
     channel.disposeFailure = new Error("the provider process would not exit");
     await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow();
 
-    // The process finally exits: the retry must reach THAT channel, not report a
-    // success against a session record that no longer exists.
+    // Once the process exits the retry must reach that channel, not report success against a
+    // session record that no longer exists.
     channel.disposeFailure = undefined;
     await expect(
       harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID }),
@@ -1053,13 +1005,10 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
   });
 });
 
-// Two callers can be inside an establishment at once: both entry points await a
-// transport spawn between checking the session slot and registering the channel.
-// Without a claim taken BEFORE that await, both pass the check, both spawn, and
-// the second registration overwrites the first — the loser's channel is then
-// unreachable by `closeSession` and its CLI process outlives the daemon's record
-// of it. Each test holds the transport open so both callers are provably in
-// flight, then asserts the transport's own spawn count: exactly one process.
+// Both entry points await a transport spawn between checking the session slot and registering
+// the channel. Without a claim taken before that await both would spawn and the second
+// registration would orphan the first process. Each test holds the transport open and asserts
+// its spawn count: exactly one process.
 describe("ClaudeSessionLifecycle establishment races", () => {
   function openEstablishmentGate(): { gate: Promise<void>; release: () => void } {
     let release = (): void => undefined;
@@ -1087,8 +1036,7 @@ describe("ClaudeSessionLifecycle establishment races", () => {
       code: "driver.unavailable",
       fields: { reason: "session_already_live" },
     });
-    // The refusal is worth nothing if the loser spawned anyway: one process, one
-    // channel, and the survivor is the one the lifecycle actually holds.
+    // The refusal must mean the loser never spawned: one process, one channel.
     expect(harness.transport.spawnRequests).toHaveLength(1);
     expect(harness.transport.spawnedChannels).toHaveLength(1);
   });
@@ -1106,8 +1054,7 @@ describe("ClaudeSessionLifecycle establishment races", () => {
     release();
     await expect(creating).resolves.toBeDefined();
 
-    // Through the `failed` arm, never a throw: resume's contract failure channel
-    // is that arm regardless of which shape of collision caused it.
+    // Resume's failure channel is the `failed` arm, never a throw, whichever collision caused it.
     expect(resumed.status).toBe("failed");
     if (resumed.status !== "failed") {
       throw new Error("unreachable: the resume must fail");
@@ -1152,8 +1099,8 @@ describe("ClaudeSessionLifecycle establishment races", () => {
     await creating;
     await closing;
 
-    // A close that read the slot as empty would return before the channel was
-    // ever registered, and the process would outlive the daemon's record of it.
+    // A close that read the slot as empty would return before the channel was registered and the
+    // process would outlive the daemon's record of it.
     expect(harness.transport.spawnedChannels).toHaveLength(1);
     expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["session_closed"]);
     // The slot is genuinely free afterwards, not merely emptied of its record.
@@ -1163,12 +1110,10 @@ describe("ClaudeSessionLifecycle establishment races", () => {
   });
 });
 
-// The slot must be HELD across every async transition, not merely re-taken after
-// one. An earlier revision dropped the session record BEFORE awaiting `dispose`,
-// so for the whole teardown the slot read EMPTY: a concurrent create spawned a
-// replacement, and a dispose that then rejected installed its quarantine beside
-// the NEW live channel — two processes under one canonical session, which is the
-// exact condition the quarantine was added to prevent. These tests hold each
+// The slot must be held across every async transition, not merely re-taken after one. If the
+// session record were dropped before awaiting `dispose`, the slot would read empty during
+// teardown, a concurrent create would spawn a replacement, and a failing dispose would
+// quarantine beside the new channel: two processes under one session. These tests hold each
 // transition open and assert the slot refuses throughout.
 describe("ClaudeSessionLifecycle slot is held across every transition", () => {
   function openGate(): { gate: Promise<void>; release: () => void } {
@@ -1192,8 +1137,7 @@ describe("ClaudeSessionLifecycle slot is held across every transition", () => {
     const { gate, release } = openGate();
     channel.disposeGate = gate;
     const closing = harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
-    // The disposal was entered, so the slot is genuinely CLOSING rather than
-    // merely scheduled to be.
+    // The disposal was entered, so the slot is closing rather than merely scheduled to be.
     expect(channel.disposals).toStrictEqual(["session_closed"]);
     return { channel, closing, release };
   }
@@ -1213,8 +1157,7 @@ describe("ClaudeSessionLifecycle slot is held across every transition", () => {
       code: "driver.unavailable",
       fields: { reason: "session_already_live" },
     });
-    // The decisive assertion: no replacement process was spawned beneath a
-    // session whose own process was still dying.
+    // No replacement process was spawned beneath a session whose own process was still dying.
     expect(harness.transport.spawnRequests).toHaveLength(1);
   });
 
@@ -1259,8 +1202,8 @@ describe("ClaudeSessionLifecycle slot is held across every transition", () => {
     await closing;
     await secondClose;
 
-    // The second close chained onto the first, observed EMPTY, and returned —
-    // rather than issuing a second teardown against a process already gone.
+    // The second close chained onto the first, saw an empty slot and returned, instead of issuing
+    // a second teardown against a process already gone.
     expect(channel.disposals).toStrictEqual(["session_closed"]);
   });
 
@@ -1274,8 +1217,7 @@ describe("ClaudeSessionLifecycle slot is held across every transition", () => {
     channel.disposeFailure = new Error("the provider process would not exit");
     await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow();
 
-    // The retry is itself an async transition and must hold the slot too, or the
-    // window simply reopens one state later.
+    // The retry is itself an async transition and must hold the slot too.
     channel.disposeFailure = undefined;
     const { gate, release } = openGate();
     channel.disposeGate = gate;
@@ -1295,10 +1237,9 @@ describe("ClaudeSessionLifecycle slot is held across every transition", () => {
   });
 });
 
-// Claude's interrupt is CHANNEL-level. A run route that outlives its turn is
-// therefore not an inert stale entry: a late interrupt for the finished run would
-// land on whatever turn the channel is running now. Routes are retired when the
-// transport reports a terminal stream frame.
+// Claude's interrupt is channel-level, so a run route that outlives its turn is not inert: a
+// late interrupt for the finished run would land on whatever turn the channel runs now. Routes
+// are retired when the transport reports a terminal stream frame.
 describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
   async function arrangeRunningTurn(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -1328,9 +1269,8 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     const harness = buildHarness();
     const channel = await arrangeRunningTurn(harness);
 
-    // The driver's response is the same for either terminal — the route is over
-    // because the TURN is over, not because it succeeded. The double owns the
-    // terminal-vs-non-terminal discriminant, exactly as a transport does.
+    // Either terminal ends the route because the turn is over, not because it succeeded. The
+    // double owns the terminal discriminant, as a transport does.
     channel.emitStreamFrame("result/error_max_turns");
 
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
@@ -1340,9 +1280,8 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     const harness = buildHarness();
     const channel = await arrangeRunningTurn(harness);
 
-    // A censused, thread-scoped, NON-terminal kind: it must route and project,
-    // so what this asserts is the terminal discriminant rather than a frame the
-    // router would have refused anyway.
+    // A thread-scoped, non-terminal kind must route and project, so this asserts the terminal
+    // discriminant rather than a frame the router would have refused anyway.
     const route = channel.emitStreamFrame("system/task_progress");
 
     expect(route).toStrictEqual({ decision: "project" });
@@ -1379,8 +1318,8 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
     const liveChannel = harness.transport.spawnedChannels[1];
 
-    // The driver holds no kill, so the old process can still emit long after the
-    // daemon stopped listening to it. That terminal belongs to nobody.
+    // The driver holds no kill, so the old process can still emit after the daemon stopped
+    // listening; that terminal belongs to nobody.
     staleChannel.emitStreamFrame("result/success");
 
     expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBe(liveChannel);
@@ -1403,14 +1342,11 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
   });
 });
 
-// The window between "the transport handed us a live channel" and "that channel
-// is registered" contains three things that can throw, none of them the
-// provider's doing: the injected binding minter, the spawn-binding digest of a
-// caller-supplied output schema, and the transport's own `onTurnTerminal`. An
-// escaping throw would skip BOTH the disposal paths and the registration, while
-// the outer slot claim cleared the slot in its settle path — leaving a running
-// process nobody holds a reference to and a free slot for the next create to
-// spawn beside it. Every exit from this window must register or dispose.
+// Between the transport handing back a live channel and that channel being registered, three
+// things can throw: the injected binding minter, the spawn-binding digest of a caller-supplied
+// output schema, and the transport's own `onTurnTerminal`. An escaping throw would skip both
+// disposal and registration while the slot claim cleared, leaving an unreferenced running
+// process and a free slot. Every exit from this window must register or dispose.
 describe("ClaudeSessionLifecycle adoption window", () => {
   // A schema whose digest cannot be computed: `JSON.stringify` throws on BigInt.
   const UNSERIALIZABLE_OUTPUT_SCHEMA: Record<string, unknown> = { limit: 10n };
@@ -1427,7 +1363,7 @@ describe("ClaudeSessionLifecycle adoption window", () => {
       resumeHandle: "provider-session-earlier",
     });
 
-    // Resume's contractual failure channel is the arm, never a throw.
+    // Resume's failure channel is the arm, never a throw.
     expect(result.status).toBe("failed");
     if (result.status !== "failed") {
       throw new Error("unreachable: the resume must fail");
@@ -1437,8 +1373,7 @@ describe("ClaudeSessionLifecycle adoption window", () => {
     expect(DriverResumeResultSchema.safeParse(result).success).toBe(true);
     // The process the transport handed back was disposed, not orphaned.
     expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["establishment_failed"]);
-    // And the slot is free, so recovery is an ordinary create rather than a
-    // session id that can never be used again.
+    // The slot is free, so recovery is an ordinary create.
     await expect(
       harness.lifecycle.createSession(buildCreateSessionParams()),
     ).resolves.toBeDefined();
@@ -1479,15 +1414,14 @@ describe("ClaudeSessionLifecycle adoption window", () => {
     const harness = buildHarness();
     harness.transport.onTurnTerminalFailure = new Error("the stream consumer is already closed");
 
-    // `createSession` has no degraded arm, so throwing IS its failure channel —
-    // but the channel must still be disposed on the way out.
+    // `createSession` has no degraded arm, so throwing is its failure channel, but the channel
+    // must still be disposed.
     await expect(harness.lifecycle.createSession(buildCreateSessionParams())).rejects.toThrow(
       "the stream consumer is already closed",
     );
 
     expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["establishment_failed"]);
-    // The slot never latched: a retry is admitted rather than refused by a
-    // half-registered session.
+    // The slot never latched: a retry is admitted.
     harness.transport.onTurnTerminalFailure = undefined;
     await expect(
       harness.lifecycle.createSession(buildCreateSessionParams()),
@@ -1512,11 +1446,9 @@ describe("ClaudeSessionLifecycle adoption window", () => {
   });
 });
 
-// `providerFailureDetail` is rendered by a module-private helper whose contract
-// is TOTALITY over arbitrary thrown values: every caller is a catch block, and
-// the refused-channel disposal path's whole job is to not throw, so a renderer
-// that could throw would defeat the guard calling it. Exercised through the
-// resume failure path, which is the surface that persists the detail.
+// `providerFailureDetail` is rendered by a module-private helper that must be total over
+// arbitrary thrown values: every caller is a catch block, and the refused-channel disposal path
+// must not throw. Exercised through the resume failure path, which persists the detail.
 describe("ClaudeSessionLifecycle.probeAuth", () => {
   it("reports authenticated when the transport takes the reading", async () => {
     const harness = buildHarness();
@@ -1542,9 +1474,8 @@ describe("ClaudeSessionLifecycle.probeAuth", () => {
 
     const result = await harness.lifecycle.probeAuth();
 
-    // The pinned CLI publishes no authless protocol probe, so reaching the
-    // provider IS the whole of the evidence — the default detail must not imply
-    // a credential source the probe never observed.
+    // The pinned CLI publishes no authless protocol probe, so reaching the provider is the whole
+    // evidence; the default detail must not imply a credential source the probe never observed.
     expect(result.detail).toBe("the provider answered the zero-turn auth probe");
   });
 
@@ -1563,9 +1494,8 @@ describe("ClaudeSessionLifecycle.probeAuth", () => {
     const harness = buildHarness();
     harness.transport.probeAuthFailure = new Error("claude binary not found");
 
-    // Fail-closed for admission, and still distinguishable: an operator sent to
-    // re-authenticate a credential that was never in question has been told the
-    // wrong thing.
+    // Fail-closed for admission yet distinguishable: sending an operator to re-authenticate a
+    // credential never in question misleads them.
     const result = await harness.lifecycle.probeAuth();
 
     expect(result.status).toBe("indeterminate");
@@ -1574,8 +1504,8 @@ describe("ClaudeSessionLifecycle.probeAuth", () => {
 
   it("classifies by type, not by message text", async () => {
     const harness = buildHarness();
-    // A generic failure whose WORDS look like a credential problem. A
-    // substring test would misclassify it as a determinate logout.
+    // A generic failure whose words look like a credential problem; a substring test would
+    // misclassify it as a determinate logout.
     harness.transport.probeAuthFailure = new Error("not authenticated: upstream 401");
 
     await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({
@@ -1597,8 +1527,8 @@ describe("ClaudeSessionLifecycle.probeAuth", () => {
 
     await harness.lifecycle.probeAuth();
 
-    // A probe that spawned a session would not be zero-turn, and one that held
-    // the session slot would stall the admission check it exists to make cheap.
+    // A probe that spawned a session would not be zero-turn, and one holding the session slot
+    // would stall the admission check it exists to make cheap.
     expect(harness.transport.spawnRequests).toStrictEqual([]);
     await expect(
       harness.lifecycle.createSession(buildCreateSessionParams()),
@@ -1660,9 +1590,8 @@ describe("provider failure detail rendering", () => {
 
   it("never renders a non-string message, which would stringify an arbitrary object", async () => {
     const error = new Error("unused");
-    // The posture this locks: an unreadable value is reported as undescribable,
-    // never rendered best-effort. A `toString` on a config-bearing object is how
-    // credential material would reach a durable row.
+    // An unreadable value is reported as undescribable, never rendered best-effort: a `toString`
+    // on a config-bearing object is how credential material would reach a durable row.
     Object.defineProperty(error, "message", {
       value: { toString: () => "sk-live-should-never-appear" },
     });
@@ -1690,38 +1619,28 @@ describe("ClaudeSessionUnavailableError", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// The parity driver legs, Claude arm.
-// --------------------------------------------------------------------------
-//
-// What is under test:
-//   * `forkConversation` reports the `bindingId` the daemon rebinds on.
-//   * This provider's EMULATED cells: the concurrency cap as a daemon-side
-//     boundary serialization, and the callback-tool registry as a daemon-hosted
-//     ephemeral MCP server.
-//   * A registry with no dispatcher to adjudicate through is withheld rather
-//     than offered.
-//   * A subagent definition that cannot be held at the daemon boundary is
-//     withheld and recorded, never silently admitted.
-//   * A rewind is a spawn, so it re-realizes every spawn-bound leg.
+// The parity driver legs, Claude arm: `forkConversation` reports the `bindingId` the daemon
+// rebinds on; the emulated cells (the concurrency cap as a daemon-side boundary serialization,
+// the callback-tool registry as a daemon-hosted ephemeral MCP server); a registry with no
+// dispatcher to adjudicate through is withheld; a subagent definition that cannot be held at
+// the daemon boundary is withheld and recorded; a rewind is a spawn, so it re-realizes every
+// spawn-bound leg.
 
 describe("ClaudeSessionLifecycle.forkConversation (EMULATED as a fork)", () => {
   it("reports the rebinding `bindingId` on the applied arm", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
 
-    // The INPUT binding is deliberately NOT the minted one, so a driver that
-    // echoed the caller's `bindingId` back — reporting the binding of the
-    // process the rewind just replaced — fails here.
+    // The input binding is deliberately not the minted one, so a driver that echoed the caller's
+    // `bindingId` (the binding of the process just replaced) fails here.
     const result = await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: "binding-predecessor",
       position: 4,
     });
 
-    // The rewind relaunches the process, so the daemon rebinds onto a new one;
-    // an applied rollback reporting the predecessor's binding would leave the
-    // caller pointing at a process that is gone.
+    // The rewind relaunches the process, so an applied rollback reporting the predecessor's
+    // binding would leave the caller pointing at a process that is gone.
     expect(result).toStrictEqual({
       status: "applied",
       sessionPosition: 4,
@@ -1730,8 +1649,8 @@ describe("ClaudeSessionLifecycle.forkConversation (EMULATED as a fork)", () => {
   });
 
   it("refuses a rewind the provider answered with the SAME session id", async () => {
-    // A rewind that answers with the id it was given did not fork: the
-    // pre-rewind conversation the fork was supposed to preserve is gone.
+    // A rewind answering with the id it was given did not fork: the conversation the fork was
+    // meant to preserve is gone.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.transport.announcedForkedProviderSessionId = TEST_PINNED_PROVIDER_SESSION_ID;
@@ -1747,15 +1666,10 @@ describe("ClaudeSessionLifecycle.forkConversation (EMULATED as a fork)", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Auto-update suppression on every spawn-bound leg
-// --------------------------------------------------------------------------
-
 describe("ClaudeSessionLifecycle mandated spawn environment", () => {
-  // Taken from the shared builder rather than written out, so this suite fails
-  // if the driver stops routing through it — and pinned against the literal
-  // pairs beside it, so a builder that returned nothing could not make both
-  // sides vacuously agree.
+  // Taken from the shared builder so this suite fails if the driver stops routing through it,
+  // and pinned against the literal pairs beside it so a builder returning nothing cannot make
+  // both sides agree vacuously.
   const MANDATED = buildProviderSpawnEnv({
     driverName: "claude",
     baseEnv: [],
@@ -1778,9 +1692,8 @@ describe("ClaudeSessionLifecycle mandated spawn environment", () => {
   });
 
   it("carries it on a resume, which is a fresh process and not a reattach", async () => {
-    // The leg that would shed it. A resume relaunches the CLI, so suppression
-    // bound at create and omitted here would expire at the first relaunch — and
-    // `ResumeSessionParams` carries no config to rebuild it from.
+    // A resume relaunches the CLI, so suppression bound at create and omitted here would expire
+    // at the first relaunch; `ResumeSessionParams` carries no config to rebuild it from.
     const harness = buildHarness();
 
     await harness.lifecycle.resumeSession({
@@ -1805,28 +1718,22 @@ describe("ClaudeSessionLifecycle mandated spawn environment", () => {
   });
 
   it("carries it on the auth probe, which starts a child of its own", async () => {
-    // The fourth spawn path, and the one whose seam could not receive the pairs
-    // at all until the probe took a request. It is also the path where losing
-    // them costs most: a probe runs on a cadence and its child is short-lived,
-    // so an unsuppressed probe can update the installation underneath the very
-    // version and capability readings the next admission is decided against.
+    // The fourth spawn path. Losing the pairs here costs most: a probe runs on a cadence with a
+    // short-lived child, so an unsuppressed probe can update the installation under the very
+    // readings the next admission is decided against.
     const harness = buildHarness();
 
     const result = await harness.lifecycle.probeAuth();
 
     expect(harness.transport.probeAuthRequests[0]?.mandatedEnvironment).toEqual(MANDATED);
-    // The double REFUSES a child started without them, so a passing probe is
-    // itself evidence — an `indeterminate` here would mean the guard fired.
+    // The double refuses a child started without them, so a passing probe is itself evidence.
     expect(result.status).toBe("authenticated");
   });
 
   it("hands a resume the policy ref of the posture BEING RESUMED", async () => {
-    // The Claude analogue of the codex resume fix, and a ROUTING assertion
-    // rather than a strip assertion: the deny strip belongs to the transport
-    // under the spawn-environment obligation, so what this band owes is handing that
-    // transport the ref of the posture the resume states. Both paths build
-    // their legs from `params` through the one shared builder, which is why
-    // there is no stale-policy path here to close — this pins that.
+    // A routing assertion, not a strip assertion: the deny strip belongs to the transport under
+    // the spawn-environment obligation, so this band owes handing that transport the ref of the
+    // posture the resume states. Both paths build their legs from `params` through one builder.
     const harness = buildHarness();
 
     await harness.lifecycle.resumeSession({
@@ -1841,10 +1748,9 @@ describe("ClaudeSessionLifecycle mandated spawn environment", () => {
   });
 
   it("hands a `trusted` resume no policy ref at all", async () => {
-    // The other direction, which a "still carries a ref" assertion cannot
-    // catch. `trusted` types `credentialPolicyRef?: never`, so settings
-    // carrying one would hand the transport a policy to enforce that the
-    // posture does not declare.
+    // The other direction, which a "still carries a ref" assertion cannot catch: `trusted` types
+    // `credentialPolicyRef?: never`, so settings carrying one would hand the transport a policy
+    // the posture does not declare.
     const harness = buildHarness();
 
     await harness.lifecycle.resumeSession({
@@ -1859,10 +1765,8 @@ describe("ClaudeSessionLifecycle mandated spawn environment", () => {
   });
 
   it("cannot start a probe child without them — the guard, driven directly", async () => {
-    // The negative control. Without it the arm above proves only that some
-    // pairs were recorded, not that the transport double would object to their
-    // absence, and a guard that never refuses makes every arm in this suite
-    // vacuous.
+    // The negative control: without it the arm above proves only that some pairs were recorded,
+    // and a guard that never refuses makes every arm in this suite vacuous.
     const harness = buildHarness();
 
     await expect(harness.transport.probeAuth({ mandatedEnvironment: [] })).rejects.toThrow(
@@ -1901,8 +1805,7 @@ describe("ClaudeSessionLifecycle callback-tool registry (Claude arm)", () => {
       callbackTools: [SEARCH_TOOL],
     });
 
-    // Withheld rather than served-and-refused: a tool the model never learns
-    // exists costs it no turns.
+    // Withheld rather than served-and-refused: a tool the model never learns of costs no turns.
     const spawnRequest = harness.transport.spawnRequests[0];
     expect(spawnRequest?.callbackTools).toBeUndefined();
     expect(spawnRequest?.callbackToolServer).toBeUndefined();
@@ -1912,13 +1815,9 @@ describe("ClaudeSessionLifecycle callback-tool registry (Claude arm)", () => {
   });
 
   it("injects NO registry when the bound transport does not realize the registration", async () => {
-    // THE THIRD GATE. The first two questions — did the daemon offer tools, is
-    // a dispatcher bound — are answerable from `params`. Whether the model ever
-    // SEES the registry is a property of whichever transport writes the process
-    // arguments, and left unasked it produced exactly the failure the Codex
-    // pin-withholding exists to prevent: a live daemon-side registry for tools
-    // the model was never told about, invisible because a tool the model never
-    // calls looks identical to a tool it chose not to call.
+    // The third gate. Whether the model ever sees the registry depends on whichever transport
+    // writes the process arguments; unasked, the daemon would host a live registry for tools the
+    // model was never told about, invisible because an uncalled tool looks like a declined one.
     const harness = buildHarness();
     harness.transport.realizesCallbackToolRegistration = false;
 
@@ -2002,8 +1901,7 @@ describe("composeClaudeCallbackMcpServer", () => {
   });
 
   it("de-duplicates a repeated name last-wins rather than serving it twice", () => {
-    // Serving one provider-facing name twice would make the reverse map's answer
-    // depend on iteration order.
+    // Serving one provider-facing name twice would make the reverse map depend on iteration order.
     const descriptor = composeClaudeCallbackMcpServer([
       { name: "search", description: "first", inputSchema: {} },
       { name: "search", description: "second", inputSchema: {} },
@@ -2031,9 +1929,8 @@ describe("ClaudeSubagentConcurrencyGate", () => {
   }
 
   it("never admits beyond the cap, even when a release and an arrival interleave", async () => {
-    // The hand-over race: a release that decremented and then woke a waiter in a
-    // microtask leaves a window in which a THIRD caller reads a free slot the
-    // waiter has already been promised.
+    // Hand-over race: a release that decremented and then woke a waiter in a microtask leaves a
+    // window in which a third caller reads a free slot the waiter was already promised.
     const { gate } = buildGate(1);
     const releaseFirst = await gate.admit("subagent-a");
     const secondAdmission = gate.admit("subagent-b");
@@ -2063,8 +1960,8 @@ describe("ClaudeSubagentConcurrencyGate", () => {
     release();
     await Promise.all(waiters);
 
-    // A waiter set resolved in arbitrary order starves whichever subagent is
-    // unlucky, inside a run that has a wall-clock budget.
+    // A waiter set resolved in arbitrary order starves an unlucky subagent inside a run that has
+    // a wall-clock budget.
     expect(admitted).toStrictEqual(["first", "second", "third"]);
   });
 
@@ -2107,9 +2004,8 @@ describe("ClaudeSubagentConcurrencyGate", () => {
     gate.observeLiveSubagentCount(4);
     gate.observeLiveSubagentCount(2);
 
-    // The provider can create subagents without any of them calling a tool, so
-    // the daemon can see more live subagents than the gate ever admitted. That
-    // is a breach, it is recorded, and it never fails a run.
+    // The provider can create subagents without a tool call, so the daemon can see more live
+    // subagents than the gate admitted; that is recorded as a breach and never fails a run.
     const breaches = diagnostics.recentRecordsOfKind("subagent_concurrency_breach");
     expect(breaches).toHaveLength(2);
     expect(breaches.map((record) => record.details["liveSubagentCount"])).toStrictEqual([3, 4]);
@@ -2147,9 +2043,8 @@ describe("ClaudeSessionLifecycle subagent admission wiring", () => {
   });
 
   it("installs a FRESH gate on a rewind rather than carrying the predecessor's", async () => {
-    // A rewind relaunches the process, so every subagent the old gate held slots
-    // for died with it; carrying it forward would hold a permanently reduced cap
-    // against calls that no longer exist.
+    // A rewind relaunches the process, so the old gate's subagents died with it; carrying them
+    // forward would hold a permanently reduced cap.
     const harness = buildHarness();
     await harness.lifecycle.createSession({
       ...buildCreateSessionParams(),
@@ -2167,8 +2062,7 @@ describe("ClaudeSessionLifecycle subagent admission wiring", () => {
     const rewoundGate = harness.transport.rewindRequests[0]?.subagentAdmission;
     expect(rewoundGate).toBeDefined();
     expect(rewoundGate).not.toBe(predecessorGate);
-    // And the predecessor's own waiters are failed rather than left hanging on a
-    // process that is gone.
+    // The predecessor's own waiters are failed instead of left hanging on a gone process.
     await expect(predecessorGate?.admit("orphan")).rejects.toBeInstanceOf(
       ClaudeSessionUnavailableError,
     );
@@ -2197,9 +2091,8 @@ describe("ClaudeSessionLifecycle subagent admission wiring", () => {
         maxConcurrent: 2,
         maxDepth: 1,
         definitions: [
-          // `bypassPermissions` skips the daemon's interception point, so this
-          // definition's beyond-cap calls could not be held at a boundary that
-          // is not there.
+          // `bypassPermissions` skips the daemon's interception point, so this definition's
+          // beyond-cap calls could not be held at a boundary that is not there.
           { name: "unmediated", permissionMode: "bypassPermissions" },
           { name: "mediated", permissionMode: "default" },
         ],
@@ -2209,7 +2102,7 @@ describe("ClaudeSessionLifecycle subagent admission wiring", () => {
     const withheld = harness.diagnostics.recentRecordsOfKind("subagent_definition_disabled");
     expect(withheld).toHaveLength(1);
     expect(withheld[0]?.details["definitionName"]).toBe("unmediated");
-    // The admitted one still ships: withholding is per-definition, not per-spawn.
+    // The admitted one still ships: withholding is per definition, not per spawn.
     const realizedPolicy = harness.transport.spawnRequests[0]?.subagentPolicy;
     expect(
       realizedPolicy?.enabled === true
@@ -2237,23 +2130,20 @@ describe("ClaudeSessionLifecycle subagent admission wiring", () => {
 
 describe("composeClaudeSandboxSettings", () => {
   it("pins the always-armed permission prompt on every sandboxed arm", () => {
-    // RATIFIED MAPPING (user decision, 2026-08-25): `supervised` maps to
-    // `on-request` UNCONDITIONALLY. On this provider that is realized as
-    // `allowUnsandboxedCommands: false`, so no tool call reaches the model's
-    // hands without passing the daemon.
+    // `supervised` maps to `on-request` unconditionally; on this provider that is realized as
+    // `allowUnsandboxedCommands: false`, so no tool call reaches the model without the daemon.
     for (const posture of [SANDBOXED_POSTURE, READONLY_POSTURE]) {
       const settings = composeClaudeSandboxSettings(posture);
       expect(settings.sandbox.allowUnsandboxedCommands).toBe(false);
       expect(settings.sandbox.enabled).toBe(true);
-      // A host whose sandbox cannot be brought up must REFUSE to start rather
-      // than start unsandboxed under a recorded sandboxed posture.
+      // A host whose sandbox cannot start must refuse rather than run unsandboxed under a
+      // recorded sandboxed posture.
       expect(settings.sandbox.failIfUnavailable).toBe(true);
     }
   });
 
   it("writes nowhere on the read-only arm, with an EMPTY list rather than an omitted one", () => {
-    // An omitted list requests the provider's default, which is a different
-    // statement from "writes nowhere".
+    // An omitted list requests the provider's default, which is not the same as "writes nowhere".
     expect(
       composeClaudeSandboxSettings(READONLY_POSTURE).sandbox.filesystem.allowWrite,
     ).toStrictEqual([]);
@@ -2263,20 +2153,15 @@ describe("composeClaudeSandboxSettings", () => {
     const trusted = composeClaudeSandboxSettings(TRUSTED_POSTURE);
     const denied = composeClaudeSandboxSettings(SANDBOXED_POSTURE);
 
-    // The ABSENCE is the statement; an empty list would mean the opposite.
+    // The absence is the statement; an empty list would mean the opposite.
     expect(trusted.sandbox.network).toBeUndefined();
     expect(denied.sandbox.network).toStrictEqual({ allowedDomains: [] });
   });
 });
 
-// ---------------------------------------------------------------------------
-// The routing / metering band, driven through the REAL inbound seam.
-// ---------------------------------------------------------------------------
-//
-// The double honors the whole `onInboundFrame` transport obligation: it
-// observes before projecting and projects only on `project`. So these assert
-// what a real transport would do with the driver's answer, not what a test
-// helper decided to record.
+// The routing and metering band, driven through the real inbound seam. The double honors the
+// whole `onInboundFrame` transport obligation (observe before projecting, project only on
+// `project`), so these assert what a real transport does with the driver's answer.
 
 describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
   const CHILD_SUBAGENT_ID = "subagent-7";
@@ -2335,11 +2220,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
 
     await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
 
-    // GONE, not replaced. The accessors are non-creating, so a read after the
-    // close answers `undefined` rather than minting a fresh band nothing will
-    // ever delete — per-provider-session state accumulating for a session that
-    // no longer exists, and a router that would answer the next session with a
-    // thread registry that session never made.
+    // Gone, not replaced: the accessors do not create, so a read after close answers `undefined`
+    // instead of minting a band nothing will delete.
     expect(harness.lifecycle.usageAccountantFor(TEST_SESSION_ID)).toBeUndefined();
     expect(harness.lifecycle.frameRouterFor(TEST_SESSION_ID)).toBeUndefined();
   });
@@ -2347,9 +2229,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
   it("the band is built at registration, so it exists for a live session and not before one", async () => {
     const harness = buildRoutingHarness();
 
-    // Nothing has been established, so nothing holds a band. A get-or-create
-    // accessor would answer here and leave a band behind for a session that was
-    // never created.
+    // Nothing established, so nothing holds a band; a get-or-create accessor would leave one
+    // behind for a session never created.
     expect(harness.lifecycle.frameRouterFor(TEST_SESSION_ID)).toBeUndefined();
 
     await liveChannel(harness);
@@ -2377,8 +2258,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     channel.emitStreamFrame("system/task_progress", usageObservation(100));
     channel.emitStreamFrame("system/task_progress", usageObservation(150));
 
-    // This provider reports a running total that resets at no turn boundary.
-    // 150 is the session's whole spend; 50 is what the second turn cost.
+    // This provider reports a running total that resets at no turn boundary: 150 is the
+    // session's whole spend, 50 is what the second turn cost.
     expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([100, 50]);
   });
 
@@ -2399,9 +2280,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     channel.emitStreamFrame("system/task_progress", usageObservation(40, CHILD_SUBAGENT_ID));
 
     expect(contentRoute.decision).toBe("suppress-child-transcript");
-    // The announcement rides the control channel, which is connection-scoped
-    // and therefore delivered; what never reaches the consumer is the child's
-    // own CONTENT frame, and neither `system/task_progress` is here.
+    // The announcement rides the connection-scoped control channel and is delivered; the
+    // child's own content frame never reaches the consumer.
     expect(channel.deliveredFrameKinds).toStrictEqual(["control_request/hook_callback"]);
     expect(harness.meteredUsage).toHaveLength(1);
     expect(harness.meteredUsage[0]?.delta.threadId).toBe(CHILD_SUBAGENT_ID);
@@ -2422,8 +2302,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
 
     expect(route).toStrictEqual({ decision: "project" });
     expect(channel.deliveredFrameKinds).toStrictEqual(["result/success"]);
-    // Projected AND consumed: the route retired, which is the terminal's whole
-    // job on this provider (a channel-level interrupt must not outlive its turn).
+    // Projected and consumed: the terminal retires the route (a channel-level interrupt must not
+    // outlive its turn).
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
@@ -2450,14 +2330,14 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
       },
     });
 
-    // No child content on the parent's timeline — the two delivered frames are
-    // the child's own start/stop announcements, which ride the connection-scoped
-    // control channel; both `system/*` child frames were suppressed.
+    // No child content on the parent's timeline: the two delivered frames are the child's
+    // start/stop announcements on the control channel; both `system/*` child frames were
+    // suppressed.
     expect(channel.deliveredFrameKinds).toStrictEqual([
       "control_request/hook_callback",
       "control_request/hook_callback",
     ]);
-    // ...and yet the child is not invisible: this pair is its whole presence.
+    // The child is not invisible: this pair is its whole presence.
     expect(
       harness.subagentLifecycle.map((entry) => ({
         eventType: entry.emission.eventType,
@@ -2493,9 +2373,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
 
     announceChild();
     channel.emitStreamFrame("system/task_progress", usageObservation(100, CHILD_SUBAGENT_ID));
-    // The provider re-announces a child it already announced. Re-establishing
-    // here would zero the base mid-stream, so the 150 reading below would meter
-    // 150 rather than the 50 the child actually spent since.
+    // The provider re-announces a known child; re-establishing would zero the base mid-stream
+    // and meter 150 instead of the 50 the child spent since.
     announceChild();
     channel.emitStreamFrame("system/task_progress", usageObservation(150, CHILD_SUBAGENT_ID));
 
@@ -2511,8 +2390,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     const harness = buildRoutingHarness();
     const channel = await liveChannel(harness);
 
-    // The child's first usage frame arrives before the `SubagentStart` that
-    // announces it — the exact race the pending hold exists for.
+    // The child's first usage frame arrives before the `SubagentStart` announcing it: the race
+    // the pending hold exists for.
     const heldRoute = channel.emitStreamFrame(
       "system/task_progress",
       usageObservation(40, CHILD_SUBAGENT_ID),
@@ -2528,13 +2407,12 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
       },
     });
 
-    // Released, then routed for real: the spend that raced the announcement is
-    // charged rather than shed at the hold timeout.
+    // Released, then routed for real: the spend that raced the announcement is charged, not shed
+    // at the hold timeout.
     expect(harness.meteredUsage).toHaveLength(1);
     expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(40);
-    // And the decision reached a consumer. A released frame has no observer
-    // call in flight to answer, so without this seam its route would have been
-    // computed and then dropped.
+    // The decision also reached a consumer: a released frame has no observer call in flight to
+    // answer.
     expect(harness.releasedRoutes).toEqual([
       {
         decision: "carve-out-usage",
@@ -2555,17 +2433,14 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
       },
     });
 
-    // This provider carries tool-approval asks on the control channel, which is
-    // a connection-level discipline in both directions and carries no thread
-    // identity. So the ask routes without one and stays answerable — the same
-    // outcome the child carve-out buys on a provider that DOES thread them.
+    // Tool-approval asks ride the control channel, which is connection-level and carries no
+    // thread identity, so the ask routes without one and stays answerable.
     const route = channel.emitStreamFrame("control_request/can_use_tool", {
       subagentId: CHILD_SUBAGENT_ID,
     });
     expect(route.decision).toBe("route-connection-scoped");
-    // Answerable means DELIVERED. The provider is blocking on the answer to
-    // this ask, so a transport that withheld it on anything but `project` would
-    // hang the child's tool call rather than hide it.
+    // Answerable means delivered: the provider blocks on the answer, so withholding it on
+    // anything but `project` would hang the child's tool call.
     expect(channel.deliveredFrameKinds).toContain("control_request/can_use_tool");
   });
 
@@ -2573,9 +2448,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     const harness = buildRoutingHarness();
     const channel = await liveChannel(harness);
 
-    // Neither frame names a thread and neither is `project`. They are the
-    // session's rate-limit and retry telemetry: withholding them would leave
-    // the read model unable to say the provider is throttling at all.
+    // Neither frame names a thread and neither is `project`; they are the session's rate-limit
+    // and retry telemetry, and withholding them would hide that the provider is throttling.
     const rateLimitRoute = channel.emitStreamFrame("system/rate_limit_event");
     const retryRoute = channel.emitStreamFrame("system/api_retry");
 
@@ -2601,13 +2475,12 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
       bindingId: TEST_BINDING_ID,
       position: 4,
     });
-    // The claim is written synchronously, but the tick makes the ordering an
-    // assertion of the test rather than of the implementation's call shape.
+    // The claim is written synchronously, but the tick makes the ordering an assertion of the
+    // test, not of the implementation's call shape.
     await Promise.resolve();
 
-    // The predecessor's process is still up and still emitting for the whole
-    // multi-second fork. Quarantining these would put a hole in the transcript
-    // of a session that — if the fork below failed — simply continues.
+    // The predecessor's process keeps emitting for the whole multi-second fork; quarantining
+    // these would hole the transcript of a session that continues if the fork fails.
     const duringRewind = predecessorChannel.emitStreamFrame(
       "system/task_progress",
       usageObservation(30),
@@ -2618,9 +2491,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     releaseRewind();
     expect((await rollback).status).toBe("applied");
 
-    // Once the successor is installed the predecessor is no longer the bound
-    // channel, so the narrower rule takes over again: an undead process emitting
-    // into a slot it no longer holds is refused rather than projected.
+    // Once the successor is installed the predecessor is no longer the bound channel, so an
+    // undead process emitting into a slot it no longer holds is refused, not projected.
     const afterRewind = predecessorChannel.emitStreamFrame(
       "system/task_progress",
       usageObservation(60),
@@ -2650,9 +2522,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     expect((await rollback).status).toBe("degraded");
     predecessorChannel.emitStreamFrame("system/task_progress", usageObservation(75));
 
-    // Non-destructive on failure has to mean the TRANSCRIPT too: the session is
-    // running, startable, un-rewound — and every frame it emitted across the
-    // failed attempt was routed and metered rather than diagnosed away.
+    // Non-destructive on failure covers the transcript too: the session stays running, startable
+    // and un-rewound, and every frame emitted across the failed attempt was routed and metered.
     expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([30, 45]);
   });
 
@@ -2677,8 +2548,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
       executionPosture: SANDBOXED_POSTURE,
     });
 
-    // Unbound reader: the daemon's own emitted sum could not be rebuilt at all,
-    // so the base is zero and the first reading re-meters the pre-resume total.
+    // Unbound reader: the daemon's emitted sum could not be rebuilt, so the base is zero and the
+    // first reading re-meters the pre-resume total.
     expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toHaveLength(
       1,
     );
@@ -2698,9 +2569,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
 
     channel.emitStreamFrame("system/task_progress", usageObservation(20));
 
-    // A session that legitimately emitted no spend HAS a prior-emitted sum, and
-    // it is zero. Recording that as unavailable would fire the diagnostic on
-    // every ordinary rewind and tell an operator nothing about any of them.
+    // A session that emitted no spend has a prior-emitted sum of zero; recording it as
+    // unavailable would fire the diagnostic on every ordinary rewind.
     expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toStrictEqual(
       [],
     );
@@ -2720,9 +2590,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
       executionPosture: SANDBOXED_POSTURE,
     });
 
-    // The throw happens inside the adoption invariant's window, where escaping
-    // would orphan a resumed, running provider process. Over-metering is
-    // recoverable from the record; an orphaned process is not.
+    // The throw happens inside the adoption invariant's window, where escaping would orphan a
+    // resumed running process. Over-metering is recoverable from the record; an orphan is not.
     expect(result.status).toBe("resumed");
     expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toHaveLength(
       1,
@@ -2730,9 +2599,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
   });
 
   it("a REWIND bases on the PREDECESSOR's prior-emitted sum, not the fork's brand-new id", async () => {
-    // Keyed by thread id on purpose: a reader answering the same sum for every
-    // id would pass with the successor's own id keying the lookup, which is the
-    // exact defect this asserts against. Only the predecessor has a sum.
+    // Keyed by thread id on purpose: a reader answering the same sum for every id would pass
+    // even with the successor's id keying the lookup. Only the predecessor has a sum.
     const harness = buildRoutingHarness({
       readPriorEmittedUsage: (_sessionId, threadId) =>
         threadId === TEST_PINNED_PROVIDER_SESSION_ID ? { input: 500 } : undefined,
@@ -2753,9 +2621,8 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     }
     forkedChannel.emitStreamFrame("system/task_progress", usageObservation(520));
 
-    // 20, not 520: the pre-rewind spend the daemon already emitted is not
-    // charged a second time. And the routine rewind path records nothing — the
-    // resume-base diagnostic is reserved for a reader that could not answer.
+    // 20, not 520: pre-rewind spend already emitted is not charged twice, and the routine rewind
+    // path records nothing (the resume-base diagnostic is for a reader that could not answer).
     expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(20);
     expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toStrictEqual(
       [],
@@ -2783,30 +2650,16 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// The pending-frame settlement matrix.
-//
-// The rule, stated once and enforced by ENUMERATION rather than by
-// whichever cell a review happened to name: no reachable lifecycle transition
-// leaves a frame whose delivery was never proven both unruled and unreported.
-// Every row below drives one transition against a session that is holding a
-// pending opening frame, and every row declares which of four settlements the
-// surrounding contract owes for that cell. A transition added to this driver
-// without a row here is the gap this table exists to make loud.
-//
-// Four settlements, and the distinctions between them are the adjudication:
-//
-//   * `provider-evidence` — the provider's own terminal accounted for the turn,
-//     so the frame is ruled by the ordinary path and nothing is owed.
-//   * `run-failure` — the binding was taken away from a turn that was still
-//     live, so the frame can never be ruled by a terminal and the run is owed a
-//     visible failure naming why.
-//   * `refusal` — the transition is refused while the frame is pending, so the
-//     binding is untouched and the frame stays watched.
-//   * `daemon-intent` — the daemon itself destroyed the session, so the run's
-//     ending is a consequence of an act the initiator already holds a record
-//     of, and a driver-composed failure would be a second record of it.
-// ---------------------------------------------------------------------------
+// The pending-frame settlement matrix. No reachable lifecycle transition may leave a frame whose
+// delivery was never proven both unruled and unreported. Each row drives one transition against a
+// session holding a pending opening frame and declares which settlement the contract owes:
+//   * `provider-evidence`: the provider's own terminal accounted for the turn; nothing is owed.
+//   * `run-failure`: the binding was taken from a live turn, so the run is owed a visible failure
+//     naming why.
+//   * `refusal`: the transition is refused while the frame is pending; the binding is untouched.
+//   * `daemon-intent`: the daemon destroyed the session, so the run's ending follows from an act
+//     the initiator already has a record of and a driver-composed failure would duplicate it.
+// A transition added to the driver without a row here is the gap this table exists to expose.
 
 /** A `result` body a real classifier reads as carrying no turn evidence at all. */
 const ZERO_TURN_RESULT_BODY: Record<string, unknown> = {
@@ -2881,12 +2734,9 @@ const PENDING_FRAME_TRANSITIONS: readonly PendingFrameTransitionCase[] = [
     label: "a SECOND run's start while the first frame is still pending",
     drive: async (harness) =>
       await captureTransition(async () => {
-        // Refused by the session-serialization guard before a byte is
-        // composed: with no run id on the settling envelope, a second run's
-        // frame in this scope could only ever be ruled unrecognized — the
-        // false trip the guard exists to prevent. The first run's frame stays
-        // watched, still owed its own ruling, and this cell's refusal
-        // expectation is what proves the guard fired instead of the write.
+        // The session-turn guard refuses this before any byte is composed: the settling
+        // envelope carries no run id, so a second run's frame could only be ruled unrecognized.
+        // The first run's frame stays watched.
         harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
           sessionId: TEST_SESSION_ID,
           openingText: "and now the second directive",
@@ -2902,12 +2752,9 @@ const PENDING_FRAME_TRANSITIONS: readonly PendingFrameTransitionCase[] = [
     label: "an overlapping start on the SAME run whose write is refused before a byte leaves",
     drive: async (harness, channel) =>
       await captureTransition(async () => {
-        // A retry beside the attempt it retries. Both frames carry one run id,
-        // so both share the single run-keyed route — and the refused one is
-        // withdrawn frame-scoped while the accepted one is still on the wire and
-        // still owed a ruling. Deleting the route unconditionally here retires
-        // the ACCEPTED frame's only correlation, and the terminal below then
-        // finds no correlated run to rule.
+        // Both frames carry one run id and so share one run-keyed route. The refused frame is
+        // withdrawn frame-scoped; deleting the route outright would strip the accepted frame's
+        // only correlation, and the terminal below would find no run to rule.
         channel.sendUserTextFailure = new Error("refused before a byte left");
         channel.sendUserTextDelivery = "unsent";
         await harness.lifecycle.startRun(buildStartRunParams()).then(
@@ -2918,9 +2765,8 @@ const PENDING_FRAME_TRANSITIONS: readonly PendingFrameTransitionCase[] = [
         );
         channel.sendUserTextFailure = undefined;
         channel.sendUserTextDelivery = "indeterminate";
-        // The FIRST frame is still unaccounted for, so a terminal carrying no
-        // turn evidence is its ruling — the ordinary path, reached only if the
-        // route survived the withdrawal above.
+        // The first frame is still unaccounted for, so a terminal with no turn evidence rules
+        // on it, but only if the route survived the withdrawal above.
         channel.terminalFrameBody = ZERO_TURN_RESULT_BODY;
         return channel.emitStreamFrame("result/success");
       }),
@@ -2981,8 +2827,7 @@ describe("ClaudeSessionLifecycle pending-frame settlement matrix", () => {
     if (channel === undefined) {
       throw new Error("unreachable: the session must have spawned a channel");
     }
-    // The premise every row runs against: the bytes are on the wire and no
-    // terminal has accounted for them.
+    // Every row starts with the bytes on the wire and no terminal accounting for them.
     expect(channel.sentWireTexts).toHaveLength(1);
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
     return channel;
@@ -3003,9 +2848,8 @@ describe("ClaudeSessionLifecycle pending-frame settlement matrix", () => {
       }
       return;
     }
-    // Every remaining settlement owes NO driver-composed failure, and each owes
-    // a different second thing — which is what keeps the three from collapsing
-    // into one assertion that any of them would pass.
+    // The remaining settlements owe no driver-composed failure, and each owes a different
+    // second thing, so the three cannot collapse into one assertion.
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
     if (expected.kind === "refusal") {
       const returned = outcome.returned;
@@ -3014,33 +2858,30 @@ describe("ClaudeSessionLifecycle pending-frame settlement matrix", () => {
           ? (returned as { readonly status: unknown }).status === "failed"
           : false;
       expect(outcome.threw !== undefined || refusedByArm).toBe(true);
-      // The binding was NOT taken away, so the frame is still watched and the
-      // run still resolves to the channel it was written on.
+      // The binding was not taken away: the frame is still watched and the run still resolves
+      // to the channel it was written on.
       expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
       return;
     }
     expect(outcome.threw).toBeUndefined();
     if (expected.kind === "provider-evidence") {
-      // The RUN ended and the SESSION did not. Proven by STARTING a next run on
-      // the same binding and watching its bytes reach the wire, rather than by
-      // asking whether a run that never dispatched has a channel — which is
-      // `undefined` on a healthy session and on a condemned one alike.
+      // The run ended, not the session: a next run on the same binding still reaches the wire.
+      // (A run that never dispatched has no channel on a healthy or a condemned session alike.)
       expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
       harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
         sessionId: TEST_SESSION_ID,
         openingText: "carry on",
       });
       await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
-      // The first entry is the neutralized form of the opening text this suite
-      // arranges; the second is the follow-on run's, delivered verbatim because
-      // it is not command-shaped. Both reaching the wire is the proof.
+      // The first text is the neutralized opening text; the second is not command-shaped, so it
+      // goes out verbatim.
       expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([
         "\n/compact the thread please",
         "carry on",
       ]);
       return;
     }
-    // `daemon-intent`: the session is gone, which is the record of the ending.
+    // daemon-intent: the session is gone.
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   }
 
@@ -3056,20 +2897,15 @@ describe("ClaudeSessionLifecycle pending-frame settlement matrix", () => {
   }
 
   it("covers every settlement kind, so no kind is enumerated and never driven", () => {
-    // The table's own negative control. A row deleted or retyped to the
-    // convenient settlement would otherwise shrink the matrix silently.
+    // Negative control: a deleted or retyped row would otherwise shrink the matrix silently.
     expect(new Set(PENDING_FRAME_TRANSITIONS.map((row) => row.expected.kind))).toStrictEqual(
       new Set(["provider-evidence", "run-failure", "refusal", "daemon-intent"]),
     );
   });
 });
 
-// The route is RUN-keyed and the registration is FRAME-keyed, so the unsent arm
-// has to decide between them. These two cases pin both directions of that
-// decision: the deletion still happens where it was always right, and stops
-// happening where it took a sibling's correlation with it. A guard asked in the
-// wrong order passes one and fails the other, which is why neither alone is
-// enough.
+// The route is run-keyed and the registration is frame-keyed. These cases pin when a refused
+// write retires the route and when it must leave it alone.
 describe("ClaudeSessionLifecycle unsent opening frame — route retirement", () => {
   async function arrangeSession(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -3092,23 +2928,17 @@ describe("ClaudeSessionLifecycle unsent opening frame — route retirement", () 
 
     await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
 
-    // No turn can ever exist for this run, so a surviving route would aim a
-    // later CHANNEL-scoped interrupt at whatever older turn the channel is
-    // genuinely running.
+    // No turn can exist for this run; a surviving route would aim a later channel-scoped
+    // interrupt at whatever older turn the channel is running.
     expect(channel.sentWireTexts).toStrictEqual([]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
   it("keeps the accepted frame's route when a duplicate dispatch is refused", async () => {
-    // This test once drove the unsent arm of the failed-opening-frame ruling —
-    // a second same-run frame whose write dies before a byte leaves, withdrawn
-    // while its sibling's route survives. The duplicate-dispatch guard now
-    // refuses that second start BEFORE compose and register, so the arm is
-    // unreachable through startRun and the sibling-aware predicate it consults
-    // is pinned at the tripwire unit level instead (outbound-frame.test.ts).
-    // What this test still owns: the refusal names the run-keyed cause and
-    // leaves the accepted frame's write and route untouched — that route is
-    // the only way its terminal will be found.
+    // The duplicate-dispatch guard refuses the second start before compose and register, so the
+    // unsent arm is unreachable through startRun; the frame-scoped withdrawal is pinned in
+    // outbound-frame.test.ts. Here the refusal must name the run-keyed cause and leave the
+    // accepted frame's write and route untouched, since that route is how its terminal is found.
     const harness = buildHarness();
     const channel = await arrangeSession(harness);
     await harness.lifecycle.startRun(buildStartRunParams());
@@ -3124,16 +2954,9 @@ describe("ClaudeSessionLifecycle unsent opening frame — route retirement", () 
   });
 });
 
-// --------------------------------------------------------------------------
-// The transient arm at the Claude dispatch seam
-// --------------------------------------------------------------------------
-//
-// `unsent` is the one delivery on this leg that is a POSITIVE claim about bytes:
-// the provider saw nothing, so no turn exists on account of the frame and a
-// re-send duplicates neither a turn nor its spend. Every other delivery here is
-// `indeterminate`, and the ladder must not touch it — the whole point of the
-// classification is that the two classes are provably distinguishable rather
-// than merged into one hopeful retry.
+// `unsent` is the one delivery classification that is a positive claim about bytes: the
+// provider saw nothing, so a re-send duplicates neither a turn nor its spend. `indeterminate`
+// must never be retried.
 describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
   async function arrangeSession(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -3156,12 +2979,10 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
 
     await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
 
-    // BOUNDED, and the bound is the assertion. A ladder with no ceiling would
-    // spin against a permanently-unwritable channel; one rung is what the
-    // transient class is worth.
+    // The bound is the assertion: a ladder with no ceiling would spin against a channel that
+    // can never be written.
     expect(channel.sendUserTextAttempts).toBe(MAX_DEFINITELY_UNSENT_DISPATCH_ATTEMPTS);
-    // Nothing reached the provider on either rung, which is what makes the
-    // re-send free of duplicates rather than merely unlikely to produce one.
+    // Nothing reached the provider on either attempt, so the re-send cannot duplicate.
     expect(channel.sentWireTexts).toStrictEqual([]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
@@ -3171,8 +2992,8 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
     const channel = await arrangeSession(harness);
     channel.sendUserTextFailure = new Error("refused before a byte left");
     channel.sendUserTextDelivery = "unsent";
-    // The transport recovers after the first rung, which is the case a ladder
-    // exists for at all — a permanently-failing write only ever proves it stops.
+    // The transport recovers after the first attempt; a permanently failing write only proves
+    // the retry stops.
     channel.onSendUserTextAttempt = (attemptNumber): void => {
       if (attemptNumber === 2) {
         channel.sendUserTextFailure = undefined;
@@ -3182,8 +3003,7 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
     await harness.lifecycle.startRun(buildStartRunParams());
 
     expect(channel.sendUserTextAttempts).toBe(2);
-    // ONE frame on the wire, not two: the first rung's bytes never left, so the
-    // user's text is delivered exactly once.
+    // One frame on the wire, not two: the first attempt's bytes never left.
     expect(channel.sentWireTexts).toStrictEqual(["please summarize the thread"]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
   });
@@ -3196,9 +3016,8 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
 
     await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
 
-    // The two classes are distinguishable, and this is the half that proves it:
-    // the bytes may have reached a child that read the newline, so a re-send
-    // risks a duplicate turn and duplicate spend against a turn nobody can see.
+    // The bytes may have reached a child that read the newline, so a re-send risks a
+    // duplicate turn and duplicate spend against a turn nobody can see.
     expect(channel.sendUserTextAttempts).toBe(1);
     expect(channel.sentWireTexts).toStrictEqual([]);
   });
@@ -3206,9 +3025,8 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
   it("never re-attempts a write the transport REJECTED instead of reporting", async () => {
     const harness = buildHarness();
     const channel = await arrangeSession(harness);
-    // A transport in breach of the port's obligation. A rejection carries no
-    // claim about bytes, and `unsent` is precisely a claim about bytes, so the
-    // containment must land on the fail-closed arm and stay off the ladder.
+    // A transport that breaks the port contract by rejecting. A rejection makes no claim about
+    // bytes, and `unsent` is one, so the failure must take the fail-closed arm, not the retry.
     channel.sendUserTextRejection = new Error("transport rejected the write");
 
     await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
@@ -3217,13 +3035,10 @@ describe("ClaudeSessionLifecycle definitely-unsent dispatch retry", () => {
   });
 });
 
-// The condemnation arm of the failed opening write, driven from the only place
-// it can still be reached now that starts are session-serialized: the FIRST
-// write on a session dying with indeterminate delivery on a channel that is
-// already closed. The bytes may have left and no terminal will ever arrive, so
-// retention cannot cover it — the frame is ruled fail-closed and the binding is
-// condemned, because silence here is exactly a swallowed directive escaping
-// detection.
+// The condemnation arm of a failed opening write: the first write on a session dies with
+// indeterminate delivery on an already-closed channel. The bytes may have left and no terminal
+// will arrive, so the frame is ruled fail-closed and the binding condemned; silence would let
+// a swallowed directive escape detection.
 describe("ClaudeSessionLifecycle indeterminate opening-write death", () => {
   it("rules the frame fail-closed and condemns the binding on both axes", async () => {
     const harness = buildHarness();
@@ -3249,8 +3064,8 @@ describe("ClaudeSessionLifecycle indeterminate opening-write death", () => {
     expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toContain(
       "driver.text_neutralization_failed",
     );
-    // Condemned on the SESSION axis too: the next run cannot dispatch into the
-    // process whose delivery is in doubt.
+    // Condemned on the session axis too: the next run cannot dispatch into the process whose
+    // delivery is in doubt.
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "carry on",
@@ -3280,9 +3095,8 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
     const harness = buildHarness();
     await arrangePendingFrameAcrossRewind(harness);
 
-    // A quarantine condemns a BINDING, and the superseded one is already gone.
-    // Refusing the run would take its interrupt and intervention controls away
-    // for a process nobody can reach anyway.
+    // A quarantine condemns a binding, and the superseded one is already gone; refusing the
+    // run would remove its interrupt and intervention controls for a process nobody can reach.
     expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).not.toThrow();
   });
 
@@ -3301,8 +3115,7 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
   });
 
   it("reports NOTHING for a rewind of a session holding no pending frame", async () => {
-    // The negative control the supersede sweep needs: an ordinary rewind of an
-    // idle session must stay silent, or the fix would fail every rewind.
+    // Negative control: an ordinary rewind of an idle session must stay silent.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
 
@@ -3316,8 +3129,7 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
   });
 
   it("reports NOTHING for a rewind whose pending frame the turn's own terminal already settled", async () => {
-    // The second half of the same control: a frame the ordinary path consumed
-    // is not owed a supersede failure on top of the ruling it already had.
+    // A frame the ordinary path already ruled on is not owed a supersede failure as well.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
@@ -3337,17 +3149,9 @@ describe("ClaudeSessionLifecycle rewind supersede", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Console parity
-// ---------------------------------------------------------------------------
-
 /**
- * A hand-fired stand-in for the declared compaction bound.
- *
- * Records rather than merely honors: a test that only fired timers could not
- * tell a wait that was never armed from one that was armed and canceled, and
- * the binding-loss leg's whole claim is that it settles WITHOUT the timer ever
- * running.
+ * A hand-fired stand-in for the compaction wait timer. It records arms and cancels so a test
+ * can tell a wait that was never armed from one that was armed and canceled.
  */
 interface ManualCompactionScheduler {
   readonly schedule: CompactionWaitScheduler;
@@ -3378,10 +3182,8 @@ function makeManualCompactionScheduler(): ManualCompactionScheduler {
   };
 }
 
-// The measured shape of a live `system/init` frame, first-party against the
-// pinned build: `slash_commands` and `skills` carry BARE names, and
-// `terminal_slash_commands` is a separate member holding the two names that run
-// only in the provider's own terminal UI.
+// Shape of a measured live `system/init` frame: `slash_commands` and `skills` hold bare names,
+// and `terminal_slash_commands` holds the names that run only in the provider's terminal UI.
 function buildHandshake(
   overrides: Partial<ClaudeHandshakeDeclaration> = {},
 ): ClaudeHandshakeDeclaration {
@@ -3395,8 +3197,8 @@ function buildHandshake(
   };
 }
 
-// The daemon resolves a run onto a session; the driver never invents one. Every
-// console-parity test that needs a LIVE TURN arms this first.
+// The daemon resolves a run onto a session; the driver never invents one. Tests that need a
+// live turn arm this first.
 function armRunDispatch(harness: LifecycleHarness, runId: RunId): void {
   harness.runDispatchResolver.dispatchByRunId.set(runId, {
     sessionId: TEST_SESSION_ID,
@@ -3412,9 +3214,8 @@ async function drainMicrotasks(): Promise<void> {
 
 describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", () => {
   it("refuses `command_absent` and SENDS NOTHING when the provider does not enumerate the command", async () => {
-    // Guard one, standing alone. The dispatched frame is tripwire-exempt, so a
-    // driver that discovered the command's absence AFTER writing would have put
-    // provider-interpreted text on the wire with nothing watching it.
+    // The dispatched frame is tripwire-exempt, so discovering the command's absence after
+    // writing would put provider-interpreted text on the wire with nothing watching it.
     const scheduler = makeManualCompactionScheduler();
     const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -3431,14 +3232,14 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     expect(result).toStrictEqual({ status: "refused", reason: "command_absent" });
     expect(channel?.sentWireTexts).toStrictEqual([]);
     expect(channel?.outboundCallCount).toBe(0);
-    // Nothing was armed either: an armed wait would burn the declared bound for
-    // a dispatch that never happened.
+    // Nothing was armed: an armed wait would burn the declared bound for a dispatch that
+    // never happened.
     expect(scheduler.armedCount()).toBe(0);
   });
 
   it("refuses `command_absent` before the handshake has been observed at all", async () => {
-    // The fail-closed reading of "not yet known". The driver cannot prove the
-    // command exists, so it does not send one.
+    // "Not yet known" fails closed: the driver cannot prove the command exists, so it sends
+    // nothing.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
 
@@ -3452,15 +3253,11 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("refuses `command_absent` when the held enumeration was read under a DIFFERENT provider process", async () => {
-    // A rewind forks a new provider process behind the same canonical session
-    // id, and the fork publishes its own handshake. Answering from the dead
-    // process's enumeration would dispatch a command the live binding may not
-    // have, so the refusal — not the palette — is the contract here.
-    //
-    // Two mechanisms produce it and the test does not pretend to separate them:
-    // `#registerLiveSession` clears the record when it adopts the fork, and the
-    // read-side stamp would refuse the predecessor's record if it survived.
-    // Mutating either alone leaves this green; the assertion is on the outcome.
+    // A rewind forks a new provider process behind the same session id, and the fork publishes
+    // its own handshake. Answering from the dead process's enumeration could dispatch a command
+    // the live binding lacks. Two mechanisms produce the refusal (`#registerLiveSession` clears
+    // the record when it adopts the fork; the read-side stamp refuses a stale one), so the test
+    // pins the outcome only.
     let issuedProviderSessionIds = 0;
     const harness = buildHarness({
       mintProviderSessionId: (): string => {
@@ -3472,8 +3269,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
       handshake: buildHandshake(),
     });
-    // The fork announces its own id by default, so the held stamp no longer
-    // matches the live session.
+    // The fork announces its own id by default, so the held stamp no longer matches.
     await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
@@ -3490,19 +3286,11 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("refuses a handshake a RETIRED channel publishes after its successor is already live", async () => {
-    // Disposal races in-flight frames: a predecessor channel can deliver a
-    // `system/init` the provider had already written AFTER its successor is
-    // live. The end state asserted here is that such a frame installs NOTHING —
-    // no palette entry, no dispatchable name — so a read is never answered from
-    // a connection the caller is not talking to.
-    //
-    // What actually produces that end state is named honestly rather than
-    // guessed at: `#isChannelCurrentlyBound` refuses the frame upstream, before
-    // the declaration tap runs, so the record is never written in the first
-    // place; the read-side stamp would refuse it a second time if it were. The
-    // test pins the OUTCOME, which is the part this leg depends on, and does not
-    // claim to discriminate which of the two guards produced it — mutating
-    // either one alone leaves this green.
+    // A retired channel can still deliver a `system/init` after its successor is live. Such a
+    // frame must install nothing (no palette entry, no dispatchable name), so a read is never
+    // answered from a connection the caller is not talking to. `#isChannelCurrentlyBound`
+    // refuses the frame before the declaration tap runs, and the read-side stamp would refuse
+    // it again; the test pins the outcome, not which guard produced it.
     let issuedProviderSessionIds = 0;
     const harness = buildHarness({
       mintProviderSessionId: (): string => {
@@ -3517,8 +3305,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       position: 4,
     });
 
-    // The RETIRED channel speaks last. It is stamped with its own id, which the
-    // live session's id no longer equals.
+    // The retired channel speaks last, stamped with an id the live session no longer has.
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
       handshake: buildHandshake(),
     });
@@ -3541,9 +3328,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("sends a tripwire-exempt `driver_command` frame and does NOT settle until the typed evidence arrives", async () => {
-    // Guard two, standing alone. The command frame is never answered, so a
-    // driver settling on the write would report a compaction that may never
-    // happen.
+    // The command frame is never answered, so settling on the write would report a compaction
+    // that may never happen.
     const scheduler = makeManualCompactionScheduler();
     const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -3558,11 +3344,11 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       });
     await drainMicrotasks();
 
-    // The bytes are on the wire, composed with the slash the enumeration omits.
+    // The wire text carries the slash the enumeration omits.
     expect(channel?.sentWireTexts).toStrictEqual(["/compact"]);
-    // Tripwire-exempt, which is what makes the pre-dispatch guard load-bearing.
+    // Tripwire-exempt, which is why the presence check before dispatch matters.
     expect(channel?.sentTextFrames[0]?.tripwireExempt).toBe(true);
-    // And the wait is armed at the DECLARED bound.
+    // The wait is armed at the declared bound.
     expect(scheduler.armedDelays()).toStrictEqual([CLAUDE_COMPACTION_WAIT_MS]);
     // Still unsettled: the provider accepted the frame and said nothing.
     expect(settled).toBeUndefined();
@@ -3575,9 +3361,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("does not block a subsequent run — the command frame is never registered with the tripwire", async () => {
-    // `startRun`'s session-serialization guard refuses a run while the scope
-    // holds a pending frame, so registering the compaction frame would make one
-    // compaction block every later run on the session.
+    // `startRun` refuses a run while the scope holds a pending frame, so registering the
+    // compaction frame would let one compaction block every later run on the session.
     const scheduler = makeManualCompactionScheduler();
     const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -3609,8 +3394,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       compactionBoundary: { boundaryPosition: null },
     });
 
-    // A POSITIVE statement that the frame named none, not an absence of evidence
-    // about whether the compaction happened.
+    // A positive statement that the frame named no position, not an absence of evidence.
     await expect(pending).resolves.toStrictEqual({ status: "applied", boundaryPosition: null });
   });
 
@@ -3634,8 +3418,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("settles `wait_expired` on the bound AND still hands a LATE boundary frame off to the routing band", async () => {
-    // BOTH halves in one test, because the claim is a conjunction: bounding the
-    // OPERATION never bounds the BOUNDARY'S RECORD. A late compaction frame
+    // Bounding the operation never bounds the boundary's record: a late compaction frame
     // still travels its ordinary route and still normalizes.
     const scheduler = makeManualCompactionScheduler();
     const observedRoutes: string[] = [];
@@ -3662,20 +3445,20 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       terminal: "wait_expired",
     });
 
-    // THE SECOND HALF. The boundary arrives after the operation gave up and is
-    // still routed — the tap is beside the hand-off, never in place of it.
+    // The boundary arrives after the operation gave up and is still routed; the tap sits
+    // beside the hand-off, never in place of it.
     const lateRoute = channel?.emitStreamFrame("system/compact_boundary", {
       compactionBoundary: { boundaryPosition: 88 },
     });
     observedRoutes.push(lateRoute?.decision ?? "none");
     expect(observedRoutes).toStrictEqual(["project"]);
-    // And it settles nothing, because nothing is waiting: no second diagnostic.
+    // Nothing is waiting, so there is no second diagnostic.
     expect(harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal")).toHaveLength(1);
   });
 
   it("settles `binding_lost` IMMEDIATELY when the session closes mid-wait, without the bound elapsing", async () => {
-    // Driven through the real disposal path with a timer that is NEVER fired: a
-    // binding lost at t=0 must settle at t=0, which a poller could not do.
+    // Driven through real disposal with a timer that never fires: a binding lost at t=0 settles
+    // at t=0, which a poller could not do.
     const scheduler = makeManualCompactionScheduler();
     const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -3719,19 +3502,15 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
         }),
       ).resolves.toStrictEqual({ status: "failed", reason: "provider_error" });
 
-      // The wait was ARMED before the write — that ordering is what closes the
-      // race with a provider fast enough to compact between them — and is
-      // WITHDRAWN when the write fails, rather than left to elapse. A
-      // registration left behind holds a timer for the whole declared bound
-      // after its caller has already returned.
+      // The wait is armed before the write, which closes the race with a provider fast enough
+      // to compact in between, and withdrawn when the write fails so no timer outlives its
+      // caller.
       expect(scheduler.armedCount()).toBe(1);
       expect(scheduler.canceledCount()).toBe(1);
 
-      // DIAGNOSED, with the delivery classification the result cannot carry.
-      // `unsent` and `indeterminate` both answer `provider_error` — neither can
-      // claim a compaction happened — so this record is the only place the
-      // difference between "never reached the provider" and "may have applied
-      // with the acknowledgement lost" survives.
+      // The diagnostic carries the delivery classification the result cannot: both deliveries
+      // answer `provider_error`, and only this record separates "never reached the provider"
+      // from "may have applied, acknowledgement lost".
       const written = harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal");
       expect(written).toHaveLength(1);
       expect(written[0]?.details).toStrictEqual({
@@ -3741,11 +3520,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       });
       expect(written[0]?.dispositionReason).toBe("Error: stdin closed");
 
-      // And the withdrawal is TOTAL, not merely a cancellation request: this
-      // double's canceler does not stop its timer, so firing the bound here
-      // exercises exactly the host whose clear races the fire. No SECOND record
-      // appears, because no waiter remains to settle — the write-failure record
-      // above stands alone.
+      // The withdrawal is total: this double's canceler does not stop its timer, so firing the
+      // bound exercises a host whose clear races the fire. No second record appears.
       scheduler.fireAll();
       await drainMicrotasks();
       expect(harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal")).toHaveLength(1);
@@ -3753,9 +3529,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("withdraws only its OWN wait — a concurrent caller still settles on the evidence", async () => {
-    // Settlement is per-key because one provider compaction is one compaction;
-    // withdrawal is per-waiter. A caller whose write failed must not settle a
-    // user who asked independently and whose compaction is still running.
+    // Settlement is per key (one provider compaction) but withdrawal is per waiter: a caller
+    // whose write failed must not settle another user whose compaction is still running.
     const scheduler = makeManualCompactionScheduler();
     const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -3768,8 +3543,7 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     });
     await drainMicrotasks();
 
-    // The SECOND caller's write is the one that fails, so the first is still
-    // waiting on evidence when the second withdraws.
+    // The second caller's write fails while the first is still waiting on evidence.
     if (channel !== undefined) {
       channel.sendUserTextFailure = new Error("stdin closed");
       channel.sendUserTextDelivery = "unsent";
@@ -3781,9 +3555,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       }),
     ).resolves.toStrictEqual({ status: "failed", reason: "provider_error" });
 
-    // Two waits armed, exactly one withdrawn. A withdrawal that took the whole
-    // key down would cancel both and settle the survivor on the other caller's
-    // write failure.
+    // Two waits armed, one withdrawn; a withdrawal that took the whole key would cancel both
+    // and settle the survivor on the other caller's write failure.
     expect(scheduler.armedCount()).toBe(2);
     expect(scheduler.canceledCount()).toBe(1);
 
@@ -3794,12 +3567,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("withdraws its wait when the armed span THROWS, and lets the throw propagate", async () => {
-    // The reported-failure arm is not the only exit from the armed span:
-    // composing the frame mints a correlation value through an injected
-    // dependency, so a minter that throws leaves the driver holding an armed
-    // registration whose caller has already unwound. Untreated, that is the
-    // identical orphan the reported arm withdraws — one timer for the whole
-    // declared bound, per failed dispatch.
+    // Composing the frame mints a correlation value through an injected dependency. A minter
+    // that throws must not leave an armed wait behind for a caller that has already unwound.
     const scheduler = makeManualCompactionScheduler();
     let mintShouldThrow = false;
     const harness = buildHarness({
@@ -3816,8 +3585,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
 
     mintShouldThrow = true;
-    // PROPAGATES rather than converting: `failed` would claim something was
-    // sent, and the refusal arm is closed at `command_absent` / `not_permitted`.
+    // The throw propagates: `failed` would claim something was sent, and the refusal arm is
+    // closed at `command_absent` / `not_permitted`.
     await expect(
       harness.lifecycle.compactContext({
         sessionId: TEST_SESSION_ID,
@@ -3828,9 +3597,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     expect(scheduler.armedCount()).toBe(1);
     expect(scheduler.canceledCount()).toBe(1);
 
-    // TOTAL, exactly as on the reported arm: this double's canceler does not
-    // really stop its timer, so firing the bound exercises the host whose clear
-    // raced the fire. No terminal diagnostic appears, because no waiter remains.
+    // As above, the double's canceler does not stop its timer, so firing the bound exercises a
+    // host whose clear races the fire. No waiter remains, so no terminal diagnostic appears.
     scheduler.fireAll();
     await drainMicrotasks();
     expect(harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal")).toStrictEqual([]);
@@ -3850,9 +3618,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("never borrows another session's enumeration to satisfy the presence guard", async () => {
-    // The routing guard on this leg, stated structurally: the held declaration
-    // answers only for the provider process it was read from, so a session whose
-    // own handshake never published `compact` refuses even while a sibling
+    // The held declaration answers only for the provider process it was read from, so a
+    // session whose own handshake never published `compact` refuses even while a sibling
     // session's enumeration carries it.
     const otherSessionId = "session-console-parity-peer" as SessionId;
     const harness = buildHarness({
@@ -3886,13 +3653,10 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
   });
 
   it("refuses when the command is published ONLY as terminal-only — the guard reads the invocable set alone", async () => {
-    // The negative that makes the three-set separation load-bearing rather than
-    // cosmetic, and the one test that joins the two legs. The provider publishes
-    // `terminal_slash_commands` precisely to say "these are not invocable over
-    // this transport". A guard built by merging the sets would find the name,
-    // dispatch a frame the provider cannot act on, and then wait out the whole
-    // declared bound for evidence that can never arrive — a refusal at t=0
-    // rewritten as a two-minute hang.
+    // The provider publishes `terminal_slash_commands` to say they are not invocable over this
+    // transport. A guard that merged the sets would dispatch a frame the provider cannot act on
+    // and then wait out the whole declared bound, so the guard must read the invocable set
+    // alone.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     const channel = harness.transport.spawnedChannels[0];
@@ -3912,8 +3676,8 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
     ).resolves.toStrictEqual({ status: "refused", reason: "command_absent" });
     expect(channel?.sentWireTexts).toStrictEqual([]);
 
-    // AND the same name is still ENUMERATED, under its honest scope: the guard
-    // narrows what may be dispatched, never what is reported.
+    // The same name is still enumerated under its terminal scope: the guard narrows what may
+    // be dispatched, never what is reported.
     const result = await harness.lifecycle.listProviderCommands({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
@@ -3955,31 +3719,28 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
       ["autocompact", "command", undefined],
       ["clear", "command", undefined],
       ["pdf-processing", "skill", undefined],
-      // Carried, not merged and not dropped: the provider publishes them under
-      // a separate member because they are not invocable over this transport.
+      // Carried, not merged or dropped: the provider publishes them separately because they
+      // are not invocable over this transport.
       ["doctor", "command", "terminal"],
       ["color", "command", "terminal"],
     ]);
     for (const entry of group?.entries ?? []) {
-      // KEY-PRESENCE, not `toBeUndefined()`: a synthesized `enabled: true` and
-      // an absent key are different claims, and only the second is honest here.
+      // Key presence, not `toBeUndefined()`: a synthesized `enabled: true` and an absent key
+      // are different claims, and only the absent key is honest here.
       expect("enabled" in entry).toBe(false);
-      // The provider publishes no description on either member; forwarding `""`
-      // would fail the contract's own non-empty bound AND assert the provider
-      // published a blank one.
+      // The provider publishes no description; forwarding `""` would fail the contract's
+      // non-empty bound and assert a blank one.
       expect("description" in entry).toBe(false);
       expect(entry.name.startsWith("/")).toBe(false);
     }
-    // `scope` is present ONLY on the terminal arm — the two published sets stay
-    // distinguishable without inventing a third kind.
+    // `scope` is present only on the terminal arm, which keeps the two sets distinguishable.
     expect("scope" in (group?.entries[0] ?? {})).toBe(false);
   });
 
   it("DROPS an entry whose provider-published name the contract refuses, keeping every sibling", async () => {
-    // A skill name is read out of an operator-writable local file's front
-    // matter, so the three handshake sets carry provider output verbatim into
-    // this composition. Each refusal shape is exercised on a DIFFERENT set, so a
-    // guard applied to only one of the three cannot pass this.
+    // A skill name is read from an operator-writable file's front matter, so the handshake
+    // sets carry provider output verbatim. Each refusal shape is on a different set, so a guard
+    // on only one set cannot pass.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
@@ -3995,21 +3756,19 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
       bindingId: TEST_BINDING_ID,
     });
 
-    // The SURVIVORS are the whole point: one unusable name must not empty a
-    // user's palette, so the drop is per-entry rather than per-set.
+    // One unusable name must not empty the palette, so the drop is per entry, not per set.
     expect(result.bindings[0]?.entries.map((entry) => entry.name)).toStrictEqual([
       "clear",
       "pdf-processing",
       "doctor",
     ]);
-    // `complete` is the CAP marker and nothing else — no tail was dropped by the
-    // cap here, and a refused entry must not be reported as a truncation.
+    // `complete` marks the cap only; a refused entry is not a truncation.
     expect(result.bindings[0]?.complete).toBe(true);
 
     const rejected = harness.diagnostics.recentRecordsOfKind("provider_command_entry_rejected");
     expect(rejected).toHaveLength(4);
-    // The failing FIELD and the offending LENGTH, never the value — the value is
-    // exactly the untrusted string the bound just refused.
+    // The record holds the failing field and the length, never the value, which is the
+    // untrusted string the bound just refused.
     expect(rejected.map((record) => record.details["rejectedField"])).toStrictEqual([
       "name",
       "name",
@@ -4029,9 +3788,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("emits NO rejection diagnostic for a handshake whose every name is in bounds", async () => {
-    // The negative control that makes the drop test above non-vacuous: a guard
-    // that refused everything would satisfy the survivors assertion only by
-    // accident, and would go red here.
+    // Negative control for the drop test above: a guard that refused everything would go red
+    // here.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
@@ -4049,11 +3807,9 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("emits exactly one entry per declared name across the three sets, deduping across none of them", async () => {
-    // The count assertion is the one a merge-or-dedup refactor cannot survive:
-    // the same name legitimately appears in two sets (a skill and a terminal
-    // command may share a word), and collapsing them would silently delete a
-    // published capability from the palette. Cardinality is asserted as the SUM
-    // rather than as a literal so the claim survives the fixture changing.
+    // The same name can appear in two sets (a skill and a terminal command); deduping would
+    // silently delete a published capability from the palette. Cardinality is the sum of the
+    // sets, not a literal, so the claim survives fixture changes.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     const declaration = buildHandshake({
@@ -4091,10 +3847,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     );
     for (const entry of invocableEntries) {
       expect(entry.kind).toBe("command");
-      // KEY-ABSENCE on both published-as-invocable arms: under
-      // `exactOptionalPropertyTypes` a present `scope: undefined` type-checks
-      // and would read to any consumer as a scope the driver failed to decide,
-      // which is a different claim from "the provider published none".
+      // Key absence on both invocable arms: under `exactOptionalPropertyTypes` a present
+      // `scope: undefined` type-checks but would read as a scope the driver failed to decide.
       expect("scope" in entry).toBe(false);
     }
     for (const entry of skillEntries) {
@@ -4108,9 +3862,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("enumerates EMPTY with `complete: true` before the handshake has been observed", async () => {
-    // `complete` is the contract's CAP marker and nothing else: no tail was
-    // dropped, which is true of an empty list. The read succeeds rather than
-    // refusing — the pre-first-turn palette read is an answerable question.
+    // `complete` marks the cap only, and no tail was dropped from an empty list. The read
+    // succeeds rather than refusing, since a palette read before the first turn is answerable.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
 
@@ -4141,9 +3894,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("caps the REPLY while the held enumeration stays whole — a truncated command is still dispatchable", async () => {
-    // The property that makes the cap safe: it trims what a client is shown,
-    // never what the driver knows, so leg (a)'s presence check still finds a
-    // command this cap dropped from the palette.
+    // The cap trims what a client is shown, never what the driver knows, so the presence check
+    // still finds a command the cap dropped from the palette.
     const scheduler = makeManualCompactionScheduler();
     const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -4152,8 +3904,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
       { length: DRIVER_PROVIDER_COMMAND_ENTRIES_MAX + 5 },
       (_unused, index) => `filler-${index}`,
     );
-    // `compact` sits PAST the cap, so a driver that capped its held knowledge
-    // would refuse the dispatch below.
+    // `compact` sits past the cap, so a driver that capped its held knowledge would refuse the
+    // dispatch below.
     channel?.emitStreamFrame("system/init", {
       handshake: buildHandshake({
         slashCommands: [...filler, "compact"],
@@ -4171,10 +3923,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     expect(group?.complete).toBe(false);
     expect(group?.entries).toHaveLength(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
     expect(group?.entries.map((entry) => entry.name)).not.toContain("compact");
-    // The retained window is the leading one — `declared.slice(0, MAX)` and not
-    // an arbitrary or reordered subset. Asserted against the fixture's own head
-    // so a future sort, filter, or tail-preferring cap is caught rather than
-    // absorbed by the length check above.
+    // The retained window is the leading one (`declared.slice(0, MAX)`), asserted against the
+    // fixture's head so a sort, filter or tail-preferring cap is caught.
     expect(group?.entries.map((entry) => entry.name)).toStrictEqual(
       filler.slice(0, DRIVER_PROVIDER_COMMAND_ENTRIES_MAX),
     );
@@ -4186,7 +3936,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
       admittedEntryCount: DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
     });
 
-    // AND the dispatch still works, which is the whole point.
+    // The dispatch still works.
     const pending = harness.lifecycle.compactContext({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
@@ -4235,19 +3985,14 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("discards the held enumeration ACROSS A RESUME, whose provider session id is UNCHANGED", async () => {
-    // The replacement the read-side stamp cannot catch. Claude resumes BY
-    // SESSION ID, so the resumed process announces the same
-    // `providerSessionId` its predecessor had — a held declaration that
-    // survived the predecessor by any route would compare EQUAL to the
-    // successor's stamp and be answered from, which is a live read of a
-    // connection that no longer exists. The resume path therefore discards
-    // unconditionally at its head rather than trusting the disposal that
-    // preceded it.
+    // The read-side stamp cannot catch this replacement. Claude resumes by session id, so the
+    // resumed process announces the same `providerSessionId` as its predecessor, and a held
+    // declaration that survived would match the successor's stamp and be answered from. The
+    // resume path therefore discards unconditionally.
     //
-    // The resume's own success is asserted: a `resumeSession` beside a live or
-    // quarantined slot is REFUSED through the `failed` arm, and a test that
-    // skipped this check would read a refused resume's untouched palette as a
-    // successful resume's stale one and pass while proving nothing.
+    // The resume's own success is asserted: a `resumeSession` beside a live or quarantined slot
+    // is refused through the `failed` arm, and without the check that refusal's untouched
+    // palette would read as a stale one and the test would prove nothing.
     const harness = buildHarness({ mintProviderSessionId: () => "provider-session-stable" });
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
@@ -4276,8 +4021,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     expect(afterResume.bindings[0]?.entries).toStrictEqual([]);
     expect(afterResume.bindings[0]?.complete).toBe(true);
 
-    // And the SUCCESSOR's own handshake is answered from, so this is a discard
-    // and not a permanent blinding of the session.
+    // The successor's own handshake is answered from, so this is a discard and not a permanent
+    // blinding of the session.
     harness.transport.spawnedChannels.at(-1)?.emitStreamFrame("system/init", {
       handshake: buildHandshake({
         slashCommands: ["compact"],
@@ -4296,9 +4041,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("states `providerAccountId: null` for an accountless session, on the entry AND the group", async () => {
-    // STATED, never synthesized. The consuming routing check treats `null` as
-    // matching nothing, so a placeholder would make that check compare equal
-    // across two accountless bindings and look enforced while enforcing nothing.
+    // Stated, never synthesized. The consuming routing check treats `null` as matching nothing,
+    // so a placeholder would compare equal across two accountless bindings and enforce nothing.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
@@ -4338,12 +4082,10 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("stamps the account the CREATE was admitted against when no registry port is bound", async () => {
-    // THE FAIL-OPEN THIS CLOSES. `providerAccountId` became a typed member of
-    // `CreateSessionParams` and this band read it nowhere: a caller following the
-    // typed contract stamped `null`, and because the consuming routing check
-    // treats `null` as matching NOTHING, every account-bound Claude session's
-    // enumeration was unroutable. The record is the source; the registry port is
-    // an unbound cross-check here, which is silence rather than a contradiction.
+    // The typed `providerAccountId` on `CreateSessionParams` is the source. Stamping `null`
+    // instead would make an account-bound session's enumeration unroutable, because the routing
+    // check treats `null` as matching nothing. An unbound registry port is silence, not a
+    // contradiction.
     const harness = buildHarness();
     await harness.lifecycle.createSession({
       ...buildCreateSessionParams(),
@@ -4362,8 +4104,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
       driverName: "claude",
       providerAccountId: "account-admitted",
     });
-    // Stamped ONCE: the group's binding and every entry's carry the same value,
-    // because both are composed from the one resolution.
+    // Stamped once: the group's binding and every entry's come from the one resolution.
     for (const entry of result.bindings[0]?.entries ?? []) {
       expect(entry.binding).toStrictEqual({
         driverName: "claude",
@@ -4394,13 +4135,10 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("REFUSES the enumeration when a STALE registry names a different account", async () => {
-    // The second defect, and the one a `null` stamp cannot express: a registry
-    // that has moved on since admission would route this user's palette
-    // onto an account this process never authenticated as. Neither candidate is
-    // stamped — publishing the record's would assert an identity the daemon's own
-    // registry contradicts, and publishing the registry's would launder the
-    // divergence into a correct-looking binding. This is a READ, so a refusal
-    // costs a palette rather than a run.
+    // A registry that has moved on since admission would route this user's palette onto an
+    // account this process never authenticated as. Neither candidate is stamped: the record's
+    // would assert an identity the registry contradicts, and the registry's would launder the
+    // divergence into a correct-looking binding. A refused read costs a palette, not a run.
     const harness = buildHarness({ readBoundProviderAccountId: () => "account-stale" });
     await harness.lifecycle.createSession({
       ...buildCreateSessionParams(),
@@ -4421,19 +4159,16 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     expect((refused as ClaudeSessionUnavailableError).fields.reason).toBe(
       "provider_account_ambiguous",
     );
-    // BOTH ids are named, because a refusal reporting only that two values
-    // disagreed leaves an operator unable to tell which resolver is wrong.
+    // Both ids are named, so an operator can tell which resolver is wrong.
     expect((refused as ClaudeSessionUnavailableError).message).toContain("account-admitted");
     expect((refused as ClaudeSessionUnavailableError).message).toContain("account-stale");
-    // And the session is untouched — a refused READ disposes nothing.
+    // A refused read disposes nothing.
     expect(harness.transport.spawnedChannels).toHaveLength(1);
   });
 
   it("keeps the registry as the ONLY source when the request named no account", async () => {
-    // The registry-only flow, pinned so making the record primary cannot be satisfied
-    // by an implementation that simply stopped consulting the port. A caller that
-    // omits the typed member leaves the registry as the only source there has
-    // ever been.
+    // Pins that the registry is still consulted when the request names no account, so making
+    // the record primary cannot be satisfied by dropping the port.
     const harness = buildHarness({ readBoundProviderAccountId: () => "account-registry" });
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
@@ -4452,12 +4187,10 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("carries the admitted account through a REWIND rather than re-reading it", async () => {
-    // A fork continues the run the daemon already admitted, and `ForkConversationParams`
-    // names no account of its own — so the successor INHERITS the predecessor's,
-    // exactly as it inherits `spawnBinding`. An implementation that re-consulted
-    // the registry here would let a rewind silently re-bill a session the daemon
-    // never re-admitted; the registry port is left unbound so only inheritance
-    // can produce this answer.
+    // A fork continues the run the daemon already admitted and `ForkConversationParams` names
+    // no account, so the successor inherits the predecessor's, as it does `spawnBinding`.
+    // Re-reading the registry would let a rewind re-bill a session the daemon never
+    // re-admitted; the registry port is unbound so only inheritance can produce this answer.
     const harness = buildHarness();
     await harness.lifecycle.createSession({
       ...buildCreateSessionParams(),
@@ -4486,10 +4219,9 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("REFUSES a create whose typed account member is present but EMPTY", async () => {
-    // An empty string is a daemon that meant to bind an account and bound
-    // nothing. Folding it to `null` would hide the wiring fault; carrying it
-    // would be worse, since two bindings stamped `""` compare EQUAL in the very
-    // routing check `null` exists to make match nothing.
+    // An empty string is a daemon that meant to bind an account and bound nothing. Folding it
+    // to `null` would hide the wiring fault; carrying it would make two bindings stamped `""`
+    // compare equal in the routing check that `null` exists to make match nothing.
     const harness = buildHarness();
 
     const refused = await harness.lifecycle
@@ -4503,13 +4235,13 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     expect((refused as ClaudeSessionUnavailableError).fields.reason).toBe(
       "provider_account_unusable",
     );
-    // Refused BEFORE the spawn: no process ever ran under an unsettled identity.
+    // Refused before the spawn: no process ran under an unsettled identity.
     expect(harness.transport.spawnedChannels).toHaveLength(0);
   });
 
   it("captures a RESUME's typed account member into the record it stamps from", async () => {
-    // A resume in this band is a fresh spawn onto an EMPTY slot, so the record it
-    // installs is the only one there is and the request is the only source for it.
+    // A resume here is a fresh spawn onto an empty slot, so the request is the only source for
+    // the record it installs.
     const harness = buildHarness();
     await harness.lifecycle.resumeSession({
       sessionId: TEST_SESSION_ID,
@@ -4532,8 +4264,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("REFUSES a resume whose typed account member is EMPTY, through the `failed` ARM", async () => {
-    // Resume's contractual failure channel is the arm, never a throw. A
-    // rejection here would reach a caller that has no arm for it.
+    // Resume reports failure through the `failed` arm, never a throw; a rejection would reach a
+    // caller with no arm for it.
     const harness = buildHarness();
 
     const result = await harness.lifecycle.resumeSession({
@@ -4551,7 +4283,7 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("answers `runId: null` when NO run holds a live turn", async () => {
-    // The ordinary pre-first-turn palette read. It SUCCEEDS.
+    // The ordinary pre-first-turn palette read succeeds.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
@@ -4602,10 +4334,8 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("never attributes ANOTHER session's live run to this binding", async () => {
-    // The filter half of the derivation. Two sessions each holding a live turn
-    // must each answer with their OWN run: a scan that forgot the session
-    // comparison would answer `null` for both, which reads as "no run is
-    // attributable" when in fact one is.
+    // Two sessions each holding a live turn must each answer with their own run; a scan that
+    // ignored the session would answer `null` for both.
     const peerSessionId = "session-console-parity-runs" as SessionId;
     let issuedProviderSessionIds = 0;
     const harness = buildHarness({
@@ -4639,13 +4369,10 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
   });
 
   it("cannot reach the two-live-runs arm at all — this driver serializes turns per session", async () => {
-    // The honest control for the `null`-on-two-runs arm. `startRun` refuses a
-    // second dispatch while the session's scope holds a pending frame, and a
-    // turn terminal retires every route on the session, so a Claude session
-    // holds AT MOST ONE live run. The arm is therefore fail-closed defensive
-    // code against state drift rather than a reachable branch — the same
-    // posture `#ruleTextNeutralizationTripwire`'s two-pending-run else-arm
-    // takes, and it is recorded here rather than left as an untested claim.
+    // `startRun` refuses a second dispatch while the session's scope holds a pending frame, and
+    // a turn terminal retires every route on the session, so a Claude session holds at most one
+    // live run. The `null`-on-two-runs arm is fail-closed defense against state drift, not a
+    // reachable branch.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     armRunDispatch(harness, TEST_RUN_ID);
@@ -4665,15 +4392,13 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
 
 describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observed", () => {
   it("has NO observation before the handshake arrives and one after", async () => {
-    // Neither establishment path may block for this or spend a synthetic turn to
-    // provoke it, so it is absent until the user's own work produces the
-    // declaring exchange.
+    // Neither establishment path may block for this or spend a synthetic turn to provoke it,
+    // so it stays absent until the user's own work produces the declaring exchange.
     const harness = buildHarness();
     const handle = await harness.lifecycle.createSession(buildCreateSessionParams());
 
     expect(harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID)).toBeUndefined();
-    // And it is on NEITHER establishment reply — a value there would have to be
-    // fabricated.
+    // It is on neither establishment reply either; a value there would be fabricated.
     expect("outputSpeed" in handle).toBe(false);
 
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
@@ -4687,8 +4412,8 @@ describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observe
   });
 
   it("carries a REPORTED `cooldown` verbatim even though it is not a SETTABLE level", async () => {
-    // The settable-vs-reportable split. `outputSpeedLevels` is `["off", "on"]`;
-    // coercing an observed `cooldown` into that set would fabricate a state the
+    // Reportable states are wider than settable ones: `outputSpeedLevels` lists only settable
+    // levels, and coercing an observed `cooldown` into that set would fabricate a state the
     // provider is not in.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
@@ -4699,17 +4424,16 @@ describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observe
     const observed = harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID);
 
     expect(observed?.declared).toBe("cooldown");
-    // KEY-PRESENCE: an absent reason means the provider gave none, never that
-    // there was none.
+    // The `reason` key is absent: the provider gave none, which is not the same as there being
+    // none.
     expect("reason" in (observed ?? {})).toBe(false);
   });
 
   it("has NO observation and DIAGNOSES a declared state the contract's bounds refuse", async () => {
-    // The handshake's state and reason are provider output that reaches a
-    // client, so `verbatim` bounds LENGTH, emptiness, and NUL — never vocabulary
-    // membership. A rejected reading takes the absent answer because that is the
-    // only fail-closed one this shape carries: inventing a placeholder
-    // `declared` would put a state the provider is not in on a screen.
+    // The handshake's state and reason are provider output that reaches a client, so `verbatim`
+    // bounds length, emptiness and NUL, never vocabulary membership. A rejected reading takes
+    // the absent answer, the only fail-closed one this shape carries; a placeholder `declared`
+    // would put a state the provider is not in on a screen.
     for (const [label, declaration, rejectedField] of [
       ["NUL-bearing state", { fastModeState: `on\u0000x` }, "declared"],
       ["whitespace-only state", { fastModeState: "   " }, "declared"],
@@ -4759,9 +4483,8 @@ describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observe
   });
 
   it("carries the requested output-speed level through to BOTH spawn paths", async () => {
-    // A spawn-bound leg: bound at create and omitted at resume would be silently
-    // shed at the first relaunch, which is the shedding `ClaudeSpawnBoundLegs`
-    // exists to make impossible.
+    // Spawn-bound: a level bound at create and omitted at resume would be silently shed at the
+    // first relaunch, which `ClaudeSpawnBoundLegs` exists to prevent.
     const harness = buildHarness();
 
     await harness.lifecycle.createSession({
@@ -4781,10 +4504,8 @@ describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observe
 });
 
 describe("ClaudeSessionLifecycle.replayTranscript", () => {
-  // The Claude `transcript_replay` cell is the capability matrix's only
-  // probe-valued one, so the leg ships behind that probe: refusing on every
-  // build published at this pin, and driving the surface the probe carries on
-  // any build that does publish one.
+  // `transcript_replay` is decided by a probe: replay refuses on a build that publishes no
+  // seeding surface and drives the surface the probe carries on one that does.
 
   const TARGET = { providerSessionId: "claude-session-77", resumeHandle: "claude-session-77" };
 
@@ -4871,17 +4592,17 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     });
   }
 
-  // THE PIN'S ANSWER. No published build carries a prior-turn seeding surface,
-  // so the probe refuses, the flag declares `false`, and the caller settles on
-  // the memo floor reported `degraded`. A refusal, not a fault.
+  // No published build carries a prior-turn seeding surface, so the probe refuses, the flag
+  // declares `false`, and the caller settles on the memo floor reported `degraded`. A refusal,
+  // not a fault.
   it("refuses when the probe finds no seeding surface, leaving the target untouched", async () => {
     const harness = harnessWithSurface(null);
     await expect(
       harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
     ).rejects.toBeInstanceOf(ClaudeTranscriptReplayUnsupportedError);
 
-    // NOT abandoned: nothing was written, so the caller may hand this very
-    // session to the memo floor rather than establishing a second one.
+    // Not abandoned: nothing was written, so the caller may hand this session to the memo floor
+    // rather than establish a second one.
     await expect(
       harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
     ).rejects.toBeInstanceOf(ClaudeTranscriptReplayUnsupportedError);
@@ -4901,21 +4622,17 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
       frames: [...TRANSCRIPT],
     });
     expect(result).toStrictEqual({ status: "applied", declaredLosses: [] });
-    // Round-tripped through the WIRE envelope rather than compared structurally:
-    // the `applied` arm carries a refinement of its own — it may not declare
-    // `conversation_history_summarized` — that no shape comparison can see.
+    // Round-tripped through the wire schema: the `applied` arm has a refinement (it may not
+    // declare `conversation_history_summarized`) that a shape comparison cannot see.
     expect(DriverTranscriptReplayResultSchema.parse(result)).toStrictEqual(result);
     expect(double.seededPositions).toStrictEqual([1, 2, 3, 4]);
     // Two reads: the pre-seed freshness read and the post-replay assertion's.
     expect(double.reads).toBe(2);
   });
 
-  // A replay target is SINGLE-USE on both legs, and it is stated in one place
-  // rather than left to the two freshness gates' shapes. This leg's pre-seed read
-  // would in fact catch a second replay — but it would name it `target-not-fresh`,
-  // which reads as "the caller handed us a used session" rather than "this daemon
-  // already replayed into this one", and it would spend a round trip to learn
-  // what the ledger already knows.
+  // A replay target is single-use. The pre-seed read would also catch a second replay, but as
+  // `target-not-fresh`, which blames the caller and costs a round trip the ledger already
+  // answers.
   it("burns a CONFIRMED target, so replaying the same handle twice is impossible", async () => {
     const double = seedingDouble({ answers: SEEDED_BODIES });
     const harness = harnessWithSurface(double);
@@ -4927,14 +4644,13 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     await expect(
       harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
     ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
-    // Refused ahead of BOTH the seeding and the freshness read — the ledger is
-    // consulted before the surface is touched at all.
+    // Refused before both the seeding and the freshness read: the ledger is consulted before
+    // the surface is touched.
     expect(double.seededPositions).toStrictEqual([1, 2, 3, 4]);
     expect(double.reads).toBe(readsAfterFirstReplay);
   });
 
-  // THE MANDATORY CASE, on this leg's own transport: a surface that accepts
-  // every frame and whose target then answers empty.
+  // The mandatory case: a surface that accepts every frame and whose target then answers empty.
   it("REFUSES a surface that accepts every frame and answers with zero turns", async () => {
     const double = seedingDouble({ answers: [] });
     await expect(
@@ -4946,10 +4662,9 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     expect(double.seededPositions).toStrictEqual([1, 2, 3, 4]);
   });
 
-  // No turn ledger exists on this driver, so freshness costs a read — and it is
-  // worth it: the assertion tolerates a target answering with MORE turns than
-  // were seeded, so a target that arrived carrying a prior conversation would
-  // otherwise pass on a matching tail.
+  // This driver keeps no turn ledger, so freshness costs a read. It is needed because the
+  // assertion tolerates a target answering with more turns than were seeded, so a target that
+  // arrived with a prior conversation would pass on a matching tail.
   it("reads the target BEFORE seeding and refuses one that already holds turns", async () => {
     const double = seedingDouble({
       answers: SEEDED_BODIES,
@@ -4964,18 +4679,16 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     expect(double.seededPositions).toStrictEqual([]);
   });
 
-  // The replay-target lifecycle, asserted ACROSS BOTH TARGETS: the abandoned
-  // one holds native frames and never receives a memo, the replacement holds the
-  // memo and never receives native frames, and no surviving session holds both —
-  // which is the property that keeps a user from reading the same
-  // exchanges twice, once truncated.
+  // Across both targets: the abandoned one holds native frames and no memo, the replacement
+  // holds the memo and no native frames, so no surviving session shows the same exchanges
+  // twice, once truncated.
   it("abandons a target refused mid-seeding; the memo lands in a FRESH target", async () => {
     const double = seedingDouble({ answers: SEEDED_BODIES, refuseAtPosition: 3 });
     const harness = harnessWithSurface(double);
     await expect(
       harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
     ).rejects.toThrow(/abandoned and must not be reused/);
-    // A PREFIX landed, which is what makes reuse unsafe rather than untidy.
+    // A prefix landed, which is what makes reuse unsafe rather than untidy.
     expect(double.seededPositions).toStrictEqual([1, 2]);
 
     await expect(
@@ -5029,13 +4742,9 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     expect(double.seededPositions).toStrictEqual([1, 2]);
   });
 
-  // The dispatch-seam half of this, asserting a COUNT rather than a route:
-  // a refusal raised inside the replay settles on the memo floor with exactly ONE
-  // reconstitution attempted. The property is structural rather than counted at
-  // runtime — the dispatch-seam ladder is absent from `replayTranscript`, so
-  // there is no rung a replay could climb — and this is what makes the absence
-  // observable: seeding a target begins at position 1, so the number of times
-  // position 1 is seeded IS the number of reconstitutions attempted.
+  // A refusal raised inside the replay settles on the memo floor after exactly one
+  // reconstitution attempt. Seeding always begins at position 1, so the number of times
+  // position 1 is seeded is the number of reconstitutions attempted.
   it("settles a replay-interior refusal on the memo floor with ONE reconstitution", async () => {
     const double = seedingDouble({ answers: SEEDED_BODIES, refuseAtPosition: 2 });
     const harness = harnessWithSurface(double);
@@ -5044,9 +4753,8 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
       harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
     ).rejects.toThrow(/abandoned and must not be reused/);
 
-    // Two callers reaching for recovery after the same refusal — the run's own
-    // failure path and a caller retrying the operation — must between them start
-    // no second native reconstitution.
+    // Two callers recovering from the same refusal (the run's failure path and a retrying
+    // caller) must between them start no second native reconstitution.
     await expect(
       harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
     ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
@@ -5057,8 +4765,7 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     expect(double.seededPositions.filter((position) => position === 1)).toHaveLength(1);
     expect(double.seededPositions).toStrictEqual([1]);
 
-    // And the settlement the user is owed is the memo floor's, carrying
-    // its declared loss — never a silently applied replay.
+    // The settlement the user is owed is the memo floor's, never a silently applied replay.
     const coordinator = new MemoDeliveryCoordinator({
       readTurnsForMarkerReconciliation: () => Promise.resolve([]),
       sendMemoTurn: () => Promise.resolve(),
@@ -5138,12 +4845,9 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     ).rejects.toThrow(/nothing to reconstitute/);
   });
 
-  // The other half of the `transcript_replay: false` contract: the refusal is a
-  // ROUTE, not a dead end. A driver that declares the flag `false` settles
-  // reconstitution on the memo projection and the caller reports `degraded`,
-  // which is the outcome the fallback contract names — so this composes
-  // the driver's own refusal into the disposition the router consumes and drives
-  // the real memo floor with it.
+  // The refusal is a route, not a dead end: a driver declaring `transcript_replay: false`
+  // settles on the memo projection and the caller reports `degraded`. This composes the
+  // driver's own refusal into the router's disposition and drives the real memo floor.
   it("routes a `transcript_replay: false` refusal to the memo floor, reported degraded", async () => {
     const harness = harnessWithSurface(null);
     let disposition: NativeReplayDisposition = {
@@ -5198,8 +4902,8 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     }
     const reported = memoSettlementAsReplayResult(settlement.memo);
     expect(reported.status).toBe("degraded");
-    // The schema requires it on a `degraded` result, and it is what tells a
-    // user the conversation they are looking at was summarized.
+    // The schema requires this on a `degraded` result; it tells the user the conversation was
+    // summarized.
     expect(reported.declaredLosses).toContain("conversation_history_summarized");
     expect(deliveredTurns).toHaveLength(1);
   });

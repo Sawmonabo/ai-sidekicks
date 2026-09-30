@@ -1,96 +1,56 @@
-// Thread-frame router (child-routing leg).
+// Thread-frame router: decides which inbound provider frames project into the session timeline.
 //
-// Both pinned providers multiplex CHILD-THREAD traffic — subagent, review, and
-// compaction threads the provider spawns for itself — over the same connection
-// that carries the session's own thread. A normalizer that projects every
-// frame it receives renders a child's assistant output and tool activity into
-// the parent's timeline as though the parent produced them — a fabricated
-// transcript — and it either double-counts or loses the child's spend. This
-// module owns the thread-identity registry and the fail-closed routing /
-// quarantine decision both driver legs consult BEFORE any projection decision
-// — each session's lifecycle band constructs one and routes every inbound
-// frame through it ahead of the normalize hand-off — and it enforces: only the
-// session's own thread projects, and no child's spend or interactive request
-// is lost.
+// Both providers multiplex child-thread traffic (subagent, review and compaction threads) over
+// the connection that carries the session's own thread. Projecting every frame would render a
+// child's output in the parent's timeline and double-count or lose the child's spend. Each
+// session's lifecycle module owns one router and routes every inbound frame through it before
+// normalizing. Only the session's own thread projects.
 //
-// The rule is FAMILY-SCOPED:
+// Routing is by family:
+// - A thread-scoped family routes by the explicit thread identity on the frame.
+// - A connection- or account-scoped family (Claude `system/api_retry`, `rate_limits`, the
+//   capability and initialization frames) routes without a thread identity, because its shape
+//   has none.
+// - An unrecognized family is quarantined; an unlisted shape is never presumed connection-scoped.
 //
-//   - A THREAD-SCOPED family routes by explicit thread identity read from the
-//     frame; only the session's own thread projects.
-//   - A censused CONNECTION- OR ACCOUNT-SCOPED family (Claude
-//     `system/api_retry` → `usage.api_retry`, `rate_limits` →
-//     `usage.rate_limit_update`, the capability/initialization frames) routes
-//     to its registered normalization WITHOUT a thread identity — demanding a
-//     member the frame's own shape excludes would quarantine every
-//     account-plane signal the corpus already consumes.
-//   - An UNRECOGNIZED family is quarantined regardless: the census is the
-//     discriminator, and an unlisted shape is never presumed connection-scoped.
+// A thread identity is recognized by registration: the session's own thread at establishment, or
+// a child announced with a provider-declared parent (Codex `thread/started` with `parentThreadId`
+// and a subagent source kind; Claude `SubagentStart` with `parent_tool_use_id`). It is never
+// inferred from arrival order.
 //
-// Thread identities enter the recognized set on a REGISTRATION PATH ahead of
-// the refusal rule: the session's own thread at establishment, and a child
-// identity from the provider's parent-linked announcement (the Codex
-// `thread/started` notification carrying `parentThreadId` with a subagent
-// `ThreadSourceKind`; the Claude `SubagentStart` signal arriving in the
-// parent's own stream with `parent_tool_use_id`) — recognition derives from
-// the provider's declared lineage, never from arrival order.
+// Two bounded held states differ in meaning:
+// - Pending-registration hold: a frame naming a thread that is present but not yet registered
+//   (child traffic racing its announcement). It is released when the registration lands and shed
+//   with a diagnostic on timeout.
+// - Quarantine: a frame with no identity where its family needs one, or naming a thread no
+//   registration admits. It is a capped diagnostic buffer, oldest shed first, not a delivery
+//   queue.
 //
-// Two distinct bounded held states:
+// Two carve-outs apply ahead of suppression:
+// - Usage: child spend is metered even though child content is not. Subagent spend rides the
+//   (`runId`, `provider`, `subagentId`) triple; spend on an internal child with no subagent
+//   identity (compaction, memory consolidation) attributes to the parent run.
+// - Interactive requests: a child's approval, permission and input requests use the parent run's
+//   dispatch and approval pipeline, answered on the child's own correlation identity. Suppressing
+//   them would hang the child.
 //
-//   - PENDING-REGISTRATION HOLD: a frame naming a PRESENT-but-unregistered
-//     thread — child traffic racing its own announcement — held, released
-//     into ordinary routing when the registration lands, shed with a recorded
-//     diagnostic on a declared timeout.
-//   - QUARANTINE: a frame whose identity is ABSENT where its family requires
-//     one, or names a thread no registration path admits — a bounded
-//     diagnostic buffer (declared cap, oldest-first shedding, each admission
-//     and each shed a `DriverDiagnosticRecord`), NOT a delivery queue, and
-//     distinct in semantics from the pending hold.
-//
-// Two carve-outs apply AHEAD of suppression:
-//
-//   - USAGE: child spend is metered even though child content is not.
-//     Provider-attributed subagent spend rides the (`runId`, `provider`,
-//     `subagentId`) triple; spend on a provider-internal child with no
-//     subagent identity (a compaction or memory-consolidation thread)
-//     attributes to the PARENT RUN at run scope. Neither arm invents a
-//     subagent and neither drops a token.
-//   - INTERACTIVE REQUESTS: a child's tool-approval / permission / input
-//     requests route through the SAME dispatch and approval pipeline as the
-//     parent run's, answered on the child's own correlation identity —
-//     mandatory suppressing the request with the transcript would not hide
-//     the child but HANG it.
-//
-// What suppression governs is the child's TRANSCRIPT PROJECTION alone. Child
-// lifecycle reaches the timeline only through the already-registered
-// `subagent.started` / `subagent.completed` kinds (emitted by the consumer at
-// registration / completion); a child thread's own frames are never a second
-// lifecycle channel.
-//
-// The single routing decision both normalizers consult; consumed
-// unchanged by the terminal-emission boundary, which adds no second
-// routing decision.
-//
+// Suppression covers only a child's transcript projection. Child lifecycle reaches the timeline
+// through `subagent.started` and `subagent.completed`, never through the child's own frames.
+// The terminal-emission gate consumes the route unchanged.
 
 import { type DriverDiagnosticsEmitter, type DriverProviderName } from "./driver-diagnostics.js";
 
-// --------------------------------------------------------------------------
-// Family classification — supplied by the driver's own census knowledge.
-// --------------------------------------------------------------------------
-
 /**
- * The capability a thread-scoped frame carries, which selects its carve-out:
- * `usage` and `interactive-request` are carved out ahead of suppression;
- * `lifecycle` and `content` from a child are transcript-suppressed (child
- * lifecycle reaches the timeline only through `subagent.*`, never through the
- * child's own frames).
+ * The capability a thread-scoped frame carries, which selects its carve-out: `usage` and
+ * `interactive-request` are carved out ahead of suppression, while `lifecycle` and `content`
+ * from a child are transcript-suppressed.
  */
 type ThreadScopedFrameCapability = "usage" | "interactive-request" | "lifecycle" | "content";
 
 /**
- * One frame's family classification against the pinned stream-surface census.
- * The DRIVER classifies (each normalizer owns its provider's census); the
- * router decides. `unknown` is a real arm: an unlisted family is never
- * presumed connection-scoped.
+ * One frame's family against the pinned stream-surface census. The driver classifies and the
+ * router decides. `unknown` is a real arm because an unlisted family is never presumed
+ * connection-scoped.
  */
 export type ThreadFrameFamilyClass =
   | { readonly scope: "connection" }
@@ -98,27 +58,15 @@ export type ThreadFrameFamilyClass =
   | { readonly scope: "unknown" };
 
 /**
- * One inbound frame as the router sees it.
- *
- * FRAME CONSTRUCTION IS THE DRIVER'S, and the two legs derive `threadId`
- * differently because their wires differ. Stated once, here, so neither leg
- * invents a second rule:
- *
- *   - CODEX frames carry an explicit thread member, so `threadId` is read off
- *     the frame verbatim and is `null` exactly when the frame omits one. A
- *     child's registration is dispatched from the announcement's own members
- *     BEFORE that announcement frame is routed onward, so the announcement
- *     never waits pending its own registration.
- *   - CLAUDE frames carry NO thread-id member at all — that provider
- *     multiplexes children over the parent's own stream and distinguishes them
- *     by the subagent identity on the frame. `threadId` therefore derives as
- *     the frame's `subagentId` where it carries one and as THE SESSION'S OWN
- *     THREAD ID otherwise. It is never `null` for a session frame: passing
- *     `null` would quarantine every ordinary Claude frame as a thread-scoped
- *     family carrying no identity.
- *
- * The router itself reads only what this interface declares; both rules above
- * are obligations on the code that builds the value.
+ * One inbound frame as the router sees it. The code that builds it must derive `threadId` by
+ * these rules, because the router reads only what this interface declares:
+ * - Codex frames carry an explicit thread member, so `threadId` is that member verbatim and
+ *   `null` only when the frame omits one. A child's registration is dispatched from the
+ *   announcement's own members before the announcement frame is routed, so the announcement never
+ *   waits on its own registration.
+ * - Claude frames carry no thread-id member and mark children by subagent identity. `threadId`
+ *   is the frame's `subagentId` where it has one and the session's own thread id otherwise. It is
+ *   never `null` for a session frame, which would quarantine every ordinary Claude frame.
  */
 export interface RoutableProviderFrame {
   /** The frame's wire kind, verbatim and untrusted; carried as data only. */
@@ -128,11 +76,7 @@ export interface RoutableProviderFrame {
   readonly threadId: string | null;
 }
 
-// --------------------------------------------------------------------------
-// Registration.
-// --------------------------------------------------------------------------
-
-/** How a registered child's usage attributes (``). */
+/** How a registered child's usage attributes: to its subagent, or to the parent run. */
 export type ChildSpendAttribution =
   | { readonly kind: "subagent"; readonly subagentId: string }
   | { readonly kind: "parent-run" };
@@ -143,11 +87,9 @@ export interface ChildThreadAnnouncement {
   /** The parent linkage the provider itself declared, or `null` if it named none. */
   readonly declaredParentThreadId: string | null;
   /**
-   * The provider-attributed subagent identity, where the announcement carries
-   * one (a Codex subagent `ThreadSourceKind` item, a Claude `SubagentStart`
-   * `parent_tool_use_id` pairing); `null` for a provider-internal child (a
-   * compaction or memory-consolidation thread), whose spend attributes to the
-   * parent run at run scope.
+   * The provider-attributed subagent identity (a Codex subagent source item, a Claude
+   * `SubagentStart` `parent_tool_use_id` pairing), or `null` for an internal child such as a
+   * compaction thread, whose spend attributes to the parent run.
    */
   readonly subagentId: string | null;
 }
@@ -164,11 +106,9 @@ export type ChildRegistrationResult<TFrame extends RoutableProviderFrame = Routa
   | { readonly registered: false; readonly reason: string };
 
 /**
- * The result of releasing a completed child thread's router state.
- *
- * A child that never registered still carries pending holds naming it, so the
- * completion path returns them for the same shed-with-a-record treatment the
- * timeout path applies rather than dropping them silently.
+ * The result of releasing a completed child thread's router state. A child that never registered
+ * can still have pending holds naming it; they are returned so the caller sheds them with a
+ * diagnostic instead of dropping them silently.
  */
 export interface ChildCompletionResult<
   TFrame extends RoutableProviderFrame = RoutableProviderFrame,
@@ -180,31 +120,22 @@ export interface ChildCompletionResult<
 }
 
 /**
- * One `subagent.started` / `subagent.completed` emission a driver states when a
- * child thread is registered or completed.
- *
- * PRODUCER-ONLY: the driver says what happened and the emission pipeline mints
- * the `tool_activity` envelope. This pair is the child's ONLY timeline
- * presence — a registered child's own frames are transcript-suppressed, so
- * without these two the child would be invisible rather than merely quiet, and
- * that is what makes them survive the suppression rather than share its fate.
+ * A `subagent.started` or `subagent.completed` emission a driver states when a child registers
+ * or completes; the emission pipeline mints the `tool_activity` envelope. These two are the
+ * child's only timeline presence, since its own frames are transcript-suppressed.
  */
 export interface SubagentLifecycleEmission {
   readonly eventType: "subagent.started" | "subagent.completed";
   /** The provider-attributed subagent identity, verbatim off the wire. */
   readonly subagentId: string;
   /**
-   * The provider's own parent linkage, verbatim: the Claude
-   * `parent_tool_use_id`, the Codex announcement's `parentThreadId`. `null`
-   * where the announcement named none.
+   * The provider's own parent linkage, verbatim (Claude `parent_tool_use_id`, Codex
+   * `parentThreadId`), or `null` where the announcement named none.
    */
   readonly parentReference: string | null;
 }
 
-// --------------------------------------------------------------------------
-// The routing decision.
-// --------------------------------------------------------------------------
-
+/** The single routing decision for one frame, consumed unchanged by the emission gate. */
 export type ThreadFrameRoute =
   /** The session's own thread: project into the session timeline. */
   | { readonly decision: "project" }
@@ -216,11 +147,7 @@ export type ThreadFrameRoute =
       readonly childThreadId: string;
       readonly attribution: ChildSpendAttribution;
     }
-  /**
-   * A registered child's interactive request: route through the same dispatch
-   * and approval pipeline as the parent run's, answer on the child's own
-   * correlation identity.
-   */
+  /** A registered child's interactive request: same pipeline as the parent's, child's identity. */
   | {
       readonly decision: "carve-out-interactive-request";
       readonly childThreadId: string;
@@ -232,16 +159,14 @@ export type ThreadFrameRoute =
   /** Absent or unrecognized identity, or unrecognized family: refused. */
   | { readonly decision: "quarantined"; readonly reason: string };
 
-// --------------------------------------------------------------------------
-// The router.
-// --------------------------------------------------------------------------
-
+/** The caps and timeout that bound the router's two held states. */
 export interface ThreadFrameRouterConfig {
   readonly maxQuarantinedFrames: number;
   readonly maxPendingHoldFrames: number;
   readonly pendingRegistrationTimeoutMs: number;
 }
 
+/** Holds the thread registry for one session and makes the routing decision for each frame. */
 export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutableProviderFrame> {
   readonly #provider: DriverProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
@@ -267,14 +192,10 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
   }
 
   /**
-   * Register the session's own thread at establishment.
-   *
-   * Both providers can deliver session-own traffic BEFORE the identity is
-   * known — a Codex session learns its thread id from the `thread/started`
-   * notification, and frames on that thread can already be in flight — so this
-   * releases every frame held pending the session's own identity exactly as a
-   * child registration does. The caller MUST re-route the returned frames:
-   * a discarded return sheds session-own traffic unrecoverably.
+   * Registers the session's own thread at establishment and returns the frames held pending it.
+   * Session traffic can arrive before the identity is known (Codex learns its thread id from
+   * `thread/started` while frames are in flight), so the caller must re-route the returned
+   * frames; discarding them sheds session traffic unrecoverably.
    */
   registerSessionThread(threadId: string): readonly TFrame[] {
     this.#sessionThreadId = threadId;
@@ -282,14 +203,9 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
   }
 
   /**
-   * Admit a provider parent-linked child announcement.
-   *
-   * Registration derives from the provider's DECLARED lineage: an
-   * announcement whose parent linkage names no recognized thread — neither
-   * the session's own nor an already-registered child — does not register,
-   * and the refusal is a recorded diagnostic rather than a silent ignore.
-   * A successful registration releases every frame held pending it, in
-   * arrival order, for ordinary re-routing by the caller.
+   * Admits a provider parent-linked child announcement. An announcement whose parent is neither
+   * the session's own thread nor a registered child is refused with a diagnostic. On success it
+   * returns the frames held pending the child, in arrival order, for the caller to re-route.
    */
   registerChildThread(announcement: ChildThreadAnnouncement): ChildRegistrationResult<TFrame> {
     const parentRecognized =
@@ -333,17 +249,10 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
   }
 
   /**
-   * Release a completed child thread's per-child state.
-   *
-   * Without this the attribution map and the once-per-child suppression
-   * ledger grow for the life of the provider session — a session that spawns
-   * child threads in a loop accumulates one entry per child forever. Called
-   * from the driver's child-terminal band (the Codex child `turn/completed`
-   * carrying a terminal `turn.status`; the Claude `SubagentStop` signal).
-   *
-   * Completion is TERMINAL for the identity: a later frame naming the same
-   * thread is present-but-unregistered again and takes the ordinary
-   * pending-hold-then-timeout path rather than re-projecting into the parent.
+   * Releases a completed child thread's state so the attribution map and suppression ledger do
+   * not grow with every child a long session spawns. Call it from the driver's child-terminal
+   * path (Codex child `turn/completed`, Claude `SubagentStop`). Completion is terminal for the
+   * identity: a later frame naming it is pending-unregistered again and ends in the timeout shed.
    */
   completeChildThread(childThreadId: string): ChildCompletionResult<TFrame> {
     const wasRegistered = this.#childAttributionsByThreadId.delete(childThreadId);
@@ -364,11 +273,7 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
     return { wasRegistered, abandonedPendingFrames };
   }
 
-  /**
-   * Remove and return every pending hold naming `threadId`, in arrival order.
-   * The single release path both registration entry points use, so neither can
-   * shed a held frame the other would have released.
-   */
+  /** Removes and returns the holds naming `threadId` in arrival order; the one release path. */
   #takePendingHoldsFor(threadId: string): readonly TFrame[] {
     const releasedFrames: TFrame[] = [];
     for (let index = 0; index < this.#pendingHolds.length; ) {
@@ -383,10 +288,7 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
     return releasedFrames;
   }
 
-  /**
-   * Route one inbound frame. The single decision both normalizers consult
-   * before any projection; the emission boundary consumes it unchanged.
-   */
+  /** Routes one inbound frame; the single decision both normalizers consult before projecting. */
   routeFrame(frame: TFrame, nowMs: number): ThreadFrameRoute {
     this.expirePendingHolds(nowMs);
 
@@ -424,10 +326,8 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
       if (frame.familyClass.capability === "interactive-request") {
         return { decision: "carve-out-interactive-request", childThreadId: frame.threadId };
       }
-      // Content and the child's own lifecycle frames: transcript-suppressed.
-      // Diagnosed once per child thread so content deltas do not flood the
-      // channel; the pair `subagent.started` / `subagent.completed` remains
-      // the child's only timeline presence.
+      // Content and lifecycle frames are suppressed; diagnose once per child so deltas do not
+      // flood the channel.
       if (!this.#suppressionDiagnosedChildThreadIds.has(frame.threadId)) {
         this.#suppressionDiagnosedChildThreadIds.add(frame.threadId);
         this.#diagnostics.emit({
@@ -463,10 +363,7 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
     return { decision: "held-pending-registration" };
   }
 
-  /**
-   * Shed pending holds whose registration never landed inside the declared
-   * timeout — each shed a recorded diagnostic, never a silent drop.
-   */
+  /** Sheds pending holds older than the timeout, each with a diagnostic. */
   expirePendingHolds(nowMs: number): void {
     for (let index = 0; index < this.#pendingHolds.length; ) {
       const held = this.#pendingHolds[index];

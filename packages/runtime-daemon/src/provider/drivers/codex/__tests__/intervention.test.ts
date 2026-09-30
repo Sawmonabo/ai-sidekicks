@@ -1,20 +1,12 @@
-// Codex driver — intervention dispatcher tests.
+// Codex intervention dispatcher: each intervention type maps onto a native provider operation, or
+// returns a structured degraded result.
 //
-// Coverage map:
-//
-//   One generic dispatcher routes every intervention type onto a native
-//     provider operation, or returns a structured degraded result.
-//   An unsupported intervention is DATA the orchestration layer acts
-//     on, never an exception.
-//   An intervention type whose capability flag is not declared `true`
-//     returns `{ status: 'degraded', fallbackAction }` AND performs no provider
-//     operation. The second half matters as much as the first: a dispatcher that
-//     returned `degraded` after already steering would have applied an
-//     intervention the layer above is about to compensate for.
-//   The REQUESTER's `clientIdempotencyKey` reaches the runtime verbatim on the
-//     steer path, and is never re-minted per dispatch.
-//   A steer acknowledgement that names a different turn, or names none at all,
-//     degrades instead of reading as success.
+// - An unsupported intervention is returned as data for the orchestration layer, never thrown.
+// - A type whose capability flag is not `true` returns `{ status: 'degraded', fallbackAction }`
+//   and performs no provider operation, so the layer above never compensates for an applied steer.
+// - The requester's `clientIdempotencyKey` reaches the runtime verbatim and is never re-minted.
+// - A steer acknowledgement naming a different turn, or none, degrades instead of reading as
+//   success.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -39,9 +31,8 @@ import {
 
 const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
 
-// What the fake runtime reports as the live turn when the caller pinned none —
-// standing in for the manager's `#requireActiveTurn` resolution, so the ack it
-// echoes is against the turn that would really have gone on the wire.
+// The live turn the fake runtime reports when the caller pinned none, as the manager's
+// `#requireActiveTurn` would resolve it.
 const LIVE_TURN_ID = "turn-live";
 
 function makeCapabilities(overrides: Partial<Record<DriverCapabilityFlag, boolean>>): {
@@ -74,22 +65,17 @@ function createHarness(
   overrides: Partial<Record<DriverCapabilityFlag, boolean>> = {},
   runtimeOverrides: Partial<CodexInterventionRuntime> = {},
 ): Harness {
-  // Declared with the port's real parameter lists, so the fake is checked
-  // against the contract it stands in for. A cast here would have let the port
-  // change shape without a single test noticing.
+  // Typed with the port's real parameter lists so a change to the port fails to compile here.
   const steerRun = vi.fn(
     async (request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> => {
-      // The confirming default: the provider acknowledges the very turn the
-      // driver targeted. Every degraded-ack case overrides it explicitly, so the
-      // grading under test is always stated by the test that depends on it.
+      // Confirming default: the provider acknowledges the turn the driver targeted. Degraded-ack
+      // tests override it.
       const targetedTurnId = request.expectedTurnId ?? LIVE_TURN_ID;
       return { targetedTurnId, acknowledgedTurnId: targetedTurnId };
     },
   );
   const interruptRun = vi.fn(async (_params: InterruptRunParams): Promise<void> => {});
-  // The default answer is "no refusal known", which is the ordinary state: the
-  // provider turn a steer joins is still running when the steer resolves, so
-  // the driver has nothing to report yet. Every refusing case overrides it.
+  // Default is "no refusal known": the turn a steer joins is still running when the steer resolves.
   const textNeutralizationDecisionForTurn = vi.fn(
     (_turnId: string): { readonly refused: boolean } => ({ refused: false }),
   );
@@ -153,9 +139,7 @@ describe("CodexInterventionDispatcher native routing", () => {
       content: "focus on the failing test",
       expectedTurnId: "turn-01",
       clientIdempotencyKey: "idem-1",
-      // A steer directive is user text, declared rather than defaulted:
-      // the absent-origin default neutralizes identically but would report
-      // `origin=unknown` on a trip, which is a worse answer than the true one.
+      // A steer directive is user text; the absent-origin default would report `origin=unknown`.
       frameOrigin: "human_text",
     });
     expect(result).toEqual({ status: "applied" });
@@ -166,9 +150,7 @@ describe("CodexInterventionDispatcher native routing", () => {
 
     const result = await harness.dispatcher.applyIntervention(steerParams());
 
-    // Under `exactOptionalPropertyTypes` an explicit `undefined` is not the same
-    // as an absent key, and a strict envelope should not carry a key whose
-    // meaning is "no fallback applies".
+    // Under `exactOptionalPropertyTypes` an explicit `undefined` differs from an absent key.
     expect(Object.keys(result)).toEqual(["status"]);
     expect("fallbackAction" in result).toBe(false);
   });
@@ -181,7 +163,7 @@ describe("CodexInterventionDispatcher native routing", () => {
       payload: { content: "stop guessing" },
     } as ApplyInterventionParams);
 
-    // Absent means "the driver picks the live turn"; it must not be invented.
+    // Absent means the driver picks the live turn; the dispatcher must not invent one.
     expect(harness.steerRun).toHaveBeenCalledWith({
       runId: RUN_ID,
       content: "stop guessing",
@@ -208,8 +190,8 @@ describe("CodexInterventionDispatcher native routing", () => {
 
     const result = await harness.dispatcher.applyIntervention(cancelParams());
 
-    // Codex exposes one turn-stopping operation; interrupt and cancel differ in
-    // what the DAEMON does with the run afterwards, not in the provider call.
+    // Codex has one turn-stopping operation; interrupt and cancel differ only in what the daemon
+    // does with the run afterwards.
     expect(harness.interruptRun).toHaveBeenCalledWith({
       runId: RUN_ID,
       reason: "operator canceled the run",
@@ -246,8 +228,7 @@ describe("CodexInterventionDispatcher degraded fallback", () => {
 
     await harness.dispatcher.applyIntervention(steerParams());
 
-    // Degrading AFTER steering would apply the very intervention the layer above
-    // is about to compensate for.
+    // Degrading after steering would apply the intervention the layer above compensates for.
     expect(harness.steerRun).not.toHaveBeenCalled();
     expect(harness.interruptRun).not.toHaveBeenCalled();
   });
@@ -262,8 +243,8 @@ describe("CodexInterventionDispatcher degraded fallback", () => {
 
   it("treats an undeclared flag as unsupported (fail-closed)", async () => {
     const harness = createHarness();
-    // Simulates a snapshot arriving through an untyped boundary with the flag
-    // missing entirely: `!== true` must catch it, `=== false` would not.
+    // A snapshot from an untyped boundary with the flag missing: `!== true` catches it,
+    // `=== false` would not.
     delete (harness.capabilities.snapshot.flags as Partial<Record<DriverCapabilityFlag, boolean>>)
       .steer;
 
@@ -276,8 +257,8 @@ describe("CodexInterventionDispatcher degraded fallback", () => {
   it("keeps interrupt and cancel ungated even when steer is unsupported", async () => {
     const harness = createHarness({ steer: false });
 
-    // Stopping an in-flight turn is a core obligation of the driver contract, and
-    // `DRIVER_CAPABILITY_FLAGS` registers no interrupt/cancel member to gate on.
+    // Stopping a turn is a core driver obligation, and `DRIVER_CAPABILITY_FLAGS` has no
+    // interrupt or cancel member to gate on.
     await expect(harness.dispatcher.applyIntervention(interruptParams())).resolves.toEqual({
       status: "applied",
     });
@@ -311,9 +292,8 @@ describe("CodexInterventionDispatcher degraded fallback", () => {
       },
     );
 
-    // Degraded means "this provider cannot do this kind of thing". A provider
-    // that can and failed is an outage, and flattening the two would send the
-    // orchestration layer into a fallback for the wrong reason.
+    // Degraded means the provider cannot do this; a provider that can and failed is an outage, and
+    // reporting it as degraded would trigger the fallback for the wrong reason.
     await expect(harness.dispatcher.applyIntervention(steerParams())).rejects.toThrow(
       /no active Codex turn/,
     );
@@ -326,10 +306,8 @@ describe("CodexInterventionDispatcher idempotency-key ride-through", () => {
 
     await harness.dispatcher.applyIntervention(steerParams());
 
-    // Verbatim is the whole property: a key re-minted at this boundary would give
-    // the provider a fresh value on every retry and defeat the `interventions`
-    // UNIQUE guard that turns at-least-once delivery into exactly-once
-    // application.
+    // A re-minted key would differ on every retry and defeat the `interventions` unique key on
+    // `(target_run_id, client_idempotency_key)`, which makes at-least-once delivery apply once.
     const [request] = harness.steerRun.mock.calls[0] as [CodexSteerRunRequest];
     expect(request.clientIdempotencyKey).toBe("idem-1");
   });
@@ -351,9 +329,8 @@ describe("CodexInterventionDispatcher idempotency-key ride-through", () => {
 
     await harness.dispatcher.applyIntervention(interruptParams());
 
-    // `turn/interrupt` is `{ threadId, turnId }` at the pin and accepts no
-    // client-supplied identifier, so the params carry the run and the reason and
-    // nothing else. An invented substitute would be an unregistered wire field.
+    // `turn/interrupt` is `{ threadId, turnId }` at the pin and takes no client identifier, so the
+    // params carry only the run and the reason.
     const [params] = harness.interruptRun.mock.calls[0] as [InterruptRunParams];
     expect(Object.keys(params).sort()).toEqual(["reason", "runId"]);
   });
@@ -381,9 +358,8 @@ describe("CodexInterventionDispatcher ambiguous steer acknowledgement", () => {
 
     const result = await harness.dispatcher.applyIntervention(steerParams());
 
-    // The provider accepted SOMETHING; that is not evidence it accepted this. A
-    // silent `applied` here would report a user's directive as delivered
-    // to a turn that never saw it.
+    // The provider accepted some turn, not necessarily this one; `applied` would report the
+    // directive as delivered to a turn that never saw it.
     expect(result).toEqual({
       status: "degraded",
       fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
@@ -417,8 +393,8 @@ describe("CodexInterventionDispatcher ambiguous steer acknowledgement", () => {
       payload: { content: "stop guessing" },
     } as ApplyInterventionParams);
 
-    // The comparand is what went on the wire, not the caller's absent hint —
-    // otherwise every unpinned steer would grade against `undefined` and degrade.
+    // The comparand is the turn sent on the wire, not the caller's absent hint; otherwise every
+    // unpinned steer would degrade.
     expect(result).toEqual({ status: "applied" });
   });
 
@@ -428,10 +404,8 @@ describe("CodexInterventionDispatcher ambiguous steer acknowledgement", () => {
       { interruptRun: vi.fn(async (_params: InterruptRunParams): Promise<void> => {}) },
     );
 
-    // `turn/interrupt` answers an empty object at the pin, so resolving without a
-    // JSON-RPC error is the whole of the evidence. Checking that emptiness would
-    // degrade every interrupt the day the provider adds a member to a response
-    // that took nothing away.
+    // `turn/interrupt` answers an empty object at the pin, so resolving without a JSON-RPC error is
+    // the whole evidence; checking for emptiness would break when the provider adds a member.
     await expect(harness.dispatcher.applyIntervention(interruptParams())).resolves.toEqual({
       status: "applied",
     });

@@ -1,16 +1,15 @@
-// Codex capability declaration + refresh seam.
+// Codex capability declaration and refresh seam.
 //
-// Coverage targets (audit-derived, not just the plan ACs):
-//   * the driver DECLARES its capability flags; the runtime treats an
-//     undeclared capability as unsupported.
-//   * the Codex column, restated independently below so a typo in the
-//     module is a failing test rather than a silently wrong matrix.
-//   * The flags record is TOTAL over the canonical flag set. Proven three
-//     ways: a type-level exactness assertion, a runtime key-set compare, and
-//     the production write-seam guard `assertValidCapabilityFlags`, which is
-//     the code that actually decides whether a declaration is admissible.
-//   * The refresh trigger declares through the writer and surfaces its
-//     change-detected verdict unchanged, with no local change detection.
+// Covers:
+//   * the driver declares its capability flags; the runtime treats an undeclared one as
+//     unsupported.
+//   * the Codex column, restated independently below, so a typo in the module fails a test instead
+//     of silently changing the matrix.
+//   * the flags record is total over the canonical flag set, checked by a type-level exactness
+//     assertion, a runtime key-set compare, and the production write-seam guard
+//     `assertValidCapabilityFlags`.
+//   * the refresh trigger declares through the writer and surfaces its change-detected verdict
+//     unchanged, with no local change detection.
 
 import { DRIVER_CAPABILITY_FLAGS, ProviderToolMetadataSchema } from "@ai-sidekicks/contracts";
 import type {
@@ -54,9 +53,8 @@ import {
 } from "../capabilities.js";
 import { CODEX_TOOL_METADATA } from "../tools.js";
 
-// Codex column — transcribed here from the spec rather than imported from
-// the module under test, so this assertion is an INDEPENDENT restatement
-// and not a tautology.
+// The Codex column, restated here instead of imported from the module under test, so the
+// assertion is not a tautology.
 const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   resume: true,
   steer: true,
@@ -71,13 +69,10 @@ const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   callback_tools: true,
   subagents: true,
   transcript_replay: true,
-  // `context_compaction` and `provider_commands` are NATIVE on this provider
-  // (`thread/compact/start` + `thread/compacted`, and `skills/list`), while
-  // `output_speed` is `false` because this CLI declares neither conjunct that
-  // axis needs — no settable level vocabulary and no declared-state read —
-  // which is a complete declaration rather than an unmeasured one, and the
-  // reason nothing is emulated onto it. NOT because the wire is speed-silent:
-  // it carries a per-turn `serviceTier` override.
+  // `context_compaction` and `provider_commands` are native on this provider
+  // (`thread/compact/start` and `skills/list`). `output_speed` is false because the CLI declares
+  // neither a settable level vocabulary nor a declared-state read, and nothing is emulated onto
+  // it, although the wire does carry a per-turn `serviceTier` override.
   context_compaction: true,
   provider_commands: true,
   output_speed: false,
@@ -88,15 +83,14 @@ const CLI_VERSION_REPORT: DriverCliVersionReport = {
   semver: "0.149.1",
 };
 
-// The build a reading names — a Cellar path, deliberately NOT the
-// `/opt/homebrew/bin/codex` launcher symlink that points at it, because the
-// whole point of the reading is that it carries the dereferenced build.
+// A Cellar path, deliberately not the `/opt/homebrew/bin/codex` launcher symlink: a reading carries
+// the dereferenced build.
 const RESOLVED_CODEX_EXECUTABLE = "/opt/homebrew/Cellar/codex/0.149.1/bin/codex";
 
 /**
- * A in-band reading of a spawned Codex build. Composition takes a READING and
- * not a bare report since so a declaration cannot be composed from a version
- * that did not come from the process this node spawned.
+ * An in-band reading of a spawned Codex build. Composition takes a reading, not a bare report, so
+ * a declaration cannot be composed from a version that did not come from the process this node
+ * spawned.
  */
 function codexReading(
   report: DriverCliVersionReport = CLI_VERSION_REPORT,
@@ -110,11 +104,9 @@ function codexReading(
 
 const CLI_VERSION_READING: SpawnedProviderVersionReading = codexReading();
 
-// The composition now takes a detection reading beside the version reading, so
-// a matrix-only declaration is unrepresentable. These two carry the happy path
-// for the pre-existing assertions below; the probe table, the classifier, the
-// negative control, and the withdrawal paths are exercised in
-// `provider/__tests__/capability-probe.test.ts`.
+// Composition takes a detection reading beside the version reading, so a matrix-only declaration is
+// unrepresentable. These two carry the happy path; the probe table, classifier, negative control
+// and withdrawal paths are exercised in `provider/__tests__/capability-probe.test.ts`.
 const CODEX_DETECTION: CapabilityDetectionReading = fullyProbedDetectionReading(
   "codex",
   CLI_VERSION_READING.resolvedExecutablePath,
@@ -126,9 +118,8 @@ function silentDiagnostics(): DriverDiagnosticsEmitter {
   return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
 }
 
-// Type-level half of: the declared key set is EXACTLY the canonical flag
-// union. A missing flag or a stray one fails to compile — the assignment
-// below is the assertion.
+// Type-level check that the declared key set is exactly the canonical flag union: a missing or
+// stray flag fails to compile.
 type MutuallyAssignable<Left, Right> = [Left] extends [Right]
   ? [Right] extends [Left]
     ? true
@@ -154,10 +145,8 @@ describe("Codex capability declaration", () => {
   });
 
   it("passes the production write-seam flag guard", () => {
-    // `assertValidCapabilityFlags` is what `DriverCapabilitiesWriter.declare`
-    // runs before opening its transaction, and it REJECTS both extras and
-    // omissions. Driving the real guard proves the declaration is admissible,
-    // which a hand-rolled key compare alone does not.
+    // `DriverCapabilitiesWriter.declare` runs this guard before opening its transaction; it rejects
+    // extras and omissions, which a hand-rolled key compare alone would not prove.
     expect(() => {
       assertValidCapabilityFlags(
         getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION).capabilities.flags,
@@ -166,18 +155,15 @@ describe("Codex capability declaration", () => {
   });
 
   it("declares transcript_replay TRUE now that the replay leg reads it", () => {
-    // The flag and the code it gates flip TOGETHER, which is the condition the
-    // scope boundary this replaces actually named: `thread/inject_items` is
-    // documented and non-experimental at the pin, and the driver's replay leg —
-    // seeding frame by frame, then refusing on anything short of a target answer
-    // consistent with the transcript's tail — ships in `../lifecycle.ts`.
+    // The flag flips together with the replay leg in `../lifecycle.ts`, which seeds the transcript
+    // through `thread/inject_items` and refuses any answer inconsistent with the transcript's tail.
     expect(Object.hasOwn(CODEX_CAPABILITY_FLAGS, "transcript_replay")).toBe(true);
     expect(CODEX_CAPABILITY_FLAGS.transcript_replay).toBe(true);
   });
 
   it("declares reasoning_stream FALSE (the fail-closed row)", () => {
-    // Called out separately from the matrix compare because the `false` row is
-    // load-bearing downstream: the reasoning surface renders unavailable.
+    // Separate from the matrix compare because this false row is load-bearing downstream: the
+    // reasoning surface renders unavailable.
     expect(CODEX_CAPABILITY_FLAGS.reasoning_stream).toBe(false);
   });
 });
@@ -201,22 +187,16 @@ describe("Codex getCapabilities() wrapper", () => {
   });
 
   it("spells the shared vocabulary table rather than copying it", () => {
-    // IDENTITY, not equality — the durable cache's hydration path serves this
-    // same member with no driver in hand, so both paths read one table.
+    // Identity, not equality: the durable cache's hydration path serves this same member with no
+    // driver in hand, so both paths must read one table.
     expect(CODEX_OUTPUT_SPEED_LEVELS).toBe(DRIVER_OUTPUT_SPEED_LEVELS.codex);
   });
 
   it("OMITS the speed vocabulary rather than publishing an empty one", () => {
-    // `Object.hasOwn` and not `toBeUndefined()`: under
-    // `exactOptionalPropertyTypes` the latter passes for a key that IS present
-    // carrying `undefined`, which is precisely the regression an edit to the
-    // conditional spread would introduce.
-    //
-    // The claim is worth a test of its own even though omission and emptiness
-    // mean the same thing to the axis's own reader (unsettable, in both cases):
-    // an empty array reads as a vocabulary that happens to have no members
-    // today, while omission is what a driver publishing no such axis at all
-    // should say — and only one of the two is what this driver ships.
+    // `Object.hasOwn`, not `toBeUndefined()`: under `exactOptionalPropertyTypes` the latter passes
+    // for a key that is present and holds `undefined`, the regression an edit to the conditional
+    // spread would introduce. Omission and an empty array mean the same to the axis's reader, but
+    // omission is what a driver with no such axis should say.
     const result: GetCapabilitiesResult = getCodexCapabilities(
       CLI_VERSION_READING,
       CODEX_DETECTION,
@@ -235,17 +215,16 @@ describe("Codex getCapabilities() wrapper", () => {
   });
 
   it("threads cliVersion through VERBATIM without parsing or normalizing it", () => {
-    // The version is never invented here floor gate below REFUSES an
-    // inadmissible report but never rewrites an admissible one — a
-    // non-canonical raw string must survive untouched.
+    // The version is passed through untouched: the floor gate refuses an inadmissible report but
+    // never rewrites an admissible one.
     const oddReport: DriverCliVersionReport = {
       raw: "codex-cli 0.149.1 (build abc123)",
       semver: "0.149.1",
     };
     const result = getCodexCapabilities(codexReading(oddReport), CODEX_DETECTION);
     expect(result.cliVersion).toEqual(oddReport);
-    // Copied, not aliased — a caller mutating the report must not retroactively
-    // change a declaration already handed to the writer.
+    // Copied, not aliased: a caller mutating the report must not change a declaration already
+    // handed to the writer.
     expect(result.cliVersion).not.toBe(oddReport);
   });
 
@@ -286,13 +265,13 @@ describe("Codex capability refresh seam", () => {
     expect(call.driverName).toBe(CODEX_DRIVER_NAME);
     expect(call.driverName).toBe("codex");
     expect(call.result).toEqual(getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION));
-    // The writer owns change detection; this seam surfaces its verdict as-is.
+    // The writer owns change detection; this seam surfaces its verdict as is.
     expect(verdict).toEqual({ snapshotChange: "created", cliVersionRefreshed: true });
   });
 
   it("returns an unchanged verdict as-is (no local change detection)", async () => {
-    // This seam neither suppresses nor manufactures the writer's verdict, which
-    // is what keeps a single answer to "did it change?".
+    // The seam neither suppresses nor invents the writer's verdict, so "did it change?" has one
+    // answer.
     const sink = new RecordingDeclarationSink({
       snapshotChange: "unchanged",
       cliVersionRefreshed: false,
@@ -364,16 +343,14 @@ describe("Codex CLI-version floor", () => {
         diagnostics: silentDiagnostics(),
       }),
     ).rejects.toBeInstanceOf(DriverCliVersionBelowFloorError);
-    // Fail-closed means the writer never saw the below-floor declaration.
+    // Fail-closed: the writer never saw the below-floor declaration.
     expect(sink.calls).toHaveLength(0);
   });
 });
 
 describe("Codex composition is bound to the spawned build", () => {
   it("threads the SPAWNED reading's report, not a caller-chosen version", () => {
-    // "the version a driver reports is the version that spawned". The
-    // composition takes the reading, so the wrapper it emits carries exactly
-    // the version the resolved build reported.
+    // The wrapper carries exactly the version the resolved build reported.
     const reading = codexReading({ raw: "0.150.1", semver: "0.150.1" });
     const result = getCodexCapabilities(reading, CODEX_DETECTION);
     expect(result.cliVersion).toStrictEqual({ raw: "0.150.1", semver: "0.150.1" });
@@ -381,10 +358,9 @@ describe("Codex composition is bound to the spawned build", () => {
   });
 
   it("refuses a reading taken from ANOTHER driver's build", async () => {
-    // A wiring fault, not provider misbehavior: composing Codex's flags against
-    // a Claude build's version would declare capabilities for a binary that is
-    // not the one this driver spawns. It refuses as an internal-invariant Error
-    // rather than as a typed provider refusal.
+    // A wiring fault, not provider misbehavior: composing Codex flags against a Claude build's
+    // version would declare capabilities for a binary this driver did not spawn. It refuses as an
+    // internal-invariant Error, not a typed provider refusal.
     const foreign: SpawnedProviderVersionReading = {
       driverName: "claude",
       resolvedExecutablePath: "/opt/homebrew/Cellar/claude/2.1.245/bin/claude",
@@ -408,26 +384,18 @@ describe("Codex composition is bound to the spawned build", () => {
 });
 
 // --------------------------------------------------------------------------
-// The current model catalog + per-model effort vocabularies
+// The model catalog and per-model effort vocabularies
 // --------------------------------------------------------------------------
 
 /**
- * GOLDEN VECTOR — the verbatim `model/list` result payload.
+ * Golden vector: the `model/list` result payload recorded from `codex-cli 0.150.1` with a
+ * zero-turn JSON-RPC request to `codex app-server` after `initialize` / `initialized`. Copied
+ * field for field, except the per-effort `description` strings, which nothing reads. The recorded
+ * reply carried no `serviceTiers`; each row here carries the one tier that later `model/list`
+ * reads gave every listed model.
  *
- *   Pin        : codex-cli 0.150.1 (this repo's exact pin)
- *   Provenance : Binary probe, 2026-08-30, one zero-turn JSON-RPC `model/list`
- *                request to `codex app-server` after `initialize` /
- *                `initialized`. Copied field-for-field from the reply; the
- *                per-effort `description` strings are elided because nothing
- *                reads them and their length would bury the levels.
- *   Trust      : Verified at 0.150.1.
- *   Tiers      : The 0.150.1 copy took no `serviceTiers`. Each row carries the
- *                one tier the `model/list` reads at 0.155.1 (2026-09-19) and
- *                0.159.2 (2026-09-30) gave every listed model.
- *
- * Eight rows, `nextCursor: null`, `hidden: false` throughout — and TWO effort
- * vocabularies across them, which is the fact that makes the level list a
- * per-model member rather than a per-provider constant.
+ * Eight rows, `nextCursor: null`, `hidden: false` throughout, and two effort vocabularies, which
+ * is why the level list is a per-model member rather than a per-provider constant.
  */
 const CODEX_RECORDED_MODEL_LIST_REPLY: Readonly<Record<string, unknown>> = Object.freeze({
   data: [
@@ -499,8 +467,8 @@ describe("Codex model catalog", () => {
   it("reads the recorded reply into the provider's own eight models, in order", () => {
     const models = normalizeCodexModelCatalog(CODEX_RECORDED_MODEL_LIST_REPLY);
 
-    // The provider lists its recommended model first; re-ordering here would
-    // silently re-rank what a client renders.
+    // The provider lists its recommended model first; re-ordering would silently re-rank what a
+    // client renders.
     expect(models.map((model) => model.id)).toEqual([
       "gpt-5.6-sol",
       "gpt-5.6-terra",
@@ -519,8 +487,8 @@ describe("Codex model catalog", () => {
     const levelsFor = (id: string): string[] | undefined =>
       models.find((model) => model.id === id)?.effortLevels;
 
-    // This spread is the reason the contract carries the list PER MODEL: one
-    // provider-wide vocabulary cannot describe all three of these rows.
+    // This spread is why the contract carries the list per model: one provider-wide vocabulary
+    // cannot describe these rows.
     expect(levelsFor("gpt-5.6-sol")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
     expect(levelsFor("gpt-5.6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
     expect(levelsFor("gpt-5.5")).toEqual(["low", "medium", "high", "xhigh"]);
@@ -539,10 +507,9 @@ describe("Codex model catalog", () => {
     ["an explicit null", null],
     ["an empty array", []],
   ])("reads %s effort surface as ABSENT rather than refusing", (_label, rawEfforts) => {
-    // The over-strictness control for the present-but-unreadable refusal. Both
-    // shapes STATE that the model exposes no effort selection, and refusing
-    // either would cost the whole catalog: this normalizer throws for the
-    // entire reply on any entry fault, so one odd field would drop every model.
+    // Over-strictness control for the unreadable-effort refusal. Both shapes state that the model
+    // exposes no effort selection, and refusing either would drop the whole catalog, because the
+    // normalizer throws for the entire reply on any entry fault.
     const models = normalizeCodexModelCatalog({
       data: [{ id: "model-x", displayName: "X", supportedReasoningEfforts: rawEfforts }],
       nextCursor: null,
@@ -575,8 +542,8 @@ describe("Codex model catalog", () => {
       nextCursor: null,
     });
 
-    // A hidden model is one the provider declines to offer for selection;
-    // publishing it would offer a model its own surface does not.
+    // The provider declines to offer a hidden model for selection, so publishing it would offer a
+    // model its own surface does not.
     expect(models.map((model) => model.id)).toEqual(["shown"]);
   });
 
@@ -652,8 +619,7 @@ describe("Codex model catalog", () => {
   });
 
   it("refuses a paginated reply BEFORE answering its first page", () => {
-    // The hazard the refusal exists for: a first page that parses perfectly and
-    // is simply short. Answering it would drop models with nothing recording it.
+    // A first page that parses perfectly but is short would drop models with nothing recording it.
     expect(() =>
       normalizeCodexModelCatalog({
         data: [{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol" }],
@@ -665,8 +631,8 @@ describe("Codex model catalog", () => {
   it("answers the declared catalog when no exchange is bound", async () => {
     const models = await resolveCodexModelCatalog(null);
 
-    // The declaration and the recorded reply are the same reading, so a drift
-    // between them is a failing test rather than a silently stale catalog.
+    // A drift between the declaration and the recorded reply fails here instead of leaving a stale
+    // catalog.
     expect(models).toEqual(normalizeCodexModelCatalog(CODEX_RECORDED_MODEL_LIST_REPLY));
     expect(models.map((model) => model.id)).toEqual(
       CODEX_DECLARED_MODEL_CATALOG.map((model) => model.id),
@@ -674,11 +640,9 @@ describe("Codex model catalog", () => {
   });
 
   it("refuses an in-place mutation of the shared declared catalog", () => {
-    // `Object.freeze` on the ENTRY is shallow: it stops `entry.effortLevels =
-    // […]` and does nothing about `entry.effortLevels.push(…)`. This constant
-    // is re-exported from the driver barrel and shared process-wide, so an
-    // out-of-band consumer was one `push` away from rewriting the declared
-    // vocabulary for every later caller.
+    // `Object.freeze` on the entry is shallow: it blocks `entry.effortLevels = […]` but not
+    // `entry.effortLevels.push(…)`. This constant is re-exported from the driver barrel and
+    // shared process-wide, so an unfrozen array would let one consumer rewrite it for all.
     const declaredEntry = CODEX_DECLARED_MODEL_CATALOG[0];
     if (declaredEntry === undefined) {
       throw new Error("the declared catalog is empty");
@@ -688,8 +652,7 @@ describe("Codex model catalog", () => {
     expect(Object.isFrozen(declaredEntry.capabilities)).toBe(true);
     expect(Object.isFrozen(declaredEntry.effortLevels)).toBe(true);
     expect(Object.isFrozen(CODEX_DECLARED_MODEL_CATALOG)).toBe(true);
-    // Strict mode — every module in this package is one — so the write THROWS
-    // rather than failing silently, which is what makes the freeze observable.
+    // Modules here run in strict mode, so a write throws and the freeze is observable.
     expect(() => declaredEntry.effortLevels?.push("mutated")).toThrow(TypeError);
     expect(() => declaredEntry.capabilities.push("mutated")).toThrow(TypeError);
 

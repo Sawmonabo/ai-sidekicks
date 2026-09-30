@@ -1,127 +1,16 @@
-// Codex driver — app-server transport + the five lifecycle operations.
-//
-// This module owns TWO layers that deliberately live in one file:
-//   1. `CodexAppServerConnection` — the JSONL/JSON-RPC transport over a single
-//      `PtyHost` session (framing, request correlation, deadlines, teardown).
-//   2. `CodexLifecycleManager` — the five lifecycle operations expressed in
-//      Codex `app-server` method calls (`createSession`, `resumeSession`,
-//      `startRun`, `interruptRun`, `closeSession`).
-//
-// They are NOT split behind a transport port. The transport is not swappable at
-// this task (leg 6 introduces `DriverTransportConfig` selection), and the unit
-// tests drive the REAL framing code through a fake `PtyHost` — a port would let
-// the framing go untested behind a stub, which is the failure mode that matters
-// here (see the MAX_CANON note below for why framing is load-bearing).
-//
-// ---------------------------------------------------------------------------
-// The termios prelude — why the spawn command is `/bin/sh -c`, not the binary
-// ---------------------------------------------------------------------------
-//
-// The substrate this driver is required to consume is `PtyHost`, and a PTY slave
-// starts in CANONICAL mode with ECHO on. `codex app-server` is not a TUI and
-// never calls `tcsetattr`, so nothing turns them off. Both defaults are fatal to
-// a line-delimited protocol:
-//
-//   * MAX_CANON — in canonical mode the line discipline caps a single input line
-//     (Darwin: 1024 bytes). A longer line is DISCARDED SILENTLY: no error, no
-//     short read, no response, ever. Measured against `codex-cli 0.149.1` on
-//     Darwin 25.6.0: a 1015-byte frame is answered, a 1045-byte frame is not, and
-//     nothing above it ever is. Splitting one frame across several small writes
-//     does NOT evade the cap (the limit is per line, not per write) and in
-//     practice performs strictly worse. Any real `turn/start` exceeds 1024 bytes,
-//     so an unconfigured PTY cannot carry this protocol at all.
-//   * ECHO — written frames are echoed back on the read side, so the reader sees
-//     its own requests interleaved with server output.
-//
-// Both are removed by configuring the tty before the server starts. The prelude
-// runs `stty` on the pty slave (its own stdin), announces readiness, and then
-// `exec`s the provider binary so the shell is REPLACED — the child that `PtyHost`
-// signals and reaps is the provider itself, with no shell left in the tree.
-//
-// Three properties of the command string are load-bearing:
-//   * `&&`, not `;` — if `stty` fails, the prelude aborts and the sentinel never
-//     arrives, so the caller gets a typed startup failure. With `;` the server
-//     would start in canonical mode and silently swallow every large frame,
-//     which is a far worse failure than refusing to start.
-//   * the sentinel — writing before the prelude has run would race it, and those
-//     early writes ARE echoed (verified). Waiting for the sentinel closes the
-//     race deterministically rather than tolerating it. The echo filter below is
-//     retained anyway as defense in depth, not as the primary mechanism.
-//   * the binary path travels in the ENV ARRAY (`CODEX_APP_SERVER_BIN`), never
-//     interpolated into the shell string — so a path can never become shell
-//     syntax, and the "env is exactly what the caller supplied" property holds.
-//
-// Puts Windows on a Rust PTY sidecar; that platform needs an equivalent termios
-// step (or a non-PTY transport) before this driver runs there. That is a leg-6
-// concern, not a silent assumption of this module.
-//
-// ---------------------------------------------------------------------------
-// Resume failure NEVER becomes a new session
-// ---------------------------------------------------------------------------
-//
-// `resumeSession` catches every failure of the resume path and converts it into
-// the typed `{ status: 'failed', recoveryCondition: 'recovery-needed', ... }`
-// result. It contains NO call to `createSession`, no `thread/start` write, and no
-// fallback that could manufacture a fresh thread. Escalation is the daemon's
-// decision, made on an explicit condition — never the driver's, made silently.
-//
-// The typed result is produced through `DriverResumeResultSchema.parse`, so the
-// shape is mechanically enforced rather than asserted. That parse is preceded by
-// `normalizeProviderFailureDetail`, because the schema's `wireFreeFormString`
-// REJECTS empty, whitespace-only, NUL-bearing, and overlength strings — a
-// provider error with a blank message would otherwise turn the typed failure back
-// into a thrown exception, which is exactly the loss this invariant forbids.
-//
-// ---------------------------------------------------------------------------
-// The session slot — one process per session, held across every transition
-// ---------------------------------------------------------------------------
-//
-// Every operation that can spawn or dispose a provider process runs inside a
-// claimed SLOT for its session id. A slot is EMPTY, or held as `establishing`,
-// `live`, or `closing`, and it is held from the first synchronous instant of a
-// transition until that transition has fully settled — never merely across the
-// step that mutates the record.
-//
-// That last clause is the whole design, and it is stated in the negative because
-// every failure in this class has had the same shape: a guard that was correct
-// about the MAP and silent about the WINDOW. Three of them shipped and were
-// caught in review:
-//
-//   * a create that tested only `#sessions`, so two overlapping creates both
-//     passed the guard, both spawned, and the later install orphaned the earlier
-//     process;
-//   * a claim that waited for the slot to go ABSENT and then took it, so two
-//     waiters released by the same settlement both found it free;
-//   * a close that deleted the record and THEN awaited an unsubscribe and a
-//     process close, so for the length of that teardown the slot read as empty
-//     while the child was still exiting, and a create could spawn beside it.
-//
-// The invariant that rules out the whole class, rather than these three
-// instances: NO PROCESS THIS MANAGER OWNS EXISTS WITHOUT A HELD SLOT. Applied to
-// each site — a create holds `establishing` across spawn, handshake, and install;
-// a resume holds it across those plus the predecessor release; a close holds
-// `closing` across the unsubscribe, the process close, and the record delete; and
-// `startRun` disposing an ambiguous session claims `closing` for the kill. A
-// `startRun` that merely INSTALLS a route holds no slot, so it re-reads the slot
-// after its await and refuses if the record it started under is no longer the
-// settled holder.
-//
-// `#claimSessionSlot` is the only way a slot is ever taken, in either direction.
-// A second mechanism would be a second definition of "taken", and the two would
-// disagree exactly once.
-//
-// ---------------------------------------------------------------------------
-// Error vocabulary
-// ---------------------------------------------------------------------------
-//
-// Only codes already registered are used: `driver.unavailable` (503) for transport/process
-// failures and `driver.timeout` (504) for a deadline. Provider-reported request errors and
-// malformed driver config carry NO dotted code by design — classifying provider failures beyond
-// transport errors is the leg, and minting a code here would add an unregistered row to that
-// census.
-//
-// Invariant from the pinned Codex wire census (pinned `codex-cli
-// 0.150.1`).
+/**
+ * Codex app-server transport (`CodexAppServerConnection`, JSONL JSON-RPC over one `PtyHost`) and
+ * lifecycle (`CodexLifecycleManager`). No port separates them, so tests drive the real framing
+ * through a fake `PtyHost`.
+ * - `/bin/sh -c` spawns the provider (see the prelude): a PTY slave starts canonical with echo on,
+ *   and `codex app-server` never calls `tcsetattr`. Canonical mode silently drops an input line
+ *   over MAX_CANON (Darwin 1024 bytes; `codex-cli 0.149.1` answered a 1015-byte frame, not 1045).
+ * - A failed resume never becomes a new session: it returns the typed `recovery-needed` failure.
+ * - Every spawn or dispose runs inside `#claimSessionSlot` (`establishing`, `live`, `closing`),
+ *   held until fully settled, so no owned process exists without a held slot; a `startRun` that
+ *   only installs a route re-reads the slot after its await.
+ * - Errors use registered codes only: `driver.unavailable` (503), `driver.timeout` (504).
+ */
 
 import {
   CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
@@ -166,12 +55,6 @@ import {
   type StartRunParams,
 } from "@ai-sidekicks/contracts";
 
-// TYPE-ONLY, and only in this direction. `intervention.ts` declares the port this
-// manager structurally satisfies and imports nothing from here, so the runtime
-// module graph stays exactly as acyclic as it was — a type-only import erases at
-// compile time. Importing the two steer shapes rather than restating them is what
-// makes a drift between the port and its implementation a compile error instead
-// of a silently-unsatisfied `runtime:` binding at the `index.ts` composition.
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import {
@@ -241,104 +124,39 @@ import {
   type TurnEvidenceClass,
   type TurnEvidenceClassification,
 } from "../outbound-frame.js";
+// Type-only: `intervention.ts` declares the port this manager satisfies and imports nothing here.
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
-// RUNTIME import, and acyclic: `capabilities.ts` imports the probe, refresh, and
-// writer modules and `./tools.js`, none of which reaches back into this module.
-// The driver id is taken from its one declaration rather than restated as a
-// literal, so a rename cannot leave a refusal naming a driver that no longer
-// exists under that key.
+// Runtime import, acyclic: `capabilities.ts` never imports this module.
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 
-// --------------------------------------------------------------------------
-// Transport constants
-// --------------------------------------------------------------------------
-
-/** Line the prelude emits once the tty is configured and before `exec`. */
+/**
+ * Line the prelude emits once the tty is configured; nothing is written before it, because early
+ * writes are echoed.
+ */
 export const CODEX_APP_SERVER_READY_SENTINEL: string = "__codex_app_server_ready__";
 
 /**
- * See the termios-prelude note in this file's header for every clause's
- * rationale.
- *
- * The trailing `"$@"` is the transport-argv seam (leg 6). Extra argv words
- * reach the provider as the shell's POSITIONAL PARAMETERS — supplied after the
- * `sh -c` script and its `$0` label — which the shell expands as separate
- * words and never re-parses. That is what lets a daemon-configured endpoint
- * path or credential-file path carry spaces, quotes, or shell metacharacters
- * without either quoting them here or admitting an injection: string-splicing
- * them into this script would do exactly the opposite. With no extra words
- * supplied — the `stdio` default — `"$@"` expands to nothing and the command
- * is byte-identical to what this driver has always spawned.
+ * The `sh -c` script: `stty`, readiness sentinel, then `exec` of the provider; `&&` makes a failed
+ * `stty` a typed startup failure, and `"$@"` passes argv words unparsed so no path becomes shell
+ * syntax. Windows needs an equivalent termios step or a non-PTY transport.
  */
 export const CODEX_APP_SERVER_SHELL_PRELUDE: string =
   `stty -icanon -echo` +
   ` && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL}` +
   ` && exec "$${CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME}" "$@"`;
 
-/**
- * The `$0` the prelude script is given. Never read by the script; it exists
- * because a `sh -c` invocation assigns its FIRST following operand to `$0`, so
- * omitting it would silently consume the first real argument.
- */
+/** The script's `$0` label; without it `sh -c` would take the first real argument as `$0`. */
 export const CODEX_APP_SERVER_SHELL_ARGV0: string = "codex-app-server";
 
 /** Default provider binary; overridable so a node-pinned path can be supplied. */
 const CODEX_DEFAULT_EXECUTABLE_PATH: string = "codex";
 
-// --------------------------------------------------------------------------
-// Transport axis (leg 6).
-// --------------------------------------------------------------------------
-//
-// `DriverTransportConfig` configures HOW THE DAEMON REACHES a driver process,
-// and the entrypoint resolves it ONCE at driver construction. Everything below
-// is a first-party reading of `codex app-server --help` at the installed
-// `codex-cli 0.150.1`, quoted where it is load-bearing:
-//
-//   --listen <URL>   "Transport endpoint URL. Supported values: `stdio://`
-//                    (default), `unix://`, `unix://PATH`, `ws://IP:PORT`,
-//                    `off`"
-//   --stdio          "Use stdio as the transport (equivalent to
-//                    `--listen stdio://`)"
-//   --ws-auth <MODE> "Websocket auth mode for non-loopback listeners"
-//                    [capability-token, signed-bearer-token]
-//   --ws-token-file / --ws-token-sha256 / --ws-shared-secret-file /
-//   --ws-issuer / --ws-audience
-//   proxy --sock <SOCKET_PATH>
-//                    "Proxy stdio bytes to the running app-server control
-//                    socket" / "Path to the app-server Unix domain socket to
-//                    connect to"
-//
-// THE ENDPOINT IS THE TRANSPORT, NOT AN ADDITION TO IT. `--stdio` being
-// *equivalent to* `--listen stdio://` says the two are one setting: an
-// app-server started on a socket endpoint does not also answer on stdio, which
-// a direct probe confirms (a `--listen unix://` process refuses a stdio
-// `initialize` outright rather than answering it). So each arm below is a
-// different way of REACHING a process, never a listener bolted onto the stdio
-// one:
-//
-//   stdio         — spawn the app-server on its default endpoint and speak to
-//                   it over this driver's PTY substrate. The V1 default.
-//   unix-socket   — reach an operator-configured listener through the
-//                   provider's OWN first-party stdio bridge, `app-server proxy
-//                   --sock <path>`. The line-delimited JSON-RPC connection this
-//                   module already implements is unchanged; the bridge is the
-//                   whole of the difference, which is why this arm needs no
-//                   socket client of its own.
-//   websocket     — reach a listener over ws. The provider publishes no stdio
-//                   bridge for ws, so the BYTE transport is an injected
-//                   connector rather than something this band invents; every
-//                   part that IS this band's — selection, credential resolution
-//                   at connection time, and the fail-closed refusals — is here.
-//
-// CREDENTIALS ARE REFERENCES ON BOTH SIDES OF THE SEAM. `bearerTokenRef` is a
-// daemon-config reference resolved at CONNECTION time, and the provider's own
-// flags take a FILE PATH or a SHA-256 DIGEST rather than a token value — so a
-// resolved credential never becomes an argv word, where any local process
-// could read it out of the process table. The ref-not-value discipline is the
-// provider's too, not only ours.
-
-/** How the daemon reaches one Codex app-server process. */
+/**
+ * How the daemon reaches one app-server process. The endpoint is the transport: a `--listen
+ * unix://` server refuses a stdio `initialize`, so each arm reaches a process and never adds a
+ * listener to the stdio one.
+ */
 export type CodexTransportSelection =
   | { readonly transport: "stdio" }
   | { readonly transport: "unix-socket"; readonly socketPath: string }
@@ -349,10 +167,8 @@ export type CodexTransportSelection =
     };
 
 /**
- * A resolved websocket bearer credential, in one of the two modes the provider
- * accepts. Both arms carry PATHS and digests, never token bytes: the resolver's
- * job is to place the secret somewhere the provider can read it and to name
- * that place, not to hand the value to this module.
+ * A resolved websocket bearer credential in one of the modes the provider accepts. Every arm
+ * carries paths or digests, never token bytes, so a token never appears in argv.
  */
 export type CodexWebsocketBearerCredential =
   | {
@@ -374,25 +190,17 @@ export type CodexWebsocketBearerCredential =
     };
 
 /**
- * Resolves a daemon-config `bearerTokenRef` to the credential the listener is
- * started with. Injected, asynchronous, and called at CONNECTION time — never
- * at construction and never cached — so a rotated credential is picked up by
- * the next connection rather than pinned for the driver's lifetime.
+ * Resolves a `bearerTokenRef` to the credential the listener starts with. Called at connection
+ * time and never cached, so a rotated credential is picked up by the next connection.
  */
 export type CodexBearerCredentialResolver = (
   bearerTokenRef: string,
 ) => Promise<CodexWebsocketBearerCredential>;
 
 /**
- * Bridges this driver's line-delimited JSON-RPC to a websocket listener.
- *
- * Deliberately a seam rather than an implementation in this file: the unix arm
- * rides the provider's own `proxy --sock` bridge and needs no client, while ws
- * has no such bridge — and a socket client is not what a driver lifecycle
- * module is. Absence is FAIL-CLOSED, never a silent fallback to stdio: a
- * websocket-configured driver constructed without a connector refuses at
- * construction, because falling back would reach a DIFFERENT process than the
- * operator configured while reporting success.
+ * Bridges the JSONL JSON-RPC connection to a websocket listener (the unix arm needs none: the
+ * provider ships `proxy --sock`). A websocket driver built without one refuses at construction,
+ * never falling back to stdio, which would reach a different process.
  */
 export interface CodexWebsocketTransportConnector {
   /** Called after the credential resolves; the endpoint is verbatim from config. */
@@ -403,14 +211,9 @@ export interface CodexWebsocketTransportConnector {
 }
 
 /**
- * Resolve the driver's transport selection from its registry config.
- *
- * Absent config is `stdio` — the V1 default, and the only arm that needs no
- * operator action. A `unix-socket` endpoint is normalized off the `unix://`
- * scheme the provider prints in its own `--listen` help, so an operator may
- * write either the scheme form or a bare path; a `websocket` endpoint is
- * carried VERBATIM, because its host and port are the provider's to parse and
- * a driver that rewrote them could reach an address the operator did not name.
+ * Resolves the transport from registry config; absent config is `stdio`. A unix endpoint may be
+ * `unix://` or a bare path; a websocket endpoint stays verbatim (the provider parses host and
+ * port). Throws `CodexDriverConfigError` for an empty endpoint or `bearerTokenRef`.
  */
 export function resolveCodexTransportSelection(
   config: DriverTransportConfig | undefined,
@@ -436,10 +239,8 @@ export function resolveCodexTransportSelection(
       "DriverTransportConfig.endpoint",
     );
   }
-  // Restated rather than trusted: the contract types `bearerTokenRef` as
-  // required on this arm, and an empty string satisfies the type while naming
-  // no credential — which is the unauthenticated listener the discriminated
-  // shape exists to make unrepresentable.
+  // The type only requires the string; an empty one names no credential, which would be an
+  // unauthenticated listener.
   if (config.bearerTokenRef.length === 0) {
     throw new CodexDriverConfigError(
       "DriverTransportConfig.bearerTokenRef named no credential; an unauthenticated websocket listener is refused.",
@@ -456,12 +257,8 @@ export function resolveCodexTransportSelection(
 const CODEX_UNIX_ENDPOINT_SCHEME = "unix://";
 
 /**
- * The provider argv for one transport selection, as POSITIONAL words appended
- * after the prelude's `$0` label.
- *
- * Composed here rather than at the spawn site so the argv for each arm is
- * stated once and asserted directly: "the listener starts with bearer auth" is
- * a property of these words, decidable without a live remote peer.
+ * The provider argv for one transport selection, as positional words appended after the prelude's
+ * `$0`. Throws `CodexDriverConfigError` for a websocket selection with no resolved credential.
  */
 export function composeCodexTransportArgv(
   selection: CodexTransportSelection,
@@ -469,9 +266,7 @@ export function composeCodexTransportArgv(
 ): readonly string[] {
   switch (selection.transport) {
     case "stdio":
-      // Left implicit rather than passing `--listen stdio://`: the default is
-      // the provider's own, and naming it would make every stdio spawn depend
-      // on a flag spelling that the pinned help calls merely equivalent.
+      // Left implicit: the default endpoint is the provider's own; no flag spelling is relied on.
       return ["app-server"];
     case "unix-socket":
       return ["app-server", "proxy", "--sock", selection.socketPath];
@@ -482,6 +277,8 @@ export function composeCodexTransportArgv(
           "DriverTransportConfig.bearerTokenRef",
         );
       }
+      // Flags at `codex-cli 0.150.1`: `--listen <URL>` (`stdio://` default, `unix://`,
+      // `ws://IP:PORT`, `off`) and `--ws-auth capability-token|signed-bearer-token`.
       const argv = ["app-server", "--listen", selection.endpoint];
       switch (credential.mode) {
         case "capability-token":
@@ -508,81 +305,30 @@ export function composeCodexTransportArgv(
 }
 
 /**
- * Hard ceiling on a single unterminated inbound line, in UTF-16 code units, and
- * on one outbound frame, in encoded UTF-8 bytes.
- *
- * The read buffer is fed from a sink the PROVIDER controls, and a newline is the
- * only thing that ever drains it. Without a ceiling, any peer that never emits
- * one grows the buffer until the daemon dies — and the least-guarded window is
- * before the prelude sentinel, where a refused `stty` leaves shell diagnostics
- * accumulating against a tty nobody configured. That is a liveness hazard for
- * the whole node, not merely for one session.
- *
- * The inbound unit is code units rather than bytes ON PURPOSE. Measuring UTF-8
- * bytes of the retained tail means re-scanning the whole tail on every chunk,
- * which is quadratic in exactly the case the ceiling exists to survive. A code
- * unit costs a fixed two bytes of retained memory whatever it encodes, so this
- * bound is a direct bound on the hazard; and since a UTF-8 encoding is never
- * SHORTER than the code-unit count, a line that trips this ceiling has always
- * exceeded the same figure in bytes too.
- *
- * Outbound, an answer composed from daemon-side content (a callback tool's
- * output, an elicitation's structured content) needs a bound as well: an
- * unbounded answer is a write the provider's reader may reject, and a rejected
- * answer leaves the ask permanently unanswered. The pinned `codex-cli 0.151.0`
- * publishes no outbound frame limit (its only size member,
- * `McpElicitationStringSchema.maxLength`, validates an elicited string), so the
- * same figure applies. Counted in encoded bytes, which the encode step has
- * already produced, it is never looser than the inbound bound and is tighter
- * for any non-ASCII payload: the transport never sends what it would refuse to
- * receive.
+ * Ceiling on one unterminated inbound line (UTF-16 code units, since counting bytes rescans the
+ * tail on every chunk) and on one outbound frame (UTF-8 bytes; the provider publishes no limit).
+ * It stops a peer that never sends a newline from growing the buffer until the daemon dies.
  */
 export const CODEX_MAX_LINE_LENGTH: number = 32 * 1024 * 1024;
 
 /**
- * The refusal reason substituted for an answer that will not fit the wire.
- *
- * A SHORT CONSTANT rather than anything derived from the oversized answer, and
- * that is the whole point: a reason built from the payload that blew the bound
- * can blow it again, leaving nothing sendable and the ask unanswered — which is
- * the failure this bound exists to prevent, reintroduced by its own remedy.
- *
- * REFUSED, NEVER TRUNCATED. A truncated tool output is a WRONG answer the model
- * cannot distinguish from a complete one; a refusal is an answer the model can
- * act on. The provider therefore receives the method's own refusal shape and
- * the loss is recorded on both diagnostic sinks rather than shipped as success.
+ * The refusal reason substituted for an answer too large for the wire: a constant, so it cannot
+ * itself exceed the bound. The answer is refused, never truncated (a truncated tool output reads
+ * as complete), and the loss is recorded on both diagnostic sinks.
  */
 export const CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON: string =
   "The daemon composed an answer larger than this transport will send; refusing rather than delivering a truncated result.";
 
 /**
- * The bound applied to a provider-supplied `turnId` before it is copied into a
- * refusal reason or a diagnostic record.
- *
- * Module-local rather than a contracts mint: the field is read at exactly one
- * seam, and a wire-contract constant registered for one reader would be a
- * member minted ahead of its census. The figure matches the tool-call-id class
- * bound (`DRIVER_TOOL_CALL_ID_MAX_LEN`) because a turn id is the same kind of
- * value — an opaque provider-minted correlation handle, never prose.
+ * Bound on a provider `turnId` before it enters a refusal reason or diagnostic; matches
+ * `DRIVER_TOOL_CALL_ID_MAX_LEN`, the same kind of opaque handle.
  */
 const CODEX_ROUTED_ASK_TURN_ID_MAX_LEN = 256;
 
 /**
- * The ten server-initiated REQUEST methods of the pinned protocol, read from the
- * generated `ServerRequest` union at `codex-cli 0.150.1` (regenerate, never
- * transcribe — the pinned Codex wire census; re-verified against the
- * pinned binary's own generation on 2026-08-28, where `ServerRequest.json` came
- * back byte-identical to the `0.149.1` generation — this root did not move).
- *
- * An OBSERVABILITY ANNOTATION, deliberately NOT a routing filter — and that is
- * still true now that {@link CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS} routes a
- * subset of these methods (leg 3 + the ask reachability leg). The
- * routing table is keyed on ITS OWN descriptor map, and every method outside
- * that map — censused or not — still reaches the same fail-closed `-32601`
- * answer.
- *
- * Module-private: a shared export of this set belongs with the event
- * normalizer, not with the transport.
+ * The ten server-initiated request methods of the pinned protocol (`ServerRequest` union at
+ * `codex-cli 0.150.1`; regenerate, do not transcribe). An observability annotation, not a routing
+ * filter: routing is keyed on the descriptors below, and any other method gets `-32601`.
  */
 const CODEX_SERVER_REQUEST_METHODS: ReadonlySet<string> = new Set([
   "item/commandExecution/requestApproval",
@@ -597,60 +343,28 @@ const CODEX_SERVER_REQUEST_METHODS: ReadonlySet<string> = new Set([
   "execCommandApproval",
 ]);
 
-// --------------------------------------------------------------------------
-// Server-request routing (leg 3 + the ask reachability leg).
-// --------------------------------------------------------------------------
-//
-// WHY THIS BAND EXISTS. The normalizer already maps five inbound permission asks
-// to `approval.requested`, two questions to `question.asked`, and one method to
-// `tool.invoked`. Until this band, every one of those descriptors was
-// unreachable: the transport answered EVERY method+id frame `-32601`, so a
-// Cedar-governed approval could never have been asked for, and a callback tool
-// could never have been invoked. The descriptors were correct and dead. This
-// table is what connects them.
-//
-// WHAT IS ROUTED, AND WHAT DELIBERATELY IS NOT, across the pinned ten:
-//
-//   ROUTED (7) — `item/tool/call`, the modern approval trio
-//   (`item/commandExecution/requestApproval`, `item/fileChange/requestApproval`,
-//   `item/permissions/requestApproval`), the legacy approval pair
-//   (`execCommandApproval`, `applyPatchApproval`), and
-//   `mcpServer/elicitation/request`. All seven are reachable at the negotiated
-//   posture and all seven are asks the daemon must answer. Routing the modern
-//   trio while leaving the legacy pair on `-32601` would make the daemon's
-//   answer depend on which spelling the provider chose for the same question.
-//
-//   NOT ROUTED — `item/tool/requestUserInput` is EXPERIMENTAL at the pin and
-//   unreachable while this driver negotiates `experimentalApi: false`; it is
-//   asserted unreachable off the normalizer's own
-//   `CODEX_NEGOTIATION_GATED_METHODS` rather than given a handler that could
-//   never run. `attestation/generate` is declined at negotiation
-//   (`requestAttestation: false`), and `account/chatgptAuthTokens/refresh` is
-//   credential brokering this band does not perform — for both, `-32601` is the
-//   honest answer, not a gap.
-//
-// FAIL-CLOSED ON EVERY PATH. A routed method with no responder injected, a
-// responder that refuses, and a responder that throws all answer the provider
-// with the method's own REFUSAL shape — never `-32601`, which for an approval
-// would be a protocol error where a decision was asked for, and never silence,
-// which would hang the turn. The refusal shapes below are read from the pinned
-// generation's response types, not invented.
+// Server-request routing: this table connects inbound asks to the normalizer's
+// `approval.requested`, `question.asked` and `tool.invoked`; otherwise every method+id frame gets
+// `-32601`.
+// Routed: `item/tool/call`, the three modern approval methods, the legacy pair (routed so the
+// answer does not depend on the provider's spelling) and `mcpServer/elicitation/request`.
+// Unrouted, so `-32601`: `item/tool/requestUserInput` (experimental, unreachable at
+// `experimentalApi: false`), `attestation/generate` (declined at negotiation) and
+// `account/chatgptAuthTokens/refresh` (credential brokering this driver does not do).
+// Fail-closed: a routed method with no responder, a refusing one or a throwing one answers with
+// the method's own refusal shape, never `-32601` (a protocol error where a decision was asked) and
+// never silence (which hangs the turn).
 
 /** The provider result for one answered ask, composed by its own descriptor. */
 type CodexServerRequestResult = Record<string, unknown>;
 
 /** One routed server-request method and the two answers it can carry. */
 interface CodexRoutedServerRequestDescriptor {
-  /**
-   * `callback-tool` invocations go to the callback-tool host; `approval` asks
-   * go to evaluation seam through the same responder. The split is what the
-   * responder switches on.
-   */
+  /** Which host answers the ask: the callback-tool host, or the approval evaluation seam. */
   readonly askKind: "callback-tool" | "approval";
   /**
-   * The allowed answer. `payload` carries the arms that need data the daemon
-   * supplies — the granted permission profile, an elicitation's content — and
-   * is merged rather than replacing the decision member.
+   * The allowed answer. `payload` carries data the daemon supplies (a granted permission profile,
+   * an elicitation's content) and is merged, not substituted for the decision member.
    */
   readonly composeAllowedResult: (
     payload: Readonly<Record<string, unknown>> | undefined,
@@ -660,30 +374,9 @@ interface CodexRoutedServerRequestDescriptor {
 }
 
 /**
- * The routed methods and their answer shapes, each read from the pinned
- * generation's own response type:
- *
- *   `DynamicToolCallResponse`                    `{ success, contentItems }`
- *   `CommandExecutionRequestApprovalResponse`    `{ decision }`, decision in
- *                                                `accept | acceptForSession |
- *                                                 decline | cancel | {…}`
- *   `FileChangeRequestApprovalResponse`          same decision vocabulary
- *   `PermissionsRequestApprovalResponse`         `{ permissions, scope? }` —
- *                                                NO decline arm, so a refusal
- *                                                is an EMPTY granted profile
- *   `ExecCommandApprovalResponse` /
- *   `ApplyPatchApprovalResponse`                 `{ decision }`, `ReviewDecision`
- *                                                whose refusal arm is the
- *                                                object `{ denied: { rejection } }`
- *   `McpServerElicitationRequestResponse`        `{ action }`, action in
- *                                                `accept | decline | cancel`
- *
- * `decline` rather than `cancel` on the two modern approval arms, and the
- * `denied` object rather than `abort` on the legacy pair, because both pairs
- * mean different things: the refusing member lets the agent continue the turn
- * and try something else, while the canceling member interrupts the turn
- * outright. A policy that refuses ONE tool call has not asked for the turn to
- * end, so answering `cancel` would convert every denial into an interruption.
+ * The routed methods and their answer shapes, read from the pinned response types. A refusal
+ * answers `decline` or `denied`, never `cancel` or `abort`, which would interrupt the turn.
+ * Permissions has no decline arm, so its refusal is an empty grant.
  */
 const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
   string,
@@ -723,9 +416,8 @@ const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
     "item/permissions/requestApproval",
     {
       askKind: "approval",
-      // The granted profile is the daemon's to compose — it is the CONTENT of
-      // the grant, not a yes/no — so an allowed answer with no supplied profile
-      // grants nothing rather than guessing a widening.
+      // The granted profile is the daemon's to compose, so an allowed answer with no supplied
+      // profile grants nothing rather than guessing a widening.
       composeAllowedResult: (payload) => ({
         permissions: readGrantedPermissionProfile(payload),
         scope: "turn",
@@ -760,35 +452,15 @@ const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
   ],
 ]);
 
-/** The routed method names, for census assertions and for the responder port. */
+/** The routed method names, for the responder port. */
 export const CODEX_ROUTED_SERVER_REQUEST_METHODS: readonly string[] = Object.freeze([
   ...CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS.keys(),
 ]);
 
 /**
- * Why this leg registers no provider-side callback-tool surface at the pin
- * (leg 3, the Codex half).
- *
- * `dynamicTools` is a property of `ThreadStartParams` in the EXPERIMENTAL generation ONLY. Direct
- * comparison of the default generations at `codex-cli 0.149.1` and the pinned `0.150.1` against
- * the experimental one: `ThreadStartParams` carries 15 properties by default and 26 under
- * `--experimental`, and `dynamicTools` is one of the eleven that appear only there. Both
- * generated files are byte-identical across the pin hop, so the counts are re-verified at
- * `0.150.1` rather than carried. This driver negotiates `experimentalApi: false` — the posture
- * ratified, and the posture that keeps the twelve `CODEX_NEGOTIATION_GATED_METHODS` dormant — so
- * the registration surface is unreachable.
- *
- * WITHHELD RATHER THAN ATTEMPTED, for the same reason the no-seam withholding
- * exists: a registration the provider ignores would leave the model unaware of
- * the tools while the daemon believed it had offered them. `item/tool/call`
- * stays routed regardless — a build that offers a tool this daemon did not
- * register still gets an adjudicated answer rather than a `-32601`.
- *
- * Flipping `experimentalApi` to reach it is NOT the fix and is deliberately not
- * done here: it would simultaneously un-dormant every experimental notification
- * and request the normalizer maps but does not expect, which is a negotiation
- * change owned by the version-gate leg rather than a side effect of a tool
- * registry.
+ * Why no callback-tool registration is attempted: `dynamicTools` is experimental-only in
+ * `ThreadStartParams` (`codex-cli 0.150.1`: 15 properties, 26 under `--experimental`), and
+ * `experimentalApi` would also un-dormant experimental frames the normalizer does not expect.
  */
 export const CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL: string =
   "ThreadStartParams.dynamicTools is experimental-generation-only at the pin and this driver negotiates experimentalApi: false, so no provider-side callback-tool registration is reachable";
@@ -803,95 +475,40 @@ export interface CodexInboundServerRequest {
 }
 
 /**
- * The daemon-side answer to one ask.
- *
- * `payload` is present only on the arms whose provider response carries
- * content the daemon composes (a granted permission profile, an elicitation's
- * structured answer); every other arm ignores it.
+ * The daemon-side answer to one ask. `payload` is read only by arms whose provider response
+ * carries daemon-composed content (a granted permission profile, an elicitation's answer).
  */
 export type CodexServerRequestDecision =
   | { readonly decision: "allow"; readonly payload?: Record<string, unknown> | undefined }
   | { readonly decision: "refuse"; readonly reason: string };
 
 /**
- * The port the daemon binds to answer routed asks: the callback-tool host for
- * `item/tool/call`, and evaluation seam for the approval methods.
- *
- * Declared here rather than imported from the host so this module stays free of
- * a dependency on a sibling band, and so a driver composed with no responder is
- * a representable — and fail-closed — configuration rather than a broken one.
- * Every routed permission ask ALSO projects its `approval.requested` event, and a
- * routed question its `question.asked` event; that is the responder's, because
- * projection needs the session and run identity the transport deliberately does
- * not hold.
+ * The port the daemon binds to answer routed asks: the callback-tool host for `item/tool/call`,
+ * the approval evaluation seam otherwise. With no responder the driver fails closed. It also
+ * projects `approval.requested` and `question.asked`, which need identity the transport lacks.
  */
 export interface CodexServerRequestResponder {
   answer(request: CodexInboundServerRequest): Promise<CodexServerRequestDecision>;
 }
 
-// --------------------------------------------------------------------------
-// Ask choice sets (the input-ask card's structured-options arm).
-// --------------------------------------------------------------------------
-//
-// WHY THE DRIVER READS THIS AT ALL. gives the input-kind ask a renderer
-// surface whose free-text arm is unconditional and whose structured-options
-// arm is reachable only if some layer turns the provider's own choice set into
-// a normalized one. Nothing above the driver can: both mechanisms below
-// express their choices in provider-specific shapes (one in a bespoke question
-// array, the other inside an MCP JSON-Schema fragment), and the daemon-side
-// ask pipeline is provider-agnostic by construction. So the normalization
-// happens HERE, at the same seam that already stamps session and run identity
-// onto an inbound ask.
-//
-// IT IS A DERIVED READING AND NEVER A SECOND SOURCE OF TRUTH. `params` still
-// travels verbatim and untouched beside it; this member is a convenience
-// projection OF that payload, so a consumer that distrusts it can re-derive it
-// and a consumer that ignores it loses nothing. That is also why an unreadable
-// or over-large set is DROPPED rather than escalated: the ask itself is intact
-// and still answerable through the free-text arm, and refusing to normalize an
-// ask because its garnish did not parse would hang a turn over a decoration.
-//
-// THE EVENT'S OPTION ROWS ARE OWNED ELSEWHERE, NOT BY THIS TYPE. The question
-// record carries its own option rows in each question it holds; this is the
-// driver-side shape that feeds them. The two are deliberately separate
-// declarations — authoring one symbol here would put the wire contract in a
-// driver.
+// Ask choice sets: providers publish an ask's choices in provider-specific shapes, so they are
+// normalized here, where session and run identity is stamped, for the input-ask card. The reading
+// is derived (`params` still travels verbatim); an unreadable or over-large set is dropped because
+// the free-text arm still answers.
 
 /**
- * One selectable answer offered by a provider ask.
- *
- * `value` is what a chooser sends back and `label` is what a person reads.
- * They are separate members even though ONE of the two pinned mechanisms
- * publishes only a label, because the other publishes a genuinely distinct
- * pair (`{ const, title }`) and collapsing them would either send a
- * human-facing title as an answer or hide a real title behind an opaque
- * constant.
+ * One selectable answer of a provider ask: `value` is what a chooser sends back, `label` what a
+ * person reads (the titled MCP form publishes a distinct pair, the other only a label).
  */
 interface ProviderAskOption {
   readonly value: string;
   readonly label: string;
 }
 
-/**
- * The most options one ask may carry.
- *
- * A CARDINALITY bound beside the per-string length bounds, and it exists
- * because those do not compose into one: a set of ten thousand individually
- * legal three-character options is legal on every string and still not a
- * choice a person makes. Sixty-four is well above every documented use of
- * either mechanism and far below the size at which the renderer's card stops
- * being a card.
- */
+/** The most options one ask may carry; string-length bounds do not limit how many a set holds. */
 export const CODEX_ASK_OPTION_SET_MAX = 64;
 
-/**
- * Length bounds for the two option strings.
- *
- * The value is bounded at the declared-token width every other provider-
- * published identifier on this leg uses; the label is given the wider
- * description width because a titled MCP option's `title` is prose written for
- * a person and a 128-character ceiling would drop legitimate ones.
- */
+/** Option string bounds; the label gets the wider width because a titled MCP `title` is prose. */
 const CODEX_ASK_OPTION_VALUE_MAX_LEN = DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN;
 const CODEX_ASK_OPTION_LABEL_MAX_LEN = DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN;
 
@@ -905,13 +522,8 @@ const codexAskOptionLabelSchema = wireFreeFormString(
 );
 
 /**
- * What one ask's payload yielded when read for a choice set.
- *
- * THREE ARMS AND NOT TWO, because "this ask offers no choices" and "this ask
- * offered choices this driver refused to carry" are different facts and only
- * the second is worth a diagnostic. Collapsing them would either make every
- * ordinary free-text ask emit a record, or make a silently dropped choice set
- * indistinguishable from an ask that never had one.
+ * What one ask's payload yielded when read for a choice set. `absent` (no choices) is distinct
+ * from `dropped` (choices this driver refused to carry), so only the latter earns a diagnostic.
  */
 export type CodexAskOptionSetReading =
   | { readonly kind: "absent" }
@@ -921,36 +533,9 @@ export type CodexAskOptionSetReading =
 const ABSENT_ASK_OPTION_SET: CodexAskOptionSetReading = Object.freeze({ kind: "absent" as const });
 
 /**
- * Read the choice set one inbound ask publishes, if it publishes one.
- *
- * PURE, and deliberately so: it emits no diagnostic and touches no manager
- * state, so the seam that calls it decides what a `dropped` reading is worth
- * and this function stays testable against a payload alone.
- *
- * EXACTLY TWO MECHANISMS ARE COVERED, and the pin is why. Of the ten
- * `ServerRequest` methods, only `item/tool/requestUserInput` and
- * `mcpServer/elicitation/request` publish a choice set at all; the approval
- * arms publish a decision vocabulary the daemon composes rather than a set the
- * provider offers, and treating those as options would put the daemon's own
- * answer shape on the user's card.
- *
- * `item/tool/requestUserInput` IS DORMANT AT THE SHIPPED POSTURE AND IS STILL
- * READ. It is EXPERIMENTAL at the pin and this driver negotiates
- * `experimentalApi: false`, so it is a member of
- * {@link CODEX_NEGOTIATION_GATED_METHODS} and is deliberately absent from
- * {@link CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS} — no ask on this method can
- * reach this reader today. The arm exists anyway on the same rule that band
- * already states: the negotiation gate decides DELIVERY and this reading
- * decides DISPOSITION, and a disposition written only when its frame becomes
- * deliverable is a disposition written under time pressure by whoever flips
- * the gate.
- *
- * ONE QUESTION, ONE SET. Both mechanisms can express SEVERAL independent
- * questions in one ask — an array of questions, or a form with several
- * properties — and `ProviderAskOption[]` is one flat list. Flattening two
- * questions' choices into one list would offer a set that answers neither, so
- * a multi-question ask reads `dropped` rather than merged. The free-text arm
- * still carries it.
+ * Reads the choice set an inbound ask publishes, if any. Pure: it emits no diagnostic, so the
+ * caller decides what a `dropped` reading is worth. `item/tool/requestUserInput` is read although
+ * gated off by `experimentalApi: false`, so its disposition is defined when the gate opens.
  */
 export function readCodexAskOptionSet(method: string, params: unknown): CodexAskOptionSetReading {
   if (method === "item/tool/requestUserInput") {
@@ -959,34 +544,15 @@ export function readCodexAskOptionSet(method: string, params: unknown): CodexAsk
   if (method === "mcpServer/elicitation/request") {
     return readCodexElicitationOptionSet(params);
   }
+  // Approval methods publish a decision vocabulary the daemon composes; it must not appear on the
+  // user's card.
   return ABSENT_ASK_OPTION_SET;
 }
 
 /**
- * The `ToolRequestUserInputParams.questions[].options` set.
- *
- * `ToolRequestUserInputOption` is `{ label, description }` at the pin and
- * carries NO value member, so `value === label` here — the label IS the answer
- * this mechanism expects back. That equality is a fact about the pinned wire
- * shape and not a shortcut: the provider offers no other identifier, so
- * synthesizing one (an index, a hash) would invent an answer token the
- * provider would not recognize. The sibling `description` is deliberately not
- * carried: `ProviderAskOption` has two members and folding a third field into
- * either would put explanatory prose where an answer or a caption goes.
- *
- * ELIGIBILITY IS THE TOTAL ASK SHAPE, NOT THE OPTION-BEARING COUNT — the same
- * rule {@link readCodexElicitationOptionSet} states for a form's properties,
- * and it holds here for the same reason. This ask's answer covers EVERY
- * question it declares, and `ProviderAskOption` carries a value and a label and
- * NO question identity, so a flat choice set can stand in for the whole answer
- * only where the ask declares exactly ONE question. An ask pairing a single
- * option-bearing question with a free-text sibling would otherwise project a
- * choice set that, whichever entry the user picked, answers only one of
- * the questions asked: the card would look complete and the provider would
- * still be waiting. Counting only the OPTION-BEARING questions is exactly what
- * made that shape look eligible, so the count that decides is the ask's own
- * question count — which subsumes the several-option-bearing-questions case
- * rather than sitting beside it.
+ * Reads `ToolRequestUserInputParams.questions[].options`. An option has no value member at the
+ * pin, so `value === label`; `description` is not carried, to keep prose out of the answer slot.
+ * Eligible only for a single-question ask, since a flat set has no question identity.
  */
 function readCodexRequestUserInputOptionSet(params: unknown): CodexAskOptionSetReading {
   if (!isPlainObject(params)) {
@@ -1005,9 +571,7 @@ function readCodexRequestUserInputOptionSet(params: unknown): CodexAskOptionSetR
   if (optionBearing.length === 0) {
     return ABSENT_ASK_OPTION_SET;
   }
-  // The ASK's question count, which is the number that explains the drop —
-  // never the option-bearing subset, which is exactly the count whose smallness
-  // made a mixed-question ask look answerable.
+  // The ask's own question count decides, not the option-bearing subset.
   if (questions.length > 1) {
     return {
       kind: "dropped",
@@ -1029,39 +593,9 @@ function readCodexRequestUserInputOptionSet(params: unknown): CodexAskOptionSetR
 }
 
 /**
- * The `McpServerElicitationRequestParams` single-select enum set.
- *
- * Only the `form` mode carries a typed schema — `openai/form` carries an
- * untyped `JsonValue` this driver will not guess at, and `url` carries no
- * schema at all — so the other two modes read absent rather than being probed.
- *
- * THREE ENUM ARMS, read in the order the pinned union declares them:
- *
- *   • untitled single-select — `{ enum: [...] }`, value and label both the
- *     entry, since the provider published no separate caption;
- *   • titled single-select — `{ oneOf: [{ const, title }] }`, the one arm
- *     where value and label genuinely differ;
- *   • legacy titled — `{ enum: [...], enumNames?: [...] }`, positionally
- *     paired, falling back to the enum entry where no name sits opposite it.
- *
- * THE MULTI-SELECT ARMS ARE NOT READ, and that is a scope decision rather than
- * an oversight: their answer is an ARRAY, so offering their items as a choice
- * set would present a pick-one card for a pick-many question. They read absent
- * and the free-text arm carries them; a card that can express multi-select is
- * the amendment that would add them.
- *
- * ELIGIBILITY IS THE TOTAL FORM SHAPE, NOT THE ENUM COUNT. A form's answer is
- * one OBJECT keyed by property name, and `ProviderAskOption` carries a value and
- * a label and NO property identity — so a flat choice set can stand in for the
- * whole answer only where the form has exactly ONE property. A form pairing a
- * single-select with any sibling property would otherwise project a choice set
- * that, whichever entry the user picked, produces an answer missing a
- * field the form requires: the card would look complete and the provider would
- * still be waiting. Counting only the ENUM-BEARING properties is what made that
- * shape look eligible, and the sibling's REQUIREDNESS is deliberately not
- * consulted either — an optional text sibling is equally unanswerable by a value
- * with no field name on it, so refining on `required` would reopen the same
- * defect for the optional case.
+ * Reads the `McpServerElicitationRequestParams` single-select enum set; only `form` mode has a
+ * typed schema, so other modes read absent. Multi-select (an array answer) is not read, and only a
+ * one-property form is eligible, since the answer is keyed by property.
  */
 function readCodexElicitationOptionSet(params: unknown): CodexAskOptionSetReading {
   if (!isPlainObject(params) || params["mode"] !== "form") {
@@ -1081,11 +615,8 @@ function readCodexElicitationOptionSet(params: unknown): CodexAskOptionSetReadin
   if (declaredSets.length === 0) {
     return ABSENT_ASK_OPTION_SET;
   }
-  // The FORM's property count, which is the number that explains the drop —
-  // never the enum-bearing subset, which is exactly the count whose smallness
-  // made a mixed-field form look answerable. It subsumes the several-enums case
-  // rather than sitting beside it: two enum-bearing properties are two
-  // properties, so no separate arm is reachable below.
+  // The form's own property count decides, not the enum-bearing subset; a sibling's `required` is
+  // not consulted, since an optional text sibling is equally unanswerable by a bare value.
   const propertyNames = Object.keys(properties);
   if (propertyNames.length > 1) {
     return {
@@ -1120,21 +651,15 @@ function readCodexElicitationEnumArm(property: unknown): readonly unknown[] | nu
   const names = property["enumNames"];
   return values.map((value, index) => {
     const declaredName = Array.isArray(names) ? names[index] : undefined;
-    // The legacy arm pairs POSITIONALLY and its names array is optional and may
-    // be short, so an entry with no name opposite it falls back to its own
-    // value rather than dropping the set — a missing caption is not a missing
-    // choice.
+    // The legacy arm pairs by position and its names array may be short; a missing caption falls
+    // back to the value.
     return { value, label: typeof declaredName === "string" ? declaredName : value };
   });
 }
 
 /**
- * Bound one candidate set, or say why it was refused.
- *
- * ALL-OR-NOTHING, and that is the point: a partially-bounded set would silently
- * remove a choice the provider offered, so the user would see a card
- * that looks complete and cannot express the answer the provider is waiting
- * for. Refusing the whole set leaves the free-text arm, which can.
+ * Bounds one candidate set, or says why it was refused. All-or-nothing: a partial set would hide a
+ * choice the provider offered, whereas the free-text arm can express any answer.
  */
 function boundCodexAskOptionSet(candidates: readonly unknown[]): CodexAskOptionSetReading {
   if (candidates.length === 0) {
@@ -1166,35 +691,17 @@ function boundCodexAskOptionSet(candidates: readonly unknown[]): CodexAskOptionS
 }
 
 /**
- * One routed ask WITH the identity the daemon needs to adjudicate and project
- * it. The transport cannot supply this — it holds no session or run state — so
- * the lifecycle manager resolves it and wraps the daemon's responder per
- * connection.
- *
- * `runId` is `null` when the ask could not be attributed to a run — real cases
- * rather than defensive ones. A provider may ask during establishment or after
- * a turn has retired; and an approval whose named turn this daemon holds no
- * live route for falls back to the sole-active-run arm, which answers `null`
- * when turns from two runs are live and nothing is left to disambiguate them
- * with. Inventing a run id in any of those would attribute the ask — and its
- * `approval.requested` or `question.asked` projection — to a run that did not
- * raise it. A callback-tool invocation never reaches the un-attributed case at all: its
- * params type always names a turn, so an unresolvable one is refused.
+ * One routed ask with the identity needed to adjudicate and project it. `runId` is `null`, never
+ * invented, when the ask cannot be attributed to a run (asked outside a run, or its turn has no
+ * live route while two runs are live). A callback-tool ask is never unattributed: it is refused.
  */
 export interface CodexSessionServerRequest extends CodexInboundServerRequest {
   readonly sessionId: SessionId;
   readonly runId: RunId | null;
   /**
-   * The normalized choice set this ask published, if it published a readable
-   * one.
-   *
-   * ADDITIVE AND OPTIONAL, and absent is the ordinary state: most asks offer
-   * no choices, and of the two mechanisms that can, one is dormant at the
-   * shipped negotiation posture. Absence therefore means "no choice set is
-   * being carried" and NEVER "the ask has no options" — an over-large or
-   * unreadable set is dropped here and recorded as a diagnostic, and the
-   * verbatim `params` beside this member still carries whatever the provider
-   * sent. See {@link readCodexAskOptionSet}.
+   * The normalized choice set this ask published, if readable; absent means none is carried. An
+   * over-large or unreadable set is dropped and recorded; `params` still holds the original. See
+   * {@link readCodexAskOptionSet}.
    */
   readonly options?: readonly ProviderAskOption[] | undefined;
 }
@@ -1223,42 +730,12 @@ function readGrantedPermissionProfile(
 }
 
 /**
- * The `turnId` a routed ask names, bounded, or `null` when it names none.
- *
- * WHICH SHAPES CARRY ONE, read from the pinned generation's own param types
- * rather than assumed uniform across the routed seven:
- *
- *   `DynamicToolCallParams`                     `turnId: string` — REQUIRED,
- *                                               non-nullable
- *   `CommandExecutionRequestApprovalParams`     `turnId: string` — required
- *   `FileChangeRequestApprovalParams`           `turnId: string` — required
- *   `PermissionsRequestApprovalParams`          `turnId: string` — required
- *   `McpServerElicitationRequestParams`         `turnId: string | null` — the
- *                                               generation's own comment records
- *                                               that an elicitation's identity
- *                                               is not turn-scoped
- *   `ExecCommandApprovalParams` /
- *   `ApplyPatchApprovalParams`                  NO `turnId` member at all — the
- *                                               legacy pair correlates by
- *                                               `conversationId` and `callId`
- *
- * So an absent turn id is a REAL shape on three of the seven, not a malformed
- * frame, and the caller's disposition has to differ by ask kind.
- *
- * BOUNDED HERE rather than at each recording site: the value is untrusted
- * provider text that flows into a refusal reason the provider reads back and
- * into a bounded diagnostic buffer, and a bound applied at the reader is one a
- * later consumer cannot forget.
- *
- * RESOLUTION AND RECORDING TAKE THE BOUND DIFFERENTLY, and the split is the
- * point. An over-long id is never RESOLVED — a truncated prefix could match a
- * shorter live turn, and mis-resolving is worse than declining to resolve — but
- * it is still RECORDED, as a marked truncation rather than as nothing. Reported
- * as `null` it would be indistinguishable from an ask that named no turn at
- * all, and those are different provider faults with different fixes.
+ * A routed ask's `turnId`. An over-long id is never resolved (a truncated prefix could match a
+ * shorter live turn) but is recorded as a marked truncation, since `null` would read as an ask
+ * that named no turn.
  */
 interface CodexRoutedAskTurnIdReading {
-  /** Usable for a route lookup: the id EXACTLY as sent, or `null`. */
+  /** Usable for a route lookup: the id exactly as sent, or `null`. */
   readonly resolvableTurnId: string | null;
   /** The same field rendered for a record: bounded, or `null` if none was sent. */
   readonly recordedTurnId: string | null;
@@ -1271,6 +748,11 @@ const NO_ROUTED_ASK_TURN_ID: CodexRoutedAskTurnIdReading = Object.freeze({
   recordedTurnIdTruncated: false,
 });
 
+/**
+ * Reads the `turnId` a routed ask names, bounded here because it is untrusted text that reaches a
+ * refusal reason and a diagnostic buffer. At the pin the legacy approvals have no `turnId` and
+ * elicitation's is nullable, so the caller's disposition varies by ask kind.
+ */
 function readRoutedAskTurnId(params: unknown): CodexRoutedAskTurnIdReading {
   if (typeof params !== "object" || params === null) {
     return NO_ROUTED_ASK_TURN_ID;
@@ -1286,9 +768,7 @@ function readRoutedAskTurnId(params: unknown): CodexRoutedAskTurnIdReading {
       recordedTurnIdTruncated: false,
     };
   }
-  // Cut on a CODE POINT boundary: a lone surrogate no longer round-trips
-  // through a JSON log sink, so a naive slice can make the record itself
-  // unreadable at exactly the moment it matters most.
+  // Cut on a code point boundary: a lone surrogate does not round-trip through a JSON log sink.
   const boundedPrefix = namedTurnId.slice(0, CODEX_ROUTED_ASK_TURN_ID_MAX_LEN);
   const lastUnit = boundedPrefix.charCodeAt(boundedPrefix.length - 1);
   const splitsSurrogatePair = lastUnit >= 0xd800 && lastUnit <= 0xdbff;
@@ -1300,12 +780,8 @@ function readRoutedAskTurnId(params: unknown): CodexRoutedAskTurnIdReading {
 }
 
 /**
- * The refusal text one unattributable routed ask is answered with.
- *
- * Composed from the BOUNDED reading rather than the raw params: this string is
- * read back by the provider and lands in an operator's log, so an unbounded
- * provider-supplied turn id would size both. The method is one of this driver's
- * own routed descriptors and is safe to name verbatim.
+ * The refusal text for one unattributable routed ask, composed from the bounded reading so a
+ * provider turn id cannot size the string the provider and the log read back.
  */
 function composeRoutedAskRefusalReason(
   method: string,
@@ -1321,13 +797,8 @@ function composeRoutedAskRefusalReason(
 }
 
 /**
- * How one routed ask was attributed to a run before the responder saw it.
- *
- * A closed union rather than a nullable run id, because the three outcomes are
- * genuinely different events: an ask resolved BY the turn it names, an ask that
- * named no usable turn and fell back to the session's sole active run, and an
- * ask that named a turn this daemon cannot resolve and is therefore refused
- * without ever reaching adjudication.
+ * How one routed ask was attributed to a run: by its named turn, by fallback to the session's sole
+ * active run when it named no usable turn, or refused when its turn cannot be resolved.
  */
 type CodexRoutedAskAttribution =
   | { readonly outcome: "attributed"; readonly runId: RunId }
@@ -1338,44 +809,15 @@ type CodexRoutedAskAttribution =
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
 
 /**
- * The `thread/realtime/*` server notifications suppressed for this connection
- * (leg 7, the pinned Codex wire census).
- *
- * Read from the generated `ServerNotification` union at the pin: `codex-cli
- * 0.150.1` publishes exactly these eleven `thread/realtime/*` names. V1 ships no
- * realtime voice surface, so every one of them would reach the normalizer's
- * default branch and land on the diagnostic channel as an unmapped wire kind —
- * a per-audio-delta record on a stream that emits deltas continuously. Opting
- * out at negotiation suppresses them at the source instead, which is the
- * provider's own mechanism for exactly this (`InitializeCapabilities
- * .optOutNotificationMethods`: "Exact notification method names that should be
- * suppressed for this connection").
- *
- * RE-DERIVED AT THE `0.150.1` PIN, AND THE THREE NEW NAMES ARE ADDITIONS, NOT
- * RENAMES. The `0.149.1` list carried eight; `thread/realtime/item/started`,
- * `thread/realtime/item/transcript/delta` and `thread/realtime/item/completed`
- * join them because a full-list-vs-full-list set difference between the two
- * default generations shows four arms ADDED and zero removed — the older
- * `itemAdded` / `transcript/delta` / `transcript/done` spellings are still
- * published at this pin and keep their entries. Dropping them as though they had
- * been renamed would un-suppress three names the provider still emits.
- *
- * SUPPRESSION IS NOT A CENSUS EXEMPTION. The list is exact-match by design and
- * this census is one release's snapshot: a `thread/realtime/*` name a later
- * build adds is deliberately NOT pre-listed here — a name beyond the pin
- * backstops through the normalizer's default branch and becomes a diagnostic,
- * which is how the growth is discovered rather than absorbed. Re-derive this
- * list when the pin moves; never widen it to quiet a diagnostic.
- *
- * The pin hop's fourth added notification, `mcpServer/event/stream/notification`,
- * is deliberately absent: it is not a realtime name, this list is the realtime
- * opt-out, and it takes the default-branch diagnostic path exactly as the
- * paragraph above describes.
+ * The `thread/realtime/*` notifications opted out at negotiation (exact names, `codex-cli
+ * 0.150.1`): V1 has no realtime surface, so each would be an unmapped-kind diagnostic per audio
+ * delta. Re-derive when the pin moves; never widen it to quiet a diagnostic.
  */
 const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] = Object.freeze([
   "thread/realtime/started",
   "thread/realtime/closed",
   "thread/realtime/error",
+  // The older `itemAdded` and `transcript/*` names still publish beside the newer `item/*` ones.
   "thread/realtime/itemAdded",
   "thread/realtime/sdp",
   "thread/realtime/outputAudio/delta",
@@ -1386,9 +828,6 @@ const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] = Object
   "thread/realtime/item/completed",
 ]);
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 /** The provider's native compaction trigger and its typed evidence frame. */
 const CODEX_THREAD_COMPACT_START_METHOD = "thread/compact/start" as const;
 
@@ -1396,62 +835,23 @@ const CODEX_THREAD_COMPACT_START_METHOD = "thread/compact/start" as const;
 const CODEX_SKILLS_LIST_METHOD = "skills/list" as const;
 
 /**
- * The item-injection method the replay leg seeds a fresh thread through.
- *
- * `ThreadInjectItemsParams = { threadId, items: Array<JsonValue> }`, documented
- * at the pin as "Raw Responses API items to append to the thread's model-visible
- * history", and non-experimental. `items` being `Array<JsonValue>` is the whole
- * reason the post-replay assertion exists: the wire type accepts anything that
- * serializes, so a frame this build does not understand is taken and dropped
- * rather than refused, and the request answers success either way.
+ * The item-injection method the replay seeds a fresh thread through (`ThreadInjectItemsParams`,
+ * non-experimental at the pin). `items` accepts any JSON, so an unrecognized frame is taken and
+ * dropped while the request still succeeds, which is why the post-replay assertion exists.
  */
 const CODEX_THREAD_INJECT_ITEMS_METHOD = "thread/inject_items" as const;
 
 /**
- * How long this driver waits for a compaction's typed evidence.
- *
- * "DECLARED" IS THE LOAD-BEARING WORD. This is not a guess at how long a
- * compaction takes and it is not derived from anything the provider says: it is
- * a bound this driver publishes and then honors, so that a caller is always
- * told something within a stated time rather than held until a wedged provider
- * happens to answer. Bounding the OPERATION never bounds the BOUNDARY'S RECORD
- * — a compaction frame that arrives after this elapses still travels its
- * ordinary route and still normalizes into its boundary row, because the
- * observation is a tap on that route and never a diversion from it.
- *
- * PER-DRIVER RATHER THAN SHARED, because the two legs are not the same wait.
- * The Codex mechanism is a native request that the provider ACCEPTS before
- * doing the work; the sibling leg is a command frame that is never answered at
- * all. A single shared constant would have to be the maximum of two unrelated
- * provider behaviors, which is the number that serves neither.
- *
- * DELIBERATELY NOT `DEFAULT_REQUEST_TIMEOUT_MS`. Two minutes rather than one is
- * a real difference — compaction of a long thread is model work and not a
- * round trip — and keeping the two values distinct also keeps them
- * distinguishable under test: a harness that fires every pending timer at once
- * would otherwise settle the request deadline and the compaction wait together,
- * and an expiry test would pass for the wrong reason.
+ * How long the driver waits for a compaction's typed evidence before telling the caller: a bound
+ * it publishes, not a provider figure. A later frame still normalizes, since the wait only taps
+ * the route. Distinct from `DEFAULT_REQUEST_TIMEOUT_MS` because compaction is model work.
  */
 export const CODEX_COMPACTION_WAIT_MS = 120_000;
 
 /**
- * Read the boundary position off the provider's compaction evidence frame.
- *
- * RETURNS `null` AT THE PIN, AND THAT IS A FINDING RATHER THAN A STUB.
- * `ContextCompactedNotification` is `{ threadId, turnId }` in the pinned
- * generated schema — it names no position, no token count, and no cursor. The
- * `DriverCompactionResult` contract types `boundaryPosition` as
- * `number | null` precisely so a frame carrying no position is REPRESENTABLE
- * without being synthesized, and `null` is that statement.
- *
- * The reader is written tolerantly rather than hard-coded to `null` so a pin
- * that starts publishing a position is picked up by a value change instead of
- * a code change, and it accepts only a non-negative integer because that is
- * what the result schema admits: a provider that published a float or a
- * negative would otherwise turn a successful compaction into a parse failure.
- * The member name is a forward guess and is deliberately the only one read —
- * probing several plausible spellings would make a future rename look like a
- * success.
+ * Reads the boundary position off the compaction evidence frame. `null` at the pin, since
+ * `ContextCompactedNotification` is `{ threadId, turnId }`; only a non-negative integer
+ * `boundaryPosition` is accepted, so a pin that starts publishing one is picked up.
  */
 function readCodexCompactionBoundaryPosition(params: unknown): number | null {
   if (!isPlainObject(params)) {
@@ -1465,68 +865,9 @@ function readCodexCompactionBoundaryPosition(params: unknown): number | null {
 }
 
 /**
- * Map the provider's `skills/list` reply onto normalized command entries.
- *
- * THE REPLY IS NESTED AND THE ENTRIES ARE FLAT. `SkillsListResponse` is
- * `{ data: SkillsListEntry[] }` where each entry is
- * `{ cwd, skills: SkillMetadata[], errors }` — one group per scanned working
- * directory. `ProviderCommandEntry` has no cwd axis and is not being given one:
- * the enumeration is a property of the BINDING, and which of the binding's
- * search roots a skill was found under is a fact about the operator's
- * filesystem layout rather than about the command. So the groups are
- * concatenated in the order the provider published them.
- *
- * THE PER-ENTRY DISPOSITIONS, each stated rather than falling out of a filter:
- *
- *   • A DISABLED entry is RETURNED. The flag governs offerability, not
- *     presence, and dropping it would leave a consumer unable to tell a
- *     disabled command from one that does not exist. `enabled` is carried
- *     VERBATIM from the provider's Boolean and is absent — never a synthesized
- *     `true` — if the provider published no Boolean at all.
- *   • AN UNDECLARED FIELD AND A REJECTED ONE ARE DIFFERENT READINGS, and
- *     collapsing them is what this reader must not do. Absence on this contract
- *     is a POSITIVE CLAIM — `description` absent means the provider published
- *     none, `scope` absent means it stated none, never that either is unknown —
- *     so silently erasing a declaration the bounds refused would publish a claim
- *     the provider never made, and a scoped skill would read as an unscoped one.
- *   • UNDECLARED, per field and per what the pin publishes. An absent key or an
- *     explicit `null` is undeclared for both. For `description` an EMPTY or
- *     WHITESPACE-ONLY string is undeclared too: `SkillMetadata.description` is a
- *     REQUIRED string at the pin, so a skill file that leaves it blank has no
- *     other way to say "none". For `scope` a blank string is NOT undeclared —
- *     the pin publishes `scope` only where one is declared, so a provider with
- *     no scope omits the member, and a present-but-blank one is malformed rather
- *     than a stated absence.
- *   • A REJECTED `description` or `scope` — over-length, NUL-bearing, wrong type,
- *     or (for `scope`) blank — becomes absent AND IS RECORDED. The entry is still
- *     returned: a command whose caption could not be carried is still a command
- *     that exists, and hiding it would be a worse loss than losing its caption.
- *     What changes is that the erasure is no longer silent.
- *   • An UNREADABLE `name` DOES drop the entry, and it is the only field that
- *     does. The name is what identifies the command; an entry without one names
- *     nothing a consumer could show, route, or reason about. The drop is
- *     recorded on the same channel.
- *
- * THE RECORDS ARE RETURNED, NOT EMITTED. This function is PURE — the doctrine
- * `readCodexAskOptionSet` states one band over: a reader that emitted would need
- * the manager's emitter and its session id, and would stop being testable against
- * a payload alone. It reports what it could not read and the seam that holds both
- * decides what that is worth.
- *
- * `providerAccountId` is passed through as the session bound it, `null`
- * included. A `null` is the stated absence of a bound account — never `""`,
- * never a placeholder, and never a wildcard: an entry read under a null account
- * authorizes dispatch onto no other binding.
- *
- * EVERY ENTRY IS DEEP-FROZEN before it leaves this function, on declared-catalog
- * doctrine. The composed list is RETAINED as driver-session state and every
- * later reply shares the same entry objects — the caller copies the ARRAY and
- * nothing more — so a consumer that rewrote an entry's `name` or its nested
- * `binding` would corrupt the routing provenance of every subsequent palette
- * read on that session. FREEZE-AND-SHARE rather than clone-per-read for the same
- * reason that doctrine gives: the hazard is a shared mutable graph, and the
- * freeze removes it at the one place the graph is built, while a clone on every
- * read would pay for it forever and still leave the retained copy exposed.
+ * Maps the provider's `skills/list` reply onto command entries, concatenating per-directory
+ * groups. Pure: rejections are returned, not emitted. `providerAccountId` is the bound account or
+ * `null`, never `""` or a wildcard; entries are deep-frozen because the list is shared state.
  */
 function readCodexProviderCommandEntries(
   response: unknown,
@@ -1561,13 +902,9 @@ function readCodexProviderCommandEntries(
 }
 
 /**
- * One field of one published entry that the contract's bounds refused.
- *
- * `dropped` says what the refusal COST: the entry itself for a name, only the
- * field for a caption or a scope. The value never rides along — it is the
- * untrusted, possibly NUL-bearing, possibly enormous string a bound just
- * rejected, and a record is not the place to re-admit it. Its LENGTH does,
- * because that is what tells an operator which bound was the one that fired.
+ * One field of one published entry that the contract's bounds refused. `dropped` says whether the
+ * whole entry (name) or only the field was lost. The refused value is never carried (untrusted,
+ * possibly enormous), only its length.
  */
 interface CodexProviderCommandRejection {
   readonly rejectedField: "name" | "description" | "scope";
@@ -1584,33 +921,15 @@ interface CodexProviderCommandReading {
   readonly rejections: readonly CodexProviderCommandRejection[];
 }
 
-/**
- * The shared empty reading, frozen once.
- *
- * A fresh `[]` per unreadable reply would be mutable, and the two absent arms
- * would then be the only paths on this leg whose result a consumer could push
- * onto — the shape a reader must not have to reason about.
- */
+/** The shared frozen empty reading, so no unreadable-reply path returns a mutable array. */
 const CODEX_EMPTY_PROVIDER_COMMAND_READING: CodexProviderCommandReading = Object.freeze({
   entries: Object.freeze([]),
   rejections: Object.freeze([]),
 });
 
 /**
- * Freeze one composed entry AND its nested binding, without widening its type.
- *
- * `Object.freeze(entry)` alone is SHALLOW: it stops `entry.binding = {…}` and
- * does nothing about `entry.binding.providerAccountId = "someone-else"`, which
- * is precisely the mutation that would repoint a retained entry's routing
- * provenance at another account. The nested object is therefore frozen first —
- * the `freezeDeclaredModelArray` doctrine in this driver's `capabilities.ts`,
- * applied to an object rather than an array.
- *
- * The declared type is returned unchanged rather than deep-`Readonly`: making
- * the contract type deep-readonly would ripple through every driver that builds
- * an entry and every consumer that composes a group, to close a hazard that
- * exists only for the RETAINED graph. The freeze is a runtime property, pinned
- * by a mutation-attempt test rather than by the type.
+ * Freezes one entry and its nested binding, keeping its declared type; a shallow freeze would let
+ * `binding.providerAccountId` be rewritten, repointing a retained entry at another account.
  */
 function deepFreezeProviderCommandEntry(entry: ProviderCommandEntry): ProviderCommandEntry {
   Object.freeze(entry.binding);
@@ -1627,11 +946,8 @@ const codexProviderCommandScopeSchema = wireFreeFormString(
 );
 
 /**
- * One optional field of a published entry, read three ways.
- *
- * The third arm is the one this shape exists for: without it a rejected value
- * and an undeclared one are the same `undefined`, and the contract reads that
- * `undefined` as a positive claim the provider never made.
+ * One optional entry field: read, undeclared, or rejected by its bound. The rejected arm keeps a
+ * refused value from reading as undeclared, a claim the provider never made.
  */
 type CodexProviderCommandFieldReading =
   | { readonly kind: "read"; readonly value: string }
@@ -1639,17 +955,12 @@ type CodexProviderCommandFieldReading =
   | { readonly kind: "rejected"; readonly valueLength: number | null };
 
 /**
- * Read one optional entry field against its bound.
- *
- * `blankIsUndeclared` is per-field rather than universal, because the two pinned
- * members differ in whether a blank string can be a statement at all — see the
- * per-field bullets on {@link readCodexProviderCommandEntries}.
+ * Reads one optional entry field against its bound; `blankIsUndeclared` is per field because only
+ * some members can express "none" as a blank string.
  */
 function readCodexProviderCommandField(
   raw: unknown,
-  // Typed from the sibling const rather than as `z.ZodString`: this module
-  // imports no zod, and naming the schema it is actually called with keeps the
-  // bound and its reader from drifting apart.
+  // Typed from the sibling const, not `z.ZodString`, because this module imports no zod.
   schema: typeof codexProviderCommandDescriptionSchema,
   blankIsUndeclared: boolean,
 ): CodexProviderCommandFieldReading {
@@ -1666,7 +977,11 @@ function readCodexProviderCommandField(
   return { kind: "rejected", valueLength: typeof raw === "string" ? raw.length : null };
 }
 
-/** One `SkillMetadata`, normalized, with every field reading it refused. */
+/**
+ * One `SkillMetadata`, normalized, with every field reading it refused. `enabled` is the
+ * provider's Boolean verbatim (absent when unpublished, never a synthesized `true`), and a
+ * disabled entry is still returned.
+ */
 function readCodexProviderCommandEntry(
   skill: unknown,
   providerAccountId: string | null,
@@ -1675,11 +990,12 @@ function readCodexProviderCommandEntry(
   readonly rejections: CodexProviderCommandRejection[];
 } {
   if (!isPlainObject(skill)) {
-    // Not an entry at all rather than an entry with an unreadable field: there
-    // is no name to attribute a record to, and reporting a length for a value
-    // that is not even an object would say nothing an operator could act on.
+    // Not an object, so there is no name to attribute a record to.
     return { entry: null, rejections: [] };
   }
+  // Absence is a positive claim, so undeclared (absent, `null`, or a blank description) and
+  // rejected stay apart: a rejected description or scope becomes absent and is recorded, and only
+  // an unreadable name drops the entry.
   const rawName = skill["name"];
   const nameLength = typeof rawName === "string" ? rawName.length : null;
   const description = readCodexProviderCommandField(
@@ -1710,235 +1026,89 @@ function readCodexProviderCommandEntry(
       rejectedValueLength: scope.valueLength,
     });
   }
-  // Composed and then parsed ONCE, rather than field-by-field asserted: the
-  // contract's own entry schema is the single bounding point, so a field this
-  // driver forgot to bound is refused by the shape rather than admitted by an
-  // omission. The two optional captions are pre-narrowed above so their
-  // absence is a decision recorded here rather than a whole-entry refusal
-  // decided by the parse.
+  // Parsed through the contract's entry schema so a field this driver forgot to bound is refused.
   const candidate = {
     name: rawName,
     kind: "skill" as const,
     ...(description.kind === "read" ? { description: description.value } : {}),
     ...(scope.kind === "read" ? { scope: scope.value } : {}),
     ...(typeof enabled === "boolean" ? { enabled } : {}),
-    // `driverName` is the module's own identity rather than a parameter: the
-    // half of the routing pair that says WHICH PROVIDER produced an entry is a
-    // fact of the code that produced it, and a caller-supplied one would let a
-    // Codex enumeration be labeled as some other provider's.
+    // Fixed here so a caller cannot label Codex entries as another provider's.
     binding: { driverName: CODEX_DRIVER_NAME, providerAccountId },
   };
   const parsed = ProviderCommandEntrySchema.safeParse(candidate);
   if (parsed.success) {
     return { entry: parsed.data, rejections };
   }
-  // Only the name can still fail here: both captions were pre-narrowed to a
-  // value the schema admits or to absence. Reported as the DROP it is, and the
-  // field-level records are discarded with the entry they described — a caption
-  // record for a row nobody will see is noise.
+  // Only the name can still fail here. The field records are discarded with the dropped entry.
   return {
     entry: null,
     rejections: [{ rejectedField: "name", dropped: true, nameLength, rejectedValueLength: null }],
   };
 }
 
-/**
- * The provider's ONLY terminal-turn notification.
- *
- * Read from the generated `ServerNotification` union — the vendor regeneration
- * records at codex-cli `0.150.1` (2026-08-28), which is now the pin itself: the
- * `turn/*` family is exactly `turn/started`, `turn/completed`,
- * `turn/diff/updated`, `turn/plan/updated`, and `turn/moderationMetadata`.
- *
- * Aliased to the normalizer's constant rather than re-spelled: this method is
- * also the router's classified `turn/*` lifecycle member and the CHILD-THREAD
- * TERMINAL, so two spellings would let the route retirement and the child
- * completion drift apart.
- */
 const CODEX_TURN_COMPLETED_NOTIFICATION = CODEX_TURN_COMPLETED_METHOD;
 
-/**
- * The `TurnStatus` values that end a turn.
- *
- * The generated enum is `completed | interrupted | failed | inProgress`.
- * `inProgress` is excluded ON PURPOSE rather than by oversight: the notification
- * carries the whole `Turn`, and treating a non-terminal status as terminal would
- * retire a route while the provider is still running the turn — a steer or
- * interrupt would then be refused as "no active turn" mid-flight. Fail closed by
- * keeping the route.
- */
+/** Terminal `TurnStatus` values; `inProgress` is excluded so a live route is never retired. */
 const CODEX_TERMINAL_TURN_STATUSES: ReadonlySet<string> = new Set([
   "completed",
   "interrupted",
   "failed",
 ]);
 
-/**
- * How many turns one session remembers evidence for while nothing is correlated
- * with them (see `startRun`).
- *
- * Small and fixed: the memory exists to survive a same-chunk response/completion
- * interleave, whose window is one microtask, plus the ordinary post-interrupt
- * duplicate. Anything that accumulates beyond a handful is a provider emitting
- * frames for turns this driver never started, which is exactly the case an
- * unbounded map must not turn into a leak.
- */
+/** Unmatched terminal evidence kept per session (see `startRun`); bounded so it cannot leak. */
 const CODEX_UNMATCHED_TURN_MEMORY = 64;
 
 /**
- * The hard ceiling the evidence memory may grow to while a claim on it is still
- * possible, past which the session fails closed.
- *
- * Eviction from that memory is not free the way an ordinary LRU's is: the entry
- * evicted may be the very terminal a suspended `turn/start` continuation is
- * about to claim, and losing a terminal turns a future trip into a silent pass —
- * a whole read chunk drains synchronously, so one large chunk can push 64
- * entries through the memory before any continuation gets to run. So while a
- * `turn/start` is in flight, entries are IMMUNE and the memory is allowed to
- * grow past its ordinary bound. This is what bounds that growth, on the same
- * prune-then-refuse-and-never-evict discipline `OutboundFrameTripwire.#admit`
- * states: at the ceiling the driver can no longer promise to rule what it holds,
- * so it says so — quarantine and teardown — rather than discarding evidence.
- *
- * Four times the ordinary bound. The window it covers is one provider round
- * trip, so reaching even the bound means a session emitting terminals for turns
- * this driver never started; the headroom is there so an unusually large drain
- * degrades nothing, not to make the refusal reachable only in theory.
+ * Ceiling for that memory while a `turn/start` is in flight and nothing may be evicted; past it
+ * the session is torn down rather than discard evidence.
  */
 const CODEX_UNMATCHED_TURN_MEMORY_CEILING = CODEX_UNMATCHED_TURN_MEMORY * 4;
 
 /**
- * The ceiling on how many interrupted runs one session holds turn correlations
- * for while their terminals are still owed (see
- * `CodexSessionRecord.interruptedRunIdByTurnId`).
- *
- * Same figure as the evidence memory above, but a REFUSAL ceiling rather than a
- * prune bound. The two memories beside this one earn their free-prune windows
- * from a claim predicate that can be zero — while no `turn/start` or
- * `turn/steer` is in flight, nothing can ask about what they hold. This memory
- * has no such window: every entry it holds is owed a terminal that may arrive
- * in the very next read chunk, so there is never a moment when pruning the
- * oldest is provably free, and an evicted entry is a terminal ruled against no
- * run — the interrupted run's subscribers hear nothing, which is the exact
- * silence the map exists to prevent. At the ceiling the driver refuses and
- * takes the loud path instead. The window an entry covers is one provider
- * round trip and Codex serializes turns per thread, so a session that reaches
- * even this figure is one whose interrupted turns are not terminating at all.
+ * Ceiling on interrupted runs whose terminals are still owed (see
+ * `CodexSessionRecord.interruptedRunIdByTurnId`); refuses instead of pruning, since an evicted
+ * entry loses its terminal.
  */
 const CODEX_INTERRUPTED_ROUTE_MEMORY = 64;
 
 /**
- * How many settled turn ids one session remembers while NO steer is in flight
- * (see `CodexSessionRecord.settledTurnIds`).
- *
- * Same figure as the two memories above, and the same shape of argument — but
- * the argument has to be made on this memory's own reader, because this one is
- * asked a question whose wrong answer is silent.
- *
- * The reader is `#canStillRuleFrameOnTurn`, and it reads ABSENCE as "a terminal
- * for that turn is still owed". That reading is only sound while nothing this
- * memory ever held has been dropped: an id evicted between its terminal and the
- * question resolves to absent, the steer's frame is moved onto a turn that will
- * never emit a second terminal, and it sits as occupancy until the scope is
- * released — a swallowed directive reported as nothing at all, which is the one
- * outcome the tripwire exists to prevent. Aging is a slower road to exactly the
- * hazard the acknowledgement guard was built to close.
- *
- * So the bound governs only the window in which nothing can ask. See
- * {@link CODEX_SETTLED_TURN_MEMORY_CEILING} and `rememberSettledTurn`.
+ * Settled turn ids remembered while no steer is in flight (see
+ * `CodexSessionRecord.settledTurnIds`); eviction is safe only then, since absence means a terminal
+ * is still owed.
  */
 const CODEX_SETTLED_TURN_MEMORY = 64;
 
-/**
- * How far the settled-turn memory may grow while a steer IS in flight.
- *
- * The claim window is one `turn/steer` round trip: the acknowledgement can name
- * any turn id at all, so while one is outstanding EVERY id in this memory is
- * potentially the one the continuation is about to ask about, and none of them
- * can be evicted. The headroom is the same multiple `CODEX_UNMATCHED_TURN_MEMORY`
- * takes, for the same reason — a large synchronous drain arriving in the steer
- * response's own read chunk degrades nothing — and the refusal beyond it is the
- * same prune-then-refuse-and-never-evict discipline rather than a choice about
- * which turn's settlement to forget.
- */
+/** Settled-turn memory ceiling while a `turn/steer` is in flight; past it the session refuses. */
 const CODEX_SETTLED_TURN_MEMORY_CEILING = CODEX_SETTLED_TURN_MEMORY * 4;
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
-/**
- * `turn/start` gets its own knob. It is believed to return as soon as the turn is
- * ACCEPTED (`TurnStatus` includes `inProgress`, and `turn/steer` requires an
- * already-active turn), so the default matches the ordinary request deadline. It
- * is separate so that if that reading is ever wrong the fix is a configuration
- * change rather than a code change.
- */
 const DEFAULT_TURN_START_TIMEOUT_MS = 60_000;
 
 /**
- * Deadline for the courtesy `thread/unsubscribe` that precedes teardown.
- *
- * Deliberately NOT the ordinary request deadline. The process is going away
- * regardless, so this call buys tidiness, not correctness -- and inheriting the
- * 60s default means a wedged provider holds `closeSession` (and any shutdown
- * drain waiting on it) for a minute to no purpose. Seconds are enough for a
- * responsive peer; an unresponsive one is exactly the peer not worth waiting on.
+ * Deadline for the courtesy `thread/unsubscribe`; short so a wedged provider cannot hold close.
  */
 const UNSUBSCRIBE_TIMEOUT_MS = 5_000;
 
-/**
- * The pinned in-band, zero-turn authentication probe surface.
- *
- * `getAuthStatus` is a member of the DEFAULT-generated `ClientRequest` union —
- * not an experimental one — so it is answerable over the same connection this
- * driver already negotiates with `experimentalApi: false`. It is preferred over
- * the `codex login status` and `codex doctor --json` CLI surfaces the same
- * decision names because those spawn a second process and parse human- or
- * report-shaped output, while this reads the provider's own typed answer on the
- * channel the driver already owns.
- */
+/** Zero-turn auth probe; answerable with `experimentalApi: false`. */
 const CODEX_AUTH_STATUS_METHOD = "getAuthStatus";
 
-/**
- * Deadline for the probe's single request.
- *
- * Deliberately far shorter than a turn's: `getAuthStatus` reads local credential
- * state and answers immediately, and the probe exists to refuse admission BEFORE
- * work queues behind it. A probe that took a full turn deadline to fail would
- * cost more than the turn it is protecting.
- */
+/** Deadline for the auth probe, which reads local credential state and gates admission. */
 const CODEX_AUTH_PROBE_TIMEOUT_MS = 10_000;
 
-/**
- * Deadline for the resume-failure auth classification.
- *
- * Deliberately tighter than the admission probe's. The two answer different
- * questions: the probe runs BEFORE work is admitted and can afford to wait,
- * while this one runs on a caller that is ALREADY FAILING and is waiting on a
- * result it will get either way. The classification only refines which operator
- * action to name, so it must never be the reason a failed resume takes ten
- * seconds to say it failed.
- */
+/** Deadline for the resume-failure auth classification; short so it never delays the failure. */
 const CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT_MS = 2_000;
 
 const DEFAULT_PTY_ROWS = 24;
 const DEFAULT_PTY_COLS = 120;
 
-/** Substituted when a provider failure carries no usable message (note). */
+/** Substituted when a provider failure carries no usable message. */
 const UNSPECIFIED_PROVIDER_FAILURE_DETAIL =
   "Codex app-server reported a failure with no diagnostic message.";
 
-// --------------------------------------------------------------------------
-// Typed errors
-// --------------------------------------------------------------------------
-
-/**
- * Transport or process-level failure. Mirrors the house convention for
- * REGISTERED codes (a stable `code` literal plus leak-safe structured
- * `fields`) used by `provider-registry.ts`; internal validation errors like
- * `ProviderOutputValidationError` carry no code — class identity
- * discriminates.
- */
+/** Transport or process-level failure: `driver.unavailable` plus leak-safe `fields`. */
 export class CodexTransportError extends Error {
   readonly code = "driver.unavailable" as const;
   readonly fields: Readonly<Record<string, string>>;
@@ -1950,19 +1120,7 @@ export class CodexTransportError extends Error {
   }
 }
 
-/**
- * A single inbound line exceeded `CODEX_MAX_LINE_LENGTH` before terminating.
- *
- * A SUBCLASS rather than a peer: the condition is a transport death, so it
- * inherits the already-registered `driver.unavailable` code and mints no new
- * error-contract row, while staying independently catchable by the diagnostics
- * and classification legs that come later.
- *
- * Framing is unrecoverable once this fires. The retained tail is a fragment of a
- * frame whose remainder is now unbounded, so it can never complete validly, and
- * every subsequent byte on the connection is offset against a boundary the
- * driver can no longer locate. The connection is torn down rather than resynced.
- */
+/** Line over `CODEX_MAX_LINE_LENGTH`: framing is lost, so the connection is torn down. */
 export class CodexLineTooLongError extends CodexTransportError {
   constructor(retainedLength: number, limit: number) {
     super(
@@ -1974,7 +1132,7 @@ export class CodexLineTooLongError extends CodexTransportError {
   }
 }
 
-/** A request outlived its deadline. Registered as `driver.timeout` (504). */
+/** A request outlived its deadline. Carries `driver.timeout`. */
 export class CodexRequestTimeoutError extends Error {
   readonly code = "driver.timeout" as const;
   readonly fields: Readonly<Record<string, string>>;
@@ -1987,28 +1145,8 @@ export class CodexRequestTimeoutError extends Error {
 }
 
 /**
- * The provider answered a request with a JSON-RPC error.
- *
- * Deliberately carries NO dotted `code`: mapping provider-reported failures onto
- * the daemon's typed vocabulary is the classification leg, and this task must
- * not mint an unregistered error-contract row. The provider's own numeric code,
- * message, and `data` member are preserved so that leg has something to
- * classify.
- *
- * `providerMessage` is retained BESIDE the composed `message` rather than left
- * to be re-extracted from it. A classifier reading `message` would be matching
- * against a sentence this module composed — method name and quoting included —
- * so what it actually tests is this class's formatting rather than the
- * provider's answer. The verbatim member is the one the wire produced.
- *
- * `providerErrorData` is carried VERBATIM and is deliberately typed `unknown`:
- * the JSON-RPC `error.data` member is where the pinned provider puts its
- * structured refusal detail (steer, revert, and thread-usage refusals all
- * answer with it), and dropping it here is irreversible — no later task can
- * recover a member the transport never kept. Parsing or narrowing it is the
- * classification leg's decision, not this one's, so nothing is read off it.
- * This restores the symmetry the notification path already has, which hands
- * `params` on whole.
+ * A provider JSON-RPC error answer; the classifier maps it to a code. `providerMessage` is the
+ * wire text; `providerErrorData` is verbatim because refusals carry structured detail.
  */
 export class CodexProviderRequestError extends Error {
   readonly providerErrorCode: number;
@@ -2031,47 +1169,15 @@ export class CodexProviderRequestError extends Error {
   }
 }
 
-/**
- * The `ThreadForkParams` member that carries the rewind boundary.
- *
- * Declared once because the classification below compares against what the
- * provider's deserializer prints, and a second spelling of this name here would
- * be a second answer to the question of which field a rewind depends on.
- */
 const CODEX_REWIND_BOUNDARY_FIELD = "lastTurnId";
 
 /**
- * The refusal spellings that INDICT A NAMED FIELD, as opposed to a method.
- *
- * the pinned Codex wire census at the `0.150.1` pin and verbatim from
- * a binary probe, that an accepted method sent without its required parameter
- * answers ``Invalid request: missing field `threadId` `` — and records that this
- * was measured on `thread/fork` ITSELF, not inferred from a sibling method. The
- * `unknown field` spelling is the same deserializer's answer when a field is
- * present but not declared on the params type, which is the shape a RENAMED
- * boundary member produces.
- *
- * `unknown variant` is deliberately NOT here, and that exclusion is the point of
- * matching a phrase AND a backticked field name rather than a phrase alone. The
- * same reference records that `unknown variant` names either the method string
- * that was sent or an enum VALUE nested inside an accepted request, and warns in
- * its own words that "a parser that only looks for the phrase reads a rejected
- * parameter as a missing method". `lastTurnId` is a string-typed field and never
- * a variant name, so a build that has no `thread/fork` at all — the condition
- * the version floor and the capability matrix govern — refuses with the method
- * named, not this field, and stays the generic provider error it is.
+ * Refusal spellings that name a field, not a method: at the pin ``missing field `threadId` `` for
+ * a missing parameter and `unknown field` for an undeclared one. `unknown variant` is excluded
+ * because it names a method.
  */
 const CODEX_FIELD_LEVEL_REFUSAL_PHRASES: readonly string[] = ["missing field", "unknown field"];
 
-/**
- * Does this provider message indict the rewind boundary member specifically?
- *
- * CONSERVATIVE BY CONSTRUCTION. Both conjuncts are load-bearing: the phrase says
- * the deserializer refused a FIELD, and the backticked name says WHICH. A
- * refusal that indicts any other field, or that names no field at all, is a
- * generic provider failure and is left as one — the classification below only
- * ever narrows a refusal that provably names this member.
- */
 function refusalIndictsRewindBoundaryField(providerMessage: string): boolean {
   return CODEX_FIELD_LEVEL_REFUSAL_PHRASES.some((phrase) =>
     providerMessage.includes(`${phrase} \`${CODEX_REWIND_BOUNDARY_FIELD}\``),
@@ -2086,33 +1192,8 @@ export interface CodexRewindBoundaryUnsupportedFields {
 }
 
 /**
- * The running build accepts `thread/fork` but refuses its boundary member.
- *
- * The DYNAMIC twin of the registry's static gate, and the condition detection
- * reasoning for this leg names outright: the Codex `rollback` flag resolves
- * `static` from the matrix because the method enumeration establishes that
- * `thread/fork` is accepted and not that `ThreadForkParams.lastTurnId` exists,
- * and `lastTurnId` is verified at the `0.150.1` pin rather than at the `0.141.0`
- * admission floor. A build in that gap passes the static gate and then refuses
- * at the parameter, so the refusal has to be classified where the invocation
- * happens.
- *
- * Rides the REGISTERED `driver.capability_unsupported` (400 closed at seven) and
- * mints no code — "registry membership is not availability" is the same rule the
- * Claude leg's `ClaudeControlRequestRefusedError` states for its own control
- * refusals, and this is that rule on the Codex rewind path.
- *
- * A LOCAL class rather than the registry's `DriverCapabilityUnsupportedError`,
- * on that same precedent: the registry class is the realization of at the
- * DECLARATION gate and carries `{ driverId, flag }` with nowhere to put the wire
- * evidence, while the evidence is the whole basis on which this refusal claims
- * to be a capability answer at all. The canonical message is deliberately reused
- * verbatim — a caller cannot tell which of the two gates refused, and should not
- * need to, because both say the same thing about the same flag.
- *
- * Leak-safe: `providerError` is normalized through
- * {@link normalizeProviderFailureDetail} rather than carried raw, so a blank,
- * NUL-bearing, or enormous provider message cannot ride out on a field.
+ * The build accepts `thread/fork` but refuses its boundary member, which the static `rollback`
+ * gate cannot see (`lastTurnId` is verified at the `0.150.1` pin, not the `0.141.0` floor).
  */
 export class CodexRewindBoundaryUnsupportedError extends Error {
   readonly code = "driver.capability_unsupported" as const;
@@ -2129,23 +1210,6 @@ export class CodexRewindBoundaryUnsupportedError extends Error {
   }
 }
 
-/**
- * Narrows a `thread/fork` failure to the capability refusal, or leaves it alone.
- *
- * TOTAL AND NON-SWALLOWING: every value it does not recognize is returned
- * unchanged for the caller to rethrow, so this can only ever re-label a failure
- * and never absorb one. The `method` conjunct is kept even though the single
- * call site already scopes the catch to `thread/fork` — the classification is
- * about a member of THAT method's params type, and a future caller that reuses
- * this helper on another request must not inherit the claim by accident.
- *
- * Not folded into a `degraded` result: `ForkConversationResult` closes at
- * `applied` and `degraded`, a new `fallbackAction` value would be a wire growth
- * this round does not carry, and the promise this delivers is a refusal AT
- * INVOCATION rather than a fallback the caller is asked to absorb. A degraded
- * answer would tell the daemon to try something else; this one tells it the
- * capability is not there.
- */
 function classifyRewindForkFailure(cause: unknown): unknown {
   if (
     cause instanceof CodexProviderRequestError &&
@@ -2158,17 +1222,8 @@ function classifyRewindForkFailure(cause: unknown): unknown {
 }
 
 /**
- * What holds a session slot.
- *
- * A slot is EMPTY (absent from every view) or held in exactly one of these
- * states, and it stays held across every async step of the transition that owns
- * it — spawn, handshake, supersede, and teardown alike. `establishing` and
- * `closing` are TRANSITION states, published synchronously by the manager's slot
- * claim; `live` is the settled state of an installed record.
- *
- * The distinction is what a refusal can SAY, not how the slot behaves: a create
- * is refused identically in all three, because in all three a second spawn would
- * orphan a process this manager still owns.
+ * A slot is `live`, `establishing` or `closing`; a create is refused in all three, since a second
+ * spawn would orphan a process.
  */
 export type CodexSessionSlotState = "live" | "establishing" | "closing";
 
@@ -2184,26 +1239,10 @@ function describeSlotRefusal(sessionId: string, holderState: CodexSessionSlotSta
 }
 
 /**
- * `createSession` was called for a session that already has a live process.
- *
- * Codeless, like the config error below: this is a caller-sequencing defect, not
- * a provider condition, and this task must not mint an error-contract row.
- *
- * Mirrors the Claude leg's `session_already_live` refusal. The alternative --
- * replacing the record -- has no legitimate caller: the superseded child would
- * keep running with nothing routing to it, and `closeSession` would then dispose
- * only the replacement, so the orphan would outlive the session that spawned it.
- * Resume is where a session legitimately re-spawns, and `resumeSession` releases
- * the superseded leg explicitly.
+ * A create for a session that already has a live process: a caller-sequencing defect, codeless.
  */
 export class CodexSessionAlreadyLiveError extends Error {
   readonly sessionId: string;
-  /**
-   * Which holder refused the create. Discriminated by CLASS-LOCAL state rather
-   * than by a second dotted code: the error-contract registry is closed, and
-   * all three arms are the same refusal — a create that would orphan a process —
-   * differing only in where that process is in its lifecycle.
-   */
   readonly holderState: CodexSessionSlotState;
 
   constructor(sessionId: string, holderState: CodexSessionSlotState) {
@@ -2214,12 +1253,7 @@ export class CodexSessionAlreadyLiveError extends Error {
   }
 }
 
-/**
- * The daemon-supplied config bag did not carry the shape this driver requires.
- *
- * Codeless for the same reason as above, and because this is a caller/wiring
- * defect rather than a provider condition.
- */
+/** The config bag lacks the shape this driver requires: a wiring defect, so codeless. */
 export class CodexDriverConfigError extends Error {
   readonly field: string;
 
@@ -2230,10 +1264,6 @@ export class CodexDriverConfigError extends Error {
   }
 }
 
-// --------------------------------------------------------------------------
-// Injected ports
-// --------------------------------------------------------------------------
-
 /** Per-session view of the two process-wide `PtyHost` sinks. */
 export interface CodexPtySessionListeners {
   onData(chunk: Uint8Array): void;
@@ -2241,12 +1271,8 @@ export interface CodexPtySessionListeners {
 }
 
 /**
- * Subscribes to ONE pty session's data/exit stream; returns an unsubscribe.
- *
- * `PtyHost.onData` / `PtyHost.onExit` are PROCESS-WIDE sinks on the host object,
- * so a driver that installed its own would evict every other consumer of the same
- * host. Demultiplexing by session id is therefore the composition root's job, and
- * this port is how the driver consumes it.
+ * Subscribes to one pty session's data/exit stream, returning an unsubscribe; the host's sinks are
+ * process-wide, so the composition root demultiplexes.
  */
 export type CodexPtySessionSubscriber = (
   ptySessionId: string,
@@ -2257,12 +1283,8 @@ export type CodexPtySessionSubscriber = (
 export type CodexScheduleTimeout = (callback: () => void, delayMs: number) => () => void;
 
 /**
- * Everything the transport observed but could not route.
- *
- * A closed union rather than a log line, so nothing is silently dropped and a
- * consumer can branch on cause. `unconsumed-server-notification` is the seam the
- * event normalizer mounts on: supply `onServerNotification` and the provider
- * event stream stops arriving here.
+ * Everything the transport could not route, as a closed union so nothing drops silently. Supplying
+ * `onServerNotification` moves provider events off `unconsumed-server-notification`.
  */
 export type CodexTransportDiagnostic =
   | { kind: "unparsable-line"; line: string }
@@ -2274,56 +1296,21 @@ export type CodexTransportDiagnostic =
   | { kind: "callback-tools-withheld"; withheldToolCount: number; reason: string }
   | { kind: "server-request-responder-failed"; method: string; detail: string }
   /**
-   * A routed ask NAMED a turn this daemon holds no live route for.
-   *
-   * EVERY RECORD ON THIS ARM IS A REFUSAL, whatever the ask kind, and the
-   * uniformity is the decision: a request that names a turn is making a claim
-   * about which run raised it, and when that claim cannot be resolved the
-   * daemon has one true answer — it does not know. The sole-active fallback
-   * would substitute a DIFFERENT run's identity and authorization context for
-   * the one the provider named, and an approval decided under that substitution
-   * is evaluated, persisted, and projected against a run that never asked for
-   * it. That is a worse outcome than a declined approval, which the user
-   * sees and can retry.
-   *
-   * THE FALLBACK IS NOT DELETED — it is scoped to the shapes it was always for.
-   * Neither `ExecCommandApprovalParams` nor `ApplyPatchApprovalParams` publishes
-   * a `turnId` member at all, and `McpServerElicitationRequestParams` publishes
-   * a nullable one whose own generated comment records that elicitation identity
-   * is not turn-scoped. Those asks name no turn, make no claim to contradict,
-   * and reach no record here: for them the heuristic IS the attribution.
-   *
-   * `disposition` is retained as the record's own statement of the outcome even
-   * though it now holds one value, so a later second disposition is an addition
-   * rather than a field that has to be reintroduced.
-   *
-   * `turnId` is bounded at the reader (`readRoutedAskTurnId`) and carries the
-   * BOUNDED PREFIX when the ask named one past that bound.
+   * A routed ask named a turn with no live route, so it is refused: the sole-active fallback would
+   * decide the approval against a run that never asked. Asks that publish no turn id still use the
+   * fallback.
    */
   | {
       kind: "routed-ask-turn-unresolved";
       method: string;
       turnId: string | null;
-      /**
-       * `true` when the provider named a turn id past the reader's bound. The
-       * pair distinguishes the two provider faults a single nullable field
-       * would collapse: an ask that named NO turn, and one that named a turn id
-       * too long to be one.
-       */
       turnIdTruncated: boolean;
       disposition: "refused";
     }
   /**
-   * The composed answer to a routed ask exceeded {@link CODEX_MAX_LINE_LENGTH}
-   * in encoded bytes.
-   *
-   * Recorded on the way to a REFUSAL, never a truncation: the provider still
-   * receives the method's own refusal shape carrying
-   * {@link CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON}. This arm can fire twice for
-   * one ask — once for the oversized answer and once more if the substituted
-   * refusal ALSO will not fit, which is only reachable when the request `id`
-   * itself is the bulk. In that second case nothing is sent, because there is
-   * nothing sendable, and the pair of records is what says so.
+   * A routed ask's answer exceeded {@link CODEX_MAX_LINE_LENGTH} encoded, so the provider gets the
+   * refusal {@link CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON}; twice if that does not fit either,
+   * then nothing is sent.
    */
   | {
       kind: "server-request-answer-oversized";
@@ -2331,144 +1318,52 @@ export type CodexTransportDiagnostic =
       encodedByteLength: number;
       limit: number;
     }
-  /**
-   * The answer to a routed ask could not be encoded or could not be written.
-   *
-   * The write rejection used to be swallowed on the theory that "the exit path
-   * reports it". It does not report THIS: the exit path records that the
-   * process died, not that a specific ask went unanswered, and the two are not
-   * the same fact — a write can reject on a closed connection while the ask's
-   * caller is still waiting on an answer that will now never come.
-   */
   | { kind: "server-request-answer-write-failed"; method: string; detail: string }
   | { kind: "notification-write-failed"; method: string }
   | { kind: "unconsumed-server-notification"; method: string }
   /**
-   * The notification CONSUMER threw, so this notification was dropped.
-   *
-   * The ruling this arm encodes: a throwing consumer is a dropped-and-reported
-   * notification, never a dead connection. The consumer is the daemon's own
-   * event normalizer, designed pure and total over its census, so a throw from
-   * it is OUR defect — and tearing the provider connection down would punish the
-   * session for a bug on this side of the boundary. The frame is already parsed
-   * and correlated by the time the consumer sees it, so the loss is bounded to
-   * exactly one notification, and this arm is what keeps that loss recorded
-   * rather than silent. Contrast the provider-side ambiguity rulings elsewhere in
-   * this file, which ARE connection-fatal: there the unknown is what the PROVIDER
-   * did, and no amount of local correctness can resolve it.
-   *
-   * `detail` is built through `normalizeProviderFailureDetail`, so a consumer
-   * that throws a hostile value cannot serialize it into a diagnostic sink.
+   * The notification consumer (the daemon's own pure normalizer) threw; the notification is
+   * dropped, not the connection. `detail` is normalized.
    */
   | { kind: "notification-consumer-failed"; method: string; detail: string }
   | { kind: "process-exited"; exitCode: number; signalCode: number | null }
-  /**
-   * A caller-supplied subscription disposer threw during teardown on a path with
-   * no caller to rethrow to (the PTY exit callback). `detail` is normalized, so
-   * a hostile or malformed thrown value cannot reach a sink through this arm.
-   */
+  /** A disposer threw during teardown with no caller to rethrow to; `detail` is normalized. */
   | { kind: "subscription-dispose-failed"; detail: string }
   /**
-   * A `thread/fork` response's turn list did not corroborate the rewind: it
-   * carried no readable turns at all, or a count that disagrees with the
-   * position the caller asked for (leg 1).
-   *
-   * Reported rather than fatal: the fork ITSELF succeeded and the rewind is
-   * real, so failing the operation would discard a completed rewind over a
-   * bookkeeping disagreement. What is lost is only the corroboration that the
-   * daemon's ordinal and the provider's history agree — which is exactly the
-   * kind of divergence an operator needs told about and a caller cannot act on.
-   *
-   * `confirmedTurnCount` carries the provider's own count beside the expected
-   * one, so the disagreement is legible from the record rather than only from
-   * the fact that a record exists. A response with no readable list reads as
-   * zero — the reader cannot tell an absent list from an empty one, and the
-   * ledger rebuild below cannot either.
+   * A `thread/fork` response's turn list did not corroborate the rewind (an absent list reads as
+   * zero). Reported, not fatal.
    */
   | {
       kind: "fork-turn-ledger-unconfirmed";
       expectedTurnCount: number;
       confirmedTurnCount: number;
     }
-  /**
-   * A posture asked for a domain ALLOW-LIST and the provider's network axis is a
-   * boolean, so the session was spawned with network DENIED (leg 5).
-   *
-   * `deniedDomainCount` records how many domains the posture named, so the
-   * narrowing is measurable rather than merely mentioned.
-   */
+  /** A domain allow-list was requested but the network axis is a boolean; spawned denied. */
   | { kind: "posture-network-allowlist-narrowed"; deniedDomainCount: number }
   /**
-   * The sandbox policy the provider reported realizing is WIDER than the one the
-   * posture demanded (leg 5).
-   *
-   * The check exists because the provider's config table accepts and silently
-   * ignores keys it does not recognize, so a posture leg that stopped applying
-   * would otherwise be indistinguishable from one that applied. Reported rather
-   * than fatal: the session is already running under the reported policy, and
-   * refusing the spawn would replace a knowable divergence with an outage.
+   * The realized sandbox policy is wider than the posture demanded (unrecognized config keys are
+   * silently ignored). Reported, not fatal.
    */
   | {
       kind: "posture-realization-diverged";
       requestedNetworkAccess: boolean;
       realizedNetworkAccess: boolean;
     }
-  /**
-   * A subagent definition was withheld from the spawn rather than admitted
-   * unenforceable (leg 4's fail-closed rule).
-   */
+  /** A subagent definition was withheld from the spawn rather than admitted unenforceable. */
   | { kind: "subagent-definition-withheld"; definitionName: string; reason: string }
-  /**
-   * A session's unmatched turn-evidence memory hit its ceiling while a
-   * `turn/start` was in flight, so the binding was refused rather than evicting
-   * evidence a suspended continuation may still be owed.
-   */
   | { kind: "turn-evidence-memory-overflowed"; retainedTurnCount: number }
-  /**
-   * A session's settled-turn memory hit its ceiling while a `turn/steer` was in
-   * flight, so the binding was refused rather than evicting a settlement the
-   * acknowledgement continuation may be about to read as liveness.
-   *
-   * A SEPARATE kind from the evidence overflow beside it rather than a shared
-   * one with a discriminator, because the two name different losses: that one is
-   * a terminal a suspended `turn/start` was owed, this one is a turn that ended
-   * and would read as still running. An operator reading either needs to know
-   * which memory could not hold, and one kind for both would answer neither.
-   */
   | { kind: "settled-turn-memory-overflowed"; retainedTurnCount: number }
-  /**
-   * A session's interrupted-route memory hit its ceiling, so the binding was
-   * refused rather than evicting a correlation whose terminal is still owed —
-   * an evicted entry is that terminal ruled against no run.
-   *
-   * A THIRD separate kind on the same ground the settled-turn kind states:
-   * this loss is a run that was interrupted and would never hear its turn end.
-   * Unlike both siblings it names no in-flight condition, because the memory it
-   * reports on has no free-prune window at all (see
-   * `CODEX_INTERRUPTED_ROUTE_MEMORY`).
-   */
   | { kind: "interrupted-route-memory-overflowed"; retainedTurnCount: number }
   /**
-   * A binding was taken away from turns that were still live, so the frames it
-   * was carrying were ruled fail-closed rather than dropped.
-   *
-   * `reportedRunCount` is lower than `ruledFrameCount` whenever several frames
-   * belonged to one run, or the run had already been failed by the very ruling
-   * that condemned the binding — a duplicate report is suppressed, the ruling
-   * itself never is.
+   * A binding was taken from turns still live, so their frames were ruled fail-closed.
+   * `reportedRunCount` is lower than `ruledFrameCount` when frames share a run; a duplicate report
+   * is suppressed, the ruling never.
    */
   | { kind: "abandoned-frames-ruled"; ruledFrameCount: number; reportedRunCount: number }
   /**
-   * A resume superseded a live binding that was still carrying unsettled frames,
-   * so those frames were failed on their runs as unproven deliveries.
-   *
-   * Distinct from `abandoned-frames-ruled` because the CAUSE is: nothing was
-   * observed swallowing the text here, the answer simply became unreachable. The
-   * runs are failed and deliberately NOT quarantined — the fresh binding is
-   * where their future work belongs.
-   *
-   * `reportedRunCount` is lower than `abandonedFrameCount` whenever several
-   * frames belonged to one run, or a frame's join key resolved to no run at all.
+   * A resume superseded a live binding with unsettled frames, so they were failed as unproven
+   * deliveries but not quarantined. `reportedRunCount` is lower than `abandonedFrameCount` when
+   * frames share a run or a join key resolved to no run.
    */
   | {
       kind: "superseded-frames-failed";
@@ -2476,26 +1371,12 @@ export type CodexTransportDiagnostic =
       reportedRunCount: number;
     };
 
-/** Required — a no-op default would reintroduce silent drops. */
+/** Required: a no-op default would reintroduce silent drops. */
 export type CodexDiagnosticSink = (diagnostic: CodexTransportDiagnostic) => void;
 
 /**
- * Reports a diagnostic from a frame that has NO CALLER, containing a sink that
- * throws.
- *
- * The discriminator is the frame, not the method it happens to live in: does
- * this call stack terminate in caller code that can act on a failure, or does it
- * terminate in a `PtyHost` event callback (or a detached `.catch`) where an
- * exception has nowhere to go? Every diagnostic reachable from `onData` or
- * `onExit` is in the second category, and there the cost of a throwing sink is
- * not the lost diagnostic — it is that the exception unwinds the READ-CHUNK
- * DRAIN. Frames already parsed out of that chunk are dropped, every request
- * whose response was behind the throw hangs to its own deadline, and the fault
- * escapes into the host's emit loop where no code of ours is running.
- *
- * Deliberately NOT used on request/response paths that DO have a caller: there a
- * sink fault reaches someone who can act on it, and swallowing it would hide a
- * broken sink behind requests that appear to work.
+ * Reports a diagnostic from a frame with no caller to act on failure, so a throwing sink cannot
+ * unwind the read-chunk drain and hang the requests behind it.
  */
 function reportDiagnosticFromDetachedFrame(
   sink: CodexDiagnosticSink,
@@ -2504,117 +1385,42 @@ function reportDiagnosticFromDetachedFrame(
   try {
     sink(diagnostic);
   } catch {
-    // Nothing to report it to — the sink IS the reporting channel, and the work
-    // this frame was in the middle of matters more than the record of it.
+    // The sink is the reporting channel itself; the frame's remaining work matters more.
   }
 }
 
 /** Server-initiated notification sink (the provider event stream). */
 export type CodexServerNotificationSink = (method: string, params: unknown) => void;
 
-// --------------------------------------------------------------------------
-// Driver-declared config read-shapes
-// --------------------------------------------------------------------------
-
 /**
- * What this driver requires inside `CreateSessionParams.config`.
- *
- * The contract types that bag as `Record<string, unknown>` and no corpus document
- * fixes its members, so the driver declares the shape it needs and parses it
- * fail-closed rather than guessing at call time. `env` is the COMPLETE child
- * environment: this module never reads `process.env`, so a variable absent here
- * is absent from the child.
+ * What this driver requires inside the untyped `CreateSessionParams.config`; `env` is the complete
+ * child environment (this module never reads `process.env`).
  */
 export interface CodexSessionConfig {
   cwd: string;
   env: ReadonlyArray<readonly [string, string]>;
   /**
-   * The provider account this leg's credential home is pinned to, when the
-   * daemon bound one.
-   *
-   * OPTIONAL BECAUSE THE ACCOUNT PLANE IS NOT SHIPPED. A session with no bound
-   * account is the ORDINARY case rather than an edge one, so an absent member is
-   * a fact this driver reports honestly rather than a gap it fills.
-   *
-   * TWO CHANNELS CAN NAME THIS ACCOUNT, AND THE TYPED ONE WINS.
-   * {@link resolveBoundProviderAccountId} is the ONE rule both spawn composers
-   * apply to reconcile that member with what this untyped bag declares:
-   *
-   *   * This bag member is the legacy channel, consulted only where the typed
-   *     one is absent. A caller following the typed contract must never
-   *     silently spawn against whatever the node resolves as that provider's
-   *     default — that is the silent re-bill exists to prevent.
-   *   * RESUME. `ResumeSessionParams.providerAccountId` — composed by the daemon
-   *     from the durable record, never re-resolved — is AUTHORITATIVE over the
-   *     live record as to which CLAIM wins, and the record answers where the
-   *     request states none. It is authoritative over NOTHING as to what is
-   *     bound: a resume relaunches under a credential environment it is HANDED,
-   *     the live record's when one survives and the manager-wide
-   *     `resumeSpawnConfig`'s when none does, and the account that environment
-   *     was CONSTRUCTED for is the account reported.
-   *   * DISAGREEMENT REFUSES. Where the typed member and this session's own
-   *     recorded value BOTH name an account and the two differ, the spawn is
-   *     refused rather than resolved. Two resolvers disagreeing about a billing
-   *     identity is a wiring fault, and letting either win silently would bill a
-   *     run to an account it may never have been admitted against.
-   *
-   * ACCOUNT IDENTITY AND CREDENTIAL ENVIRONMENT MUST NEVER DIVERGE. Stated
-   * without reference to an arm, because it holds on every resume path: a typed
-   * member naming an account the handed environment was not built for is
-   * REFUSED, whether that environment came from the live record or from the
-   * node-wide default, and whether the environment's own account is a different
-   * one or none at all — an ambient environment is nobody's in particular, so
-   * absence is a mismatch and not a wildcard. A mis-bill this driver ANNOUNCES
-   * is recoverable; one it reports correctly while the child authenticates as
-   * somebody else is not, because nothing upstream has any signal left to
-   * reconcile against.
-   *
-   * ABSENCE IS STATED, NEVER SYNTHESIZED. It reaches an enumerated command
-   * entry as a literal `null` — never `""`, never a placeholder, and never the
-   * driver name — because two accountless bindings on different providers would
-   * compare EQUAL on a synthesized value, which is the exact half of the
-   * routing pair that is supposed to separate them. A `null` account matches
-   * nothing rather than everything.
+   * The provider account this leg's credential home is pinned to; the typed request member wins
+   * over this one ({@link resolveBoundProviderAccountId}). Identity and credential environment
+   * must never diverge; absence reaches command entries as `null`, which matches nothing.
    */
   providerAccountId?: string | undefined;
   /**
-   * The effective credential policy AS RESOLVED by the daemon, whose denied
-   * names are stripped from the child environment this connection spawns with.
-   *
-   * The RESOLUTION, never the `credentialPolicyRef` the posture carries: this
-   * driver reads no credential axis and expands no reference, which is exactly
-   * why `#composeThreadEstablishmentLegs` forwards none. Absent under a
-   * `trusted` posture, which denies nothing.
-   *
-   * SCOPED TO THE SPAWN IT ACCOMPANIES, and POSTURE-DERIVED on BOTH spawn
-   * paths. A create and a resume alike re-derive it from the posture the request
-   * states, through {@link CodexLifecycleOptions.resolveCredentialEnvPolicy} and
-   * the single {@link CodexLifecycleManager} helper both call, rather than
-   * carrying a declared or recorded one forward. Only a request that states no
-   * posture at all falls back to what its own context declared. What a session
-   * was launched under is not a statement about what a later relaunch is
-   * authorized for.
+   * The effective credential policy resolved by the daemon, whose denied names are stripped from
+   * the child environment; absent under `trusted`. Re-derived from the posture on every create and
+   * resume, never inherited from the original launch.
    */
   credentialEnvPolicy?: CredentialEnvPolicy | undefined;
 }
 
 /**
- *
- * A CONSTANT rather than an input. The text this driver opens a run with is
- * the user's own message, composed by the daemon's run pipeline, so the
- * origin is a fact of the code path and not a claim a caller gets to make.
+ * The origin declared for a run's opening frame: a fact of the code path, not a caller's claim.
  */
 const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
 
 /**
- * The posture-affecting `turn/start` fields the DAEMON derives, and which a
- * caller's run bag therefore may not carry.
- *
- * The class, not a sample of it. `StartRunParams.agentConfig` is an untyped bag
- * the daemon's run pipeline fills, so nothing but this refusal stands between a
- * caller-declared value and the wire — and a posture-affecting field that
- * reached the wire from a caller would run the turn under a policy the daemon
- * never authorized and never recorded.
+ * Posture-affecting `turn/start` fields the daemon derives; `StartRunParams.agentConfig` is
+ * untyped, so this refusal keeps a caller-declared policy off the wire.
  */
 export const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
   "cwd",
@@ -2626,25 +1432,10 @@ export const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
 ];
 
 /**
- * The posture members V1 does NOT realize, asserted absent from every
- * constructed `turn/start`.
- *
- * `sandboxPolicy` and `permissions` are documented un-combinable, and the pair
- * cannot be adjudicated by asking the provider: a DEFAULT connection refuses
- * `permissions` outright as `-32600`, while an `experimentalApi` connection
- * accepts BOTH together with no refusal and no documented precedence. So the
- * exclusion has to hold on this side of the wire. V1 realizes the
- * non-experimental `sandboxPolicy`; `permissions` is the un-realized member and
- * is refused rather than passed through. `permissionProfile` is not a member of
- * the pair at all — it refuses `-32602` at the pin — and is listed for the same
- * reason it appears in the caller-refusal table above: a field that is never
- * constructed is cheaper to keep never-constructed than to diagnose from a
- * provider-side error code.
- *
- * NOT a cardinality check. "Exactly one" is the rule for a turn that HAS a
- * posture, and a turn with none legitimately carries neither member — the spawn
- * posture governs it, and inventing a turn-level one here would narrow a session
- * the daemon deliberately left ungoverned at the turn boundary.
+ * Posture members V1 does not realize, asserted absent from every `turn/start`. The provider does
+ * not adjudicate `sandboxPolicy` with `permissions` (a default connection refuses `permissions`
+ * with `-32600`, an `experimentalApi` one accepts both), so V1 realizes `sandboxPolicy`;
+ * `permissionProfile` refuses `-32602` at the pin.
  */
 export const UNREALIZED_TURN_POSTURE_MEMBERS: readonly string[] = [
   "permissions",
@@ -2652,14 +1443,8 @@ export const UNREALIZED_TURN_POSTURE_MEMBERS: readonly string[] = [
 ];
 
 /**
- * Fail-closed assertion over the params of a constructed `turn/start`.
- *
- * Applied to the object that is HANDED TO the request, after every spread that
- * contributes to it, because a check against the inputs would pass for a
- * composer that added a member downstream of it. `#requestTurnStart` is this
- * driver's only `turn/start` construction site — `turn/steer` requires an
- * already-active turn and creates none — which is what makes one assertion here
- * total rather than representative.
+ * Throws `CodexDriverConfigError` if a constructed `turn/start` carries an unrealized posture
+ * member; `#requestTurnStart` is the only construction site.
  */
 export function assertRealizedTurnPostureMembers(params: Record<string, unknown>): void {
   for (const member of UNREALIZED_TURN_POSTURE_MEMBERS) {
@@ -2673,11 +1458,7 @@ export function assertRealizedTurnPostureMembers(params: Record<string, unknown>
 }
 
 /**
- * What this driver requires inside `StartRunParams.agentConfig`.
- *
- * `StartRunParams` carries no session key and no turn text, so both travel here.
- * `conversationHistory` is NOT read as the turn input — it is prior-transcript
- * material for replay leg, not the new message.
+ * Required contents of `StartRunParams.agentConfig`, which carries the session id and turn text.
  */
 export interface CodexRunConfig {
   sessionId: SessionId;
@@ -2686,30 +1467,9 @@ export interface CodexRunConfig {
   clientUserMessageId?: string | undefined;
 }
 
-// --------------------------------------------------------------------------
-// Execution posture + subagent policy -> Codex config (legs 4 + 5)
-// --------------------------------------------------------------------------
-//
-// Every provider key named below is verified against the pinned build's OWN
-// definitions rather than transcribed from prose: the wire types come from the
-// generated `v2/` schema (`ThreadStartParams.sandbox` / `.approvalPolicy` /
-// `.config`, `TurnStartParams.sandboxPolicy`, `SandboxMode`, `SandboxPolicy`,
-// `AskForApproval`) and the config-table keys from the binary's own serde field
-// names (`agents.max_concurrent_threads_per_session`, `agents.max_depth`).
-// See the pinned Codex wire census for the pin this reference tracks.
+// Provider keys below come from the pinned build's `v2/` schema and serde field names.
 
-/**
- * The approval supervision every non-`trusted` posture runs under.
- *
- * RATIFIED MAPPING (user decision, 2026-08-25): a `supervised` posture maps to
- * `on-request` UNCONDITIONALLY — there is no conditional arm, and no posture
- * axis, profile, or provider capability may soften it. Recorded here rather than
- * only in the plan because this constant is the enforcement, and a reader
- * changing it must see that they are reversing a ratified decision.
- *
- * `"never"` is used for `trusted` alone, which is what `trusted` means: the
- * posture that records no enforced constraint.
- */
+/** Approval supervision for every non-`trusted` posture; `never` is for `trusted` alone. */
 const CODEX_SUPERVISED_APPROVAL_POLICY = "on-request" as const;
 const CODEX_TRUSTED_APPROVAL_POLICY = "never" as const;
 
@@ -2722,38 +1482,21 @@ const CODEX_SANDBOX_MODE_BY_POSTURE_MODE: Readonly<Record<ExecutionPosture["mode
   });
 
 /**
- * The provider's own network axis is a BOOLEAN on both sandboxed policy arms, so
- * a domain ALLOW-LIST has no native encoding at this pin.
- *
- * Resolved DOWNWARD, never upward: an allow-list becomes `false` (no network),
- * which is a strict subset of what the posture permits. Mapping it to `true`
- * would be the only alternative, and it would hand a run unrestricted network on
- * the strength of a posture that named three domains. The narrowing is reported
- * as a diagnostic so it is never silent.
+ * Whether the posture allows network access. A domain allow-list resolves down to `false` (the
+ * provider's axis is a boolean) and is reported as a diagnostic.
  */
 function codexNetworkAccessEnabled(posture: ExecutionPosture): boolean {
   return posture.networkAccess === "full";
 }
 
 /**
- * The config key carrying the network axis at THREAD scope.
- *
- * `ThreadStartParams.sandbox` is a `SandboxMode` STRING at this pin — a mode
- * selector with no axes — while `TurnStartParams.sandboxPolicy` is the richer
- * `SandboxPolicy` that does carry `networkAccess`. So a thread's own network
- * axis is reachable only through the config table, and only on the
- * `workspace-write` arm: verified against the pinned build, this key moves
- * `ThreadStartResponse.sandbox.networkAccess` on `workspace-write` and moves
- * nothing at all on `read-only`, whose realized policy stays network-denied.
- *
- * Snake_case is load-bearing. The config layer SILENTLY IGNORES a key it does
- * not recognize (a camelCase spelling of this same key leaves the readback
- * unmoved and raises no error at the pin), which is why every spawn asserts the
- * realized posture against the requested one rather than trusting the write.
+ * Config key for the thread-scope network axis (`ThreadStartParams.sandbox` has none); at the pin
+ * it moves the realized policy on `workspace-write` only. Snake_case is load-bearing: the config
+ * layer silently ignores an unrecognized key.
  */
 const CODEX_WORKSPACE_NETWORK_ACCESS_CONFIG_KEY = "sandbox_workspace_write.network_access";
 
-/** Thread-level posture legs — `sandbox` + `approvalPolicy` on `thread/start`. */
+/** Thread-level posture: `sandbox` and `approvalPolicy` on `thread/start`. */
 interface CodexThreadPostureParams {
   readonly sandbox: string;
   readonly approvalPolicy: string;
@@ -2768,15 +1511,6 @@ function composeCodexThreadPosture(posture: ExecutionPosture): CodexThreadPostur
   };
 }
 
-/**
- * The config-table half of the thread-level posture: the network axis the
- * `SandboxMode` selector cannot express.
- *
- * Empty on the two arms where the key has no effect — `trusted` (whose policy
- * has no network axis) and `readonly-sandboxed` (where the workspace key is
- * inert). On those arms the turn-level `sandboxPolicy` is the only expression
- * of the axis, and every run supplies it.
- */
 function composeCodexThreadPostureConfig(posture: ExecutionPosture): Record<string, unknown> {
   if (posture.mode !== "workspace-sandboxed") {
     return {};
@@ -2785,30 +1519,14 @@ function composeCodexThreadPostureConfig(posture: ExecutionPosture): Record<stri
 }
 
 /**
- * The sandbox policy the provider says it realized, compared against the one the
- * posture demanded.
- *
- * Exists because the config table fails OPEN: an unrecognized key is accepted
- * and ignored, so a posture leg that stopped applying — a renamed key, a
- * changed default, a build that dropped the axis — would look exactly like one
- * that applied. The response carries the provider's own account of the realized
- * policy, so the divergence is checkable rather than assumed, and this is the
- * only place that check can be made.
- *
- * Returns the divergence, or `null` when the realization matches. Never throws
- * and never fails the spawn: the session IS running under the policy the
- * provider reports, and the daemon needs that reported, not withheld.
+ * Compares the sandbox policy the provider says it realized with the posture's; returns the
+ * divergence or `null`. Never throws and never fails the spawn.
  */
 export function describeCodexPostureDivergence(
   posture: ExecutionPosture,
   realizedSandbox: unknown,
 ): { readonly requestedNetworkAccess: boolean; readonly realizedNetworkAccess: boolean } | null {
-  // Scoped to the ONE arm whose request is expressible at thread scope. The
-  // `trusted` arm has no network axis to diverge on, and `read-only` cannot
-  // carry one here at all — verified: the workspace config key moves nothing
-  // there — so its realization is always network-denied and reporting that
-  // would be reporting the design. On that arm the turn-level `sandboxPolicy`
-  // is the axis's only expression, and every run supplies it.
+  // Only `workspace-sandboxed` can express its request at thread scope.
   if (posture.mode !== "workspace-sandboxed" || !isPlainObject(realizedSandbox)) {
     return null;
   }
@@ -2817,11 +1535,8 @@ export function describeCodexPostureDivergence(
     return null;
   }
   const requestedNetworkAccess = codexNetworkAccessEnabled(posture);
-  // BOTH directions, on the one arm where the request is expressible. Wider than
-  // requested is the obvious hazard; NARROWER is the one this check was built
-  // for, because an unrecognized config key is accepted and ignored at this pin
-  // — leaving the axis at its `false` default — so a leg that silently stopped
-  // applying looks exactly like a leg that applied a denial.
+  // Both directions: an ignored unrecognized key leaves network `false`, so a narrower result
+  // means the request silently stopped applying.
   if (realizedNetworkAccess !== requestedNetworkAccess) {
     return { requestedNetworkAccess, realizedNetworkAccess };
   }
@@ -2829,18 +1544,8 @@ export function describeCodexPostureDivergence(
 }
 
 /**
- * Per-turn posture — `TurnStartParams.sandboxPolicy`, the richer shape that
- * carries the writable roots the thread-level `SandboxMode` cannot.
- *
- * Sent on EVERY turn rather than once at thread start, because the provider
- * documents the thread-level `sandbox` as a mode selector while the turn-level
- * policy carries the roots: a session that set only the mode would run
- * `workspace-write` against whatever roots the provider defaulted to, which is
- * exactly the silent partial application the posture exists to prevent.
- *
- * `excludeTmpdirEnvVar` and `excludeSlashTmp` are both pinned `true`: a writable
- * temp directory the posture never listed is still a writable root, and the
- * daemon's `writableRoots` is the complete list by construction.
+ * Per-turn `sandboxPolicy`, sent every turn because it carries the writable roots the thread-level
+ * mode cannot; the two exclude flags are pinned `true` so `writableRoots` is the complete list.
  */
 function composeCodexTurnSandboxPolicy(posture: ExecutionPosture): Record<string, unknown> {
   const networkAccess = codexNetworkAccessEnabled(posture);
@@ -2861,35 +1566,16 @@ function composeCodexTurnSandboxPolicy(posture: ExecutionPosture): Record<string
 }
 
 /**
- * The provider's own floor on its concurrency cap, and the reason "off" is not
- * spelled with a zero there.
- *
- * VERIFIED against the pinned build rather than assumed: `thread/start` with
- * `agents.max_concurrent_threads_per_session: 0` is REFUSED outright —
- * `-32600 "failed to load configuration: agents.max_concurrent_threads_per_session
- * must be at least 1"` — so a zero cap would not disable subagents, it would
- * fail every session establishment that tried to disable them.
- *
- * `agents.max_depth: 0` IS accepted, and depth is the axis that actually
- * forbids a spawn: a child thread announces itself at depth 1, so a ceiling of
- * 0 admits none. The disabled arm therefore carries the disable on the depth
- * axis and sends the concurrency floor beside it.
+ * The provider's floor on its concurrency cap: `agents.max_concurrent_threads_per_session: 0` is
+ * refused at the pin, so zero cannot disable subagents; `agents.max_depth: 0` is accepted and
+ * forbids any spawn (a child announces itself at depth 1), so the disable rides on depth.
  */
 const CODEX_SUBAGENT_CONCURRENCY_FLOOR = 1;
 
 /** The depth ceiling that admits no child thread at all. */
 const CODEX_SUBAGENT_DEPTH_NONE = 0;
 
-/**
- * Normalizes a caller-supplied cap into the `i32` the provider's config layer
- * parses.
- *
- * A non-integer or non-finite value is refused BY THE PROVIDER with a type
- * error that fails the whole spawn (`invalid type: string ..., expected i32`
- * at the pin), so it is floored here into the nearest value that still means
- * what the caller asked for. Negative and fractional inputs resolve DOWNWARD,
- * which is the direction a ceiling may safely move.
- */
+/** Normalizes a cap into the provider's `i32`; fractions round down, never below `floor`. */
 function normalizeCodexSubagentCap(value: number, floor: number): number {
   if (!Number.isFinite(value)) {
     return floor;
@@ -2898,20 +1584,9 @@ function normalizeCodexSubagentCap(value: number, floor: number): number {
 }
 
 /**
- * The `[agents]` config overrides one subagent policy realizes (leg 4).
- *
- * `maxConcurrent` enforcement is NATIVE here — the provider owns the cap — which
- * is the half of this leg that needs no daemon interception at all.
- *
- * A DISABLED policy is realized as an explicit zero DEPTH ceiling rather than as
- * silence. Silence would leave the provider's own defaults in force, so
- * "subagents off" would become "subagents on with whatever the installation
- * configured" — the one outcome a fail-closed leg must not produce.
- *
- * An ENABLED policy whose own concurrency cap is below the provider's floor is
- * routed to the same disabled encoding rather than clamped UP to the floor:
- * clamping up would answer a caller who asked for no concurrent subagents by
- * granting one, which is the only direction this leg may never resolve.
+ * The `[agents]` config overrides realizing one subagent policy. A disabled policy, or one below
+ * the provider's floor, is sent as a zero depth ceiling: omitting it keeps the installation's
+ * defaults and clamping up would grant a subagent.
  */
 function composeCodexSubagentConfigOverrides(policy: SubagentPolicy): Record<string, unknown> {
   if (!policy.enabled || policy.maxConcurrent < CODEX_SUBAGENT_CONCURRENCY_FLOOR) {
@@ -2930,33 +1605,14 @@ function composeCodexSubagentConfigOverrides(policy: SubagentPolicy): Record<str
 }
 
 /**
- * Why every `SubagentDefinition` is withheld from the Codex config at this pin.
- *
- * The provider's per-role config entry carries exactly `description`,
- * `config_file`, and `nickname_candidates` (its own serde field names at the
- * pinned build). It expresses no model, tools, permission-mode, effort, or
- * max-turns axis inline — those live in the FILE a role points at. Realizing a
- * definition would therefore require this driver to author a config file on
- * disk, a filesystem side effect this band does not own, and registering the
- * role WITHOUT those axes would run a subagent under a configuration nobody
- * chose while the daemon believed the definition had been applied.
- *
- * So definitions are disabled at spawn — the leg-4 fail-closed rule — and the
- * two numeric caps, which the provider DOES enforce natively, are still sent.
- * The single-supervisor invariant is never traded for coverage.
+ * Why every `SubagentDefinition` is withheld: the provider's per-role config entry carries only
+ * `description`, `config_file` and `nickname_candidates` (serde names at the pin); the rest lives
+ * in a file this driver would have to write.
  */
 const CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON: string =
   "the provider's per-role config entry carries no inline model, tools, permission-mode, effort, or max-turns axis at the pinned build, so the definition cannot be realized without authoring a config file this driver does not own";
 
-/**
- * The one place this module decides what "an object" means on a parse path.
- *
- * A value that passes indexes directly, so no use site re-states with a cast
- * what the guard has already proved (the `runtime-binding-store.ts` idiom).
- * Arrays are excluded: `typeof [] === "object"`, and every caller here means a
- * keyed record, so admitting an array would let `[]["thread"]` read `undefined`
- * and turn a malformed frame into a merely-absent field.
- */
+/** The one meaning of "an object" on a parse path; arrays are excluded. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -3017,11 +1673,7 @@ export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
     }
     return [entry[0], entry[1]] as const;
   });
-  // Read through `readOptionalString`, so a present-but-empty account id
-  // REFUSES rather than silently becoming an absent one: an empty string here
-  // is a daemon that meant to bind an account and bound nothing, which is a
-  // different fact from a session that never had one, and only the second may
-  // enumerate under a `null` account.
+  // A present-but-empty account id refuses rather than reading as absent.
   const providerAccountId = readOptionalString(
     source,
     "providerAccountId",
@@ -3036,53 +1688,10 @@ export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
 }
 
 /**
- * The two channels that can name a spawn's provider account, reconciled.
- *
- * ONE RULE, TWO CALLERS, on exactly the ground the credential-policy resolver
- * (`#resolveCredentialEnvPolicyForPosture`) states: a create composer and a
- * resume composer that each decided this locally would be locally consistent and
- * mutually contradictory, and the contradiction would be invisible because
- * neither path can see the other. A future third spawn path inherits the rule by
- * calling this, or it is a third answer to a settled question.
- *
- * `requested` IS AUTHORITATIVE, because it is the typed member the daemon
- * resolved and durably recorded — the account the run was ADMITTED against. The
- * `recorded` value is the other channel's claim about the SAME session: the
- * untyped config bag on a create, the live session record's own spawn config on
- * a resume. It answers only where the typed member is absent.
- *
- * A DISAGREEMENT REFUSES rather than resolving. When both channels name an
- * account and the two differ, two resolvers disagree about which account this
- * spawn bills, and neither may silently win: picking the typed one would
- * override a record of what the process is actually running under, and picking
- * the recorded one would re-introduce the very silent re-bill closed. A refusal
- * is the only answer that cannot move a run's spend without saying so. The
- * manager-wide `resumeSpawnConfig` is deliberately never passed here — it is a
- * NODE-LEVEL DEFAULT that makes no claim about any particular session, so it is
- * not a claim this rule can weigh at all.
- *
- * THIS HELPER ANSWERS WHICH CLAIM WINS, AND ONLY THAT. Whether the winning claim
- * is one the available credential environment can actually honor is a separate
- * question with a separate answer, and the resume composer's environment-binding
- * gate is where it is asked — on BOTH its arms, since a typed member may name an
- * account the node-wide default's environment was not built for just as easily as
- * one the live record's was not. Fusing the two would make this helper's
- * precedence rule depend on which spawn path called it, which is exactly the
- * per-path divergence it exists to prevent.
- *
- * A PRESENT-BUT-EMPTY `requested` REFUSES, for the reason
- * {@link parseCodexSessionConfig} refuses an empty bag member: an empty string
- * is a daemon that meant to bind an account and bound nothing, which is a
- * different fact from a session that never had one, and only the second may
- * enumerate under a `null` account. Enforced here as well as there because this
- * member reaches the composer without passing that parse.
- *
- * MODULE-PRIVATE, like `parseCredentialEnvPolicy` beside it and unlike
- * `parseCodexSessionConfig`: it is reached only through the two spawn composers,
- * and exporting it would put a rule the driver applies internally onto the
- * driver's public surface, where a caller could apply a different one first.
- * Its behavior is asserted through `createSession` / `resumeSession`, which is
- * where the fail-open it closes actually lived.
+ * Picks which claim names a spawn's provider account, for both spawn composers: the typed
+ * `requested` member wins, `recorded` answers only when it is absent (never the manager-wide
+ * `resumeSpawnConfig`), and two differing accounts throw because either choice would move the
+ * run's spend silently. An empty `requested` throws too, since it skips the config parse.
  */
 function resolveBoundProviderAccountId(claims: {
   readonly requested: string | undefined;
@@ -3112,19 +1721,10 @@ function resolveBoundProviderAccountId(claims: {
 const ENV_NAME_MATCH_MODES: readonly SpawnEnvNameMatch[] = ["case-sensitive", "case-insensitive"];
 
 /**
- * Fail-closed parse of the daemon's resolved credential policy.
- *
- * ABSENT and MALFORMED are deliberately different answers. Absent is a
- * legitimate state — a `trusted` posture resolves to no policy — so it yields no
- * member rather than an empty one. Malformed REFUSES: a policy that arrived as
- * an unreadable shape has denied names in it that this parse could not read, and
- * defaulting to "deny nothing" would spawn the child with exactly the variables
- * the policy exists to withhold.
- *
- * `envNameMatch` is required whenever a policy is present, and is not defaulted
- * for the same reason. The mode is a property of the HOST the daemon canonicalized
- * the names against; guessing it here would silently decide whether `path` slips
- * past a list that names `PATH`.
+ * Fail-closed parse of the daemon's resolved credential policy. Absent is legitimate (a `trusted`
+ * posture); a malformed one throws, since defaulting to "deny nothing" would spawn with the
+ * variables the policy withholds. `envNameMatch` is required: guessing it could let `path` slip
+ * past a list naming `PATH`.
  */
 function parseCredentialEnvPolicy(
   value: unknown,
@@ -3147,8 +1747,7 @@ function parseCredentialEnvPolicy(
     }
     return entry;
   });
-  // `find`, not `some`: the match narrows the value to the union without a cast,
-  // so the parse cannot claim a mode the check did not actually admit.
+  // `find`, not `some`: the match narrows the value to the union without a cast.
   const envNameMatch = ENV_NAME_MATCH_MODES.find((mode) => mode === source["envNameMatch"]);
   if (envNameMatch === undefined) {
     throw new CodexDriverConfigError(
@@ -3162,11 +1761,7 @@ function parseCredentialEnvPolicy(
 /** Fail-closed parse of `StartRunParams.agentConfig`. */
 export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
   const source = readRecord(agentConfig, "StartRunParams.agentConfig");
-  // Earned, not asserted. `SessionId` is a branded UUID, and a cast here would
-  // have let any non-empty string wear the brand into the session map, where the
-  // mismatch surfaces as a puzzling "no live session" instead of a parse
-  // refusal. The Zod failure is re-thrown as this module's typed config error so
-  // the caller still sees one failure class from this function.
+  // Parsed, not cast, so a malformed id fails here as a config error.
   const rawSessionId = readRequiredString(
     source,
     "sessionId",
@@ -3188,19 +1783,8 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     "clientUserMessageId",
     "StartRunParams.agentConfig.clientUserMessageId",
   );
-  // Read only to REFUSE, never to carry: the run-opening boundary mints its own
-  // frame origin (see `#composeRunOpeningFrame`), so this bag cannot name one.
-  // Accepting a declared origin here would put the tripwire-EXEMPT arm inside
-  // an untyped record the daemon's run pipeline fills — and that arm both
-  // delivers command-shaped bytes verbatim and excuses the turn from the
-  // tripwire, so a caller that named it would get the user's words
-  // dispatched as a provider command and the swallow reported as a completed
-  // turn. No type can reach a bag, so the refusal is the enforcement.
-  //
-  // The minted value alone is tolerated, because declaring the truth is a
-  // no-op; anything else — the exempt arm, another union member, or a value off
-  // the union entirely — fails the run loudly rather than being silently
-  // dropped, which would hide the caller's bug on the one axis that matters.
+  // Read only to refuse: the run-opening boundary mints its own frame origin, and a
+  // caller-declared tripwire-exempt origin would deliver the user's words as a provider command.
   const declaredFrameOrigin = readOptionalString(
     source,
     "frameOrigin",
@@ -3212,15 +1796,7 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
       "StartRunParams.agentConfig.frameOrigin",
     );
   }
-  // Read only to REFUSE, exactly like `frameOrigin` above — but refused
-  // UNIFORMLY, including a value that happens to match what the daemon derived.
-  // That is the one place this differs from the `frameOrigin` precedent, and
-  // deliberately: an origin has a single legitimate value a caller could only be
-  // restating, whereas a posture is a decision, and a caller that agrees with
-  // today's derivation would still be asserting authority over tomorrow's.
-  // Tolerating a match would also oblige this parse to COMPARE a posture — a
-  // structural equality over roots, network axes and a policy reference — where
-  // a flat refusal needs no comparison to be correct.
+  // Refused even when the value matches what the daemon derived; no comparison needed.
   for (const field of CALLER_DERIVED_TURN_POSTURE_FIELDS) {
     if (source[field] !== undefined) {
       throw new CodexDriverConfigError(
@@ -3238,14 +1814,8 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
 }
 
 /**
- * Builds a probe result, TOTALLY — an over-long or refused detail never throws.
- *
- * The envelope bounds `detail` at `DRIVER_AUTH_DETAIL_MAX_LEN`, two orders of
- * magnitude tighter than the failure-detail bound a normalized provider cause is
- * cut to, so the two cannot share one normalizer. When the envelope still
- * refuses the bounded string the detail is DROPPED rather than allowed to throw:
- * `status` alone carries the fail-closed admission decision and the detail only
- * tells an operator why, so losing it costs diagnostics and never correctness.
+ * Builds a probe result without throwing. `detail` is bounded tighter than failure detail and
+ * dropped if the envelope still refuses it; `status` carries the decision.
  */
 function buildAuthProbeResult(
   status: DriverAuthProbeResult["status"],
@@ -3260,24 +1830,10 @@ function buildAuthProbeResult(
 }
 
 /**
- * Maps a `getAuthStatus` answer onto the contract's three-value probe result.
- *
- * `GetAuthStatusResponse` is `{ authMethod, authToken, requiresOpenaiAuth }` at
- * the pin, and only the first is read. `authToken` is deliberately never touched
- * on any path — the request asks for it not to be sent at all, and a driver that
- * then read it would be one binary change away from logging a credential.
- *
- * `authMethod` is a closed mechanism enum (`chatgpt`, `apikey`, `bedrockApiKey`,
- * …), so it is safe as `detail` in a way the `account/read` descriptor the
- * contract warns about is not: that one carries a plan name and a seat EMAIL,
- * and this probe never asks for it.
- *
- * The `null` case reports UNAUTHENTICATED even when the provider says it
- * requires no OpenAI sign-in. That reading is deliberately the conservative one:
- * "no OpenAI credential is needed" is not evidence that whatever credential this
- * configuration DOES need is present, and the difference is carried in `detail`
- * so an operator can tell a genuine logout from a non-OpenAI configuration
- * without the probe having to guess on the admission side.
+ * Maps a `getAuthStatus` answer onto the probe result. Only `authMethod` is read, never
+ * `authToken`; it is a closed mechanism enum, safe as `detail` (unlike `account/read`, which
+ * carries a plan name and seat email). A `null` method is `unauthenticated` even if no OpenAI
+ * sign-in is required.
  */
 function classifyCodexAuthStatus(response: unknown): DriverAuthProbeResult {
   if (!isPlainObject(response)) {
@@ -3291,8 +1847,7 @@ function classifyCodexAuthStatus(response: unknown): DriverAuthProbeResult {
     return buildAuthProbeResult("authenticated", `auth method: ${authMethod}`);
   }
   if (authMethod !== null && authMethod !== undefined) {
-    // Present but not a string: the surface answered in a shape this driver
-    // cannot read, which is probe ill-health rather than a credential verdict.
+    // Present but not a string: an unreadable shape is probe ill-health, not a credential verdict.
     return buildAuthProbeResult(
       "indeterminate",
       `the Codex app-server "${CODEX_AUTH_STATUS_METHOD}" response carried an unreadable authMethod`,
@@ -3307,17 +1862,10 @@ function classifyCodexAuthStatus(response: unknown): DriverAuthProbeResult {
 }
 
 /**
- * Asks one connection the auth question, with the credential-safety pin applied.
- *
- * Both askers route through here so the two `false` members live in ONE place.
- * They are not stylistic: `includeToken: false` keeps credential material off
- * the wire, and `refreshToken: false` is what keeps the question non-destructive
- * — the pinned providers rotate refresh tokens single-use with no grace window,
- * so an asker that refreshed would end the login it was checking. A second call
- * site that inlined its own params could lose either half silently, and the loss
- * would only show up as operators being logged out by the thing meant to observe
- * them. Both are sent explicitly because `GetAuthStatusParams` types them
- * required-but-nullable.
+ * Asks one connection the auth question without token material (`includeToken: false`) and
+ * without a refresh (`refreshToken: false`): the pinned providers rotate refresh tokens
+ * single-use, so a refresh would end the login being checked. Both are sent because
+ * `GetAuthStatusParams` types them required-but-nullable.
  */
 async function requestCodexAuthStatus(
   connection: CodexAppServerConnection,
@@ -3331,39 +1879,11 @@ async function requestCodexAuthStatus(
 }
 
 /**
- * Classifies a FAILED resume into the closed `RecoveryCondition`.
- *
- * The two conditions name two different operator actions — `reauth-required`
- * means "re-authenticate this provider on the node, then recovery may retry",
- * `recovery-needed` means "reconcile this by hand" — so the classification is
- * made by ASKING, not by reading the refusal. This provider publishes no typed
- * auth error code for the app-server surface, and its `account/read` answers
- * without credentials at all (so a success there is not evidence a credential is
- * usable). A message-substring sniff over the refusal text would therefore be
- * both the only alternative and an unstable one. Instead the still-open
- * connection is asked the credential question directly, which is a positive
- * determination of the state the operator would have to act on.
- *
- * IT IS ASKED ONLY OF A PROVIDER THAT DEMONSTRABLY ANSWERED. The ask is gated on
- * the resume having failed with `CodexProviderRequestError` — a typed JSON-RPC
- * refusal, which is proof that the child is alive, parsing, and replying, and
- * which does not close the transport. Every other cause (a deadline, a transport
- * fault, a handshake failure, an exited process, or a local defect on our own
- * side of the boundary) carries no such proof, and asking a wedged or dead
- * connection would make a failing recovery path wait out a second deadline to
- * learn nothing. This is the difference between one more question and a second
- * way to hang.
- *
- * ORDERING IS LOAD-BEARING: this runs BEFORE the connection is released, because
- * it is that connection's credential state that is in question.
- *
- * FAIL-SAFE DIRECTION. Every path that does not produce a determinate logged-out
- * reading answers `recovery-needed` — the conservative arm, which asks for
- * reconciliation rather than promising an operator that re-authenticating will
- * fix this. `indeterminate` deliberately does not earn `reauth-required` either:
- * an unhealthy probe is not evidence about the credential. The resume's own
- * cause is not lost on any path; it is already carried on
- * `providerFailureDetail`.
+ * Classifies a failed resume as `reauth-required` or `recovery-needed`. The still-open
+ * connection is asked the credential question directly (the provider has no typed auth error),
+ * and only after a `CodexProviderRequestError`, which proves the child is alive; asking a
+ * wedged connection would wait out a second deadline. Anything short of a determinate
+ * logged-out reading, an `indeterminate` probe included, is `recovery-needed`.
  */
 async function classifyResumeRecoveryCondition(
   connection: CodexAppServerConnection,
@@ -3378,19 +1898,15 @@ async function classifyResumeRecoveryCondition(
     );
     return reading.status === "unauthenticated" ? "reauth-required" : "recovery-needed";
   } catch {
-    // Contained: this classification must never displace the typed `failed`
-    // result requires the resume path to return.
+    // Contained: a failed probe must not replace the typed `failed` result the resume path returns.
     return "recovery-needed";
   }
 }
 
 /**
- * Makes any caught value safe for `DriverResumeResult.providerFailureDetail`.
- *
- * The schema's `wireFreeFormString` rejects empty, whitespace-only, NUL-bearing,
- * and overlength strings. Without this the typed `recovery-needed` result would
- * THROW on a provider error whose message is blank or enormous — converting the
- * invariant's typed failure back into an exception. Exported for direct test.
+ * Makes any caught value safe for `DriverResumeResult.providerFailureDetail`, whose
+ * `wireFreeFormString` schema rejects empty, whitespace-only, NUL-bearing and overlength text.
+ * Total over arbitrary values.
  */
 export function normalizeProviderFailureDetail(cause: unknown): string {
   try {
@@ -3402,36 +1918,14 @@ export function normalizeProviderFailureDetail(cause: unknown): string {
       ? trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN)
       : trimmed;
   } catch {
-    // Totality by CONSTRUCTION rather than by enumeration. `readFailureText`
-    // already contains every coercion known to throw, so this outer guard should
-    // be unreachable — but "should be unreachable" is exactly the reasoning that
-    // put a throwing coercion on this path in the first place. The function's
-    // contract is that it is total over arbitrary JS values, and only a structure
-    // makes that true; an argument about which values throw does not.
     return UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
   }
 }
 
 /**
- * Extracts failure TEXT from an arbitrary thrown value, or "" if it cannot.
- *
- * Every step here is a coercion an attacker-shaped or merely-sloppy value can
- * break, and each one was verified against the runtime rather than assumed:
- *
- *   * `String(value)` throws `TypeError` for a null-prototype object
- *     (`Object.create(null)` has no `toString`/`valueOf` to reach), and for any
- *     object whose `toString` returns a non-primitive;
- *   * `error.message` is a plain property in the spec but a GETTER in practice on
- *     anything that wants to be, and a getter can throw or return a non-string;
- *   * a non-string `message` then breaks `replaceAll`, which is not a method of
- *     numbers — so reading it is not enough, the type has to be checked.
- *
- * Why this matters more here than the code size suggests: this function is what
- * `resumeSession`'s catch path calls to build the typed `recovery-needed` result.
- * A throw here converts the typed failure back into an exception — the precise
- * loss that invariant exists to forbid — and it would do so on the path that is
- * ALREADY handling a failure, where the original cause is least likely to be
- * well-formed.
+ * Extracts failure text from an arbitrary thrown value, or "" if it cannot. It never throws:
+ * `String(value)` throws for a null-prototype object, and `error.message` can be a throwing
+ * getter or a non-string.
  */
 function readFailureText(cause: unknown): string {
   try {
@@ -3440,37 +1934,19 @@ function readFailureText(cause: unknown): string {
       if (typeof message === "string" && message.trim().length > 0) {
         return message;
       }
-      // An Error with no usable message still has a class, and the class is
-      // worth more than nothing: `TypeError` names the failure where "no
-      // diagnostic message" names only our inability to describe it.
       const name: unknown = cause.name;
       return typeof name === "string" ? name : "";
     }
     if (typeof cause === "string") {
       return cause;
     }
-    // Everything else falls through to the unspecified constant, and the
-    // omission is the POINT rather than an accident of the type checks above.
-    // `providerFailureDetail` is persisted and operator-visible, so serializing
-    // an arbitrary rejection value here — via `String()`, which invokes whatever
-    // `toString` the value carries — is how spawn configuration, up to and
-    // including credential material the transport was handed, reaches a durable
-    // row. Reading `message` and `name` off an `Error` is a different act: those
-    // are two named strings on a known shape, not a walk of an unknown object.
-    // The Claude leg refuses the same serialization for the same reason; this is
-    // one posture across both drivers, not two local judgments.
+    // Other values are never serialized: the detail is persisted, and a serialized rejection could
+    // carry spawn configuration, credential material included, into a durable row.
     return "";
   } catch {
-    // An unreadable cause is indistinguishable from an absent one for the
-    // operator, and both map to the same unspecified detail. Losing the text is
-    // the point of the trade: the typed result survives.
     return "";
   }
 }
-
-// --------------------------------------------------------------------------
-// Transport
-// --------------------------------------------------------------------------
 
 const defaultScheduleTimeout: CodexScheduleTimeout = (callback, delayMs) => {
   const handle = setTimeout(callback, delayMs);
@@ -3499,52 +1975,25 @@ export interface CodexConnectionOptions {
   readonly turnStartTimeoutMs?: number | undefined;
   readonly rows?: number | undefined;
   readonly cols?: number | undefined;
-  /**
-   * How the daemon reaches this process (leg 6).
-   */
+  /** How the daemon reaches this process. */
   readonly transportSelection?: CodexTransportSelection | undefined;
   /** Resolves `bearerTokenRef` at connection time; required on the ws arm. */
   readonly resolveBearerCredential?: CodexBearerCredentialResolver | undefined;
   /** Bridges to a ws listener; required on the ws arm (absence fails closed). */
   readonly websocketConnector?: CodexWebsocketTransportConnector | undefined;
-  /**
-   * Answers the routed server requests (leg 3). OPTIONAL: a connection
-   * driven with no responder still ANSWERS every routed ask — with the
-   * method's refusal shape — so the absence degrades the session rather than
-   * hanging it.
-   */
+  /** Answers routed server requests; without one, every routed ask is refused. */
   readonly serverRequestResponder?: CodexServerRequestResponder | undefined;
 }
 
 /**
- * How far a failed request's bytes provably got.
- *
- * The transport is the only layer that can answer this, and the answer is not
- * recoverable downstream: by the time a rejection reaches a caller the
- * connection may already be marked closed by an exit that arrived AFTER the
- * write, so the error carries no trace of which side of the write it came from.
- * The pre-write refusal and the rejection that kills an in-flight response are
- * the same error class with near-identical text, which is why this is carried
- * as a field the transport sets rather than inferred by a caller.
- *
- * - `unsent` — provably no byte of this request was handed to the host. The
- *   connection refused ahead of the write, or the frame would not encode.
- * - `refused` — the provider answered with a JSON-RPC error. An answer is proof
- *   it received the request, processed it, and declined: the same reading the
- *   ambiguous-turn-start rule already takes of a clean provider error.
- * - `indeterminate` — the host took the bytes. Whether the provider received,
- *   parsed, or acted on them is unknown, and unknowable from here.
+ * How far a failed request's bytes provably got: `unsent` (no byte reached the host), `refused`
+ * (the provider answered with a JSON-RPC error), or `indeterminate` (the host took the bytes and
+ * whether the provider acted on them is unknowable). Only the transport can tell, because the
+ * error classes for "refused before the write" and "killed in flight" are near-identical.
  */
 export type CodexRequestDelivery = "unsent" | "refused" | "indeterminate";
 
-/**
- * The outcome of one request, with a failure's delivery classified.
- *
- * Returned instead of thrown so classification is structural: a caller that
- * must act differently on "never sent" than on "may already have been acted on"
- * reads a field, and has no path back to sniffing an error message. `request`
- * stays for the callers that only ever need the answer.
- */
+/** The outcome of one request, returned rather than thrown, with a failure's delivery. */
 export type CodexRequestAttempt =
   | { readonly settled: "answered"; readonly result: unknown }
   | {
@@ -3560,11 +2009,9 @@ interface CodexEncodedFrame {
 }
 
 /**
- * One `codex app-server` process reached over one `PtyHost` session.
- *
- * Owns framing (newline-delimited JSON, CR-tolerant), request correlation with
- * per-request deadlines, the fail-closed answer to unhandled server requests, and
- * teardown that leaves no promise pending.
+ * One `codex app-server` process reached over one `PtyHost` session. Owns newline-delimited JSON
+ * framing, request correlation with deadlines, the fail-closed answer to unhandled server
+ * requests, and teardown that leaves no promise pending.
  */
 export class CodexAppServerConnection {
   readonly #ptyHost: PtyHost;
@@ -3630,25 +2077,12 @@ export class CodexAppServerConnection {
   }
 
   /**
-   * Spawns the process, waits for the termios prelude's sentinel, then performs
-   * the `initialize` / `initialized` handshake.
-   *
-   * Any failure after a successful spawn tears the process down before
-   * rethrowing, so a half-open connection never leaks a child process.
+   * Spawns the process, waits for the prelude's ready sentinel, then performs the `initialize`
+   * handshake. A failure after the spawn tears the process down before rethrowing.
    */
   async open(config: CodexSessionConfig): Promise<void> {
-    // CONNECTION TIME, not construction time (leg 6): a credential
-    // resolved here is the one this connection starts with, so a rotation
-    // between two connections of the same driver is picked up rather than
-    // pinned. `null` on every arm but websocket — the other two carry no
-    // credential at all, and manufacturing one would invent a secret the
-    // operator never configured.
-    //
-    // The ternary, rather than an unconditional `await` on a function that
-    // answers `null`: awaiting would insert a microtask tick before the spawn
-    // on EVERY arm, including the stdio default, which reorders this method's
-    // spawn against a caller that has not yet subscribed. The arm that needs a
-    // credential is the only arm that pays for one.
+    // Resolved per connection so a credential rotation is picked up; `null` on arms without one.
+    // The ternary avoids an unconditional `await`, whose microtask tick would reorder the spawn.
     const bearerCredential =
       this.#transportSelection.transport === "websocket"
         ? await this.#resolveWebsocketCredential(this.#transportSelection.bearerTokenRef)
@@ -3662,25 +2096,10 @@ export class CodexAppServerConnection {
         CODEX_APP_SERVER_SHELL_ARGV0,
         ...composeCodexTransportArgv(this.#transportSelection, bearerCredential),
       ],
-      // Exactly the caller-supplied pairs, minus what the effective credential
-      // policy denies, plus the binary path the prelude reads. `process.env` is
-      // never consulted (asserted by test).
-      //
-      // Through the shared builder rather than composed here, and this is the
-      // ONE seam every Codex spawn reaches — create, resume against a live
-      // record, resume after a daemon restart, and the zero-turn auth probe all
-      // arrive at this method. A per-call-site composition would put the
-      // suppression obligation on four call sites and shed it from whichever one
-      // a later leg forgets.
-      //
-      // The binary path rides as a MANDATED pair, so the deny strip cannot
-      // remove it: it is the exact-build-path pin that stands in for this
-      // provider's absent environment opt-out, and a strippable pin would leave
-      // the child running whatever the launcher resolves to.
-      // Name matching is THIS host's, derived from the running platform rather
-      // than read off the policy: whether the base's `path` and a denied `PATH`
-      // are one variable is an operating-system fact, and a `trusted` posture
-      // carries no policy to read it from at all.
+      // The caller's pairs minus what the credential policy denies, plus the binary path the
+      // prelude reads (mandated, so the deny strip cannot remove it); `process.env` is never
+      // consulted. Name matching follows the running platform, not the policy: whether `path` and
+      // `PATH` are one variable is an OS fact, and a `trusted` posture carries no policy.
       env: buildProviderSpawnEnv({
         driverName: "codex",
         baseEnv: config.env,
@@ -3707,10 +2126,7 @@ export class CodexAppServerConnection {
     this.#ptySessionId = response.session_id;
 
     try {
-      // Inside the guard, not before it. The subscriber is caller-supplied code
-      // and can throw; outside, a throw would leave a spawned child running with
-      // nothing reading it and nothing owning its teardown, which is exactly the
-      // leak this method's contract says never happens.
+      // Inside the guard: a throwing subscriber outside it would leave the child running.
       this.#unsubscribe = this.#subscribeToPtySession(response.session_id, {
         onData: (chunk) => {
           this.#ingest(chunk);
@@ -3720,11 +2136,8 @@ export class CodexAppServerConnection {
         },
       });
       await this.#awaitReadySentinel();
-      // Only the ws arm has a bridge to raise; the other two already speak
-      // line-delimited JSON-RPC over this PTY (stdio directly, unix through
-      // the provider's own `proxy --sock`). Before the handshake, because an
-      // `initialize` sent into an unbridged transport would time out on a
-      // deadline that describes the wrong failure.
+      // Only the ws arm has a bridge to raise; it precedes the handshake so an `initialize` into
+      // an unbridged transport does not time out with a misleading failure.
       if (this.#transportSelection.transport === "websocket" && bearerCredential !== null) {
         await this.#requireWebsocketConnector().connect({
           endpoint: this.#transportSelection.endpoint,
@@ -3735,8 +2148,6 @@ export class CodexAppServerConnection {
         "initialize",
         {
           clientInfo: { name: "codex-driver", title: "AI Sidekicks", version: "1" },
-          // Defense in depth, mirroring the wire reference: experimental surfaces
-          // are opt-in and attestation requests are declined outright.
           capabilities: {
             experimentalApi: false,
             requestAttestation: false,
@@ -3752,10 +2163,7 @@ export class CodexAppServerConnection {
     }
   }
 
-  // Every refusal here is a REFUSAL, never a downgrade: a websocket driver that
-  // could not resolve its credential must not fall back to an unauthenticated
-  // listener or to stdio, both of which would report success while reaching
-  // something other than what the operator configured.
+  // Every failure refuses instead of downgrading to an unauthenticated listener or to stdio.
   async #resolveWebsocketCredential(
     bearerTokenRef: string,
   ): Promise<CodexWebsocketBearerCredential> {
@@ -3766,8 +2174,7 @@ export class CodexAppServerConnection {
         "DriverTransportConfig.bearerTokenRef",
       );
     }
-    // Not caught and softened: a resolver that throws is a credential that
-    // could not be obtained, which is the same refusal by another route.
+    // Not caught: a throwing resolver is a credential that could not be obtained.
     return await resolve(bearerTokenRef);
   }
 
@@ -3796,20 +2203,8 @@ export class CodexAppServerConnection {
   }
 
   /**
-   * Sends a request and REPORTS the outcome, classifying a failure by delivery.
-   *
-   * The classifying counterpart of `request`, for the callers whose correctness
-   * turns on whether the provider may have acted: `request` collapses every
-   * failure into one rejection, and a caller cannot reconstruct the difference
-   * afterwards without reading an error message, which is a guess. Here the
-   * phases are separated in the only place that observes them — encode, write,
-   * await — so each failure is labeled where it actually happens.
-   *
-   * `indeterminate` is the default for everything past the write, including a
-   * transport error the connection raised on its own exit: the exit may have
-   * arrived after the provider read and acted on the request, and nothing
-   * reachable from here distinguishes the two. Fail-closed by construction —
-   * a new failure mode lands in `indeterminate` unless it is proven unsent.
+   * Sends a request and reports the outcome, classifying a failure by delivery. Everything past
+   * the write is `indeterminate` unless the provider answered with an error.
    */
   async attemptRequest(
     method: string,
@@ -3824,8 +2219,7 @@ export class CodexAppServerConnection {
     const armed = this.#armPendingResponse(method, timeoutMs);
     let encodedFrame: CodexEncodedFrame;
     try {
-      // Encoding resolves the destination and serializes; both wholly precede
-      // the first byte, so a failure here provably put nothing on the wire.
+      // Encoding precedes the first byte, so a failure here put nothing on the wire.
       encodedFrame = this.#encodeFrame({ jsonrpc: "2.0", id: armed.requestId, method, params });
     } catch (cause) {
       this.#cancelPendingResponse(armed.key);
@@ -3835,10 +2229,7 @@ export class CodexAppServerConnection {
       await this.#writeEncodedFrame(encodedFrame.ptySessionId, encodedFrame.bytes);
     } catch (cause) {
       this.#cancelPendingResponse(armed.key);
-      // The host was handed the bytes and its write rejected. The host contract
-      // promises no delivery either way, so how many of them reached the child
-      // is not knowable here — and a partially written line is exactly the shape
-      // that gets read as a whole request by a child that saw the newline.
+      // The host promises no delivery either way, and a partial line can read as a whole request.
       return { settled: "failed", delivery: "indeterminate", cause };
     }
     try {
@@ -3852,13 +2243,7 @@ export class CodexAppServerConnection {
     }
   }
 
-  /**
-   * Reserves the response slot and its deadline for one request id.
-   *
-   * Synchronous on purpose: it is called from the same tick as the write it
-   * belongs to, and inserting an await here would widen the window in which a
-   * child exit finds a pending rejector with no handler attached.
-   */
+  /** Reserves the response slot and deadline for one request id. Synchronous on purpose. */
   #armPendingResponse(
     method: string,
     timeoutMs: number | undefined,
@@ -3880,19 +2265,10 @@ export class CodexAppServerConnection {
       }, deadlineMs);
       this.#pending.set(key, { method, resolve, reject, cancelDeadline });
     });
-    // `reject` is reachable from `#pending` the moment the executor returns, but
-    // the caller then SUSPENDS on its write before the returned promise reaches
-    // anyone who could handle it. A child exit during that window rejects a
-    // promise nobody is attached to, and Node's default
-    // `--unhandled-rejections=throw` turns that into a dead daemon. Worse, if
-    // the write then rejects too, the caller rethrows and never returns this
-    // promise, so no handler can arrive later either.
-    //
-    // Attaching a no-op handler marks `settled` handled without consuming it:
-    // the caller still receives the rejection through the returned promise,
-    // because `.catch()` observes rather than replaces.
+    // A child exit while the caller is suspended on its write would reject an unhandled promise,
+    // which kills the daemon under Node's default; this marks it handled without consuming it.
     settled.catch(() => {
-      /* the returned promise is the caller's channel; this only marks it handled */
+      /* the returned promise is the caller's channel */
     });
     return { requestId, key, settled };
   }
@@ -3911,21 +2287,15 @@ export class CodexAppServerConnection {
   notify(method: string, params: unknown): void {
     this.#assertWritable(method);
     void this.#writeFrame({ jsonrpc: "2.0", method, params }).catch(() => {
-      // A notification has no reply to await, so a failed write would otherwise
-      // vanish. Reported rather than thrown: the caller is mid-handshake and the
-      // next request's own failure is the actionable signal.
+      // Reported, not thrown: the caller is mid-handshake and the next request's failure is the
+      // actionable signal.
       this.#reportDiagnosticQuietly({ kind: "notification-write-failed", method });
     });
   }
 
-  /**
-   * Tears the connection down. Idempotent: a second call resolves without
-   * throwing and without a second `PtyHost.close`.
-   */
+  /** Tears the connection down. Idempotent: a second call does not close the host session again. */
   async close(): Promise<void> {
-    // Guarded on the PTY release, not on `#closed`: an exited child marks the
-    // transport unusable but has not released the host's per-session record, and
-    // teardown still owes that release.
+    // Guarded on the PTY release, not `#closed`: an exited child has not released the host record.
     if (this.#ptyClosed) {
       return;
     }
@@ -3936,13 +2306,8 @@ export class CodexAppServerConnection {
     });
     this.#rejectAllPending(closedError);
     this.#onReadyFailed?.(closedError);
-    // Exception-ORDERED, and the ordering is the property. The disposer is
-    // caller-supplied code and can throw; when it threw ahead of the release
-    // below, `close()` returned before the process was ever handed back to the
-    // host — so the child kept running while every layer above treated the
-    // session as closed, and a replacement could go live beside it. The fault is
-    // held rather than swallowed: it is rethrown once the teardown that must not
-    // depend on it has run. Boxed because `undefined` is a throwable value.
+    // The disposer can throw; the fault is held and rethrown after the release below, or the child
+    // could keep running beside a replacement. Boxed because `undefined` is a throwable value.
     let disposeFault: { readonly cause: unknown } | null = null;
     if (this.#unsubscribe !== null) {
       const dispose = this.#unsubscribe;
@@ -3958,30 +2323,18 @@ export class CodexAppServerConnection {
       try {
         await this.#ptyHost.close(ptySessionId);
       } catch {
-        // The child may already have been reaped, in which case the host may not
-        // know the session. Teardown must not fail on a resource that is gone.
+        // The child may already be reaped; teardown must not fail on a resource that is gone.
       }
     }
     if (disposeFault !== null) {
-      // Rethrown rather than reported: `close()` could already fail this way, so
-      // the caller's contract is unchanged — what changed is that the process is
-      // gone by the time it does. The teardown paths that must not be displaced
-      // by a host-level fault swallow it at their own call site, deliberately
-      // and with a reason.
+      // Rethrown so `close()`'s failure contract holds; the process is already gone by now.
       throw disposeFault.cause;
     }
   }
 
   /**
-   * Tears the connection down HARD, with no graceful phase.
-   *
-   * For an outcome that leaves provider-side state AMBIGUOUS — a `turn/start`
-   * that may or may not have been accepted — the child cannot be left to wind
-   * down on its own, because it may be executing tools for a turn no route
-   * addresses. `PtyHost` documents no signal for `close(sessionId)` (only
-   * `shutdown()` specifies the SIGTERM-then-SIGKILL drain), so the signal is sent
-   * explicitly here rather than assumed from the interface. `close()` still runs
-   * afterwards: the per-session resource release is owed however the child died.
+   * Kills the child, then closes, with no graceful phase; for an ambiguous outcome such as a
+   * `turn/start` that may or may not have been accepted. `PtyHost.close` documents no signal.
    */
   async killAndClose(): Promise<void> {
     const ptySessionId = this.#ptySessionId;
@@ -3989,8 +2342,7 @@ export class CodexAppServerConnection {
       try {
         await this.#ptyHost.kill(ptySessionId, "SIGKILL");
       } catch {
-        // Already reaped, or a host that no longer knows the session. The close
-        // below still owes the resource release either way.
+        // Already reaped, or the host lost the session; the close below still releases it.
       }
     }
     await this.close();
@@ -4005,22 +2357,13 @@ export class CodexAppServerConnection {
     }
   }
 
-  // Kept `async` so a resolution failure surfaces as a REJECTION rather than a
-  // synchronous throw: `notify` sends fire-and-forget through `.catch()`, and a
-  // synchronous throw here would escape it into the handshake caller.
+  // `async` so an encode failure is a rejection: `notify` handles it through `.catch()`.
   async #writeFrame(frame: Record<string, unknown>): Promise<void> {
     const encodedFrame = this.#encodeFrame(frame);
     await this.#writeEncodedFrame(encodedFrame.ptySessionId, encodedFrame.bytes);
   }
 
-  /**
-   * Everything that precedes the first byte: destination resolution and
-   * serialization.
-   *
-   * Split from the write so a failure on this side is provably unsent. Nothing
-   * here touches the host, so a caller that must know whether the provider may
-   * have acted can read the split rather than guess from an error class.
-   */
+  /** Destination resolution and serialization; touches no host state, so a failure is unsent. */
   #encodeFrame(frame: Record<string, unknown>): CodexEncodedFrame {
     const ptySessionId = this.#ptySessionId;
     if (ptySessionId === null) {
@@ -4030,13 +2373,8 @@ export class CodexAppServerConnection {
   }
 
   /**
-   * Single write site: every outbound byte of this protocol passes here, so a
-   * transport-level change (framing, neutralization) lands once — and so the
-   * boundary past which delivery is no longer knowable has exactly one address.
-   *
-   * Deliberately NOT `async`: it returns the host's own promise, so awaiting it
-   * costs the same microtask hops as awaiting `PtyHost.write` directly and the
-   * frame interleavings this transport's tests pin do not move.
+   * The single write site; past it, delivery is unknowable. Not `async`, so the microtask hops
+   * match awaiting `PtyHost.write` directly.
    */
   #writeEncodedFrame(ptySessionId: string, bytes: Uint8Array): Promise<void> {
     return this.#ptyHost.write(ptySessionId, bytes);
@@ -4061,10 +2399,8 @@ export class CodexAppServerConnection {
         this.#clearReadyWait();
         resolve();
       };
-      // The readiness wait is NOT a pending request, so process death and close
-      // must fail it explicitly. Without this, a provider binary that exits
-      // during startup (a missing executable exits 126 before the server ever
-      // speaks) leaves `open()` unsettled forever.
+      // Not a pending request, so exit and close must fail it explicitly, or a binary that dies
+      // during startup (a missing executable exits 126) leaves `open()` unsettled forever.
       this.#onReadyFailed = (error) => {
         cancelDeadline();
         this.#clearReadyWait();
@@ -4074,9 +2410,7 @@ export class CodexAppServerConnection {
   }
 
   #ingest(chunk: Uint8Array): void {
-    // A released transport keeps no buffer. Data can still arrive between the
-    // synchronous decision to tear down and the host's acknowledgement of it,
-    // and appending it would re-grow the very buffer teardown just abandoned.
+    // Data can arrive after teardown; appending it would re-grow the abandoned buffer.
     if (this.#ptyClosed) {
       return;
     }
@@ -4084,11 +2418,8 @@ export class CodexAppServerConnection {
     this.#readBuffer += this.#decoder.decode(chunk, { stream: true });
     let newlineIndex = this.#readBuffer.indexOf("\n");
     while (newlineIndex !== -1) {
-      // Measured BEFORE the slice. A line that crosses the ceiling and then
-      // terminates inside the same chunk leaves a short tail behind, so the
-      // post-loop check below would never see it — and by then it would already
-      // have been parsed and dispatched. The ceiling is a property of the LINE,
-      // so it is enforced where lines are cut.
+      // Measured before the slice: an over-long line that terminates in the same chunk leaves a
+      // short tail the post-loop check would miss.
       if (newlineIndex > CODEX_MAX_LINE_LENGTH) {
         this.#failFraming(newlineIndex);
         return;
@@ -4099,30 +2430,16 @@ export class CodexAppServerConnection {
       this.#handleLine(line.endsWith("\r") ? line.slice(0, -1) : line);
       newlineIndex = this.#readBuffer.indexOf("\n");
     }
-    // The other half: an UNTERMINATED tail, which the loop above never sees
-    // because it has no line to cut. That tail is the quantity that grows
-    // without bound; a stream of ordinary frames larger than the ceiling in
-    // aggregate is not a breach, and is not treated as one.
+    // Only an unterminated tail grows without bound; many ordinary frames in aggregate are fine.
     if (this.#readBuffer.length > CODEX_MAX_LINE_LENGTH) {
       this.#failFraming(this.#readBuffer.length);
     }
   }
 
   /**
-   * Abandons an over-long line and the connection carrying it.
-   *
-   * The tail is DISCARDED UNPARSED rather than truncated: handing a prefix of a
-   * frame to the line handler would either fail to parse (reporting a fabricated
-   * `unparsable-line` for a frame the provider never sent) or, worse, parse as a
-   * valid but incomplete object and be dispatched as if the provider had meant
-   * it. Neither is a thing a caller can be told apart from the truth.
-   *
-   * In-flight callers are failed with the typed error BEFORE the release path
-   * runs, so they learn why the transport died rather than receiving the generic
-   * closed-connection error; the startup waiter is failed by the same act, which
-   * is what bounds the pre-sentinel window (a prelude that never emits a newline
-   * would otherwise hold `open()` until the startup deadline while growing the
-   * buffer the whole time).
+   * Abandons an over-long line and its connection. The tail is discarded unparsed, never
+   * truncated: a prefix could parse as a valid but incomplete frame. In-flight callers and the
+   * startup waiter fail with the typed error before the release, so they see why it died.
    */
   #failFraming(retainedLength: number): void {
     const error = new CodexLineTooLongError(retainedLength, CODEX_MAX_LINE_LENGTH);
@@ -4134,24 +2451,16 @@ export class CodexAppServerConnection {
     });
     this.#rejectAllPending(error);
     this.#onReadyFailed?.(error);
-    // Signaled explicitly, then released. `PtyHost.close` is specified as
-    // "tear down the session and release all per-session resources" and does
-    // NOT promise to signal the child -- `shutdown()` documents the graceful
-    // per-session kill as a separate dispatch -- so `close()` alone could leave
-    // a still-running process writing into a PTY nobody reads.
-    //
-    // `SIGKILL` rather than `SIGTERM` for this condition specifically: there is
-    // no protocol left to negotiate an orderly stop over, and a peer already
-    // emitting an unbounded line is the last peer to give a shutdown window to.
-    // The graceful path stays where it belongs, on `closeSession`.
+    // `PtyHost.close` does not signal the child, so `close()` alone could leave it running.
+    // `SIGKILL`: no protocol is left for an orderly stop; the graceful path is `closeSession`.
     const ptySessionId = this.#ptySessionId;
     if (ptySessionId !== null) {
       void this.#ptyHost.kill(ptySessionId, "SIGKILL").catch(() => {
-        /* already reaped, or the host lost it; `close()` still owes the release */
+        /* already reaped, or the host lost it */
       });
     }
     void this.close().catch(() => {
-      /* teardown of an already-doomed transport changes nothing here */
+      /* teardown of an already-doomed transport */
     });
   }
 
@@ -4168,8 +2477,7 @@ export class CodexAppServerConnection {
     try {
       frame = JSON.parse(line);
     } catch {
-      // Shell diagnostics, provider stderr, or a truncated frame. Reported, not
-      // dropped — this is the channel on which a mis-set tty becomes visible.
+      // Shell diagnostics, provider stderr or a truncated frame; a mis-set tty shows up here.
       this.#reportDiagnosticQuietly({ kind: "unparsable-line", line });
       return;
     }
@@ -4191,26 +2499,18 @@ export class CodexAppServerConnection {
     const isRequest = id !== undefined && id !== null;
     if (isRequest) {
       if (this.#isEchoOfOurOwnRequest(id, method)) {
-        // Our own frame, echoed back by a tty whose ECHO was still on. Never
-        // answered: a response to it would corrupt the server's correlation.
+        // Our own frame echoed by a tty with ECHO on; answering it would corrupt correlation.
         this.#reportDiagnosticQuietly({ kind: "echoed-client-frame", method });
         return;
       }
-      // Routed asks — the callback-tool invocation and the six approval /
-      // elicitation methods — are answered through the daemon's own pipeline
-      // (leg 3). Everything the routing table does not name falls through to
-      // the same fail-closed error answer as before.
+      // Routed asks (callback tools, approvals, elicitations) go through the daemon's pipeline.
       const routed = CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS.get(method);
       if (routed !== undefined) {
         void this.#answerRoutedServerRequest(id, method, routed, message["params"]);
         return;
       }
-      // Fail closed, for EVERY other method+id frame — censused or not.
-      // Answering with an error refuses cleanly and can never be mistaken for
-      // consent, while leaving it unanswered would hang the provider's turn.
-      // That hang is the whole reason membership in the pinned census does not
-      // gate this arm: a newer admitted build may speak a request method this
-      // pin never saw.
+      // Every other request fails closed, censused or not (a newer build may speak a method this
+      // pin never saw): an error answer cannot be mistaken for consent, and silence hangs the turn.
       this.#reportDiagnosticQuietly({
         kind: "unhandled-server-request",
         method,
@@ -4224,18 +2524,13 @@ export class CodexAppServerConnection {
           message: `The driver does not handle "${method}" at this lifecycle stage.`,
         },
       }).catch(() => {
-        /* connection already gone; the exit path reports it */
+        /* connection gone; the exit path reports it */
       });
       return;
     }
     if (this.#onServerNotification !== undefined) {
-      // Contained here as well as at the manager's own delegate call, because
-      // this class is exported and driven standalone: a consumer wired directly
-      // to a connection would otherwise unwind `#ingest` from inside the host's
-      // data callback, dropping every frame still queued behind this one in the
-      // same chunk and hanging their callers to their deadlines. Containing at
-      // the OUTERMOST call into consumer code is what makes that true for every
-      // composition rather than for the one this driver happens to build.
+      // Contained here too: a throwing consumer would unwind `#ingest` and drop the frames queued
+      // behind this one in the same chunk.
       try {
         this.#onServerNotification(method, message["params"]);
       } catch (cause) {
@@ -4251,36 +2546,9 @@ export class CodexAppServerConnection {
   }
 
   /**
-   * True only for a frame this connection SENT and is still awaiting a reply to.
-   *
-   * Correlation, not a name test: an echo is by definition one of our own
-   * outbound requests coming back, so it must match a pending entry on BOTH the
-   * id and the method. Matching the id alone would be wrong — the two directions
-   * mint request ids in independent namespaces, so a server request can carry an
-   * id we also used — and matching the method alone would be wrong for the same
-   * reason in reverse.
-   *
-   * The pending entry is deliberately left in place: the real reply is still
-   * owed, and consuming the entry here would strand the caller until its
-   * deadline. In practice this arm is near-dead — the termios prelude disables
-   * ECHO before the sentinel, and no request is sent before the sentinel — which
-   * is precisely why the OTHER arm has to be the safe default.
-   */
-  /**
-   * Answer one routed server request through the daemon's responder.
-   *
-   * EVERY path answers, and every path answers with the METHOD'S OWN refusal
-   * shape rather than a JSON-RPC error: for an approval, `-32601` says "I do
-   * not implement this question", which the provider is entitled to treat as a
-   * protocol fault, whereas a refusal answers the question that was actually
-   * asked. A missing responder, a refusing responder, and a throwing responder
-   * therefore converge on the same wire answer and differ only in the recorded
-   * reason.
-   *
-   * `void`-called by the frame handler on purpose: the ingest loop is
-   * synchronous and must not await one ask while other frames from the same
-   * chunk queue behind it. The rejection path is absorbed here rather than at
-   * the call site so no answer depends on the caller remembering to catch.
+   * Answers one routed server request through the daemon's responder. Every path answers, with
+   * the method's own refusal shape rather than `-32601`, which the provider may treat as a
+   * protocol fault. Rejections are absorbed here because the caller does not await it.
    */
   async #answerRoutedServerRequest(
     id: unknown,
@@ -4306,8 +2574,7 @@ export class CodexAppServerConnection {
             ? descriptor.composeAllowedResult(decision.payload)
             : descriptor.composeRefusedResult(decision.reason);
       } catch (cause) {
-        // A responder that throws has not decided, and an undecided ask is a
-        // refusal — never an allow, and never an unanswered frame.
+        // A responder that throws has not decided; an undecided ask is refused, never allowed.
         const detail = normalizeProviderFailureDetail(cause);
         this.#reportDiagnosticQuietly({
           kind: "server-request-responder-failed",
@@ -4319,14 +2586,12 @@ export class CodexAppServerConnection {
     }
     const encodedAnswer = this.#encodeBoundedAnswerFrame(id, method, descriptor, result);
     if (encodedAnswer === null) {
-      // Nothing sendable, and both attempts are already on the record.
+      // Both attempts are already reported.
       return;
     }
     await this.#writeEncodedFrame(encodedAnswer.ptySessionId, encodedAnswer.bytes).catch(
       (cause: unknown) => {
-        // NOT swallowed. A rejected answer is an ask the provider will wait on
-        // forever, which is a different fact from the process having exited and
-        // is invisible on every other path.
+        // A rejected answer leaves the provider waiting on the ask forever, so it is reported.
         this.#reportDiagnosticQuietly({
           kind: "server-request-answer-write-failed",
           method,
@@ -4337,19 +2602,9 @@ export class CodexAppServerConnection {
   }
 
   /**
-   * Encode one answer frame, bounded, substituting a refusal for anything the
-   * wire will not carry. `null` means nothing is sendable and every attempt has
-   * been recorded.
-   *
-   * ENCODE-THEN-MEASURE, deliberately: the bound is on the encoded frame, the
-   * encode step already exists as the "provably unsent" split, and measuring
-   * the produced bytes costs nothing where estimating the serialized size of a
-   * composed object would be a second, disagreeing implementation of
-   * `JSON.stringify`.
-   *
-   * The substitute carries {@link CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON} — a
-   * constant, never a slice of what overflowed — so the refusal cannot inherit
-   * the size that caused it.
+   * Encodes one answer frame within the line-length bound, measured on the encoded bytes,
+   * substituting a refusal with {@link CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON} for an oversized
+   * one. Returns `null` when nothing is sendable; every failed attempt has been reported.
    */
   #encodeBoundedAnswerFrame(
     id: unknown,
@@ -4381,8 +2636,7 @@ export class CodexAppServerConnection {
     if (substitutedRefusal.bytes.length <= CODEX_MAX_LINE_LENGTH) {
       return substitutedRefusal;
     }
-    // Reachable only when the request `id` the provider chose is itself past
-    // the bound: the refusal body is a constant that fits by construction.
+    // Reachable only when the provider's request `id` is itself past the bound.
     this.#reportDiagnosticQuietly({
       kind: "server-request-answer-oversized",
       method,
@@ -4401,9 +2655,7 @@ export class CodexAppServerConnection {
     try {
       return this.#encodeFrame({ jsonrpc: "2.0", id, result });
     } catch (cause) {
-      // A closed connection, or a `result` that will not serialize. Both leave
-      // the ask unanswered, and neither may escape: this method is reached from
-      // a `void`-called handler on the synchronous ingest loop.
+      // A closed connection or an unserializable `result` must not escape into the ingest loop.
       this.#reportDiagnosticQuietly({
         kind: "server-request-answer-write-failed",
         method,
@@ -4413,6 +2665,10 @@ export class CodexAppServerConnection {
     }
   }
 
+  /**
+   * True for an echo of our own pending request. Both id and method must match: the two
+   * directions mint ids independently. The pending entry stays, since the real reply is owed.
+   */
   #isEchoOfOurOwnRequest(id: unknown, method: string): boolean {
     if (typeof id !== "number" && typeof id !== "string") {
       return false;
@@ -4446,7 +2702,6 @@ export class CodexAppServerConnection {
           pending.method,
           providerErrorCode,
           providerMessage,
-          // Read with no shape assumption and no narrowing: absent stays absent.
           errorRecord["data"],
         ),
       );
@@ -4456,30 +2711,16 @@ export class CodexAppServerConnection {
   }
 
   /**
-   * The child exited. Runs inside a `PtyHost` event callback, which is what makes
-   * every caller-supplied call in it dangerous in a way `close()` is not.
-   *
-   * `close()` has a caller and an awaited promise, so a fault there has somewhere
-   * to go. This does not: it is invoked from the host's emit loop, so an
-   * exception escapes into the host and — worse than being lost — takes the
-   * cleanup below with it. Every pending request would then sit until its own
-   * deadline, and a connection still waiting on the prelude sentinel would never
-   * fail at all, on the one code path whose whole job is to fail them.
-   *
-   * So both caller-supplied surfaces here (the diagnostic sink and the
-   * subscription disposer) are contained, and the cleanup runs unconditionally.
+   * Handles the child exiting, inside a `PtyHost` event callback: the diagnostic sink and the
+   * disposer are contained so an exception cannot skip the cleanup.
    */
   #handleExit(exitCode: number, signalCode: number | null): void {
     this.#exitDescription = `exit ${exitCode}${signalCode === null ? "" : ` signal ${signalCode}`}`;
     this.#reportDiagnosticQuietly({ kind: "process-exited", exitCode, signalCode });
-    // Mark closed BEFORE rejecting: a rejection handler that retries must be
-    // refused a write rather than hitting the dead fd (a write to an exited pty
-    // raises an asynchronous EIO that no caller can catch).
+    // Closed before rejecting, so a retrying handler is refused: a write to an exited pty raises
+    // an asynchronous EIO no caller can catch.
     this.#closed = true;
-    // Boxed and held, exactly as `close()` does it — but REPORTED rather than
-    // rethrown, because there is no caller to rethrow to. Swallowing silently
-    // would be the wrong trade: the disposer failing means a listener may still
-    // be registered against a dead session, which is an operator-visible fact.
+    // A disposer failure is reported, not rethrown (there is no caller).
     let disposeFault: { readonly cause: unknown } | null = null;
     if (this.#unsubscribe !== null) {
       const dispose = this.#unsubscribe;
@@ -4496,8 +2737,7 @@ export class CodexAppServerConnection {
     this.#rejectAllPending(exitError);
     this.#onReadyFailed?.(exitError);
     if (disposeFault !== null) {
-      // Reported AFTER the cleanup, so a sink that throws in response cannot cost
-      // the callers their rejections.
+      // After the cleanup, so a throwing sink cannot cost callers their rejections.
       this.#reportDiagnosticQuietly({
         kind: "subscription-dispose-failed",
         detail: normalizeProviderFailureDetail(disposeFault.cause),
@@ -4506,15 +2746,8 @@ export class CodexAppServerConnection {
   }
 
   /**
-   * Every diagnostic this transport emits, contained.
-   *
-   * All of them qualify under the rule in `reportDiagnosticFromDetachedFrame`,
-   * which is why there is no bare call left in this class rather than a mixture
-   * a later edit would have to re-classify: the framing, correlation, and exit
-   * diagnostics all originate in `onData` / `onExit`, and `notify`'s originates
-   * in a detached `.catch` on a `void`-ed promise — where a throwing sink is
-   * worse than anywhere else, because it becomes an unhandled rejection, which
-   * this file already documents as fatal to the daemon under Node's default.
+   * Reports a diagnostic contained (see `reportDiagnosticFromDetachedFrame`): these originate in
+   * detached callbacks, where a throwing sink would be a daemon-fatal unhandled rejection.
    */
   #reportDiagnosticQuietly(diagnostic: CodexTransportDiagnostic): void {
     reportDiagnosticFromDetachedFrame(this.#reportDiagnostic, diagnostic);
@@ -4534,189 +2767,63 @@ export class CodexAppServerConnection {
   }
 }
 
-// --------------------------------------------------------------------------
-// Lifecycle manager
-// --------------------------------------------------------------------------
-
 interface CodexSessionRecord {
   readonly sessionId: SessionId;
   readonly connection: CodexAppServerConnection;
   /**
-   * The thread this session is currently bound to.
-   *
-   * MUTABLE, uniquely among this record's identity fields, and only `forkConversation`
-   * moves it: `thread/fork` mints a NEW thread and the rewound session continues
-   * on it, so the leg's thread is a value that changes while the leg's identity
-   * does not. Re-pointing in place rather than installing a replacement record
-   * is what keeps that true — in-flight closures hold this record by reference
-   * and `#isRecordInstalled` compares it by identity, so swapping the object
-   * would silently invalidate both.
+   * The thread this session is bound to. Only `forkConversation` changes it, in place, because
+   * in-flight closures hold this record and check `#sessions` still maps to it.
    */
   threadId: string;
   /**
-   * The ordered turn ids of this thread, oldest first — the session-position
-   * axis `ForkConversationParams.position` indexes into (position N names
-   * `turnBoundaries[N - 1]`, the Nth turn, which is the inclusive `lastTurnId`
-   * a fork through position N must carry).
-   *
-   * Seeded from the provider's own `thread.turns` on resume and on fork (the
-   * generated `Thread` type documents those two responses, plus `thread/read`,
-   * as the ones that populate it) and appended at each accepted `turn/start`.
-   *
-   * DELIBERATELY UNCAPPED, unlike `unmatchedTurnEvidence` beside it. That
-   * memory is a short race window whose oldest entry is the least relevant; this
-   * ledger IS the position axis, so evicting its head would silently re-map
-   * every later ordinal and a rewind would land on the wrong turn. A turn id is
-   * a UUID: a session long enough for this to cost memory does not exist, and a
-   * wrong rewind would.
+   * This thread's turn ids, oldest first; `ForkConversationParams.position` N is
+   * `turnBoundaries[N - 1]`. Seeded from `thread.turns` on resume and fork, appended at each
+   * accepted `turn/start`. Uncapped: evicting the head would re-map every later ordinal.
    */
   readonly turnBoundaries: string[];
-  /**
-   * The posture this session was spawned under, retained so EVERY turn can
-   * re-send its `sandboxPolicy` (leg 5).
-   *
-   * `StartRunParams` also carries a posture, and it is the one that wins when
-   * present — that is the per-run effective posture. This one is the floor a run
-   * that declares nothing inherits, so a turn is never dispatched with no policy
-   * at all just because its run was silent on the axis.
-   */
+  /** The posture re-sent as each turn's `sandboxPolicy` when its `StartRunParams` declare none. */
   readonly executionPosture: ExecutionPosture | undefined;
-  /**
-   * The subagent policy this session was spawned under, retained for the same
-   * reason the posture is: a `thread/fork` establishes a NEW thread, and a fork
-   * that did not re-send the caps would leave the rewound session running under
-   * the provider's installation defaults while the daemon believed the policy
-   * still held.
-   */
+  /** The subagent policy, re-sent on `thread/fork` so the new thread keeps its caps. */
   readonly subagentPolicy: SubagentPolicy | undefined;
   /**
-   * The context this leg's process was launched in, reused as the PROCESS
-   * CONTEXT of a resume that supersedes it — `cwd` and `env`, which say where
-   * the binary runs and how it finds its credential home, and which a live
-   * record answers better than the manager-wide default.
-   *
-   * Its `credentialEnvPolicy` is deliberately NOT reused: a resume re-derives
-   * that from the posture it is being resumed under, so a posture change
-   * between create and resume reaches the child rather than being masked by the
-   * record. What it holds is the create's own RESOLVED answer and not the raw
-   * config bag, which is why the one arm that does inherit it — a resume that
-   * states no posture — inherits the policy the child actually ran under.
-   * See `#composeCreateSpawnConfig` and `#composeResumeSpawnConfig`.
+   * The config this process was launched with. A resume reuses its `cwd` and `env` but
+   * re-derives `credentialEnvPolicy` from its own posture, inheriting this one only when it
+   * states none (see `#composeResumeSpawnConfig`).
    */
   readonly spawnConfig: CodexSessionConfig;
   /**
-   * Every live turn on this session, keyed by TURN id, newest last.
-   *
-   * Turn-keyed and not run-keyed, and that direction is the whole point. A run
-   * may hold MORE THAN ONE live turn: nothing serializes two `startRun` calls
-   * for one run, and when both are accepted the provider names a turn for each.
-   * A `Map<RunId, string>` can hold one, so the second acceptance overwrote the
-   * first — and a terminal for the first turn then matched no route, so its
-   * ruling reached the session and never the run. That is the swallowed turn
-   * whose `run.failed` nobody hears.
-   *
-   * Keying by the turn makes the correlation TOTAL: every accepted turn installs
-   * its own entry, every terminal resolves its own run by direct lookup, and a
-   * settlement consumes only the entry for the turn that settled. The derived
-   * question — "which live turn does this run have" — is answered by scanning
-   * this map where a caller genuinely needs it (`hasActiveTurn`,
-   * `#requireActiveTurn`), which is the rarer direction and the one that has an
-   * honest answer under N live routes.
+   * Every live turn, keyed by turn id, newest last. Turn-keyed because a run can hold several
+   * live turns; a run-keyed map would lose the first one's terminal route.
    */
   readonly runIdByActiveTurnId: Map<string, RunId>;
   /**
-   * Turn evidence that arrived while no route — and no tripwire correlation —
-   * pointed at the turn it belongs to.
-   *
-   * Insertion-ordered and capped (`CODEX_UNMATCHED_TURN_MEMORY`); consumed by
-   * `startRun`. See the note there for the interleave this exists to survive.
-   *
-   * It carries the EVIDENCE and not merely the turn id, because the consuming
-   * side has to rule the tripwire, not just retire a route: a memory holding ids
-   * alone would let `startRun` learn that the turn ended and still have nothing
-   * to rule it on, so a zero-turn interception landing in this window would be
-   * reported as a completed turn.
+   * Turn evidence that arrived before any route pointed at its turn; insertion-ordered, capped
+   * (`CODEX_UNMATCHED_TURN_MEMORY`), consumed by `startRun`, which rules the tripwire on the
+   * evidence itself (an id alone would report a zero-turn interception as a completed turn).
    */
   readonly unmatchedTurnEvidence: Map<string, UnmatchedTurnEvidence>;
-  /**
-   * How many `turn/start` requests are awaiting an answer on this session.
-   *
-   * The claim predicate for `unmatchedTurnEvidence`, and the reason it is exact
-   * rather than a heuristic: an entry there can be claimed by ONE caller only —
-   * the `startRun` continuation that is handed the turn id the provider names —
-   * so while this is zero, nothing in that memory can ever be claimed again. A
-   * later start cannot claim one either, because the provider mints a fresh
-   * UUIDv7 per turn and never reuses an id, which is the same fact the consume
-   * in `startRun` already relies on.
-   *
-   * That makes eviction safe exactly when this is zero and unsafe otherwise,
-   * which is the distinction `rememberUnmatchedTurn` enforces.
-   */
+  /** `turn/start` requests awaiting an answer; at zero nothing can claim evidence. */
   inFlightTurnStarts: number;
   /**
-   * The turn ids whose terminal this session has already ingested, newest last.
-   *
-   * A DIFFERENT question from `unmatchedTurnEvidence` above, which is why it is
-   * not folded into it. That memory answers "what is a run whose route is not
-   * installed yet still owed", so it is written only when no route matched and
-   * `startRun` CONSUMES an entry when it claims one. This one answers "has this
-   * turn ended", for a caller that is owed nothing and consumes nothing: it is
-   * written for every terminal, matched or not, and read by `steerRun` to decide
-   * whether the turn a provider acknowledged can still rule a frame. Folding the
-   * two would make one map's consume erase the other's fact.
-   *
-   * Insertion-ordered, and pruned to `CODEX_SETTLED_TURN_MEMORY` only while
-   * `inFlightSteers` is zero — see that field and `rememberSettledTurn` for why
-   * a plain cap here reads as liveness the session cannot vouch for.
+   * Turn ids whose terminal was ingested, newest last, so `steerRun` can ask whether an
+   * acknowledged turn has ended. Written for every terminal, never consumed; pruned to
+   * `CODEX_SETTLED_TURN_MEMORY` only while `inFlightSteers` is zero.
    */
   readonly settledTurnIds: Set<string>;
-  /**
-   * How many `turn/steer` requests are awaiting an answer on this session.
-   *
-   * The claim predicate for `settledTurnIds`, and the exact analogue of
-   * `inFlightTurnStarts` above: the only reader of that memory is the steer
-   * acknowledgement continuation, so while this is zero NOTHING in it can be
-   * asked about and pruning the oldest is provably free. While one IS in flight
-   * the acknowledgement may name any turn id, so every entry is potentially the
-   * one about to be read and none may be dropped.
-   *
-   * A count rather than a flag because a run may hold several live turns and
-   * each can be steered independently; the pin has to outlast the LAST of them.
-   */
+  /** `turn/steer` requests awaiting an answer; a count, as each live turn steers on its own. */
   inFlightSteers: number;
   /**
-   * Runs whose route an INTERRUPT retired while their turn's terminal was still
-   * owed, keyed by the turn id that terminal will carry.
-   *
-   * `turn/interrupt` resolves when the provider accepts the interrupt, not when
-   * the turn ends: the `turn/completed` notification follows, and it is the
-   * frame the tripwire is ruled on. Retiring the route at interrupt — which is
-   * correct, because the run must stop reporting an active turn immediately —
-   * therefore leaves the later ruling with no run to report against, and a trip
-   * would quarantine the session while the run's own subscribers heard nothing.
-   * This map is the correlation that survives that gap, and it holds ONLY what
-   * the reporting needs: a route here is not a live route, so `hasActiveTurn`
-   * and the intervention paths still read the run as having no turn.
-   *
-   * Insertion-ordered and bounded by REFUSAL at `CODEX_INTERRUPTED_ROUTE_MEMORY`,
-   * never by eviction — see the constant for why this memory, unlike
-   * `unmatchedTurnEvidence` above, has no in-flight window outside which
-   * pruning is provably free. An entry lives from an interrupt to the terminal
-   * that immediately follows it, so anything that accumulates toward the
-   * ceiling is a provider not terminating the turns it accepted interrupts
-   * for. Released when the terminal is ruled, and collected with the record on
-   * teardown or supersede.
+   * Runs whose route an interrupt retired before their turn's terminal arrived, keyed by that
+   * turn id: `turn/interrupt` resolves on acceptance, and the tripwire is ruled on the later
+   * `turn/completed`. Not a live route. Bounded by refusal at `CODEX_INTERRUPTED_ROUTE_MEMORY`,
+   * never eviction; released when the terminal is ruled.
    */
   readonly interruptedRunIdByTurnId: Map<string, RunId>;
 }
 
 /**
- * What was observed about a turn no correlated frame had been re-keyed onto yet.
- *
- * Both halves are needed and neither substitutes for the other: the in-flight
- * observations are what a `notLoaded` terminal cannot restate, and the terminal
- * classification is what says the turn is over. Ruling on the terminal alone
- * would trip a real turn whose item notifications shared the same read chunk.
+ * What was observed about a turn before any correlated frame was re-keyed onto it. The
+ * tripwire is ruled on both parts: a `notLoaded` terminal alone cannot restate the observations.
  */
 interface UnmatchedTurnEvidence {
   readonly observations: Set<TurnEvidenceClass>;
@@ -4725,59 +2832,19 @@ interface UnmatchedTurnEvidence {
 }
 
 /**
- * How a session's own thread bases its usage registers at one establishment.
- *
- * A union rather than a bare string discriminant, so the resume arm cannot be
- * constructed without naming the thread whose prior-emitted sum it bases on.
- * The thread to base FROM is not always the thread being established: a
- * provider-native resume answers with the id it was handed, so the two
- * coincide there, but a REWIND forks — `thread/fork` mints a brand-new thread
- * the daemon has never emitted a single token against, so keying the lookup on
- * it would resolve to nothing on every rewind and silently base the successor
- * at zero. The predecessor's id is the only key the daemon's own emitted sum
- * exists under. Stated in the type so that omission is a compile error rather
- * than a re-meter nobody sees until a receipt.
+ * How a session's thread bases its usage registers. The resume arm names the thread whose
+ * prior-emitted sum it bases on, which after a rewind is not the new forked thread.
  */
 type CodexUsageEstablishment =
   | { readonly mode: "fresh" }
   | { readonly mode: "resume"; readonly priorEmittedThreadId: string };
 
 /**
- * Gets or creates a turn's entry in a session's bounded FIFO evidence memory,
- * for the caller to record into — or `null` when the memory can neither make
- * room nor safely grow, which is a session-fatal condition.
- *
- * Re-inserted rather than skipped on a repeat so a later observation refreshes
- * the entry's position instead of aging out while still relevant — and so a
- * terminal MERGES into whatever in-flight evidence the same window already
- * collected rather than replacing it.
- *
- * ---------------------------------------------------------------------------
- * Eviction is scoped to entries nothing can claim, and never traded for room
- * ---------------------------------------------------------------------------
- *
- * An entry here is claimable by exactly one caller: the `startRun` continuation
- * that is about to be handed the turn id the provider named. A whole read chunk
- * drains SYNCHRONOUSLY while that continuation waits as a microtask, and child
- * threads multiplexed onto this connection are observed before any of them can
- * be routed — so a single large drain can push more entries through this memory
- * than it holds. Evicting oldest-first there discards the very terminal the
- * suspended continuation is owed, and the continuation then installs a live
- * route and a re-keyed frame whose only terminal has already gone by. Nothing
- * will ever rule that frame: a swallowed opening reported as a completed turn,
- * which is the one outcome the tripwire exists to prevent.
- *
- * So the claim window is read directly. While no `turn/start` is in flight on
- * this session, NOTHING in this memory can be claimed — turn ids are never
- * reused, so no future start can match an entry either — and oldest-first
- * eviction is provably free. While one IS in flight, every entry is potentially
- * the owed one, so none is evicted and the memory is allowed to grow to
- * `CODEX_UNMATCHED_TURN_MEMORY_CEILING`. At that ceiling the driver refuses
- * rather than choosing which evidence to lose, and the caller takes the loud
- * path. This is the same prune-then-refuse-and-never-evict discipline
- * `OutboundFrameTripwire.#admit` already states for the frame store, for the
- * same reason: discarding an entry to make room converts a future trip into a
- * silent pass.
+ * Gets or creates a turn's entry in the bounded evidence memory, or returns `null` when it can
+ * neither evict nor grow, which is session-fatal. While a `turn/start` is in flight nothing is
+ * evicted (one synchronous drain can outrun the waiting `startRun` continuation, and dropping
+ * its terminal would report a swallowed opening as a completed turn) and the memory may grow to
+ * `CODEX_UNMATCHED_TURN_MEMORY_CEILING`. With none in flight, oldest-first eviction is free.
  */
 function rememberUnmatchedTurn(
   record: CodexSessionRecord,
@@ -4790,10 +2857,7 @@ function rememberUnmatchedTurn(
     record.inFlightTurnStarts > 0 &&
     memory.size >= CODEX_UNMATCHED_TURN_MEMORY_CEILING
   ) {
-    // Only a turn this memory does not already hold is refused. An entry that
-    // is already here is always refreshed, whatever the size: it is one of the
-    // claimable entries this refusal exists to protect, and dropping it to
-    // report the overflow would make the refusal itself the loss.
+    // Only a turn not already held is refused; dropping a held one would make the refusal the loss.
     return null;
   }
   const remembered = existing ?? { observations: new Set(), terminal: undefined };
@@ -4812,42 +2876,9 @@ function rememberUnmatchedTurn(
 }
 
 /**
- * Records that a turn's terminal has been ingested on this session — or refuses,
- * which is a session-fatal condition.
- *
- * Oldest-first and re-inserting on a repeat like the two memories above, and
- * unlike them never consumed: a turn that has ended stays ended, and a reader
- * that erased the fact by asking would hide it from the next one.
- *
- * ---------------------------------------------------------------------------
- * Eviction is scoped to entries nothing can ask about, and never traded for room
- * ---------------------------------------------------------------------------
- *
- * The one reader is the `turn/steer` acknowledgement continuation, which asks
- * whether the turn the provider named can still rule the steer's frame and takes
- * ABSENCE from this memory as yes. That makes eviction a fail-OPEN: an entry
- * dropped between its terminal and the question turns a settled turn back into a
- * live one, the frame is moved onto it, and no second terminal is ever coming.
- * The window is ordinary rather than exotic — a whole read chunk drains
- * SYNCHRONOUSLY while the continuation waits as a microtask, so a chunk carrying
- * the steer's own response plus a burst of terminals can push more ids through
- * this memory than it holds, and the acknowledged turn's own settlement is
- * exactly the entry a size-based prune throws away first.
- *
- * So the claim window is read directly, as `rememberUnmatchedTurn` above reads
- * its own. While no steer is in flight NOTHING here can be asked about — turn
- * ids are never reused, so a later steer cannot ask about an id from before it
- * either — and oldest-first pruning is provably free. While one IS in flight the
- * acknowledgement may name ANY id, so every entry is potentially the one about to
- * be read, none is evicted, and the memory may grow to
- * `CODEX_SETTLED_TURN_MEMORY_CEILING`. At that ceiling the driver refuses rather
- * than choosing which settlement to forget, and the caller takes the loud path.
- *
- * Returns whether the settlement was retained. `false` means the memory can no
- * longer hold what a live reader is owed, which is the same
- * prune-then-refuse-and-never-evict answer the frame store and the evidence
- * memory both give: discarding an entry to make room converts a future trip into
- * a silent pass.
+ * Records that a turn's terminal was ingested; false (session-fatal) means the memory is full.
+ * `turn/steer` reads absence as "still live", so with a steer in flight nothing is evicted and
+ * the memory refuses at `CODEX_SETTLED_TURN_MEMORY_CEILING`; otherwise oldest-first pruning.
  */
 function rememberSettledTurn(record: CodexSessionRecord, turnId: string): boolean {
   const memory = record.settledTurnIds;
@@ -4856,10 +2887,6 @@ function rememberSettledTurn(record: CodexSessionRecord, turnId: string): boolea
     record.inFlightSteers > 0 &&
     memory.size >= CODEX_SETTLED_TURN_MEMORY_CEILING
   ) {
-    // Only a turn this memory does not already hold is refused, on the same
-    // ground the evidence memory states: an id already here is one of the
-    // entries the refusal exists to protect, and dropping it to report the
-    // overflow would make the refusal itself the loss.
     return false;
   }
   memory.delete(turnId);
@@ -4877,23 +2904,9 @@ function rememberSettledTurn(record: CodexSessionRecord, turnId: string): boolea
 }
 
 /**
- * Retains an interrupted run's turn correlation so the terminal that follows can
- * still be reported against it — or refuses, which is a session-fatal condition.
- *
- * Refuse-and-never-evict like `rememberSettledTurn` below, not prune-like
- * `rememberUnmatchedTurn` above, because this memory has no free-prune window
- * at all: its readers — the terminal path and the abandoned-frame resolver —
- * can be asked about ANY retained entry at any time, and every entry is by
- * construction still owed its terminal (the terminal's arrival is what deletes
- * it). An evicted correlation is that terminal ruled against no run, so at the
- * ceiling the driver says it can no longer account for what it holds rather
- * than silently choosing whose report to lose.
- *
- * A turn id already held is re-inserted rather than refused, on the ground the
- * two siblings both state: an entry already here is one of the entries the
- * refusal exists to protect, and the re-insert only refreshes it.
- *
- * Returns whether the correlation was retained.
+ * Retains an interrupted run's turn correlation for its coming terminal; false (session-fatal)
+ * at the ceiling. Never evicts: every entry is still owed its terminal, and an evicted one
+ * would leave that terminal ruled against no run.
  */
 function rememberInterruptedRun(record: CodexSessionRecord, turnId: string, runId: RunId): boolean {
   const memory = record.interruptedRunIdByTurnId;
@@ -4905,17 +2918,7 @@ function rememberInterruptedRun(record: CodexSessionRecord, turnId: string, runI
   return true;
 }
 
-/**
- * The NEWEST live turn a run holds on one session, or `undefined`.
- *
- * The derived direction of the turn-keyed routes, and the tie-break is the
- * point: an intervention names a run and acts on the turn that run is currently
- * taking, so when two overlapping starts left two live turns the one the
- * user means is the LATEST — the turn their words are landing in. The
- * routes are insertion-ordered by acceptance, so the last match is that turn.
- * Under the ordinary single-turn shape this is the only match and the tie-break
- * never fires.
- */
+/** The newest live turn a run holds on one session, or `undefined`; interventions land there. */
 function newestActiveTurnForRun(record: CodexSessionRecord, runId: RunId): string | undefined {
   let newest: string | undefined;
   for (const [turnId, routedRunId] of record.runIdByActiveTurnId) {
@@ -4927,19 +2930,8 @@ function newestActiveTurnForRun(record: CodexSessionRecord, runId: RunId): strin
 }
 
 /**
- * The run whose turn is currently active on ONE session record, or `null`.
- *
- * Record-scoped rather than session-id-scoped, and the distinction is the whole
- * reason it is a function rather than a loop inside its caller: a resume
- * installs a FRESH record for the same session id, so re-resolving by id after
- * an await answers about whichever record is installed NOW, which may not be the
- * one the answer being stamped came from. A caller that already holds the record
- * it read through passes that record and gets an attribution that cannot name a
- * successor's run.
- *
- * Answered only when every live turn on the record belongs to ONE run — the
- * reasoning is stated in full on {@link CodexSessionManager.#activeRunIdFor},
- * which is this function under a session id.
+ * The run whose turn is active on one session record, or `null` unless every live turn belongs
+ * to one run. Record-scoped: a resume installs a fresh record under the same session id.
  */
 function soleActiveRunIdIn(record: CodexSessionRecord): RunId | null {
   let soleActiveRunId: RunId | null = null;
@@ -4958,99 +2950,23 @@ function soleActiveRunIdIn(record: CodexSessionRecord): RunId | null {
 /** A session slot held for the duration of one in-flight lifecycle transition. */
 interface CodexSessionTransition {
   readonly kind: CodexSessionTransitionKind;
-  /** Settlement of the transition, rejection-swallowed so a chained waiter cannot inherit its failure. */
+  /** Settlement of the transition; rejections are swallowed so a waiter does not inherit them. */
   readonly settled: Promise<void>;
 }
 
-/**
- * The slot states a TRANSITION can publish.
- *
- * Derived from `CodexSessionSlotState` by exclusion rather than restated, so the
- * two can never drift into disagreeing about what a slot can be: `live` is the
- * one state no transition holds, because it is what a settled record IS.
- */
+/** The slot states a transition can publish: all but `live`, which is what a settled record is. */
 type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
 
-// --------------------------------------------------------------------------
-// What a failed `turn/start` means — the AMBIGUOUS class and its exemption
-// --------------------------------------------------------------------------
-//
-// The asymmetry is the argument, not the enumeration. At this seam the driver
-// cannot distinguish "the provider never saw it" from "the provider accepted it
-// and the answer was lost": over-killing costs one re-establish, while
-// under-killing leaves a turn executing tools with no route to interrupt it, no
-// id to address it by, and a session the daemon will happily reuse — so a retry
-// doubles the work against a turn nobody can see. The class is therefore WIDE and
-// closed from the OTHER end: a clean JSON-RPC error response is the single
-// exemption, because a provider answering "no" is proof it processed the request
-// and started nothing. A deadline, a transport death, and a response carrying an
-// unusable turn id all leave the same question open and are treated the same way.
-//
-// `#assertWritable`'s already-closed refusal lands in the ambiguous class too,
-// deliberately: the teardown it triggers is idempotent, so paying for it twice
-// costs nothing, and exempting it would key the exemption on a call-site proxy
-// rather than on the semantic question the classifier asks.
-//
-// Teardown and replay is the designed recovery — deliberately NOT a
-// `turn/started` reconciliation, which would keep alive a turn the daemon has
-// just reported as having failed to start, and owe interrupt machinery for it.
-//
-// Narrows what the class DOES, not what it contains. The positional reconcile
-// wired into `startRun` is not the `turn/started` reconciliation ruled out
-// above: it adopts nothing, keeps nothing alive, and owes no interrupt
-// machinery. It reads a turn COUNT to decide whether a re-dispatch would
-// duplicate a turn, and on every arm the run still fails. Where the leg binds no
-// user-turn reader — the default — the count is unobtainable and the
-// settlement is the teardown-and-replay described above, unchanged.
-//
-// The boolean predicate that used to state this partition is gone rather than
-// kept beside its successor: `observeCodexTurnStartFailure` draws the SAME line
-// and the classifier routes off it, so a second boolean saying the same thing
-// would be a second answer to the question of what "ambiguous" means here.
+// A failed `turn/start` is ambiguous unless the provider returned a clean JSON-RPC error: a
+// deadline, transport death or unusable turn id may hide an accepted turn, and leaving it running
+// unreachable (or replaying it) costs more than one re-establish. `#assertWritable`'s
+// already-closed refusal counts too. Recovery is teardown and replay; the positional reconcile in
+// `startRun` adopts no turn.
 
 /**
- * The provider's TYPED refusal detail, reduced to the shape the classifier rules
- * on.
- *
- * `CodexErrorInfo` is this provider's typed refusal VOCABULARY —
- * `contextWindowExceeded`, `usageLimitExceeded`, `badRequest`,
- * `threadRollbackFailed`, and the rest. Where the pin publishes that vocabulary
- * is on the `TurnError` a failed turn carries, and the reference records it
- * there (the pinned Codex wire census, the `turn/start` section's
- * turn-evidence discriminants). That carrier is a NOTIFICATION rather than a
- * request rejection, and the reference pins no shape at all for the JSON-RPC
- * `error.data` member this function reads — so the vocabulary is cited for what
- * it is, and is deliberately not stretched into a pin of where this member
- * arrives. What licenses the read is this driver's own contract instead:
- * `CodexProviderRequestError` documents `error.data` as where the pin puts its
- * structured refusal detail, keeps the member verbatim for exactly that reason,
- * and hands the narrowing to this leg by name. `event-normalizer.ts` already
- * treats the same enum as this provider's typed failure vocabulary and its prose
- * as unreadable, and this reader holds that line: `providerMessage` is never
- * inspected.
- *
- * NOT reading the message is what forces the shape of this function. The pin's
- * `-32600` family puts its discriminator in the deserializer's prose — three
- * distinct refusals share the code, and only the sentence tells them apart — so
- * a numeric-code reading cannot reach the structural class and a prose reading
- * is prohibited outright. The typed member is therefore the only admissible
- * evidence, and where a rejection carries none the refusal lands on the
- * non-escalating declined arm. Against a pin that never populates
- * `error.data.codexErrorInfo` on this path the permanent arm is therefore
- * DECLARED AND DORMANT — unchanged behavior, re-arming the moment a rejection
- * does carry the member — rather than an escalation inferred from an absence.
- *
- * `badRequest` is the single member mapped to the structural class, and the
- * mapping is about what a `turn/start` actually varies. Its parameters are fixed
- * by this driver; what changes between one turn and the next is the THREAD's
- * accumulated history plus the user's input. A provider that typed the
- * request itself as bad is therefore refusing the conversation state, and will
- * refuse it identically on every later request against the same thread — the
- * definition of the permanent class. Every other member names a condition that
- * is not the history and must not condemn a binding: `contextWindowExceeded` and
- * `usageLimitExceeded` are ceilings, `serverOverloaded` and `internalServerError`
- * are the provider's own health, `unauthorized` is a credential, and
- * `threadRollbackFailed` is a different operation entirely.
+ * Reduces `error.data.codexErrorInfo` to the classifier's shape (message prose is never read).
+ * Only `badRequest` is structural; where a rejection carries the member is undocumented at the
+ * pin.
  */
 function readCodexProviderRefusalShape(
   providerErrorData: unknown,
@@ -5063,9 +2979,7 @@ function readCodexProviderRefusalShape(
     return undefined;
   }
   const codexErrorInfo = (providerErrorData as Record<string, unknown>)["codexErrorInfo"];
-  // The object-shaped arms of the enum are deliberately not narrowed further.
-  // They exist at the pin, none of them is the structural class, and a reader
-  // that unwrapped them would be narrowing arms it has no rule for.
+  // Object-shaped members are never the structural class.
   if (typeof codexErrorInfo !== "string") {
     return undefined;
   }
@@ -5077,20 +2991,7 @@ function readCodexProviderRefusalShape(
 /** The one `CodexErrorInfo` member that indicts the thread's own history. */
 const CODEX_STRUCTURAL_REFUSAL_ERROR_INFO = "badRequest";
 
-/**
- * One failed `turn/start`, normalized for the shared classifier.
- *
- * The delivery mapping is deliberately the SAME partition the band comment above
- * draws, and not the finer one the request seam's own `CodexRequestDelivery`
- * could supply. That seam can separate a
- * provably-unsent write from an indeterminate one, but this leg's ambiguous
- * class is documented as WIDE on purpose — `#assertWritable`'s already-closed
- * refusal is named there as a deliberate member, on the grounds that exempting
- * it would key the exemption on a call-site proxy rather than on the semantic
- * question. Producing `unsent` here would re-open exactly that exemption, so the
- * classifier is handed `indeterminate` for everything the provider did not
- * answer, and this leg's transient arm is reached through the reconcile instead.
- */
+/** One failed `turn/start` for the shared classifier; anything unanswered is `indeterminate`. */
 function observeCodexTurnStartFailure(cause: unknown): ProviderRequestFailureObservation {
   return cause instanceof CodexProviderRequestError
     ? {
@@ -5101,25 +3002,8 @@ function observeCodexTurnStartFailure(cause: unknown): ProviderRequestFailureObs
 }
 
 /**
- * Resolves the credential policy for the posture a RESUME is being established
- * under.
- *
- * Injected, asynchronous, and called PER SPAWN THAT STATES A POSTURE — on a
- * create exactly as on a resume, never at construction and never cached — so
- * the posture the request carries governs the child that request spawns, rather
- * than whichever policy happened to be in force when the session was first
- * created or was declared beside the posture in an untyped config bag.
- *
- * Handed the whole posture rather than the `credentialPolicyRef` inside it: this
- * driver reads no credential axis and expands no reference, which is the same
- * reason `#composeThreadEstablishmentLegs` forwards none. Called ONLY for a
- * posture whose `mode` is not `trusted`, and that is a fact of the type rather
- * than a convention — the trusted arm declares `credentialPolicyRef?: never`, so
- * there is nothing for a resolver to resolve.
- *
- * Answering `undefined` for a posture that carries a reference is a WIRING
- * FAULT, not a license to strip nothing: the spawn refuses rather than
- * launching the child unfiltered.
+ * Resolves the credential policy for the posture a spawn states, per spawn and never cached.
+ * `undefined` for a posture that carries a reference is a wiring fault: the spawn refuses.
  */
 export type CodexCredentialEnvPolicyResolver = (
   posture: ExecutionPosture,
@@ -5128,103 +3012,34 @@ export type CodexCredentialEnvPolicyResolver = (
 /** Construction inputs for the lifecycle manager. */
 export interface CodexLifecycleOptions extends CodexConnectionOptions {
   /**
-   * Spawn context for a RESUME when this process holds no record of the session
-   * (the daemon-restart case, which is the ordinary one), and for the auth
-   * probe, which holds no session at all.
-   *
-   * `ResumeSessionParams` carries neither `cwd` nor `env`, yet a spawn needs
-   * both — and an empty environment is not a safe default: the provider locates
-   * its credential home and its own tooling through environment variables, so a
-   * resume launched bare would fail in a way that looks like a bad handle. The
-   * resumed THREAD restores its own recorded working directory through
-   * `thread/resume`, so `cwd` here is the process's directory rather than the
-   * thread's. Required, never defaulted, so nothing is silently inherited from
-   * the daemon process (this module reads `process.env` nowhere).
-   *
-   * WHAT ITS `credentialEnvPolicy` GOVERNS, stated because this driver has three
-   * policy channels and conflating them is exactly how a stale policy reaches a
-   * child:
-   *
-   *   * a CREATE that states a posture takes
-   *     {@link CodexCredentialEnvPolicyResolver}'s answer for THAT posture, so
-   *     this member's policy is not what such a create spawns under either. A
-   *     create that states NO posture falls back to its own `params.config`
-   *     policy, an untyped bag validated through
-   *     {@link parseCodexSessionConfig} — which is what makes a malformed
-   *     `credentialEnvPolicy` a refusal rather than a strip that silently
-   *     removes nothing, and which is parsed on EVERY create whether or not a
-   *     posture then supersedes its answer;
-   *   * a RESUME that states a posture takes
-   *     {@link CodexCredentialEnvPolicyResolver}'s answer for THAT posture, so
-   *     this member's policy is never what such a resume spawns under. A resume
-   *     that states NO posture inherits its base context's own policy, where
-   *     inheriting is the conservative answer and widening would be the
-   *     fail-open one — and this member is that base context only on a COLD
-   *     resume; a LIVE one inherits from the record's own `spawnConfig`;
-   *   * the AUTH PROBE spawns under this member's policy directly. The probe is
-   *     posture-less by construction — it claims no session and answers a
-   *     node-level question — so this is the only policy it can have.
-   *
-   * PROVENANCE. This value is CONSTRUCTION-TIME and typed: the composition root
-   * supplies an already-resolved `CodexSessionConfig`, so it is validated by the
-   * type system rather than at a parse boundary. A future construction root that
-   * sources it from untyped input — configuration file, IPC payload, restored
-   * record — must pass it through {@link parseCodexSessionConfig} first;
-   * assigning an unvalidated bag here would put the deny strip's fail-closed
-   * behavior back at risk on the probe path, which is the one spawn path whose
-   * policy still comes from here and which has no other parse.
+   * Spawn context for a cold resume and the auth probe; required, since a bare environment hides
+   * the credential home and fails like a bad handle. Parse untyped input with
+   * `parseCodexSessionConfig`.
    */
   readonly resumeSpawnConfig: CodexSessionConfig;
   /**
-   * Answers a spawn's credential policy from the posture that spawn STATES —
-   * the create request's and the resume request's alike.
-   *
-   * REQUIRED, on the same reasoning as `onTextNeutralizationFailure` and
-   * `diagnostics` below. An optional arm would let a construction site that
-   * simply never bound it fall back to a manager-wide policy that cannot
-   * represent a per-session one — and a session whose posture tightened between
-   * create and resume would relaunch under the looser policy with nothing
-   * anywhere reporting it.
+   * Answers a spawn's credential policy from its posture. Required: a manager-wide fallback
+   * cannot represent a per-session policy and would relaunch a tightened posture unreported.
    */
   readonly resolveCredentialEnvPolicy: CodexCredentialEnvPolicyResolver;
   /** Mints `DriverResumeResult.bindingId`; supply the store's minter in the daemon. */
   readonly newBindingId?: (() => string) | undefined;
   /**
-   * Answers the routed server requests with session and run identity attached
-   * (leg 3). The manager wraps it per connection and OVERRIDES the
-   * transport-level `serverRequestResponder` with the wrapper, so a caller
-   * cannot accidentally bind an identity-less responder to a session whose asks
-   * need one.
+   * Answers routed server requests with session and run identity attached. The manager wraps it
+   * per connection and overrides the transport-level `serverRequestResponder` with the wrapper.
    */
   readonly answerServerRequest?: CodexSessionServerRequestResponder | undefined;
   /**
-   * This leg's declared text-neutrality parity grade.
-   *
-   * Defaults to `emulated`, the grade records. The grade is a behavioral
-   * INPUT rather than a label, and it is injected rather than derived from
-   * the driver's name so that a re-grade is a one-value change with no code
-   * path behind it.
-   *
-   * Worth stating plainly, because the measurement invites the opposite
-   * conclusion: this transport was probed at the pin and performs NO
-   * client-side command parsing (the pinned Codex wire census). The
-   * default is still `emulated`, because the spec's cell governs the code and
-   * an amendment governs the cell — not a driver that re-grades itself against
-   * a probe.
+   * This leg's declared text-neutrality parity grade, default `emulated`. Injected rather than
+   * derived from the driver's name; the default stays `emulated` although the transport was
+   * probed at the pin and does no client-side command parsing.
    */
   readonly textNeutralityMechanismGrade?: TextNeutralityMechanismGrade | undefined;
   /** Correlation minting for outbound text frames. Injectable for tests. */
   readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
   /**
-   * Receives the run terminal a text-neutralization tripwire trip produces.
-   * PRODUCER-ONLY: the driver states that the run failed and why, and the
-   * emission pipeline mints the envelope. The trip never raises a JSON-RPC
-   * error, so this is how the failure becomes visible.
-   *
-   * REQUIRED for the same reason `diagnostics` below is: this is the ONLY
-   * user-visible surface a trip has. An optional arm would let a construction
-   * site that simply never bound it swallow the run terminal, leaving a
-   * neutralized turn indistinguishable from a completed one.
+   * Receives the run terminal a tripwire trip produces (producer-only). Required: a trip raises no
+   * JSON-RPC error, so this is the only user-visible surface.
    */
   readonly onTextNeutralizationFailure: (
     sessionId: SessionId,
@@ -5232,119 +3047,52 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
     failure: TextNeutralizationRunFailure,
   ) => void;
   /**
-   * The daemon-wide diagnostic band.
-   *
-   * REQUIRED, and separate from `reportDiagnostic` on purpose: that sink is the
-   * TRANSPORT channel — malformed frames, dead connections, unrouted requests —
-   * while this one carries the POLICY facts the parity legs are obliged to
-   * surface, `subagent_definition_disabled` among them. A leg whose fail-closed
-   * record could be dropped because a sink was left unbound would be fail-closed
-   * in name only, so there is no optional arm here.
+   * The daemon-wide diagnostic band for policy facts such as `subagent_definition_disabled`;
+   * required, and separate from `reportDiagnostic`, the transport channel.
    */
   readonly diagnostics: DriverDiagnosticsEmitter;
   /**
-   * The daemon's own prior-emitted cumulative token sums for one thread, used
-   * to base a PROVIDER-NATIVE RESUME.
-   *
-   * Optional because the driver cannot rebuild it: the sums live in the
-   * canonical event record, which the daemon owns and this module never reads.
-   * Unbound, a resume bases at zero and the first post-resume reading re-meters
-   * the whole provider-session total — recorded as a diagnostic rather than
-   * left to be discovered on a receipt.
+   * The daemon's prior-emitted cumulative token sums for one thread, used to base a native resume.
+   * Optional because the sums live in the event record this module never reads; unbound, a resume
+   * bases at zero, re-meters the whole total once, and reports a diagnostic.
    */
   readonly readPriorEmittedUsage?:
     | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
     | undefined;
-  /**
-   * Receives each metered per-turn usage delta. PRODUCER-ONLY here: the driver
-   * states what was spent and the emission pipeline mints the `usage_telemetry`
-   * envelope, so no driver mints a session event.
-   */
+  /** Receives each metered per-turn usage delta; the emission pipeline mints the envelope. */
   readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
   /**
-   * Receives the `subagent.started` / `subagent.completed` pair for each
-   * provider-attributed child thread. PRODUCER-ONLY, and the child's ONLY
-   * timeline presence: a registered child's content and lifecycle frames are
-   * transcript-suppressed, so this pair survives the suppression rather than
-   * sharing it.
+   * Receives the `subagent.started` / `subagent.completed` pair per provider-attributed child
+   * thread; the child's only timeline presence.
    */
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
   /**
-   * Reads a replay target's turns back, as text, for the post-replay
-   * assertion.
-   *
-   * The SAME answer shape and the SAME key the memo floor's
-   * `MemoTargetGateway.readTurnsForMarkerReconciliation` is bound to, because
-   * both readers ask one provider one question and a second answer shape would
-   * be a second notion of what a target holds.
-   *
-   * UNBOUND AT THIS PIN, and that is a recorded residual rather than an
-   * oversight — the same posture `MemoTargetGateway` itself holds, which has no
-   * production binding either. The pinned wire reference documents this
-   * provider's INJECTION surface and documents no read that returns turn
-   * BODIES: `thread/resume` and `thread/fork` populate `Thread.turns`, and the
-   * shipped reader beside them takes turn IDS out of it, which is a position
-   * axis and not content. Inventing a method name here, or guessing at a field
-   * shape inside a turn, would put an ungrounded string on the wire and — worse
-   * — would let a guess that happened to read `undefined` become a passing
-   * assertion.
-   *
-   * Absent, `replayTranscript` REFUSES rather than confirming on the strength of
-   * the seeding calls' own return values, which is precisely the evidence says is
-   * worth nothing. A caller then settles on the memo floor and reports
-   * `degraded`, which is a supported outcome. Binding this is a composition-root
-   * edit, not a driver edit.
+   * Reads a replay target's turns back as text for the post-replay assertion (same shape as
+   * `MemoTargetGateway.readTurnsForMarkerReconciliation`). Unbound: the pinned Codex documents no
+   * read returning turn bodies, so `replayTranscript` abandons the target and refuses.
    */
   readonly transcriptReplayReadback?: ReplayTargetReadbackReader | undefined;
   /**
-   * Reads how many USER-ORIGINATED turns a thread holds, for the
-   * positional reconcile of an ambiguous `turn/start`.
-   *
-   * A sibling of `transcriptReplayReadback` rather than a reuse of it, because
-   * the two ask for different units: that reader answers with turn BODIES, which
-   * interleave the assistant turns the daemon's acknowledged set does not hold,
-   * so counting it would compare a provider-side total against a user-side
-   * one. The count this reader answers with is compared directly against
-   * `CodexSessionRecord.turnBoundaries`, which is appended once per ACCEPTED
-   * `turn/start` and seeded on resume from the thread's own turn list — so both
-   * sides count the same unit by construction.
-   *
-   * UNBOUND AT THIS PIN, and unbound is a settlement rather than a hole. The
-   * ambiguity then reports `unrecoverable`, which is the arm specifies: nothing
-   * is re-sent and the turn fails visibly — which is exactly the
-   * teardown-and-replay this leg already performs, so the default composition
-   * behaves identically to the shipped one. A composition root that can answer
-   * the count binds it and gets the narrower settlements; binding it is a
-   * composition-root edit, not a driver edit.
+   * Reads how many user-originated turns a thread holds, for the positional reconcile of an
+   * ambiguous `turn/start` against `turnBoundaries` (`transcriptReplayReadback` bodies include
+   * assistant turns). Unbound, the ambiguity reports `unrecoverable`: nothing is re-sent.
    */
   readonly userTurnReadback?: UserTurnReadbackReader | undefined;
 }
 
 /**
- * One inbound Codex notification as the thread-frame router sees it, with its
- * payload carried along.
- *
- * The payload rides the frame because a HELD frame must still be deliverable:
- * the router releases pending holds when the registration they were waiting for
- * lands, and a release that handed back only the routing members would have
- * shed the frame's content — which is the loss the pending hold exists to
- * prevent.
+ * One inbound Codex notification as the thread-frame router sees it; `params` rides along so a
+ * held frame still carries its content when its registration lands.
  */
 interface CodexRoutableFrame extends RoutableProviderFrame {
   readonly params: unknown;
 }
 
 /**
- * The router's bounds for a Codex session.
- *
- * The quarantine is a DIAGNOSTIC buffer and the hold is a delivery buffer, so
- * they are sized differently on purpose. The hold covers one race — child
- * traffic arriving ahead of its own `thread/started` — which is short and
- * narrow; the timeout is the outer bound on that race and is deliberately far
- * below any human-visible latency, because a frame held longer than this is not
- * racing a registration, it is naming a thread that will never be announced.
+ * The router's bounds. The hold covers one short race (child traffic ahead of its
+ * `thread/started`), so its timeout is far below any human-visible latency.
  */
 const CODEX_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig = Object.freeze({
   maxQuarantinedFrames: 64,
@@ -5353,44 +3101,17 @@ const CODEX_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig = Object.freeze(
 });
 
 /**
- * The compaction-wait key for one Codex binding — session AND thread identity.
- *
- * KEYING ON THE SESSION ALONE WAS THE DEFECT. This driver's thread identity
- * MOVES within one live session: a successful `forkConversation` forks a replacement
- * thread and re-points the record at it, and a superseding `resumeSession`
- * installs a whole new record on the same session id. A wait armed against the
- * predecessor and keyed only by session would survive both — settling `applied`
- * on a `thread/compacted` from the REPLACEMENT thread (a compaction the caller
- * never asked for, on a binding it is no longer talking to), or waiting out the
- * full declared bound for evidence that can no longer arrive when the honest
- * terminal is `binding_lost` at the moment of the swap.
- *
- * makes the wait bounded and TWICE-terminated — the declared bound and the
- * binding ceasing to be live — and a wait that outlives its binding has lost
- * the second terminal. Keying by the identity the wait was DISPATCHED under is
- * what restores it: every path that moves the identity releases the key it
- * moved away from, and a frame from the new thread composes a different key and
- * settles nobody.
- *
- * NUL-JOINED because both halves are opaque provider- or daemon-minted strings
- * and a plain separator could appear inside one; a NUL cannot, since every
- * bounded string on this leg rejects it.
+ * The compaction-wait key: session and thread together, since a fork or superseding resume moves
+ * the thread and a session-only key would settle on the replacement's `thread/compacted`.
+ * NUL-joined because every bounded string on this leg rejects NUL.
  */
 function codexCompactionWaitKey(sessionId: SessionId, threadId: string): string {
   return `${sessionId}\u0000${threadId}`;
 }
 
 /**
- * Read the thread identity a Codex frame carries.
- *
- * TOTAL and NON-THROWING: this runs inside the transport's `#ingest` drain, so
- * a throw here would unwind the read-chunk loop and take unrelated frames down
- * with it. An unreadable identity is `null`, which the router refuses
- * fail-closed on a thread-scoped family — the correct disposition for a frame
- * whose own shape did not say whose stream it came from.
- *
- * `thread/started` is read from its `Thread` body; every other thread-scoped
- * family carries the identity at the top level of `params`.
+ * Reads the thread identity a Codex frame carries, or `null` when unreadable (the router refuses
+ * that fail-closed). Never throws: it runs inside the transport's `#ingest` drain.
  */
 function readCodexFrameThreadId(method: string, params: unknown): string | null {
   const payload = isPlainObject(params) ? params : {};
@@ -5404,13 +3125,8 @@ function readCodexFrameThreadId(method: string, params: unknown): string | null 
 }
 
 /**
- * Read a `thread/started` notification's child announcement, or `null` when the
- * frame does not describe a child.
- *
- * Non-throwing for the same reason as {@link readCodexFrameThreadId}. A frame
- * naming no parent is not a child announcement at all — the router would refuse
- * the registration anyway, and dispatching one would spend a diagnostic on a
- * frame that is simply the session's own thread starting.
+ * Reads a `thread/started` child announcement, or `null` when the frame names no parent (the
+ * session's own thread starting). Never throws, like {@link readCodexFrameThreadId}.
  */
 function readCodexChildThreadAnnouncement(params: unknown): ChildThreadAnnouncement | null {
   const payload = isPlainObject(params) ? params : {};
@@ -5432,14 +3148,8 @@ function readCodexChildThreadAnnouncement(params: unknown): ChildThreadAnnouncem
 }
 
 /**
- * Read one `thread/tokenUsage/updated` frame into a cumulative usage reading.
- *
- * Returns `null` where the frame carries no usable thread identity or no
- * breakdown at all; a reading with SOME axes present is admitted, because the
- * accountant meters per axis and refusing the whole frame for one missing
- * member would drop spend the provider did report. Non-finite and unknown
- * members are the accountant's to refuse, not this reader's — one filter, in
- * one place.
+ * Reads a `thread/tokenUsage/updated` frame into a cumulative reading, or `null` without a usable
+ * thread identity or breakdown. Partial axes are admitted; the accountant refuses non-finite ones.
  */
 function readCodexCumulativeUsageReading(params: unknown): CumulativeUsageReading | null {
   const payload = isPlainObject(params) ? params : {};
@@ -5448,14 +3158,8 @@ function readCodexCumulativeUsageReading(params: unknown): CumulativeUsageReadin
     return null;
   }
   const turnId = payload["turnId"];
-  // `tokenUsage` is the container's PINNED member name, not a guess and not an
-  // alias set: the generated `ThreadTokenUsageUpdatedNotification` is
-  // `{ threadId, turnId, tokenUsage: ThreadTokenUsage }`, and `ThreadTokenUsage`
-  // carries the required `total` (cumulative) beside the required `last`
-  // (declared per-turn). No second spelling is accepted — a tolerated alias
-  // that no source attests would turn a future wire rename from a recorded
-  // rejection into a silent metering stop, which is the failure this whole
-  // band exists to prevent.
+  // `tokenUsage` is the wire's member name (`total` cumulative, `last` per-turn); no alias is
+  // accepted, so a wire rename cannot become a silent metering stop.
   const tokenUsage = payload["tokenUsage"];
   if (!isPlainObject(tokenUsage)) {
     return null;
@@ -5474,12 +3178,8 @@ function readCodexCumulativeUsageReading(params: unknown): CumulativeUsageReadin
 }
 
 /**
- * Map one Codex `TokenUsageBreakdown` onto the accountant's axis vocabulary.
- *
- * `null` for a value that is not an object at all. Members are copied only when
- * the wire carries a number, so an absent axis stays absent rather than
- * becoming a zero — a fabricated zero would meter a negative delta on the next
- * reading and trip the floor arm for a member the provider never reported.
+ * Maps one Codex `TokenUsageBreakdown` onto the accountant's axes, or `null` for a non-object.
+ * Absent axes stay absent: a fabricated zero would meter a negative delta on the next reading.
  */
 function readCodexTokenBreakdown(value: unknown): CumulativeAxisReadings | null {
   if (!isPlainObject(value)) {
@@ -5503,12 +3203,7 @@ function readCodexTokenBreakdown(value: unknown): CumulativeAxisReadings | null 
   return Object.keys(readings).length === 0 ? null : (readings as CumulativeAxisReadings);
 }
 
-/**
- * Whether a `turn/completed` frame's `turn.status` ends the turn.
- *
- * Shared by the route-retirement path and the child-completion path so the two
- * cannot disagree about what a finished turn is.
- */
+/** Whether a `turn/completed` status ends the turn, by the set route retirement also uses. */
 function readCodexTerminalTurnStatus(params: unknown): boolean {
   const payload = isPlainObject(params) ? params : {};
   const turn = isPlainObject(payload["turn"]) ? payload["turn"] : {};
@@ -5516,128 +3211,49 @@ function readCodexTerminalTurnStatus(params: unknown): boolean {
   return typeof status === "string" && CODEX_TERMINAL_TURN_STATUSES.has(status);
 }
 
-/**
- * The five lifecycle operations of expressed as Codex `app-server` calls over
- * one connection per session.
- */
+/** Lifecycle operations as Codex `app-server` calls, one connection per session. */
 export class CodexLifecycleManager {
   readonly #options: CodexLifecycleOptions;
   readonly #newBindingId: () => string;
   readonly #turnStartTimeoutMs: number;
-  // The writer is the ONLY composer of provider-bound text bytes on this leg —
-  // both `turn/start` and `turn/steer` take their input element from a frame it
-  // minted, and neither can build one itself. The tripwire correlates each
-  // written frame with the turn that settles it; the quarantine holds bindings
-  // a trip disposed.
   readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #runtimeBindingQuarantine = new RuntimeBindingQuarantine();
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
-  /**
-   * Replay targets this manager has burned.
-   *
-   * Keyed by PROVIDER session id rather than by canonical session id, because
-   * the rule it enforces is about the provider-side conversation: the record has
-   * to outlive the disposal of the daemon-side session, and a caller reaching a
-   * burned target does so through the `ProviderSessionHandle` it still holds.
-   */
+  /** Burned replay targets by provider session id; they outlive the daemon-side session. */
   readonly #replayTargets: ReplayTargetLedger = new ReplayTargetLedger();
   /**
-   * Settles an ambiguous `turn/start` positionally before anything else touches
-   * the thread.
-   *
-   * Constructed unconditionally rather than lazily beside a bound reader, so the
-   * routing has one shape: an unbound reconciler answers `unrecoverable`, which
-   * is a specified settlement, and a nullable field would put an
-   * `if (reconciler !== undefined)` in the one path whose whole job is to be
-   * exhaustive over the settlements.
-   *
-   * The serialization it provides buys one thing exactly: it orders two
-   * RECONCILES against one thread, and keeps a single reconcile's read and
-   * ruling atomic against each other. That much is load-bearing rather than a
-   * precaution — `startRun`'s own frame-scoping comment records that nothing
-   * serializes two starts for one run, so the read and the disposal decision
-   * that follows it would otherwise sit open across an `await` a second
-   * reconcile can run inside.
-   *
-   * It does NOT order a concurrent SUCCESSFUL start, which takes no lock here
-   * and can append a turn boundary between the acknowledged count and the
-   * provider read. That residual is recorded rather than guarded because it is
-   * one-sided: an extra accepted turn can only inflate the read, and an inflated
-   * read can only settle `delivered` — dispose the session, fail the run
-   * visibly, re-send nothing. It cannot produce `cleared-for-retry`, which is
-   * the only settlement a re-dispatch follows.
+   * Settles an ambiguous `turn/start` positionally; its per-thread serialization keeps one
+   * reconcile's read and ruling atomic. A concurrent successful start can only inflate the read,
+   * which can only settle `delivered` (re-sends nothing), never `cleared-for-retry`.
    */
   readonly #ambiguousDeliveryReconciler: AmbiguousDeliveryReconciler;
-  // The intended-close producer half. One gate per session, latched at the top of
-  // `closeSession`; the terminal-emission boundary in `event-normalizer.ts` is
-  // the CONSUMER that stamps the flag on the terminal payload, because that is
-  // the module that owns the terminal frame.
-  //
-  // Keyed beside the record map rather than carried on `CodexSessionRecord`:
-  // the intent must be recordable while the slot is ESTABLISHING or CLOSING —
-  // states that hold no installed record — and a close arriving during an
-  // establishment is exactly the case where mis-reading a clean shutdown as a
-  // crash would be most misleading.
+  // The intended-close producer: one gate per session, latched at the top of `closeSession`, which
+  // `event-normalizer.ts` stamps on the terminal payload. Keyed beside the record map because a
+  // close during establishment holds no installed record.
   readonly #terminalEmissionGates = new Map<SessionId, CodexTerminalEmissionGate>();
-  // Child-routing and usage-delta band, one instance of each per provider
-  // session and held for that session's lifetime — the state describes as
-  // driver-session state, so it is constructed here rather than composed from
-  // outside. Keyed beside the record map for the same reason the gate is: a
-  // frame can arrive while the slot is still ESTABLISHING, and a router that
-  // did not exist yet would shed it.
+  // One router and one usage accountant per provider session, keyed beside the record map: a frame
+  // can arrive while the slot is establishing, before a record exists.
   readonly #frameRouters = new Map<SessionId, ThreadFrameRouter<CodexRoutableFrame>>();
   readonly #usageAccountants = new Map<SessionId, UsageDeltaAccountant>();
-  // The correlation between a dispatched compaction and the typed frame that
-  // proves it landed. Manager-scoped and keyed by session id rather than one
-  // registry per record, so a wait armed against a session that is torn down
-  // mid-flight is settled by the disposal path itself instead of outliving the
-  // record it was armed on.
+  // Manager-scoped so disposal settles a compaction wait armed against a torn-down session.
   readonly #pendingCompactions: PendingCompactionRegistry;
-  // The live command enumeration held per session — driver-session state, NEVER
-  // a stored registry. Held UNCAPPED: the cap is a wire-and-render bound
-  // applied when a result is composed, so a truncated read can never make a
-  // command the provider published unreachable to the driver's own presence
-  // checks. Discarded on `skills/changed` so the next read is a FULL re-read
-  // rather than a patch, and discarded with the session so a new session never
-  // answers with the previous one's skills.
+  // Live command enumeration per session, held uncapped: the cap applies when a result is
+  // composed. Discarded on `skills/changed` and with the session.
   readonly #providerCommandEnumerations = new Map<SessionId, readonly ProviderCommandEntry[]>();
-  // The invalidation EPOCH each held enumeration was read under — the half that
-  // makes the invalidation race-free. `skills/changed` can land while a
-  // `skills/list` is in flight, and discarding a list that is not there yet
-  // discards nothing: the continuation would then store a reading taken BEFORE
-  // the change and hold it until the next invalidation, which for an idle skill
-  // tree is forever. A reader captures the epoch beside its cache miss and
-  // stores only if the epoch it captured is still current.
-  //
-  // OPAQUE TOKENS RATHER THAN A COUNTER, because a counter needs a starting
-  // value and a session id can be reused: a fresh session whose counter reset
-  // to the value an in-flight read captured under its predecessor would admit
-  // exactly the stale store this exists to reject. A symbol is equal to nothing
-  // but itself.
+  // The invalidation epoch each held enumeration was read under: a `skills/list` in flight during
+  // `skills/changed` would otherwise store a pre-change listing. Symbols, not a counter, since a
+  // reused session id could match a reset counter.
   readonly #providerCommandEnumerationEpochs = new Map<SessionId, symbol>();
   readonly #sessionIdByRunId = new Map<RunId, SessionId>();
-  /**
-   * Session ids with a lifecycle transition in flight, mapped to its kind and a
-   * rejection-swallowed view of its settlement.
-   *
-   * ONE mechanism for both directions, which is the correction. An earlier shape
-   * tracked establishments only, and that left teardown unguarded: `closeSession`
-   * deleted the record and THEN awaited an unsubscribe and a process close, so
-   * for the length of those awaits the slot read as empty while the child was
-   * still exiting — and a create could admit a second process beside it. The rule
-   * is now symmetric and has no direction in it: a slot is held from the first
-   * synchronous instant of a transition until that transition has fully settled.
-   */
+  /** In-flight create, resume, fork or close per session, held until it fully settles. */
   readonly #sessionTransitions = new Map<SessionId, CodexSessionTransition>();
 
   constructor(options: CodexLifecycleOptions) {
     this.#options = options;
     this.#newBindingId = options.newBindingId ?? mintUuidV7;
     this.#turnStartTimeoutMs = options.turnStartTimeoutMs ?? DEFAULT_TURN_START_TIMEOUT_MS;
-    // Fed the SAME injected scheduler the transport's own deadlines use, so a
-    // harness that drives one drives both and a compaction expiry is observable
-    // without waiting out a real declared bound.
+    // The same injected scheduler as the transport's deadlines.
     this.#pendingCompactions = new PendingCompactionRegistry(
       options.scheduleTimeout ?? defaultScheduleTimeout,
     );
@@ -5646,16 +3262,8 @@ export class CodexLifecycleManager {
       mechanismGrade: options.textNeutralityMechanismGrade ?? "emulated",
       mintCorrelationId: options.mintOutboundFrameCorrelationId,
     });
-    // Constructed here rather than as a field initializer because the predicate
-    // reads two fields declared after it, and a field initializer that captured
-    // them would depend on declaration order to be correct.
-    //
-    // A session is retired once this manager no longer holds its record — the
-    // teardown and supersede paths delete it — or once a trip has quarantined
-    // the binding. Either way no turn on it can ever settle, so the frames it
-    // left pending are owed no ruling and are pure occupancy. This is the only
-    // reclamation the tripwire performs, and it is consulted only when a write
-    // would otherwise be refused.
+    // Built here because the predicate reads later-declared fields. A retired session's pending
+    // frames are pure occupancy, reclaimed only when a write would otherwise be refused.
     this.#outboundFrameTripwire = new OutboundFrameTripwire({
       isScopeRetired: (scopeKey: string): boolean =>
         !this.#sessions.has(scopeKey as SessionId) ||
@@ -5664,34 +3272,15 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Composes the one provider-bound text frame for a run's opening
-   * turn, and registers it with the tripwire under the run id.
+   * Composes and registers the run's opening text frame before any byte is written: text the
+   * tripwire cannot watch must not be sent, or a turn settling against no frame would pass.
    *
-   * Registered under the RUN id and re-keyed to the turn id the moment the
-   * provider names one, because the correlation has to exist before the write:
-   * a turn that settles the instant the text lands would otherwise settle
-   * against nothing and let a swallow through. `startRun`'s own failure path
-   * drops THIS frame's registration — and only this frame's — on every path
-   * where no turn will ever settle it.
-   *
-   * A REFUSED registration aborts the run before any byte is written, and that
-   * ordering is the point: the frame is composed, offered to the tripwire, and
-   * only then handed to `turn/start`. A caller must not send provider-bound
-   * text the tripwire cannot watch, because a turn that settles against no
-   * correlated frame passes — so taking the write anyway would convert this
-   * session's backlog into a silent swallow on the very next turn.
-   *
-   * @throws {OutboundFrameCapacityRefusedError} when this session is holding
-   *   more unsettled frames than the tripwire will watch.
+   * @throws {OutboundFrameCapacityRefusedError} when the session holds more unsettled frames than
+   *   the tripwire will watch.
    */
   #composeRunOpeningFrame(params: StartRunParams, runConfig: CodexRunConfig): OutboundTextFrame {
-    // The origin is MINTED here from a literal rather than carried in from the
-    // caller's config bag. A run's opening text is the user's message by
-    // construction on this path, and the arm a caller could otherwise have named
-    // — `driver_command` — is the one that skips neutralization and exempts the
-    // turn from the tripwire, so leaving it nameable through an untyped record
-    // would put both halves of the hazard in a caller's hands. `parseCodexRunConfig`
-    // refuses a declared origin; this is where the true one is stated.
+    // A literal, not read from the caller's config: `driver_command` skips neutralization and the
+    // tripwire, so it must not be nameable through an untyped record.
     const frame = this.#outboundTextFrameWriter.compose({
       text: runConfig.input,
       origin: RUN_OPENING_FRAME_ORIGIN,
@@ -5707,17 +3296,8 @@ export class CodexLifecycleManager {
 
   /** Spawns a process and starts a fresh Codex thread. */
   async createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
-    // Refused BEFORE anything is spawned, so a mis-sequenced caller costs no
-    // process. See `CodexSessionAlreadyLiveError` for why replacing is wrong.
-    //
-    // The check reads EVERY view of the slot, and there is no `await` between
-    // this read and the claim below. A create that tested only `#sessions` would
-    // be a synchronous guard in front of two suspensions: two overlapping creates
-    // for one session id would both pass it, both spawn, and the later install
-    // would orphan the earlier process with nothing holding a reference to close
-    // it. A `closing` holder refuses for the same reason and not a weaker one —
-    // the child of a session mid-teardown is still alive, and still this
-    // manager's to dispose.
+    // Refused before anything is spawned, reading every view of the slot with no `await` before
+    // the claim: overlapping creates would orphan a process. A `closing` holder refuses too.
     const holderState = this.#describeSlotHolder(params.sessionId);
     if (holderState !== undefined) {
       throw new CodexSessionAlreadyLiveError(params.sessionId, holderState);
@@ -5730,33 +3310,21 @@ export class CodexLifecycleManager {
   }
 
   async #establishCreatedSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
-    // Composed — and therefore REFUSED — before the connection object exists, so
-    // a posture this manager cannot resolve costs no process. The resume path
-    // composes inside its own `try` because owes it a typed `failed` result;
-    // `createSession` has no result type to refuse into, so its refusal is the
-    // same typed `CodexDriverConfigError` its config parse already raises.
+    // Composed before the connection exists, so an unresolvable posture costs no process. Create
+    // has no result type, so it raises the same `CodexDriverConfigError` as its config parse.
     const config = await this.#composeCreateSpawnConfig(params);
     const connection = new CodexAppServerConnection(this.#connectionOptionsFor(params.sessionId));
     try {
-      // Inside the guard: `open()` tears its own process down on the paths it
-      // owns, but a caller-supplied subscriber that throws is not one of them,
-      // and `close()` is idempotent, so guarding here costs nothing and closes
-      // the window.
+      // Inside the guard: `open()` tears down only the paths it owns, not a throwing
+      // caller-supplied subscriber, and `close()` is idempotent.
       await connection.open(config);
       const response = await connection.request("thread/start", {
         cwd: config.cwd,
-        // Legs 5 and 4. Spread rather than always-present: a session with no
-        // declared posture must not be given one by this driver, because
-        // inventing `read-only` would refuse tool calls the daemon admitted and
-        // inventing `danger-full-access` would grant what it did not.
+        // Spread so a session with no declared posture gets none: an invented posture would refuse
+        // admitted tool calls or grant what was not.
         ...this.#composeThreadEstablishmentLegs(params.executionPosture, params.subagentPolicy),
-        // Pinned as defense in depth so no config or profile override can select
-        // an auto-review path that bypasses the daemon's approval pipeline.
-        // `ThreadStartParams` carries this field (verified against the pinned
-        // binary's own generated schema at `codex-cli 0.150.1`, regenerated
-        // 2026-08-28 — the pinned Codex wire census), so the pin is
-        // accepted rather than an unknown-field risk. It is NOT sufficient on its
-        // own: see the per-turn pin in `startRun`.
+        // Defense in depth: no config or profile override may select an auto-review path that
+        // bypasses the approval pipeline. The per-turn pin in `#requestTurnStart` is needed too.
         approvalsReviewer: "user",
       });
       const thread = readThread(response, "thread/start");
@@ -5777,46 +3345,27 @@ export class CodexLifecycleManager {
         inFlightSteers: 0,
         interruptedRunIdByTurnId: new Map(),
       });
-      // The quarantine names a BINDING, not an identifier: a fresh process now
-      // answers for this session id, so the refusal a prior trip installed is
-      // released here rather than outliving the process it condemned.
+      // A fresh process now answers for this session id, so a prior trip's refusal is released.
       this.#runtimeBindingQuarantine.releaseSession(params.sessionId);
-      // A daemon-created thread bases at ZERO and meters its first reading in
-      // full: the provider's counter starts at zero, replay seeding spends
-      // nothing, and the first turn's large input is real billed spend.
+      // Bases at zero: the provider's counter starts there, so the first turn is real spend.
       this.#bindSessionThread(params.sessionId, thread.id, { mode: "fresh" });
-      // `id` is the resume key; `sessionId` groups a thread tree (fork/subagent
-      // threads share it), so the two are NOT interchangeable.
+      // `id` is the resume key; `sessionId` groups a thread tree (fork and subagent threads share
+      // it), so the two are not interchangeable.
       return { providerSessionId: thread.sessionId, resumeHandle: thread.id };
     } catch (cause) {
-      // Contained, not bare. `close()` can throw a caller-supplied disposer's
-      // fault, and a bare `await connection.close()` here let that fault escape
-      // BEFORE the rethrow — so a spawn or handshake failure was replaced by a
-      // teardown artifact and the actionable cause was lost. Same reasoning as
-      // the resume path, which has always contained it.
+      // Contained so a throwing disposer in `close()` cannot replace the spawn or handshake error.
       await this.#releaseAbandonedConnection(connection);
       throw cause;
     }
   }
 
   /**
-   * Resumes an existing Codex thread from its provider-owned handle.
-   *
-   * Every failure path returns the typed `failed` result. This method calls no
-   * session-creating operation, and the process it spawns is bound to
-   * `thread/resume` alone — a failed resume tears that process down and reports,
-   * it never converts into a fresh thread.
+   * Resumes an existing Codex thread from its provider-owned handle. Every failure tears its
+   * process down and returns the typed `failed` result; it never falls back to a fresh thread.
    */
   async resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
-    // Resume CLAIMS the slot rather than refusing a held one, which is a
-    // deliberate divergence from the Claude leg (which refuses): this driver
-    // supersedes a live leg on resume and releases it explicitly, so serializing
-    // behind the holder is what makes that release reachable. A resume that read
-    // the slot as empty mid-establishment would find `existing === undefined`,
-    // install over the winner, and orphan its process. The same chaining carries
-    // it behind a `closing` holder, where the correct behavior is likewise to
-    // wait rather than refuse: once that teardown settles there is simply nothing
-    // to supersede, and the resume establishes cleanly.
+    // Claims the slot rather than refusing a held one (unlike the Claude leg): this driver
+    // supersedes a live leg on resume, which serializing behind the holder makes reachable.
     return await this.#claimSessionSlot(
       params.sessionId,
       "establishing",
@@ -5825,28 +3374,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Builds the spawn context a create launches under.
-   *
-   * THREE SOURCES, split exactly as `#composeResumeSpawnConfig` splits them. The
-   * PROCESS CONTEXT — `cwd` and `env` — is the create request's own, parsed
-   * fail-closed out of its untyped `params.config`. The CREDENTIAL POLICY is
-   * posture-derived, and that binding is what this method exists for: the bag
-   * and the posture are two channels making one claim, and before they were
-   * joined a `CreateSessionParams` carrying a sandboxed posture whose bag simply
-   * omitted `credentialEnvPolicy` opened its child with nothing stripped — the
-   * silence read as "deny nothing" even though the posture required a policy.
-   * The PROVIDER ACCOUNT is a third channel pair on the same shape — the typed
-   * `params.providerAccountId` beside the bag's legacy member — reconciled by
-   * {@link resolveBoundProviderAccountId} rather than read from the bag alone.
-   *
-   * The parse runs on EVERY create, whether or not the posture then supersedes
-   * its answer, because a malformed policy must stay a refusal rather than
-   * becoming dead input the posture happens to overwrite.
-   *
-   * Constructed member-by-member rather than spread-then-override for the reason
-   * the resume path states: a spread carries the bag's `credentialEnvPolicy`
-   * through whenever the posture resolves to none, which is precisely the
-   * unwanted-policy path this binding closes.
+   * `cwd` and `env` come from the untyped `params.config`, parsed fail-closed on every create; the
+   * credential policy is posture-derived. Members are built one by one, never spread, so a policy
+   * the posture resolved away is not carried through.
    */
   async #composeCreateSpawnConfig(params: CreateSessionParams): Promise<CodexSessionConfig> {
     const declared = parseCodexSessionConfig(params.config);
@@ -5855,12 +3385,8 @@ export class CodexLifecycleManager {
       params.executionPosture,
       "CreateSessionParams.executionPosture.credentialPolicyRef",
     );
-    // A property of THIS spawn — which credential home the child was pinned to
-    // — and the enumeration reads it back off the record. TWO channels can name
-    // it and the TYPED one governs: reading only the untyped bag would let a
-    // caller following the typed contract spawn against the node's default with
-    // nothing reporting the substitution, which is the silent re-bill exists to
-    // close.
+    // The typed and config channels can both name the credential home; the typed one is checked
+    // against the other, so a typed caller cannot silently spawn against the node default.
     const providerAccountId = resolveBoundProviderAccountId({
       requested: params.providerAccountId,
       requestedField: "CreateSessionParams.providerAccountId",
@@ -5870,40 +3396,15 @@ export class CodexLifecycleManager {
     return {
       cwd: declared.cwd,
       env: declared.env,
-      // Rebuilt explicitly like every other member rather than spread, so a
-      // member added to the read-shape is a deliberate decision here and not an
-      // accident of a spread.
       ...(providerAccountId === undefined ? {} : { providerAccountId }),
       ...(credentialEnvPolicy === undefined ? {} : { credentialEnvPolicy }),
     };
   }
 
   /**
-   * Builds the spawn context a resume relaunches under.
-   *
-   * THREE SOURCES, deliberately split, because they answer different questions.
-   * The PROCESS CONTEXT — `cwd` and `env` — is not posture-derived: it says
-   * where the provider binary runs and how it finds its credential home, and a
-   * live record's own context is the better answer than the manager-wide
-   * default because it is the context this session was actually established in.
-   * The CREDENTIAL POLICY is entirely posture-derived, and inheriting it is the
-   * bug this split exists to close: a session created under a `trusted` posture
-   * and resumed under a sandboxed one would otherwise relaunch with the
-   * unfiltered environment it was created with, and the reverse — sandboxed
-   * create, `trusted` resume — would keep stripping names the current posture
-   * denies nothing about. The PROVIDER ACCOUNT is neither: it is the identity
-   * the daemon ADMITTED this run against, so the request's own typed member
-   * governs which CLAIM wins — see {@link resolveBoundProviderAccountId} for
-   * that precedence. It does not govern what is REPORTED: the account bound is
-   * always the one the process context's credential environment was constructed
-   * for, and a typed member naming any other refuses. Identity and environment
-   * can reach this composer from two different requests, and the one thing they
-   * may never do is diverge.
-   *
-   * Constructed member-by-member rather than spread-then-override for the same
-   * reason: a spread carries the base's `credentialEnvPolicy` through whenever
-   * the posture resolves to none, which is precisely the stale-policy path.
-   * Nothing here is inherited that was not named here.
+   * `cwd` and `env` come from the live record's spawn config, else the manager default; the
+   * credential policy is entirely posture-derived, since inheriting it would relaunch a session
+   * created `trusted` and resumed sandboxed unfiltered. Members are built one by one, never spread.
    */
   async #composeResumeSpawnConfig(
     existing: CodexSessionRecord | undefined,
@@ -5915,61 +3416,17 @@ export class CodexLifecycleManager {
       params.executionPosture,
       "ResumeSessionParams.executionPosture.credentialPolicyRef",
     );
-    // The policy is re-derived from the posture the resume states because a
-    // posture change must reach the child; the account is the credential home
-    // this leg is pinned to for its lifetime, so a resume re-realizes the same
-    // one. A resume that silently moved to a different account would re-key the
-    // receipt's per-paying-account axis mid-session.
-    //
-    // THE RECORD IS THE ONLY COMPETING CLAIM AT THIS CALL, and splitting it back
-    // out of `processContext` is the whole point: `existing.spawnConfig` is what
-    // THIS session's live process is actually running under, so a typed member
-    // that contradicts it is two resolvers disagreeing and refuses. What this
-    // call CANNOT answer is whether the winning claim is one the available
-    // credential environment can honor — that is the gate below.
+    // Re-derived so a posture change reaches the child. The account is pinned for the leg's
+    // lifetime, so a typed member contradicting the live record refuses.
     const requestedAccountId = resolveBoundProviderAccountId({
       requested: params.providerAccountId,
       requestedField: "ResumeSessionParams.providerAccountId",
       recorded: existing?.spawnConfig.providerAccountId,
       recordedField: "the live session record's own spawn config",
     });
-    // THE MEMBER REPORTED IS THE ACCOUNT WHOSE CREDENTIAL ENVIRONMENT THIS SPAWN
-    // ACTUALLY RUNS UNDER. That is the whole invariant, and it is read off
-    // `processContext` rather than reassembled because `processContext` IS the
-    // config supplying `cwd` and `env` below: on a warm resume the live record's,
-    // on a cold one the node-wide default's. Its own account member is therefore
-    // definitionally the account the environment was CONSTRUCTED for, and no
-    // second expression can drift from it.
-    //
-    // WHY A MISMATCH REFUSES INSTEAD OF PREFERRING THE TYPED MEMBER. This driver
-    // never locates credentials — the daemon hands it a constructed environment
-    // and it spawns with it — so it cannot build any other account's.
-    //
-    // REFUSAL IS THE FAIL-CLOSED FLOOR, NOT THE RECOVERY STORY. The rebind a
-    // restarted daemon actually wants — relaunching under an environment
-    // CONSTRUCTED for the durable admitted account — happens above this seam:
-    // account resolution and credential-home construction are the account
-    // plane's (consumed one-way), and a daemon that supplies this manager a
-    // resume spawn config built for the recorded account passes this gate
-    // untouched, requested and environment account then being equal by
-    // construction. Until an environment for that account exists on this
-    // node, the refusal below is the fail-closed arm of rule that obligation
-    // consumes, surfaced as a typed failed DriverResumeResult — it leaves
-    // re-admission open and forecloses only the spawn that bills elsewhere.
-    //
-    // AN UNBOUND ENVIRONMENT ACCOUNT IS A MISMATCH, NOT A WILDCARD, on BOTH arms.
-    // An environment built for no bound account is an ambient one; it does not
-    // become the requested account's environment by virtue of naming no other.
-    // Reading absence as agreement is the tempting shortcut and the one that
-    // reopens the hole, since every resume could then claim any account it liked.
-    //
-    // ONE GATE RATHER THAN TWO, because the two arms differ only in WHERE the
-    // environment came from and not in what makes a mismatch wrong. The cold arm
-    // reaches it whenever the request names an account the node default's
-    // environment was not built for; the warm arm reaches it only where the live
-    // record bound NO account while the request names one — a record and a
-    // durable record disagreeing about one session — because a warm record that
-    // names a DIFFERENT account has already refused inside the resolver above.
+    // A mismatch (an unbound environment account counts) refuses: this driver is handed a built
+    // credential environment and cannot build another account's. Rebinding to the admitted account
+    // happens above this seam, which supplies a resume spawn config built for it.
     const environmentAccountId = processContext.providerAccountId;
     if (requestedAccountId !== undefined && requestedAccountId !== environmentAccountId) {
       const environmentSource =
@@ -5981,10 +3438,6 @@ export class CodexLifecycleManager {
         "ResumeSessionParams.providerAccountId",
       );
     }
-    // Named from the ENVIRONMENT rather than from the request even though the
-    // gate has just proven them equal wherever the request named one: binding the
-    // environment's account is what keeps the invariant true by construction
-    // rather than by an argument a later edit could quietly invalidate.
     const providerAccountId = environmentAccountId;
     return {
       cwd: processContext.cwd,
@@ -5995,42 +3448,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Answers which credential policy a spawned child is filtered by.
-   *
-   * ONE RULE, TWO CALLERS — the create composer and the resume composer both
-   * reach it, and that sharing is the contract rather than a convenience. A
-   * sibling copy on the create path is how the two spawn paths came apart in the
-   * first place: a resume that re-derived and a create that read only its config
-   * bag disagreed about the same session, and the disagreement was invisible
-   * because each path was locally consistent. A future third spawn path inherits
-   * the rule by calling this, or it is a fourth answer to a settled question.
-   *
-   * THREE ARMS, each derived from what `ExecutionPosture` can actually say
-   * rather than from a convention:
-   *
-   *   * NO POSTURE STATED. The request declares nothing, so there is no posture
-   *     to derive from and the policy its own context declared stands — the
-   *     resume's base process context, the create's parsed config bag.
-   *     Inheriting is the conservative arm; the alternative, resolving to
-   *     nothing, would WIDEN an unfiltered child out of a caller's silence.
-   *   * `trusted`. The arm types `credentialPolicyRef?: never`, so the posture is
-   *     a positive statement that nothing is denied, and a policy sitting beside
-   *     it in the context is a wiring inconsistency rather than a stricter grant
-   *     the posture made. Dropped rather than honored, on BOTH paths, for the
-   *     symmetry this helper exists to hold: honoring it on create while the
-   *     resume drops it would rebuild the very asymmetry being closed, mirror
-   *     imaged — one session stripping on create and not on relaunch. The
-   *     posture a request states is the authority; neither the session's history
-   *     nor an untyped bag beside it is.
-   *   * SANDBOXED. Both remaining arms REQUIRE `credentialPolicyRef`, so a
-   *     resolution is owed and an absent one is a wiring fault. Refused rather
-   *     than degraded to "deny nothing", which would spawn the child holding
-   *     exactly the credentials the reference exists to withhold — the same
-   *     fail-closed rule {@link parseCodexSessionConfig} applies to a malformed
-   *     policy in a config bag.
-   *
-   * `postureRefusalField` is the caller's own parameter path, passed rather than
-   * fixed here so the refusal names the request the operator actually sent.
+   * Answers which credential policy filters a spawned child; create and resume both call it, and a
+   * new spawn path must too. No posture keeps the declared policy, `trusted` drops it, and an
+   * unresolved sandboxed reference is refused rather than degraded to "deny nothing".
    */
   async #resolveCredentialEnvPolicyForPosture(
     declaredPolicy: CredentialEnvPolicy | undefined,
@@ -6054,43 +3474,26 @@ export class CodexLifecycleManager {
   }
 
   async #establishResumedSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
-    // Read INSIDE the claimed establishment, never at the call site: the claim
-    // chains behind any predecessor, so this read must happen after that
-    // predecessor has installed its record for the supersede to see it.
+    // Read inside the claimed establishment, after any predecessor installed its record.
     const existing = this.#sessions.get(params.sessionId);
     const connection = new CodexAppServerConnection(this.#connectionOptionsFor(params.sessionId));
     try {
-      // Composed INSIDE the `try`, and the placement is load-bearing rather than
-      // tidy: the composition RESOLVES a posture's policy and refuses a posture
-      // it cannot resolve, so raising it at the call site above would let that
-      // refusal escape `resumeSession` as an exception. requires every resume
-      // failure to arrive as the typed `failed` result, and this catch is what
-      // makes it one.
+      // Composed inside the `try` so a posture refusal arrives as the typed `failed` result, not as
+      // an exception out of `resumeSession`.
       const spawnConfig = await this.#composeResumeSpawnConfig(existing, params);
       await connection.open(spawnConfig);
       const response = await connection.request("thread/resume", {
         threadId: params.resumeHandle,
-        // A resume is a FRESH SPAWN, so every spawn-bound leg is re-realized
-        // rather than inherited. `ThreadResumeParams` carries the same override
-        // members as `ThreadStartParams` at the pin, and a resume that omitted
-        // them would run under whatever posture and subagent caps the provider
-        // reloaded from the thread's own persisted config — a second source of
-        // truth for a policy the daemon owns.
+        // A resume is a fresh spawn, so the spawn-bound legs are re-realized; otherwise the
+        // provider would apply caps reloaded from the thread's persisted config.
         ...this.#composeThreadEstablishmentLegs(params.executionPosture, params.subagentPolicy),
-        // The same defense-in-depth pin as `thread/start`; `ThreadResumeParams`
-        // carries the field at the pin (verified 2026-08-27 against the binary's
-        // generated schema). A resumed thread must not inherit an auto-review
-        // reviewer from whatever config the provider reloads with it.
+        // The same pin as `thread/start`: a resumed thread must not inherit an auto-review path.
         approvalsReviewer: "user",
       });
       const thread = readThread(response, "thread/resume");
       this.#assertPostureRealized(params.executionPosture, response);
-      // The identity gate, and it runs BEFORE the position check because it is
-      // the stronger one. Codex may answer a resume it cannot honor by handing
-      // back a DIFFERENT thread; for a zero-turn session that thread has `turns:
-      // []`, which is a perfectly well-formed history, so the position check
-      // below cannot tell it from a genuine resume. Only the id can. Adopting it
-      // would be the silent replacement this invariant forbids.
+      // Checked before the position: Codex may answer an unhonorable resume with a different
+      // thread, and a zero-turn one has `turns: []`, like a genuine resume.
       if (thread.id !== params.resumeHandle) {
         throw new CodexTransportError(
           `Resume handle ${params.resumeHandle} was answered by thread ${thread.id}; the provider started a replacement thread rather than resuming.`,
@@ -6102,41 +3505,27 @@ export class CodexLifecycleManager {
         );
       }
       if (!Array.isArray(thread.turns)) {
-        // `Thread.turns` is populated on `thread/resume` by contract. If it is
-        // absent we cannot know the position, and fabricating 0 would make a
-        // silently-fresh thread indistinguishable from a resumed one — the exact
-        // confusion exists to prevent.
+        // Populated on `thread/resume` by contract; a fabricated 0 would make a fresh thread look
+        // resumed.
         throw new CodexTransportError(
           "The Codex app-server resume response carried no turn history, so the session position is unknown.",
           { threadId: thread.id },
         );
       }
-      // Built and VALIDATED before the swap, never after it. `bindingId` is
-      // minted by a caller-supplied function and bounded by the schema's
-      // `wireFreeFormString`, so an empty or overlength mint THROWS — and when
-      // that throw landed after the record was installed and the predecessor
-      // released, the catch below closed the new connection and left the session
-      // mapped to it: create refused the session as live, every request on it hit
-      // a dead transport, and only another resume could clear it. Minting and
-      // parsing first makes the swap all-or-nothing, which is what lets the catch
-      // path keep its promise that a failed resume changes nothing.
+      // Built and validated before the swap: the caller's minter can throw, and after the install
+      // that would leave the session mapped to a closed connection.
       const resumedResult = DriverResumeResultSchema.parse({
         status: "resumed",
         bindingId: this.#newBindingId(),
         sessionPosition: thread.turns.length,
       });
-      // Resume is a FRESH SPAWN, so the withholding is re-reported rather than
-      // inherited: the resumed leg offers the provider no callback-tool
-      // registry either, and a report emitted only on the create path would
-      // make a long-lived resumed session look as though it had one.
+      // Re-reported on resume: this leg offers the provider no callback-tool registry either.
       this.#reportWithheldCallbackTools(params.sessionId, params.callbackTools);
       this.#sessions.set(params.sessionId, {
         sessionId: params.sessionId,
         connection,
         threadId: thread.id,
-        // Seeded from the resumed thread's own history, so a rewind after a
-        // resume indexes the SAME axis the pre-restart session did. An empty
-        // seed would make every position on a resumed leg unresolvable.
+        // Seeded from the thread's own history so a rewind indexes the same axis as before restart.
         turnBoundaries: readThreadTurnIds(thread.turns),
         executionPosture: params.executionPosture,
         subagentPolicy: params.subagentPolicy,
@@ -6148,101 +3537,50 @@ export class CodexLifecycleManager {
         inFlightSteers: 0,
         interruptedRunIdByTurnId: new Map(),
       });
-      // The held enumeration is DISCARDED at a resume, not carried over. It is
-      // a live read from ONE provider process, and a resume replaces that
-      // process: the skill roots may have been edited while this node held no
-      // live connection, and the `skills/changed` cue that would have
-      // invalidated the list is delivered over a connection that no longer
-      // exists — so carrying it forward would answer the new process's palette
-      // with the old process's reading and have no mechanism that could ever
-      // correct it. The next ask re-reads in full.
+      // Discarded: the held enumeration is a read from the replaced process, and its
+      // `skills/changed` cue would arrive on a dead connection.
       this.#discardProviderCommandEnumeration(params.sessionId);
-      // Released for the same reason the create path releases it: a resume is a
-      // fresh spawn, so the condemned binding is gone.
       this.#runtimeBindingQuarantine.releaseSession(params.sessionId);
-      // A provider-native resume bases at the daemon's OWN prior-emitted
-      // cumulative sum, never at the first post-resume reading: the provider's
-      // counter is unaffected by the resume, so a zero base would re-meter the
-      // whole pre-resume history onto the first post-resume turn.
-      //
-      // Keyed on the SAME id it establishes, and that is the resume case rather
-      // than an assumption: a resume answers with the thread it was handed, so
-      // the id the daemon emitted spend under and the id being based are one.
-      // The rewind path is where the two come apart.
+      // Bases at the daemon's prior-emitted sum: the provider's counter survives a resume, so a
+      // zero base would re-meter the whole history onto the first turn.
       this.#bindSessionThread(params.sessionId, thread.id, {
         mode: "resume",
         priorEmittedThreadId: thread.id,
       });
-      // The frames the predecessor left unsettled are failed on their runs
-      // BEFORE any route is swept, and that ordering is the mechanism rather
-      // than a preference: `#forgetRunRoutes` clears `#sessionIdByRunId`, which
-      // is the third and last source `#runIdForAbandonedFrame` consults, so a
-      // sweep first would leave the frames with no run to report against.
-      //
-      // Not ruled fail-closed, unlike the quarantine teardown path, and not
-      // dropped either — the two arms this path used to have to choose between.
-      // A trip claims the provider swallowed the text, which nothing observed
-      // here; a drop claims nothing at all, and a user's words vanish
-      // behind a session that resumed cleanly. `abandonScope` states the third
-      // thing, which is the true one: the answer became unreachable when the
-      // binding was superseded, and it will never arrive. The run fails on that.
-      //
-      // The superseded runs are deliberately NOT quarantined. A quarantine
-      // condemns a binding, and this one is already gone — the fresh process is
-      // exactly where any future work on those runs belongs, and refusing them
-      // would take their interrupt and intervention controls away for nothing.
+      // Fails the predecessor's unsettled frames on their runs before routes are swept
+      // (`#runIdForAbandonedFrame` reads `#sessionIdByRunId`). Not ruled swallowed, not dropped,
+      // not quarantined: the runs keep their interrupt and intervention controls.
       this.#failSupersededDeliveries(existing, params.sessionId);
-      // A compaction wait armed against the SUPERSEDED leg is bound to a
-      // process this resume has just replaced, so its evidence can never arrive
-      // and `binding_lost` is the terminal it is owed — immediately, rather
-      // than after the full declared bound elapses on a binding that stopped
-      // existing here. Keyed on the SUPERSEDED record's own thread, which is
-      // the identity those waits were dispatched under; in the ordinary
-      // same-thread resume it coincides with the successor's, and settling is
-      // still right, because every wait armed under it belongs to the process
-      // this resume just replaced — no wait can yet exist against the
-      // replacement, whose installation and this release are one synchronous
-      // run.
+      // A compaction wait armed against the superseded leg can never get its evidence, so
+      // `binding_lost` is owed now. Keyed on the superseded record's thread; no wait exists yet
+      // against the replacement, as installation and this release are one synchronous run.
       if (existing !== undefined) {
         this.#pendingCompactions.releaseBinding(
           codexCompactionWaitKey(params.sessionId, existing.threadId),
         );
       }
-      // The replacement record starts with an empty turn map, so every route
-      // that pointed at the superseded leg is now dead. Swept here rather than
-      // at teardown: `closeSession` reads the LIVE record, which no longer knows
-      // those runs, so a route left behind would never be collected and the map
-      // would grow by one entry per in-flight run per resume, for the daemon's
-      // whole lifetime.
+      // Every route to the superseded leg is dead. Swept here because `closeSession` reads the live
+      // record and would leak one entry per in-flight run per resume.
       this.#forgetRunRoutes(params.sessionId);
-      // A no-op in the ordinary case: `#failSupersededDeliveries` consumed the
-      // scope's registrations already. Kept because it is the budget release's
-      // one and only home, and a scope that somehow held a frame no record could
-      // explain must still not hold its budget forever.
+      // Usually a no-op, as `#failSupersededDeliveries` consumed the registrations; kept as the
+      // budget release's one home.
       this.#releaseOutboundFrameBudget(params.sessionId);
-      // A resume is a fresh spawn, so any prior leg for this session is now
-      // superseded and its process would otherwise be orphaned. Released AFTER
-      // the new record is installed, which is what keeps a FAILED resume
-      // non-destructive: on the catch path below, the prior leg is still the
-      // live one and is left exactly as it was found.
+      // Released after the install so a failed resume leaves the prior leg live.
       if (existing !== undefined) {
         await this.#releaseAbandonedConnection(existing.connection);
       }
       return resumedResult;
     } catch (cause) {
-      // Quietly: teardown of the leg that just failed must not throw past the
-      // typed result. A close that escaped here would turn the `recovery-needed`
-      // condition back into an exception, which is exactly the loss forbids.
-      // Classified BEFORE the release, because the classification asks this very
-      // connection whether the credential is still good. A refused resume
-      // leaves the transport open, so the child is still there to answer.
+      // Classified before the release: it asks this connection whether the credential is still
+      // good, and a refused resume leaves the transport open. The release is contained so its
+      // fault cannot escape the typed result.
       const recoveryCondition = await classifyResumeRecoveryCondition(connection, cause);
       await this.#releaseAbandonedConnection(connection);
       return DriverResumeResultSchema.parse({
         status: "failed",
         recoveryCondition,
-        // The driver observed a refused resume, not the span of work that was in
-        // flight; classifying that span needs run state the driver does not hold.
+        // The driver saw a refused resume, not the span of work in flight; classifying that needs
+        // run state it lacks.
         recoverySpanClassification: "unclassifiable",
         providerFailureDetail: normalizeProviderFailureDetail(cause),
       });
@@ -6255,14 +3593,9 @@ export class CodexLifecycleManager {
     const record = this.#requireSession(runConfig.sessionId);
     const openingFrame = this.#composeRunOpeningFrame(params, runConfig);
     let turnId: string;
-    // Raised BEFORE the request and lowered the instant its answer is in hand.
-    // This is the window in which a terminal ingested by the synchronous read
-    // drain may belong to the turn this call is about to be handed, and it is
-    // exactly the window in which `rememberUnmatchedTurn` must not evict. It is
-    // lowered in a `finally` rather than after the consume below because
-    // everything from the answer to the consume is one synchronous run — no
-    // notification can be ingested in between — so the shorter, exception-safe
-    // scope costs nothing and cannot leak a raised counter onto a failed start.
+    // Raised until the answer is in hand: a terminal ingested by the synchronous read drain may
+    // belong to the turn about to be named, so `rememberUnmatchedTurn` must not evict. Lowered in
+    // a `finally` so a failed start cannot leak the count.
     record.inFlightTurnStarts += 1;
     try {
       turnId = readTurnId(
@@ -6270,61 +3603,18 @@ export class CodexLifecycleManager {
         "turn/start",
       );
     } catch (cause) {
-      // The OPENING frame's counterpart of the steer classification below, and
-      // deliberately not the same shape. The ambiguous class exists here too: a
-      // `turn/start` can time out or lose its connection after the bytes were
-      // written, and the provider may have intercepted the text and answered a
-      // zero-turn success exactly as a steer's can be intercepted.
-      //
-      // FRAME-SCOPED, and the scope is the whole point. The join key is the RUN
-      // id until the provider names a turn, and nothing serializes two starts
-      // for one run — so a second attempt that registered while this one was in
-      // flight is correlated under the very same key. A key-wide drop here would
-      // take that live frame with it, its turn would then settle against no
-      // correlated frame, and a settle with nothing correlated PASSES: the
-      // swallowed turn reported as a completed one, which is the outcome the
-      // tripwire exists to catch. The Claude leg reaches the same scoping from
-      // the other side: `#ruleFailedOpeningFrame` there acts FRAME-scoped on
-      // both arms where it acts at all — dropping the provably-unsent frame,
-      // ruling the dead-channel one — for the stated reason that a sibling
-      // frame on the same key whose delivery was never in doubt must not be
-      // tripped alongside it.
-      //
-      // Dropping rather than ruling is still right for THIS frame: on the
-      // ambiguous arm the session is torn down in the same act below — the slot
-      // claimed, the record dropped, the routes swept, and the child KILLED — so
-      // no terminal can ever arrive to rule it, and on the refusal arm the
-      // provider answered "no", which is proof it started nothing. The steer
-      // path cannot borrow either argument: its turn is still RUNNING and its
-      // binding still serving, so it borrows the fail-closed ruling instead.
-      //
-      // The retained decision is deliberately left alone, unlike the key-wide
-      // drop this replaced. It is keyed by RUN id only until `recorrelateFrame`
-      // runs, `decisionFor` is read by turn id, and `register` clears the key's
-      // decision on every retry — so no stale answer is reachable through it.
-      //
-      // No quarantine entry is installed here, and none is owed: disposal drops
-      // the record, so session resolution refuses this binding by ABSENCE and
-      // the only route back is a fresh spawn.
+      // Dropped by frame, not key: nothing serializes two starts for one run, and a key-wide drop
+      // would strand a concurrent attempt's frame so its turn passes uncorrelated. Safe here: the
+      // reconcile proves the turn never started or kills the child (a steer's turn runs on).
       this.#outboundFrameTripwire.forgetFrame(openingFrame);
-      // Classified BEFORE anything is torn down, because two of the four
-      // dispositions decide whether a teardown is owed at all, and one of them
-      // needs the connection alive to read the thread back. The routing is
-      // exhaustive over the shared classifier's union rather than over this
-      // leg's own error classes, so the two drivers cannot drift apart on what a
-      // refusal means.
+      // Classified before any teardown, as some dispositions need the live connection. Routing is
+      // exhaustive over the shared classifier's union, not this leg's own error classes.
       const disposition = classifyProviderRequestFailure(
         observeCodexTurnStartFailure(cause),
       ).disposition;
       if (disposition === "permanent-structural-refusal") {
-        // The session is CONDEMNED, not merely torn down. Its thread holds a
-        // history the provider has typed as unacceptable, so every later request
-        // against it draws the same refusal — a fresh spawn under this id is the
-        // only route back, and the caller's answer is a reconstitution rather
-        // than a retry. The quarantine pair is entered in the order the
-        // neutralization path uses it: SESSION first, so a caller reacting
-        // synchronously to this failure cannot reach the condemned binding by
-        // resolving the session, then RUN.
+        // Condemned, not just torn down: the history was typed unacceptable, so only a fresh spawn
+        // leads back. Session is quarantined first so a synchronous caller cannot resolve it.
         this.#runtimeBindingQuarantine.disposeSession(record.sessionId);
         this.#runtimeBindingQuarantine.disposeRun(params.runId, record.sessionId);
         await this.#disposeAmbiguousSession(record);
@@ -6337,88 +3627,37 @@ export class CodexLifecycleManager {
       if (disposition === "reconcile-ambiguous-delivery") {
         await this.#settleAmbiguousTurnStart(record);
       }
-      // `fail-consumed-and-declined` reaches here having disposed nothing, which
-      // is the shipped behavior for a provider that answered "no": the answer is
-      // proof it processed the request and started nothing, so the session stays
-      // usable and a refusal costs no re-establish. The union's fourth arm,
-      // `retry-definitely-unsent`, is unreachable on this leg BY CONSTRUCTION —
-      // `observeCodexTurnStartFailure` never reports `unsent`, because this leg's
-      // ambiguous class is deliberately wide — and if that observation is ever
-      // narrowed, the arm needs a branch here rather than this fall-through,
-      // which would report a provably-unsent start as a failure without retrying.
+      // `fail-consumed-and-declined` disposes nothing: the provider answered "no", so the session
+      // stays usable. `retry-definitely-unsent` cannot occur, as `observeCodexTurnStartFailure`
+      // never reports `unsent`; narrowing that needs a retry branch here.
       throw cause;
     } finally {
       record.inFlightTurnStarts -= 1;
     }
-    // The provider has named the turn, so THIS attempt's frame moves onto the key
-    // the terminal notification will actually carry.
-    //
-    // Frame-scoped for the reason the drop above is: the run id is the key every
-    // attempt on this run registers under, so a key-wide re-key would drag a
-    // concurrent attempt's still-unnamed frame onto the turn THIS attempt opened
-    // — and then the second attempt, finding nothing left under the run id, would
-    // move nothing, leaving its own turn to settle against no correlated frame.
-    // A settle with nothing correlated PASSES, which is the swallowed turn
-    // reported as a completed one.
+    // Frame-scoped like the drop above: the frame moves onto the key the terminal will carry, and
+    // a key-wide re-key would drag a concurrent attempt's unnamed frame onto this turn.
     this.#outboundFrameTripwire.recorrelateFrame(openingFrame, turnId);
-    // Everything from here is ONE synchronous run, so a single slot check covers
-    // both the install and the terminal-memory consume below it.
+    // One synchronous run from here, so one slot check covers the install and the consume.
     if (!this.#stillHoldsSlot(record)) {
-      // Reachable only through a transition that began AFTER dispatch, now that
-      // the entrance demands a settled live slot. Three such transitions exist,
-      // and the tempting argument is that each one disposes the connection this
-      // turn was accepted on, so the turn dies with it and nothing more is owed.
-      // That argument has an exception, which is why it is not the one used here:
-      //
-      //   * a close disposes the connection — subsumed;
-      //   * a supersede-resume that SUCCEEDS releases the predecessor — subsumed;
-      //   * a supersede-resume that FAILS releases only its own new connection and
-      //     leaves the predecessor record installed and its process LIVE. The turn
-      //     accepted on it keeps executing tools, with no route to interrupt it
-      //     and a session the daemon will reuse.
-      //
-      // That third case is the same ambiguity the `turn/start` deadline is already
-      // ruled connection-fatal for, so it gets the same answer rather than a
-      // narrower one. Applied unconditionally instead of only to the third case:
-      // the disposal is idempotent against a connection someone else already
-      // released (`killAndClose` no-ops once closed, and the map work is
-      // identity-gated), so the two subsumed cases cost nothing, and a rule with
-      // no exception in it is the one that survives the next edit.
-      //
-      // The run is refused either way. Whatever the provider answered, this run is
-      // not running, and reporting it started would strand a `#sessionIdByRunId`
-      // entry no sweep can reach — every sweep keys on a record that is gone.
+      // Reached only via a transition begun after dispatch. A failed supersede-resume leaves the
+      // predecessor live, so the accepted turn would run with no route to interrupt it: dispose
+      // unconditionally (idempotent) and refuse the run, which would strand a route no sweep
+      // reaches.
       await this.#disposeAmbiguousSession(record);
       throw new CodexTransportError(
         `Codex session "${record.sessionId}" stopped holding its slot while a turn was starting.`,
         { sessionId: record.sessionId, method: "turn/start" },
       );
     }
-    // Keyed by the TURN the provider just named, so a second accepted start on
-    // this same run ADDS a route rather than displacing the first one. The run
-    // axis below is a set-membership fact ("this run has work on this session")
-    // and is idempotent under a second entry; the turn axis is the correlation,
-    // and it is the one that must never be overwritten.
+    // A second accepted start on this run adds a route; the turn axis is never overwritten.
     record.runIdByActiveTurnId.set(turnId, params.runId);
     this.#sessionIdByRunId.set(params.runId, record.sessionId);
-    // Appended at ACCEPTANCE, not at completion: the provider has assigned the
-    // id and the turn now occupies a position in the thread's history whatever
-    // it goes on to do. A ledger written at completion would omit interrupted
-    // and failed turns, and every later position would name the wrong turn.
+    // Appended at acceptance, not completion: a completion-time ledger would omit interrupted and
+    // failed turns and misname later positions.
     record.turnBoundaries.push(turnId);
-    // The turn can already be OVER by the time this install runs. Resolving the
-    // `turn/start` response schedules this continuation as a microtask, while
-    // `#ingest` keeps draining the rest of the read chunk SYNCHRONOUSLY — so for
-    // a fast turn whose response and `turn/completed` arrive in one chunk, the
-    // sweep runs first, matches nothing, and this install would leave a route
-    // that `hasActiveTurn` reports live for the daemon's lifetime. Consulting the
-    // record's short memory of unmatched turns closes that window; the `delete`
-    // is the consume, so a later turn reusing the id (it cannot — turn ids are
-    // UUIDv7) could not be retired twice.
-    //
-    // A consume that only retired the route would leave a swallowed turn
-    // reported as a completed one, so the remembered evidence is replayed onto
-    // the re-keyed frame and the terminal is ruled here instead.
+    // The turn can already be over: this continuation is a microtask while `#ingest` drains the
+    // chunk synchronously, so the sweep may have matched nothing. The remembered evidence closes
+    // that window and is replayed onto the re-keyed frame so the terminal is ruled here.
     const remembered = record.unmatchedTurnEvidence.get(turnId);
     if (remembered === undefined) {
       return;
@@ -6429,9 +3668,7 @@ export class CodexLifecycleManager {
     }
     const rememberedTerminal = remembered.terminal;
     if (rememberedTerminal === undefined) {
-      // In-flight evidence only. The turn is still running, so the route stays
-      // installed and its own terminal will settle the frame in the ordinary
-      // place.
+      // In-flight evidence only: the turn is still running; its own terminal settles the frame.
       return;
     }
     this.#retireTurnRoute(record, turnId);
@@ -6450,44 +3687,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Settles an ambiguous `turn/start` by reading the thread's user-turn
-   * count back, and disposes unless the read proved nothing landed.
-   *
-   * POSITIONAL, never content-based. An ordinary turn carries no identity marker
-   * and a user may legitimately send the same words twice, so matching
-   * text would settle a repeated question as a duplicate. `turnBoundaries` is the
-   * daemon's side of the comparison and is exact for it: one entry is appended
-   * per ACCEPTED `turn/start` and the ledger is seeded on resume from the
-   * thread's own turn list, so the two sides count the same unit. The ambiguous
-   * start is not in it — nothing was appended, because nothing was acknowledged —
-   * which is what makes "the target holds more than this" mean "the ambiguous
-   * turn landed".
-   *
-   * The read and the disposal decision run inside one per-thread critical
-   * section, which is what "before any further send on that session" buys
-   * against a second RECONCILE: this leg serializes nothing else across the two,
-   * so without it one reconcile's ruling could be moved under it by another's.
-   * A concurrent SUCCESSFUL start is outside that section by construction —
-   * `#ambiguousDeliveryReconciler` records why the skew it can introduce only
-   * ever biases the settlement toward `delivered`, the arm that re-sends nothing.
-   *
-   * The run FAILS on all three arms — the caller re-throws the original cause —
-   * and the arms differ only in what happens to the session:
-   *
-   *   * `delivered` — the turn landed but its id was lost with the answer, so it
-   *     is unaddressable. Disposed, because a live turn with no route to
-   *     interrupt it is exactly the state this driver refuses to carry. What the
-   *     read bought is the certainty that the caller cannot re-dispatch onto this
-   *     session and duplicate the turn's spend.
-   *   * `cleared-for-retry` — the thread provably does not hold the turn, so the
-   *     session is left LIVE and a re-dispatch costs nothing and duplicates
-   *     nothing. This is the transient arm on this leg, and it is caller-driven
-   *     rather than a ladder here: `startRun` is re-enterable, and re-sending
-   *     inside the catch would have to re-register an opening frame the tripwire
-   *     has just been told to forget.
-   *   * `unrecoverable` — the target could not be read. Disposed, which is the
-   *     shipped teardown-and-replay: nothing is re-sent, and nothing is assumed
-   *     delivered.
+   * Settles an ambiguous `turn/start` by reading the thread's user-turn count back against
+   * `turnBoundaries` (positional: a user may repeat words). The run fails on every arm;
+   * `delivered` and `unrecoverable` dispose the session so no re-dispatch duplicates spend.
    */
   async #settleAmbiguousTurnStart(record: CodexSessionRecord): Promise<void> {
     await this.#ambiguousDeliveryReconciler.reconcileThenAct(
@@ -6513,27 +3715,15 @@ export class CodexLifecycleManager {
   ): Promise<unknown> {
     const turnStartParams: Record<string, unknown> = {
       threadId: record.threadId,
-      // The bytes come off a frame this method cannot construct, so the
-      // neutralization is structurally on the path rather than a call-site
-      // convention. `runConfig.input` is deliberately NOT read here — the
-      // author's text stays on the frame as `authoredText`, which is what the
-      // daemon persists, events, and replays.
+      // The bytes come off a frame this method cannot construct, so neutralization is on the
+      // path; `runConfig.input` is unread on purpose: the author's text stays on the frame.
       input: [{ type: "text", text: openingFrame.wireText, text_elements: [] }],
-      // The pin that actually carries the security property. A TURN is what
-      // generates approval requests, and `TurnStartParams.approvalsReviewer` is
-      // documented as overriding routing for "this turn and subsequent turns"
-      // — so a config- or profile-selected `auto_review` reviewer would win on
-      // every turn if only the thread-level pin were sent. Pinning it here is
-      // idempotent rather than redundant, and `turn/steer` needs no pin because
-      // it requires an already-active turn and creates none. Field verified
-      // present on `TurnStartParams` at `codex-cli 0.150.1` (regenerated
-      // 2026-08-28 — the pinned Codex wire census), on a params
-      // type byte-identical back to the `0.141.0` floor.
+      // The pin that carries the security property: `approvalsReviewer` on a turn overrides routing
+      // for it and later turns, so a config-selected `auto_review` would otherwise win.
+      // `turn/steer` creates no turn and needs none.
       approvalsReviewer: "user",
-      // Leg 5's per-turn half. The RUN's posture wins where it declares one,
-      // and the session's spawn posture is the floor otherwise, so a turn is
-      // never dispatched with no policy at all. Both arms send the roots the
-      // thread-level mode selector cannot carry.
+      // The run's posture wins and the session's spawn posture is the floor, so a turn never goes
+      // out with no policy; both send the roots the thread-level selector cannot carry.
       ...this.#composeTurnPostureParams(record, params),
       ...(runConfig.model === undefined ? {} : { model: runConfig.model }),
       ...(runConfig.clientUserMessageId === undefined
@@ -6541,92 +3731,42 @@ export class CodexLifecycleManager {
         : { clientUserMessageId: runConfig.clientUserMessageId }),
       ...(params.outputSchema === undefined ? {} : { outputSchema: params.outputSchema }),
     };
-    // Over the composed object, not over its inputs: every spread above has
-    // already contributed, so this is the last moment at which what the provider
-    // will receive is knowable in one place.
     assertRealizedTurnPostureMembers(turnStartParams);
     return await record.connection.request("turn/start", turnStartParams, this.#turnStartTimeoutMs);
   }
 
   /**
-   * Disposes a session whose turn state is ambiguous: kill first, then release.
-   *
-   * Two entry points, one condition. Either the `turn/start` itself failed in a
-   * way that leaves acceptance unknown, or it succeeded onto a record that had
-   * stopped holding its slot — in both cases a turn may be live with no route to
-   * it, which is the state this driver refuses to carry.
-   *
-   * Claimed like any other teardown, so nothing can slip into the window while
-   * the child is dying — the dispose is a state transition of the slot, not a
-   * side effect beside it. Scoped to the RECORD rather than to the session id: if
-   * a resume superseded this leg while the turn was starting, that resume already
-   * released this connection and installed its own, and this dispose must not
-   * take the replacement down with it.
-   *
-   * No graceful `thread/unsubscribe` phase. The connection is precisely the thing
-   * whose answers cannot be trusted, so asking it a question would buy a second
-   * deadline and no information.
+   * Kills the child first, then releases the session, when a turn may be live with no route to it.
+   * Scoped to the record, not the session id, so a resume that already superseded it is untouched.
+   * There is no `thread/unsubscribe`: this connection's answers cannot be trusted.
    */
   async #disposeAmbiguousSession(record: CodexSessionRecord): Promise<void> {
     await this.#claimSessionSlot(record.sessionId, "closing", async () => {
       if (this.#sessions.get(record.sessionId) === record) {
         this.#sessions.delete(record.sessionId);
-        // RULED before either sweep, and before the routes it resolves runs
-        // through are gone. With the record dropped no terminal on this binding
-        // is ingested any more, so every frame still pending on it has just
-        // become unrulable — which is a verdict, not an absence, and the runs
-        // that wrote those frames are owed it.
+        // Rule before the sweeps, while the routes still exist: with the record dropped no
+        // terminal is ingested, so pending frames become unrulable.
         this.#ruleAbandonedFramesFailClosed(record);
         this.#forgetRunRoutes(record.sessionId);
-        // One call covers the quarantine path too —
-        // `#disposeQuarantinedSession` delegates here rather than tearing
-        // down a second way.
+        // Covers the quarantine path too: `#disposeQuarantinedSession` delegates here.
         this.#pendingCompactions.releaseBinding(
           codexCompactionWaitKey(record.sessionId, record.threadId),
         );
         this.#discardProviderCommandEnumeration(record.sessionId);
-        // Whatever the ruling left behind is now pure occupancy. Reclaimed at
-        // the moment that becomes provably true, rather than left for the
-        // tripwire's own pass when some later write would be refused.
         this.#releaseOutboundFrameBudget(record.sessionId);
       }
       try {
         await record.connection.killAndClose();
       } catch {
-        // Swallowed: the caller is already throwing the typed cause that says WHY
-        // the session was disposed, and a teardown artifact must not displace it.
+        // The caller is already throwing the typed cause; a teardown artifact must not displace it.
       }
     });
   }
 
   /**
-   * Zero-turn authentication probe. NEVER throws.
-   *
-   * WHY A DEDICATED CONNECTION. `probeAuth()` takes no parameters and holds no
-   * session, and its whole purpose is to detect a logged-out provider BEFORE a
-   * turn is spent — so it cannot borrow a live session's connection (there may be
-   * none, which is precisely the case that matters) and must not create one
-   * (that would make the probe a session-establishing operation). It spawns its
-   * own child from `resumeSpawnConfig`, the same CONSTRUCTED environment every
-   * other spawn on this manager uses, asks one question, and tears the child down
-   * in a `finally`. It claims NO session slot: it installs no record, starts no
-   * thread, and is bound to no session id, so a probe running concurrently with a
-   * create or a close cannot refuse either of them.
-   *
-   * WHY IT SPENDS NO CREDENTIAL. `includeToken: false` keeps credential material
-   * off the wire entirely, and `refreshToken: false` is the load-bearing half:
-   * the pinned providers rotate refresh tokens single-use with no grace window,
-   * so a probe that refreshed on a cadence would not observe a credential — it
-   * would END the login it was checking. Both members are sent explicitly because
-   * `GetAuthStatusParams` types them required-but-nullable; omitting them would
-   * leave the refresh behavior to the provider's default.
-   *
-   * WHY IT IS TOTAL. Every unresolvable outcome — a spawn failure, a handshake
-   * failure, a deadline, a refusal, an unreadable answer — becomes
-   * `indeterminate`, which the contract defines as fail-closed for admission
-   * while staying distinguishable from `unauthenticated`. Throwing instead would
-   * hand the admission leg a third channel it has no rule for, and would collapse
-   * "the probe is unhealthy" into "the transport is down".
+   * Zero-turn authentication probe on its own child; claims no session slot. Never throws: any
+   * unresolvable outcome becomes `indeterminate`, fail-closed for admission yet distinct from
+   * `unauthenticated`.
    */
   async probeAuth(): Promise<DriverAuthProbeResult> {
     const connection = new CodexAppServerConnection(this.#probeConnectionOptions());
@@ -6638,24 +3778,12 @@ export class CodexLifecycleManager {
     } catch (cause) {
       return buildAuthProbeResult("indeterminate", normalizeProviderFailureDetail(cause));
     } finally {
-      // Contained, so a teardown fault cannot displace the probe's answer — the
-      // same containment the abandoned-establishment paths use, and for the same
-      // reason. `close()` is idempotent, so this is safe on the path where
-      // `open()` already tore its own child down.
+      // Contained so a teardown fault cannot displace the answer; `close()` is idempotent.
       await this.#releaseAbandonedConnection(connection);
     }
   }
 
-  /**
-   * Connection options for a probe that owns no session.
-   *
-   * Deliberately NOT `#connectionOptionsFor`: that binds every inbound
-   * notification to a session id, and this connection has none. Attributing a
-   * probe's frames to a session would put a foreign process's notifications into
-   * that session's stream — the exact confusion the thread-frame routing exists
-   * to prevent. A probe starts no thread, so any notification it receives is by
-   * construction unconsumed, and that is what it is recorded as.
-   */
+  // Not `#connectionOptionsFor`: a probe's notifications must never enter a session's stream.
   #probeConnectionOptions(): CodexConnectionOptions {
     const reportDiagnostic = this.#options.reportDiagnostic;
     return {
@@ -6670,17 +3798,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Interrupts the provider turn bound to a run.
-   *
-   * The route is retired here because the run must stop reporting an active
-   * turn the moment the provider accepts the interrupt — a steer or a second
-   * interrupt aimed at it afterwards has to be refused. But `turn/interrupt`
-   * resolving is not the turn ENDING: `turn/completed` still follows, and that
-   * is the frame the tripwire is ruled on. So the turn correlation is retained
-   * before the route goes, and the terminal path releases it once the ruling is
-   * made. Without it a trip on an interrupted turn quarantines the session and
-   * the process while the run's own subscribers are told nothing, which is the
-   * one outcome the run-failure report exists to prevent.
+   * Interrupts the provider turn bound to a run and retires its route, so a later steer or second
+   * interrupt is refused. The turn correlation is retained for the `turn/completed` that follows.
    */
   async interruptRun(params: InterruptRunParams): Promise<void> {
     const { record, turnId } = this.#requireActiveTurn(params.runId);
@@ -6688,99 +3807,37 @@ export class CodexLifecycleManager {
       threadId: record.threadId,
       turnId,
     });
-    // Retained whenever the turn has not already SETTLED, and on no narrower
-    // condition. Whether a frame is pending is a point-in-time read consulted at
-    // a later point in time, so gating on it would make the correlation correct
-    // by argument about what can interleave rather than by construction — but
-    // presence in `settledTurnIds` is not that kind of read: it is marked for
-    // EVERY terminal and never consumed, so presence is proof the terminal this
-    // correlation exists to route has already arrived and been ruled. Recording
-    // it anyway would install an entry nothing will ever release — the read
-    // chunk that settled the turn can drain entirely before this continuation
-    // resumes — and stale entries now accumulate toward a refusal rather than
-    // evicting live ones, so each one costs headroom a live interrupt needs.
+    // A settled turn's terminal was already ruled; retaining it would leave an entry nothing
+    // releases.
     if (!record.settledTurnIds.has(turnId)) {
       if (!rememberInterruptedRun(record, turnId, params.runId)) {
-        // The interrupt itself SUCCEEDED — `turn/interrupt` resolved above — so
-        // this resolves rather than throws, and the caller's `applied` stays
-        // truthful about the provider operation it grades. What failed is this
-        // driver's promise to route the turn's terminal to the run, and the
-        // refusal reports that the way its two siblings do: quarantine and
-        // teardown, which rules the run's still-pending frame fail-closed so
-        // the run hears `run.failed` rather than nothing.
+        // The interrupt succeeded, so this resolves; quarantining rules the pending frame
+        // fail-closed and the run hears `run.failed`.
         this.#refuseUnretainableInterruptedRoute(record);
         return;
       }
     }
-    // Retires THIS turn's route and no other. An interrupt names one turn — the
-    // one `#requireActiveTurn` resolved — so a run holding a second live turn
-    // keeps its second route and the second turn's terminal still finds its run.
+    // Retires this turn's route only; a run holding a second live turn keeps that route.
     this.#retireTurnRoute(record, turnId);
   }
 
   /**
-   * Forks the provider conversation at a recorded turn boundary and leaves the
-   * original thread untouched. Files on disk are not restored.
-   *
-   * MECHANISM: `thread/fork` at an inclusive `lastTurnId`, which mints a NEW
-   * thread. Three consequences, all of them load-bearing:
-   *
-   *   * the caller's absolute position resolves to a BOUNDARY TURN ID, never to
-   *     a drop-count, so a retried rewind re-forks from the same boundary
-   *     instead of compounding a drop;
-   *   * the session is re-pointed at the forked thread in the SAME operation, so
-   *     no window exists in which the record names a thread the caller has
-   *     rewound away from;
-   *   * the result reports a freshly minted `bindingId`. That surrogate is the
-   *     daemon's only channel for the new thread — an `applied` result without
-   *     it would leave the run bound to a thread the store never recorded, and
-   *     therefore un-resumable across a restart.
-   *
-   * SERIALIZED ON THE SESSION SLOT across the fork, so none of that re-pointing
-   * is a read-decide-mutate over state a concurrent caller can move underneath
-   * it. The claim is taken below rather than here, and what an unclaimed rewind
-   * loses is recorded there.
-   *
-   * `params.bindingId` names the leg the DAEMON resolved and is not re-derived
-   * here: this manager holds one live leg per session id, so the session id is
-   * the key it can actually honor, and re-keying on a surrogate this class does
-   * not mint would be a second identity axis with no second source.
-   *
-   * DEGRADES rather than throwing on the two conditions the provider's own
-   * contract makes unsatisfiable — an in-progress turn at the boundary, and a
-   * position naming no recorded turn. Both are answers about THIS request, not
-   * transport faults, and `degraded` is the vocabulary the contract reserves for
-   * a driver that was invoked and could not apply.
-   *
-   * REFUSES, rather than degrading, when the running build accepts `thread/fork`
-   * and rejects its boundary member: that is not a request this driver could not
-   * apply, it is a capability the build does not have, and the distinction is
-   * what the `rollback` flag's `static` detection source leaves to invocation
-   * time. See {@link CodexRewindBoundaryUnsupportedError}.
+   * Forks the thread at a recorded turn boundary, re-points the session at the fork and returns a
+   * fresh `bindingId`; files on disk are not restored. Degrades on a live turn or an unknown
+   * position, and refuses when the build lacks the boundary member
+   * ({@link CodexRewindBoundaryUnsupportedError}).
    */
   async forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
-    // HOISTED OUT OF THE CLAIM below, and it has to be: that claim is taken in
-    // `establishing`, which is a state `#requireSession` REFUSES — read from
-    // inside the claimed body, this operation would refuse its own claim. Every
-    // claimed body in this class reads `#sessions` directly for that reason, and
-    // this one reads it here, once, before the claim exists.
+    // Read before the claim: `#requireSession` refuses while the slot is `establishing`.
     const record = this.#requireSession(params.sessionId);
     if (record.runIdByActiveTurnId.size > 0) {
-      // "The referenced turn cannot be in progress" is the provider's rule, and
-      // Codex serializes turns per thread — so ANY live turn on this session is
-      // either the boundary itself or a turn after it, and forking through it is
-      // refused either way. Checked here so the refusal is a typed local answer
-      // rather than an opaque provider error.
+      // The provider refuses to fork through a live turn; answer locally with a typed result.
       return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: "rewind-deferred-turn-in-progress",
       });
     }
-    // Position N names the Nth turn. Position 0 is deliberately NOT mapped onto
-    // an omitted `lastTurnId`: omitting the boundary forks the WHOLE thread, so
-    // a request to rewind to an empty history would be answered by a fork that
-    // rewound nothing at all — the one outcome this fork must never report as
-    // applied.
+    // Position 0 must not become an omitted `lastTurnId`, which forks the whole thread.
     const boundaryTurnId =
       params.position >= 1 ? record.turnBoundaries[params.position - 1] : undefined;
     if (boundaryTurnId === undefined) {
@@ -6789,28 +3846,9 @@ export class CodexLifecycleManager {
         fallbackAction: "rewind-target-not-a-recorded-boundary",
       });
     }
-    // THE SLOT IS HELD ACROSS THE FORK, which is what makes the rebind below
-    // safe to perform at all. Every mutation past the `thread/fork` await — the
-    // record's thread id, the routing and metering band, the boundary ledger —
-    // is decided on state read BEFORE that suspension. Unclaimed, a `startRun`
-    // dispatched while the fork is in flight registers its turn on the PRE-FORK
-    // thread; the fork then moves the band, and every frame of that live turn is
-    // held-then-shed, so the run neither projects nor meters, the ledger splice
-    // discards its id, and an interrupt for it would carry the forked thread's.
-    // Two concurrent rewinds would both report `applied` for the same reason.
-    //
-    // Claimed in `establishing` rather than in a kind of its own: a fork IS an
-    // establishment — it mints the thread the session continues on, and
-    // `#bindSessionThread` treats it as one — and `establishing` is the state
-    // the entrance already refuses, so a concurrent turn is refused BEFORE it is
-    // dispatched rather than unwound after one was accepted. A concurrent close
-    // or resume chains behind this operation instead of racing it.
-    //
-    // Mirrors the Claude leg's `#withRewindSlotClaimed`, minus its
-    // predecessor-restoring shape: that leg spawns a SUCCESSOR process and must
-    // put the predecessor back when it does not install one, while this fork
-    // runs on the session's own connection and installs no successor at all, so
-    // a refused fork leaves the slot's own holder exactly as it was found.
+    // Held across the fork: a `startRun` meanwhile would register on the pre-fork thread and its
+    // frames would be shed, and two rewinds would both report `applied`. `establishing` because a
+    // fork mints the thread the session continues on; the entrance refuses turns in that state.
     return await this.#claimSessionSlot(
       params.sessionId,
       "establishing",
@@ -6823,150 +3861,67 @@ export class CodexLifecycleManager {
     record: CodexSessionRecord,
     boundaryTurnId: string,
   ): Promise<ForkConversationResult> {
-    // Captured BEFORE the request, and used as the request's own `threadId`, so
-    // the thread this fork descends from and the thread its usage base is keyed
-    // to are provably the same value rather than two reads of a mutable field.
+    // One read of the mutable field: both the fork source and the usage-base key.
     const preForkThreadId = record.threadId;
-    // SCOPED TO THE REQUEST AND NOTHING ELSE. The guard wraps the dispatch alone
-    // so that only the provider's own reply is classified: `readThread` below
-    // throws a transport error for a malformed RESULT, which is a different
-    // failure entirely and must not be re-labeled a missing capability. Nothing
-    // is caught here that is not rethrown — see `classifyRewindForkFailure`.
+    // Wraps the dispatch alone: a malformed result from `readThread` is not a missing capability.
     let response: unknown;
     try {
       response = await record.connection.request("thread/fork", {
         threadId: preForkThreadId,
         lastTurnId: boundaryTurnId,
-        // A fork mints a NEW thread, so it is a thread establishment and takes the
-        // same re-realization rule a resume does: `ThreadForkParams` carries the
-        // override members verbatim, and a fork that omitted them would leave the
-        // rewound session governed by whatever the new thread inherited rather
-        // than by the posture and caps its caller declared.
+        // A new thread must re-realize the posture and caps, as a resume does.
         ...this.#composeThreadEstablishmentLegs(record.executionPosture, record.subagentPolicy),
         approvalsReviewer: "user",
       });
     } catch (cause) {
-      // THE CLASSIFICATION SITE the `rollback` detection rationale names. An
-      // above-floor build that accepts `thread/fork` but does not declare
-      // `ThreadForkParams.lastTurnId` refuses HERE, and refuses as the registered
-      // `driver.capability_unsupported` rather than as an opaque provider fault
-      // the caller would have to read a serde message to understand. Every other
-      // fork failure is rethrown exactly as it arrived.
-      //
-      // Thrown rather than returned: nothing has mutated yet — the record still
-      // names the pre-fork thread and the router and accountant are untouched —
-      // and the slot claim releases this body's hold in its own `finally`, so a
-      // later rewind on this session is attemptable with nothing to unwind.
+      // A build without `ThreadForkParams.lastTurnId` becomes `driver.capability_unsupported`;
+      // any other failure is rethrown as it arrived. Nothing has mutated yet.
       throw classifyRewindForkFailure(cause);
     }
     const forkedThread = readThread(response, "thread/fork");
     this.#assertPostureRealized(record.executionPosture, response);
-    // THE FORK CHECK. A fork that answers with the thread it was HANDED did not
-    // fork: it either rewound that thread in place or handed the same one back.
-    // Adopting it would report `applied` for a rewind whose whole point — the
-    // pre-rewind conversation surviving on a thread of its own — did not happen,
-    // and would re-base this session's usage registers against its own emitted
-    // sum for a thread that never changed. Refused rather than adopted, and
-    // refused BEFORE the re-point below, so the record, the router, and the
-    // accountant are all exactly as they were and a retry is safe.
+    // Answering with the thread it was handed means no fork happened; adopting it would report
+    // `applied` with no surviving pre-rewind thread.
     if (forkedThread.id === preForkThreadId) {
       return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: "rewind-not-forked",
       });
     }
-    // THE SECOND IDENTITY REFUSAL, and a different question from the first: the
-    // provider answered with a thread this session ALREADY METERS. A thread left
-    // behind by an earlier rewind, or a live child thread, both pass the check
-    // above and would then be RE-ESTABLISHED here — resetting register sets that
-    // are carrying real spend, and handing the router a session identity whose
-    // frames are already attributed elsewhere. Ordered after the fork check on
-    // purpose: the pre-fork thread is itself registered, so this test alone would
-    // answer the unforked case with the wrong token.
+    // A thread this session already meters would have its spend registers reset. Ordered after the
+    // fork check because the pre-fork thread is itself registered.
     if (this.usageAccountantFor(params.sessionId).hasThread(forkedThread.id)) {
       return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: "rewind-target-thread-already-registered",
       });
     }
-    // RE-READ ACROSS THE SUSPENSION, immediately before the first mutation. The
-    // claim is what makes this unreachable today — a turn dispatched while it is
-    // held is refused at the entrance, and one already in flight is refused
-    // post-await by `startRun`'s own slot check rather than registered — but the
-    // guard at the top of `forkConversation` read a MUTABLE map before the await, and
-    // its stability is a property of those other call sites rather than of this
-    // one. Answered with the pre-await guard's exact shape, so a caller cannot
-    // tell which of the two refused. The cost of refusing here is a forked thread
-    // the daemon never adopts; rebinding under a live turn would strand the turn
-    // itself, which is the worse of the two.
+    // Re-read after the await, before the first mutation; rebinding under a live turn would strand
+    // the turn.
     if (record.runIdByActiveTurnId.size > 0) {
       return ForkConversationResultSchema.parse({
         status: "degraded",
         fallbackAction: "rewind-deferred-turn-in-progress",
       });
     }
-    // Re-pointed only AFTER the fork is parsed. A failed or unreadable fork
-    // leaves the session exactly where it was, which is what makes a retry safe.
     record.threadId = forkedThread.id;
-    // The ROUTING AND METERING BAND moves with the record, in the same
-    // synchronous act. Re-pointing the record alone would leave the router's
-    // registered session thread naming the pre-fork id and the accountant
-    // holding no registers for the forked one — so every post-rewind frame is
-    // held pending a registration that never lands, shed on the hold timeout,
-    // and the session meters nothing at all for the rest of its life.
-    //
-    // Based like a RESUME and keyed on the PRE-FORK thread: a fork continues a
-    // session whose earlier spend the daemon has already emitted, and the
-    // forked id is one it has never emitted a token against, so the
-    // predecessor's id is the only key that sum exists under.
-    //
-    // Whether the provider's counter CONTINUES across a fork is not stated by
-    // the pinned wire reference, and the two readings are not symmetric. If it
-    // continues, this base is exact. If it restarts, the successor's readings
-    // fall BELOW the base and the accountant's decrease-floor rule floors the
-    // deltas at zero and records a diagnostic — loud under-metering that
-    // repairs itself once the counter passes the base. Basing `fresh` has the
-    // inverse failure: silent double-counting of every pre-rewind turn, which
-    // reaches a receipt as real money and says nothing.
+    // The routing and metering band moves with the record. Based like a resume on the pre-fork
+    // thread, the only key the earlier spend exists under. The wire reference does not say whether
+    // the counter continues across a fork: if it restarts, the decrease floor gives loud
+    // under-metering, whereas `fresh` would silently double-count.
     this.#bindSessionThread(params.sessionId, forkedThread.id, {
       mode: "resume",
       priorEmittedThreadId: preForkThreadId,
     });
-    // The predecessor's registers are RETIRED, not merely superseded. The
-    // router's retirement is fused into the registration above — it holds one
-    // session identity, so re-registering replaces it — but the accountant holds
-    // a register set PER THREAD and has no such fusion. A rewind that skipped
-    // this leaked one set per rewind for the session's whole life and left
-    // `hasThread(preForkThreadId)` answering true for a thread the caller has
-    // rewound away from — which is also what makes the refusal above answerable
-    // at all: that check asks whether the session is STILL metering the answered
-    // id, and an accountant that never forgets cannot tell a live thread from a
-    // retired one.
-    //
-    // Released only HERE, after the successor is established: released before
-    // the fork, a refused fork would leave the session running on a thread it
-    // can no longer meter. Late frames naming the retired thread are
-    // present-but-unregistered at the router after that same registration, so
-    // none of them reach the accountant to find its registers gone.
+    // The router retires the old thread in the registration above; the accountant holds one set
+    // per thread. Released only after the successor exists, so a refused fork can still meter.
     this.usageAccountantFor(params.sessionId).releaseThread(preForkThreadId);
-    // The compaction waits armed on the PREDECESSOR settle `binding_lost` at the
-    // moment the swap becomes true, on the same rule and in the same synchronous
-    // act as the accountant retirement above. The binding those callers
-    // dispatched into no longer exists, and their honest terminal is that it is
-    // gone — not `wait_expired` a full declared bound later, and certainly not
-    // `applied` on some compaction the successor thread performs.
+    // Compaction waits on the predecessor settle `binding_lost`, their honest terminal.
     this.#pendingCompactions.releaseBinding(
       codexCompactionWaitKey(params.sessionId, preForkThreadId),
     );
     const forkedTurnIds = readThreadTurnIds(forkedThread.turns);
-    // ONE report for BOTH disagreements, reported before either arm adopts,
-    // because they are the same disagreement: an absent or unreadable turn list
-    // reads as zero turns, which is itself a count that disagrees with the
-    // position asked for (the entrance refuses position 0, so agreement at zero
-    // is unreachable). The non-empty arm previously adopted the provider's ledger
-    // verbatim while still reporting `sessionPosition: params.position`, so a
-    // length the provider disagreed on was recorded nowhere at all — the silent
-    // half of the corroboration the empty arm has always reported.
+    // An absent or unreadable turn list reads as zero turns, which also disagrees.
     if (forkedTurnIds.length !== params.position) {
       reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
         kind: "fork-turn-ledger-unconfirmed",
@@ -6975,12 +3930,9 @@ export class CodexLifecycleManager {
       });
     }
     if (forkedTurnIds.length > 0) {
-      // The provider's own account of the forked history wins over the local
-      // ordinal — it is the thread the session now runs on.
+      // The provider's account of the forked history wins over the local ordinal.
       record.turnBoundaries.splice(0, record.turnBoundaries.length, ...forkedTurnIds);
     } else {
-      // Truncating to the requested position is what the INCLUSIVE boundary
-      // means, so the ledger stays usable for the next rewind.
       record.turnBoundaries.length = params.position;
     }
     return ForkConversationResultSchema.parse({
@@ -6991,16 +3943,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Binds the session's goal on the provider (leg 2, native).
-   *
-   * `goalText` is already the daemon-RENDERED form: the structured goal is
-   * contract's, and rendering happens before this seam, so the driver never
-   * sees the structure and cannot diverge from it.
-   *
-   * `objective` is the only member sent. The provider's params also carry
-   * `status` and `tokenBudget`; both are provider-side goal STATE this daemon
-   * does not own — sending either would make the driver a second author of a
-   * value whose durable truth is the session's own goal events.
+   * Binds the session's goal on the provider natively. Only `objective` is sent; `status` and
+   * `tokenBudget` are provider-side state the daemon does not own.
    */
   async setSessionGoal(params: SetSessionGoalParams): Promise<void> {
     const record = this.#requireSession(params.sessionId);
@@ -7010,66 +3954,19 @@ export class CodexLifecycleManager {
     });
   }
 
-  /**
-   * Clears the session's goal on the provider (leg 2, native).
-   *
-   * A `cleared: false` answer still resolves: the post-condition this
-   * operation promises is that the session carries no goal, and a thread that
-   * had none already satisfies it.
-   */
+  /** Clears the session's goal natively; a `cleared: false` answer still resolves. */
   async clearSessionGoal(params: ClearSessionGoalParams): Promise<void> {
     const record = this.#requireSession(params.sessionId);
     await record.connection.request("thread/goal/clear", { threadId: record.threadId });
   }
 
   /**
-   * Triggers a user-requested context compaction (NATIVE).
-   *
-   * SETTLES ON THE PROVIDER'S TYPED EVIDENCE AND NEVER ON THE REQUEST BEING
-   * ACCEPTED. `thread/compact/start` answers with `Record<string, never>` — an
-   * empty acknowledgement returned the moment the provider takes the job, well
-   * before any context is compacted. Returning `applied` there would report a
-   * compaction that may never happen, so the acknowledgement is treated as
-   * exactly what it is (the job was accepted) and the operation then waits for
-   * `thread/compacted`, the same frame that normalizes into the boundary row.
-   *
-   * THE WAIT IS ARMED BEFORE THE DISPATCH, and the ordering is the contract.
-   * A provider fast enough to compact between the request resolving and the
-   * wait being registered would deliver its evidence to an empty registry, and
-   * the caller would then wait out the whole declared bound for evidence that
-   * had already arrived. The window is small and real; closing it costs one
-   * ordering rule.
-   *
-   * A THROWN REQUEST SETTLES `provider_error` AND WITHDRAWS ITS OWN WAIT. The
-   * withdrawal is per-waiter and is not a settlement, which is the distinction
-   * that makes it safe: settling is per-key because one provider compaction is
-   * one compaction, so settling here would report this caller's transport failure
-   * to a CONCURRENT user waiting on the same binding — but withdrawing
-   * removes exactly this registration and cancels exactly its timer, and every
-   * sibling stays armed. Leaving it registered instead is a real leak rather than
-   * untidiness: `CODEX_COMPACTION_WAIT_MS` is longer than the transport deadline
-   * that produced the throw, so the orphan would outlive its caller by the
-   * difference.
-   *
-   * `refused` IS UNREACHABLE ON THIS LEG, and that is a property of the
-   * mechanism rather than an omission. `command_absent` is the emulated leg's
-   * pre-dispatch presence check against a provider's own command enumeration —
-   * this leg has a native request and performs no such check — and
-   * `not_permitted` is produced by the daemon-side run-control gate, which runs
-   * before any driver is called. A driver that manufactured either would be
-   * inventing a refusal nothing refused.
-   *
-   * The result is CONSTRUCTED here rather than parsed: every member is composed
-   * from this driver's own settlement, and the one untrusted number in play —
-   * the provider's boundary position — is read at the frame-observation
-   * boundary where every other provider number on this leg is read.
+   * Triggers a native context compaction and settles on the `thread/compacted` frame, not on the
+   * request's empty acknowledgement. The wait is armed before dispatch so an early frame is seen.
+   * Never returns `refused`; the daemon's gates answer that before any driver is called.
    */
   async compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
     const record = this.#requireSession(params.sessionId);
-    // The record is read and the wait is armed in ONE synchronous run with no
-    // `await` between them, and `#requireSession` refuses while the slot is
-    // establishing — so the thread this key names is the record's CURRENT one
-    // and cannot have moved between the read and the arm.
     const wait = this.#pendingCompactions.arm(
       codexCompactionWaitKey(params.sessionId, record.threadId),
       CODEX_COMPACTION_WAIT_MS,
@@ -7091,10 +3988,6 @@ export class CodexLifecycleManager {
     }
     const settlement = await wait.settled;
     if (settlement.terminal === "observed") {
-      // NO diagnostic on this arm. The other two are failures a reader needs to
-      // find later; a compaction that worked is the operation doing its job, and
-      // recording it here would make the counter a request count rather than a
-      // failure count.
       return { status: "applied", boundaryPosition: settlement.boundaryPosition };
     }
     this.#options.diagnostics.emit({
@@ -7115,105 +4008,18 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Enumerates the provider's live command and skill surface.
-   *
-   * A LIVE READ HELD AS DRIVER-SESSION STATE, NEVER A STORED REGISTRY. The
-   * enumeration is read from the provider on first ask and held for the
-   * session's life; nothing is written anywhere durable. That is the decision
-   * that keeps the capability storage-free — a stored copy would need
-   * invalidation, staleness, and reconciliation machinery whose only purpose is
-   * to re-derive what one read already gives — and the provider itself supplies
-   * the invalidation: `skills/changed` discards the held list so the next ask
-   * performs a FULL re-read rather than a patch.
-   *
-   * PARAMS ARE SENT EMPTY ON PURPOSE. `SkillsListParams` is
-   * `{ cwds?, forceReload? }` at the pin and its own generated doc records that
-   * an empty `cwds` "defaults to the current session working directory" — which
-   * is this connection's own spawn cwd, since the connection is per-session.
-   * Naming that directory explicitly would restate a value the provider already
-   * holds and would silently narrow the read if a later build scans more roots
-   * by default. `forceReload` is likewise not sent: it bypasses the provider's
-   * own skills cache, and this leg's freshness comes from the invalidation
-   * signal rather than from re-scanning disk on every palette open.
-   *
-   * THE CAP IS APPLIED AT COMPOSITION AND NOT TO THE HELD LIST. Truncation is a
-   * wire-and-render bound, so the held enumeration stays whole and
-   * `complete: false` states that this REPLY's tail was dropped. Holding a
-   * truncated list instead would let a later presence check conclude that a
-   * command the provider published does not exist.
-   *
-   * `runId` IS THE SOLE ATTRIBUTABLE LIVE RUN, OR `null`. The params name a
-   * binding and carry no run, so the driver resolves the pair's run half from
-   * its own routes: exactly one live run yields that run, zero live runs yields
-   * `null` (the ordinary pre-first-turn palette read, which SUCCEEDS), and two
-   * or more live runs on one binding also yields `null`, because no single run
-   * is attributable and picking one would be a coin flip presented as
-   * provenance. The key is always present; absence is stated, never
-   * synthesized.
-   *
-   * AND IT IS RESOLVED FROM THE RECORD THIS READ WENT THROUGH. Every member of
-   * the reply — the account id, the entries, the run — describes ONE provider
-   * process, and a session's record is replaced wholesale by a successful
-   * resume. Resolving the run half by session id after the read's await would
-   * therefore let a resume that landed mid-flight stamp its own run onto a
-   * predecessor's enumeration: the epoch check stops that reading from being
-   * cached but still returns it to its own caller, which is correct, so the
-   * provenance stamped on it must be the predecessor's too.
-   */
-  /**
-   * Reconstitutes the canonical transcript into a FRESH provider session, and
-   * returns only after the target's own answer confirms it.
-   *
-   * ## Why the seeding is one request per frame
-   *
-   * `thread/inject_items` takes an array, so the whole transcript could go in
-   * one request. It does not, and the reason is OBSERVABILITY rather than
-   * safety: with one request, a refusal or a lost acknowledgment leaves the
-   * applied prefix unknowable — the target holds somewhere between zero and all
-   * of the transcript and nothing can say which. Abandonment is identical either
-   * way (the target is burned on both), but the DIAGNOSTIC is not, and neither
-   * is the ability to test the interior-refusal arm as a real state rather than
-   * a hypothetical one. The cost is one round trip per turn against a session
-   * nobody is waiting on yet.
-   *
-   * ## Why every failure abandons the target
-   *
-   * See {@link ReplayTargetLedger}. A partially-seeded target is abandoned and
-   * never reused; the memo settlement its caller falls back to always lands in a
-   * fresh one, so no surviving session holds both native frames and a memo
-   * summarizing the same exchanges.
-   *
-   * Abandonment DISPOSES the session here rather than only recording it: this
-   * driver owns the provider process, and a burned target left running is a
-   * `codex app-server` holding half a conversation that nothing will ever read.
-   * The ledger entry survives the disposal so a caller replaying against a stale
-   * handle is told what happened rather than getting a bare "no such session".
-   *
-   * ## Failures THROW rather than returning `degraded`
-   *
-   * `DriverTranscriptReplayResult`'s `degraded` status is the memo floor's, and
-   * its schema requires the matching `conversation_history_summarized` loss — so
-   * returning it from here would report a summarized history to a caller that
-   * got neither a replay nor a memo. The `applied` arm this returns carries an
-   * EMPTY loss list, and that is a positive claim: this leg has no silent-drop
-   * path, because a frame it cannot represent is refused rather than skipped.
-   * The export's own declared losses ride the caller's disposition, not this
-   * result — the fold that produced them is a different task's, and re-deriving
-   * them here would be a second opinion on what the transcript lost.
+   * Reconstitutes the transcript into a fresh session, one `thread/inject_items` request per frame
+   * so a failure leaves a known applied prefix, and returns only after the readback confirms it.
+   * Every failure abandons the target ({@link ReplayTargetLedger}) and throws; a frame this leg
+   * cannot represent is refused, never skipped, so `applied` carries no losses.
    */
   async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
     const targetProviderSessionId: string = params.target.providerSessionId;
-    // FIRST, before any lookup or write: a target this daemon has already burned
-    // is refused at zero cost to the provider.
     this.#replayTargets.assertUsable(targetProviderSessionId);
 
     const record: CodexSessionRecord = this.#requireReplayTargetRecord(params.target);
 
-    // Structural freshness, and it costs nothing: the turn ledger IS the
-    // session-position axis, so a non-empty one is proof the target has already
-    // held a conversation. binds a replay to reconstitute into a FRESH session,
-    // and enforcing that at the entrance beats inferring it later from a readback
-    // that would then be comparing against turns nobody seeded.
+    // A non-empty turn ledger proves the target already held a conversation.
     if (record.turnBoundaries.length > 0) {
       this.#abandonReplayTarget(record, targetProviderSessionId, "target-not-fresh");
       throw new CodexTransportError(
@@ -7224,11 +4030,7 @@ export class CodexLifecycleManager {
 
     const seeded: SeededTranscriptFrame[] = [];
     for (const frame of params.frames) {
-      // Parsed fail-closed, and BEFORE anything is written: a frame this leg
-      // cannot represent is a refusal, never a skip. Nothing in
-      // `DeclaredLossKind` names "the driver dropped a frame it did not
-      // understand", so a skip would be a loss with no way to declare it, and
-      // the `applied` arm's empty loss list would become a lie.
+      // Fail closed before any write: a skipped frame would falsify the empty loss list.
       seeded.push(readRenderedTranscriptFrameForReplay(frame));
     }
     if (seeded.length === 0) {
@@ -7246,14 +4048,7 @@ export class CodexLifecycleManager {
       if (attempt.settled === "answered") {
         continue;
       }
-      // `unsent` and `refused` are both structural: the provider either never
-      // got the frame or answered that it would not take it, and in each case
-      // the daemon KNOWS what the target holds. `indeterminate` is the ambiguous
-      // one — the bytes left, and whether they landed is unknowable from here.
-      // Both abandon; they are distinguished because the cause is what a later
-      // reader needs, and because collapsing them would let an ambiguous
-      // delivery be recorded as a refusal, which asserts something this daemon
-      // cannot know.
+      // `indeterminate` (bytes left, arrival unknowable) must not be recorded as a refusal.
       const cause: ReplayTargetAbandonmentCause =
         attempt.delivery === "indeterminate" ? "ambiguous-delivery" : "interior-refusal";
       this.#abandonReplayTarget(record, targetProviderSessionId, cause);
@@ -7266,11 +4061,7 @@ export class CodexLifecycleManager {
     const readReadback: ReplayTargetReadbackReader | undefined =
       this.#options.transcriptReplayReadback;
     if (readReadback === undefined) {
-      // The seeding calls all answered, and that is exactly the evidence
-      // refuses to accept. With no way to ask the target what it holds, this
-      // leg cannot tell a faithful seed from a silently discarded one, so it
-      // refuses rather than reporting the provider's own success back as a
-      // verified replay.
+      // Answered seeding calls are not proof; without a readback a discarded seed looks faithful.
       this.#abandonReplayTarget(record, targetProviderSessionId, "readback-unavailable");
       throw new CodexTransportError(
         `Codex replay into thread "${record.threadId}" seeded ${String(seeded.length)} frame(s) but no target-readback reader is bound, so the post-replay assertion cannot run; the target was abandoned.`,
@@ -7282,9 +4073,7 @@ export class CodexLifecycleManager {
     try {
       readback = await readReadback(targetProviderSessionId);
     } catch (error: unknown) {
-      // A rejecting reader is the `unreadable` arm, per that seam's contract.
-      // Converted rather than propagated so the refutation below is the one
-      // failure shape a caller has to handle.
+      // A rejecting reader is the `unreadable` arm of the readback contract.
       readback = {
         kind: "unreadable",
         reason: error instanceof Error ? error.message : String(error),
@@ -7299,35 +4088,14 @@ export class CodexLifecycleManager {
       throw new PostReplayAssertionFailedError(targetProviderSessionId, seeded.length, verdict);
     }
 
-    // Retire the target on SUCCESS, not only on failure. `thread/inject_items`
-    // does not advance `turnBoundaries` — that ledger is seeded from
-    // `thread.turns` at resume/fork and appended at each accepted `turn/start` —
-    // so the freshness gate above is blind to a session this driver itself just
-    // seeded, and a second call through the same handle would write the whole
-    // conversation into it again. The assertion would then CONFIRM the doubled
-    // session: it tolerates more answered turns than were seeded and the tail
-    // still matches. The ledger is the only guard that can see this, so a
-    // confirmed target is burned exactly as an abandoned one is.
+    // Retired on success too: `thread/inject_items` leaves `turnBoundaries` empty, so the
+    // freshness gate would not stop a second seeding through the same handle.
     this.#replayTargets.consume(targetProviderSessionId);
 
     return { status: "applied", declaredLosses: [] };
   }
 
-  /**
-   * Resolves a replay target's session record from its PROVIDER handle.
-   *
-   * `ReplayTranscriptParams` carries a `ProviderSessionHandle` and no canonical
-   * session id, so the lookup runs the other way: `resumeHandle` is this
-   * provider's thread id, which is what this manager keys its records' identity
-   * on. Matched on the thread id rather than on `providerSessionId` because the
-   * thread is what a request is addressed to — a match on the other member would
-   * admit a record whose thread has since moved under it (a rewind forks and
-   * re-points), and the seed would then be written into the wrong thread.
-   *
-   * A miss THROWS rather than establishing a session: a target this manager does
-   * not hold is one whose process it does not own, and seeding into it would be
-   * writing through a handle with no lifecycle behind it.
-   */
+  /** Finds the record whose current thread id is the handle's `resumeHandle`; a miss throws. */
   #requireReplayTargetRecord(target: ProviderSessionHandle): CodexSessionRecord {
     for (const record of this.#sessions.values()) {
       if (record.threadId === target.resumeHandle) {
@@ -7341,22 +4109,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Burns a replay target: records it, then disposes the process behind it.
-   *
-   * The ledger entry is written FIRST and unconditionally, so the target is
-   * unusable even if the disposal itself fails — the record is the guarantee,
-   * and the disposal is housekeeping on top of it. Disposal failures are
-   * swallowed deliberately: this method is called on a path that is already
-   * throwing a more informative error, and replacing that error with a teardown
-   * fault would hide why the replay failed behind how the cleanup did.
-   *
-   * Residual, stated rather than papered over: the ledger gates `replayTranscript`
-   * and nothing else, so a burned target whose disposal FAILS stays in
-   * `#sessions` and remains reachable by the ordinary session operations. That is
-   * the correct width — the guarantee this class owes is that no target is seeded
-   * twice, not that a partially-seeded session is unaddressable, and a caller who
-   * has one still needs `closeSession` to work on it. What such a session may
-   * never again be is a replay target, which is exactly what the ledger enforces.
+   * Records the abandonment first, so the target is unusable even if disposal fails, then closes
+   * its process. A disposal failure stays in `#sessions` and is swallowed: the caller is throwing.
    */
   #abandonReplayTarget(
     record: CodexSessionRecord,
@@ -7365,10 +4119,15 @@ export class CodexLifecycleManager {
   ): void {
     this.#replayTargets.abandon(targetProviderSessionId, cause);
     void this.closeSession({ sessionId: record.sessionId }).catch(() => {
-      // Intentionally ignored — see above.
+      // The caller is already throwing the replay error.
     });
   }
 
+  /**
+   * Enumerates the provider's command and skill surface, held for the session's life until
+   * `skills/changed` discards it. The entry cap trims the reply, not the held list
+   * (`complete: false` marks a trimmed tail); `runId` is the sole live run or `null`.
+   */
   async listProviderCommands(
     params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {
@@ -7394,17 +4153,8 @@ export class CodexLifecycleManager {
     return {
       bindings: [
         {
-          // THE RECORD THIS READ WENT THROUGH, never a fresh lookup by session
-          // id. A successful `resumeSession` landing while the `skills/list`
-          // request above is in flight installs a NEW record for the same
-          // session: the epoch check already stops the predecessor's reading
-          // from being cached, but an id-keyed re-resolution here would still
-          // stamp the SUCCESSOR's active run onto an enumeration read from the
-          // predecessor's process — a provenance claim that is simply false,
-          // and the one thing this key exists to state. Reading the record
-          // directly makes the pair `{ runId, providerAccountId }` describe one
-          // process, and a predecessor whose routes the resume already retired
-          // answers `null`, which is the honest absence this shape defines.
+          // From this read's record, not by session id: a resume landing mid-request must not
+          // stamp the successor's run here.
           runId: soleActiveRunIdIn(record),
           binding: { driverName: CODEX_DRIVER_NAME, providerAccountId },
           entries,
@@ -7415,25 +4165,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * The held enumeration for one session, read from the provider if absent.
-   *
-   * THE EPOCH IS CAPTURED SYNCHRONOUSLY BESIDE THE MISS, before the request is
-   * dispatched, and re-checked before the reading is stored. An invalidation
-   * landing inside that window — `skills/changed`, a resume, a disposal, a
-   * teardown — moves the epoch, and this reading is then returned to ITS OWN
-   * caller and cached for nobody: it is a correct answer to a question asked
-   * before the change, and a wrong thing to hand the next caller. The next ask
-   * re-reads in full, which is what the invalidation was asking for.
-   *
-   * The re-check reads the map DIRECTLY rather than through the mint-if-absent
-   * capture, so a session torn down mid-flight is not resurrected by one epoch
-   * entry the teardown has already swept.
-   *
-   * THE REFUSED FIELD READINGS ARE REPORTED HERE, at the READ rather than at
-   * every palette open. The enumeration is read once and held, so emitting from
-   * the reply the caller happened to be served would turn one provider fault
-   * into a record per palette open — and re-emitting for a list this session
-   * already reported would say the provider published it again.
+   * The held enumeration, read from the provider if absent. The epoch captured before the request
+   * is re-checked before storing, so an invalidation mid-flight leaves the reading uncached.
    */
   async #heldProviderCommandsFor(
     sessionId: SessionId,
@@ -7457,23 +4190,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Record one published entry field the contract's bounds refused.
-   *
-   * WHAT THIS EXISTS TO PREVENT is a silent erasure reading as a statement.
-   * `ProviderCommandEntry` says absence POSITIVELY — no description published,
-   * no scope stated — so a field dropped because it was over-length or
-   * NUL-bearing would otherwise reach a consumer as a claim the provider never
-   * made, and a scoped skill would be published as an unscoped one.
-   *
-   * `dropped` is the difference between the two costs, and both keep the
-   * censused kind: a name that could not be read costs the whole entry, and a
-   * caption or scope costs only itself. The VALUE is never carried — it is
-   * exactly the untrusted string a bound just rejected — while the lengths are,
-   * because they say which bound fired.
-   *
-   * This is the record the sibling Claude driver's composer already emits for
-   * its own rejected entries; the two drivers now report the same condition on
-   * the same kind rather than one of them recording nothing.
+   * Reports a field the contract's bounds refused; absence is a positive claim, so a silent drop
+   * would misstate the provider. Only lengths are carried, never the refused value.
    */
   #reportProviderCommandEntryRejected(
     sessionId: SessionId,
@@ -7497,15 +4215,6 @@ export class CodexLifecycleManager {
     });
   }
 
-  /**
-   * The current epoch for one session, minted on first ask.
-   *
-   * Minting lazily rather than at establishment is what keeps the two maps
-   * swept by the same call: an epoch exists only for a session that has read an
-   * enumeration, and {@link CodexSessionManager.#discardProviderCommandEnumeration}
-   * is the sole discard site, clearing both wherever either would have been
-   * cleared.
-   */
   #providerCommandEnumerationEpochFor(sessionId: SessionId): symbol {
     const current = this.#providerCommandEnumerationEpochs.get(sessionId);
     if (current !== undefined) {
@@ -7516,50 +4225,20 @@ export class CodexLifecycleManager {
     return minted;
   }
 
-  /**
-   * Discard one session's held enumeration AND its epoch, together.
-   *
-   * ONE CALL FOR EVERY DISCARD SITE — the `skills/changed` cue, a resume, a
-   * disposal, a close, a teardown — because the two maps only work as a pair:
-   * clearing the list while leaving the epoch would let an in-flight read store
-   * a pre-invalidation reading, and clearing the epoch while leaving the list
-   * would serve one. Dropping the epoch is exactly what fails the in-flight
-   * re-check, since a deleted key reads `undefined` and no captured token is
-   * ever `undefined`.
-   */
+  /** Clears list and epoch together; deleting the epoch fails an in-flight read's re-check. */
   #discardProviderCommandEnumeration(sessionId: SessionId): void {
     this.#providerCommandEnumerations.delete(sessionId);
     this.#providerCommandEnumerationEpochs.delete(sessionId);
   }
 
-  /**
-   * Unsubscribes from the thread and tears down the process. Idempotent: closing
-   * an unknown or already-closed session resolves without throwing.
-   */
+  /** Unsubscribes and tears down the process. Idempotent: an unknown session resolves. */
   async closeSession(params: CloseSessionParams): Promise<void> {
-    // Read and claim in ONE synchronous run, with no `await` between them. The
-    // early return is not an optimization: claiming for a session this manager
-    // does not hold would refuse a concurrent create for a slot that is genuinely
-    // free, and a close of an unknown session is specified as a no-op.
-    //
-    // A close arriving mid-establishment does NOT take that branch — the slot
-    // reads `establishing` — so it claims and chains, and the in-flight create or
-    // resume can no longer install a record that outlives the session the daemon
-    // believes it closed. Chaining also covers a QUEUE of transitions
-    // transitively, since each claim already waits on its predecessor. Safe from
-    // deadlock: no establishment path calls `closeSession` (each closes its own
-    // CONNECTION directly), so the wait can never be on this call.
-    //
-    // The intended-close flag is latched FIRST, before the unknown-session early return and before
-    // the claim: the daemon has expressed the intent by calling this method at
-    // all, so every terminal from this point on belongs to a clean shutdown —
-    // including the ones a chained close only reaches after the establishment
-    // ahead of it settles.
+    // Claiming a free slot would refuse a concurrent create, hence the early return. A close during
+    // establishment chains behind it. The latch comes first so every later terminal counts as
+    // clean.
     this.#intendedCloseGateFor(params.sessionId).signalIntendedClose();
     if (this.#describeSlotHolder(params.sessionId) === undefined) {
-      // No slot means no session, so no terminal is left for the flag to
-      // describe; the latch this call just set goes with it rather than
-      // accumulating one entry per redundant close.
+      // No session: drop the latch just set rather than accumulate one per redundant close.
       this.#terminalEmissionGates.delete(params.sessionId);
       this.#frameRouters.delete(params.sessionId);
       this.#usageAccountants.delete(params.sessionId);
@@ -7569,11 +4248,7 @@ export class CodexLifecycleManager {
     await this.#claimSessionSlot(params.sessionId, "closing", async () => {
       await this.#tearDownSession(params.sessionId);
     });
-    // The gate dies with the session it scoped, after teardown rather than
-    // before it: a terminal provoked by the teardown itself must still find the
-    // latch set. The routing and metering band goes with it — both are
-    // per-provider-session state, and a router surviving its session would
-    // answer the next one with a thread registry that session never made.
+    // After teardown: a terminal it provokes must still find the latch set.
     this.#terminalEmissionGates.delete(params.sessionId);
     this.#frameRouters.delete(params.sessionId);
     this.#usageAccountants.delete(params.sessionId);
@@ -7581,25 +4256,14 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * The terminal-emission gate for one session.
-   *
-   * The emission pipeline reads it to stamp `intendedClose` and to suppress a
-   * duplicate terminal for an already-settled `(runId, runVersion)` epoch. Read
-   * LIVE at each terminal rather than captured, for the same reason the
-   * capability snapshot is: a gate captured before a close would answer with a
-   * latch the close has since set.
+   * The terminal-emission gate, which stamps `intendedClose` and suppresses a duplicate terminal
+   * per `(runId, runVersion)`. Read live at each terminal, never captured.
    */
   terminalEmissionGateFor(sessionId: SessionId): CodexTerminalEmissionGate {
     return this.#intendedCloseGateFor(sessionId);
   }
 
-  /**
-   * The thread-frame router for one session.
-   *
-   * Read LIVE rather than captured, for the same reason the emission gate is:
-   * a router captured before a registration would answer with a thread set the
-   * registration has since widened.
-   */
+  /** The thread-frame router for one session; read live so a widened thread set is seen. */
   frameRouterFor(sessionId: SessionId): ThreadFrameRouter<CodexRoutableFrame> {
     const existing = this.#frameRouters.get(sessionId);
     if (existing !== undefined) {
@@ -7629,24 +4293,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Bind a session's OWN thread identity into the routing and metering band.
-   *
-   * Called at EVERY establishment — create, resume, and the rewind's fork —
-   * with the arm the establishment actually took. ORDER IS THE CONTRACT: the
-   * accountant's base registers are established BEFORE the router releases
-   * anything, because a released usage frame meters immediately and an
-   * unestablished thread would refuse it outright.
-   *
-   * The registration's released frames are RE-ROUTED rather than discarded: a
-   * Codex session can receive traffic on its own thread before the establishing
-   * response names that thread, and a discarding caller would shed it.
-   *
-   * Re-registering the session's own thread is also how the PREVIOUS one is
-   * retired. The router holds a single session-thread identity and this
-   * overwrites it, so after a rewind a frame naming the pre-fork thread is
-   * present-but-unregistered rather than the session's own. That is the whole
-   * retirement: the router exposes no separate retire entry point, and reaching
-   * around it here would make this a second writer of a value it owns.
+   * Binds the session's thread into the routing and metering band at every establishment. Base
+   * registers come first because a released usage frame meters immediately. Registering
+   * overwrites the router's session-thread identity, which is how a rewind retires the old thread.
    */
   #bindSessionThread(
     sessionId: SessionId,
@@ -7672,26 +4321,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Read the daemon's own prior-emitted cumulative sum for one thread.
-   *
-   * The diagnostic is reserved for the genuinely FAULTY arm — no reader bound,
-   * or a reader that threw. A bound reader answering `undefined` is a CORRECT
-   * answer to a correct question: a session that legitimately emitted nothing
-   * has a prior-emitted sum of zero, and basing at zero is exactly right for
-   * it. Recording that case too would fire the record on every zero-spend
-   * rewind and say nothing about any of them, and would claim spend was
-   * re-metered where none exists.
-   *
-   * The reader is CALLER-SUPPLIED, so its throw is contained here rather than
-   * allowed to escape. Two paths make that load-bearing: `forkConversation` calls
-   * this AFTER the record has been re-pointed at the forked thread, where a
-   * throw would break that method's own promise that a failed rewind leaves the
-   * session exactly as it was and would report a fork that DID happen as one
-   * that did not; and `resumeSession` calls it against a live provider process,
-   * where a throw would convert a resumed session into a typed failure the
-   * daemon then tries to recover from. The base this returns is a telemetry
-   * input, and an over-metered turn is recoverable from the record below —
-   * neither of those two outcomes is.
+   * Reads the daemon's prior-emitted cumulative sum, reporting only a missing or throwing reader
+   * (`undefined` is correct for a session that emitted nothing). The throw is contained because the
+   * base is telemetry and must not fail an already-applied fork or resume.
    */
   #readPriorEmittedSum(
     sessionId: SessionId,
@@ -7721,16 +4353,8 @@ export class CodexLifecycleManager {
     }
   }
 
-  /**
-   * Record a base the resume arm was taken with but could not obtain.
-   *
-   * Both thread ids travel because on a REWIND they differ: the sum was looked
-   * up under the pre-fork thread while the registers being based belong to the
-   * forked one, and an operator reconciling a receipt needs the pair to see
-   * which key came up empty. The resume arm is still taken rather than swapped
-   * for `fresh`, so the record says which arm ran and why it had nothing to
-   * work with.
-   */
+  // On a rewind the two thread ids differ: the sum is under the pre-fork thread, the registers
+  // belong to the forked one.
   #emitResumeBaseUnavailable(
     sessionId: SessionId,
     threadId: string,
@@ -7747,16 +4371,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Route one inbound notification and deliver whatever it releases.
-   *
-   * THE routing entry point, ahead of every projection decision. Non-throwing
-   * by construction: it runs inside the transport's `#ingest` drain, where a
-   * throw would unwind the read-chunk loop, so every reader it calls is total
-   * and the delegate hand-off below is individually contained.
-   *
-   * Registration is dispatched from a `thread/started` announcement BEFORE the
-   * announcement frame itself is routed — otherwise the announcement would be
-   * held pending the very registration it carries.
+   * Routes one inbound notification and delivers what it releases. Must not throw: it runs inside
+   * the transport's `#ingest` drain. A child is registered before its announcement is routed.
    */
   #routeInboundNotification(sessionId: SessionId, method: string, params: unknown): void {
     const router = this.frameRouterFor(sessionId);
@@ -7767,14 +4383,8 @@ export class CodexLifecycleManager {
         if (registration.registered) {
           const accountant = this.usageAccountantFor(sessionId);
           if (accountant.hasThread(registration.childThreadId)) {
-            // A SECOND announcement for a child already carrying a base. The
-            // router accepted it (re-registering a held identity is a no-op),
-            // but re-establishing would reset this child's register to zero
-            // mid-stream, so its next cumulative reading would re-meter every
-            // token it has already spent — double-counted spend on the receipt
-            // — and a second `subagent.started` would duplicate the child's
-            // only timeline presence. Recorded rather than returned on: the
-            // duplicate is a provider-side observation worth surfacing.
+            // Re-establishing would zero the register and re-meter reported spend, and a second
+            // `subagent.started` would duplicate a timeline entry.
             this.#options.diagnostics.emit({
               provider: "codex",
               kind: "thread_duplicate_child_announcement",
@@ -7784,14 +4394,8 @@ export class CodexLifecycleManager {
               details: { sessionId, childThreadId: registration.childThreadId },
             });
           } else {
-            // A registered child is a BRAND-NEW provider thread, so its base
-            // registers start at zero.
             accountant.establishThread(registration.childThreadId, { mode: "fresh" });
-            // A provider-attributed child opens its `subagent.*` pair here, at
-            // the registration that admitted it. A provider-INTERNAL child (a
-            // compaction thread) carries no subagent identity, so it opens no
-            // pair — inventing one would put a subagent on the timeline that
-            // the provider never attributed to anything.
+            // A provider-internal child (a compaction thread) has no subagent identity.
             if (registration.attribution.kind === "subagent") {
               this.#options.onSubagentLifecycle?.(sessionId, {
                 eventType: "subagent.started",
@@ -7800,10 +4404,6 @@ export class CodexLifecycleManager {
               });
             }
           }
-          // Released unconditionally on BOTH arms. A hold can only exist for an
-          // identity the router had not yet seen, so the duplicate arm releases
-          // an empty list — but making the release conditional would couple the
-          // hold's fate to a metering decision it has nothing to do with.
           this.#deliverRoutedFrames(sessionId, registration.releasedFrames);
         }
       }
@@ -7819,12 +4419,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Apply the router's decision to each frame and hand only the projecting ones
-   * to the normalize band.
-   *
-   * The carve-outs run AHEAD of suppression, which is the whole point of them:
-   * a child's usage still meters and a child's interactive request still routes,
-   * even though the child's transcript never projects.
+   * Applies the router's decision to each frame. A child's usage still meters and its interactive
+   * request still routes, though its transcript never projects.
    */
   #deliverRoutedFrames(sessionId: SessionId, frames: readonly CodexRoutableFrame[]): void {
     const router = this.frameRouterFor(sessionId);
@@ -7843,9 +4439,7 @@ export class CodexLifecycleManager {
     switch (route.decision) {
       case "project":
       case "route-connection-scoped":
-        // A projecting usage frame meters against the session's own thread
-        // before it reaches the normalize band, so the band never sees a
-        // cumulative counter it might forward as a per-turn figure.
+        // Metering first, so the normalize band never forwards a cumulative counter as per-turn.
         this.#meterUsageFrame(sessionId, frame);
         this.#observeCompactionBoundary(sessionId, frame);
         this.#completeChildOnTerminal(sessionId, frame);
@@ -7855,61 +4449,24 @@ export class CodexLifecycleManager {
         this.#meterUsageFrame(sessionId, frame);
         return;
       case "carve-out-interactive-request":
-        // A child's ask routes through the SAME dispatch and approval pipeline
-        // as the parent's, answered on the child's own correlation identity —
-        // suppressing it would not hide the child but hang it.
+        // Same pipeline as the parent's, on the child's own correlation identity; suppressing it
+        // would hang the child.
         this.#handOffToNormalizeBand(frame);
         return;
       case "suppress-child-transcript":
-        // The child's own terminal releases the child's router state; its
-        // content never reaches the parent's timeline.
         this.#completeChildOnTerminal(sessionId, frame);
         return;
       case "held-pending-registration":
       case "quarantined":
-        // Both are already recorded by the router as diagnostics; neither is a
-        // delivery, and neither is a silent drop.
+        // The router already recorded both as diagnostics.
         return;
     }
   }
 
   /**
-   * Settle any pending compaction wait on this session's typed evidence
-   * frame.
-   *
-   * A TAP AND NEVER A DIVERSION. It is called BESIDE the hand-off to the
-   * normalize band rather than in place of it, so `thread/compacted` still
-   * travels its ordinary route and still normalizes into its boundary row
-   * whether or not anyone is waiting. That is what makes "the operation failed
-   * and the compaction is still recorded" true by construction rather than by
-   * convention — a late frame that arrives after a wait expired settles nobody
-   * and projects exactly as it would have.
-   *
-   * A CHILD THREAD'S COMPACTION CANNOT SETTLE THE USER'S WAIT, and the
-   * routing decision is what guarantees it rather than a second check here.
-   * `thread/compacted` classifies as thread-scoped usage, so a frame on a
-   * registered child thread routes `carve-out-usage` — a different arm from the
-   * two this method is called from.
-   *
-   * SETTLEMENT KEYS ON THE FRAME'S OWN THREAD IDENTITY, and that is NOT a second
-   * source of truth for whose stream the frame came from — it is a READ of the
-   * one the routing band already produced. A `project` decision on a
-   * thread-scoped family IS the router's assertion that this frame's `threadId`
-   * is present and is the session's registered thread; using that identity is
-   * consuming the decision rather than re-deciding it, and it is exactly what a
-   * comparison against the RECORD would get wrong at a rewind, where the
-   * record's identity has already moved to the successor while a wait armed
-   * under the predecessor is still registered.
-   *
-   * An absent identity therefore settles nothing. It is unreachable beneath the
-   * `rawWireType` guard above — a thread-scoped frame with a null identity never
-   * reaches a `project` decision — and returning fail-closed is the right
-   * disposition for the state anyway: a frame that did not say whose stream it
-   * came from cannot be evidence for a wait armed on a particular one.
-   *
-   * A compaction nobody asked for settles nothing and is deliberately silent:
-   * the registry treats an unarmed key as an ordinary no-op, because there is
-   * nothing wrong with a provider-initiated compaction.
+   * Settles a pending compaction wait on `thread/compacted`, beside the normalize hand-off so the
+   * boundary row is still produced. Keyed on the frame's own thread id, not the record's, which
+   * has moved to the successor at a rewind; an unarmed key is a no-op.
    */
   #observeCompactionBoundary(sessionId: SessionId, frame: CodexRoutableFrame): void {
     if (frame.rawWireType !== CODEX_THREAD_COMPACTED_METHOD || frame.threadId === null) {
@@ -7921,17 +4478,13 @@ export class CodexLifecycleManager {
     );
   }
 
-  /** Meter one usage frame, if this frame is one. */
   #meterUsageFrame(sessionId: SessionId, frame: CodexRoutableFrame): void {
     if (frame.rawWireType !== CODEX_THREAD_TOKEN_USAGE_METHOD) {
       return;
     }
     const reading = readCodexCumulativeUsageReading(frame.params);
     if (reading === null) {
-      // The one frame kind this provider reserves for token readings arrived
-      // and could not be read. Recorded rather than returned on: a silent drop
-      // here is spend that never reaches a receipt, and it is indistinguishable
-      // from a session that simply cost nothing.
+      // A silent drop is spend that never reaches a receipt.
       this.#options.diagnostics.emit({
         provider: "codex",
         kind: "usage_axis_reading_rejected",
@@ -7949,22 +4502,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Release a child thread's router state on that child's own terminal.
-   *
-   * The child terminal is a CHILD THREAD'S `turn/completed` carrying a terminal
-   * `turn.status`, and it is routable because the frame carries a top-level
-   * `threadId`.
-   *
-   * The pinned union's two neighboring candidates were both examined and
-   * neither can serve. `thread/status/changed` DOES exist, but its `ThreadStatus`
-   * has no terminal arm — `notLoaded | idle | systemError | active` — and `idle`
-   * is the BETWEEN-TURNS state, so a completion keyed on it would end a child
-   * that is merely waiting. `thread/closed` is a genuine thread-lifetime
-   * terminal, but nothing at the pin establishes that the app-server emits it
-   * for subagent threads, so binding release to it would risk never releasing;
-   * it is deliberately left unclassified, which routes it to the router's
-   * fail-closed quarantine WITH a diagnostic rather than to a silent drop — the
-   * recorded signal that would justify adopting it.
+   * Releases a child's router state on its `turn/completed` with a terminal `turn.status`.
+   * `thread/status/changed` has no terminal arm, and `thread/closed` is left unclassified because
+   * nothing shows the app-server emits it for subagent threads.
    */
   #completeChildOnTerminal(sessionId: SessionId, frame: CodexRoutableFrame): void {
     if (frame.rawWireType !== CODEX_TURN_COMPLETED_METHOD || frame.threadId === null) {
@@ -7988,11 +4528,9 @@ export class CodexLifecycleManager {
     }
   }
 
-  /** Hand one routed frame to the normalize / emission band. */
   #handOffToNormalizeBand(frame: CodexRoutableFrame): void {
     const delegate = this.#options.onServerNotification;
     if (delegate === undefined) {
-      // Same containment as the transport's own: this runs inside `#ingest`.
       reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
         kind: "unconsumed-server-notification",
         method: frame.rawWireType,
@@ -8002,12 +4540,7 @@ export class CodexLifecycleManager {
     try {
       delegate(frame.rawWireType, frame.params);
     } catch (cause) {
-      // A MODULE-BOUNDARY guard, kept deliberately even though the transport
-      // contains this same fault one frame further out. The reason is ownership
-      // rather than behavior: this class should not depend on another module's
-      // error handling to keep its own contract, and that transport is slated to
-      // become swappable (leg 6), at which point the outer catch stops being
-      // guaranteed.
+      // Guarded here so this class does not depend on the transport's own containment.
       reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
         kind: "notification-consumer-failed",
         method: frame.rawWireType,
@@ -8016,8 +4549,7 @@ export class CodexLifecycleManager {
     }
   }
 
-  // Get-or-create, so the intent latch survives whichever of close and
-  // establishment reaches this session first.
+  // Get-or-create, so the latch survives whichever of close and establishment comes first.
   #intendedCloseGateFor(sessionId: SessionId): CodexTerminalEmissionGate {
     const existing = this.#terminalEmissionGates.get(sessionId);
     if (existing !== undefined) {
@@ -8029,33 +4561,21 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Graceful teardown of whatever record holds the session, inside a claimed slot.
-   *
-   * The record is deleted in a `finally` at the END rather than up front, and
-   * both halves of that are load-bearing. Deleting first freed the slot for the
-   * length of the unsubscribe and the process close — the window a second create
-   * used to spawn into. Deleting only on success would make a session whose
-   * teardown threw permanently unclosable AND permanently un-creatable, which
-   * trades a leaked process for a wedged slot.
+   * Graceful teardown inside a claimed slot. The record is deleted in a `finally`: deleting first
+   * would let a create spawn into the slot, and only on success would leave it permanently stuck.
    */
   async #tearDownSession(sessionId: SessionId): Promise<void> {
     const record = this.#sessions.get(sessionId);
     if (record === undefined) {
-      // The establishment this close chained behind failed, so nothing was ever
-      // installed; that path released its own connection on the way out.
+      // The establishment this close chained behind failed and released its connection.
       return;
     }
-    // Routes are dropped up front, apart from the record: they are not the slot,
-    // and `hasActiveTurn` must stop reporting a run live the instant its session
-    // begins tearing down rather than when the process finally goes.
+    // Dropped up front so `hasActiveTurn` stops reporting a live run once teardown begins.
     this.#forgetRunRoutes(sessionId);
     try {
       if (!record.connection.isClosed) {
         try {
-          // Best effort, and bounded: the process is going away regardless, so a
-          // refused OR unanswered unsubscribe must not block teardown or surface
-          // as a close failure. The explicit deadline is what makes "must not
-          // block" true against a wedged provider.
+          // Best effort and bounded: a refusal or a wedged provider must not block teardown.
           await record.connection.request(
             "thread/unsubscribe",
             { threadId: record.threadId },
@@ -8068,106 +4588,46 @@ export class CodexLifecycleManager {
       await record.connection.close();
     } finally {
       this.#sessions.delete(sessionId);
-      // Settled FROM the disposal rather than discovered by a poll, which is
-      // what makes the settlement simultaneous with the loss: a binding lost at
-      // t=0 must settle at t=0, and a periodic liveness check would pass a
-      // fake-timer test while settling at the next tick. In the `finally` for
-      // the same reason the record delete is — a teardown that threw must still
-      // release the callers waiting on a binding that is gone either way.
+      // In the `finally` so a teardown that threw still releases the compaction waiters.
       this.#pendingCompactions.releaseBinding(codexCompactionWaitKey(sessionId, record.threadId));
-      // The held enumeration dies with the session that read it. A survivor
-      // would answer the NEXT session on this id with the previous one's skills.
       this.#discardProviderCommandEnumeration(sessionId);
-      // AFTER the record delete, not beside the route sweep at the top. The
-      // record survives every await above, so a turn terminating mid-teardown is
-      // still ingested and still ruled — and dropping its frame early would turn
-      // that last ruling into a silent pass on the way out.
+      // After the record delete: a turn terminating mid-teardown must still be ingested and ruled.
       this.#releaseOutboundFrameBudget(sessionId);
     }
   }
 
-  /** Steer is routed here by the intervention dispatcher (enriched). */
+  /** Steers the run's active turn; the intervention dispatcher routes steers here. */
   async steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> {
     const { record, turnId } = this.#requireActiveTurn(request.runId);
-    // The provider REQUIRES an active-turn precondition. A caller-supplied
-    // expectation wins so a stale steer is refused by the provider rather than
-    // silently retargeted at whatever turn is running now. Held in a local
-    // because it is also half of the acknowledgement comparison: the dispatcher
-    // grades the ack against what actually went on the wire, not against the
-    // caller's optional hint.
+    // A caller-supplied expectation wins, so the provider refuses a stale steer rather than
+    // retargeting it; kept local because the dispatcher grades against what went on the wire.
     const targetedTurnId = request.expectedTurnId ?? turnId;
-    // The steer directive is the SECOND provider-bound text path on this leg
-    // and takes the identical treatment: composed by the writer, correlated
-    // against the turn it is steering, and written as `wireText`. Registered
-    // against `targetedTurnId` rather than the run id because a steer joins a
-    // turn that already exists — there is no later re-keying moment.
+    // Registered against the targeted turn: a steer joins an existing turn and is never re-keyed.
     const steerFrame = this.#outboundTextFrameWriter.compose({
       text: request.content,
       origin: request.frameOrigin,
     });
-    // Refuses BEFORE the write, exactly as the opening frame does: a steer this
-    // tripwire cannot watch is a steer whose swallow would be invisible, and the
-    // honest answer to a session whose turns are not settling is to refuse the
-    // directive rather than to send it unwatched.
+    // Refuses before the write: a steer the tripwire cannot watch could be swallowed invisibly.
     this.#outboundFrameTripwire.register({
       scopeKey: record.sessionId,
       joinKey: targetedTurnId,
-      // A steer joins a turn another frame opened, so no stream item can vouch
-      // for it — it is consumed on the provider's answer to its own request,
-      // recorded below.
+      // No stream item vouches for a steer; it is consumed on its own request's answer.
       frameRole: "turn-joining",
       frame: steerFrame,
     });
-    // PINS the settled-turn memory for the whole round trip, including the
-    // acknowledgement read below. Held across the read rather than released at
-    // the await, so a later edit that introduces a suspension point between
-    // them cannot silently reopen the window.
+    // Pins the settled-turn memory across the whole round trip, acknowledgement read included.
     record.inFlightSteers += 1;
     try {
       const attempt = await this.#requestTurnSteer(record, request, steerFrame, targetedTurnId);
       if (attempt.settled === "answered") {
         const acknowledgedTurnId = readSteeredTurnId(attempt.result);
-        // The answered request is the transport's statement that the provider
-        // TOOK this frame — the only per-frame attribution it produces, and
-        // the declared coverage boundary a joined frame is consumed on (proof
-        // of receipt, not of the model reading the text; the tripwire's class
-        // doc states the conjunction residual). Stream items carry no frame
-        // attribution, so they credit the turn-opening frame alone (the
-        // tripwire's attribution rule); without this record every steer would
-        // reach its turn's settlement evidence-less and trip a healthy
-        // session. Recorded for a NULL acknowledgment too: naming no turn
-        // weakens the correlation, never the receipt — the dispatcher already
-        // grades that answer degraded rather than applied.
+        // The answer proves the provider took the frame; stream items credit only the opening
+        // frame, so without this every steer would trip a healthy session. Also for a null ack.
         this.#outboundFrameTripwire.recordRequestAnswered(steerFrame);
         if (acknowledgedTurnId !== null && acknowledgedTurnId !== targetedTurnId) {
-          // The provider named a turn OTHER than the one this steer targeted,
-          // which is the provider's own statement about where the bytes went.
-          // Leaving the frame on the disproven target gets both halves wrong at
-          // once: the target's terminal would rule a frame whose text never
-          // entered it — a trip on a turn that swallowed nothing — while the turn
-          // that DID take the directive settles against no correlated frame, and
-          // that PASSES. So the frame follows the acknowledgment, carrying the
-          // answered-request record just written, which is what rules it at the
-          // destination's settlement.
-          //
-          // A NULL acknowledgement is deliberately left where it is: naming no
-          // turn disproves nothing, so the target remains the best evidence of
-          // where the bytes went.
-          //
-          // The move is REFUSED when the acknowledged turn can no longer rule
-          // anything — it settled already, ordinarily via a terminal sharing
-          // this steer's own response read chunk and drained SYNCHRONOUSLY
-          // before this continuation ran — and the frame is consumed here
-          // instead, as a frame-scoped ruling on its own recorded
-          // acknowledgment. A settled turn emits no second terminal, so a
-          // frame left on one would sit as occupancy until scope release. This
-          // arm once ruled fail-closed and condemned the session; that
-          // contradicted the attribution rule this leg now carries — the
-          // acknowledgment that vouches for a steer on the live-destination
-          // path is the same statement here, and delivery it proves does not
-          // stop being proven because the destination finished first. The
-          // mismatch itself stays visible: the dispatcher grades this answer
-          // degraded on the ack comparison, so nothing here is silent.
+          // The provider says where the bytes went, so the frame follows the acknowledged turn;
+          // left on the wrong turn it would trip a turn that swallowed nothing. A settled turn
+          // emits no second terminal, so its frame is consumed on its recorded acknowledgment.
           if (this.#canStillRuleFrameOnTurn(record, acknowledgedTurnId)) {
             this.#outboundFrameTripwire.recorrelateFrame(steerFrame, acknowledgedTurnId);
           } else {
@@ -8184,42 +4644,10 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Decides what a failed steer's frame is owed, by how far its bytes got.
-   *
-   * The classification is the whole point. A steer that provably never reached
-   * the wire is owed nothing: no turn will ever account for it, and leaving it
-   * registered would trip the live turn it joined — a run failed and a provider
-   * session disposed over text the provider never saw. Forgetting it is
-   * frame-scoped, because the frame that OPENED the turn is still correlated and
-   * still owed its own ruling.
-   *
-   * A steer whose bytes were handed to the host is owed the opposite. The
-   * provider may have received the directive, intercepted it as a client-side
-   * command, and answered with the zero-turn success this tripwire exists to
-   * catch — the rejection the caller sees says nothing either way. Withdrawing
-   * the frame there is precisely how a swallowed directive escapes detection
-   * while the unsafe binding stays reusable, so the registration is RETAINED and
-   * the turn's own terminal rules it — and under the attribution rule that
-   * ruling is DETERMINISTIC: a retained steer holds no answered request, and
-   * stream items credit only the turn-opening frame, so an ordinary settlement
-   * trips it fail-closed. Delivery left unproven by the transport fails the
-   * run loudly rather than riding item timing. That costs one pending slot on
-   * a scope that already admitted it, and session disposal still reclaims it.
-   *
-   * The connection's death is the one case retention cannot cover: no terminal
-   * will ever arrive, so the frame would sit until the scope's budget is
-   * released and be dropped as mere occupancy — silence in the exact case that
-   * warrants the loudest answer. So it is ruled here, fail-closed, and ruled
-   * FRAME-scoped: settling the whole turn would trip the opening frame too, and
-   * that frame's request was answered, so its delivery was never in doubt.
-   *
-   * Residual, deliberately not closed here: a connection still live at this
-   * moment that dies later without ever settling the turn leaves the retained
-   * frame to scope release. Closing it would mean carrying "delivery
-   * indeterminate" as tripwire state and ruling it at scope release, which fires
-   * neutralization failures on ordinary session closes that happen to have a
-   * turn in flight — a false trip on every clean shutdown, to cover a window
-   * this path already narrows to one that opens after the classification.
+   * Decides what a failed steer's frame is owed by how far its bytes got. One that never reached
+   * the wire is forgotten; one handed to the host is retained for the turn's terminal to rule,
+   * and a dead connection rules it here, fail-closed. A connection that dies later leaves it to
+   * scope release, since ruling there would false-trip clean shutdowns.
    */
   #ruleFailedSteerFrame(
     record: CodexSessionRecord,
@@ -8228,10 +4656,7 @@ export class CodexLifecycleManager {
     delivery: CodexRequestDelivery,
   ): void {
     if (delivery !== "indeterminate") {
-      // `unsent` never left, and `refused` is a provider ANSWER — proof it
-      // received the directive and declined it, so it started no turn and
-      // swallowed nothing. Every other failure is indeterminate by default,
-      // which is what makes the unclassifiable case retain rather than forget.
+      // `unsent` never left and `refused` is a provider answer, so nothing was swallowed.
       this.#outboundFrameTripwire.forgetFrame(steerFrame);
       return;
     }
@@ -8242,22 +4667,10 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Rules ONE steer frame fail-closed and reports it with the full loudness of
-   * the settlement path.
-   *
-   * Reached on the one condition under which no terminal will ever rule the
-   * frame AND no answer was produced: a response phase that died with the
-   * connection. An acknowledgment naming an already-settled turn once landed
-   * here too; that arm now consumes the frame on its own answered request in
-   * `steerRun` (`#consumeAnsweredSteerFrame`), because a receipt the provider
-   * just attested is not one to condemn the session over.
-   *
-   * Frame-scoped: settling the whole turn would trip the frame that OPENED it,
-   * which is still live and whose delivery was never in doubt.
-   *
-   * A frame that is no longer pending — one the targeted turn's own terminal
-   * already consumed in the same read chunk — settles as `no-correlated-frame`
-   * and falls out here, so a frame ruled once is never ruled twice.
+   * Rules one steer frame fail-closed when its response phase died with the connection, so no
+   * terminal will ever rule it. Frame-scoped: settling the whole turn would trip the opening
+   * frame, whose delivery was never in doubt. A frame already consumed settles as
+   * `no-correlated-frame`.
    */
   #ruleSteerFrameFailClosed(
     record: CodexSessionRecord,
@@ -8271,27 +4684,17 @@ export class CodexLifecycleManager {
     if (!decision.tripped) {
       return;
     }
-    // The same disposal the settlement path performs, in the same order: the
-    // session arm first, so a consumer reacting synchronously to the run failure
-    // cannot attach to the condemned process in between.
+    // The settlement path's disposal, session arm first, so a consumer reacting synchronously to
+    // the run failure cannot attach to the condemned process.
     this.#runtimeBindingQuarantine.disposeSession(record.sessionId);
     this.#ruleTurnTerminalAgainstRun(record.sessionId, runId, decision);
     this.#disposeQuarantinedSession(record);
   }
 
   /**
-   * Consumes a steer's frame on its own answered request when the turn the
-   * acknowledgment named can no longer be ruled by any terminal.
-   *
-   * The expected outcome is a pass: the answered-request record was written on
-   * this same synchronous path moments earlier, and the classification handed
-   * in is recognized. The decision is still READ rather than discarded,
-   * because the pass rests on an ordering this method cannot see —
-   * `recordRequestAnswered` no-ops on a frame that is no longer pending, so an
-   * edit that reorders the record after a consumption point would leave this
-   * settlement to trip. A discarded return value turns that trip into
-   * silence; handling it here gives it the settlement path's full disposal
-   * and loudness instead.
+   * Consumes a steer's frame on its own answered request when no terminal can rule the
+   * acknowledged turn. The expected outcome is a pass, but a trip is handled with the full
+   * disposal, not dropped.
    */
   #consumeAnsweredSteerFrame(
     record: CodexSessionRecord,
@@ -8308,59 +4711,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Whether a terminal on `record` can still rule a frame correlated to
-   * `turnId`.
-   *
-   * Two ways the answer is no, and both end a frame's chance of ever being
-   * ruled by the ordinary path:
-   *
-   *   * the turn has already settled — its terminal has been ingested and no
-   *     second one is coming;
-   *   * the record is no longer the one this manager holds for the session. The
-   *     test is IDENTITY rather than presence: a supersede-resume installs a new
-   *     record under the same session id and ingests nothing further on the old
-   *     connection, so the replacement's memories are statements about a
-   *     different process and answering from them would answer for the wrong
-   *     leg.
-   *
-   * That second arm is defense in depth and is deliberately labeled as such:
-   * every path that replaces or drops a record releases the predecessor's frames
-   * in the SAME act, so the frame is already gone by the time this could be
-   * asked and both answers lead to the same no-op. No test can tell the arms
-   * apart today. It is kept because the predicate's meaning — can a terminal on
-   * THIS leg still rule this frame — is what the caller depends on, and a rule
-   * with no exception in it is the one that survives the next edit.
-   *
-   * ---------------------------------------------------------------------------
-   * Why the LIVE route maps are not consulted, and what makes the absence sound
-   * ---------------------------------------------------------------------------
-   *
-   * The obvious hardening — answer from positive liveness, `runIdByActiveTurnId`
-   * or `interruptedRunIdByTurnId` — is refused because it answers the wrong
-   * question. A provider may acknowledge a turn this leg never routed, and such a
-   * turn is a perfectly good destination: the terminal path calls `settle` on
-   * EVERY terminal it ingests, before any route lookup, so a frame moved onto an
-   * unrouted turn is still ruled when that turn ends. Requiring a route would
-   * fail those closed and trip a session over a directive the provider took
-   * exactly where it said it did.
-   *
-   * Nor would it be defense in depth: a terminal retires its turn's route in the
-   * same synchronous step that records the settlement, and turn ids are never
-   * reused, so a routed turn is never a settled one and the two arms would agree
-   * on every input. It would be an arm with no behavior, which is noise.
-   *
-   * So the memory is asked, and absence is the answer — which is sound only
-   * because `rememberSettledTurn` never drops an entry while a steer is in
-   * flight. Without that pin this predicate would read an EVICTED settlement as
-   * liveness and reopen, through aging, exactly the hazard the acknowledgement
-   * guard closes.
-   *
-   * The residual, named rather than papered over: an acknowledgement that names a
-   * turn which settled BEFORE this steer was sent and has since been pruned reads
-   * as live here. No finite memory closes it — the ids a provider may name are
-   * unbounded and this leg holds no other record of a turn it did not start — and
-   * reaching it needs a provider that answers `turn/steer` with a turn it ended
-   * dozens of turns ago, which is a different bug from the one this guards.
+   * Whether a terminal on `record` can still rule a frame correlated to `turnId`: the turn has
+   * not settled and `record` is still the session's record (identity, not presence).
    */
   #canStillRuleFrameOnTurn(record: CodexSessionRecord, turnId: string): boolean {
     if (this.#sessions.get(record.sessionId) !== record) {
@@ -8369,43 +4721,26 @@ export class CodexLifecycleManager {
     return !record.settledTurnIds.has(turnId);
   }
 
-  /** The `turn/steer` request itself, split out so `steerRun` reads as its policy. */
   async #requestTurnSteer(
     record: CodexSessionRecord,
     request: CodexSteerRunRequest,
     steerFrame: OutboundTextFrame,
     targetedTurnId: string,
   ): Promise<CodexRequestAttempt> {
-    // Sent through the CLASSIFYING entry point: this caller's correctness turns
-    // on whether the provider may have acted on the directive, and that is not
-    // recoverable from the rejection `request` would raise.
+    // The classifying entry point: a rejection from `request` cannot say whether the provider
+    // acted.
     return await record.connection.attemptRequest("turn/steer", {
       threadId: record.threadId,
       input: [{ type: "text", text: steerFrame.wireText, text_elements: [] }],
       expectedTurnId: targetedTurnId,
-      // The REQUESTER's key, verbatim and never re-minted here — a fresh
-      // value per retry is exactly what the daemon's `interventions` dedupe guard
-      // exists to prevent. `clientUserMessageId` is the pinned home for a
-      // caller-supplied message id, the same member `turn/start` above already
-      // carries. Field verified present on `TurnSteerParams` in the default
-      // generation of the pinned `codex-cli 0.150.1` (regenerated 2026-08-28);
-      // the pinned Codex wire census does not print that params type,
-      // but records the member on the sibling `TurnStartParams` as byte-identical
-      // back to the `0.141.0` floor, and directs consumers to re-verify
-      // load-bearing shapes against the then-installed binary.
+      // The requester's key, verbatim and never re-minted, or the intervention dedupe guard is
+      // defeated. `clientUserMessageId` is the provider's caller-supplied message id field, as on
+      // `turn/start`.
       clientUserMessageId: request.clientIdempotencyKey,
     });
   }
 
-  /**
-   * True when the run has at least one live provider turn.
-   *
-   * A scan of the turn-keyed routes rather than a keyed lookup: the routes are
-   * keyed by turn so that a run holding two live turns keeps both correlations,
-   * and this question is the derived one. "At least one" is the honest reading
-   * of the predicate under that shape — a run with two live turns has an active
-   * turn by any account.
-   */
+  /** True when the run has at least one live provider turn (scans the turn-keyed routes). */
   hasActiveTurn(runId: RunId): boolean {
     const sessionId = this.#sessionIdByRunId.get(runId);
     if (sessionId === undefined) {
@@ -8423,18 +4758,10 @@ export class CodexLifecycleManager {
     return false;
   }
 
-  /**
-   * Names the current holder of a session slot, or `undefined` when it is free.
-   *
-   * One predicate, so the live and in-flight views can never drift into
-   * disagreeing about what "taken" means.
-   */
+  /** Names the current holder of a session slot, or `undefined` when it is free. */
   #describeSlotHolder(sessionId: SessionId): CodexSessionSlotState | undefined {
-    // Transition FIRST. During a supersede-resume both views are occupied (the
-    // predecessor's record plus the resume's claim), and during a teardown the
-    // record deliberately stays installed until the transition settles — so
-    // reading `#sessions` first would report `live` for a session that is dying.
-    // The in-flight kind is the more specific truth in both cases.
+    // Transition first: during a supersede-resume both views are occupied and a dying record
+    // stays installed, so the in-flight kind is the more specific truth.
     const transition = this.#sessionTransitions.get(sessionId);
     if (transition !== undefined) {
       return transition.kind;
@@ -8443,11 +4770,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * True when `record` is still the session's SETTLED, live holder.
-   *
-   * Stronger than an identity check on `#sessions`, and it has to be: a record
-   * mid-teardown is still installed (that is what holds the slot), so identity
-   * alone would report a dying session as usable.
+   * True when `record` is still the session's settled, live holder; identity on `#sessions` alone
+   * would call a record mid-teardown usable.
    */
   #stillHoldsSlot(record: CodexSessionRecord): boolean {
     return (
@@ -8457,30 +4781,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Claims the session slot in one state and runs the transition behind any
-   * predecessor. The only way a slot is ever taken, in either direction.
-   *
-   * The read of the predecessor and the publication of the claim happen in ONE
-   * synchronous run, which is the whole point. An `await` between them — even one
-   * that finds the slot empty — yields a microtask, and two callers dispatched in
-   * the same tick would both observe an empty slot, both proceed, and the second
-   * would overwrite the first's claim while both transitions ran concurrently.
-   *
-   * `predecessor.then(runTransition)` rather than an inline async body, because
-   * the two are not equivalent: an async IIFE runs synchronously up to its own
-   * first `await`, so the transition would begin BEFORE the claim it depends on
-   * was published — correct today only because nothing can interleave inside a
-   * single synchronous run, which is an argument rather than a structure. `.then`
-   * defers the body to a microtask, making "claimed before it runs" true by
-   * construction. It also unifies the empty-slot case, which has no predecessor
-   * to await and therefore no branch.
-   *
-   * Chaining rather than waiting-for-absence is what serializes a QUEUE: two
-   * callers released by the same settlement would both observe a free slot.
-   *
-   * The stored view is rejection-swallowed: it exists to SEQUENCE, and a stored
-   * promise that could reject would surface as an unhandled rejection whenever
-   * nobody happened to be waiting on that session.
+   * Claims the session slot in one state and runs the transition behind any predecessor. The only
+   * way a slot is taken.
    */
   async #claimSessionSlot<TSettled>(
     sessionId: SessionId,
@@ -8500,9 +4802,8 @@ export class CodexLifecycleManager {
     try {
       return await transition;
     } finally {
-      // Identity-checked on the CLAIM OBJECT: only ever clear our own. A later
-      // caller chains onto this one and publishes its own claim, so clearing
-      // unconditionally would free a slot that is still occupied.
+      // Identity-checked: a later caller chains onto this claim and publishes its own, so
+      // clearing unconditionally would free an occupied slot.
       if (this.#sessionTransitions.get(sessionId) === claim) {
         this.#sessionTransitions.delete(sessionId);
       }
@@ -8510,36 +4811,19 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Per-session connection options, with the manager interposed on the server
-   * notification stream.
-   *
-   * Interposing rather than competing keeps one sink: the manager observes,
-   * then hands the frame on unchanged, in order, with the delegate's `(method,
-   * params)` shape untouched. When no delegate is supplied the transport's own
-   * `unconsumed-server-notification` diagnostic is preserved by re-reporting it
-   * here, since the sink is now always present from the transport's point of
-   * view.
-   *
-   * FRAME ROUTING IS CONSUMED HERE, NOT OWNED HERE. Both pinned providers
-   * multiplex subagent, review, and compaction CHILD threads over the session's
-   * own connection, so a frame arriving on this connection is not by that fact
-   * the session's own. Deciding whose stream it came from — the thread-identity
-   * registry, the fail-closed routing decision, and the bounded quarantine — is
-   * `provider/thread-frame-router.ts`'s. A second decision here would be a
-   * second source of truth for the same question, and the two would disagree
-   * exactly when a child thread's terminal must not settle the parent's run.
+   * Per-session connection options, with the manager interposed on the server notification
+   * stream: frames reach the delegate unchanged and in order. Which stream a frame belongs to is
+   * decided only in `provider/thread-frame-router.ts`; a second decision here would disagree with
+   * it.
    */
   #connectionOptionsFor(sessionId: SessionId): CodexConnectionOptions {
     const reportDiagnostic = this.#options.reportDiagnostic;
     const answerServerRequest = this.#options.answerServerRequest;
     return {
       ...this.#options,
-      // Overridden rather than spread through: the transport-level port carries
-      // no session or run identity, so binding one directly to a session would
-      // hand the daemon an ask it cannot attribute. Resolving the run id HERE,
-      // at answer time, is also what makes the attribution current — a run id
-      // captured when the connection was built would name a turn that had
-      // already retired.
+      // Overridden rather than spread: the transport port carries no session or run identity. The
+      // run id is resolved at answer time, since one captured at connection build could name a
+      // retired turn.
       serverRequestResponder:
         answerServerRequest === undefined
           ? undefined
@@ -8549,30 +4833,16 @@ export class CodexLifecycleManager {
               ): Promise<CodexServerRequestDecision> => {
                 const attribution = this.#attributeRoutedAsk(sessionId, request);
                 if (attribution.outcome === "refused") {
-                  // Refused BEFORE adjudication, on purpose: the responder
-                  // cannot decide an ask it cannot attribute, and returning a
-                  // refusal here routes through the method's own refusal shape
-                  // rather than inventing a second refusal vocabulary.
-                  //
-                  // It is also refused before the option set is read, and that
-                  // ORDER is the decision rather than an accident: an ask this
-                  // seam will not answer needs no card, so reading its garnish
-                  // could only produce a diagnostic about a request no
-                  // user will ever see.
+                  // Refused before adjudication and before the option-set read: an ask that
+                  // cannot be attributed is not decided.
                   return { decision: "refuse", reason: attribution.reason };
                 }
-                // Normalized at the SAME seam that stamps session and run
-                // identity, because this is the only place that holds both the
-                // raw ask and the session the diagnostic must name. The
-                // reading is derived from `params`, which still travels
-                // verbatim beside it — this member never replaces the payload
-                // and never becomes a second source of truth for it.
+                // Normalized where both the raw ask and the session the diagnostic names are
+                // known; `params` still travels verbatim.
                 const optionSet = readCodexAskOptionSet(request.method, request.params);
                 if (optionSet.kind === "dropped") {
-                  // NEVER SILENT, and never a refusal either: the ask still
-                  // normalizes and is still answerable through the
-                  // unconditional free-text arm, so dropping the garnish
-                  // degrades the card rather than hanging the turn.
+                  // Never silent, never a refusal: the ask stays answerable through the free-text
+                  // arm, so dropping the options degrades the card, not the turn.
                   this.#options.diagnostics.emit({
                     provider: CODEX_DRIVER_NAME,
                     kind: "interactive_request_option_set_dropped",
@@ -8589,34 +4859,22 @@ export class CodexLifecycleManager {
                   ...request,
                   sessionId,
                   runId: attribution.runId,
-                  // Conditionally spread rather than assigned `undefined`:
-                  // `exactOptionalPropertyTypes` makes a present-but-undefined
-                  // key a different type from an absent one, and absent is the
-                  // state this member's contract describes.
+                  // Conditionally spread: under `exactOptionalPropertyTypes` an absent key
+                  // differs from undefined.
                   ...(optionSet.kind === "read" ? { options: optionSet.options } : {}),
                 });
               },
             },
       onServerNotification: (method: string, params: unknown): void => {
         this.#observeServerNotification(sessionId, method, params);
-        // EVERY inbound frame goes through the router before any projection
-        // decision, and the delegate is reached only from inside that path
-        // (`#handOffToNormalizeBand`), which carries the same module-boundary
-        // containment this seam used to hold directly.
-        //
-        // Honest limit, recorded rather than left to be discovered: that guard
-        // is NOT independently observable today. Delete the transport's
-        // containment and a test fails; delete the inner one and none does,
-        // because the outer catch reports an identical diagnostic (the
-        // manager's own observation has already run by the time the delegate is
-        // called, so nothing is skipped either way).
+        // Every inbound frame goes through the router before any projection; the delegate is
+        // reached only from inside it (`#handOffToNormalizeBand`). That inner guard has no test
+        // of its own: the outer catch reports an identical diagnostic.
         try {
           this.#routeInboundNotification(sessionId, method, params);
         } catch (cause) {
-          // The routing band is written to be total, so this is a backstop
-          // rather than a path: it runs inside `#ingest`, and an escaping throw
-          // would unwind the caller's read-chunk drain and take unrelated
-          // frames down with it.
+          // The routing band is total, so this is a backstop: an escaping throw would unwind the
+          // `#ingest` read-chunk drain and take unrelated frames down with it.
           reportDiagnosticFromDetachedFrame(reportDiagnostic, {
             kind: "notification-consumer-failed",
             method,
@@ -8628,44 +4886,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Record that a spawn offered the provider no callback-tool registry.
-   *
-   * NEVER SILENT, and never a refusal either: a session whose callback tools
-   * are unreachable is degraded, not failed, so the daemon's request is
-   * recorded as withheld and the session proceeds. An operator whose tools
-   * stopped appearing finds the reason here rather than inferring it from an
-   * absence. See {@link CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL}.
-   */
-  /**
-   * The spawn-time posture legs, plus the diagnostic for the one axis this
-   * provider cannot express (leg 5).
-   *
-   * `profileName` is deliberately NOT forwarded. It resolves to DAEMON-SIDE
-   * presets, provider-uniform: by the time a posture reaches a driver the preset
-   * has already been expanded into the mode, roots, and network axes carried
-   * here, so forwarding the name would ask the provider to resolve a second time
-   * against its own table and could disagree with what the daemon recorded. The
-   * provider's own permission-profile surface is additionally experimental-gated
-   * at this pin and unreachable while `experimentalApi` is `false`.
-   *
-   * The credential deny-list is realized in the CHILD ENVIRONMENT, not here: the
-   * posture carries a content-addressed `credentialPolicyRef` rather than the
-   * names, and the daemon composes the process environment this driver spawns
-   * with. That is why this method reads no credential axis.
-   */
-  /**
-   * The complete set of thread-establishment legs one posture and one subagent
-   * policy realize, composed ONCE so the two cannot clobber each other.
-   *
-   * Both legs write into the SAME `config` table, and spreading two records that
-   * each carry a `config` key would silently keep only the last — so the merge
-   * happens here, structurally, rather than at each call site where the next
-   * leg to acquire a config key would reintroduce the bug.
-   *
-   * Used by BOTH thread-establishing paths. `thread/fork` takes the same
-   * override members as `thread/start` and applies them to the new thread, so
-   * re-supplying them at a rewind is what keeps a forked session governed by the
-   * posture its caller declared rather than by whatever the fork inherited.
+   * The thread-establishment legs one posture and one subagent policy realize. Both write the
+   * `config` table, so they merge here; used by `thread/start` and `thread/fork`.
    */
   #composeThreadEstablishmentLegs(
     posture: ExecutionPosture | undefined,
@@ -8682,21 +4904,22 @@ export class CodexLifecycleManager {
     };
   }
 
+  /**
+   * The spawn-time posture legs (`sandbox`, `approvalPolicy`), plus the diagnostic for the one
+   * axis this provider cannot express.
+   */
   #composeSpawnPostureParams(posture: ExecutionPosture | undefined): Record<string, unknown> {
     if (posture === undefined) {
       return {};
     }
     this.#reportNarrowedNetworkAllowlist(posture);
     const { sandbox, approvalPolicy } = composeCodexThreadPosture(posture);
-    // Destructured rather than spread: the named result type is what pins the
-    // two keys to the provider's own vocabulary, and widening it to an index
-    // signature to satisfy the spread would give that pin away.
     return { sandbox, approvalPolicy };
   }
 
   /**
-   * Compares the realized sandbox against the requested posture and records a
-   * divergence. Called on every path that establishes a thread.
+   * Compares the realized sandbox against the requested posture and records a divergence; called
+   * on every path that establishes a thread.
    */
   #assertPostureRealized(posture: ExecutionPosture | undefined, response: unknown): void {
     if (posture === undefined || !isPlainObject(response)) {
@@ -8721,9 +4944,7 @@ export class CodexLifecycleManager {
     if (posture === undefined) {
       return {};
     }
-    // Reported per TURN as well as per spawn when the run brings its own
-    // posture: the narrowing is a property of the policy actually applied, and a
-    // run that introduces an allow-list on a session spawned without one would
+    // Reported per turn too: a run adding an allow-list to a session spawned without one would
     // otherwise narrow silently.
     if (params.executionPosture !== undefined) {
       this.#reportNarrowedNetworkAllowlist(params.executionPosture);
@@ -8742,14 +4963,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Records every subagent definition this spawn withheld (leg 4's
-   * fail-closed rule).
-   *
-   * The caps ARE still sent even though the definitions are not — they are the
-   * half the provider enforces natively, and dropping them because the other
-   * half could not be realized would leave a session with no concurrency
-   * ceiling at all. Composing them is `composeCodexSubagentConfigOverrides`'s
-   * job; this method only reports, which is why it returns nothing.
+   * Records every subagent definition this spawn withheld. The concurrency caps are still sent
+   * (the half the provider enforces natively) by `composeCodexSubagentConfigOverrides`.
    */
   #reportWithheldSubagentDefinitions(policy: SubagentPolicy | undefined): void {
     if (policy === undefined || !policy.enabled) {
@@ -8766,13 +4981,16 @@ export class CodexLifecycleManager {
         kind: "subagent_definition_disabled",
         rawWireType: null,
         dispositionReason: CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON,
-        // UNTRUSTED caller-supplied text carried verbatim as data, so an
-        // operator can see WHICH definition was withheld.
+        // Untrusted caller-supplied text, carried verbatim as data.
         details: { definitionName: definition.name },
       });
     }
   }
 
+  /**
+   * Records that a spawn offered the provider no callback-tool registry; the session is degraded,
+   * not failed.
+   */
   #reportWithheldCallbackTools(
     sessionId: SessionId,
     callbackTools: readonly unknown[] | undefined,
@@ -8786,10 +5004,8 @@ export class CodexLifecycleManager {
       withheldToolCount,
       reason: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
     });
-    // BOTH sinks, and the duplication is the point: the local transport arm is
-    // this driver's own structured record, while the censused kind is the one
-    // the daemon's counters name. Reporting only the local arm would leave a
-    // withholding invisible to every operator surface that reads the counters.
+    // Both sinks: the local transport arm is this driver's structured record; the censused kind
+    // is the one the daemon's counters name.
     this.#options.diagnostics.emit({
       provider: "codex",
       kind: "callback_tool_registry_withheld",
@@ -8804,48 +5020,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Attribute one routed ask to the run that raised it, before the daemon's
-   * responder ever sees it.
-   *
-   * RESOLVE BY THE TURN THE ASK NAMES. Every routed ask arrives with the raw
-   * `params` the provider sent, and the pinned generation puts a `turnId` on
-   * five of the seven routed shapes (see `readRoutedAskTurnId`). Where one is
-   * present and live, `runIdByActiveTurnId` answers exactly which run raised
-   * the ask — which is the only attribution that stays correct while two runs
-   * hold live turns on one session, and the only one that stays correct for a
-   * request the provider delays past the end of an earlier run.
-   *
-   * AN ASK THAT NAMES A TURN AND CANNOT BE RESOLVED IS REFUSED — every kind,
-   * not only `callback-tool`. Naming a turn is a CLAIM about which run raised
-   * the ask, and the sole-active fallback answers a claim it cannot verify by
-   * substituting a different run: a provider request delayed past its own turn's
-   * retirement would then be evaluated, persisted, and projected under a NEWER
-   * run's identity and authorization context. For an approval that is strictly
-   * worse than declining it — a decline is visible to the user and
-   * retryable, while an approval decided against the wrong run is neither, and
-   * the authorization it was granted under is not the one the caller asked for.
-   *
-   * THE ELIGIBILITY IS THE PRESENCE OF A TURN CLAIM, NOT THE ASK KIND, and the
-   * over-long case is inside it rather than beside it: a `turnId` past the
-   * reader's bound is a turn NAMED and not resolvable, so it refuses too. A
-   * truncated prefix could match a shorter live turn, which is the one way this
-   * seam could attribute an ask to a run by coincidence.
-   *
-   * `callback-tool` REFUSES EVEN WITH NO TURN NAMED, and that is the one place
-   * the ask kind still decides anything. `DynamicToolCallParams` carries a
-   * required non-nullable `turnId` at the pin, so an absent one is not a shape
-   * this daemon can attribute at all — the missing member is itself the fault —
-   * and falling back would dispatch one run's tool call against another run's
-   * registry and approval seam.
-   *
-   * THE FALLBACK IS RETAINED FOR THE SHAPES THAT CARRY NO TURN IDENTITY AT ALL,
-   * which is what it was always for: neither `ExecCommandApprovalParams` nor
-   * `ApplyPatchApprovalParams` publishes a `turnId` member, and
-   * `McpServerElicitationRequestParams` publishes a nullable one whose own
-   * generated comment records that elicitation identity is not turn-scoped.
-   * Those asks contradict nothing, so the heuristic IS their attribution and
-   * refusing them would decline real approvals over the pinned protocol working
-   * as designed.
+   * Attributes one routed ask to the run that raised it, by the turn the ask names, before the
+   * daemon's responder sees it. A named turn that cannot be resolved is refused, never attributed
+   * to the sole active run.
    */
   #attributeRoutedAsk(
     sessionId: SessionId,
@@ -8860,46 +5037,26 @@ export class CodexLifecycleManager {
       }
     }
     if (turnIdReading.recordedTurnId === null && request.askKind !== "callback-tool") {
-      // NO TURN CLAIM ON THE WIRE, on a shape whose params do not require one.
-      // A legacy approval publishing no `turnId` — or the elicitation shape
-      // publishing its nullable one as `null` — reaching the fallback is the
-      // pinned protocol working, so it is neither refused nor recorded: a
-      // diagnostic per legacy approval would be noise, not signal.
+      // No turn claim on a shape whose params need none (a legacy approval, an elicitation with a
+      // `null` turn id): the sole-active fallback applies. `callback-tool` requires a turn, so
+      // its absence is itself the fault and refuses.
       return { outcome: "unattributed", runId: this.#activeRunIdFor(sessionId) };
     }
     this.#reportRoutedAskTurnUnresolved(sessionId, request.method, turnIdReading, request.askKind);
     return {
       outcome: "refused",
-      // The reason is read BACK by the provider, so it carries the bounded
-      // rendering and never the raw field. It names the METHOD rather than a
-      // fixed ask kind, because both kinds reach this arm now and a refusal
-      // that misnamed the request would send an operator to the wrong band.
-      //
-      // THREE CAUSES, NAMED SEPARATELY, because they have three different
-      // fixes: a shape that carried no turn at all where its params require
-      // one, a turn named past the reader's bound, and a turn named that this
-      // daemon holds no live route for.
+      // Refused for every kind: the sole-active run would judge the ask under a newer run's
+      // identity, and a decline is retryable where a wrong approval is not. An over-bound
+      // `turnId` counts as named, since a truncated prefix could match another live turn. The
+      // provider reads the reason.
       reason: composeRoutedAskRefusalReason(request.method, turnIdReading),
     };
   }
 
   /**
-   * Record one refused routed ask that named an unresolvable turn.
-   *
-   * THE TRANSPORT-LOCAL ARM TAKES EVERY REFUSAL; THE CENSUSED KIND TAKES ONLY
-   * THE CALLBACK-TOOL ONES, and the asymmetry is about what the counter MEANS
-   * rather than about which refusal matters. `callback_tool_invocation_refused`
-   * counts callback-tool invocations refused before adjudication — its counter
-   * is named `driver.callback_tool.invocation_refused` — so routing an approval
-   * refusal through it would not widen the operator's view, it would corrupt a
-   * count another surface reads. The censused vocabulary carries no kind for a
-   * refused interactive request, and minting one here would put a counter ahead
-   * of every surface that reads it.
-   *
-   * The approval refusal is therefore recorded on the transport arm alone,
-   * where it names its own method — a real narrowing of operator visibility,
-   * stated here rather than hidden, and the reason a censused kind for it is
-   * the natural next growth if a counter surface ever needs one.
+   * Records one refused routed ask that named an unresolvable turn. The transport arm takes every
+   * refusal; the censused kind only callback-tool ones, since `callback_tool_invocation_refused`
+   * counts those and other refusals would corrupt that count.
    */
   #reportRoutedAskTurnUnresolved(
     sessionId: SessionId,
@@ -8925,39 +5082,16 @@ export class CodexLifecycleManager {
       rawWireType: method,
       dispositionReason:
         "the invocation named no turn this daemon holds a live route for, so no run's tool registry could adjudicate it",
-      // UNTRUSTED provider text, bounded at the reader, carried verbatim as
-      // data so an operator can correlate the refusal with the provider's log.
+      // Untrusted provider text, bounded at the reader, carried verbatim to correlate with its
+      // log.
       details: { sessionId, method, turnId, turnIdTruncated },
     });
   }
 
   /**
-   * The run whose turn is currently active on a session, or `null`.
-   *
-   * The session-id-keyed form of {@link soleActiveRunIdIn}: it resolves the
-   * record and folds it. A caller that ALREADY holds the record an answer came
-   * from calls that function directly, because re-resolving by id after an
-   * await can answer about a successor record a resume installed.
-   *
-   * Answered only when every live turn on the session belongs to ONE run. This
-   * is the FALLBACK arm of `#attributeRoutedAsk`, reached only by an ask that
-   * names NO turn at all — never by one whose named turn failed to resolve,
-   * whatever its kind, which refuses instead. With turns from TWO runs live there is nothing left
-   * to disambiguate them with, and picking either would attribute the ask, and
-   * its `approval.requested` or `question.asked` projection, to a run that may
-   * not have raised it. But the count that decides is of RUNS, not turns:
-   * two overlapping accepted starts on one run — the very shape the turn-keyed
-   * routes retain — put two turns on the session whose values all name the same
-   * run, and that attribution is unambiguous at any turn count, so a turn-count
-   * gate here would drop the association in exactly the state the routing
-   * supports.
-   *
-   * This deliberately replaces a "first entry wins" pick justified by Codex
-   * serializing turns per thread. That serialization is a claim about the
-   * PROVIDER; it says nothing about the daemon. A `null` here is the same real
-   * answer the establishment and post-retirement windows already produce, and
-   * it is what {@link CodexSessionServerRequest} documents as the un-attributed
-   * case.
+   * The run that owns every live turn on a session, or `null` when none does or two runs are
+   * live. The id-keyed form of {@link soleActiveRunIdIn}; a caller holding the record calls that
+   * directly, since re-resolving by id after an await can answer about a successor record.
    */
   #activeRunIdFor(sessionId: SessionId): RunId | null {
     const record = this.#sessions.get(sessionId);
@@ -8968,35 +5102,19 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Retires the route bound to a turn the provider has just ended.
-   *
-   * Without this, only `interruptRun` and `closeSession` ever clear a route, so a
-   * turn that simply FINISHES leaks both map entries for the daemon's lifetime
-   * and `hasActiveTurn` keeps reporting the run live — which would let a later
-   * intervention target a turn id the provider retired long ago.
+   * Observes every inbound server notification ahead of routing: invalidates the held command
+   * list on `skills/changed`, accrues turn evidence, and on a terminal `turn/completed` rules the
+   * tripwire and retires the turn's route.
    */
   #observeServerNotification(sessionId: SessionId, method: string, params: unknown): void {
-    // The provider's own invalidation signal for its local skill-file watch —
-    // its pinned generated doc comment says to "treat this as an invalidation
-    // signal and re-run `skills/list`... when refreshed skill metadata is
-    // needed", and its payload is the empty object, so there is nothing to
-    // patch WITH even if patching were wanted. Discarding the held list makes
-    // the next read a FULL re-read; re-reading eagerly here would spend a
-    // request per skill-file save on a surface nobody may have open.
-    //
-    // Observed HERE rather than on the routing path deliberately. This method
-    // runs first and sees every inbound method unconditionally, so the
-    // invalidation lands even for a frame the router later disposes — and a
-    // stale palette caused by a dropped invalidation is silent, which is
-    // exactly the failure that must not depend on a downstream decision.
+    // The provider's skill-file invalidation signal (empty payload): discarding the held list
+    // forces a full re-read. Observed ahead of the router so it lands even for a frame the router
+    // disposes.
     if (method === CODEX_SKILLS_CHANGED_METHOD) {
       this.#discardProviderCommandEnumeration(sessionId);
     }
-    // Evidence accrues across the turn because this provider's terminal
-    // notification does not always carry the item list — `itemsView` can read
-    // `notLoaded` — so a classifier that only ever read the settling frame
-    // would call a real turn evidence-free. The observation is keyed by turn
-    // id, which is what the item notifications carry.
+    // Evidence accrues across the turn because the terminal notification may not carry the item
+    // list (`itemsView` can read `notLoaded`); keyed by turn id, which item notifications carry.
     const inFlightEvidence = classifyCodexTurnEvidenceObservation(method, params);
     if (inFlightEvidence !== null) {
       this.#outboundFrameTripwire.observe(inFlightEvidence.turnId, inFlightEvidence.observation);
@@ -9005,11 +5123,9 @@ export class CodexLifecycleManager {
         observingRecord !== undefined &&
         !this.#outboundFrameTripwire.hasPendingFrame(inFlightEvidence.turnId)
       ) {
-        // Nothing is correlated onto this turn YET. The frame may still be
-        // waiting on the `turn/start` continuation that re-keys it, so the
-        // observation is remembered rather than dropped — without it, evidence
-        // that exonerates a real turn would be lost and `startRun` would rule
-        // the re-keyed frame on the terminal alone and trip it.
+        // No frame is correlated onto this turn yet; it may still wait on the `turn/start`
+        // continuation that re-keys it. Remembering the observation avoids tripping on the
+        // terminal alone.
         const remembered = rememberUnmatchedTurn(observingRecord, inFlightEvidence.turnId);
         if (remembered === null) {
           this.#refuseUnretainableTurnEvidence(observingRecord);
@@ -9034,76 +5150,51 @@ export class CodexLifecycleManager {
     }
     const record = this.#sessions.get(sessionId);
     if (record === undefined) {
-      // No record means no route can exist for this turn yet, and none can be
-      // installed against a session this manager does not hold. Nothing to
-      // remember.
       return;
     }
-    // Marked for EVERY terminal, before any of the ruling below and whether or
-    // not a route or a correlated frame is waiting on it. The two memories
-    // beside it are both conditional — one is written only when no route
-    // matched, the other only for interrupted runs — so neither can be asked
-    // the plain question "has this turn ended", which is what `steerRun` needs
-    // before it moves a frame onto a turn the provider named.
-    //
-    // A refusal returns WITHOUT ruling this terminal, and that is the stricter
-    // answer rather than a dropped one: the refusal quarantines the binding and
-    // tears it down, and the teardown rules every frame still pending on the
-    // scope fail-closed — this turn's included — where ruling here would have
-    // settled only the frames correlated to this one turn.
+    // Marked for every terminal before any ruling: the other two memories are conditional, so
+    // neither answers "has this turn ended", which `steerRun` needs. A refusal returns without
+    // ruling: its teardown rules every frame pending on the scope fail-closed, this turn's
+    // included.
     if (!rememberSettledTurn(record, turnId)) {
       this.#refuseUnretainableSettledTurn(record);
       return;
     }
-    // Keyed by TURN id throughout, never by run id. A run whose route was
-    // superseded (by a resume), already retired (by an interrupt), or that holds
-    // a SECOND live turn must not have a turn beside this one cleared out from
-    // under it by this terminal. The decision is retained by the tripwire, which
-    // is what lets the intervention dispatcher answer a steer already ruled on.
+    // Keyed by turn id, never run id, so a terminal cannot clear another live turn of the same
+    // run. The tripwire retains the decision so the dispatcher can answer a steer already ruled
+    // on.
     const classification = classifyCodexTurnEvidence(params);
     const decision = this.#outboundFrameTripwire.settle(turnId, classification);
     if (decision.tripped) {
-      // Quarantine first, then report: a consumer reacting synchronously to the
-      // terminal must not be able to attach to the process that just swallowed
-      // the text. BOTH axes, because a run-keyed refusal alone leaves the
-      // session record live and a later `startRun` resolves that record by
-      // session id without ever consulting the run key.
+      // Quarantine first, then report, so a consumer reacting synchronously to the terminal
+      // cannot attach to the process that swallowed the text. Both axes: a later `startRun`
+      // resolves the session record by session id.
       this.#runtimeBindingQuarantine.disposeSession(sessionId);
     }
 
     let matchedRoute = false;
-    // A DIRECT LOOKUP on the settling turn's own route, which is what makes the
-    // ruling reach the run under N live turns. The scan this replaced compared
-    // each run's single recorded turn against this one, so a run whose second
-    // accepted start had overwritten the first's entry matched nothing when the
-    // FIRST turn settled: the trip quarantined the session and the run heard
-    // nothing at all. Consuming the settling turn's own route — and only it —
-    // leaves every other live turn on this run still correlated.
+    // Direct lookup on the settling turn's own route leaves the run's other live turns
+    // correlated.
     const routedRunId = record.runIdByActiveTurnId.get(turnId);
     if (routedRunId !== undefined) {
       this.#retireTurnRoute(record, turnId);
       this.#ruleTurnTerminalAgainstRun(sessionId, routedRunId, decision);
       matchedRoute = true;
     }
-    // The interrupted half. A run whose route an interrupt retired is not in the
-    // live map above and never will be again, so without this the ruling for its
-    // turn would reach the session and not the run. Disjoint from the loop by
-    // construction rather than by luck: `interruptRun` deletes the live route in
-    // the same synchronous step that records this correlation, and a turn id is
-    // never reused, so no run can be in both sets for one turn.
+    // A run whose route an interrupt retired is not in the live map. The two maps are disjoint:
+    // `interruptRun` deletes the live route in the step that records this correlation, and turn
+    // ids are never reused.
     const interruptedRunId = record.interruptedRunIdByTurnId.get(turnId);
     if (interruptedRunId !== undefined) {
-      // Released whatever the ruling was — the terminal this entry was waiting
-      // for has arrived, so a benign one frees it exactly as a trip does.
+      // Released whatever the ruling was: the terminal this entry waited for has arrived.
       record.interruptedRunIdByTurnId.delete(turnId);
       this.#ruleTurnTerminalAgainstRun(sessionId, interruptedRunId, decision);
       matchedRoute = true;
     }
     if (decision.tripped) {
-      // The promised recovery is a FRESH SPAWN, so the condemned process is torn
-      // down rather than merely refused. Fire-and-forget because this runs inside
-      // the synchronous read-chunk drain: an awaited teardown would stall the
-      // frames behind it and a thrown one would unwind the whole drain.
+      // The recovery is a fresh spawn, so the condemned process is torn down. Detached: this runs
+      // in the synchronous read-chunk drain, where awaiting stalls frames and a throw unwinds the
+      // drain.
       this.#disposeQuarantinedSession(record);
     }
     if (!matchedRoute) {
@@ -9117,12 +5208,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Applies a settled turn's tripwire ruling to one run.
-   *
-   * Quarantines the run's binding and reports the failure on the run itself. The
-   * SESSION arm is not here: it is applied once per terminal by the caller,
-   * before any run is touched, so a consumer reacting synchronously to the first
-   * run's failure cannot attach to the process in between.
+   * Applies a settled turn's tripwire ruling to one run: quarantines its binding and reports the
+   * failure. The caller applies the session arm once per terminal first, so a consumer reacting
+   * to the first run's failure cannot attach to the process in between.
    */
   #ruleTurnTerminalAgainstRun(
     sessionId: SessionId,
@@ -9141,16 +5229,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * The loud path for a session whose turn-evidence memory can no longer hold
-   * what it is owed.
-   *
-   * Reached only from `rememberUnmatchedTurn`'s refusal, which fires when the
-   * memory is at its ceiling while a `turn/start` is in flight — so every entry
-   * in it may be the terminal that start's continuation will claim, and the
-   * incoming one cannot be admitted beside them. There is no quiet answer here:
-   * dropping the newcomer loses this turn's evidence, and evicting to admit it
-   * loses somebody else's. Both losses are silent, and a lost terminal is a
-   * swallowed turn reported as a completed one.
+   * The loud path for a turn-evidence memory at its ceiling while a `turn/start` is in flight,
+   * when every entry may be the terminal that start will claim. Dropping or evicting would
+   * silently lose a terminal and report a swallowed turn as completed.
    */
   #refuseUnretainableTurnEvidence(record: CodexSessionRecord): void {
     this.#refuseUnretainableTurnMemory(record, {
@@ -9160,16 +5241,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * The same loud path for a session whose SETTLED-turn memory can no longer
-   * hold what a live reader is owed.
-   *
-   * Reached only from `rememberSettledTurn`'s refusal, which fires when that
-   * memory is at its ceiling while a `turn/steer` is in flight — so every entry
-   * in it may be the settlement the acknowledgement continuation is about to
-   * read, and evicting one would answer "still running" for a turn that ended.
-   * The loss is the mirror image of the evidence memory's and just as silent:
-   * there the terminal goes missing, here the turn's END does, and both end with
-   * a frame nothing will ever rule.
+   * The same loud path for the settled-turn memory at its ceiling while a `turn/steer` is in
+   * flight: evicting could answer "still running" for an ended turn and strand a frame nothing
+   * rules.
    */
   #refuseUnretainableSettledTurn(record: CodexSessionRecord): void {
     this.#refuseUnretainableTurnMemory(record, {
@@ -9179,14 +5253,7 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * The same loud path for a session whose INTERRUPTED-route memory can no
-   * longer hold what the terminal path is owed.
-   *
-   * Reached only from `rememberInterruptedRun`'s refusal. Unlike its two
-   * siblings this fires under no in-flight condition, because that memory has
-   * no free-prune window to fall back to outside one — every retained entry is
-   * still owed its terminal, so evicting any of them would rule that terminal
-   * against no run and the interrupted run's subscribers would hear nothing.
+   * The same loud path for the interrupted-route memory: every entry is still owed its terminal.
    */
   #refuseUnretainableInterruptedRoute(record: CodexSessionRecord): void {
     this.#refuseUnretainableTurnMemory(record, {
@@ -9196,28 +5263,17 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Refuses a binding whose per-session turn memory overflowed, reporting which
-   * one.
-   *
-   * The session is quarantined and torn down, which rules every frame still
-   * pending on it fail-closed and reports the runs that wrote them — the same
-   * treatment an ambiguous `turn/start` gets, and for the same reason: this
-   * driver will not carry a session whose turns it can no longer account for.
-   *
-   * One body for the three memories rather than three, because "the same
-   * loudness the ordinary path would have" is the claim each of them makes, and
-   * several copies of it are several things to keep equal.
+   * Refuses a binding whose per-session turn memory overflowed: quarantines and tears down the
+   * session, which rules every pending frame fail-closed. One body keeps the three memories
+   * equally loud.
    */
   #refuseUnretainableTurnMemory(
     record: CodexSessionRecord,
     diagnostic: CodexTransportDiagnostic,
   ): void {
     if (this.#runtimeBindingQuarantine.isSessionDisposed(record.sessionId)) {
-      // Already condemned, so the refusal is made and nothing here is a second
-      // decision. Guarded because the drain that overflowed the memory keeps
-      // running after this: every remaining frame in the chunk would otherwise
-      // re-refuse a session already going away and bury the one report that
-      // matters under a storm of duplicates.
+      // Already condemned: the overflowing drain keeps running and would bury the one report that
+      // matters under duplicates.
       return;
     }
     reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, diagnostic);
@@ -9226,27 +5282,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Rules every frame a departing binding leaves unsettled, fail-closed.
-   *
-   * Called where a session is taken away from turns that were still LIVE — a
-   * quarantine teardown, an ambiguous `turn/start` disposal, a resume that
-   * supersedes the leg its predecessor's turns are running on. Those turns will
-   * never deliver a terminal to this driver, so the frames written into them are
-   * owed a ruling that nothing else will ever make. Dropping them, which is what
-   * releasing the scope alone does, is the swallowed turn reported as nothing at
-   * all: the user's words went to a provider process the daemon then
-   * killed, and no run heard a thing.
-   *
-   * Ruled with `UNRECOGNIZED_TURN_EVIDENCE` because that is exactly what the
-   * driver knows — no settling envelope was ever seen — and it is the same
-   * classification the steer path's fail-closed arm uses. Exempt frames still
-   * pass, since `#rule` answers on the frame before the classification.
-   *
-   * Reported at most ONCE per run: a run whose binding this driver already
-   * disposed has already had its `run.failed` composed from the ruling that
-   * disposed it, and a second report for the same cause would read as a second
-   * failure. The quarantine is the record of that, which is why it is consulted
-   * rather than a set built here.
+   * Rules every frame a departing binding leaves unsettled, fail-closed, with
+   * `UNRECOGNIZED_TURN_EVIDENCE` (exempt frames still pass): those turns will never deliver a
+   * terminal. Reported at most once per run; a disposed run's `run.failed` was already composed.
    */
   #ruleAbandonedFramesFailClosed(record: CodexSessionRecord): void {
     const rulings = this.#outboundFrameTripwire.settleScope(
@@ -9268,12 +5306,8 @@ export class CodexLifecycleManager {
       reportedRunIds.add(runId);
       this.#ruleTurnTerminalAgainstRun(record.sessionId, runId, ruling.decision);
     }
-    // Emitted whenever a teardown ruled anything, INCLUDING the case where every
-    // ruling was a duplicate of a report already made. The two counts are the
-    // point: the first says how many writes this binding was carrying when it
-    // was taken away, and it is the operator's only sight of them, since a frame
-    // ruled here delivers no terminal of its own. A pass that reported nothing
-    // is not a pass that did nothing.
+    // Emitted even if every ruling duplicated: the counts are the operator's only sight of these
+    // writes.
     reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
       kind: "abandoned-frames-ruled",
       ruledFrameCount: rulings.length,
@@ -9282,31 +5316,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Fails the runs whose frames a RESUME superseded before the provider settled
-   * them.
-   *
-   * The visible-failure guarantee this closes: a user's text that
-   * provably may not have reached the model never silently vanishes. A resume
-   * replaces the binding those frames were written on, so no terminal for them
-   * can ever arrive — and before this existed the frames were dropped with the
-   * scope's budget, leaving the run to look exactly like one whose words landed.
-   *
-   * Reported through the SAME seam a trip reports through, and with a
-   * deliberately different cause on it. The seam is "the driver states that the
-   * run failed and why", which is what happened; the cause is
-   * `composeSupersededDeliveryRunFailure`, which carries no dotted code and
-   * claims only what is known. Borrowing the trip's detail would publish a
-   * swallow nobody observed, and the registered code's parseable form is read by
-   * a consumer that would then read it as one.
-   *
-   * Reported at most ONCE per run. Several frames can belong to one run — an
-   * opening frame and a steer, or two steers — and one supersede is one cause,
-   * not one cause per frame.
-   *
-   * `record` is the leg being superseded, captured before the swap. It is
-   * `undefined` only where the resume found no predecessor, in which case there
-   * is no route map to resolve through and the third source below is the whole
-   * answer.
+   * Fails the runs whose frames a resume superseded, once per run, with
+   * `composeSupersededDeliveryRunFailure`, which claims only what is known. `record` is the
+   * superseded leg, `undefined` only when the resume found no predecessor.
    */
   #failSupersededDeliveries(record: CodexSessionRecord | undefined, sessionId: SessionId): void {
     const abandoned = this.#outboundFrameTripwire.abandonScope(sessionId);
@@ -9329,11 +5341,8 @@ export class CodexLifecycleManager {
         composeSupersededDeliveryRunFailure(frame.detailOrigin),
       );
     }
-    // Emitted whenever a supersede abandoned anything, INCLUDING the case where
-    // no frame resolved to a run. The two counts are the point: the first says
-    // how many writes the superseded binding was carrying, and it is the
-    // operator's only sight of them, since a frame abandoned here delivers no
-    // terminal of its own.
+    // Emitted even if no frame resolved to a run: the counts are the operator's only sight of the
+    // writes.
     reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
       kind: "superseded-frames-failed",
       abandonedFrameCount: abandoned.length,
@@ -9341,13 +5350,7 @@ export class CodexLifecycleManager {
     });
   }
 
-  /**
-   * The run a join key names when there is no record to route through — the
-   * third of `#runIdForAbandonedFrame`'s three sources, on its own.
-   *
-   * Matched against the run axis rather than cast, for that method's reason: a
-   * turn id that outlived its route maps must not be mistaken for a run.
-   */
+  /** The run a join key names when there is no record (matched against the run axis, not cast). */
   #runIdBoundToSession(joinKey: string, sessionId: SessionId): RunId | undefined {
     for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
       if (runId === joinKey && boundSessionId === sessionId) {
@@ -9358,20 +5361,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * The run an abandoned frame's correlation key names, or `undefined`.
-   *
-   * Three sources, in the order a frame moves through them: a live turn's route,
-   * an interrupted turn's retained correlation, and — for a frame the provider
-   * never named a turn for — the run id the frame was registered under. The last
-   * is matched against the run axis rather than cast, so a turn id that outlived
-   * both route maps cannot be mistaken for a run and reported against.
-   *
-   * `undefined` is a real answer, and the case it covers is already accounted
-   * for elsewhere: an opening frame whose `turn/start` has not been answered yet
-   * is keyed by a run whose session binding is not installed until that answer,
-   * and every failure path of that call THROWS to its caller — which is how the
-   * run learns, and why `startRun` withdraws that frame itself rather than
-   * leaving it to be ruled here.
+   * The run an abandoned frame's join key names: a live turn's route, an interrupted turn's
+   * correlation, or the run id the frame was registered under when the provider never named a
+   * turn (matched against the run axis, not cast).
    */
   #runIdForAbandonedFrame(record: CodexSessionRecord, joinKey: string): RunId | undefined {
     const routed = record.runIdByActiveTurnId.get(joinKey);
@@ -9391,46 +5383,29 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Tears down a session whose binding a tripwire trip condemned.
-   *
-   * Reuses the ambiguous-turn disposal rather than inventing a second teardown:
-   * the condition is the same one that path already names — a connection whose
-   * answers cannot be trusted — so it claims the slot, drops the record under the
-   * same identity gate, and kills the child the same way.
-   *
-   * Detached on purpose. Every caller is either inside the synchronous read-chunk
-   * drain or on the settlement path of a turn that has already been ruled, and
-   * neither may be made to wait on a child's death or be unwound by one.
-   *
-   * The teardown is BEST-EFFORT and the refusal is not: the quarantine entry is
-   * installed synchronously by the caller before this runs, so every later
-   * resolution path refuses whether or not the child actually dies.
+   * Tears down a session a tripwire trip condemned, reusing the ambiguous-turn disposal.
+   * Detached: callers are inside the synchronous read-chunk drain or a settlement path that must
+   * not wait on or be unwound by a child's death.
    */
   #disposeQuarantinedSession(record: CodexSessionRecord): void {
     void this.#disposeAmbiguousSession(record).catch(() => {
-      // Unreachable by construction — that path already contains its own
-      // teardown fault and does nothing else that can throw. Guarded anyway
-      // because an unhandled rejection out of the read-chunk drain would be a
-      // second failure on top of the one being handled.
+      // Unreachable by construction: the ambiguous-disposal path contains its own teardown fault.
+      // Guarded because an unhandled rejection out of the read-chunk drain would be a second
+      // failure.
     });
   }
 
   /**
-   * The retained tripwire decision for a turn.
-   *
-   * Read by the intervention dispatcher so a steer whose turn has ALREADY been
-   * ruled swallowed can settle `degraded` carrying the refusal code. That is
-   * the whole of the member's best-effort character: the dispatcher asks once,
-   * at the moment its own result resolves, and never holds the call open
-   * waiting for a settlement that may be arbitrarily far away.
+   * The retained tripwire decision for a turn, read by the intervention dispatcher so a steer
+   * whose turn was already ruled settles `degraded` with the refusal code. Asked once; never
+   * waits.
    */
   textNeutralizationDecisionForTurn(turnId: string): { readonly refused: boolean } {
     return { refused: this.#outboundFrameTripwire.decisionFor(turnId)?.tripped === true };
   }
 
-  // A throwing consumer must not become a second failure on top of the one being
-  // reported: the run terminal is the guarantee, and losing it because a
-  // listener threw would leave the swallowed turn with no record at all.
+  // A throwing consumer must not become a second failure: the run terminal is the guarantee, and
+  // losing it would leave the swallowed turn with no record.
   #reportTextNeutralizationFailure(
     sessionId: SessionId,
     runId: RunId,
@@ -9450,39 +5425,23 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Tears down a connection whose outcome no longer matters, without letting the
-   * teardown change the outcome of the operation that abandoned it.
-   *
-   * `close()` swallows a host that no longer knows the session, but an injected
-   * subscription disposer is caller code and can throw. All three call sites need
-   * that failure contained, and each already holds the outcome that matters: a
-   * succeeded resume has produced its `resumed` result, a failed resume is
-   * mid-flight to the typed `recovery-needed` result requires, and a failed
-   * create is about to rethrow the spawn or handshake cause that explains itself.
-   * `closeSession` deliberately does NOT route through here — a close has no
-   * other outcome to protect, so its caller is exactly who should hear that the
-   * disposer misbehaved.
+   * Closes an abandoned connection without letting a teardown fault (an injected disposer is
+   * caller code) change the outcome of the operation that abandoned it. `closeSession` does not
+   * use it: a close has no other outcome to protect.
    */
   async #releaseAbandonedConnection(connection: CodexAppServerConnection): Promise<void> {
     try {
       await connection.close();
     } catch {
-      // Deliberately swallowed — see the note above. The transport is abandoned
-      // either way; a refusing teardown is a host-level condition, not a result.
+      // Deliberately swallowed: the transport is abandoned either way, and a refusing teardown is
+      // a host-level condition, not a result.
     }
   }
 
   /**
-   * Retires ONE turn's route, and the run's session binding with it only when
-   * that turn was the run's last.
-   *
-   * The two axes retire on different conditions and always have — the turn axis
-   * is per turn, the run axis is per run — but while the routes were run-keyed
-   * the two conditions coincided and one `delete` each was enough. Under N live
-   * turns they come apart: dropping `#sessionIdByRunId` when a run still holds
-   * another live turn would strand that turn's own steer and interrupt paths,
-   * which resolve the session through exactly that map, and `hasActiveTurn`
-   * would report the run idle while the provider was still working for it.
+   * Retires one turn's route, and the run's session binding only when that turn was the run's
+   * last: dropping it earlier would strand the steer and interrupt paths of the run's other live
+   * turn.
    */
   #retireTurnRoute(record: CodexSessionRecord, turnId: string): void {
     const runId = record.runIdByActiveTurnId.get(turnId);
@@ -9496,11 +5455,8 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Drops every run route bound to a session, scanning BY VALUE.
-   *
-   * Keyed lookup is not available: the routes are keyed by run, and the record
-   * that could enumerate them is either gone or replaced by the time a sweep is
-   * owed. Mirrors the Claude leg's `#forgetSession`.
+   * Drops every run route bound to a session, scanning by value: the record that could enumerate
+   * them is gone or replaced by the time a sweep is owed.
    */
   #forgetRunRoutes(sessionId: SessionId): void {
     for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
@@ -9511,38 +5467,20 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Drops the unsettled frames of a binding this manager no longer holds.
-   *
-   * Called only where the record is already gone or replaced — the point past
-   * which `#observeServerNotification` ingests nothing for this session, so no
-   * ruling can be owed. Retained DECISIONS deliberately survive: they are keyed
-   * by turn and the intervention dispatcher reads them back after the binding
-   * has been torn down, which is exactly when it most needs the answer.
+   * Drops the unsettled frames of a binding this manager no longer holds. Retained decisions
+   * survive: they are keyed by turn and the intervention dispatcher reads them after teardown.
    */
   #releaseOutboundFrameBudget(sessionId: SessionId): void {
     this.#outboundFrameTripwire.forgetScope(sessionId);
   }
 
   #requireSession(sessionId: SessionId): CodexSessionRecord {
-    // Without it a new run would resolve the surviving record by session id and
-    // dispatch into the process that swallowed the user's words. Released
-    // at establishment, so the promised recovery — a fresh spawn — is the thing
-    // that lifts it.
+    // Quarantine first: otherwise a new run would resolve the surviving record by session id and
+    // dispatch into the process that swallowed the user's words. A fresh spawn lifts it.
     this.#runtimeBindingQuarantine.assertSessionAttachable(sessionId);
-    // The entrance requires a SETTLED live slot, not merely a non-closing one.
-    // Both transition states have to refuse, and for the same reason: a record
-    // stays installed across its whole transition — that is what holds the slot —
-    // so "installed" has stopped implying "usable" in either direction.
-    //
-    // `closing` is the obvious half. `establishing` is the half that was missed:
-    // a supersede-resume publishes it while the PREDECESSOR record is still in
-    // `#sessions`, so a guard that only rejected `closing` handed that predecessor
-    // out and let a turn be dispatched to a connection the resume was about to
-    // release. If the answer then landed before the resume settled, the run was
-    // refused post-await with the turn already ACCEPTED — and if that resume went
-    // on to FAIL, its catch path left the predecessor live, so the turn kept
-    // executing tools on a session the daemon would happily reuse. Refusing at
-    // the entrance is what keeps that turn from being started at all.
+    // Both transition states refuse, not only `closing`: a record stays installed across its
+    // whole transition, so a turn could reach a connection a supersede-resume is about to
+    // release.
     const holderState = this.#describeSlotHolder(sessionId);
     if (holderState === "closing") {
       throw new CodexTransportError(`Codex session "${sessionId}" is being torn down.`, {
@@ -9564,19 +5502,9 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Resolves the live turn a steer or an interrupt acts on.
-   *
-   * The quarantine is consulted FIRST, and the ordering is the point. A trip
-   * disposes the run's binding and retires its route, so without this check the
-   * very next steer would fail with "no active turn" — a plausible wrong cause
-   * that reads as a race and invites a retry into the process that already
-   * swallowed the user's words. This is the Codex half of the assertion
-   * that separates FAILED THE RUN from QUARANTINED THE PROCESS; the Claude half
-   * sits on `findChannelForRun`, which its interrupt and cancel paths both pass
-   * through. The coverage is symmetric even though the call sites are not:
-   * Claude has no native steer, and its dispatcher degrades that arm without
-   * resolving the run at all, so there is no Claude steer path for a quarantine
-   * to guard.
+   * Resolves the live turn a steer or an interrupt acts on. The quarantine is checked first: a
+   * trip retires the route, so the next steer would fail with a plausible wrong "no active turn"
+   * and invite a retry into the process that swallowed the user's words.
    */
   #requireActiveTurn(runId: RunId): { record: CodexSessionRecord; turnId: string } {
     this.#runtimeBindingQuarantine.assertRunAttachable(runId);
@@ -9597,14 +5525,9 @@ interface ThreadView {
 }
 
 /**
- * Parses one exported transcript frame, fail-closed.
- *
- * `ReplayTranscriptParams.frames` is `unknown[]` at the contract, so this is the
- * boundary where the export's own shape is re-established. Every refusal here is
- * deliberate: a frame this leg cannot read is a frame it cannot seed, and the
- * one thing it may not do is skip one. Nothing in `DeclaredLossKind` names a
- * driver-side drop, so a skipped frame would be an undeclarable loss and would
- * falsify the empty loss list the `applied` arm returns.
+ * Parses one exported transcript frame, fail-closed. A frame this leg cannot read is refused,
+ * never skipped: no `DeclaredLossKind` names a driver-side drop, so a skip would falsify the
+ * empty loss list the `applied` arm returns.
  */
 function readRenderedTranscriptFrameForReplay(frame: unknown): SeededTranscriptFrame {
   if (!isPlainObject(frame)) {
@@ -9634,11 +5557,8 @@ function readRenderedTranscriptFrameForReplay(frame: unknown): SeededTranscriptF
       { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
     );
   }
-  // The frame's BODY, which is what the post-replay assertion compares and what a
-  // turn readback answers with. Only the prose-bearing segment kinds contribute:
-  // a tool call is seeded as its own structured item below and is not part of the
-  // turn a reader would see as text. Joined by a blank line, matching how two
-  // consecutive prose segments of one turn read.
+  // Only prose-bearing segments form the body (what the post-replay assertion compares);
+  // consecutive prose segments join with a blank line.
   const bodyParts: string[] = [];
   for (const segment of segments) {
     if (!isPlainObject(segment)) {
@@ -9662,12 +5582,10 @@ function readRenderedTranscriptFrameForReplay(frame: unknown): SeededTranscriptF
       continue;
     }
     if (kind === "tool_call" || kind === "tool_result") {
-      // Structurally valid and carried; it contributes no prose to the turn body.
       continue;
     }
-    // The no-silent-drop rule, enforced: an unrecognized kind refuses rather than
-    // being passed over. A kind added to the canonical union without this leg
-    // learning to seed it must fail loudly on the first transcript carrying one.
+    // An unrecognized kind refuses, so a kind added to the canonical union fails on its first
+    // use.
     throw new CodexTransportError(
       `The transcript frame at position ${String(position)} carried an unsupported segment kind "${String(kind)}"; refusing to seed a frame this driver cannot represent.`,
       { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
@@ -9677,19 +5595,9 @@ function readRenderedTranscriptFrameForReplay(frame: unknown): SeededTranscriptF
 }
 
 /**
- * Builds the Responses-API message item for one frame.
- *
- * The pinned reference types `ThreadInjectItemsParams.items` as
- * `Array<JsonValue>` and describes it as raw Responses API items, so the shape
- * below is composed against that API's message item rather than against a Codex
- * type: `input_text` for a user turn and `output_text` for an assistant
- * one, which is the split that API draws between what was given to the model and
- * what it produced.
- *
- * Deliberately mints NOTHING — no id, no timestamp, no synthesized author. The
- * never-re-mint rule that governs tool-call identity has the same force here: an
- * item carrying an identifier this daemon invented is an item a later export
- * cannot map back.
+ * Builds the Responses-API message item for one frame: `input_text` for a user turn,
+ * `output_text` for an assistant one. It mints no id, timestamp or author, which a later export
+ * could not map.
  */
 function codexResponsesItemForFrame(frame: SeededTranscriptFrame): Record<string, unknown> {
   const contentType: string = frame.role === "user" ? "input_text" : "output_text";
@@ -9703,10 +5611,7 @@ function codexResponsesItemForFrame(frame: SeededTranscriptFrame): Record<string
 function readThread(response: unknown, method: string): ThreadView {
   const record = isPlainObject(response) ? response : {};
   const thread = record["thread"];
-  // Routed through the shared guard so an ARRAY is refused here too. The former
-  // `typeof thread !== "object"` check admitted one, and an array's `["id"]`
-  // reads `undefined`, so a malformed response reached the identity check as a
-  // merely-absent field rather than as the wrong shape it is.
+  // The shared guard also refuses an array, whose `["id"]` would read `undefined`.
   if (!isPlainObject(thread)) {
     throw new CodexTransportError(`The Codex app-server "${method}" response carried no thread.`, {
       method,
@@ -9724,17 +5629,9 @@ function readThread(response: unknown, method: string): ThreadView {
 }
 
 /**
- * Reads the ordered turn ids out of a `Thread.turns` array.
- *
- * TOTAL rather than throwing. This list is a BOOKKEEPING seed, not an identity:
- * `readThread` has already refused a response whose thread cannot be identified,
- * and a resume or fork whose history is unreadable is still a resume or fork
- * that happened. Throwing here would convert a degraded position axis into a
- * failed lifecycle operation, which is a strictly worse trade.
- *
- * Non-string and empty entries are SKIPPED rather than preserved as holes: an
- * entry that cannot name a turn cannot be a rewind boundary either, and keeping
- * a placeholder would shift every later ordinal onto the wrong turn.
+ * Reads the ordered turn ids out of a `Thread.turns` array. Total, not throwing: the list is a
+ * bookkeeping seed. Non-string and empty entries are skipped, since a placeholder would shift
+ * every later ordinal onto the wrong turn.
  */
 function readThreadTurnIds(turns: unknown): string[] {
   if (!Array.isArray(turns)) {
@@ -9751,17 +5648,9 @@ function readThreadTurnIds(turns: unknown): string[] {
 }
 
 /**
- * Reads the turn a `turn/steer` acknowledgement named, or `null` when it named none.
- *
- * TOTAL rather than throwing, unlike `readTurnId` beside it, and the difference
- * is the point: a steer whose ack is unreadable is not a transport fault — the
- * request WAS answered — it is an acknowledgement carrying no evidence, and
- * The dispatcher grades that as a degraded intervention rather than as an outage. Throwing
- * here would tell the orchestration layer to treat a live provider as unreachable.
- *
- * `TurnSteerResponse` is the flat `{ turnId }` at the pin, deliberately NOT the
- * `{ turn: { id } }` shape `turn/start` answers with — reading the wrong one
- * would return `null` for every successful steer.
+ * Reads the turn a `turn/steer` acknowledgement named, or `null`. Total, unlike `readTurnId`: an
+ * unreadable ack is an acknowledgement with no evidence, graded degraded, not a transport fault.
+ * It is the flat `{ turnId }`, not `turn/start`'s `{ turn: { id } }`.
  */
 function readSteeredTurnId(response: unknown): string | null {
   const record = isPlainObject(response) ? response : {};

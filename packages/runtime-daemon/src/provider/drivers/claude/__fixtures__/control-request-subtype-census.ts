@@ -1,71 +1,42 @@
-// GOLDEN VECTOR - Claude control-request subtype census.
+// Golden vectors: Claude control-request subtype census, pinned to Claude Code 2.1.251 (native
+// single-file build). Source: a schema-constructor census of the binary taken at 2.1.245. It was
+// not re-run at 2.1.251, so the exactly-once arity and the counterexample zero-counts below are
+// 2.1.245 measurements. The re-check at 2.1.251 was weaker: all sixteen subtype strings still
+// occur as quoted literals, which shows no recorded member vanished and cannot re-derive registry
+// membership. The registry set also read the same at 2.1.246.
 //
-//   Pin             : Claude Code 2.1.251 (the native single-file build)
-//   Provenance      : Binary probe (schema constructors observed directly in
-//                     the binary), censused 2026-08-25 at 2.1.245 and CARRIED
-//                     forward to the pin. The schema-constructor extraction was
-//                     NOT re-run on 2026-08-28, so BOTH the exactly-once arity
-//                     and the counterexample zero-counts below remain 2.1.245
-//                     measurements. The 2026-08-28 pass ran the strictly weaker
-//                     check its evidence supports - that all sixteen subtype
-//                     strings below still occur as quoted literals in the
-//                     2.1.251 build - which shows no recorded member vanished
-//                     and CANNOT re-derive registry membership either way.
-//   Trust           : Verified at 2.1.245, members re-verified present at
-//                     2.1.251; the registry set is additionally recorded
-//                     unchanged at 2.1.246
-//   Derived by      : transcription of the census enumeration itself. NOTHING
-//                     here is invented: the census lists all fifteen subtypes,
-//                     records each as appearing exactly once, names the three
-//                     counterexample subtypes it found at count 0, and
-//                     reproduces the `mcp_set_servers` reconcile body character
-//                     for character.
+// The census lists fifteen subtypes, each appearing exactly once, names three counterexample
+// subtypes at count 0, and gives the `mcp_set_servers` reconcile body character for character.
 //
-// WHAT THIS FIXTURE IS, AND WHAT IT IS NOT.
+// This is a subtype vector plus that one response body, not a request-payload vector. Apart
+// from the `can_use_tool` field names and the `control_response` error envelope's member names,
+// the census recorded no control-request or control-response body, and a body cannot be
+// derived from it without fabricating a shape. Payload-shaped cases go through typed
+// constructors in `__tests__/event-normalizer.test.ts`.
 //
-// It is a SUBTYPE census vector plus the single response body the census
-// captured verbatim. It is not a request-payload vector: apart from the
-// `can_use_tool` field names and the `control_response` error envelope's
-// member names, the census recorded no control-request or control-response
-// BODY. A golden file is regenerated rather than transcribed, so a
-// payload-bearing vector cannot be honestly derived from a census that carries
-// no body, and manufacturing one would give a fabricated shape the appearance
-// of pinned provenance. Payload-shaped cases go through typed constructors in
-// `__tests__/event-normalizer.test.ts` instead.
-//
-// Regeneration: when the Claude pin moves, re-run the control-request subtype
-// census against the new binary and re-derive this file from it. Do not
-// hand-edit a subtype string here to make a test pass.
+// When the Claude pin moves, re-run the census against the new binary and re-derive this file.
+// Never hand-edit a subtype string to make a test pass.
 
 /** One row of the pinned control-request subtype census. */
 export interface ClaudeControlRequestSubtypeVector {
-  /** The control-request `subtype` string, verbatim from the pinned census. */
+  /** The control-request `subtype` string, verbatim from the census. */
   readonly subtype: string;
   /**
-   * `true` when the subtype appears in the binary's censused registry.
-   * `false` marks a subtype the census could NOT see that nevertheless
-   * dispatches - the registry list is evidence about what the census could
-   * see, never a completeness claim, so this flag records census visibility
-   * and never capability.
+   * Whether the subtype appears in the censused registry. `false` marks a subtype the census
+   * could not see that still dispatches: the flag records census visibility, never capability.
    */
   readonly presentInCensusedRegistry: boolean;
-  /** The census subsection the row is read from. */
+  /** The census section the row is read from. */
   readonly referenceSection: string;
 }
 
 /**
- * The fifteen censused control-request subtypes at `2.1.245`, all still
- * present at the `2.1.251` pin, plus `mcp_set_servers`.
+ * The fifteen censused control-request subtypes, in census order, plus `mcp_set_servers` last.
  *
- * Order is the census enumeration's own, left to right, with the
- * censused-absent-but-answering subtype appended last so the first fifteen are
- * exactly the registry list.
- *
- * `mcp_set_servers` is included because it was observed answering
- * `{"subtype":"success", ...}` at all three probed builds beside a negative
- * control (`zzq_nonexistent_subtype`, refused every time with the typed
- * "Unsupported control request subtype: ..."), so the successes are not an
- * artifact of a permissive dispatcher.
+ * `mcp_set_servers` is not in the censused registry but answered `{"subtype":"success", ...}`
+ * at all three probed builds, while a negative control (`zzq_nonexistent_subtype`) was refused
+ * every time with "Unsupported control request subtype: ...", so the dispatcher is not simply
+ * permissive.
  */
 export const CLAUDE_CONTROL_REQUEST_SUBTYPE_VECTORS: readonly ClaudeControlRequestSubtypeVector[] =
   Object.freeze([
@@ -156,16 +127,12 @@ export const CLAUDE_CONTROL_REQUEST_SUBTYPE_VECTORS: readonly ClaudeControlReque
 export const CLAUDE_CENSUSED_CONTROL_REQUEST_SUBTYPE_COUNT_AT_PIN = 15;
 
 /**
- * The three subtypes the counterexample hunt found at count 0.
+ * The three subtypes the counterexample hunt found at count 0 (2.1.245 counts, not re-run).
  *
- * Carried so the normalizer's exclusion of them is checkable rather than
- * implicit. These are `2.1.245` counts, carried to the `2.1.251` pin unre-run:
- * a raw string count is not the census that produced them (`rewind` and
- * `compact` occur as quoted literals in BOTH builds, so the naive check would
- * contradict a census reading it cannot reproduce). Absence is NOT read as
- * proof of non-existence anywhere in this package - neither presence nor
- * absence in the census may decide a capability - it is read only as "no probe
- * answer is recorded for these, so no census row can be written for them".
+ * A raw string count does not reproduce them: `rewind` and `compact` occur as quoted literals
+ * in both builds. Absence never proves a subtype does not exist and census presence or absence
+ * never decides a capability; it only means no probe answer is recorded, so no census row
+ * exists.
  */
 export const CLAUDE_CONTROL_REQUEST_SUBTYPES_ABSENT_AT_PIN: readonly string[] = Object.freeze([
   "set_effort",
@@ -174,29 +141,21 @@ export const CLAUDE_CONTROL_REQUEST_SUBTYPES_ABSENT_AT_PIN: readonly string[] = 
 ] as const);
 
 /**
- * The one control-channel response body the census captured verbatim, kept
- * byte for byte.
+ * The one control-channel response body the census captured, byte for byte: the
+ * `mcp_set_servers` reconcile answer at 2.1.234, 2.1.245 and 2.1.246 over
+ * `-p --input-format stream-json`, with an empty desired set and no billed turn. It shows the
+ * subtype dispatches and returns the reconcile envelope; a non-empty mutation was not probed.
  *
- * It is the `mcp_set_servers` reconcile answer observed at 2.1.234, 2.1.245,
- * and 2.1.246 over `-p --input-format stream-json`, with an EMPTY desired set,
- * no user message sent, and no billed turn. What is Verified is that the
- * subtype dispatches and returns the documented reconcile envelope; a
- * non-empty mutation is outside that probe's reach.
- *
- * Held as a string rather than a parsed literal so the bytes themselves are
- * the fixture - key order, spacing, and all - and the test asserts the parse
- * rather than assuming it.
+ * Held as a string so the bytes (key order, spacing) are the fixture and the test asserts the
+ * parse.
  */
 export const CLAUDE_MCP_SET_SERVERS_RECONCILE_RESPONSE_JSON =
   '{"subtype":"success","response":{"added":[],"removed":[],"errors":{}}}';
 
 /**
- * The `control_response` error-envelope member names, from the shape the
- * census recorded verbatim:
- * `{ type: "control_response", response: { subtype: "error", request_id, error } }`.
- *
- * Recorded as member NAMES rather than as a constructed body, because the
- * census gives the shape and not an instance.
+ * The `control_response` error-envelope member names, from the census shape
+ * `{ type: "control_response", response: { subtype: "error", request_id, error } }`. Names
+ * only, because the census gives a shape and no instance.
  */
 export const CLAUDE_CONTROL_RESPONSE_ERROR_ENVELOPE_MEMBERS: readonly string[] = Object.freeze([
   "subtype",
@@ -205,10 +164,9 @@ export const CLAUDE_CONTROL_RESPONSE_ERROR_ENVELOPE_MEMBERS: readonly string[] =
 ] as const);
 
 /**
- * The `can_use_tool` round-trip member names, from the census's verbatim
- * record that it "remains the `--permission-prompt-tool` plumbing
- * (`{tool_name, input}` -> `{behavior: allow | deny, updatedInput?, message?}`)"
- * with "a `{behavior: "cancelled"}` response arm alongside those".
+ * The `can_use_tool` request member names. The census records the round trip as the
+ * `--permission-prompt-tool` plumbing, `{tool_name, input}` answered by
+ * `{behavior: allow | deny, updatedInput?, message?}`, with a `{behavior: "cancelled"}` arm.
  */
 export const CLAUDE_CAN_USE_TOOL_REQUEST_MEMBERS: readonly string[] = Object.freeze([
   "tool_name",

@@ -1,68 +1,28 @@
-// ClaudeInterventionDispatcher — the Claude driver's generic intervention band.
+// The Claude driver's generic intervention dispatcher.
 //
-// The driver exposes one generic `applyIntervention(params)` dispatcher plus a
-// degraded-fallback answer, rather than a per-intervention method set. A
-// provider without a native mechanism for an intervention type answers
-// `degraded` and names the daemon's fallback; `queue_and_interrupt` is the
-// documented fallback for a no-native-steer provider.
+// An intervention type the driver cannot dispatch natively returns a `degraded` result: never a
+// thrown error, never a silent no-op. The degraded steer arm writes nothing to the provider, so
+// the daemon can queue the steer itself without it being applied twice.
 //
-// THE LOAD-BEARING RULE OF THIS FILE: an intervention type this driver cannot
-// dispatch natively returns a `degraded` RESULT — never a thrown
-// error, and never a silent no-op. Those are three separate conjuncts, and the
-// third is the one a return-value assertion alone does not cover, so the degraded
-// steer arm below writes NOTHING to the provider: no user-text frame, no control
-// request. A driver that sent the steer text and then reported `degraded` would
-// double-apply the intervention the daemon is about to queue.
+// Claude steers degraded because it has no steer control-request subtype in the pinned build, and
+// writing the text as an ordinary user frame would start a turn the daemon never admitted.
+// `capabilities.ts` declares `steer: false` to match.
 //
-// WHY CLAUDE STEERS DEGRADED. The V1 capability matrix declares `steer: false`
-// for Claude, and the pinned wire surface agrees: the control-request registry
-// censused at `2.1.245` carries no steer subtype, and no such subtype string
-// appears in the `2.1.251` pin's binary either. The only other route would be
-// writing the steer text as an ordinary user frame, which is not a steer at all
-// — it is an out-of-band turn the daemon never admitted. So the degrade is a
-// fact about the provider, not a policy knob, and it is stated once here.
-// `capabilities.ts` MUST declare `steer: false` in agreement; the two surfaces
-// are checked against each other by an integration test, not by a runtime flag
-// this band reads.
+// Failure polarity, for every arm:
+//   * A typed `control_response` error means the provider answered and refused: `degraded`, with
+//     no `fallbackAction`, because no fallback is documented for a refused interrupt.
+//   * A transport exception (broken pipe, dead process, timeout) propagates; `degraded` asserts
+//     the request reached the provider.
+//   * No live channel for the target run propagates as `ClaudeSessionUnavailableError`; that is a
+//     routing fault, not an unsupported capability.
 //
-// FAILURE POLARITY, stated once and applied to every arm:
-//   * a TYPED `control_response` error (the "registry membership is not
-//     availability" refusal) => `degraded`. The provider was
-//     reached and answered; the intervention did not take effect. No
-//     `fallbackAction` is named, because no fallback is documented for a refused
-//     interrupt and inventing one here would put a verb into the daemon's mouth.
-//   * a TRANSPORT EXCEPTION (broken pipe, dead process, timeout) => PROPAGATES.
-//     `degraded` asserts a dispatch that reached the provider; laundering an
-//     exception into it would report a delivery that never happened.
-//   * no live channel for the target run => PROPAGATES as
-//     `ClaudeSessionUnavailableError`, for the same reason. This is a routing
-//     fault, not an unsupported capability, and the degraded rule governs the
-//     latter.
+// The caller's `clientIdempotencyKey` has no wire field: the `interrupt` control request carries
+// only `{ subtype, cancel_queued }`, and the transport's `request_id` is per-attempt correlation
+// state. So the key is not sent, and no field is invented for it.
 //
-// THE CALLER'S IDEMPOTENCY KEY HAS NO WIRE HOME HERE, AND NONE IS INVENTED.
-// `ApplyInterventionParams` carries the requester's `clientIdempotencyKey` on
-// every arm, and a driver must thread it to the wire UNCHANGED — never
-// re-minting it, since a fresh value per retry defeats the `interventions`
-// UNIQUE guard the key exists to feed. The
-// pinned `interrupt` control request carries `{ subtype, cancel_queued }` and no
-// client-supplied identifier, and the transport's own `request_id` is
-// response-correlation state that a retry MUST vary, so it is not that home
-// either. So this band sends nothing, for the same reason `interruptRun` drops
-// `reason`: an unregistered wire field is a worse answer than an absent one.
-// Both dispatched arms are consequently free of the key by construction, and the
-// steer arm writes nothing at all.
-//
-// AN AMBIGUOUS ACK NEVER READS AS SUCCESS. A `control_response` success is not
-// self-evidently an applied CANCEL. Under the `interrupt_receipt_v1` capability
-// the success payload carries `still_queued`, the uuids of async user messages
-// that SURVIVED the interrupt, and a cancel that leaves queued messages behind
-// has not canceled the run's
-// remaining input — reporting `applied` there would tell the daemon a
-// user's cancellation took hold while messages it was meant to stop are
-// still waiting to run. That success degrades. An interrupt (`cancelQueued`
-// false) is graded differently on the same field, because survival is precisely
-// what distinguishes it from a cancel: there, a non-empty list is the contract
-// working, not a partial application.
+// A cancel whose success payload still lists surviving queued messages (`still_queued`, sent by
+// builds with `interrupt_receipt_v1`) has not stopped the run's remaining input, so it degrades.
+// A plain interrupt does not: surviving queued messages are what an interrupt leaves by design.
 
 import {
   DriverInterventionResultSchema,
@@ -73,41 +33,33 @@ import {
 
 import { ClaudeSessionUnavailableError, type ClaudeRunChannelLookup } from "./lifecycle.js";
 
-// The documented fallback for a no-native-steer provider: the daemon
-// queues the steer content and interrupts the running turn so the queued content
-// is picked up at the next turn boundary. The daemon reads it as a hint, not a
-// command. Its `DRIVER_FALLBACK_ACTION_MAX_LEN` bound is ENFORCED rather than
-// asserted: every result this module returns is built through
-// `DriverInterventionResultSchema.parse`, so an over-long or misshapen action
-// fails here instead of traveling as a malformed envelope.
+/**
+ * The fallback the daemon applies for a steer this provider cannot do natively: queue the steer
+ * text and interrupt the running turn. Returned as a hint; the schema bounds its length.
+ */
 export const CLAUDE_STEER_FALLBACK_ACTION: string = "queue_and_interrupt";
 
-// The success-payload key carrying the uuids of async user messages that
-// outlived an interrupt. Present only on builds advertising the optional
-// `interrupt_receipt_v1` capability token, which is why absence is read as "this
-// build reported nothing" and never as "nothing survived".
+// Key of the uuids of queued user messages that outlived an interrupt. Builds without
+// `interrupt_receipt_v1` omit it, so absence means "reported nothing", not "nothing survived".
 const CLAUDE_INTERRUPT_RECEIPT_SURVIVOR_KEY = "still_queued";
 
 /**
- * Counts the queued messages the provider reports as having survived.
+ * Counts the queued messages the provider reports as having survived an interrupt.
  *
- * Total over an arbitrary payload on purpose: this value crosses the provider
- * trust boundary, so a missing key, a null, or a non-array all read as "reported
- * nothing" rather than throwing. Zero is therefore returned for both "the build
- * has no receipt capability" and "the receipt was empty" — the two are
- * deliberately not distinguished here, because degrading a cancel on a build
- * that never promised a receipt would fail closed on an absent guarantee rather
- * than on an observed survivor.
+ * Returns 0 for a missing key, null or non-array, because the payload comes from the provider;
+ * a build that never promised a receipt must not fail a cancel closed.
  */
 function countSurvivingQueuedMessages(payload: Record<string, unknown> | undefined): number {
   const survivors = payload?.[CLAUDE_INTERRUPT_RECEIPT_SURVIVOR_KEY];
   return Array.isArray(survivors) ? survivors.length : 0;
 }
 
+/** What the dispatcher needs: a lookup from a run to its live Claude channel. */
 export interface ClaudeInterventionDispatcherDependencies {
   readonly channelLookup: ClaudeRunChannelLookup;
 }
 
+/** Applies interventions to Claude runs; every arm resolves to a `DriverInterventionResult`. */
 export class ClaudeInterventionDispatcher {
   readonly #channelLookup: ClaudeRunChannelLookup;
 
@@ -118,9 +70,8 @@ export class ClaudeInterventionDispatcher {
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     switch (params.type) {
       case "steer": {
-        // Deliberately answered WITHOUT resolving the run: "this provider has no
-        // native steer" is a fact about the driver, not about the run, so it
-        // cannot depend on whether a channel is currently live. Nothing is sent.
+        // Answered without resolving the run: the missing native steer is a fact about the
+        // driver, not the run, so it holds whether or not a channel is live. Nothing is sent.
         return DriverInterventionResultSchema.parse({
           status: "degraded",
           fallbackAction: CLAUDE_STEER_FALLBACK_ACTION,
@@ -130,9 +81,8 @@ export class ClaudeInterventionDispatcher {
         return await this.#dispatchInterrupt(params.targetRunId, false);
       }
       case "cancel": {
-        // Claude has no `cancel` control subtype. The nearest native mechanism is
-        // the interrupt request carrying `cancelQueued`, so queued async user
-        // messages cannot silently resume a run the user canceled.
+        // Claude has no `cancel` subtype; the interrupt request with `cancelQueued` is the
+        // nearest mechanism and keeps queued messages from resuming a canceled run.
         return await this.#dispatchInterrupt(params.targetRunId, true);
       }
       default: {
@@ -151,34 +101,25 @@ export class ClaudeInterventionDispatcher {
     }
     const response = await channel.sendControlRequest({ subtype: "interrupt", cancelQueued });
     if (response.subtype === "error") {
-      // No `fallbackAction`: the provider refused THIS request, which says
-      // nothing about what the daemon should do instead. The key is omitted
-      // rather than set to `undefined` — under `exactOptionalPropertyTypes` and a
-      // `.strict()` envelope those are different values.
+      // No `fallbackAction`: the refusal says nothing about what the daemon should do instead.
+      // The key is omitted, not `undefined`, because the envelope is `.strict()` under
+      // `exactOptionalPropertyTypes`.
       return DriverInterventionResultSchema.parse({ status: "degraded" });
     }
     if (cancelQueued && countSurvivingQueuedMessages(response.response) > 0) {
-      // A cancel the provider acknowledged while reporting survivors.
-      // Also no `fallbackAction`: the survivors are already queued, so the
-      // documented `queue_and_interrupt` fallback would re-queue what is queued,
-      // and naming any other verb here would invent daemon behavior this band
-      // has no standing to specify.
+      // The provider acknowledged a cancel but reported survivors. No `fallbackAction`: they
+      // are already queued, so `queue_and_interrupt` would re-queue them.
       return DriverInterventionResultSchema.parse({ status: "degraded" });
     }
     return DriverInterventionResultSchema.parse({ status: "applied" });
   }
 }
 
-// The `never` parameter is the compile-time half: if `ApplyInterventionParams`
-// ever grows a fourth arm, this call stops typechecking and the new arm must be
-// routed deliberately. The runtime half is the "never a throw" clause — an
-// untyped caller that reaches this branch still receives a `degraded` result.
-// No `fallbackAction` is named: an unrouted type has no known fallback, and
-// asserting one would be worse than admitting ignorance.
+/**
+ * Degrades an intervention type no arm routes. The `never` parameter makes a new arm in
+ * `ApplyInterventionParams` fail to typecheck here; an untyped caller still gets `degraded`.
+ */
 function degradeUnroutedInterventionType(params: never): DriverInterventionResult {
   void params;
-  // Parsing a statically-known-valid literal cannot throw, so routing this arm
-  // through the schema costs nothing and keeps the "never a throw" clause
-  // intact while every other arm is schema-built.
   return DriverInterventionResultSchema.parse({ status: "degraded" });
 }

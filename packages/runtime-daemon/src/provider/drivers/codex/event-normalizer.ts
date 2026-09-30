@@ -1,171 +1,16 @@
-// Codex event normalizer.
+// Codex event normalizer: answers "which normalized event family does this native frame belong
+// to". It parses no payload, builds no envelope and touches no session state.
 //
-// Nothing here parses a payload, mints an envelope, or touches session state —
-// it answers exactly one question, "which normalized family does this native
-// frame belong to", which is the whole of what asks of this seam.
+// The table covers the server-originated JSON-RPC methods of the pinned `codex-cli 0.150.1`
+// app-server protocol, named as its generated schema names them.
 //
-//   • drivers emit normalized runtime events, not provider-native types. The
-//     session engine never sees a Codex method string; it sees an
-//     `EventCategory` and a `SessionEventType`.
-//   • the required normalized event families (run lifecycle, assistant
-//     output, tool activity, interactive request, artifact publication,
-//     usage/quota telemetry). Five of the six are reachable from the pinned
-//     Codex inbound census; `artifact_publication` is reachable from none,
-//     and that is a CORPUS fact rather than a gap in this table. Grounded
-//     below under: "Why `artifact_publication` is reachable from no Codex
-//     frame".
-//
-// Normalization is structural; family-level coverage is verified
-// taxonomy tests.
-//
-// ---------------------------------------------------------------------------
-// Where every row of the table below comes from
-// ---------------------------------------------------------------------------
-//
-// Two corpus sources, and no third:
-//
-//   (1) the pinned Codex wire census — the version-pinned Codex
-//       wire reference (pin `codex-cli 0.150.1`, regenerated 2026-08-28 from
-//       the binary's own generated schema). It records the ten `ServerRequest`
-//       methods in full, the legacy bare-camelCase notifications, the nineteen
-//       experimental-gated notifications, and a set of modern slash-namespaced
-//       notifications by exact name.
-//       the disposition contract this task's `Consumes:` row names. Its
-//       35-kind census fixes each normalized kind's target category, and its
-//       "current-wire delta families" table fixes FAMILY-level dispositions
-//       for the Codex delta rows while stating verbatim that "per-member
-//       normalization is driver detail" — which is the license under which
-//       this file assigns a specific census kind to a specific method inside a
-//       family the corpus has already settled.
-//
-// Nothing in this table is transcribed from provider prose docs or invented. The
-// `regenerate, don't transcribe` rule (the wire-census rules)
-// applies to the wire shapes; this file maps method NAMES, each of which is
-// recorded verbatim in one of the two sources above, and the `__fixtures__/` census
-// vectors carry the codex.md-recorded subset so a re-pin diff shows up as a failing
-// test rather than as prose drift.
-//
-// ---------------------------------------------------------------------------
-// What is deliberately NOT in the closed union (and why)
-// ---------------------------------------------------------------------------
-//
-//   • The eleven `thread/realtime/*` server notifications
-//     (`thread/realtime/started`, `.../closed`, `.../error`, `.../itemAdded`,
-//     `.../sdp`, `.../outputAudio/delta`, `.../transcript/delta`,
-//     `.../transcript/done`, `.../item/started`, `.../item/transcript/delta`,
-//     `.../item/completed` — the last three added by the `0.150.1` pin BESIDE
-//     the older spellings, not in place of them). Leaving all eleven out of
-//     the union is what makes that sentence true: they reach the unknown seam
-//     below, which re-points at its diagnostic surface. Listing them here as a
-//     suppression constant would duplicate the `optOutNotificationMethods`
-//     list owns, so they are named in this comment and nowhere in the code.
-//
-//   • `mcpServer/event/stream/notification`, the fourth arm the `0.150.1` pin
-//     added and the only non-realtime one. It is experimental-gated like the
-//     other three, so a connection negotiating `experimentalApi: false` never
-//     receives it, and no corpus row assigns it a normalized family.
-//
-//   • codex.md records both by name and records that neither reaches the pinned
-//     binary's generated schema ("Source declares 81; the binary generates
-//     79"). The generated schema is the pin, so they are not members of the
-//     pinned native set. Should a later build start emitting one, the unknown
-//     seam surfaces it as an operator-visible diagnostic — which is the correct
-//     outcome for a frame the pin says cannot arrive.
-//
-//   • The union is keyed on server-originated frames (`ServerNotification` ∪
-//     `ServerRequest`). The `account/rateLimits/read` PULL leg feeds the same
-//     `rate_limits` normalized kind as the `account/rateLimits/updated` PUSH
-//     row below, but it arrives as a reply to a daemon-issued
-//     request rather than as an inbound frame, so its plumbing belongs to the
-//     request path, not here.
-//
-// ---------------------------------------------------------------------------
-// What IS in the union but cannot arrive today
-// ---------------------------------------------------------------------------
-//
-// Excluded and dormant are different states, and collapsing them would be a
-// bug in both directions. Twelve census members — one `ServerRequest` and
-// eleven `ServerNotification`s — are experimental-gated at the pin and so
-// unreachable while the driver negotiates `experimentalApi: false`. They are
-// mapped anyway, and named in {@link CODEX_NEGOTIATION_GATED_METHODS} with the
-// full reasoning. The short version: their dispositions are already settled by
-// the corpus, so keeping the rows makes a posture flip or a pin bump free,
-// whereas deleting them would route twelve settled frames into diagnostic at
-// once. The realtime eleven above are the opposite case — opted out by name at
-// the source AND targeting a family with no V1 emitter, so no corpus row
-// supplies a disposition to keep.
-//
-// ---------------------------------------------------------------------------
-// Why `artifact_publication` is reachable from no Codex frame
-// ---------------------------------------------------------------------------
-//
-// This is the one required family no row below targets, so the reason is
-// recorded here rather than left as an absence a later reader must re-derive.
-// Three independent corpus facts, none of them a gap in this table:
-//
-//   1. Nothing in the normalized census adopts into it. the 35-kind census assigns
-//      each kind a target category, and `EVENT_DISPOSITION_BY_KIND` names only
-//      `run_lifecycle`, `assistant_output`, `tool_activity`,
-//      `interactive_request`, `approval_flow`, `usage_telemetry`, and
-//      `session_lifecycle`. `artifact_publication` is never a target. There is
-//      therefore no kind this driver could route to it without inventing one.
-//
-//   2. The one plausible candidate is routed elsewhere BY THE CORPUS.
-//      `turn/diff/updated` carries file-change content, so it looks like an
-//      artifact producer delta row routes it to the `diff` kind (row 32) in
-//      `tool_activity` / `tool.result`. This table follows that verbatim rather
-//      than second-guessing it.
-//
-//   3. The family's emitter is not a driver. the event-family ownership table
-//      assigns all six `artifact_publication` types to — daemon-side emitters,
-//      reached through the artifact pipeline, not through a provider frame. A
-//      Codex normalizer producing one would be asserting an emitter the corpus
-//      gives to another plan.
-//
-// So five-of-six is the correct coverage for THIS driver, and the sixth is not
-// this module's to emit. The shortfall is pinned by the test
-// "pins artifact_publication as reachable from NO Codex frame, and why"
-// (describe block "Codex event normalizer — normalized-family coverage"),
-// which asserts both that no row reaches the family and that no disposition
-// entry targets it — so if either corpus fact ever changes, the suite fails
-// loudly and the author must justify the new producer rather than discovering
-// the drift later.
-//
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-//
-// A method outside the closed census resolves to nothing and reaches
-// `refuseUnmappedCodexInboundFrame` below, which throws
-// `UnknownCodexInboundFrameError`. That single function is the seam replaces
-// with its typed daemon-diagnostic default branch (`DriverDiagnosticRecord`
-// onto `driver-diagnostics.ts`). It is a THROW and not a silent drop on
-// purpose: pre- an unmapped frame must be loud, and plus
-// no-silent-capability-loss default both forbid the quiet alternative.
-// Nothing else in this module branches on unknown-ness, so adds a branch
-// rather than restructuring a dispatch.
-//
-// This module deliberately does NOT read `EVENT_DISPOSITION_BY_KIND`. That
-// registry is the runtime consume (it mirrors the adopt / rename / correlate
-// / discard verdicts and drives the interim-`typePending` routing).
-//
-// ---------------------------------------------------------------------------
-// What this module consumes from its two peer seams
-// ---------------------------------------------------------------------------
-//
-//   * `packages/contracts` (`SESSION_EVENT_TYPES`) — the roster of event types
-//     with a REGISTERED `SessionEventSchema` payload variant. Every row's
-//     `emissionReadiness` is derived from it at map-build time rather than
-//     hand-stated, so the stamp widens by itself the moment an emitting plan
-//     lands a variant and no mirror of the registered set exists here to go
-//     stale. See {@link CodexEmissionReadiness}.
-//   * `./tools.js` (`CodexToolName`) — tool-identity namespace, which that
-//     module exports expressly for this consumer. Two census methods embed a
-//     tool discriminant; they are bound to the namespace by the annotation on
-//     {@link CODEX_TOOL_KEYED_APPROVAL_METHODS}, so a rename there is a
-//     compile error here. Type-only: the pinned wire literals stay literals,
-//     and nothing composes a method string at runtime.
-//
-// the pinned Codex wire census (pin `codex-cli 0.150.1`).
+// - Not mapped: the eleven `thread/realtime/*` notifications (opted out by name in
+//   `./lifecycle.ts`), the experimental `mcpServer/event/stream/notification`, and replies to
+//   daemon-issued requests such as `account/rateLimits/read`.
+// - `artifact_publication` has no row: no Codex frame maps to it. `turn/diff/updated` is a
+//   `tool.result` row.
+// - An unmapped method throws `UnknownCodexInboundFrameError`; `resolveCodexFrameEmissionRoute`
+//   emits an `unmapped_wire_kind` diagnostic instead. Neither drops the frame silently.
 
 import {
   EVENT_DISPOSITION_BY_KIND,
@@ -187,39 +32,17 @@ import {
 } from "../outbound-frame.js";
 import type { CodexToolName } from "./tools.js";
 
-// --------------------------------------------------------------------------
-// Transport role — which of the two server-originated JSON-RPC roots the
-// frame arrives on.
-// --------------------------------------------------------------------------
-
 /**
- * Which generated protocol root a Codex inbound frame belongs to, per
- * the pinned Codex wire census.
- *
- * Carried as OUTPUT rather than demanded as input: the caller has a method
- * string off the wire and needs to learn whether the frame must be answered
- * (`server-request`) or is fire-and-forget (`server-notification`). Making it
- * an input would ask the caller to already know the answer.
+ * Which server-originated JSON-RPC root a frame arrives on: a `server-request` must be answered, a
+ * `server-notification` is fire-and-forget.
  */
 export type CodexInboundFrameTransport = "server-request" | "server-notification";
 
-// --------------------------------------------------------------------------
-// The closed census of Codex inbound frame methods this normalizer maps.
-// --------------------------------------------------------------------------
-
 /**
- * The pinned Codex inbound method census — every server-originated frame the
- * corpus both records by exact name AND settles a normalized disposition for.
- *
- * Closed on purpose: a literal union is what makes the backing record's
- * `satisfies` check a compile-time totality proof, so a method added here
- * without a mapping row (or a row added without a union member) is a build
- * failure rather than a runtime surprise. The exclusions are enumerated in
- * this module's header comment, each with its citation.
+ * Every server-originated method of the pinned Codex protocol that has a normalized disposition;
+ * the backing record's `satisfies` check makes a missing or extra row a build error.
  */
 export type CodexInboundFrameMethod =
-  // ServerRequest (10 of 10, codex.md — "the one root that did not move
-  // across the floor").
   | "item/tool/call"
   | "item/tool/requestUserInput"
   | "mcpServer/elicitation/request"
@@ -230,35 +53,21 @@ export type CodexInboundFrameMethod =
   | "applyPatchApproval"
   | "attestation/generate"
   | "account/chatgptAuthTokens/refresh"
-  // ServerNotification — legacy bare camelCase (codex.md).
   | "error"
   | "warning"
   | "configWarning"
   | "deprecationNotice"
   | "guardianWarning"
-  // ServerNotification — modern, ungated (codex.md).
   | "thread/goal/updated"
   | "thread/goal/cleared"
   | "account/rateLimits/updated"
   | "thread/compacted"
-  // The local skill-file watch signal. In the pinned generated
-  // `ServerNotification` root beside the arms above and carrying NO
-  // `#[experimental(...)]` marker, so it is delivered to this driver's
-  // `experimentalApi: false` connection rather than being dormant like the
-  // gated block below. Deliberately carries no `__fixtures__/` row: that
-  // golden vector transcribes only the subset
-  // the pinned Codex wire census names BY HAND, and it names this
-  // one nowhere — inventing a fixture row to match a schema arm is exactly the
-  // hand-transcription that file's header forbids.
+  // Not experimental-gated, so delivered to this driver's `experimentalApi: false` connection.
   | "skills/changed"
   | "item/autoApprovalReview/started"
   | "item/autoApprovalReview/completed"
   | "model/safetyBuffering/updated"
-  // ServerNotification — experimental-gated at the pin (codex.md).
-  // Delivered only to a connection that negotiated
-  // `initialize.capabilities.experimentalApi`, which this driver does NOT:
-  // the shipped `lifecycle.ts` sends `experimentalApi: false`. They are
-  // mapped anyway and declared dormant
+  // Experimental-gated, so not delivered at `experimentalApi: false`; see
   // {@link CODEX_NEGOTIATION_GATED_METHODS}.
   | "process/outputDelta"
   | "process/exited"
@@ -271,79 +80,17 @@ export type CodexInboundFrameMethod =
   | "thread/environment/connected"
   | "thread/environment/disconnected"
   | "thread/settings/updated"
-  // ServerNotification — Codex current-wire delta family whose DISPOSITION is
-  // settled but whose WIRE NAMES are taken from the binary.
-  //
-  // delta row spelled this family "`turn/diff` | `turn/plan` |
-  // `turn/moderationMetadata`", and two of those three names do not exist on
-  // the wire: regenerating the protocol schema from the pinned binary itself
-  // (`codex app-server generate-json-schema --out <dir>` at codex-cli
-  // 0.150.1) emits `turn/diff/updated` and `turn/plan/updated`. Only
-  // `turn/moderationMetadata` is genuinely bare, and it is mapped above with
-  // the other gated notifications. The generator output is canonical over
-  // prose under the regenerate-don't-transcribe rule, so the generated names
-  // were used here from the start delta-table row was corrected to match on
-  // 2026-08-28, so doc and code now agree.
-  //
-  // Carried in `__fixtures__/` since that same 2026-08-28 pass: a golden
-  // vector must be derivable from the version-pinned reference doc, and
-  // `codex.md ` now censuses both names by hand of the same generation — which
-  // is exactly what had kept them out before.
+  // The generated schema names these `turn/diff/updated` and `turn/plan/updated`, not `turn/diff`.
   | "turn/diff/updated"
   | "turn/plan/updated";
 
-// --------------------------------------------------------------------------
-// Negotiation-gated methods — mapped, but dormant at the shipped posture.
-// --------------------------------------------------------------------------
-
 /**
- * The census methods that CANNOT arrive while the driver negotiates
- * `initialize.capabilities.experimentalApi: false` — the posture
- * `lifecycle.ts` ships, and the one ratifies by building V1's capability
- * realization so it never needs the flag.
- *
- * Two different provider mechanisms produce the same unreachability, and the
- * distinction matters to whoever changes the posture:
- *
- *   * **Notifications (11)** are dropped by the transport itself. codex.md
- *     `should_skip_notification_for_connection` returning "skip" for any
- *     notification carrying an experimental reason on a connection that did
- *     not set the flag — "silently, with no error, no `deprecationNotice`, and
- *     no signal of any kind that the client is missing events."
- *   * **Requests (1)** — `item/tool/requestUserInput`, which the pinned
- *     binary's generated `ServerRequest` schema marks as the only EXPERIMENTAL
- *     arm of its ten. codex.md states plainly that "a default app-server
- *     session never delivers this method."
- *
- * WHY THEY STAY MAPPED. Deleting them would trade a dormant row for a live
- * hazard: the moment the posture flips (or a pin bump makes a gated surface
- * non-experimental), every one of these frames would reach default-branch
- * diagnostic at once — a diagnostic flood standing in for twelve dispositions
- * the corpus has already settled. Keeping the mapping makes that change free.
- * This is the same reasoning that keeps the eleven `thread/realtime/*`
- * methods OUT: those are suppressed by name at the source and route to a
- * family with no V1 emitter, so mapping them would assert a disposition no
- * corpus row supplies. Dormant-but-settled is mapped;
- * suppressed-and-unsettled is excluded.
- *
- * This set is DECLARED rather than derived because the gate state lives in
- * neither of this module's inputs: the generated schema does not encode it for
- * notifications (the generator has no notification-side experimental exclusion
- * — regenerating at codex-cli 0.150.1 leaves 78 of 79 `ServerNotification`
- * arms unmarked), and `tools.ts` knows nothing about negotiation. The corpus
- * source is codex.md which the `__fixtures__/` gate tags transcribe; the test
- * suite asserts this set equals exactly the census members those fixtures tag
- * gated, on BOTH transports, so a census edit that changes gate state fails
- * rather than drifts.
- *
- * The `CodexInboundFrameMethod` element type is load-bearing: a member renamed
- * or dropped from the union is a compile error here, not a silently stale
- * entry.
+ * Mapped methods that cannot arrive at `experimentalApi: false`: the provider's transport silently
+ * drops the eleven notifications, and `item/tool/requestUserInput` is the one experimental request
+ * arm. Declared, not derived, since the schema carries no notification-side marker at the pin.
  */
 export const CODEX_NEGOTIATION_GATED_METHODS: readonly CodexInboundFrameMethod[] = Object.freeze([
-  // ServerRequest — 1 of 10 (the only EXPERIMENTAL-marked request arm).
   "item/tool/requestUserInput",
-  // ServerNotification — 11 of this census's 26.
   "process/outputDelta",
   "process/exited",
   "turn/moderationMetadata",
@@ -357,53 +104,13 @@ export const CODEX_NEGOTIATION_GATED_METHODS: readonly CodexInboundFrameMethod[]
   "thread/settings/updated",
 ]);
 
-// --------------------------------------------------------------------------
-// Tool-identity binding — namespace seam.
-// --------------------------------------------------------------------------
-
-/**
- * The wire shape of a per-tool approval request: `item/<toolName>/requestApproval`.
- *
- * Parameterized by `CodexToolName` so the tool-identity namespace `tools.ts`
- * declares is the ONLY source of the middle segment. `tools.ts` states its half
- * of this contract explicitly — `CODEX_TOOL_NAMES` is exported "SPECIFICALLY so
- * event normalizer imports the identity rather than restating string literals: a
- * namespace change becomes a compile error at the consumer instead of a dead
- * database lookup at recovery time."
- */
+/** The wire shape `item/<toolName>/requestApproval`, the segment taken from `CodexToolName`. */
 type CodexToolApprovalMethod<TToolName extends CodexToolName> = `item/${TToolName}/requestApproval`;
 
 /**
- * The census methods whose middle segment IS a `CodexToolName` — the binding
- * between this module's pinned wire literals and tool namespace.
- *
- * Why the literals stay spelled out here rather than being template-expanded
- * into the union above: these are version-pinned wire strings, and
- * the pinned Codex wire census records them verbatim under the
- * regenerate-don't-transcribe rule. A reviewer diffing this census against the
- * reference must be able to grep `item/commandExecution/requestApproval` and
- * find it. Writing the union as `CodexToolApprovalMethod<"commandExecution">`
- * would make that grep fail and hide a pinned wire fact behind a type
- * application.
- *
- * The ANNOTATION is the seam, and it is an INTERSECTION for a reason found by
- * perturbation rather than by design: `CodexToolApprovalMethod<CodexToolName>`
- * alone expands to all seven conceivable per-tool approval methods, so it
- * would type these entries as members of a set five of whose elements are not
- * on the wire at all — and it never ties them back to this module's own
- * census. Intersecting with `CodexInboundFrameMethod` collapses the annotation
- * to exactly the two real literals and makes the declaration fail on BOTH
- * axes: renaming or dropping `commandExecution` / `fileChange` in
- * `CODEX_TOOL_NAMES` empties the tool half, and removing either method from
- * the census union empties the census half. Either is a compile error here —
- * exactly the failure `tools.ts` asks its consumer to produce, and never a
- * runtime string build that could drift from the pin.
- *
- * The reverse direction is deliberately NOT asserted. Requiring every
- * `CodexToolName` to have an approval method would demand
- * `item/webSearch/requestApproval` and four more the reference does not show —
- * inventing wire frames to satisfy a symmetry the protocol does not have. Only
- * the two mutating tools gate on approval at the pin.
+ * The approval methods whose middle segment is a `CodexToolName`; renaming a tool in
+ * `CODEX_TOOL_NAMES` or dropping a method from the union is a compile error. Only the two
+ * mutating tools gate on approval.
  */
 export const CODEX_TOOL_KEYED_APPROVAL_METHODS: readonly (CodexToolApprovalMethod<CodexToolName> &
   CodexInboundFrameMethod)[] = Object.freeze([
@@ -411,96 +118,28 @@ export const CODEX_TOOL_KEYED_APPROVAL_METHODS: readonly (CodexToolApprovalMetho
   "item/fileChange/requestApproval",
 ]);
 
-// --------------------------------------------------------------------------
-// Emission readiness — derived, never stated.
-// --------------------------------------------------------------------------
-
 /**
- * Whether a normalized row's target type can legally be built into an
- * envelope YET.
- *
- * The flip-is-not-emission rule and normalize boundary rule together forbid
- * forcing a frame "into an envelope against a missing type or a missing union
- * variant". Naming a `SessionEventType` is therefore not license to construct
- * one: the target must ALSO have a payload variant registered in
- * `SessionEventSchema`. `payload-variant-pending` rows are inputs to daemon
- * diagnostic, never to an envelope builder.
- *
- * Structurally identical to the Claude driver's `ClaudeEmissionReadiness` and
- * deliberately NOT imported from it: a Codex module importing a Claude module
- * would couple two peer drivers through the wrong axis for a two-literal
- * string union. Structural identity is what lets mirror verdicts across both
- * normalizers with no adapter; hoisting the alias to a shared driver-local
- * home is a concern, and that file is not this task's.
+ * Whether a row's target event type has a payload variant registered in `SessionEventSchema`;
+ * `payload-variant-pending` rows go to diagnostics, never to an envelope builder.
  */
 export type CodexEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
 
-/**
- * The `SessionEventType` literals with a registered `SessionEventSchema`
- * payload variant, as a set.
- *
- * Derived from the contracts package's own `SESSION_EVENT_TYPES` roster rather
- * than restated here. That roster is annotated `readonly SessionEvent["type"][]`,
- * which binds its membership to the live schema union at COMPILE time, and
- * contracts' own non-vacuity guard asserts set-equality between the roster and
- * the union's branches. So this set widens by itself the moment an emitting
- * plan lands a variant — the readiness answers below cannot go stale, and no
- * mirror of the registered set exists in this package to drift.
- */
+// Derived from the contracts roster, so it widens by itself when a variant lands.
 const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set(
   SESSION_EVENT_TYPES,
 );
 
-/**
- * Resolve whether `eventType` may be built into a `SessionEvent` envelope
- * today.
- *
- * Pure and total over `SessionEventType`. Exported because it is the single
- * place the boundary rule is decided, and because both answers must be
- * exercised by a test. Some Codex targets have a registered payload variant and
- * some do not, so both answers are reachable through ordinary Codex frames, and
- * the tests additionally call this resolver directly so neither arm depends on
- * the census staying mixed.
- */
+/** Says whether `eventType` may be built into a `SessionEvent` envelope today. */
 export function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissionReadiness {
   return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)
     ? "envelope-constructible"
     : "payload-variant-pending";
 }
 
-// --------------------------------------------------------------------------
-// The normalization result — a two-arm discriminated union.
-// --------------------------------------------------------------------------
-
 /**
- * A frame that carries a session-timeline capability: it normalizes into
- * exactly one family and names the `SessionEventType` that family emission
- * targets.
- *
- * `normalizedKind` is the row's kind in the closed 35-kind `NormalizedEventKind`
- * census, or `null` for a Codex delta-family member the census does not name.
- * `null` is a real state rather than a defect:) assigns the delta families a
- * category and a target type WITHOUT minting a census kind for each member
- * ("Family-level dispositions are used for the delta rows"), so a non-null kind
- * would have to be invented for `thread/goal/updated`, `turn/moderationMetadata`,
- * and the guardian rows. `eventType` is total either way, which is what downstream
- * consumers actually key on.
- *
- * `eventType` names the family emission's target literal. Registration is not
- * emission license (the flip-is-not-emission rule): naming a target here does
- * not construct an envelope, and a target whose payload variant has not
- * joined `SessionEventSchema` still routes through. `emissionReadiness`
- * carries that second answer alongside the target so a consumer cannot read
- * `eventType` without also being handed the question of whether it may build
- * one — it is DERIVED at map-build from the live `SESSION_EVENT_TYPES`
- * roster, never stated per row.
- * {@link CodexEmissionReadiness}.
- *
- * Every property is `readonly` and every entry is frozen — the resolver hands
- * out module-level shared singletons, so an unfrozen entry would let one
- * consumer's `entry.family = ...` corrupt the mapping process-wide (the same
- * reasoning `packages/contracts/src/event.ts` records for
- * `EventKindDisposition`).
+ * A frame that normalizes into one family and names the event type it emits. `normalizedKind` is
+ * `null` for a member with no census kind (such as `thread/goal/updated`); `emissionReadiness`
+ * is derived when the map is built, never stated per row.
  */
 export interface CodexNormalizedFamilyEmission {
   readonly disposition: "normalized";
@@ -513,18 +152,8 @@ export interface CodexNormalizedFamilyEmission {
 }
 
 /**
- * A frame the pin records, that carries no session-timeline capability, and
- * that therefore normalizes to no family at all.
- *
- * The mandatory non-empty `reason` mirrors the `correlate` / `discard`
- * idiom in `EVENT_DISPOSITION_BY_KIND`: no-silent-capability-loss default,
- * a non-emission is admissible only with a stated justification, so the
- * type makes an unreasoned one unrepresentable. The `?: never` keys forbid
- * a not-evented row from smuggling a taxonomy target.
- *
- * This is NOT the unknown-frame path — an unknown method throws (see
- * {@link UnknownCodexInboundFrameError}). It is the path for a KNOWN frame
- * whose record the daemon already owns.
+ * A known frame with no session-timeline capability, so no family. The `reason` is required so a
+ * non-emission is always justified; an unknown method throws instead.
  */
 interface CodexNotEventedFrameDisposition {
   readonly disposition: "not-evented";
@@ -542,52 +171,15 @@ export type CodexFrameNormalization =
   | CodexNormalizedFamilyEmission
   | CodexNotEventedFrameDisposition;
 
-/**
- * A row of the mapping table BEFORE `emissionReadiness` is derived onto it.
- *
- * The readiness answer is computed once when the lookup map is built, from the
- * live `SESSION_EVENT_TYPES` roster, so no row may hand-state it: a stated
- * answer would be a second source of truth for a fact contracts already owns,
- * and it would go stale silently the moment an emitting plan landed a payload
- * variant. Splitting the row type from the result type is what makes that
- * unstateable rather than merely discouraged.
- *
- * That the split is ENFORCED rather than merely conventional was verified by
- * perturbation, not by inspection: hand-stating `emissionReadiness` on one
- * record row fails the build with `TS2353: Object literal may only specify
- * known properties`. The check holds even though the sibling not-evented arm
- * declares the key as `?: never` — which would ordinarily make it a KNOWN
- * property of the union and suppress the excess-property error — because
- * `disposition` is a discriminant, so TypeScript narrows to the single
- * matching constituent BEFORE running that check. Shape-identical to the
- * Claude driver's `ClaudeFrameNormalizationTableRow` on purpose: mirrors
- * disposition verdicts across both normalizers, and a divergent row type
- * there would cost it an adapter.
- *
- * Known limit, stated rather than papered over: excess-property checking only
- * fires for FRESH object literals. A row assembled in a variable and then
- * assigned would carry a stated stamp past this type. Every row in this
- * module's record is a fresh literal, so the guard is total over the code as
- * written, and the runtime test asserting each entry's stamp equals
- * `resolveCodexEmissionReadiness(row.eventType)` covers the residue.
- */
+// A row before `emissionReadiness` is derived onto it. Stating the readiness by hand is a compile
+// error (TS2353), but only for fresh object literals, which every row here is.
 type CodexFrameNormalizationTableRow =
   | Omit<CodexNormalizedFamilyEmission, "emissionReadiness">
   | CodexNotEventedFrameDisposition;
 
-// --------------------------------------------------------------------------
-// Unknown-frame refusal — the single seam.
-// --------------------------------------------------------------------------
-
 /**
- * Thrown when a Codex inbound method resolves to no census row.
- *
- * The typed carrier (rather than a bare `Error`) is what lets replace the
- * refusal with a `DriverDiagnosticRecord` without inspecting a message
- * string: `nativeMethod` is already the `rawWireType` that record needs. The
- * verbatim method is preserved rather than sanitized — it is untrusted
- * provider output, so it is carried as data and never interpolated into
- * anything that executes.
+ * Thrown when a Codex inbound method resolves to no census row. `nativeMethod` is untrusted data,
+ * never interpolated into anything that executes.
  */
 export class UnknownCodexInboundFrameError extends Error {
   readonly nativeMethod: string;
@@ -603,27 +195,8 @@ export class UnknownCodexInboundFrameError extends Error {
   }
 }
 
-// --------------------------------------------------------------------------
-// The mapping table.
-// --------------------------------------------------------------------------
-//
-// Module-internal `Record` keyed by the closed union for compile-time
-// totality (a missing method is a compile error, an unregistered key is one
-// too), exported below as a prototype-pollution-safe `ReadonlyMap` — the
-// idiom `packages/contracts/src/event.ts` establishes for
-// `SESSION_EVENT_CATEGORY_BY_TYPE` and `EVENT_DISPOSITION_BY_KIND`, and the
-// reason it is load-bearing applies with full force here: this module's input
-// is an UNTRUSTED provider-supplied method string, and an object-literal
-// lookup would resolve `__proto__` and `constructor` to truthy
-// non-normalization values.
-
+// Keyed by the closed union, so a missing or extra method is a compile error.
 const CODEX_FRAME_NORMALIZATION_RECORD = {
-  // ------------------------------------------------------------------
-  // ServerRequest — the callback / interactive / approval surface.
-  // ------------------------------------------------------------------
-
-  // A tool call arriving from the provider is the `tool_start` census kind
-  // (row 3) -> `tool.invoked`.
   "item/tool/call": {
     disposition: "normalized",
     nativeMethod: "item/tool/call",
@@ -632,12 +205,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "tool.invoked",
     normalizedKind: "tool_start",
   },
-  // Codex.md `item/tool/requestUserInput` EXPERIMENTAL — "a default app-server
-  // session never delivers this method, so interactive-request leg must opt in
-  // at `initialize`" — and the pinned binary's own generated `ServerRequest`
-  // schema confirms it as the ONE of ten request arms carrying that marker.
-  // {@link CODEX_NEGOTIATION_GATED_METHODS} rather than deleted, because the
-  // gate decides DELIVERY and this table decides DISPOSITION.
+  // Experimental-gated: the gate decides delivery, this table decides disposition.
   "item/tool/requestUserInput": {
     disposition: "normalized",
     nativeMethod: "item/tool/requestUserInput",
@@ -655,11 +223,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "question.asked",
     normalizedKind: "user_input_request",
   },
-  // The provider's permission asks, modern trio then legacy pair. Each is
-  // recorded once, as `approval.requested`; the provider's own request id is
-  // kept only to route the answer back. They are `approval_request` (row 7), NOT
-  // `approval_resolved`: the ask reaches the daemon undecided, and the
-  // resolution rows are minted by the daemon's own adjudication.
+  // Each permission ask is recorded once as `approval.requested`; the provider's request id only
+  // routes the answer back, and the daemon mints the resolution from its own adjudication.
   "item/commandExecution/requestApproval": {
     disposition: "normalized",
     nativeMethod: "item/commandExecution/requestApproval",
@@ -700,9 +265,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
-  // The two control-plane server-requests. Both are answered on the transport
-  // and neither is a session observation, so adopting either would mint a
-  // timeline row for a handshake.
+  // Control-plane requests answered on the transport; adopting either would put a handshake on the
+  // timeline.
   "attestation/generate": {
     disposition: "not-evented",
     nativeMethod: "attestation/generate",
@@ -717,12 +281,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     reason:
       "credential-refresh brokering answered on the transport (provider-account plane, which stores no credential material); routing a credential frame onto the session timeline would put an auth-plane event in the audit log and is exactly what that plane's un-evented posture forbids",
   },
-
-  // ------------------------------------------------------------------
-  // ServerNotification — legacy bare camelCase.
-  // ------------------------------------------------------------------
-
-  // Run-failure envelope (row 13).
   error: {
     disposition: "normalized",
     nativeMethod: "error",
@@ -731,11 +289,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "run.failed",
     normalizedKind: "error",
   },
-  // Row 17 names `notification` the Codex-fed census kind for exactly this: a
-  // provider notice that belongs on the timeline but drives no state
-  // transition. `warning` is the notice kind `provider_warning` with source
-  // `warning`, `deprecationNotice` the same kind with source `deprecation`, and
-  // `configWarning` the kind `settings_ignored`.
+  // Notices that drive no state transition (kind `notification`). `warning` and `deprecationNotice`
+  // are notice kind `provider_warning`; `configWarning` is `settings_ignored`.
   warning: {
     disposition: "normalized",
     nativeMethod: "warning",
@@ -760,13 +315,9 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "session.notice",
     normalizedKind: "notification",
   },
-  // Codex's own reviewer. Only `guardianWarning` and
-  // `autoApprovalReview/strictReviewRequired` are `moderation.review_flagged`:
-  // a warning or a required review, one system message in Codex's words. A
-  // review that blocked an action is `approval.reviewer_denied`, and the
-  // moderation hint goes to the daemon's log only. None of these records a
-  // daemon adjudication, so none bypasses the approval pipeline. No census kind
-  // covers them.
+  // Codex's own reviewer: `guardianWarning` and `autoApprovalReview/strictReviewRequired` are one
+  // system message in Codex's words. A review that blocked an action is `approval.reviewer_denied`.
+  // None records a daemon adjudication, so none bypasses the approval pipeline.
   guardianWarning: {
     disposition: "normalized",
     nativeMethod: "guardianWarning",
@@ -775,13 +326,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "moderation.review_flagged",
     normalizedKind: null,
   },
-
-  // ------------------------------------------------------------------
-  // ServerNotification — modern, ungated at the pin.
-  // ------------------------------------------------------------------
-
-  // Delta row: goals (`thread/goal/*`) adopt into `session_lifecycle` as
-  // `session.goal_updated` / `session.goal_cleared`.
   "thread/goal/updated": {
     disposition: "normalized",
     nativeMethod: "thread/goal/updated",
@@ -798,10 +342,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "session.goal_cleared",
     normalizedKind: null,
   },
-  // Row 20 is a RENAME precisely to keep this off context-window telemetry,
-  // and the default branch reads the same direction: "the Codex
-  // `rate_limits` account-quota kind maps to `usage.rate_limit_update`
-  // (account-quota utilization is not context-window utilization)".
+  // Account-quota utilization, kept apart from context-window telemetry.
   "account/rateLimits/updated": {
     disposition: "normalized",
     nativeMethod: "account/rateLimits/updated",
@@ -810,8 +351,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "usage.rate_limit_update",
     normalizedKind: "rate_limits",
   },
-  // Provider context-window compaction (row 19) — distinct from the daemon
-  // `event.compacted` retention pass.
+  // Provider context-window compaction, not the daemon's `event.compacted` retention pass.
   "thread/compacted": {
     disposition: "normalized",
     nativeMethod: "thread/compacted",
@@ -820,16 +360,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "usage.context_compacted",
     normalizedKind: "compact_boundary",
   },
-  // The skill-file watch signal. NOT EVENTED, and the reason is that it
-  // carries no observation at all: `SkillsChangedNotification` is
-  // `Record<string, never>` in the pinned generation — an empty object whose
-  // own doc comment says to "treat this as an invalidation signal and re-run
-  // `skills/list`... when refreshed skill metadata is needed". A timeline row
-  // minted from it could say only that something under a watched path changed,
-  // which is a fact about the operator's filesystem rather than about the
-  // session, and the daemon already owns the only consequence it has: the
-  // driver's held enumeration is discarded so the next read is a FULL re-read
-  // rather than a patch..
+  // Not evented: an empty invalidation signal to re-run `skills/list`; the one consequence the
+  // daemon owns, discarding the held enumeration, is state it already has.
   "skills/changed": {
     disposition: "not-evented",
     nativeMethod: "skills/changed",
@@ -837,8 +369,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     reason:
       "empty-payload invalidation signal for the provider's local skill-file watch; it carries no session observation to lose, and its only consequence — discarding the driver-held command enumeration so the next read re-reads in full — is daemon-side state the provider is telling the client to refresh",
   },
-  // The auto-approval review's start draws nothing: only its completion feeds
-  // the reviewer's block.
+  // Only the review's completion is evented, not its start.
   "item/autoApprovalReview/started": {
     disposition: "not-evented",
     nativeMethod: "item/autoApprovalReview/started",
@@ -846,9 +377,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     reason:
       "the start of Codex's own auto-approval review; only the review's completion records anything (a denied or timed-out review is the reviewer's block), so the start goes to the daemon's log only",
   },
-  // The completed review, when its status is denied or timed out, is the
-  // reviewer's block; the daemon keeps Codex's review sealed with the row so
-  // `Allow once` can send it back.
+  // A denied or timed-out review is the reviewer's block; the daemon seals Codex's review with the
+  // row so `Allow once` can send it back.
   "item/autoApprovalReview/completed": {
     disposition: "normalized",
     nativeMethod: "item/autoApprovalReview/completed",
@@ -857,9 +387,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "approval.reviewer_denied",
     normalizedKind: null,
   },
-  // Codex holding a running turn for a safety check. The frame names its
-  // thread and turn, so it belongs to that turn's run, and it reaches the
-  // screen on the run's own state stream rather than as a session row.
+  // Codex holding a turn for a safety check: the frame belongs to that turn's run and reaches the
+  // screen on the run's state stream, not as a session row.
   "model/safetyBuffering/updated": {
     disposition: "not-evented",
     nativeMethod: "model/safetyBuffering/updated",
@@ -867,18 +396,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     reason:
       "Codex's safety hold on a running turn is a live detail of the run's working status: it is relayed on the run's state stream as the hold frame and never written to the session's history, so a re-opened session does not replay it",
   },
-
-  // ------------------------------------------------------------------
-  // ServerNotification — experimental-gated at the pin, and therefore dormant
-  // at the shipped `experimentalApi: false` posture. Mapped deliberately;
-  // gating decides delivery, not disposition. See
-  // {@link CODEX_NEGOTIATION_GATED_METHODS}.
-  // ------------------------------------------------------------------
-
-  // Delta row: `process/*` adopts into `tool_activity` (the
-  // `codex_exec_result` / `terminal_interaction` family). Both land the same
-  // family and the same target literal, so the split is a fidelity choice
-  // inside a settled disposition, not a re-disposition.
+  // `process/*` frames land in `tool.result`; output and exit differ only in kind.
   "process/outputDelta": {
     disposition: "normalized",
     nativeMethod: "process/outputDelta",
@@ -902,7 +420,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     reason:
       "a moderation display hint with no words, which Codex's own app does not draw; it goes to the daemon's log only",
   },
-  // The gated member of the reviewer's frames.
   "autoApprovalReview/strictReviewRequired": {
     disposition: "normalized",
     nativeMethod: "autoApprovalReview/strictReviewRequired",
@@ -912,13 +429,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: null,
   },
 
-  // ------------------------------------------------------------------
-  // ServerNotification — gated, and not-evented: every one of these is a
-  // provider-side echo of a record the DAEMON already owns. Adopting them
-  // would put a second, provider-authored record of the same fact on the
-  // timeline, which is the failure rules out on its own terms.
-  // ------------------------------------------------------------------
-
+  // Gated and not-evented: each echoes a record the daemon already owns, and adopting it would
+  // record the same fact twice.
   "thread/reverted": {
     disposition: "not-evented",
     nativeMethod: "thread/reverted",
@@ -970,22 +482,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     reason:
       "provider-side settings echo; agent configuration is daemon-owned and settles as `agent.provider_binding_changed` when the daemon applies it, so adopting the echo would double-record a mutation the daemon authored",
   },
-
-  // ------------------------------------------------------------------
-  // Delta-family members whose disposition settles and whose wire names come
-  // from the pinned binary's generator; censused in `__fixtures__/` since
-  // 2026-08-28 (see header).
-  // ------------------------------------------------------------------
-
-  // Wire name from the binary's own `codex app-server generate-json-schema`
-  // output at codex-cli 0.150.1 delta-table row carried the truncated
-  // `turn/diff` until its 2026-08-28 correction.
-  //
-  // Disposition from that same delta row: "`diff` -> persisted (32)".
-  // Row 32 puts the `diff` census kind in `tool_activity` /
-  // `tool.result` — NOT in `artifact_publication`. That is the corpus's call
-  // and it is followed here verbatim. Full grounding in this module's header:
-  // "Why `artifact_publication` is reachable from no Codex frame".
+  // The diff is a `tool.result` row (kind `diff`), not `artifact_publication`.
   "turn/diff/updated": {
     disposition: "normalized",
     nativeMethod: "turn/diff/updated",
@@ -994,12 +491,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "tool.result",
     normalizedKind: "diff",
   },
-  // Wire name from the binary's own `codex app-server generate-json-schema`
-  // output at codex-cli 0.150.1 delta-table row carried the truncated
-  // `turn/plan` until its 2026-08-28 correction.
-  //
-  // Disposition from that same delta row: "`plan` -> `proposed_plan` (35)";
-  // row 35 puts `proposed_plan` in `assistant_output` / `assistant.message`.
+  // A proposed plan is an `assistant.message` row (kind `proposed_plan`).
   "turn/plan/updated": {
     disposition: "normalized",
     nativeMethod: "turn/plan/updated",
@@ -1010,49 +502,20 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
   },
 } as const satisfies Record<CodexInboundFrameMethod, CodexFrameNormalizationTableRow>;
 
-// --------------------------------------------------------------------------
-// Exported census + lookup.
-// --------------------------------------------------------------------------
-
-/**
- * The census as an iterable tuple — the same affordance
- * `NORMALIZED_EVENT_KINDS` gives over `NormalizedEventKind`.
- *
- * Derived from the record's own keys rather than restated, so a tuple / union
- * drift is impossible by construction (the `satisfies` check above already
- * proves the record's keys ARE the union). The explicit annotation keeps the
- * export `--isolatedDeclarations`-clean.
- */
+/** The census as an iterable list, derived from the record's keys. */
 export const CODEX_INBOUND_FRAME_METHODS: readonly CodexInboundFrameMethod[] = Object.freeze(
   Object.keys(CODEX_FRAME_NORMALIZATION_RECORD) as CodexInboundFrameMethod[],
 );
 
 /**
- * The Codex native-method -> normalized-family mapping, as a
- * prototype-pollution-safe `ReadonlyMap`.
- *
- * A `Map` and NOT the backing object literal, for the reason
- * `packages/contracts/src/event.ts` records at
- * `SESSION_EVENT_CATEGORY_BY_TYPE`: this module's key is an untrusted
- * provider-supplied method string, and `lookup["__proto__"]` /
- * `lookup["constructor"]` on an object literal return truthy non-values,
- * whereas `map.get(...)` returns `undefined` for anything but an explicit
- * entry. Here that immunity decides whether a hostile method string reaches
- * the timeline as a fabricated normalization or reaches the unknown seam.
- *
- * Entries are frozen singletons, so repeated resolution of one method is
- * identity-stable — the property the determinism test asserts. The
- * `emissionReadiness` member is derived here, once, from the live registered
- * set rather than hand-stated per row.
+ * The mapping from native method to normalized family. A `Map` because the key is an untrusted
+ * string and an object lookup would resolve `__proto__`; entries are frozen singletons.
  */
 export const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
   CodexInboundFrameMethod,
   CodexFrameNormalization
 > = new Map(
-  // Cast justified by the `satisfies` check above: the record's own enumerable
-  // keys are exactly the `CodexInboundFrameMethod` literals (totality +
-  // excess-property checks), so narrowing `Object.entries`' `[string, ...]` is
-  // sound.
+  // Sound: the record's keys are exactly the `CodexInboundFrameMethod` literals.
   (
     Object.entries(CODEX_FRAME_NORMALIZATION_RECORD) as ReadonlyArray<
       [CodexInboundFrameMethod, CodexFrameNormalizationTableRow]
@@ -1070,31 +533,14 @@ export const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
   ]),
 );
 
-/**
- * The bare resolver's refusal for a method outside the census.
- *
- * {@link resolveCodexFrameEmissionRoute} below — the driver core's entry
- * point, which converts this refusal into a typed `DriverDiagnosticRecord`
- * onto `driver-diagnostics.ts` and never throws. THIS function remains the
- * bare resolver's contract for direct misuse: a caller that bypasses the
- * diagnostic-aware route must still fail loudly rather than silently.
- */
+// The driver core uses `resolveCodexFrameEmissionRoute`, which emits a diagnostic instead.
 function refuseUnmappedCodexInboundFrame(nativeMethod: string): never {
   throw new UnknownCodexInboundFrameError(nativeMethod);
 }
 
 /**
- * Normalize one Codex inbound frame method into its family
- * disposition.
- *
- * Total over the pinned census and pure: no I/O, no clock, no mutation, and
- * the same input always yields the identical frozen singleton. A method
- * outside the census throws {@link UnknownCodexInboundFrameError} — never a
- * silent drop, and never a fabricated family.
- *
- * @param nativeMethod - The JSON-RPC `method` string exactly as it arrived off
- *   the Codex `app-server` wire. Untrusted provider output: it is used only as
- *   a `Map` key and echoed into the refusal as data.
+ * Normalizes one Codex inbound method into its family disposition (the identical frozen
+ * singleton for the same input). Throws {@link UnknownCodexInboundFrameError} if it is unmapped.
  */
 export function normalizeCodexInboundFrame(nativeMethod: string): CodexFrameNormalization {
   const normalization = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(
@@ -1106,10 +552,6 @@ export function normalizeCodexInboundFrame(nativeMethod: string): CodexFrameNorm
   return normalization;
 }
 
-// --------------------------------------------------------------------------
-// The daemon-diagnostic default branch.
-// --------------------------------------------------------------------------
-
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
 export type CodexFrameEmissionRoute =
   | { readonly route: "emit"; readonly normalization: CodexNormalizedFamilyEmission }
@@ -1117,15 +559,9 @@ export type CodexFrameEmissionRoute =
   | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
 
 /**
- * The default branch — the driver core's entry point onto this table. Total
- * over EVERY method string and never throws: a method outside the pinned
- * census, an interim `typePending` kind whose literal has not landed, and a
- * censused kind whose target has no registered payload variant all route to
- * a typed `DriverDiagnosticRecord` emitted through the injected
- * `driver-diagnostics.ts` surface — never a `session_events` envelope and
- * never a silent drop. `EVENT_DISPOSITION_BY_KIND` is the single disposition
- * source consulted for the interim-`typePending` verdict
- * (interim-disposition seam).
+ * The driver core's entry point; never throws. A method outside the census, a kind whose interim
+ * `typePending` literal has not landed, or a target without a registered payload variant emits a
+ * `DriverDiagnosticRecord` and routes to `diagnostic`, never to an envelope.
  */
 export function resolveCodexFrameEmissionRoute(
   nativeMethod: string,
@@ -1179,58 +615,28 @@ export function resolveCodexFrameEmissionRoute(
   return { route: "emit", normalization };
 }
 
-// --------------------------------------------------------------------------
-// Family classification for the thread-frame router.
-// --------------------------------------------------------------------------
-
-/**
- * The two router-band wire names the census union deliberately does not
- * carry. Both are recorded by the corpus — the routing and usage-delta legs
- * name them verbatim, and ' vendor -schema entry (codex-cli `0.150.1`,
- * regenerated 2026-08-28) records their generated shapes
- * (`ThreadStartedNotification` with `Thread.parentThreadId`;
- * `ThreadTokenUsageUpdatedNotification` with required `threadId` / `turnId`)
- * — but neither is dispositioned table into a family emission of its own:
- * `thread/started` is the REGISTRATION INPUT to the thread-frame router, and
- * `thread/tokenUsage/updated` is the READING the usage-delta accountant
- * meters, each consumed at its own band rather than projected through the
- * mapping table above.
- */
+/** The `thread/started` method: the thread-frame router's registration input, not a table row. */
 export const CODEX_THREAD_STARTED_METHOD = "thread/started" as const;
+/** The `thread/tokenUsage/updated` method, metered by the usage accountant; not a table row. */
 export const CODEX_THREAD_TOKEN_USAGE_METHOD = "thread/tokenUsage/updated" as const;
 
-/**
- * The `turn/*` lifecycle pair, likewise absent from the census union above and
- * likewise router-band rather than mapping-table input.
- *
- * There is no `thread/status/changed` or `thread/ended` anywhere in the pinned
- * generated root or in the pinned Codex wire census, which is why
- * the child terminal is read off this method rather than off a thread-lifecycle
- * one.
- */
+/** The `turn/started` method, classified for routing but not a table row. */
 const CODEX_TURN_STARTED_METHOD = "turn/started" as const;
+/**
+ * The `turn/completed` method, the terminal signal for a session and its children (the pin has no
+ * `thread/ended` frame). Not a table row.
+ */
 export const CODEX_TURN_COMPLETED_METHOD = "turn/completed" as const;
 
-/**
- * The two census methods console-parity band binds against by IDENTITY
- * rather than by re-spelling.
- *
- * Both are members of the census union above, so unlike the router-band
- * constants beside them these are not "absent from the table" markers — they
- * exist so `lifecycle.ts` compares against the same symbol the mapping table
- * and the family classifier use. A re-spelling in one place and not the other
- * would silently stop settling compaction waits, or silently stop invalidating
- * the held command enumeration, and neither failure has a loud symptom: the
- * first looks like a slow provider and the second like a stale palette.
- */
+/** The `thread/compacted` method; `./lifecycle.ts` compares against this symbol. */
 export const CODEX_THREAD_COMPACTED_METHOD = "thread/compacted" as const;
+/** The `skills/changed` method; `./lifecycle.ts` compares against this symbol. */
 export const CODEX_SKILLS_CHANGED_METHOD = "skills/changed" as const;
 
 /**
- * The `ThreadSourceKind` arms that mark a provider-attributed SUBAGENT child
- * (spend rides the (`runId`, `provider`, `subagentId`) triple), versus the
- * provider-internal arm (`subAgentCompact` — a compaction thread) whose spend
- * attributes to the parent run at run scope.
+ * The `ThreadSourceKind` arms that mark a provider-attributed subagent child, whose spend is
+ * attributed by (`runId`, `provider`, `subagentId`). The other arm, `subAgentCompact`, is a
+ * compaction thread whose spend attributes to the parent run.
  */
 export const CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS: readonly string[] = Object.freeze([
   "subAgent",
@@ -1240,11 +646,9 @@ export const CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS: readonly string[] = 
 ]);
 
 /**
- * Derive the router's `ChildThreadAnnouncement` from a Codex `thread/started`
- * notification's identity members, verbatim off the wire. The child thread id
- * doubles as the provider-attributed subagent identity on the subagent-
- * attributed source kinds; a compaction child carries none, so its spend
- * attributes to the parent run.
+ * Derives the router's `ChildThreadAnnouncement` from a `thread/started` notification. The child
+ * thread id doubles as the subagent identity on subagent-attributed kinds; a compaction child has
+ * none, so its spend attributes to the parent run.
  */
 export function deriveCodexChildThreadAnnouncement(threadStarted: {
   readonly threadId: string;
@@ -1262,23 +666,13 @@ export function deriveCodexChildThreadAnnouncement(threadStarted: {
 }
 
 /**
- * Classify one Codex inbound method's FAMILY for the thread-frame router (the
- * family-scoped routing rule). The census is the discriminator: connection-
- * and account-scoped families route without a thread identity, thread-scoped
- * families demand one, and an unlisted shape is `unknown` — never presumed
- * connection-scoped.
+ * Classifies a method's family for the thread-frame router: connection-scoped families need no
+ * thread identity, thread-scoped ones demand one, and an unlisted method is `unknown`.
  */
 export function classifyCodexFrameFamilyForRouting(nativeMethod: string): ThreadFrameFamilyClass {
   switch (nativeMethod) {
-    // Connection- and account-scoped: notices, account-plane quota, auth
-    // brokering, attestation — and the skill-file watch cue, whose pinned
-    // payload is the empty object — frames whose own shape carries no thread
-    // identity.
-    //
-    // Listing `skills/changed` here rather than leaving it `unknown` is
-    // load-bearing: an unlisted method quarantines, and quarantining would emit
-    // a `thread_frame_quarantined` diagnostic on every save of every watched
-    // skill file.
+    // `skills/changed` is listed because an unlisted method is quarantined, which would emit a
+    // `thread_frame_quarantined` diagnostic on every save of a watched skill file.
     case "error":
     case "warning":
     case "configWarning":
@@ -1289,23 +683,16 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
     case "attestation/generate":
     case CODEX_SKILLS_CHANGED_METHOD:
       return { scope: "connection" };
-    // Thread-scoped usage: the cumulative token reading the accountant
-    // meters, and the thread-level compaction marker.
     case CODEX_THREAD_TOKEN_USAGE_METHOD:
     case CODEX_THREAD_COMPACTED_METHOD:
       return { scope: "thread", capability: "usage" };
-    // Thread-scoped lifecycle: the thread-start announcement (the router's
-    // registration input), the turn-boundary pair, and the safety hold on a
-    // running turn, which names its thread and turn. `turn/completed` MUST be
-    // classified here — it is the session's own terminal, and an unclassified
-    // terminal would quarantine instead of reaching emission gate, which
-    // admits only a `project` route.
+    // `turn/completed` must be classified here, or it would be quarantined instead of reaching the
+    // emission gate, which admits only a `project` route.
     case CODEX_THREAD_STARTED_METHOD:
     case CODEX_TURN_STARTED_METHOD:
     case CODEX_TURN_COMPLETED_METHOD:
     case "model/safetyBuffering/updated":
       return { scope: "thread", capability: "lifecycle" };
-    // Thread-scoped interactive requests: the approval / input / tool asks.
     case "item/tool/call":
     case "item/tool/requestUserInput":
     case "mcpServer/elicitation/request":
@@ -1315,7 +702,6 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
     case "execCommandApproval":
     case "applyPatchApproval":
       return { scope: "thread", capability: "interactive-request" };
-    // Thread-scoped content and thread-level bookkeeping.
     case "thread/goal/updated":
     case "thread/goal/cleared":
     case "item/autoApprovalReview/started":
@@ -1337,77 +723,31 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
     case "project/changed":
       return { scope: "connection" };
     default:
-      // The realtime family and anything the census does not list: unknown.
-      // Never presumed connection-scoped.
       return { scope: "unknown" };
   }
 }
 
-// --------------------------------------------------------------------------
-// The terminal-emission boundary.
-// --------------------------------------------------------------------------
-//
-// This module is the SOLE terminal-emission boundary for the Codex leg: the
-// provider-native → `run_lifecycle` mapping above lives here, so the two
-// properties that attach to a terminal frame attach here too.
-//
-//   INTENDED CLOSE. A daemon-initiated `closeSession` signals its
-//   intent into this boundary through the lifecycle module; the boundary
-//   stamps `intendedClose` on the terminal payload so the recovery classifier
-//   reads a clean shutdown as a clean shutdown rather than as a crash. The
-//   lifecycle module cannot stamp it — it does not own the terminal frame.
-//
-//   DUPLICATE SUPPRESSION. At most one terminal per `(runId,
-//   runVersion)` epoch. The primary guard is the dispatcher and the schema
-//   backstop is the partial unique index; without THIS boundary-level
-//   suppression a duplicate provider terminal — the ordinary post-interrupt
-//   double, or a `turn/completed` racing a process exit — reaches that index
-//   and fails loud on a condition the driver could have absorbed.
-//
-// Routing is CONSUMED here, never re-decided (its own routing clause): the
-// gate takes the `ThreadFrameRoute` router already produced and settles a run
-// only on `project`.
+// This module is the sole terminal-emission boundary for the Codex leg. It stamps `intendedClose`
+// on a daemon-initiated close's terminal payload so recovery reads a clean shutdown, and it
+// suppresses a duplicate terminal per `(runId, runVersion)`, which would otherwise hit the partial
+// unique index. The gate settles a run only on a `project` route.
 
 /**
- * The Codex leg's bindings for the provider-neutral emission gate.
- *
- * The suppression rule itself lives once at `provider/terminal-emission-gate.ts`
- * — the two driver legs feed ONE shared uniqueness index (partial unique index),
- * and two implementations of one invariant is one more than the invariant can
- * survive. What stays here is the Codex-named binding, so the driver's own
- * callers keep naming a Codex symbol.
+ * The Codex-named alias of the provider-neutral terminal run frame; the suppression rule lives in
+ * `provider/terminal-emission-gate.ts` because both driver legs share one uniqueness index.
  */
 export type CodexTerminalRunFrame = TerminalRunFrame;
 
-/**
- * The Codex terminal-emission gate — one instance per provider session, held
- * by the lifecycle module for that session's lifetime.
- *
- * An empty extension rather than an alias: the Codex leg carries no
- * census-specific gate input TODAY, and inventing one to justify a body would
- * be a parameter minted ahead of its reader. The named subclass is what a
- * later census-specific input would land on.
- */
+/** The Codex terminal-emission gate, one per provider session; an empty Codex-named subclass. */
 export class CodexTerminalEmissionGate extends TerminalEmissionGate {}
-
-// --------------------------------------------------------------------------
-// Turn evidence on the Codex wire
-// --------------------------------------------------------------------------
 
 /** The `ThreadItem` variant that IS model output at the pin. */
 const CODEX_MODEL_OUTPUT_ITEM_TYPE = "agentMessage";
 
 /**
- * `TurnStatus` members that are a DECLARED non-completion.
- *
- * `failed` is the ordinary typed failure (`TurnError.codexErrorInfo` names the
- * cause). `interrupted` joins it because an interrupt is a deliberate daemon
- * act with its own record — loud by construction, never a silent swallow — and
- * a turn stopped on purpose must not be reported as a neutralization failure.
- *
- * `completed` is excluded, and that exclusion is the whole tripwire: a
- * client-side command dispatch reports SUCCESS, so treating `completed` as
- * evidence would make the check unreachable.
+ * `TurnStatus` members that declare a non-completion; `interrupted` is a deliberate daemon act.
+ * `completed` is excluded on purpose: a client-side command dispatch reports success, which would
+ * make the check unreachable.
  */
 const CODEX_DECLARED_NON_COMPLETION_STATUSES: ReadonlySet<string> = new Set([
   "failed",
@@ -1435,20 +775,9 @@ function readCodexRecord(value: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Reads one in-flight notification for evidence that a model turn is producing
- * output, or `null` when the frame carries none.
- *
- * WHY THIS EXISTS AT ALL, rather than reading the terminal frame alone: at the
- * pin `turn/completed` can carry `itemsView: "notLoaded"` beside an EMPTY
- * `items` array — measured, not supposed (the pinned Codex wire census).
- * An empty list under that view is an absence of loading, not an absence of
- * output, so a classifier that read only the terminal would call a real turn
- * evidence-free and trip on it. Evidence therefore accrues as the turn runs.
- *
- * Keyed on the item's TYPE tag rather than on any text: `agentMessage` is model
- * output and `userMessage` is the provider's verbatim echo of what was sent —
- * the echo is emphatically NOT evidence that a model saw it, which is exactly
- * the confusion this hazard lives in.
+ * Reads one in-flight notification for evidence that a turn is producing model output (an
+ * `agentMessage` item, not the `userMessage` echo), or `null`. Evidence must accrue mid-turn
+ * because `turn/completed` can carry `itemsView: "notLoaded"` with empty `items` (measured).
  */
 export function classifyCodexTurnEvidenceObservation(
   method: string,
@@ -1473,21 +802,9 @@ export function classifyCodexTurnEvidenceObservation(
 }
 
 /**
- * Reads a settling `turn/completed` payload for positive, typed evidence that a
- * model turn happened.
- *
- * Every field consulted is a typed member of the pinned generated protocol —
- * `TurnStatus`, `TurnError`, and the `ThreadItem` type tag. No message prose is
- * parsed, and in particular `TurnError.message` is never inspected: its text is
- * vendor prose that changes without notice, while `codexErrorInfo` beside it is
- * a typed enum. What the classifier needs from an error is only that one is
- * DECLARED, so it does not read either.
- *
- * `turn.durationMs` is deliberately NOT read as accounting evidence. The
- * measured quota-exhausted turn carried `durationMs: 2838` having reached no
- * model at all, so a duration says the provider spent wall-clock time, not that
- * it spent a turn — and a discriminant that fires on a turn which reached
- * nothing is a discriminant that fails open.
+ * Reads a settling `turn/completed` payload for typed evidence that a model turn happened. No
+ * message text is read (`TurnError.message` is vendor prose, so only its presence counts), and
+ * `durationMs` is not evidence: a measured quota-exhausted turn carried `durationMs: 2838`.
  */
 export function classifyCodexTurnEvidence(params: unknown): TurnEvidenceClassification {
   const payload = readCodexRecord(params);
@@ -1517,46 +834,21 @@ export function classifyCodexTurnEvidence(params: unknown): TurnEvidenceClassifi
   ) {
     observations.push("declared_turn_failure");
   } else if (status === "interrupted") {
-    // An interrupt need not carry an error payload — the daemon knows it asked
-    // for one — so the status alone is the declaration here.
+    // An interrupt need not carry an error payload, so the status alone is the declaration.
     observations.push("declared_turn_failure");
   }
   return observedTurnEvidence(...observations);
 }
 
-// --------------------------------------------------------------------------
-// Typed provider usage-limit signal, Codex leg
-// --------------------------------------------------------------------------
-//
-// The two account-plane carriers this leg reads, named as constants so the
-// binding is by IDENTITY rather than by a string repeated at a call site. Both
-// carry the same `RateLimitSnapshot`; they differ only in how it arrives.
-//
-// The PULL leg is a reply to a daemon-issued request and so is deliberately not
-// a member of the inbound-frame census above — the census header states that
-// exclusion, and naming the method here does not change it.
+/** The `account/rateLimits/read` method, the pull carrier of a rate-limit snapshot (a reply). */
 export const CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD = "account/rateLimits/read" as const;
+/** The `account/rateLimits/updated` method, the push carrier of a rate-limit snapshot. */
 export const CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD = "account/rateLimits/updated" as const;
 
 /**
- * Every `RateLimitReachedType` member the pin's generated schema carries —
- * TRANSCRIBED BY HAND from the `RateLimitReachedType` enum published by
- * `codex-cli 0.150.1`, which is the pin records for this driver.
- *
- * Exported so a test can assert the two dispositions below PARTITION it. What
- * that assertion actually guards is a change to the CLASSIFIER: dropping an arm
- * from one disposition set without placing it in the other, or widening one set
- * past this census, fails it — and either would silently turn a decided arm into
- * an unrecognized one, which is indistinguishable from the outside from a shape
- * never seen before, though excluded and dormant are different states.
- *
- * WHAT IT DOES NOT GUARD, stated because the constant's name invites the wrong
- * reading: an arm the VENDOR adds in a later release is undetected here, since
- * this list is the test's own input rather than a read of the provider's schema.
- * A member new to the wire simply matches neither set and takes the unrecognized
- * path — the fail-quiet direction, and the only one available to a typed-only
- * recognizer, but not a covered case. Re-transcribing this list is part of
- * moving the pin.
+ * Every `RateLimitReachedType` member of the pin's schema, transcribed by hand from `codex-cli
+ * 0.150.1`; re-transcribe it when the pin moves. A test asserts the two dispositions below
+ * partition it; an arm the vendor adds later takes the unrecognized path.
  */
 export const CODEX_RATE_LIMIT_REACHED_TYPES: readonly string[] = Object.freeze([
   "rate_limit_reached",
@@ -1566,55 +858,24 @@ export const CODEX_RATE_LIMIT_REACHED_TYPES: readonly string[] = Object.freeze([
   "workspace_member_usage_limit_reached",
 ]);
 
-/**
- * The arms that mean A ROLLING ALLOWANCE IS SPENT — the condition that clears on
- * its own when the window turns over, with no operator action.
- */
+// Arms meaning a rolling allowance is spent; it clears when the window turns over.
 const CODEX_PLAN_ALLOWANCE_REACHED_TYPES: ReadonlySet<string> = new Set([
   "rate_limit_reached",
   "workspace_owner_usage_limit_reached",
   "workspace_member_usage_limit_reached",
 ]);
 
-/**
- * The arms that are OPERATOR-REMEDIABLE and therefore deliberately produce NO
- * signal on this axis: a depleted credit balance is restored by a purchase, not
- * by a window turning over, so parking a run against a reset instant would be
- * promising a boundary at which nothing changes.
- *
- * Enumerated rather than left to the fall-through, so the decision is recorded
- * where the classifier is read and the partition test has both halves to check.
- */
+// Operator-remediable arms produce no signal on purpose: a purchase restores credits, not a window
+// turning over, so there is no reset instant to park a run against.
 const CODEX_OPERATOR_REMEDIABLE_REACHED_TYPES: ReadonlySet<string> = new Set([
   "workspace_owner_credits_depleted",
   "workspace_member_credits_depleted",
 ]);
 
 /**
- * The two account-plane readings a usage-limit classification is made from.
- *
- * BOTH, rather than one frame at a time, because the vendor says so: the push
- * notification's own schema documents it as a "sparse rolling rate-limit update"
- * whose clients "should merge available values into the most recent
- * `account/rateLimits/read` response", and states that a nullable member absent
- * from a rolling update "does not clear a previously observed value". A
- * classifier fed only the push frame would therefore read a routinely-absent
- * window as "the provider reported no reset boundary" — a false reading of a
- * sparse frame rather than a fact about the account.
- *
- * Either member may be `null` when that reading has not been taken; both `null`
- * is a legitimate state and yields no signal.
- *
- * CALLER OBLIGATION — RECENCY IS THE CALLER'S TO MAINTAIN, and it is stated here
- * because the caller is authored elsewhere. The merge below is unconditional:
- * a present value in `rollingUpdate` always wins, which is the vendor's rule and
- * is correct only while the update is the NEWER of the two readings. A caller
- * that refetches `account/rateLimits/read` must therefore DISCARD the rolling
- * update it was holding (set it back to `null`) in the same act, or a stale push
- * will override the fresh read it just took. This shape holds two readings and
- * no clock, so it cannot enforce that ordering itself; it is not inferred from
- * the values, because a boundary that legitimately did not move is
- * indistinguishable from one carried over.
+ * The two readings a usage-limit classification is made from; the push is a sparse update whose
+ * absent members do not clear earlier values, so both are needed. A present `rollingUpdate` value
+ * always wins, so a caller that refetches `latestRead` must set `rollingUpdate` back to `null`.
  */
 export interface CodexRateLimitObservation {
   /** The `account/rateLimits/read` REPLY body, or `null` if none has landed. */
@@ -1623,33 +884,19 @@ export interface CodexRateLimitObservation {
   readonly rollingUpdate: unknown;
 }
 
-/** The three snapshot members this classifier reads, after the vendor merge. */
 interface CodexMergedRateLimitReading {
   readonly rateLimitReachedType: unknown;
   readonly primary: unknown;
   readonly secondary: unknown;
 }
 
-/** Lifts the `rateLimits` snapshot out of either account-plane carrier. */
 function readCodexRateLimitSnapshot(carrier: unknown): Record<string, unknown> | null {
   const record = readCodexRecord(carrier);
   return record === null ? null : readCodexRecord(record["rateLimits"]);
 }
 
-/**
- * Applies the vendor's stated merge: a value present in the sparse update wins,
- * and a member absent or explicitly null there falls back to the last full read
- * rather than clearing it.
- *
- * Merged MEMBER-BY-MEMBER over exactly what the classifier consumes, not by
- * spreading the untrusted records. A spread-then-assign merge would write
- * attacker-chosen keys onto a prototype-bearing object; enumerating the three
- * read members removes that surface entirely and keeps the reader from carrying
- * fields nothing here looks at.
- *
- * UNCONDITIONAL, never recency-checked — see the caller obligation on
- * {@link CodexRateLimitObservation}.
- */
+// The vendor's merge: a value present in the sparse update wins, else the last full read. Members
+// are copied one by one so provider-chosen keys never land on a new object.
 function mergeCodexRateLimitReading(
   latestRead: Record<string, unknown> | null,
   rollingUpdate: Record<string, unknown> | null,
@@ -1662,23 +909,9 @@ function mergeCodexRateLimitReading(
   };
 }
 
-/**
- * The reset instant of one window, but ONLY when the provider's own reading says
- * that window is the spent one.
- *
- * `usedPercent` is documented as "percentage of the window that has been
- * consumed", so reading it to identify WHICH of the provider's windows is
- * exhausted is not a threshold heuristic standing in for recognition —
- * recognition already happened, on the typed enum, before this is ever called.
- * What it buys is the honesty of the provenance stamp: the instant returned is
- * one the provider stated about the window the provider says is spent, rather
- * than a driver's pick among equals.
- *
- * Numbers are read TOLERANTLY (any finite value, no integer test): the consumed
- * fraction is `f64` in the core protocol type and `i32` in the app-server struct
- * at the pin, and a reader that rejected one of those would fail on the
- * provider's own wire.
- */
+// The reset instant, only when the provider marks that window spent (`usedPercent` at least 100).
+// Any finite number is accepted because `usedPercent` is `f64` in the core protocol type and `i32`
+// in the app-server struct at the pin.
 function readCodexSpentWindowResetEpochSeconds(window: unknown): number | null {
   const record = readCodexRecord(window);
   if (record === null) {
@@ -1695,46 +928,17 @@ function readCodexSpentWindowResetEpochSeconds(window: unknown): number | null {
   return resetsAt;
 }
 
-/**
- * Unix SECONDS to RFC 3339 UTC, or `null` when the value cannot name an instant.
- *
- * The unit is verified against the pinned protocol source, where `resetsAt` is
- * documented as "Unix timestamp (seconds since epoch) when the window resets"
- * and is copied verbatim into the app-server struct. Reading it as milliseconds
- * would place every boundary about fifty-five years too early — an error that
- * surfaces as "the pacing surface resumes immediately", not as a parse failure.
- */
+// `resetsAt` is documented as seconds since epoch; reading it as milliseconds would place every
+// boundary decades early.
 function codexEpochSecondsToRfc3339Utc(epochSeconds: number): string | null {
   const instant = new Date(epochSeconds * 1000);
   return Number.isNaN(instant.getTime()) ? null : instant.toISOString();
 }
 
 /**
- * Classifies the account-plane rate-limit readings for a spent usage
- * allowance, or `null` when they state none.
- *
- * RECOGNITION IS TYPED-ONLY, and the single gate is the `rateLimitReachedType`
- * enum. No prose is read — `limitName` and `planType` are provider-authored
- * strings this function never inspects — no exit code is read, and no HTTP
- * status is read. Neither is `usedPercent` a recognition input: a snapshot
- * sitting at a hundred percent with no reached-type arm is an account at its
- * ceiling, not a statement that a turn was refused, and treating it as one would
- * park runs the provider is still willing to serve.
- *
- * `spendControlReached` is likewise not read. It is an administrative budget
- * state carried on the snapshot rather than a refusal, and the pin's own schema
- * warns that its absence "is unavailable, not a sparse-update recovery" — a
- * member whose absence carries no information is not a discriminant.
- *
- * `TurnError.codexErrorInfo: "usageLimitExceeded"` is a typed arm that also
- * states this condition, and it is deliberately NOT a source here: it carries no
- * reset boundary of its own at the pin, and the turn-failure classification it
- * belongs to is the permanent-versus-transient refusal axis rather than this
- * one. The account plane is the only carrier stating both the refusal and the
- * instant it lifts.
- *
- * Returns `null` for everything it does not recognize, and that absence means
- * "not known to be limited" — never "known not to be limited".
+ * Classifies the account-plane rate-limit readings for a spent usage allowance, or `null`, which
+ * means "not known to be limited". Only the `rateLimitReachedType` enum recognizes one, never
+ * prose, `usedPercent` alone, or `TurnError.codexErrorInfo` (it carries no reset boundary).
  */
 export function classifyCodexUsageLimitSignal(
   observation: CodexRateLimitObservation,
@@ -1745,14 +949,12 @@ export function classifyCodexUsageLimitSignal(
   );
   const reachedType = reading.rateLimitReachedType;
   if (typeof reachedType !== "string" || !CODEX_PLAN_ALLOWANCE_REACHED_TYPES.has(reachedType)) {
-    // Covers the operator-remediable arms, every unrecognized arm, and absence
-    // alike — all three emit nothing rather than a default-caused signal.
+    // Operator-remediable, unrecognized and absent arms all emit nothing rather than a default
+    // signal. `spendControlReached` is not read: it is an administrative budget state.
     return null;
   }
 
-  // LATEST among the windows the provider marks spent. Picking the earliest
-  // would schedule a resume the other window still refuses, converting one park
-  // into a retry ladder against a provider that has already said no.
+  // The LATEST spent window: the earliest would schedule a resume the other window still refuses.
   const spentResets = [reading.primary, reading.secondary]
     .map(readCodexSpentWindowResetEpochSeconds)
     .filter((epochSeconds): epochSeconds is number => epochSeconds !== null);
@@ -1769,14 +971,7 @@ export function classifyCodexUsageLimitSignal(
   };
 }
 
-/**
- * The operator-remediable arms, exported for the partition assertion only.
- *
- * Read by no production path: the classifier's gate is the plan-allowance set,
- * and every other arm falls through to `null` by that gate alone. This export
- * exists so the decision to exclude these two is CHECKED rather than merely
- * written down.
- */
+/** The operator-remediable arms, exported for the partition test only. */
 export const CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES: readonly string[] = Object.freeze([
   ...CODEX_OPERATOR_REMEDIABLE_REACHED_TYPES,
 ]);

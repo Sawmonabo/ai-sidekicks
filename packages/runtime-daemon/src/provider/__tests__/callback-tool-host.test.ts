@@ -1,18 +1,9 @@
-// Callback-tool host suite (leg 3).
-//
-// Spec coverage under test:
-//   • the driver answers EVERY callback-tool invocation and invents no
-//     approval bypass. Asserted as: an allow round-trip answers `completed`,
-//     a deny round-trip answers `denied`, and a stray invocation against a
-//     seamless host answers `denied` with a `DriverDiagnosticRecord` rather
-//     than hanging or completing.
-//   • every tool invocation is adjudicated. The evaluate-first ordering is
-//     asserted through the recorded `approvalBasis` and through the seam never
-//     being consulted for a pre-check refusal.
-//   • a child's tool calls route through the same pipeline as the
-//     parent's; asserted as the same host answering an invocation carrying
-//     a subagent-originated call id.
-//
+// Callback-tool host: every invocation is answered and adjudicated, and nothing bypasses approval.
+//   * an allow round-trip answers `completed`, a deny round-trip answers `denied`, and a stray
+//     invocation against a seamless host answers `denied` with a diagnostic rather than hanging;
+//   * the pipeline is consulted first (visible in `approvalBasis` and in the seam going
+//     unconsulted for a pre-check refusal);
+//   * a subagent's tool calls go through the same host as the parent's.
 
 import { describe, expect, it } from "vitest";
 
@@ -142,8 +133,7 @@ describe("CallbackToolHost — the allow round-trip (leg 3)", () => {
     const result = await harness.host.dispatch(makeInvocation(), null);
 
     expect(result).toStrictEqual({ status: "completed", output: { hits: 0 } });
-    // The pipeline was consulted BEFORE the executor ran, which is what makes
-    // "never completed without Cedar" observable rather than merely intended.
+    // The pipeline ran before the executor, so no call completes without a policy decision.
     expect(harness.evaluatedRequests).toHaveLength(1);
     expect(harness.evaluatedRequests[0]?.arguments).toStrictEqual({ query: "needle" });
     expect(harness.executedInvocations).toHaveLength(1);
@@ -160,8 +150,7 @@ describe("CallbackToolHost — the allow round-trip (leg 3)", () => {
   });
 
   it("routes a subagent-originated invocation through the same pipeline", async () => {
-    // a child's calls are adjudicated by the parent's pipeline, so nothing
-    // about the host's answer changes.
+    // A child's calls are adjudicated by the parent's pipeline, so the host's answer is the same.
     const harness = buildHarness();
     harness.host.resolveSpawnRegistry({
       sessionId: TEST_SESSION_ID,
@@ -247,8 +236,7 @@ describe("CallbackToolHost — the no-seam spawn and the stray invocation", () =
   });
 
   it("answers a stray invocation `denied` with a diagnostic, never `completed`", async () => {
-    // The RUNTIME backstop: the provider carries a registration this daemon
-    // never performed, so the invocation arrives despite the spawn withholding.
+    // The provider carries a registration this daemon never performed, so the call arrives anyway.
     const harness = buildHarness({ withSeam: false });
     harness.host.resolveSpawnRegistry({
       sessionId: TEST_SESSION_ID,
@@ -259,9 +247,7 @@ describe("CallbackToolHost — the no-seam spawn and the stray invocation", () =
 
     const result = await harness.host.dispatch(makeInvocation(), null);
 
-    // `denied`, not `failed`: the call is well-formed and the DAEMON is
-    // refusing it. Blaming the provider for a registry the daemon itself
-    // withheld would misreport whose decision this was.
+    // `denied`, not `failed`: the call is well-formed and the daemon is the one refusing it.
     expect(result.status).toBe("denied");
     expect(harness.executedInvocations).toHaveLength(0);
     expect(harness.diagnostics.recentRecordsOfKind("callback_tool_seam_absent")).toHaveLength(1);
@@ -270,11 +256,9 @@ describe("CallbackToolHost — the no-seam spawn and the stray invocation", () =
   });
 
   it("refuses on the seam BEFORE the registry, so the arm is reachable at all", async () => {
-    // Ordering assertion, not a duplicate: a seamless host refuses an
-    // invocation naming a session it never resolved with the SAME
-    // `denied-no-seam` answer. Were the registry checked first, every
-    // invocation reaching a seamless host would answer `failed-unknown-tool`
-    // and the `denied` arm the leg-3 rule names could never fire.
+    // A seamless host refuses an invocation naming an unresolved session with the same
+    // `denied-no-seam` answer; checking the registry first would answer `failed-unknown-tool`
+    // and the `denied` arm could never fire.
     const harness = buildHarness({ withSeam: false });
 
     const result = await harness.host.dispatch(makeInvocation(), null);
@@ -377,8 +361,7 @@ describe("CallbackToolHost — execution outcomes are the tool's, not the pipeli
 
     expect(result).toStrictEqual({ status: "failed", error: "the workspace mount vanished" });
     expect(harness.activityRecords[0]?.disposition).toBe("failed-in-execution");
-    // The basis survives: the invocation WAS adjudicated, and the row must not
-    // read as though it had been refused before the pipeline.
+    // The invocation was adjudicated, so the row keeps its basis instead of reading as a refusal.
     expect(harness.activityRecords[0]?.approvalBasis).toBe("policy");
   });
 
@@ -393,16 +376,14 @@ describe("CallbackToolHost — execution outcomes are the tool's, not the pipeli
 
     const result = await harness.host.dispatch(makeInvocation(), null);
 
-    // A rejected evaluation is an UNANSWERED one. Letting the rejection escape
-    // would surface as a driver fault the provider retries; catching it and
-    // proceeding would run the tool with no adjudication at all. Both are worse
-    // than refusing, which is the same answer a missing seam already produces.
+    // A rejected evaluation is an unanswered one: letting it escape would read as a driver fault
+    // the provider retries, and proceeding would run the tool unadjudicated. Refusing matches the
+    // missing-seam answer.
     expect(result.status).toBe("denied");
     expect(harness.executedInvocations).toStrictEqual([]);
     expect(harness.activityRecords[0]?.disposition).toBe("denied-no-seam");
     expect(harness.diagnostics.recentRecordsOfKind("callback_tool_seam_absent")).toHaveLength(1);
-    // The cause travels: an operator must be able to tell a seam that is absent
-    // from one that is present and failing.
+    // The cause travels so an operator can tell an absent seam from a failing one.
     expect(result.error).toContain("the policy store is unreachable");
   });
 
@@ -463,18 +444,11 @@ describe("describeArgumentRefusal — the named subset, and nothing beyond it", 
   });
 });
 
-// --------------------------------------------------------------------------
-// The composition-root binder and the routed-ask adapter (leg 3).
-// --------------------------------------------------------------------------
-//
-// Spec coverage added here:
-//   • the driver answers EVERY callback-tool invocation. Asserted one layer
-//     earlier than the suite above does it: an ask the driver band cannot
-//     even TURN INTO an invocation is still answered, and still recorded.
-//   • an approval ask reaching this adapter with no responder bound is
-//     refused rather than allowed.
+// The composition-root binder and the routed-ask adapter: an ask that cannot become an
+// invocation is still answered and recorded, and an approval ask with no responder bound is
+// refused.
 
-/** The two names the provider's `DynamicToolCallParams` supplies. */
+/** The wire method name of a dynamic tool-call ask. */
 const TOOL_CALL_METHOD = "item/tool/call";
 
 function buildAskResponder(harness: HostHarness, approval?: RoutedProviderAskResponder | null) {
@@ -517,9 +491,7 @@ describe("bindCallbackToolsForSpawn — the composition root's three steps as on
       SEARCH_TOOL,
     ]);
     expect(binding.callbackTools).toStrictEqual([SEARCH_TOOL]);
-    // Step 1 ran inside the binder, so the dispatcher it hands over already has
-    // a registry to resolve against — the ordering the host documents as
-    // load-bearing is structural here rather than remembered.
+    // The binder installs the registry before handing over the dispatcher, so it resolves at once.
     await expect(binding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
       status: "completed",
       output: { hits: 0 },
@@ -538,9 +510,8 @@ describe("bindCallbackToolsForSpawn — the composition root's three steps as on
 
     expect(binding.resolution.admitted).toBe(false);
     expect(binding.callbackTools).toStrictEqual([]);
-    // The runtime backstop is the whole reason the dispatcher stays bound: a
-    // provider carrying a registration this daemon never performed is refused
-    // and recorded rather than left unanswered.
+    // The dispatcher stays bound so a registration this daemon never performed is refused and
+    // recorded rather than left unanswered.
     const result = await binding.onCallbackToolCall(makeInvocation());
     expect(result.status).toBe("denied");
     expect(harness.emittedDiagnostics.map((record) => record.kind)).toContain(
@@ -558,7 +529,7 @@ describe("bindCallbackToolsForSpawn — the composition root's three steps as on
     });
 
     binding.release();
-    // Idempotent: a teardown path that runs twice must not throw.
+    // A teardown path that runs twice must not throw.
     binding.release();
 
     const result = await binding.onCallbackToolCall(makeInvocation());
@@ -579,8 +550,7 @@ describe("bindCallbackToolsForSpawn — the composition root's three steps as on
 
     binding.callbackTools.push({ ...SEARCH_TOOL, name: "smuggled_tool" });
 
-    // The spawn params declare a MUTABLE array, so a driver could mutate what
-    // it was handed; the resolution the host answered must not move with it.
+    // The spawn params declare a mutable array; the resolution must not move if a driver edits it.
     expect(binding.resolution.admitted).toBe(true);
     expect(binding.resolution.admitted ? binding.resolution.tools : null).toStrictEqual([
       SEARCH_TOOL,
@@ -604,8 +574,7 @@ describe("createCallbackToolAskResponder — the callback-tool arm", () => {
       decision: "allow",
       payload: { contentItems: [{ type: "inputText", text: '{"hits":0}' }] },
     });
-    // The provider's own field names reached the invocation unchanged: `tool`
-    // is the registry name and `callId` is copied verbatim for tool pairing.
+    // `tool` is the registry name and `callId` is copied verbatim for tool pairing.
     expect(harness.executedInvocations[0]?.toolName).toBe(SEARCH_TOOL.name);
     expect(harness.executedInvocations[0]?.toolCallId).toBe("call-1");
   });
@@ -622,8 +591,7 @@ describe("createCallbackToolAskResponder — the callback-tool arm", () => {
     const decision = await buildAskResponder(harness).answer(makeToolCallAsk({ runId: null }));
 
     expect(decision.decision).toBe("refuse");
-    // The refusal happens BEFORE the host's dispatcher, so without this record
-    // an operator would see a dropped tool call with nothing explaining it.
+    // The refusal precedes the host's dispatcher, so this record is the only trace of the drop.
     const refusals = harness.emittedDiagnostics.filter(
       (record) => record.kind === "callback_tool_invocation_refused",
     );
@@ -632,9 +600,7 @@ describe("createCallbackToolAskResponder — the callback-tool arm", () => {
       sessionId: TEST_SESSION_ID,
       runId: null,
       toolName: SEARCH_TOOL.name,
-      // Explicitly `false` rather than absent: a record that carried the
-      // truncation flag only when it fired would make "no flag" ambiguous
-      // between an in-bounds value and an older record shape.
+      // Always present, so a missing flag never means either an in-bounds value or an older shape.
       toolNameTruncated: false,
       toolCallId: "call-1",
       toolCallIdTruncated: false,
@@ -651,9 +617,7 @@ describe("createCallbackToolAskResponder — the callback-tool arm", () => {
       providerRegistrationUnavailableDetail: "unused",
     });
 
-    // `DynamicToolCallParams.arguments` is schema-typed as ANY JSON value at
-    // the pin, so this is a shape the provider is entitled to send rather than
-    // a defensive hypothetical.
+    // The provider's schema allows any JSON value for `arguments`, so this shape can arrive.
     const decision = await buildAskResponder(harness).answer(
       makeToolCallAsk({
         params: { tool: SEARCH_TOOL.name, callId: "call-2", arguments: "needle" },
@@ -728,9 +692,7 @@ describe("createCallbackToolAskResponder — the approval arm", () => {
 
     expect(decision).toStrictEqual({ decision: "allow" });
     expect(delegatedAsks).toStrictEqual([approvalAsk]);
-    // The callback-tool host is not in this path at all: an approval is not a
-    // tool call, and routing one through the tool registry would adjudicate the
-    // wrong question.
+    // The callback-tool host is not involved: an approval is not a tool call.
     expect(harness.executedInvocations).toHaveLength(0);
   });
 
@@ -749,8 +711,7 @@ describe("createCallbackToolAskResponder — the approval arm", () => {
     expect(decision.decision === "refuse" && decision.reason).toContain(
       "item/fileChange/requestApproval",
     );
-    // Deliberately NOT recorded as a callback-tool diagnostic: those kinds name
-    // this host's conditions, and an approval refusal is not one of them.
+    // Not a callback-tool diagnostic: those kinds name this host's conditions.
     expect(harness.emittedDiagnostics).toHaveLength(0);
   });
 });
@@ -775,8 +736,7 @@ describe("composeCallbackToolContentItems — the silent-loss guard", () => {
   });
 
   it("wraps a plain array, which the provider's closed union would reject", () => {
-    // The defect this function exists for: a raw pass-through would answer
-    // `success: true` with an array the response type does not admit.
+    // A raw pass-through would answer `success: true` with an array the response type rejects.
     expect(composeCallbackToolContentItems(["alpha", "beta"])).toStrictEqual([
       { type: "inputText", text: '["alpha","beta"]' },
     ]);
@@ -821,11 +781,9 @@ describe("resolveRegisteredCallbackToolName — the provider-facing name map", (
 });
 
 describe("composeCallbackToolContentItems — per-arm required members", () => {
-  // `DynamicToolCallOutputContentItem` is a closed union whose arms each carry
-  // ONE required member beside the discriminator. A predicate that checked only
-  // the discriminator shipped `{ type: "inputImage" }` — an image with no image
-  // — as a well-formed SUCCESS the model reads as an empty answer it cannot
-  // distinguish from a real one.
+  // `DynamicToolCallOutputContentItem` is a closed union whose arms each carry one required
+  // member beside the discriminator. A check on the discriminator alone would ship
+  // `{ type: "inputImage" }` as a success the model reads as an empty answer.
   it("passes each arm through when its required member is present", () => {
     const composed = [
       { type: "inputText", text: "found 2 matches" },
@@ -854,20 +812,16 @@ describe("composeCallbackToolContentItems — per-arm required members", () => {
   ])("renders %s as text rather than shipping it as a malformed success", (_label, output) => {
     const contentItems = composeCallbackToolContentItems(output);
 
-    // WHOLE-VALUE fallback, never a per-item drop: rendering only the surviving
-    // items would silently delete content the executor composed, which is the
-    // same invisible loss stated one layer down.
+    // Fall back for the whole value, never per item: dropping items would silently lose content.
     expect(contentItems).toHaveLength(1);
     expect(contentItems[0]).toMatchObject({ type: "inputText" });
     expect((contentItems[0] as { text: string }).text).toContain("type");
   });
 
   it("REBUILDS an admitted item, dropping siblings the provider's union does not declare", () => {
-    // The second silent-loss arm: a well-formed item may carry executor-supplied
-    // siblings, and the provider frame is serialized DOWNSTREAM of this function
-    // and outside its try. One `BigInt` sibling threw at the write and left the
-    // callback ask unanswered — the provider waiting forever on a tool that had
-    // already run. The rebuild makes the result serializable BY CONSTRUCTION.
+    // A well-formed item may carry executor-supplied siblings, and the provider frame is
+    // serialized after this function returns. A `BigInt` sibling once threw at the write and left
+    // the ask unanswered. The rebuild makes the result serializable by construction.
     const contentItems = composeCallbackToolContentItems([
       { type: "inputText", text: "found 2 matches", metadata: 1n },
       { type: "inputImage", imageUrl: "https://example.invalid/a.png", cache: { hit: true } },
@@ -877,7 +831,7 @@ describe("composeCallbackToolContentItems — per-arm required members", () => {
       { type: "inputText", text: "found 2 matches" },
       { type: "inputImage", imageUrl: "https://example.invalid/a.png" },
     ]);
-    // The guarantee, asserted as the operation that used to throw.
+    // The operation that used to throw.
     expect(() => JSON.stringify(contentItems)).not.toThrow();
   });
 
@@ -887,15 +841,13 @@ describe("composeCallbackToolContentItems — per-arm required members", () => {
 
     const contentItems = composeCallbackToolContentItems([cyclic]);
 
-    // Every ITEM survives — the loss is confined to members the pinned union
-    // does not declare, which the provider would have ignored or rejected.
+    // Every item survives; only members the union does not declare are lost.
     expect(contentItems).toStrictEqual([{ type: "inputText", text: "alpha" }]);
     expect(() => JSON.stringify(contentItems)).not.toThrow();
   });
 
   it("returns a rebuilt array a caller cannot mutate back into the executor's value", () => {
-    // The rebuild is also what keeps the executor's own objects out of the
-    // frame: mutating the returned item must not reach back into the output.
+    // The rebuild also keeps the executor's own objects out of the frame.
     const composed = [{ type: "inputText", text: "alpha" }];
 
     const contentItems = composeCallbackToolContentItems(composed);
@@ -905,8 +857,7 @@ describe("composeCallbackToolContentItems — per-arm required members", () => {
   });
 
   it("treats an empty required member as absent, because both read as no answer", () => {
-    // `imageUrl: ""` is the same invisible answer a missing `imageUrl` is; a
-    // length check is what keeps the two from being classified differently.
+    // An empty `imageUrl` is as invisible an answer as a missing one, so both are treated alike.
     expect(composeCallbackToolContentItems([{ type: "inputText", text: "" }])).toStrictEqual([
       { type: "inputText", text: '[{"type":"inputText","text":""}]' },
     ]);
@@ -914,10 +865,9 @@ describe("composeCallbackToolContentItems — per-arm required members", () => {
 });
 
 describe("CallbackToolHost — the registry is scoped to the spawn that installed it", () => {
-  // THE RACE. A resume or relaunch installs a new registry for the same session
-  // before the superseded spawn's teardown runs. Without a per-binding token the
-  // old `release()` deletes the NEW registry, and the old process's callbacks
-  // are adjudicated against the replacement.
+  // A resume or relaunch installs a new registry for the same session before the superseded
+  // spawn's teardown runs. Without a per-binding token, the old `release()` would delete the new
+  // registry and the old process's callbacks would be adjudicated against the replacement.
   it("makes a superseded binding's release a no-op, recorded rather than silent", async () => {
     const harness = buildHarness();
     const supersededBinding = bindCallbackToolsForSpawn(harness.host, {
@@ -935,14 +885,13 @@ describe("CallbackToolHost — the registry is scoped to the spawn that installe
 
     supersededBinding.release();
 
-    // The live binding still dispatches: its registry was not deleted by a
-    // teardown that belonged to a process that is already gone.
+    // The live binding still dispatches: the old teardown did not delete its registry.
     await expect(liveBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
       status: "completed",
       output: { hits: 0 },
     });
     expect(harness.emittedDiagnostics.map((record) => record.kind)).toStrictEqual([
-      // The supersession itself, then the ignored release.
+      // The supersession, then the ignored release.
       "callback_tool_registry_superseded",
       "callback_tool_registry_release_ignored",
     ]);
@@ -966,8 +915,8 @@ describe("CallbackToolHost — the registry is scoped to the spawn that installe
     const result = await supersededBinding.onCallbackToolCall(makeInvocation());
 
     expect(result.status).toBe("failed");
-    // Never adjudicated: a same-named tool in the replacement registry must not
-    // launder a dead process's call into the live spawn's approval seam.
+    // A same-named tool in the replacement registry must not carry a dead process's call into
+    // the live spawn's approval seam.
     expect(harness.evaluatedRequests).toStrictEqual([]);
     expect(harness.executedInvocations).toStrictEqual([]);
     expect(harness.activityRecords[0]?.disposition).toBe("failed-superseded-binding");
@@ -998,13 +947,10 @@ describe("CallbackToolHost — the registry is scoped to the spawn that installe
     });
   });
 
-  // THE OTHER ENTRY POINT. The three cases above drive the spawn-bound closure,
-  // which carries a token. The routed-ask responder does not — it is bound once
-  // per driver and dispatches UNSCOPED — so the property that keeps it honest is
-  // a different one, and it is pinned here rather than left to the doc comment:
-  // the responder addresses the registry installed NOW. A tool only a superseded
-  // spawn served is unreachable through it, and the live spawn's own tool is
-  // reachable, which is what makes the negative half of this pair non-vacuous.
+  // The routed-ask responder is bound once per driver and dispatches without a token, so it
+  // addresses whichever registry is installed now: a tool only a superseded spawn served is
+  // unreachable through it, and the live spawn's tool is reachable, which keeps the negative half
+  // of this pair from passing vacuously.
   it("answers the routed-ask path from the live registry, never a superseded one", async () => {
     const harness = buildHarness();
     bindCallbackToolsForSpawn(harness.host, {
@@ -1048,12 +994,10 @@ describe("CallbackToolHost — the registry is scoped to the spawn that installe
 });
 
 describe("CallbackToolHost — a failed replacement spawn rolls its registry back", () => {
-  // THE ARM `release()` CANNOT COVER. Step 1 installs before step 2 spawns, so a
-  // resume whose spawn then FAILS has already superseded a predecessor that the
-  // Codex resume path deliberately leaves alive. Releasing the failed
-  // replacement deletes only the replacement, and the surviving process's
-  // closure then dispatches against a registry that is simply absent — every
-  // later tool call from a healthy session refused, permanently.
+  // Installing a replacement before its spawn means a failed resume has already superseded a
+  // predecessor that the Codex resume path deliberately leaves alive. `release()` would delete only
+  // the replacement, and the surviving process would then dispatch against an absent registry and
+  // be refused on every later call.
   function bindSpawn(
     harness: ReturnType<typeof buildHarness>,
     requestedTools: readonly SessionCallbackTool[],
@@ -1073,15 +1017,13 @@ describe("CallbackToolHost — a failed replacement spawn rolls its registry bac
 
     failedReplacement.rollback();
 
-    // The predecessor's OWN token addresses the restored registry again — the
-    // property that matters, since its closure holds that token and nothing
-    // else.
+    // The predecessor's own token addresses the restored registry again; its closure holds
+    // nothing else.
     await expect(liveBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
       status: "completed",
       output: { hits: 0 },
     });
-    // The restore is a registry replacement like any other and is RECORDED as
-    // one, so an operator's model does not go stale at the supersede it undoes.
+    // The restore is a registry replacement like any other and is recorded as one.
     expect(harness.emittedDiagnostics.map((record) => record.kind)).toStrictEqual([
       "callback_tool_registry_superseded",
       "callback_tool_registry_superseded",
@@ -1093,8 +1035,7 @@ describe("CallbackToolHost — a failed replacement spawn rolls its registry bac
   });
 
   it("is NOT interchangeable with release — the negative control for the arm above", async () => {
-    // Same failure, wrong call. This is the defect verbatim: the predecessor is
-    // alive and its every later callback is refused for an absent registry.
+    // Same failure, wrong call: the predecessor is alive and every later callback is refused.
     const harness = buildHarness();
     const liveBinding = bindSpawn(harness, [SEARCH_TOOL]);
     const failedReplacement = bindSpawn(harness, [{ ...SEARCH_TOOL, name: "read_workspace" }]);
@@ -1108,8 +1049,7 @@ describe("CallbackToolHost — a failed replacement spawn rolls its registry bac
   });
 
   it("degenerates to a release where the failed spawn displaced nothing", async () => {
-    // What makes `rollback` safe to call unconditionally on a failed spawn: a
-    // first spawn has no predecessor, and the correct end state is an empty one.
+    // A first spawn has no predecessor, so rolling back must leave an empty end state.
     const harness = buildHarness();
     const onlyBinding = bindSpawn(harness, [SEARCH_TOOL]);
 
@@ -1119,8 +1059,8 @@ describe("CallbackToolHost — a failed replacement spawn rolls its registry bac
       status: "failed",
       error: "invocation names a session with no registered callback-tool registry",
     });
-    // Nothing was superseded, so no REGISTRY record is emitted either — the one
-    // diagnostic here is the refused dispatch the assertion above provoked.
+    // Nothing was superseded, so no registry record is emitted; the one diagnostic here is the
+    // refused dispatch above.
     expect(
       harness.emittedDiagnostics
         .map((record) => record.kind)
@@ -1129,8 +1069,8 @@ describe("CallbackToolHost — a failed replacement spawn rolls its registry bac
   });
 
   it("ignores a rollback whose installation a THIRD spawn already superseded", async () => {
-    // Undoing here would tear down a live registry to restore a dead one. Same
-    // condition as a late release, so it takes the same recorded kind.
+    // Undoing here would tear down a live registry to restore a dead one; it is recorded as an
+    // ignored release, like a late release.
     const harness = buildHarness();
     bindSpawn(harness, [SEARCH_TOOL]);
     const middleBinding = bindSpawn(harness, [SEARCH_TOOL]);
@@ -1150,9 +1090,8 @@ describe("CallbackToolHost — a failed replacement spawn rolls its registry bac
   });
 
   it("restores exactly ONE installation back, never a chain", async () => {
-    // Depth one is a correctness bound before it is a memory bound: an
-    // installation two supersedes back was displaced by a spawn that SUCCEEDED,
-    // so restoring it would revive a registry whose process is gone.
+    // An installation two supersedes back was displaced by a spawn that succeeded, so restoring
+    // it would revive a registry whose process is gone.
     const harness = buildHarness();
     const oldestBinding = bindSpawn(harness, [SEARCH_TOOL]);
     const middleBinding = bindSpawn(harness, [SEARCH_TOOL]);
@@ -1204,13 +1143,11 @@ describe("CallbackToolHost — untrusted identifiers are bounded before they are
     const refusal = harness.emittedDiagnostics.find(
       (record) => record.kind === "callback_tool_invocation_refused",
     );
-    // 128 is `DRIVER_TOOL_NAME_MAX_LEN`, the same bound the wire contract holds
-    // the field to — so an unbounded identifier cannot ride an unparseable
-    // frame into the 256-record buffer and the log sink behind it.
+    // 128 is `DRIVER_TOOL_NAME_MAX_LEN`, so an unbounded identifier cannot reach the record buffer
+    // or the log sink.
     expect(refusal?.details["toolName"]).toBe("z".repeat(128));
     expect(refusal?.details["toolNameTruncated"]).toBe(true);
-    // The ORIGINAL length is kept beside the truncation, so the record still
-    // says how far past the bound the provider was.
+    // The original length is kept beside the truncation.
     expect(refusal?.details["toolNameOriginalLength"]).toBe(4096);
   });
 
@@ -1244,12 +1181,10 @@ describe("CallbackToolHost — untrusted identifiers are bounded before they are
       providerRegistrationAvailable: true,
       providerRegistrationUnavailableDetail: "unused",
     });
-    // ONE leading ASCII unit shifts the 128-unit cut onto a pair's HIGH half,
-    // which a naive `slice` turns into a lone surrogate that no longer
-    // round-trips through a JSON log sink. Without the leading unit the cut
-    // lands on a pair boundary and nothing is trimmed — both are asserted,
-    // because a guard that always trimmed one unit would pass the split case
-    // and quietly corrupt the aligned one.
+    // One leading ASCII unit moves the 128-unit cut onto a surrogate pair's high half, which a
+    // naive `slice` leaves as a lone surrogate that does not round-trip through a JSON log sink.
+    // Without it the cut lands on a pair boundary and nothing is trimmed. Both cases are asserted
+    // so a guard that always trimmed one unit fails.
     const splittingToolName = `a${"\u{1F600}".repeat(200)}`;
 
     await buildAskResponder(harness).answer(
@@ -1291,8 +1226,8 @@ describe("CallbackToolHost — descriptors handed to a driver are copies", () =>
       throw new Error("the binding served no descriptor");
     }
 
-    // `SessionCallbackTool` declares mutable members, so a driver CAN write
-    // here; what must not happen is the host's own registry moving with it.
+    // `SessionCallbackTool` declares mutable members, so a driver can write here; the host's own
+    // registry must not move with it.
     expect(() => {
       (handedOver as { name: string }).name = "smuggled_tool";
     }).toThrow(TypeError);
@@ -1316,8 +1251,7 @@ describe("CallbackToolHost — descriptors handed to a driver are copies", () =>
       providerRegistrationUnavailableDetail: "unused",
     });
 
-    // The CALLER's descriptor stays writable — the host froze its own copy, not
-    // the object it was given, which is not the host's to freeze.
+    // The caller's descriptor stays writable: the host froze its own copy, not the given object.
     expect(binding.callbackTools[0]).not.toBe(SEARCH_TOOL);
     expect(binding.callbackTools[0]).toStrictEqual(SEARCH_TOOL);
     expect(Object.isFrozen(SEARCH_TOOL)).toBe(false);

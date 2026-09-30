@@ -1,16 +1,13 @@
-// The result shape and the wire bound both drivers' MCP server-status census
-// normalizers share. Each driver maps its own status vocabulary; the bound and
-// the rejection shape are provider-neutral. Pure normalization: nothing here
-// depends on the diagnostic module.
+// The result shape and the wire bound that both drivers' MCP server-status normalizers share.
+// Each driver maps its own status vocabulary; the bound and the rejection shape are
+// provider-neutral.
 
 import { McpServerStatusEmissionSchema } from "@ai-sidekicks/contracts";
 import type { McpServerStatus, McpServerStatusEmission } from "@ai-sidekicks/contracts";
 
 /**
- * A raw row, line or notification a census normalizer could not turn into a
- * bounded emission. Rejections are RETURNED, never dropped — the wiring seam
- * routes them to the driver diagnostic surface so a malformed row is a visible
- * census gap.
+ * A raw row, line or notification a normalizer could not turn into a bounded emission.
+ * Rejections are returned, never dropped, so a malformed row shows up as a visible gap.
  */
 export interface McpServerStatusIngestRejection {
   readonly reason: string;
@@ -23,10 +20,9 @@ export interface McpServerStatusIngestResult {
 }
 
 /**
- * Bounds one (serverName, status) pair through the contract schema.
- * `serverName` is untrusted provider output and is `wireFreeFormString`-bounded
- * (length 1..128, non-whitespace, no NUL) here, before the emission can reach the
- * daemon-injected producer; a pair outside the bound comes back as a rejection.
+ * Bounds one (serverName, status) pair through the contract schema. `serverName` is untrusted
+ * provider output; a pair outside the bound (length 1..128, non-whitespace, no NUL) comes back
+ * as a rejection instead of reaching the daemon-injected producer.
  */
 export function boundMcpServerStatusEmission(
   serverName: unknown,

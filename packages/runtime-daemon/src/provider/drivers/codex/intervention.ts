@@ -1,91 +1,19 @@
-// Codex driver — intervention dispatcher.
-//
-// One generic entry point, `applyIntervention`, routes a normalized intervention
-// onto the provider's native operation OR returns a structured `degraded` result
-// the orchestration layer can act on. It never throws to signal "unsupported" —
-// an unsupported intervention type is DATA (`{ status: 'degraded',
-// fallbackAction }`), not an exception, because the layer above has to choose a
-// fallback and an exception carries no choice.
-//
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-//
-// The intervention type is mapped to the capability flag that governs it, and the
-// flag is read from the LIVE capability snapshot at dispatch time:
-//
-//   steer     -> the `steer` flag
-//   interrupt -> (none)
-//   cancel    -> (none)
-//
-// `interrupt` and `cancel` map to NO flag deliberately. `DRIVER_CAPABILITY_FLAGS`
-// registers no interrupt/cancel member, and inventing a gate on a flag that does
-// not exist would fail closed on every driver forever. Stopping an in-flight turn
-// is a core obligation of the driver contract, not an optional capability.
-//
-// The gate is `!== true`, matching `provider-registry.ts`: a flag that is `false`
-// AND a flag that is missing are both "unsupported". A capability is supported
-// only when explicitly declared `true`.
-//
-// Codex declares `steer: true`, so its degraded arm is unreachable in production
-// wiring — but it is reachable, and tested, through the injected snapshot. The
-// production-live degraded path is the Claude leg, where `steer` is `false`;
-// both legs share this dispatcher's shape.
-//
-// ---------------------------------------------------------------------------
-// Why the runtime arrives as a port
-// ---------------------------------------------------------------------------
-//
-// `CodexInterventionRuntime` is a structural port satisfied by
-// `CodexLifecycleManager`. The dispatcher does not import the manager: the two
-// are composed in `index.ts`, which keeps the module graph acyclic (the manager
-// routes steering INTO this dispatcher's neighbor operations) and lets the
-// dispatcher be tested against a two-method fake rather than a live transport.
-//
-// Result shapes are produced through `DriverInterventionResultSchema.parse`, so
-// the `.strict()` envelope is enforced mechanically rather than asserted. The
-// `applied` arm OMITS `fallbackAction` entirely rather than passing `undefined` —
-// under `exactOptionalPropertyTypes` those are different values, and a strict
-// object should not carry a key whose meaning is "no fallback applies".
-//
-// ---------------------------------------------------------------------------
-// The caller's idempotency key rides the wire, and is never re-minted
-// ---------------------------------------------------------------------------
-//
-// `ApplyInterventionParams` carries the REQUESTER's `clientIdempotencyKey` on
-// every arm, and the daemon's `interventions` UNIQUE guard is what turns
-// at-least-once delivery into exactly-once application. The driver's obligation
-// is therefore as much negative as positive: carry the caller's key verbatim
-// where the pinned wire has a home for it, and mint NOTHING where it does not.
-//
-//   steer            -> `turn/steer` carries it as `clientUserMessageId`.
-//   interrupt/cancel -> `turn/interrupt` is `{ threadId, turnId }` at the pin and
-//                       accepts no client-supplied id, so nothing is sent. A
-//                       substitute minted here would hand the provider a fresh
-//                       value on every retry and defeat the dedupe the key exists
-//                       for, which is strictly worse than sending none.
-//
-// ---------------------------------------------------------------------------
-// An ambiguous acknowledgement never reads as success
-// ---------------------------------------------------------------------------
-//
-// The two operations this dispatcher routes onto acknowledge in different
-// currencies, so they are graded separately rather than through one shared
-// "did it throw" test:
-//
-//   `turn/steer`     answers `{ turnId }` — POSITIVE evidence naming the turn the
-//                    steer landed on. `applied` therefore requires that the named
-//                    turn be the turn the driver targeted. An ack naming a
-//                    DIFFERENT turn, or naming none, is the provider having
-//                    accepted something; it is not evidence that it accepted
-//                    this, so it degrades.
-//   `turn/interrupt` answers an empty object — the pinned response carries no
-//                    payload to inspect, so the ABSENCE of a JSON-RPC error is
-//                    the whole of the available evidence, and is sufficient. No
-//                    shape check is applied to it deliberately: the wire is
-//                    additive across releases, and a check that degraded every
-//                    interrupt the day the provider added a member to that
-//                    response would fail on a change that took nothing away.
-//
+/**
+ * Codex intervention dispatcher. `applyIntervention` routes a normalized intervention onto the
+ * provider's native operation, or returns a `degraded` result the layer above can act on (an
+ * unsupported type is data, not an exception).
+ *
+ * - `steer` is gated by the `steer` capability flag, read live at dispatch with `!== true` (as in
+ *   `provider-registry.ts`); `interrupt` and `cancel` have no flag. Codex declares `steer: true`,
+ *   so its degraded arm is reached only through an injected snapshot.
+ * - `CodexInterventionRuntime` is a port `CodexLifecycleManager` satisfies, so this module stays
+ *   testable against a fake.
+ * - `clientIdempotencyKey` rides the wire unchanged where a field exists (`turn/steer` carries
+ *   it as `clientUserMessageId`); `turn/interrupt` has none, and a minted key would defeat the
+ *   `UNIQUE (target_run_id, client_idempotency_key)` dedupe on retry.
+ * - `turn/steer` answers `{ turnId }`, so `applied` requires the targeted turn; `turn/interrupt`
+ *   answers an empty object, so no JSON-RPC error is the only evidence (no shape check).
+ */
 
 import {
   DriverInterventionResultSchema,
@@ -101,19 +29,10 @@ import {
   type CallerDeclaredFrameOrigin,
 } from "../outbound-frame.js";
 
-/**
- * The fallback the orchestration layer performs when a native intervention is
- * unavailable: hold the user's directive and interrupt the turn, so the
- * directive is applied at the next boundary instead of being lost.
- */
+/** The fallback the orchestration layer performs when a native intervention is unavailable. */
 export const CODEX_INTERVENTION_FALLBACK_ACTION: string = "queue_and_interrupt";
 
-/**
- * Capability flag governing each intervention type this driver dispatches.
- *
- * A closed record over the `ApplyInterventionParams` arms. `null`
- * means "no flag gates this type" (see the header).
- */
+/** Capability flag governing each intervention type; `null` means no flag gates it. */
 export const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
   Record<ApplyInterventionParams["type"], DriverCapabilityFlag | null>
 > = {
@@ -122,50 +41,22 @@ export const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
   cancel: null,
 };
 
-/**
- * One steer, as handed to the runtime.
- *
- * An object rather than the positional triple it replaces: the caller's
- * idempotency key is a fourth value that must not be confused with the two
- * strings beside it, and a positional `string` in third or fourth place is
- * exactly the shape a transposed argument slips through.
- */
+/** One steer, as handed to the runtime. */
 export interface CodexSteerRunRequest {
   readonly runId: RunId;
   readonly content: string;
-  /**
-   * Pins the steer to a specific turn. Absent means "whichever turn is live",
-   * which the runtime resolves — and reports back as `targetedTurnId`, so the
-   * comparison below is against what actually went on the wire.
-   */
+  /** Pins the steer to a turn; absent means the live turn, reported back as `targetedTurnId`. */
   readonly expectedTurnId?: string | undefined;
-  /**
-   * The REQUESTER's key, placed on the wire unchanged and never re-minted
-   * at this boundary. See the header.
-   */
+  /** The requester's key, placed on the wire unchanged. */
   readonly clientIdempotencyKey: string;
   /**
-   * Why this text is being written. A steer directive is user text,
-   * and this dispatcher says so explicitly rather than relying on the
-   * absent-origin default — the default is fail-closed and would neutralize
-   * identically, but it would report `origin=unknown` on a trip, which is a
-   * worse answer than the true one when the true one is known.
-   *
-   * Typed as the CALLER-declarable subset, so the tripwire-exempt arm is not
-   * nameable through this request at all: a steer that claimed it would have
-   * its command-shaped bytes delivered verbatim AND its turn excused from the
-   * tripwire, which is the swallow this whole path exists to catch.
+   * Why this text is written. Typed as the caller-declarable subset, so the tripwire-exempt origin
+   * (which would skip the swallow check) cannot be named here.
    */
   readonly frameOrigin?: CallerDeclaredFrameOrigin | undefined;
 }
 
-/**
- * What the provider's `turn/steer` acknowledgement asserted.
- *
- * Both sides of the comparison travel because the comparison is the point: the
- * dispatcher must be able to tell "the provider confirmed the turn we targeted"
- * from "the provider acknowledged something".
- */
+/** What `turn/steer` acknowledged; both turn ids travel so a different turn can be told apart. */
 export interface CodexSteerAcknowledgement {
   /** The turn the runtime actually put on the wire as `expectedTurnId`. */
   readonly targetedTurnId: string;
@@ -173,38 +64,18 @@ export interface CodexSteerAcknowledgement {
   readonly acknowledgedTurnId: string | null;
 }
 
-/**
- * The provider operations this dispatcher routes onto.
- *
- * Structurally satisfied by `CodexLifecycleManager`; declared here so the
- * dispatcher depends on the two operations it calls rather than on the manager.
- * Two, not three: `cancel` and `interrupt` share `interruptRun` (see the arm).
- *
- * `steerRun` returns its acknowledgement because the grader reads it; `interruptRun`
- * returns `void` because the pinned `turn/interrupt` response has no payload to
- * grade, and because it is `ProviderDriver.interruptRun` — widening a contract
- * operation's return type to serve one caller would be the dispatcher setting
- * the driver's public surface.
- */
+/** The provider operations routed onto; `cancel` and `interrupt` share `interruptRun`. */
 export interface CodexInterventionRuntime {
   steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement>;
   interruptRun(params: InterruptRunParams): Promise<void>;
   /**
-   * Whether the runtime has ALREADY ruled the given turn's provider-bound text
-   * swallowed.
-   *
-   * A read, never a wait. The dispatcher asks once, at the moment its own
-   * result resolves, which is precisely what makes `refusalCode` best-effort BY
-   * CONSTRUCTION rather than by tolerance: holding an intervention call open
-   * until a provider turn settles would be an unbounded wait on a surface whose
-   * caller is synchronous. Where the answer is not yet known the member is
-   * simply absent, and the run's own `run.failed` terminal — which the runtime
-   * reports independently — remains the guarantee on every path.
+   * Whether the runtime has already ruled the turn's text swallowed. A read, never a wait, so
+   * `refusalCode` is best-effort and the run's `run.failed` terminal remains the guarantee.
    */
   textNeutralizationDecisionForTurn(turnId: string): { readonly refused: boolean };
 }
 
-/** Reads the live capability snapshot. Injected — `capabilities.ts` is the file. */
+/** Reads the live capability snapshot; injected so a refreshed record is honored. */
 export type CodexCapabilitySnapshotReader = () => DriverCapabilities;
 
 /** Construction inputs for the dispatcher. */
@@ -213,49 +84,20 @@ export interface CodexInterventionOptions {
   readonly readCapabilities: CodexCapabilitySnapshotReader;
 }
 
-/**
- * Type-level backstop for an intervention type this switch does not route.
- *
- * `params: never` is the whole mechanism: the day `ApplyInterventionParams`
- * grows an arm, this call stops compiling, and the arm cannot reach the
- * `applied` return by falling through. Unreachable at runtime today -- the
- * capability gate degrades an unmapped type before the switch is entered -- so
- * this buys the COMPILE-time guarantee the gate cannot give.
- *
- * Degrades rather than throwing. It names NO `fallbackAction`:
- * `queue_and_interrupt` is the documented fallback for a missing native steer,
- * and asserting it for a type nothing here knows anything about would put a verb
- * into the daemon's mouth. Mirrors the Claude leg's arm of the same name.
- */
+// `params: never` stops compiling when `ApplyInterventionParams` gains an arm. No
+// `fallbackAction`: `queue_and_interrupt` remedies a missing steer, not an unknown type.
 function degradeUnroutedInterventionType(params: never): DriverInterventionResult {
   void params;
   return DriverInterventionResultSchema.parse({ status: "degraded" });
 }
 
-/**
- * Grades a steer acknowledgement into the single normalized outcome.
- *
- * The mismatch and the named-nothing cases collapse into one degraded answer on
- * purpose: both mean the driver holds no evidence that the turn it targeted was
- * steered, and the daemon's remedy is the same for either — queue the directive
- * and interrupt, so it lands at the next boundary rather than being reported
- * applied to a turn that never saw it.
- */
+// A mismatched or missing acknowledged turn degrades: neither shows the targeted turn was steered.
 function normalizeSteerAcknowledgement(
   acknowledgement: CodexSteerAcknowledgement,
   textNeutralizationRefused: boolean,
 ): DriverInterventionResult {
-  // Takes precedence over the acknowledgement grade, and the ordering is the
-  // claim. A steer whose text the provider swallowed may well come back with a
-  // perfectly matching ack — the provider genuinely accepted a turn, it simply
-  // never showed the words to a model — so grading the ack first would report
-  // `applied` for a directive that was never delivered.
-  //
-  // The refusal arm carries NO `fallbackAction`, unlike every other degraded
-  // arm in this module. `queue_and_interrupt` is the remedy for "this provider
-  // cannot steer", and re-queueing the same text into the same swallow is not a
-  // remedy at all — it is the failure again. Withholding the hint is how the
-  // orchestration layer is told there is no local fallback for this one.
+  // Checked first: a swallowed steer can still get a matching ack. No `fallbackAction`, since
+  // re-queueing the same text fails the same way.
   if (textNeutralizationRefused) {
     return DriverInterventionResultSchema.parse({
       status: "degraded",
@@ -271,7 +113,7 @@ function normalizeSteerAcknowledgement(
   });
 }
 
-/** Generic intervention dispatcher for the Codex driver. */
+/** Routes normalized interventions onto Codex's native operations, or degrades them. */
 export class CodexInterventionDispatcher {
   readonly #runtime: CodexInterventionRuntime;
   readonly #readCapabilities: CodexCapabilitySnapshotReader;
@@ -282,14 +124,8 @@ export class CodexInterventionDispatcher {
   }
 
   /**
-   * Routes one intervention. Returns `degraded` when the governing capability is
-   * not declared `true`; otherwise performs the native operation and returns
-   * `applied`.
-   *
-   * Transport and run-state failures still THROW. Degraded means "this provider
-   * cannot do this kind of thing"; a provider that can do it and failed is a
-   * different condition, and flattening the two would tell the orchestration
-   * layer to run a fallback for what is really an outage.
+   * Routes one intervention: `degraded` when the governing capability is not `true`, else the
+   * native operation and `applied`. Transport and run-state failures throw.
    */
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     const requiredFlag = CODEX_INTERVENTION_CAPABILITY_FLAGS[params.type];
@@ -309,10 +145,7 @@ export class CodexInterventionDispatcher {
           clientIdempotencyKey: params.clientIdempotencyKey,
           frameOrigin: "human_text",
         });
-        // Asked against the turn that actually went on the wire, not against the
-        // caller's optional hint — the same value the ack is graded on, for
-        // the same reason: a stale hint would ask about a turn this steer never
-        // touched.
+        // Asked about the turn that went on the wire, not the caller's hint.
         return normalizeSteerAcknowledgement(
           acknowledgement,
           this.#runtime.textNeutralizationDecisionForTurn(acknowledgement.targetedTurnId).refused,
@@ -326,10 +159,7 @@ export class CodexInterventionDispatcher {
         break;
       }
       case "cancel": {
-        // Codex exposes ONE turn-stopping operation. Interrupt and cancel differ
-        // in what the DAEMON does with the run afterwards (resumable pause vs.
-        // terminal cancellation), not in what the provider is asked to do, so
-        // both route here and the run-state distinction stays daemon-side.
+        // Same wire operation as interrupt; the daemon differs in what it does with the run after.
         await this.#runtime.interruptRun({
           runId: params.targetRunId,
           ...(params.payload.reason === undefined ? {} : { reason: params.payload.reason }),
@@ -341,10 +171,6 @@ export class CodexInterventionDispatcher {
       }
     }
 
-    // Reached by the interrupt and cancel arms only — the steer arm returns its
-    // graded acknowledgement above. `turn/interrupt` resolving without a
-    // JSON-RPC error IS the evidence for those two . `applied`
-    // carries no `fallbackAction` key at all — see the header note.
     return DriverInterventionResultSchema.parse({ status: "applied" });
   }
 

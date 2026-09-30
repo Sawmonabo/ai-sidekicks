@@ -1,26 +1,17 @@
 /**
- * Spawn-time binary resolution, the in-band version read, and the ratified
- * floor gate.
+ * Spawn-time binary resolution, the in-band version read, and the floor gate.
  *
- * Coverage targets, taken from the task's own Tests field and rather than
- * restated from the module under test:
- *
- *   * A below-floor build refuses attach as `driver.cli_version_below_floor`
- *     BEFORE session creation, before any capability probe, and before any
- *     billed turn — while the minimal version-handshake process is still
- *     PERMITTED to spawn, because the version is read in-band from it. The
- *     assertion is therefore an ordering-and-absence one: the handshake ran
- *     exactly once, and nothing used that process afterwards.
- *   * An above-pin build attaches (newer-than-measured is the expected state,
- *     not an exception).
- *   * The LAUNCHER-DRIFT arm: the version the binding row records equals the
- *     version the SPAWNED process reported, asserted against a path-addressed
- *     spawn whose launcher names a different build. This is the case a
- *     `--version` shell-out gets wrong.
- *   * An unparseable in-band report still refuses as
- *     `driver.cli_version_unparseable` — on both channels, including the Codex
- *     composite `userAgent` whose naive parse returns the CALLER's version.
- *   * Every driver-spawned child carries its provider's auto-update opt-out.
+ * - A below-floor build refuses attach as `driver.cli_version_below_floor` before session
+ *   creation, any capability probe or any billed turn. The version handshake process may still
+ *   spawn, since the version is read in-band from it: the handshake ran once and nothing used
+ *   that process afterwards.
+ * - An above-pin build attaches.
+ * - Launcher drift: the version the binding row records equals the version the spawned process
+ *   reported, even when the launcher names a different build (what a `--version` shell-out
+ *   gets wrong).
+ * - An unparseable in-band report refuses as `driver.cli_version_unparseable` on both channels,
+ *   including the Codex `userAgent`, whose naive parse returns the caller's version.
+ * - Every driver-spawned child carries its provider's auto-update opt-out.
  */
 
 import { chmod, mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
@@ -61,15 +52,9 @@ import {
 } from "../version-gate.js";
 import { CODEX_DRIVER_NAME, refreshCodexCapabilities } from "../drivers/codex/capabilities.js";
 
-// --------------------------------------------------------------------------
-// Doubles
-// --------------------------------------------------------------------------
-
 /**
- * A handshake transport keyed BY RESOLVED PATH. That keying is the whole
- * launcher-drift experiment: the fixture can register one answer for the
- * launcher's path and a different one for the build it dereferences to, so a
- * module that read the launcher would produce a demonstrably different reading.
+ * A handshake transport keyed by resolved path, so the fixture can answer differently for a
+ * launcher's path and the build it dereferences to.
  */
 class RecordingHandshake {
   readonly requests: ProviderVersionHandshakeRequest[] = [];
@@ -83,9 +68,8 @@ class RecordingHandshake {
     this.requests.push(request);
     const reply = this.#repliesByPath.get(request.resolvedExecutablePath);
     if (reply === undefined) {
-      // A spawn of a path the fixture never registered is a test-design bug,
-      // not a provider behavior — fail loudly rather than answering `undefined`
-      // and letting it read as an unparseable provider reply.
+      // An unregistered path is a test-design bug: fail loudly instead of reading as an
+      // unparseable provider reply.
       return Promise.reject(
         new Error(`no handshake reply registered for ${request.resolvedExecutablePath}`),
       );
@@ -103,14 +87,10 @@ function codexUserAgent(codexVersion: string, clientVersion = "0.9.0"): string {
   );
 }
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 describe("auto-update suppression in the spawned child", () => {
   it("declares an opt-out for EVERY driver, Codex's deliberately empty", () => {
-    // Totality, not coverage: an omitted key and a deliberately-empty one must
-    // not look alike. codex-cli documents no environment opt-out, and reaches
-    // the same guarantee through the exact-build-path spawn.
+    // An omitted key and a deliberately empty one must not look alike; codex-cli documents no
+    // environment opt-out and gets the same guarantee through the exact-build-path spawn.
     const drivers: readonly FlooredDriverName[] = Object.keys(
       DRIVER_CLI_VERSION_FLOORS,
     ) as FlooredDriverName[];
@@ -129,14 +109,13 @@ describe("auto-update suppression in the spawned child", () => {
     });
     expect(composed["DISABLE_AUTOUPDATER"]).toBe("1");
     expect(composed["DISABLE_UPDATES"]).toBe("1");
-    // Everything else passes through untouched — this seam decides one thing.
+    // Everything else passes through untouched.
     expect(composed["PATH"]).toBe("/usr/bin");
   });
 
   it("carries the opt-out into the version handshake's own child", async () => {
-    // The handshake spawn IS a driver-spawned child, so the obligation binds it
-    // too: a build that auto-updated during its own version handshake would
-    // falsify the reading that same handshake produced.
+    // The handshake spawn is a driver-spawned child too; a build that auto-updated during its
+    // own version handshake would falsify that reading.
     const executable = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
     const handshake = new RecordingHandshake({
       [executable]: { version: "2.1.245", buildTime: "2026-08-25T04:00:18Z" },
@@ -158,10 +137,6 @@ describe("auto-update suppression in the spawned child", () => {
     expect(handshake.requests[0]?.environment["DISABLE_UPDATES"]).toBe("1");
   });
 });
-
-// --------------------------------------------------------------------------
-// Executable resolution + the launcher-drift arm
-// --------------------------------------------------------------------------
 
 describe("provider executable resolution", () => {
   const temporaryDirectories: string[] = [];
@@ -189,16 +164,15 @@ describe("provider executable resolution", () => {
     return { launcherPath, buildPath, binDirectory };
   }
 
-  // Symlink creation is unprivileged only on posix hosts; the win32 leg of
-  // resolution is covered by the injected-seam cases below.
+  // Symlink creation is unprivileged only on posix hosts; the win32 leg is covered by the
+  // injected-seam cases below.
   describe.skipIf(process.platform === "win32")("against a real launcher symlink", () => {
     it("dereferences a launcher to the exact build path", async () => {
       const { launcherPath, buildPath } = await makeLauncherFixture();
       const resolved = await resolveProviderExecutable("claude", launcherPath);
       expect(resolved.requestedCommand).toBe(launcherPath);
-      // `realpath` also resolves the temp root's own symlinks (macOS `/var` →
-      // `/private/var`), so the assertion is on the FINAL COMPONENTS rather
-      // than on a string-equal path.
+      // `realpath` also resolves the temp root's own symlinks (macOS `/var` to `/private/var`),
+      // so assert on the final components.
       expect(resolved.resolvedExecutablePath.endsWith(join("builds", "2.1.245", "claude"))).toBe(
         true,
       );
@@ -217,10 +191,8 @@ describe("provider executable resolution", () => {
     });
 
     it("RECORDS THE SPAWNED BUILD'S VERSION WHEN THE LAUNCHER NAMES ANOTHER ONE", async () => {
-      // The launcher-drift arm. The transport answers `2.1.245` for the
-      // dereferenced build and `2.1.198` for the launcher path — the answer a
-      // `claude --version` shell-out would have taken. The reading, and the two
-      // binding carriers derived from it, must carry the BUILD's answer.
+      // Launcher drift: the transport answers `2.1.245` for the dereferenced build and `2.1.198`
+      // for the launcher path; the reading and both binding carriers must carry the build's.
       const { launcherPath } = await makeLauncherFixture();
       const resolved = await resolveProviderExecutable("claude", launcherPath);
       const handshake = new RecordingHandshake({
@@ -238,7 +210,7 @@ describe("provider executable resolution", () => {
       expect(reading.report).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
       expect(reading.resolvedExecutablePath).toBe(resolved.resolvedExecutablePath);
       expect(reading.resolvedExecutablePath).not.toBe(launcherPath);
-      // The launcher was never spawned — the drift cannot reach the reading.
+      // The launcher was never spawned.
       expect(handshake.requests.map((request) => request.resolvedExecutablePath)).toStrictEqual([
         resolved.resolvedExecutablePath,
       ]);
@@ -275,10 +247,8 @@ describe("provider executable resolution", () => {
   });
 
   it("expands PATHEXT on win32, where the executable-bit probe is inert", async () => {
-    // The win32 LOGIC under test is the `PATHEXT` expansion and its ordering.
-    // Path SYNTAX is `node:path`'s and is always the host platform's, so the
-    // fixture uses host-shaped PATH entries rather than pretending a posix test
-    // runner can canonicalize a drive-letter path.
+    // The win32 logic under test is the `PATHEXT` expansion and its ordering. Path syntax is
+    // `node:path`'s and follows the host, so the fixture uses host-shaped PATH entries.
     const probed: string[] = [];
     const resolved = await resolveProviderExecutable("claude", "claude", {
       platform: "win32",
@@ -294,9 +264,8 @@ describe("provider executable resolution", () => {
   });
 
   it("tries the bare name LAST for an extensionless win32 command", async () => {
-    // The full candidate ORDER, observable only when nothing matches (the
-    // resolver short-circuits on the first executable candidate). A stray
-    // extensionless file must never shadow the real `.CMD` shim.
+    // The full candidate order is observable only when nothing matches (the resolver stops at
+    // the first executable candidate); an extensionless file must never shadow the `.CMD` shim.
     const probed: string[] = [];
     await expect(
       resolveProviderExecutable("claude", "claude", {
@@ -332,9 +301,8 @@ describe("provider executable resolution", () => {
   });
 
   it("skips a candidate whose realpath fails rather than trusting the launcher path", async () => {
-    // The candidate vanished between the probe and the dereference. Falling
-    // back to the unresolved path would record exactly the launcher this module
-    // exists to stop trusting, so the candidate is skipped instead.
+    // The candidate vanished between probe and dereference; falling back to the unresolved path
+    // would record the launcher this module exists to distrust, so it is skipped.
     await expect(
       resolveProviderExecutable("claude", "/opt/bin/claude", {
         isExecutableFile: () => Promise.resolve(true),
@@ -343,10 +311,6 @@ describe("provider executable resolution", () => {
     ).rejects.toBeInstanceOf(ProviderExecutableUnresolvableError);
   });
 });
-
-// --------------------------------------------------------------------------
-// The two in-band channels
-// --------------------------------------------------------------------------
 
 describe("in-band version read — Claude get_binary_version", () => {
   it("adopts the reply's version as-is", () => {
@@ -364,8 +328,8 @@ describe("in-band version read — Claude get_binary_version", () => {
 
 describe("in-band version read — Codex initialize userAgent", () => {
   it("extracts the PROVIDER's version from the composite string", () => {
-    // The trap this rule exists for: the caller's own version (`0.9.0`) also
-    // appears in the string, and a trailing-parenthetical parse returns it.
+    // The caller's own version (`0.9.0`) also appears in the string, and a trailing-parenthetical
+    // parse would return it.
     const userAgent = codexUserAgent("0.149.1", "0.9.0");
     expect(extractCodexReportedVersion({ userAgent }, DEFAULT_PROVIDER_VERSION_CLIENT_NAME)).toBe(
       "0.149.1",
@@ -373,8 +337,7 @@ describe("in-band version read — Codex initialize userAgent", () => {
   });
 
   it("refuses a userAgent whose leading token is not the name the daemon supplied", () => {
-    // Shape drift, or another client's string. Guessing here is how a consumer
-    // ends up reporting some other process's version as the provider's.
+    // Shape drift or another client's string: guessing would report another process's version.
     const userAgent = `some-other-client/0.149.1 (macos; aarch64)`;
     expect(() =>
       extractCodexReportedVersion({ userAgent }, DEFAULT_PROVIDER_VERSION_CLIENT_NAME),
@@ -419,9 +382,8 @@ describe("in-band version read — Codex initialize userAgent", () => {
   });
 
   it("refuses a daemon-supplied client name that breaks the extraction rule", () => {
-    // A DAEMON obligation, so its violation is an internal-invariant Error and
-    // not a provider refusal: a name carrying '/' or whitespace would make the
-    // extraction ambiguous in the provider's favor.
+    // A daemon obligation, so a violation is an internal-invariant Error, not a provider
+    // refusal: a name with '/' or whitespace would make the extraction ambiguous.
     for (const badName of ["", "ai/sidekicks", "ai sidekicks"]) {
       expect(() =>
         extractCodexReportedVersion({ userAgent: codexUserAgent("0.149.1") }, badName),
@@ -441,10 +403,6 @@ describe("in-band version read — Codex initialize userAgent", () => {
     expect((thrown as DriverCliVersionUnparseableError).fields.raw).toBe(userAgent);
   });
 });
-
-// --------------------------------------------------------------------------
-// The ratified floor gate at the spawn
-// --------------------------------------------------------------------------
 
 describe("the ratified floor gate at the spawn", () => {
   const CODEX_EXECUTABLE = "/opt/homebrew/Cellar/codex/0.149.1/bin/codex";
@@ -481,10 +439,8 @@ describe("the ratified floor gate at the spawn", () => {
   }
 
   it("refuses a below-floor build AFTER the handshake spawn and BEFORE any other use", async () => {
-    // The ordering the task's Tests field states: the minimal handshake process
-    // is permitted to spawn (the version is read in-band FROM it), and the
-    // refusal precedes every use of that process beyond the handshake — no
-    // declaration reaches the writer, and no second request reaches the process.
+    // The handshake process may spawn (the version is read in-band from it); the refusal precedes
+    // every other use: no declaration reaches the writer and no second request reaches the process.
     const handshake = new RecordingHandshake({
       [CODEX_EXECUTABLE]: { userAgent: codexUserAgent("0.140.0") },
     });
@@ -506,9 +462,8 @@ describe("the ratified floor gate at the spawn", () => {
     });
     expect(handshake.requests).toHaveLength(1);
     expect(sink.calls).toHaveLength(0);
-    // Joins "every use of that process beyond the handshake": a build the
-    // daemon has already refused is never asked what it can do, so not even the
-    // probe channel's negative control is issued against it.
+    // A refused build is never asked what it can do, so not even the probe channel's negative
+    // control is issued against it.
     expect(probe.requests).toHaveLength(0);
   });
 
@@ -523,8 +478,7 @@ describe("the ratified floor gate at the spawn", () => {
   });
 
   it("ATTACHES an above-the-pin build — newer-than-measured is not a refusal", async () => {
-    // the floor comparison is the whole of the version gate, and a build
-    // above the measured pin attaches.
+    // The floor comparison is the whole gate: a build above the measured pin attaches.
     const handshake = new RecordingHandshake({
       [CODEX_EXECUTABLE]: { userAgent: codexUserAgent("9.99.0") },
     });
@@ -580,10 +534,6 @@ describe("the ratified floor gate at the spawn", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// The binding write persists THAT SAME reading
-// --------------------------------------------------------------------------
-
 describe("the binding carriers come from one reading", () => {
   const READING: SpawnedProviderVersionReading = {
     driverName: "claude",
@@ -618,8 +568,7 @@ describe("the binding carriers come from one reading", () => {
   });
 
   it("REFUSES a spawn_config naming a different executable from the reading", () => {
-    // The failure this seam exists to make unreachable: a row recording one
-    // install's version beside another install's path.
+    // A row must never record one install's version beside another install's path.
     expect(() =>
       withSpawnedVersionCarriers(
         { ...BASE_INPUT, spawnConfig: { resolvedExecutablePath: "/usr/local/bin/claude" } },
@@ -635,9 +584,8 @@ describe("the binding carriers come from one reading", () => {
   });
 
   it("records a version the reading produced, never one a caller supplied", () => {
-    // Type-level: `cliVersion` is omitted from the input, so the only way to
-    // reach the column pair is through a reading. Runtime-level: a stray member
-    // on an untyped caller's object is overwritten rather than honored.
+    // Type-level: `cliVersion` is omitted from the input, so a reading is the only way to reach
+    // the column pair. Runtime: a stray member on an untyped caller's object is overwritten.
     const smuggled = {
       ...BASE_INPUT,
       cliVersion: { raw: "9.9.9", semver: "9.9.9" } satisfies DriverCliVersionReport,
