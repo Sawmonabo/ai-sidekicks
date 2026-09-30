@@ -92,9 +92,9 @@ export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
   })
   .strict();
 
-// One payload shape serves the eleven lifecycle event types: the six that register into
-// `SessionEventSchema` (`repo.attached`, `repo.detached`, `workspace.preparing`,
-// `workspace.ready`, `workspace.stale`, `workspace.archived`) and the five `worktree.*` types.
+// One payload shape serves the nine lifecycle event types: the four that register into
+// `SessionEventSchema` (`workspace.preparing`, `workspace.ready`, `workspace.stale`,
+// `workspace.archived`) and the five `worktree.*` types.
 // The subject is identified by which optional id the payload carries (`repoMountId`, `workspaceId`
 // or `worktreeId`), and the schema requires no particular one, because the detach cascade's
 // `workspace.archived` legitimately names both the mount and the workspace. Each emitter must
@@ -120,10 +120,8 @@ export type RepoWorkspaceLifecyclePayloadOf<TState extends string> = {
   actor?: string | null | undefined;
 };
 
-/** The lifecycle payload for the mount and workspace vocabularies this module emits. */
-export type RepoWorkspaceLifecyclePayload = RepoWorkspaceLifecyclePayloadOf<
-  RepoMountState | WorkspaceState
->;
+/** The lifecycle payload for the workspace vocabulary this module emits. */
+export type RepoWorkspaceLifecyclePayload = RepoWorkspaceLifecyclePayloadOf<WorkspaceState>;
 
 /**
  * Builds the family payload schema over one emitter's state vocabulary; `worktree.ts` uses it for
@@ -187,7 +185,7 @@ function buildRepoWorkspaceLifecyclePayloadObject<TState extends string>(
 
 /**
  * Parses a {@link RepoWorkspaceLifecyclePayload}. It is strict, so an unknown key is drift surfaced
- * at parse time, and it composes the two enum schemas so a change to either propagates here.
+ * at parse time, and it composes the workspace state schema so a change there propagates here.
  */
 export const RepoWorkspaceLifecyclePayloadSchema: z.ZodType<RepoWorkspaceLifecyclePayload> =
-  buildRepoWorkspaceLifecyclePayloadSchema(z.union([RepoMountStateSchema, WorkspaceStateSchema]));
+  buildRepoWorkspaceLifecyclePayloadSchema(WorkspaceStateSchema);
