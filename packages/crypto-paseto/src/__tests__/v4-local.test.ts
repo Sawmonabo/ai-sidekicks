@@ -73,10 +73,12 @@ describe("v4.local encrypt / decrypt", () => {
     expect(() => decryptV4Local(token, key, encoder.encode("kid"))).toThrow(InvalidTokenError);
   });
 
-  it("rejects mismatch: footer absent expected, token has one", () => {
+  it("rejects a token whose footer is not the expected one", () => {
     const key = randomBytes(32);
     const token = encryptV4Local(encoder.encode("p"), key, encoder.encode("kid"));
     expect(() => decryptV4Local(token, key, undefined)).toThrow(InvalidTokenError);
     expect(() => decryptV4Local(token, key, empty)).toThrow(InvalidTokenError);
+    // The tag covers the token's own footer, so only the comparison refuses a different one.
+    expect(() => decryptV4Local(token, key, encoder.encode("other"))).toThrow(InvalidTokenError);
   });
 });

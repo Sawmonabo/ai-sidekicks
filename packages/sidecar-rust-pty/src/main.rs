@@ -467,9 +467,8 @@ mod tests {
             Ok(()),
             Err(IoError::new(ErrorKind::BrokenPipe, "writer boom")),
         );
-        let err = result.expect_err(
-            "regression: writer error must NOT be silently dropped when dispatcher returns Ok",
-        );
+        let err =
+            result.expect_err("a writer error must not be dropped when the dispatcher returns Ok");
         assert_eq!(err.kind(), ErrorKind::BrokenPipe);
     }
 
@@ -521,7 +520,7 @@ mod tests {
         );
     }
 
-    /// Regression guard for the closed-arm spin: with `dispatch_rx` closed and `outbound_rx` still
+    /// Guards against the closed-arm spin: with `dispatch_rx` closed and `outbound_rx` still
     /// open and holding an envelope, the writer must drain that envelope while `outbound_tx` is
     /// alive, not only at exit.
     ///
@@ -615,7 +614,7 @@ mod tests {
         frames
     }
 
-    /// Regression guard for live-channel starvation: while `dispatch_rx` stays continuously ready,
+    /// Guards against live-channel starvation: while `dispatch_rx` stays continuously ready,
     /// a queued outbound `DataFrame` must still appear early in the output.
     ///
     /// With `biased;` the writer always picks dispatch, so the `DataFrame` would come after every
@@ -689,7 +688,7 @@ mod tests {
         // 200 pings.
         assert!(
             data_pos < 50,
-            "DataFrame at position {data_pos}: live-channel starvation regression \
+            "DataFrame at position {data_pos}: live-channel starvation \
              (expected position < 50 under fair-shuffle; ~200+ under dispatch-bias). \
              Total frames written: {}.",
             frames.len()
@@ -730,7 +729,7 @@ mod tests {
         .expect("dispatcher did not return within 100ms of receiving malformed frame");
 
         let err = result.expect_err(
-            "regression: malformed JSON body MUST be fatal — \
+            "a malformed JSON body must be fatal — \
              daemon correlates responses by FIFO order with no request \
              IDs, so silently skipping a malformed inbound frame would \
              either leave the corresponding Promise unresolved or match \

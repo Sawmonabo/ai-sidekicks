@@ -29,8 +29,8 @@ pub enum WindowsKillAction {
 ///
 /// <https://learn.microsoft.com/en-us/windows/console/generateconsolectrlevent>
 ///
-/// Cast to `u32` at the FFI boundary (the API takes a `DWORD`); the unit tests assert the numeric
-/// values so a reorder breaks the build.
+/// Cast to `u32` at the FFI boundary (the API takes a `DWORD`); a unit test asserts the numeric
+/// values, since sending the wrong one turns a graceful interrupt into a hard stop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum ConsoleCtrlEvent {
@@ -60,7 +60,7 @@ pub fn translate(signal: PtySignal) -> WindowsKillAction {
         // SIGHUP has no fixed Windows mapping. `node-pty-host.ts` sends it down the SIGTERM path
         // (CTRL_BREAK, then taskkill after 2 s). The sidecar goes straight to tree kill, which is
         // where a child that ignores CTRL_BREAK ends up anyway, and needs no sidecar-side timer. To
-        // match the host, change this arm and `translates_sighup_to_tree_kill_direct`.
+        // match the host, change this arm and its row in the tests.
         PtySignal::Sighup => WindowsKillAction::TreeKill,
     }
 }
@@ -69,63 +69,30 @@ pub fn translate(signal: PtySignal) -> WindowsKillAction {
 mod tests {
     use super::*;
 
-    // One test per `PtySignal` variant.
-
     #[test]
-    fn translates_sigint_to_ctrl_c_event() {
-        assert_eq!(
-            translate(PtySignal::Sigint),
-            WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlC),
-        );
-    }
-
-    #[test]
-    fn translates_sigterm_to_ctrl_break_event() {
-        assert_eq!(
-            translate(PtySignal::Sigterm),
-            WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
-        );
-    }
-
-    #[test]
-    fn translates_sigkill_to_tree_kill_direct() {
-        assert_eq!(translate(PtySignal::Sigkill), WindowsKillAction::TreeKill);
-    }
-
-    #[test]
-    fn translates_sighup_to_tree_kill_direct() {
-        // Pins the SIGHUP choice documented in `translate`, so a change to CTRL_BREAK-then-escalate
-        // is deliberate.
-        assert_eq!(translate(PtySignal::Sighup), WindowsKillAction::TreeKill);
-    }
-
-    // The FFI binding casts these with `as u32`, so a reorder must fail a test.
-
-    #[test]
-    fn ctrl_c_event_numeric_code_is_zero() {
-        // Win32 defines CTRL_C_EVENT as 0.
-        assert_eq!(ConsoleCtrlEvent::CtrlC.as_u32(), 0);
-        assert_eq!(ConsoleCtrlEvent::CtrlC as u32, 0);
-    }
-
-    #[test]
-    fn ctrl_break_event_numeric_code_is_one() {
-        // Win32 defines CTRL_BREAK_EVENT as 1.
-        assert_eq!(ConsoleCtrlEvent::CtrlBreak.as_u32(), 1);
-        assert_eq!(ConsoleCtrlEvent::CtrlBreak as u32, 1);
-    }
-
-    // Exercises every variant; the exhaustive match in `translate` is what fails the build on a new
-    // one.
-    #[test]
-    fn translate_is_total_over_pty_signal() {
-        for signal in [
-            PtySignal::Sigint,
-            PtySignal::Sigterm,
-            PtySignal::Sigkill,
-            PtySignal::Sighup,
+    fn translates_each_signal_to_its_windows_action() {
+        // SIGINT is the graceful CTRL_C; SIGTERM is CTRL_BREAK, which the caller escalates; SIGKILL
+        // and SIGHUP skip the console event for a tree kill.
+        for (signal, action) in [
+            (
+                PtySignal::Sigint,
+                WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlC),
+            ),
+            (
+                PtySignal::Sigterm,
+                WindowsKillAction::ConsoleCtrlEvent(ConsoleCtrlEvent::CtrlBreak),
+            ),
+            (PtySignal::Sigkill, WindowsKillAction::TreeKill),
+            (PtySignal::Sighup, WindowsKillAction::TreeKill),
         ] {
-            let _ = translate(signal);
+            assert_eq!(translate(signal), action, "{signal:?}");
         }
+    }
+
+    #[test]
+    fn console_events_carry_the_win32_codes() {
+        // Win32 defines CTRL_C_EVENT as 0 and CTRL_BREAK_EVENT as 1.
+        assert_eq!(ConsoleCtrlEvent::CtrlC.as_u32(), 0);
+        assert_eq!(ConsoleCtrlEvent::CtrlBreak.as_u32(), 1);
     }
 }
