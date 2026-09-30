@@ -57,7 +57,11 @@ const NO_ARTIFACTS_BY_TYPE: Readonly<Record<ArtifactType, number>> = {
   workflow_output: 0,
 };
 
-/** Every artifact type, in the order the filter offers them. */
+/**
+ * Every artifact type, in the order the filter offers them.
+ *
+ * @consumedBy the inspector's Artifacts section
+ */
 export const ARTIFACT_FILTER_TYPES = Object.keys(NO_ARTIFACTS_BY_TYPE) as readonly ArtifactType[];
 
 /** The filter's "every type" member, which is not an artifact type. */
@@ -76,7 +80,11 @@ export type ArtifactsSectionState =
   | { readonly kind: "loading" }
   | { readonly kind: "listed"; readonly rows: readonly ArtifactManifestRow[] };
 
-/** The rows one filter admits, in the order they arrived. */
+/**
+ * The rows one filter admits, in the order they arrived.
+ *
+ * @consumedBy the inspector's Artifacts section
+ */
 export function filterArtifactRows(
   rows: readonly ArtifactManifestRow[],
   filter: ArtifactTypeFilter,
@@ -89,6 +97,8 @@ export function filterArtifactRows(
 
 /**
  * How many rows each type has, zeros included, so the filter can offer every type.
+ *
+ * @consumedBy the inspector's Artifacts section
  */
 export function artifactTypeCounts(
   rows: readonly ArtifactManifestRow[],

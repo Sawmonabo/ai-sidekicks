@@ -89,6 +89,8 @@ export function createAgentList(
 /**
  * Both driver catalogs, read together. The model catalog is per session; the capability
  * flags belong to the drivers and take no session.
+ *
+ * @consumedBy the agent definition editor's provider, model and effort pickers
  */
 export function createDriverCatalogRead(
   bridge: PlatformBridge,

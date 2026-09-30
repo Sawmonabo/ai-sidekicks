@@ -70,7 +70,11 @@ export function compareSessionRows(left: SessionListRow, right: SessionListRow):
   return left.sessionId.localeCompare(right.sessionId);
 }
 
-/** Orders rows for the list: pinned rows first, each group by the ordinary comparator. */
+/**
+ * Orders rows for the list: pinned rows first, each group by the ordinary comparator.
+ *
+ * @consumedBy the sessions list
+ */
 export function orderSessionRows(
   rows: readonly SessionListRow[],
   pinned: Readonly<Record<string, unknown>>,
