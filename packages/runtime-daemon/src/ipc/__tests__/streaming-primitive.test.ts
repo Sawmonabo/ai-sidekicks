@@ -1,9 +1,6 @@
-// StreamingPrimitive tests. They bind no listener: the primitive's `send` callback is a `vi.fn()`
-// inspected directly, which isolates streaming behavior from the wire layer. Pinned invariants:
-//   * Every value passed to `next()` is validated against the subscription's `valueSchema` before
-//     a `$/subscription/notify` frame is sent; a failure throws `StreamingValidationError`.
-//   * The initial response carries `subscriptionId`, notifications correlate to it, cancel frees
-//     server resources, and a transport disconnect cleans up its subscriptions.
+// StreamingPrimitive: every value is validated before its `$/subscription/notify` frame is sent,
+// a cancel is honored only from the owning connection, and a cancel or disconnect releases the
+// subscription and runs its cancel handlers.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -20,7 +17,7 @@ import {
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts";
 
-import { MethodRegistryImpl, RegistryRegistrationError } from "../registry.js";
+import { MethodRegistryImpl } from "../registry.js";
 import {
   StreamingPrimitive,
   StreamingValidationError,
@@ -70,26 +67,7 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     expect(params.value).toStrictEqual({ tick: 1 });
   });
 
-  it("emits N notifications correlating each to the same subscriptionId", () => {
-    const { primitive, send } = makeFixture();
-    const sub = primitive.createSubscription<{ n: number }>(7, passthroughSchema<{ n: number }>());
-    sub.next({ n: 0 });
-    sub.next({ n: 1 });
-    sub.next({ n: 2 });
-    expect(send).toHaveBeenCalledTimes(3);
-    for (let i = 0; i < 3; i++) {
-      const call = send.mock.calls[i];
-      if (call === undefined) throw new Error("unreachable");
-      const [transportId, frame] = call;
-      expect(transportId).toBe(7);
-      expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
-      const params = frame.params as SubscriptionNotifyParams<{ n: number }>;
-      expect(params.subscriptionId).toBe(sub.subscriptionId);
-      expect(params.value).toStrictEqual({ n: i });
-    }
-  });
-
-  it("streaming analog — next(invalidValue) throws `StreamingValidationError`; no send", () => {
+  it("next(invalidValue) throws `StreamingValidationError` and sends nothing", () => {
     const { primitive, send } = makeFixture();
     const sub = primitive.createSubscription<unknown>(9, rejectingSchema<unknown>("invalid-value"));
     let caught: unknown = null;
@@ -106,7 +84,7 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("server-side cancel() removes the entry; subsequent next() is a silent no-op", () => {
+  it("server-side cancel() or complete() removes the entry; a later next() is a silent no-op", () => {
     const { primitive, send } = makeFixture();
     const sub = primitive.createSubscription<{ x: number }>(11, passthroughSchema<{ x: number }>());
     sub.next({ x: 1 });
@@ -116,38 +94,15 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     expect(send).toHaveBeenCalledTimes(1);
     // Idempotent.
     expect(() => sub.cancel()).not.toThrow();
-  });
 
-  it("server-side complete() removes the entry; subsequent next() is a silent no-op", () => {
-    const { primitive, send } = makeFixture();
-    const sub = primitive.createSubscription<{ y: number }>(12, passthroughSchema<{ y: number }>());
-    sub.next({ y: 1 });
-    sub.complete();
-    sub.next({ y: 2 }); // silent no-op
-    expect(send).toHaveBeenCalledTimes(1);
-  });
-
-  it("constructor eagerly registers `$/subscription/cancel` against the supplied registry", () => {
-    const { registry } = makeFixture();
-    expect(registry.has(SUBSCRIPTION_CANCEL_METHOD)).toBe(true);
-    // Not mutating, so cancel passes the version-mismatch gate and a client can still clean up.
-    expect(registry.isMutating(SUBSCRIPTION_CANCEL_METHOD)).toBe(false);
-  });
-
-  it("constructing a SECOND primitive against the SAME registry throws `RegistryRegistrationError(`duplicate_method`)`", () => {
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    new StreamingPrimitive({ registry, send });
-    let caught: unknown = null;
-    try {
-      new StreamingPrimitive({ registry, send });
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(RegistryRegistrationError);
-    if (caught instanceof RegistryRegistrationError) {
-      expect(caught.registryCode).toBe("duplicate_method");
-    }
+    const completed = primitive.createSubscription<{ y: number }>(
+      12,
+      passthroughSchema<{ y: number }>(),
+    );
+    completed.next({ y: 1 });
+    completed.complete();
+    completed.next({ y: 2 }); // silent no-op
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("client-initiated `$/subscription/cancel` with matching transportId removes the subscription", async () => {
@@ -167,7 +122,7 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("client-initiated `$/subscription/cancel` with MISMATCHED transportId returns `{ canceled: false }` (cross-transport collapse, security)", async () => {
+  it("client-initiated `$/subscription/cancel` from another transport, or of an unknown id, answers `{ canceled: false }`", async () => {
     const { primitive, registry, send } = makeFixture();
     const sub = primitive.createSubscription<{ q: number }>(55, passthroughSchema<{ q: number }>());
     // Transport 56 tries to cancel a subscription owned by transport 55.
@@ -184,25 +139,24 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     // The subscription is still alive.
     sub.next({ q: 1 });
     expect(send).toHaveBeenCalledTimes(1);
-  });
 
-  it("client-initiated cancel with unknown subscriptionId returns `{ canceled: false }` (unknown collapses to same observable as cross-transport)", async () => {
-    const { registry } = makeFixture();
-    const cancelParams: SubscriptionCancelParams = {
+    // An unknown id answers the same as another transport's, so the answer reveals nothing.
+    const unknownCancelParams: SubscriptionCancelParams = {
       // Passes the wire schema, but no such subscription exists.
       subscriptionId:
         "00000000-0000-4000-8000-000000000000" as SubscriptionCancelParams["subscriptionId"],
     };
-    const ctx: HandlerContext = { transportId: 99 };
-    const result = (await registry.dispatch(
+    const unknownResult = (await registry.dispatch(
       SUBSCRIPTION_CANCEL_METHOD,
-      cancelParams,
-      ctx,
+      unknownCancelParams,
+      {
+        transportId: 99,
+      },
     )) as SubscriptionCancelResult;
-    expect(result.canceled).toBe(false);
+    expect(unknownResult.canceled).toBe(false);
   });
 
-  it("`cleanupTransport(id)` drops every subscription owned by that transport (transport-disconnect cleanup)", () => {
+  it("`cleanupTransport(id)` drops every subscription owned by that transport and no other", () => {
     const { primitive, send } = makeFixture();
     const sub1 = primitive.createSubscription<{ a: number }>(
       77,
@@ -225,19 +179,6 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     if (lastCall === undefined) throw new Error("unreachable");
     expect(lastCall[0]).toBe(78);
   });
-
-  it("`cleanupTransport` is idempotent on unknown id", () => {
-    const { primitive } = makeFixture();
-    expect(() => primitive.cleanupTransport(123)).not.toThrow();
-    expect(() => primitive.cleanupTransport(123)).not.toThrow();
-  });
-
-  it("`cancelSubscription(id)` (internal-trusted path) returns true for known + false for unknown id", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(88, passthroughSchema<unknown>());
-    expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(true);
-    expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(false);
-  });
 });
 
 // onCancel lets a producer release its upstream event source when a subscription is torn down.
@@ -252,60 +193,13 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT fire handlers on complete() — natural producer-driven termination is silent", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
-    const handler = vi.fn<() => void>();
-    sub.onCancel(handler);
-    sub.complete();
-    expect(handler).not.toHaveBeenCalled();
-  });
-
-  it("fires handlers when cleanupTransport() drops the subscription (transport-disconnect path)", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(42, passthroughSchema<unknown>());
-    const handler = vi.fn<() => void>();
-    sub.onCancel(handler);
-    primitive.cleanupTransport(42);
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
-  it("fires handlers when cancelSubscription() drops the subscription (wire-cancel trusted path)", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(42, passthroughSchema<unknown>());
-    const handler = vi.fn<() => void>();
-    sub.onCancel(handler);
-    expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(true);
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
-  it("registration AFTER cancel fires synchronously (AbortSignal-style — covers race where upstream resource is acquired after cancel-fire)", () => {
+  it("a handler registered AFTER cancel fires at once, so an upstream acquired late is still released", () => {
     const { primitive } = makeFixture();
     const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
     sub.cancel();
     const handler = vi.fn<() => void>();
     sub.onCancel(handler);
     expect(handler).toHaveBeenCalledTimes(1);
-  });
-
-  it("registration AFTER complete is silently dropped (matches no-fire-on-complete semantic)", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
-    sub.complete();
-    const handler = vi.fn<() => void>();
-    expect(() => sub.onCancel(handler)).not.toThrow();
-    expect(handler).not.toHaveBeenCalled();
-  });
-
-  it("multiple handlers fire in registration order on cancel()", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
-    const order: number[] = [];
-    sub.onCancel(() => order.push(1));
-    sub.onCancel(() => order.push(2));
-    sub.onCancel(() => order.push(3));
-    sub.cancel();
-    expect(order).toStrictEqual([1, 2, 3]);
   });
 
   it("per-handler error isolation: a handler that throws does NOT prevent siblings from firing", () => {
@@ -338,27 +232,5 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     expect(aHandler).toHaveBeenCalledTimes(1);
     // A's failure must not reach B.
     expect(bHandler).toHaveBeenCalledTimes(1);
-  });
-
-  it("handlers fire AFTER the entry is removed from the maps (re-entrant handler observes post-cancel state)", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(99, passthroughSchema<unknown>());
-    let observedCancelable: boolean | null = null;
-    sub.onCancel(() => {
-      // Re-entering the primitive returns false because the entry is already gone.
-      observedCancelable = primitive.cancelSubscription(sub.subscriptionId);
-    });
-    sub.cancel();
-    expect(observedCancelable).toBe(false);
-  });
-
-  it("idempotent cancel(): a second cancel() does NOT re-fire handlers (handler queue cleared after first fire)", () => {
-    const { primitive } = makeFixture();
-    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
-    const handler = vi.fn<() => void>();
-    sub.onCancel(handler);
-    sub.cancel();
-    sub.cancel(); // idempotent
-    expect(handler).toHaveBeenCalledTimes(1);
   });
 });

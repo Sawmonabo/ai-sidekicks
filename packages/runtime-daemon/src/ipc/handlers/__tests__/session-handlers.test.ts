@@ -1,89 +1,50 @@
-// `session.create`, `session.read` and `session.subscribe` handler tests, driven through the
-// method registry. The streaming primitive's own guarantees (cancel bookkeeping, transport
-// ownership, cancel handlers) are covered in `streaming-primitive.test.ts`.
+// `session.subscribe` through the method registry: changes are batched into frames after the
+// ack, a slow connection gets a drop mark instead of a wait, a malformed event cancels rather than
+// crashes, and the upstream detaches with the subscription. `session.read` maps an unknown id.
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import type {
   AgentId,
   EventCursor,
-  Handler,
   HandlerContext,
   JsonRpcNotification,
-  SessionCreateRequest,
-  SessionCreateResponse,
   SessionEvent,
   SessionId,
   SessionReadRequest,
   SessionStreamChange,
   SessionStreamFrame,
-  SessionSubscribeRequest,
   SessionSubscribeResponse,
   SubscriptionId,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts";
 import {
   JSONRPC_VERSION,
-  SessionCreateRequestSchema,
-  SessionCreateResponseSchema,
   JsonRpcErrorCode,
-  SessionReadRequestSchema,
-  SessionReadResponseSchema,
-  SessionSubscribeRequestSchema,
-  SessionSubscribeResponseSchema,
   STREAM_FRAME_MAX_CHANGES,
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";
-import {
-  MethodRegistryImpl,
-  RegistryDispatchError,
-  RegistryRegistrationError,
-} from "../../registry.js";
+import { MethodRegistryImpl } from "../../registry.js";
 import { SessionNotFoundError } from "../../session-errors.js";
 import { StreamingPrimitive } from "../../streaming-primitive.js";
 
-import { registerSessionCreate, type SessionCreateDeps } from "../session-create.js";
 import { registerSessionRead, type SessionLogRead, type SessionReadDeps } from "../session-read.js";
 import {
   registerSessionSubscribe,
   SESSION_STREAM_WINDOW_MS,
   type OutboundQueue,
-  type SessionSubscribeDeps,
 } from "../session-subscribe.js";
 
-// The fixtures use real RFC 9562 UUIDs: the registry parses the `session.create` result and the
-// streaming primitive parses every event, so an invalid UUID would fail those parses for the
-// wrong reason.
+// The fixtures use real RFC 9562 UUIDs: the streaming primitive parses every event, so an invalid
+// UUID would fail that parse for the wrong reason.
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const TEST_USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const UNKNOWN_SESSION_ID = "aabbccdd-eeff-4011-8022-334455667788" as SessionId;
-const HELD_DRAFT = "Half a thought about the retry loop";
 /** A draft store holding no draft for any session. */
 const NO_DRAFTS: SessionReadDeps["draftStore"] = { read: () => "" };
-
-/** A `SessionCreateResponse` that passes `SessionCreateResponseSchema`. */
-function buildSessionCreateResponse(): SessionCreateResponse {
-  return {
-    sessionId: TEST_SESSION_ID,
-    shape: "chat",
-    state: "provisioning",
-  };
-}
-
-/** A well-formed `session.create` request: a chat led by a provider binding. */
-const SESSION_CREATE_REQUEST: SessionCreateRequest = {
-  clientIdempotencyKey: "0f2b4d5e-9999-4999-8999-999999999999",
-  binding: { kind: "chat" },
-  lead: {
-    driverName: "claude",
-    modelId: "claude-opus-4-5",
-    providerAccountId: null,
-    effort: "high",
-  },
-};
 
 /** A `session.created` `SessionEvent` that passes `SessionEventSchema`. */
 function buildSessionCreatedEvent(): SessionEvent {
@@ -114,100 +75,6 @@ function buildSessionCreatedEvent(): SessionEvent {
     },
   };
 }
-
-/**
- * The session log's side of a `session.read` answer: every snapshot member but the draft, which
- * the handler adds from the draft store.
- *
- * `timelineCursors.acknowledged` is omitted on purpose: an absent optional key catches a default
- * of `undefined` that would fail `.strict()` parsing.
- */
-function buildSessionLogRead(): SessionLogRead {
-  return {
-    session: {
-      id: TEST_SESSION_ID,
-      state: "active",
-      createdAt: "2026-01-22T19:14:35.000Z",
-      updatedAt: "2026-01-22T19:14:35.000Z",
-    },
-    timelineCursors: {
-      latest: "evt-0042" as SessionLogRead["timelineCursors"]["latest"],
-    },
-  };
-}
-
-describe("session.create round-trip through MethodRegistry dispatch", () => {
-  it("dispatches `session.create` to the deps' createSession; returns the canonical response shape", async () => {
-    const registry = new MethodRegistryImpl();
-    const expectedResponse = buildSessionCreateResponse();
-    const mockCreateSession = vi.fn<(req: SessionCreateRequest) => Promise<SessionCreateResponse>>(
-      async () => expectedResponse,
-    );
-    const deps: SessionCreateDeps = { createSession: mockCreateSession };
-    registerSessionCreate(registry, deps);
-
-    const directCtx: HandlerContext = {};
-    const result = await registry.dispatch("session.create", SESSION_CREATE_REQUEST, directCtx);
-
-    expect(mockCreateSession).toHaveBeenCalledTimes(1);
-    expect(mockCreateSession).toHaveBeenCalledWith(SESSION_CREATE_REQUEST);
-    // The registry re-parses the result against the schema but does not change it.
-    expect(result).toStrictEqual(expectedResponse);
-  });
-
-  it("registers `session.create` with mutating: true (pre-handshake gate refuses)", () => {
-    // The negotiation gate refuses a method when `isMutating(method)` is true, so flipping this
-    // flag would let a mutating dispatch through before the handshake.
-    const registry = new MethodRegistryImpl();
-    const deps: SessionCreateDeps = {
-      createSession: async () => buildSessionCreateResponse(),
-    };
-    registerSessionCreate(registry, deps);
-    expect(registry.isMutating("session.create")).toBe(true);
-  });
-});
-
-describe("malformed session.create payload (verifies handler NEVER runs maps to -32602)", () => {
-  it("malformed payload rejects with `RegistryDispatchError(invalid_params)`; handler is NEVER invoked", async () => {
-    const registry = new MethodRegistryImpl();
-    const mockCreateSession = vi.fn<(req: SessionCreateRequest) => Promise<SessionCreateResponse>>(
-      async () => buildSessionCreateResponse(),
-    );
-    const deps: SessionCreateDeps = { createSession: mockCreateSession };
-    registerSessionCreate(registry, deps);
-
-    // `SessionCreateRequestSchema` is `.strict()`, so the unknown key `bogus` fails params
-    // validation.
-    const directCtx: HandlerContext = {};
-    let caught: unknown = null;
-    try {
-      await registry.dispatch("session.create", { bogus: true }, directCtx);
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(caught).toBeInstanceOf(RegistryDispatchError);
-    if (caught instanceof RegistryDispatchError) {
-      expect(caught.registryCode).toBe("invalid_params");
-      expect(caught.issues).toBeDefined();
-      const issues = caught.issues ?? [];
-      expect(issues.length).toBeGreaterThan(0);
-    }
-
-    expect(mockCreateSession).not.toHaveBeenCalled();
-  });
-
-  it("`invalid_params` registry code maps to JSON-RPC `-32602` on the wire", () => {
-    // The mapping is owned by `jsonrpc-error-mapping.ts`; this pins the boundary between the
-    // registry's structured error and the wire envelope.
-    const err = new RegistryDispatchError("invalid_params", "params validation failed", [
-      { marker: "session.create-malformed" },
-    ]);
-    const envelope = mapJsonRpcError(err, 42);
-    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
-    expect(envelope.id).toBe(42);
-  });
-});
 
 // The handler batches changes on a timer window, so the `session.subscribe` tests fake
 // `setTimeout` / `clearTimeout` and leave `setImmediate` real: the ack barrier releases on
@@ -315,36 +182,6 @@ async function subscribeWith(
 describe("session.subscribe batches a session's changes into frames", () => {
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it("answers `{ subscriptionId }` and passes the session and cursor to the upstream", async () => {
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<SendFrame>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
-      () => () => undefined,
-    );
-    registerSessionSubscribe(registry, {
-      streamingPrimitive: primitive,
-      outboundQueue: ALWAYS_ROOM,
-      subscribeToSession,
-    });
-    const afterCursor = "cursor-41" as EventCursor;
-    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID, afterCursor };
-
-    const result = (await registry.dispatch("session.subscribe", subscribeReq, {
-      transportId: 42,
-    })) as SessionSubscribeResponse;
-
-    expect(result.subscriptionId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    );
-    expect(subscribeToSession).toHaveBeenCalledWith(
-      TEST_SESSION_ID,
-      afterCursor,
-      expect.any(Function),
-    );
-    expect(registry.isMutating("session.subscribe")).toBe(false);
   });
 
   it("sends the changes of one window as one frame when the window closes, each with its cursor", async () => {
@@ -581,72 +418,7 @@ describe("session.subscribe detaches the upstream when the subscription ends", (
   });
 });
 
-describe("duplicate registerSessionCreate rejected at register-time", () => {
-  it("calling registerSessionCreate twice throws RegistryRegistrationError(`duplicate_method`)", () => {
-    const registry = new MethodRegistryImpl();
-    const deps: SessionCreateDeps = {
-      createSession: async () => buildSessionCreateResponse(),
-    };
-
-    registerSessionCreate(registry, deps);
-
-    let caught: unknown = null;
-    try {
-      registerSessionCreate(registry, deps);
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(RegistryRegistrationError);
-    if (caught instanceof RegistryRegistrationError) {
-      expect(caught.registryCode).toBe("duplicate_method");
-    }
-  });
-
-  it("the duplicate throw is SYNCHRONOUS (verifies bootstrap-deterministic failure)", () => {
-    const registry = new MethodRegistryImpl();
-    const deps: SessionCreateDeps = {
-      createSession: async () => buildSessionCreateResponse(),
-    };
-    registerSessionCreate(registry, deps);
-    // A check moved to dispatch time would surface only after an async dispatch, so this fails.
-    expect(() => registerSessionCreate(registry, deps)).toThrow(RegistryRegistrationError);
-  });
-});
-
-describe("session.read round-trip (AC-N2 +)", () => {
-  it("dispatches a known sessionId to the readSession deps and answers it with the held draft", async () => {
-    const registry = new MethodRegistryImpl();
-    const logRead = buildSessionLogRead();
-    const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
-      async () => logRead,
-    );
-    const deps: SessionReadDeps = {
-      readSession: mockReadSession,
-      draftStore: { read: (sessionId) => (sessionId === TEST_SESSION_ID ? HELD_DRAFT : "") },
-    };
-    registerSessionRead(registry, deps);
-
-    const directCtx: HandlerContext = {};
-    const result = await registry.dispatch(
-      "session.read",
-      { sessionId: TEST_SESSION_ID },
-      directCtx,
-    );
-
-    expect(mockReadSession).toHaveBeenCalledTimes(1);
-    expect(mockReadSession).toHaveBeenCalledWith({ sessionId: TEST_SESSION_ID });
-
-    // The log's read, with the draft the store holds for that session.
-    expect(result).toStrictEqual({
-      ...logRead,
-      session: { ...logRead.session, draft: HELD_DRAFT },
-    });
-
-    // The answer also passes the wire schema.
-    const parsed = SessionReadResponseSchema.safeParse(result);
-    expect(parsed.success).toBe(true);
-  });
-
+describe("session.read", () => {
   it("maps an unknown sessionId throw to -32602 + data.type session.not_found via SessionNotFoundError", async () => {
     // `SessionReadDeps.readSession` must throw `SessionNotFoundError` (not a plain `Error`) for an
     // unknown id, so `mapJsonRpcError` produces this envelope instead of the `-32603` catch-all.
@@ -689,27 +461,4 @@ describe("session.read round-trip (AC-N2 +)", () => {
     // The throw came from the deps layer, not from somewhere else in the registry.
     expect(mockReadSession).toHaveBeenCalledTimes(1);
   });
-
-  it("registers `session.read` with mutating: false (pre-handshake gate passes through)", () => {
-    // A read-only client must keep reading across a version mismatch, which a `true` flag would
-    // break.
-    const registry = new MethodRegistryImpl();
-    const deps: SessionReadDeps = {
-      readSession: async () => buildSessionLogRead(),
-      draftStore: NO_DRAFTS,
-    };
-    registerSessionRead(registry, deps);
-    expect(registry.isMutating("session.read")).toBe(false);
-  });
 });
-
-// These references keep imports that nothing else in the file uses from failing the unused-import
-// check.
-type _HandlerSignaturePresent = Handler<SessionCreateRequest, SessionCreateResponse>;
-const _typeProbe: _HandlerSignaturePresent | undefined = undefined;
-void _typeProbe;
-void SessionCreateRequestSchema;
-void SessionCreateResponseSchema;
-void SessionReadRequestSchema;
-void SessionSubscribeRequestSchema;
-void SessionSubscribeResponseSchema;

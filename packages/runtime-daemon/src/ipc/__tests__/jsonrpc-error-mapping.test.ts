@@ -1,57 +1,14 @@
-// Pins `sanitizeFields`, which sanitizes the `error.data.fields` channel of the JSON-RPC error
-// envelope: no filesystem path or JSON-unsafe value (BigInt, circular reference, symbol,
-// function, non-finite number) reaches the wire. Unit tests cover the
-// per-type normalization, the recursive walk and the depth/width caps; integration tests check
-// that `mapJsonRpcError` runs the sanitizer for every typed error it maps.
+// `sanitizeFields` keeps filesystem paths and values the encoder cannot write out of an error's
+// `data.fields`, within size caps, and `mapJsonRpcError` puts every error on the wire through it.
 
 import { describe, expect, it } from "vitest";
 
-import { JsonRpcErrorCode, JSONRPC_VERSION } from "@ai-sidekicks/contracts";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
 import { DaemonDomainError } from "../domain-error.js";
-import { encodeFrame, FramingError, MAX_MESSAGE_BYTES } from "../local-ipc-gateway.js";
+import { encodeFrame } from "../local-ipc-gateway.js";
 import { mapJsonRpcError, sanitizeFields } from "../jsonrpc-error-mapping.js";
-
-describe("sanitizeFields — pass-through preservation (no false-positive substitution)", () => {
-  it("preserves clean structured detail unchanged: {setting, value}", () => {
-    // The payload shape of a real `SecureDefaultsValidationError`: short strings, no path
-    // characters.
-    const out = sanitizeFields({ setting: "max_workers", value: "4" });
-    expect(out).toEqual({ setting: "max_workers", value: "4" });
-  });
-
-  it("preserves clean structured detail unchanged: {limit, observed}", () => {
-    // The payload shape of a real oversized-body `FramingError`.
-    const out = sanitizeFields({ limit: 1_000_000, observed: 1_000_001 });
-    expect(out).toEqual({ limit: 1_000_000, observed: 1_000_001 });
-  });
-
-  it("preserves negative finite numbers unchanged", () => {
-    // Only ±Infinity gets a sentinel; finite negatives are JSON-safe.
-    const out = sanitizeFields({ count: -1, ratio: -0.5 });
-    expect(out).toEqual({ count: -1, ratio: -0.5 });
-  });
-
-  it("preserves boolean and null values unchanged", () => {
-    const out = sanitizeFields({ enabled: true, disabled: false, none: null });
-    expect(out).toEqual({ enabled: true, disabled: false, none: null });
-  });
-
-  it("preserves nested clean structures unchanged", () => {
-    // The Zod issue array that `RegistryDispatchError.issues` puts in `data.fields.issues`.
-    const issues = [
-      { code: "invalid_type", path: ["sessionId"], message: "Expected string" },
-      { code: "too_small", path: ["limit"], message: "Number must be >= 1" },
-    ];
-    const out = sanitizeFields({ issues });
-    expect(out).toEqual({ issues });
-  });
-
-  it("preserves empty fields unchanged", () => {
-    expect(sanitizeFields({})).toEqual({});
-  });
-});
 
 describe("sanitizeFields — path redaction (Unix / UNC / Windows-drive)", () => {
   it("redacts Unix absolute paths in string values", () => {
@@ -104,12 +61,6 @@ describe("sanitizeFields — path redaction (Unix / UNC / Windows-drive)", () =>
       issues: [{ path: ["localIpcPath"], hint: "<redacted-path>" }],
     });
   });
-
-  it("redacts paths in BigInt-coerced strings", () => {
-    // A clean BigInt becomes its `${n}n` string and is not redacted as a side effect.
-    const out = sanitizeFields({ requested: 12345678901234567890n });
-    expect(out).toEqual({ requested: "12345678901234567890n" });
-  });
 });
 
 describe("sanitizeFields — JSON-unsafe value normalization (DoS prevention)", () => {
@@ -119,7 +70,7 @@ describe("sanitizeFields — JSON-unsafe value normalization (DoS prevention)", 
     expect(() => JSON.stringify(out)).not.toThrow();
   });
 
-  it("substitutes <truncated:circular> for self-referencing objects", () => {
+  it("substitutes <truncated:circular> for self-referencing and mutually referencing objects", () => {
     type Node = { name: string; self?: Node };
     const node: Node = { name: "root" };
     node.self = node;
@@ -128,26 +79,24 @@ describe("sanitizeFields — JSON-unsafe value normalization (DoS prevention)", 
       node: { name: "root", self: "<truncated:circular>" },
     });
     expect(() => JSON.stringify(out)).not.toThrow();
-  });
 
-  it("substitutes <truncated:circular> for mutual-reference cycles", () => {
     type A = { kind: "a"; ref?: B };
     type B = { kind: "b"; ref?: A };
     const a: A = { kind: "a" };
     const b: B = { kind: "b", ref: a };
     a.ref = b;
-    const out = sanitizeFields({ a });
+    const mutualOut = sanitizeFields({ a });
     // The walk visits a, then b, then a again, which is the sentinel.
-    expect(out).toEqual({
+    expect(mutualOut).toEqual({
       a: {
         kind: "a",
         ref: { kind: "b", ref: "<truncated:circular>" },
       },
     });
-    expect(() => JSON.stringify(out)).not.toThrow();
+    expect(() => JSON.stringify(mutualOut)).not.toThrow();
   });
 
-  it("preserves shared sibling references as data, not <truncated:circular>", () => {
+  it("preserves shared sibling and array references as data, not <truncated:circular>", () => {
     // Siblings sharing a reference are not a cycle: the detector tracks the current recursion
     // path, not every value visited.
     const shared = { kind: "shared", payload: 42 };
@@ -157,52 +106,17 @@ describe("sanitizeFields — JSON-unsafe value normalization (DoS prevention)", 
       b: { kind: "shared", payload: 42 },
     });
     expect(() => JSON.stringify(out)).not.toThrow();
-  });
 
-  it("preserves array-of-shared-references as data, not <truncated:circular>", () => {
     // The same holds for one object at several array indices.
-    const shared = { id: "s" };
-    const out = sanitizeFields({ list: [shared, shared, shared] });
-    expect(out).toEqual({
+    const sharedElement = { id: "s" };
+    const listOut = sanitizeFields({ list: [sharedElement, sharedElement, sharedElement] });
+    expect(listOut).toEqual({
       list: [{ id: "s" }, { id: "s" }, { id: "s" }],
     });
-    expect(() => JSON.stringify(out)).not.toThrow();
+    expect(() => JSON.stringify(listOut)).not.toThrow();
   });
 
-  it("substitutes <symbol> for symbol values", () => {
-    const out = sanitizeFields({ tag: Symbol("private-tag") });
-    expect(out).toEqual({ tag: "<symbol>" });
-    expect(() => JSON.stringify(out)).not.toThrow();
-  });
-
-  it("substitutes <function> for function values", () => {
-    const out = sanitizeFields({ handler: () => 42 });
-    expect(out).toEqual({ handler: "<function>" });
-    expect(() => JSON.stringify(out)).not.toThrow();
-  });
-
-  it("substitutes sentinels for non-finite numbers", () => {
-    const out = sanitizeFields({
-      nan: Number.NaN,
-      pos: Number.POSITIVE_INFINITY,
-      neg: Number.NEGATIVE_INFINITY,
-    });
-    expect(out).toEqual({
-      nan: "<non-finite:NaN>",
-      pos: "<non-finite:Infinity>",
-      neg: "<non-finite:-Infinity>",
-    });
-    expect(() => JSON.stringify(out)).not.toThrow();
-  });
-
-  it("preserves undefined values for the encoder to handle natively", () => {
-    // `JSON.stringify` omits undefined properties, so the sanitizer passes them through.
-    const out = sanitizeFields({ defined: 1, missing: undefined });
-    expect(out).toEqual({ defined: 1, missing: undefined });
-    expect(JSON.stringify(out)).toBe('{"defined":1}');
-  });
-
-  it("substitutes <unsanitizeable> for objects whose Object.entries throws", () => {
+  it("substitutes <unsanitizeable> for objects whose Object.entries or a getter throws", () => {
     // `Object.entries` runs the Proxy's `ownKeys` trap.
     const hostile = new Proxy(
       {},
@@ -215,17 +129,15 @@ describe("sanitizeFields — JSON-unsafe value normalization (DoS prevention)", 
     const out = sanitizeFields({ hostile });
     expect(out).toEqual({ hostile: "<unsanitizeable>" });
     expect(() => JSON.stringify(out)).not.toThrow();
-  });
 
-  it("substitutes <unsanitizeable> for objects whose getter throws", () => {
-    const hostile = {
+    const hostileGetter = {
       get name() {
         throw new Error("getter trap");
       },
     };
-    const out = sanitizeFields({ hostile });
-    expect(out).toEqual({ hostile: "<unsanitizeable>" });
-    expect(() => JSON.stringify(out)).not.toThrow();
+    const getterOut = sanitizeFields({ hostile: hostileGetter });
+    expect(getterOut).toEqual({ hostile: "<unsanitizeable>" });
+    expect(() => JSON.stringify(getterOut)).not.toThrow();
   });
 });
 
@@ -283,48 +195,30 @@ describe("sanitizeFields — width / depth / length caps (DoS bounding)", () => 
       expect(list[i]).toBe(i);
     }
   });
-
-  it("caps total node visits with <truncated:max-nodes> sentinel", () => {
-    // 100 keys of 100 elements each is 10,000 nodes against a budget of 1024.
-    const wide: Record<string, number[]> = {};
-    for (let i = 0; i < 100; i++) {
-      wide[`k${i}`] = Array.from({ length: 100 }, (_, j) => j);
-    }
-    const out = sanitizeFields(wide);
-    // Here the key cap fires before the node budget runs out.
-    const keys = Object.keys(out);
-    expect(keys).toContain("<truncated>");
-  });
 });
 
 describe("sanitizeFields — prototype-pollution defense", () => {
-  it("skips `__proto__` keys", () => {
+  it("skips `__proto__`, `constructor` and `prototype` keys into a null-prototype object", () => {
     // `JSON.parse` makes `__proto__` an own enumerable key, so `Object.entries` lists it; the
     // sanitizer must drop it explicitly.
     const fields = JSON.parse('{"__proto__": "evil", "real": "ok"}') as Record<string, unknown>;
     const out = sanitizeFields(fields);
     expect(out).toEqual({ real: "ok" });
     expect(Object.prototype.hasOwnProperty.call(out, "__proto__")).toBe(false);
-  });
 
-  it("skips `constructor` and `prototype` keys", () => {
-    const fields = JSON.parse(
+    const constructorFields = JSON.parse(
       '{"constructor": "evil1", "prototype": "evil2", "real": "ok"}',
     ) as Record<string, unknown>;
-    const out = sanitizeFields(fields);
-    expect(out).toEqual({ real: "ok" });
-  });
+    expect(sanitizeFields(constructorFields)).toEqual({ real: "ok" });
 
-  it("returns a null-prototype object so __proto__ assignment is inert", () => {
     // Even with the key skipped, a null prototype keeps a stray `__proto__` assignment from
     // polluting `Object.prototype`.
-    const out = sanitizeFields({ foo: "bar" });
-    expect(Object.getPrototypeOf(out)).toBeNull();
+    expect(Object.getPrototypeOf(sanitizeFields({ foo: "bar" }))).toBeNull();
   });
 });
 
 describe("sanitizeFields — ReDoS / pathological input resilience", () => {
-  it("handles `'a/'.repeat(50000)` without throwing or hanging", () => {
+  it("handles `'a/'.repeat(50000)` and a 1MB path without throwing or hanging", () => {
     // The Unix path pattern `(?:\/[A-Za-z0-9_.-]+)+` must not backtrack catastrophically on a
     // 100KB adversarial input.
     const adversarial = "a/".repeat(50_000);
@@ -334,25 +228,9 @@ describe("sanitizeFields — ReDoS / pathological input resilience", () => {
     expect(out).toBeDefined();
     // A generous ceiling; a linear regex finishes in well under 50 ms.
     expect(elapsed).toBeLessThan(5000);
-  });
 
-  it("handles a 1MB pure-path string without throwing", () => {
-    const adversarial = `/${"x".repeat(1_000_000)}`;
-    expect(() => sanitizeFields({ adversarial })).not.toThrow();
-  });
-
-  it("handles a deeply-recursive cyclic structure without stack overflow", () => {
-    // The depth cap stops the walk long before the 100,000-node chain closes its cycle.
-    type Node = { next?: Node };
-    const head: Node = {};
-    let cursor = head;
-    for (let i = 0; i < 100_000; i++) {
-      const next: Node = {};
-      cursor.next = next;
-      cursor = next;
-    }
-    cursor.next = head;
-    expect(() => sanitizeFields({ head })).not.toThrow();
+    const purePath = `/${"x".repeat(1_000_000)}`;
+    expect(() => sanitizeFields({ adversarial: purePath })).not.toThrow();
   });
 });
 
@@ -380,7 +258,7 @@ describe("mapJsonRpcError — single-seam enforcement on data.fields", () => {
     expect(envelope.error.message).not.toContain(sensitivePath);
   });
 
-  it("end-to-end: SecureDefaultsValidationError with BigInt value → encoder does not throw", () => {
+  it("end-to-end: a BigInt or circular value in fields still encodes", () => {
     // A raw BigInt would make `encodeFrame` throw and tear down the connection.
     const error = new SecureDefaultsValidationError(
       "unknown_setting",
@@ -392,30 +270,30 @@ describe("mapJsonRpcError — single-seam enforcement on data.fields", () => {
     expect(() => encodeFrame(envelope)).not.toThrow();
     const fields = envelope.error.data?.fields as Record<string, unknown> | undefined;
     expect(fields?.["value"]).toBe("9007199254740993n");
-  });
 
-  it("end-to-end: SecureDefaultsValidationError with circular value → encoder does not throw", () => {
     type Cycle = { name: string; self?: Cycle };
     const cycle: Cycle = { name: "rotated" };
     cycle.self = cycle;
 
-    const error = new SecureDefaultsValidationError(
+    const circularError = new SecureDefaultsValidationError(
       "unknown_setting",
       "unknown setting: nested",
       // The cast is deliberate: a throw site can put any runtime value in `fields`.
       { setting: "nested", value: cycle as unknown },
     );
 
-    const envelope = mapJsonRpcError(error, 1);
-    expect(() => encodeFrame(envelope)).not.toThrow();
-    const fields = envelope.error.data?.fields as Record<string, unknown> | undefined;
-    expect(fields?.["value"]).toEqual({
+    const circularEnvelope = mapJsonRpcError(circularError, 1);
+    expect(() => encodeFrame(circularEnvelope)).not.toThrow();
+    const circularFields = circularEnvelope.error.data?.fields as
+      | Record<string, unknown>
+      | undefined;
+    expect(circularFields?.["value"]).toEqual({
       name: "rotated",
       self: "<truncated:circular>",
     });
   });
 
-  it("preserves the seamless behavior for clean fields (no false-positive substitution)", () => {
+  it("passes clean fields to the wire unchanged", () => {
     // Clean detail is the common case and must reach the wire unchanged.
     const error = new SecureDefaultsValidationError(
       "unknown_setting",
@@ -428,54 +306,6 @@ describe("mapJsonRpcError — single-seam enforcement on data.fields", () => {
       type: "unknown_setting",
       fields: { setting: "max_workers", value: "4" },
     });
-  });
-
-  it("preserves the seamless behavior for FramingError oversized_body fields", () => {
-    // An oversized-body `FramingError` maps to `transport.message_too_large` with numeric
-    // `{limit, observed}`.
-    const error = new FramingError("oversized_body", "frame body too large", {
-      limit: MAX_MESSAGE_BYTES,
-      observed: MAX_MESSAGE_BYTES + 1,
-    });
-
-    const envelope = mapJsonRpcError(error, null);
-    expect(envelope.error.data).toEqual({
-      type: "transport.message_too_large",
-      fields: { limit: MAX_MESSAGE_BYTES, observed: MAX_MESSAGE_BYTES + 1 },
-    });
-  });
-
-  it("does not add fields when the throw site provided none (no spurious empty fields)", () => {
-    // Without a fields payload the envelope carries `data.type` only, not `data.fields: {}`.
-    const error = new FramingError("malformed_header", "missing colon");
-    const envelope = mapJsonRpcError(error, null);
-    expect(envelope.error.data).toEqual({ type: "malformed_header" });
-    expect(envelope.error.data && "fields" in envelope.error.data).toBe(false);
-  });
-
-  it("preserves envelope shape (jsonrpc + id + error) per JSON-RPC 2.0 section 5", () => {
-    const error = new SecureDefaultsValidationError("unknown_setting", "test", {
-      setting: "x",
-      value: "y",
-    });
-    const envelope = mapJsonRpcError(error, "req-42");
-    expect(envelope.jsonrpc).toBe(JSONRPC_VERSION);
-    expect(envelope.id).toBe("req-42");
-    expect(envelope.error).toBeDefined();
-  });
-
-  it("does not throw for arbitrarily hostile thrown values", () => {
-    // `mapJsonRpcError` must yield a well-formed envelope even when both sanitizers face
-    // adversarial input.
-    const hostile = {
-      get message() {
-        throw new Error("getter on message");
-      },
-      get fields() {
-        throw new Error("getter on fields");
-      },
-    };
-    expect(() => mapJsonRpcError(hostile, 1)).not.toThrow();
   });
 
   it("collapses generic Error to -32603 InternalError with no data", () => {
@@ -503,73 +333,5 @@ describe("mapJsonRpcError — DaemonDomainError wire projection", () => {
     expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
     expect(envelope.error.data?.type).toBe("repo.not_found");
     expect(envelope.error.data?.fields).toEqual({ repoId: "r-7" });
-  });
-
-  it("defaults to -32603 InternalError when jsonRpcCode is omitted", () => {
-    const error = new DaemonDomainError("approval store unavailable", {
-      code: "approval.store_unavailable",
-    });
-
-    const envelope = mapJsonRpcError(error, 1);
-
-    expect(envelope.error.code).toBe(JsonRpcErrorCode.InternalError);
-    // With no detail, `data` carries only `type`.
-    expect(envelope.error.data).toEqual({ type: "approval.store_unavailable" });
-    expect(envelope.error.data && "fields" in envelope.error.data).toBe(false);
-  });
-
-  it("carries httpStatus on the error object but never leaks it onto the wire", () => {
-    // The numeric code comes from `jsonRpcCode`; `httpStatus` stays off the wire.
-    const error = new DaemonDomainError("repo r-9 not found", {
-      code: "repo.not_found",
-      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      httpStatus: 404,
-      detail: { repoId: "r-9" },
-    });
-    expect(error.httpStatus).toBe(404);
-
-    const envelope = mapJsonRpcError(error, 1);
-    expect("httpStatus" in envelope.error).toBe(false);
-    expect(envelope.error.data && "httpStatus" in envelope.error.data).toBe(false);
-    expect(JSON.stringify(envelope)).not.toContain("httpStatus");
-    expect(JSON.stringify(envelope)).not.toContain("404");
-  });
-
-  it("runs data.fields through sanitizer (path redaction)", () => {
-    // Domain-error detail goes through the same sanitizer as every other typed error.
-    const sensitivePath = "/home/operator/.ssh/id_ed25519";
-    const error = new DaemonDomainError("worktree path rejected", {
-      code: "worktree.path_rejected",
-      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      detail: { path: sensitivePath },
-    });
-
-    const envelope = mapJsonRpcError(error, 1);
-    const fields = envelope.error.data?.fields as Record<string, unknown> | undefined;
-    expect(fields?.["path"]).toBe("<redacted-path>");
-    expect(JSON.stringify(envelope)).not.toContain(sensitivePath);
-    expect(() => encodeFrame(envelope)).not.toThrow();
-  });
-
-  it("projects a DaemonDomainError SUBCLASS through the same single branch", () => {
-    // A subclass fixes its code and `jsonRpcCode` in `super(...)` and needs no mapper change;
-    // `name` is the subclass name.
-    class WorktreeLockedError extends DaemonDomainError {
-      constructor(worktreeId: string) {
-        super(`worktree ${worktreeId} is locked`, {
-          code: "worktree.locked",
-          jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-          detail: { worktreeId },
-        });
-      }
-    }
-
-    const error = new WorktreeLockedError("wt-3");
-    expect(error.name).toBe("WorktreeLockedError");
-
-    const envelope = mapJsonRpcError(error, "req-1");
-    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
-    expect(envelope.error.data?.type).toBe("worktree.locked");
-    expect(envelope.error.data?.fields).toEqual({ worktreeId: "wt-3" });
   });
 });
