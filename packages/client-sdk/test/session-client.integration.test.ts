@@ -1,6 +1,7 @@
 // The session client over the daemon transport: a real `JsonRpcClient` over an in-memory
 // `ClientTransport` that answers from a scripted reply table (the fake daemon), with no socket or
-// external state. Covers ascending replay with `afterCursor` resume and the abort-signal races.
+// external state. Covers create-then-read identity, ascending replay with `afterCursor` resume,
+// restore from the daemon's state rather than a client cache, and the abort-signal races.
 
 import {
   type AgentId,
@@ -217,6 +218,64 @@ async function take<T>(iter: AsyncIterable<T>, count: number): Promise<T[]> {
   return out;
 }
 
+// Create then read
+
+describe("SessionCreate then SessionRead returns identical session id", () => {
+  it("daemon transport: create returns sessionId X; read({X}) returns the same X with persisted snapshot", async () => {
+    // `session.read` must return a `session.id` equal to the create-time id.
+    const harness = buildDaemonHarness([
+      {
+        method: "session.create",
+        buildResult: (): unknown => ({
+          sessionId: SESSION_ID,
+          shape: "chat",
+          state: "provisioning",
+        }),
+      },
+      {
+        method: "session.read",
+        buildResult: (request): unknown => {
+          // Echo the requested id so an SDK that replaced `sessionId` would show.
+          const requestedSessionId = (
+            (request.params as { sessionId: SessionId } | undefined) ?? { sessionId: SESSION_ID }
+          ).sessionId;
+          return {
+            session: {
+              id: requestedSessionId,
+              state: "provisioning",
+              createdAt: "2026-04-30T12:00:00.000Z",
+              updatedAt: "2026-04-30T12:00:00.000Z",
+              draft: "",
+            },
+            timelineCursors: {
+              latest: CURSOR_1,
+            },
+          };
+        },
+      },
+    ]);
+    const sdk = createDaemonSessionClient(harness.client);
+
+    const createResponse = await sdk.create({
+      clientIdempotencyKey: "0f2b4d5e-9999-4999-8999-999999999999",
+      binding: { kind: "chat" },
+      lead: {
+        driverName: "claude",
+        modelId: "claude-opus-4-5",
+        providerAccountId: null,
+        effort: "high",
+      },
+    });
+    expect(createResponse.sessionId).toBe(SESSION_ID);
+    expect(createResponse.state).toBe("provisioning");
+
+    const readResponse = await sdk.read({ sessionId: createResponse.sessionId });
+    // The id from create is the id read returns in its snapshot.
+    expect(readResponse.session.id).toBe(createResponse.sessionId);
+    expect(readResponse.session.state).toBe("provisioning");
+  });
+});
+
 // A pre-aborted signal must not touch the wire: `client.subscribe` would otherwise send the
 // `session.subscribe` request and reserve a daemon-side subscription entry.
 
@@ -269,6 +328,51 @@ describe("SessionSubscribe yields events in sequence ASC across reconnect", () =
     expect(recorded.afterCursor).toBe(CURSOR_2);
     expect(resumed.map((e) => e.event.sequence)).toEqual([2]);
     expect(resumed[0]?.eventId).toBe(CURSOR_3);
+  });
+});
+
+// Reconnect restores from the daemon
+
+describe("Reconnect after lost stream restores from snapshot, not client cache", () => {
+  it("daemon transport: a reconnect surfaces history the daemon changed meanwhile", async () => {
+    let history: SessionEvent[] = [
+      makeSessionCreatedEvent(EVENT_ID_1, 0),
+      makeSessionCreatedEvent(EVENT_ID_2, 1),
+    ];
+    const { scripted, recorded } = scriptSessionStream(() => history);
+    const sdk = createDaemonSessionClient(buildDaemonHarness(scripted).client);
+
+    const cold = await take(sdk.subscribe({ sessionId: SESSION_ID }), 2);
+    expect(cold.map((e) => e.eventId)).toEqual([CURSOR_1, CURSOR_2]);
+
+    // While the stream is lost, the daemon's projection revises the second
+    // event and gains a third. A client that cached the cold stream would
+    // replay the old second event; one that reads the wire sees the revision.
+    const revisedSecondEvent: SessionEvent = {
+      type: "session.created",
+      category: "session_lifecycle",
+      id: EVENT_ID_2,
+      sessionId: SESSION_ID,
+      sequence: 1,
+      occurredAt: "2026-04-30T12:05:00.000Z",
+      actor: null,
+      version: "1.0" as EventEnvelopeVersion,
+      payload: { sessionId: SESSION_ID, shape: "project", mainAgent: LEAD },
+    };
+    history = [
+      makeSessionCreatedEvent(EVENT_ID_1, 0),
+      revisedSecondEvent,
+      makeSessionCreatedEvent(EVENT_ID_3, 2),
+    ];
+
+    const reconnected = await take(
+      sdk.subscribe({ sessionId: SESSION_ID, afterCursor: CURSOR_1 }),
+      2,
+    );
+    expect(recorded.callCount).toBe(2);
+    expect(recorded.afterCursor).toBe(CURSOR_1);
+    expect(reconnected.map((e) => e.eventId)).toEqual([CURSOR_2, CURSOR_3]);
+    expect(reconnected[0]?.event).toEqual(revisedSecondEvent);
   });
 });
 
