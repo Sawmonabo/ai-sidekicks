@@ -13,15 +13,14 @@
 //   emits an `unmapped_wire_kind` diagnostic instead. Neither drops the frame silently.
 
 import {
-  EVENT_DISPOSITION_BY_KIND,
   SESSION_EVENT_TYPES,
   type EventCategory,
-  type NormalizedEventKind,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import type { CodexToolName } from "./tools.js";
+import { EVENT_DISPOSITION_BY_KIND, type NormalizedEventKind } from "../../event-disposition.js";
 
 /**
  * Which server-originated JSON-RPC root a frame arrives on: a `server-request` must be answered, a

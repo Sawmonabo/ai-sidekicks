@@ -9,7 +9,6 @@
 //   literal to `CodexInboundFrameMethod` at compile time, which a mapping to strings cannot.
 
 import {
-  EVENT_DISPOSITION_BY_KIND,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
   type EventCategory,
@@ -57,6 +56,7 @@ import {
   CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES,
 } from "../usage-limit-signal.js";
 import { CODEX_TOOL_NAMES } from "../tools.js";
+import { EVENT_DISPOSITION_BY_KIND } from "../../../event-disposition.js";
 
 // The expectation table, written independently of the production record.
 //

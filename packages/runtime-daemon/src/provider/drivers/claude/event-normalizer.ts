@@ -12,14 +12,13 @@
 // `prompt_suggestion`, and the `set_effort`, `rewind` and `compact` control subtypes.
 
 import {
-  EVENT_DISPOSITION_BY_KIND,
   SESSION_EVENT_TYPES,
   type EventCategory,
-  type NormalizedEventKind,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
+import { EVENT_DISPOSITION_BY_KIND, type NormalizedEventKind } from "../../event-disposition.js";
 
 /**
  * Which channel carried the frame: stdout stream-json, or one half of the control channel. Not a
