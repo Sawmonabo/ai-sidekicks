@@ -1,15 +1,26 @@
 // What composing every feature does to the registries it is handed. A conflicting claim throws
-// while the window composes, so no window opens, and a fold left out of the composition leaves its
-// partition with no producer, which renders like an empty session.
+// while the window composes, so no window opens; a registrar that reaches for the window's registry
+// instead of the one it was handed makes a test or a second window write into production; and a
+// fold left out of the composition leaves its partition with no producer, which renders like an
+// empty session.
 
 import { describe, expect, it } from "vitest";
 
-import { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import {
+  CommandContributionRegistry,
+  contributedKeybindings,
+} from "@renderer/registries/commands/command-contributions.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { InlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import {
+  EntityProjectorRegistry,
+  entityProjectorRegistry,
+} from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import {
+  InlineCardRegistry,
+  inlineCardRegistry,
+} from "@renderer/registries/inline-cards/inline-card-registry.js";
+import { PaneRegistry, paneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { ScreenRegistry, screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import {
   APPROVAL_FLOW_PROJECTOR_OWNER,
   APPROVAL_FLOW_PROJECTORS,
@@ -49,6 +60,33 @@ describe("registerFeatureContributions", () => {
 
     expect(registries.screens.registeredScreenNames()).toStrictEqual(firstScreenNames);
     expect(registries.panes.registeredPaneKinds()).toStrictEqual(firstPaneKinds);
+  });
+
+  it("writes into the registries it is handed and none of the window's", () => {
+    const registries = ownedRegistries();
+
+    registerFeatureContributions(registries);
+
+    expect({
+      keyBindings: registries.commands.keyBindings().length > 0,
+      projectors: Object.keys(registries.projectors.snapshot()).length > 0,
+      screens: registries.screens.registeredScreenNames().length > 0,
+      panes: registries.panes.registeredPaneKinds().length > 0,
+      inlineCards: registries.inlineCards.registeredCardKinds().length > 0,
+    }).toStrictEqual({
+      keyBindings: true,
+      projectors: true,
+      screens: true,
+      panes: true,
+      inlineCards: true,
+    });
+    expect({
+      keyBindings: contributedKeybindings(),
+      projectors: entityProjectorRegistry.snapshot(),
+      screens: screenRegistry.registeredScreenNames(),
+      panes: paneRegistry.registeredPaneKinds(),
+      inlineCards: inlineCardRegistry.registeredCardKinds(),
+    }).toStrictEqual({ keyBindings: [], projectors: {}, screens: [], panes: [], inlineCards: [] });
   });
 
   it.each([
