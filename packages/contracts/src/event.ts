@@ -22,12 +22,14 @@
 // The remaining variants import their payload from the contract that owns the
 // record: approvals, plans, questions, MCP governance, cloud tasks, undo,
 // goals, notices, side questions, the reviewer's flag, commands, git
-// settlements and the relay pin.
+// settlements, the relay pin, the session verbs, a chat's conversion, a
+// worktree sweep and a branch change. `usage.model_rerouted` is the exception:
+// no other contract declares its payload, so it is declared here.
 //
 // The discriminated-union `SessionEvent` discriminates on the wire `type`
 // string. Adding a new variant later is additive. The taxonomy is closed:
 // `SessionEventType`, the per-category `*_EVENT_TYPES` arrays, and
-// `SESSION_EVENT_CATEGORY_BY_TYPE` (16 categories). Payload variants remain
+// `SESSION_EVENT_CATEGORY_BY_TYPE` (20 categories). Payload variants remain
 // intentionally a strict subset; census membership is type registration, not
 // payload support.
 //
@@ -83,6 +85,7 @@ import {
 // DIRECT import from the `./node-id.js` leaf — the same eager-Zod-cycle
 // discipline repo.ts's header records: the leaf is dependency-free, so
 // importing it can never close a module-scope cycle.
+import { uuidTextFormSchema } from "./internal/branded.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import {
   PlanAcceptedPayloadSchema,
@@ -92,6 +95,7 @@ import {
   type PlanHandedOffPayload,
   type PlanProposedPayload,
 } from "./plan.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN, RunIdSchema, type RunId } from "./provider-driver.js";
 import { QuestionAskedPayloadSchema, type QuestionAskedPayload } from "./question.js";
 import { RelayPinRefusedPayloadSchema, type RelayPinRefusedPayload } from "./relay.js";
 import { RepoWorkspaceLifecyclePayloadSchema, type RepoWorkspaceLifecyclePayload } from "./repo.js";
@@ -108,20 +112,39 @@ import {
   SessionRestoreFinishedPayloadSchema,
   type SessionRestoreFinishedPayload,
 } from "./session-restore.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { SessionConvertedPayloadSchema, type SessionConvertedPayload } from "./session-convert.js";
+import {
+  SessionIdSchema,
+  SessionLifecycleChangePayloadSchema,
+  SessionMarkChangePayloadSchema,
+  wireFreeFormString,
+  type SessionId,
+  type SessionLifecycleChangePayload,
+  type SessionMarkChangePayload,
+} from "./session.js";
 // Dependency-free leaf (imports nothing at all), so this edge can close no
 // cycle — the `./node-id.js` discipline above. Used for ONE set key; see the
 // `key_reuse_detected.observedIdentities` note.
 import { canonicalizeUuid } from "./uuid-canonical.js";
 // One-way import: worktree.ts imports nothing from this file — same
 // eager-Zod-cycle discipline as the repo.js import above.
+import {
+  SessionBranchChangedPayloadSchema,
+  SessionSweptToRepoRootPayloadSchema,
+  WorktreeCreatedPayloadSchema,
+  WorktreeRetiredPayloadSchema,
+  type SessionBranchChangedPayload,
+  type SessionSweptToRepoRootPayload,
+  type WorktreeCreatedPayload,
+  type WorktreeRetiredPayload,
+} from "./worktree-events.js";
 import { WorktreeLifecyclePayloadSchema, type WorktreeLifecyclePayload } from "./worktree.js";
 
 // --------------------------------------------------------------------------
 // EventCategory — canonical taxonomy enum.
 // --------------------------------------------------------------------------
 //
-// Mirrors the EventCategory registry: 16 categories. `category` participates in the
+// Mirrors the EventCategory registry: 20 categories. `category` participates in the
 // canonical bytes that back the integrity protocol's BLAKE3 hash chain and Ed25519
 // signature; producers MUST emit the category the registry assigns the type, and
 // consumers MUST NOT silently coerce mismatches. The literal `category` per variant in
@@ -153,7 +176,11 @@ export type EventCategory =
   | "event_maintenance"
   | "policy_events"
   | "orchestration_admission"
-  | "mcp_governance";
+  | "mcp_governance"
+  | "workflow_lifecycle"
+  | "workflow_phase_lifecycle"
+  | "workflow_parallel_coordination"
+  | "workflow_gate_resolution";
 export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "run_lifecycle",
   "assistant_output",
@@ -171,6 +198,10 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "policy_events",
   "orchestration_admission",
   "mcp_governance",
+  "workflow_lifecycle",
+  "workflow_phase_lifecycle",
+  "workflow_parallel_coordination",
+  "workflow_gate_resolution",
 ]);
 
 // --------------------------------------------------------------------------
@@ -1249,8 +1280,9 @@ export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
 // `WorktreeLifecyclePayloadSchema`, authored in worktree.ts per
 // emitter-authors-payload — so a worktree event claiming a repo/workspace
 // state, or a workspace event claiming `merged`, stays a parse error.
-// Import direction is one-way: worktree.ts imports nothing
-// from this file.
+// `worktree.created` and `worktree.retired` extend that payload with the
+// members worktree-events.ts declares. Import direction is one-way: neither
+// file imports anything from this one.
 //
 // THE REGISTRY STAYS CLOSED. Five arms, not six: the worktree ROW vocabulary
 // has six states, but the `-> failed` transition emits no worktree event
@@ -1270,18 +1302,28 @@ type WorktreeLifecycleVariantPayload = WorktreeLifecyclePayload & PiiIndirection
 const worktreeLifecycleVariantPayloadSchema: z.ZodType<WorktreeLifecycleVariantPayload> =
   withPiiIndirectionMembers(WorktreeLifecyclePayloadSchema, "WorktreeLifecyclePayloadSchema");
 
+// `worktree.created` and `worktree.retired` carry the family payload plus one
+// member each, declared in worktree-events.ts: the kept copy a put-back came
+// from, and the kept copy a discard left behind.
+type WorktreeCreatedVariantPayload = WorktreeCreatedPayload & PiiIndirectionDescriptor;
+const worktreeCreatedVariantPayloadSchema: z.ZodType<WorktreeCreatedVariantPayload> =
+  withPiiIndirectionMembers(WorktreeCreatedPayloadSchema, "WorktreeCreatedPayloadSchema");
+type WorktreeRetiredVariantPayload = WorktreeRetiredPayload & PiiIndirectionDescriptor;
+const worktreeRetiredVariantPayloadSchema: z.ZodType<WorktreeRetiredVariantPayload> =
+  withPiiIndirectionMembers(WorktreeRetiredPayloadSchema, "WorktreeRetiredPayloadSchema");
+
 // Emitted transactionally with worktree row creation.
 export interface WorktreeCreatedEvent extends EventEnvelope {
   type: "worktree.created";
   category: "session_lifecycle";
-  payload: WorktreeLifecycleVariantPayload;
+  payload: WorktreeCreatedVariantPayload;
 }
 export const WorktreeCreatedEventSchema: z.ZodType<WorktreeCreatedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("worktree.created"),
     category: z.literal("session_lifecycle"),
-    payload: worktreeLifecycleVariantPayloadSchema,
+    payload: worktreeCreatedVariantPayloadSchema,
   })
   .strict();
 
@@ -1338,14 +1380,14 @@ export const WorktreeMergedEventSchema: z.ZodType<WorktreeMergedEvent> = z
 export interface WorktreeRetiredEvent extends EventEnvelope {
   type: "worktree.retired";
   category: "session_lifecycle";
-  payload: WorktreeLifecycleVariantPayload;
+  payload: WorktreeRetiredVariantPayload;
 }
 export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("worktree.retired"),
     category: z.literal("session_lifecycle"),
-    payload: worktreeLifecycleVariantPayloadSchema,
+    payload: worktreeRetiredVariantPayloadSchema,
   })
   .strict();
 
@@ -2122,10 +2164,9 @@ const buildMachineContentDescriptorShape = () => ({
 
 const buildAssistantOutputPayloadShape = () => ({
   sessionId: SessionIdSchema,
-  // No `RunIdSchema` exists in this package — `RunId` is branded in the
-  // daemon's own driver contract, and importing it here would close a module
-  // cycle. The bounded free-form guard is the same one `EventEnvelope.id`
-  // takes for an identifier this file does not own.
+  // A bounded free-form guard, the one `EventEnvelope.id` takes, rather than
+  // the branded `RunIdSchema` from provider-driver.ts that
+  // `usage.model_rerouted` below uses.
   runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "assistant output payload runId"),
   contentType: wireFreeFormString(
     EVENT_FIELD_MAX_LEN,
@@ -2237,15 +2278,17 @@ export const ToolErrorEventSchema: z.ZodType<ToolErrorEvent> = z
 // and imported here, the rule the repo, workspace and worktree families
 // already follow: the emitter's contract authors the payload. Each is composed
 // onto a derived const and never widened at its declaration; see
-// {@link withPiiIndirectionMembers}.
+// {@link withPiiIndirectionMembers}. `usage.model_rerouted` is declared here,
+// since no other contract states it; it is built by the same builder.
 //
 // PII INDIRECTION MEMBERS ON EVERY ONE. None is `audit_integrity` or
 // `event_maintenance`, so the sealing codec seals a row of any of these types
 // on request, and each variant admits the pair.
 //
-// ONE EPOCH STAMP. `command.ended` is the only run-scoped member of a
-// late-append family here (`tool_activity`, with a required `runId`), so it
-// alone takes `withEpochStamp`. The `approval_flow`, `session_lifecycle`,
+// TWO EPOCH STAMPS. `command.ended` (`tool_activity`) and `usage.model_rerouted`
+// (`usage_telemetry`) are the run-scoped members of a late-append family here,
+// each with a required `runId`, so they alone take `withEpochStamp`. The
+// `approval_flow`, `session_lifecycle`,
 // `security_events` and `mcp_governance` variants are outside the late-append
 // window; `question.asked` is an `interactive_request` row outside that
 // category's admitted pair; and `git.settled` names a run on only some of its
@@ -2411,6 +2454,86 @@ export type CommandEndedEvent = SessionEventVariant<
     }
 >;
 
+/**
+ * `usage.model_rerouted`: the provider moved a turn onto another model and the
+ * turn went on. `scope` says how long the switch holds — this turn, the rest
+ * of the session, or only a subagent's, a side question's or a background
+ * fork's response (`local`). `sentence` and `explanation` are the provider's
+ * own words when it sends them; `safetyCategory` names the check's category
+ * when the provider reports one.
+ */
+export type UsageModelReroutedPayload = {
+  sessionId: SessionId;
+  runId: RunId;
+  agentId?: string | undefined;
+  fromModel: string;
+  toModel: string;
+  scope: "turn" | "session" | "local";
+  sentence?: string | undefined;
+  explanation?: string | undefined;
+  cause: "safety" | "model_unavailable" | "model_blocked" | "out_of_credits";
+  safetyCategory?: string | undefined;
+};
+export type UsageModelReroutedEvent = SessionEventVariant<
+  "usage.model_rerouted",
+  "usage_telemetry",
+  UsageModelReroutedPayload &
+    PiiIndirectionDescriptor & {
+      sourceEpoch?: SourceEpoch | undefined;
+      sourcePosition?: SourcePosition | undefined;
+    }
+>;
+export type SessionArchivedEvent = SessionEventVariant<
+  "session.archived",
+  "session_lifecycle",
+  SessionLifecycleChangePayload & PiiIndirectionDescriptor
+>;
+export type SessionReactivatedEvent = SessionEventVariant<
+  "session.reactivated",
+  "session_lifecycle",
+  SessionLifecycleChangePayload & PiiIndirectionDescriptor
+>;
+export type SessionClosedEvent = SessionEventVariant<
+  "session.closed",
+  "session_lifecycle",
+  SessionLifecycleChangePayload & PiiIndirectionDescriptor
+>;
+export type SessionPinnedEvent = SessionEventVariant<
+  "session.pinned",
+  "session_lifecycle",
+  SessionMarkChangePayload & PiiIndirectionDescriptor
+>;
+export type SessionUnpinnedEvent = SessionEventVariant<
+  "session.unpinned",
+  "session_lifecycle",
+  SessionMarkChangePayload & PiiIndirectionDescriptor
+>;
+export type SessionMutedEvent = SessionEventVariant<
+  "session.muted",
+  "session_lifecycle",
+  SessionMarkChangePayload & PiiIndirectionDescriptor
+>;
+export type SessionUnmutedEvent = SessionEventVariant<
+  "session.unmuted",
+  "session_lifecycle",
+  SessionMarkChangePayload & PiiIndirectionDescriptor
+>;
+export type SessionConvertedEvent = SessionEventVariant<
+  "session.converted",
+  "session_lifecycle",
+  SessionConvertedPayload & PiiIndirectionDescriptor
+>;
+export type SessionBranchChangedEvent = SessionEventVariant<
+  "session.branch_changed",
+  "session_lifecycle",
+  SessionBranchChangedPayload & PiiIndirectionDescriptor
+>;
+export type SessionSweptToRepoRootEvent = SessionEventVariant<
+  "session.swept_to_repo_root",
+  "session_lifecycle",
+  SessionSweptToRepoRootPayload & PiiIndirectionDescriptor
+>;
+
 // `withEpochStamp` takes the strict ZodObject its generic constraint checks,
 // and the imported schema is annotated `z.ZodType<T>`, which erases that
 // surface. After the PII composition it is that strict object at runtime
@@ -2423,6 +2546,33 @@ const commandEndedVariantPayloadSchema = withEpochStamp(
     "CommandEndedPayloadSchema",
   ) as unknown as z.ZodObject<Record<never, never>, z.core.$strict>,
 ) as unknown as z.ZodType<CommandEndedEvent["payload"]>;
+
+const usageModelReroutedVariantPayloadSchema = withEpochStamp(
+  z
+    .object({
+      sessionId: SessionIdSchema,
+      runId: RunIdSchema,
+      agentId: uuidTextFormSchema.optional(),
+      fromModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.fromModel"),
+      toModel: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UsageModelReroutedPayload.toModel"),
+      scope: z.enum(["turn", "session", "local"]),
+      sentence: wireFreeFormString(
+        DRIVER_FAILURE_DETAIL_MAX_LEN,
+        "UsageModelReroutedPayload.sentence",
+      ).optional(),
+      explanation: wireFreeFormString(
+        DRIVER_FAILURE_DETAIL_MAX_LEN,
+        "UsageModelReroutedPayload.explanation",
+      ).optional(),
+      cause: z.enum(["safety", "model_unavailable", "model_blocked", "out_of_credits"]),
+      safetyCategory: wireFreeFormString(
+        EVENT_FIELD_MAX_LEN,
+        "UsageModelReroutedPayload.safetyCategory",
+      ).optional(),
+      ...buildPiiIndirectionDescriptorShape(),
+    })
+    .strict(),
+);
 
 const approvalRejectedVariantSchema = buildSessionEventVariantSchema(
   "approval.rejected",
@@ -2558,6 +2708,73 @@ const commandEndedVariantSchema = buildSessionEventVariantSchema(
   "tool_activity",
   commandEndedVariantPayloadSchema,
 );
+const sessionArchivedVariantSchema = buildSessionEventVariantSchema(
+  "session.archived",
+  "session_lifecycle",
+  withPiiIndirectionMembers(
+    SessionLifecycleChangePayloadSchema,
+    "SessionLifecycleChangePayloadSchema",
+  ),
+);
+const sessionReactivatedVariantSchema = buildSessionEventVariantSchema(
+  "session.reactivated",
+  "session_lifecycle",
+  withPiiIndirectionMembers(
+    SessionLifecycleChangePayloadSchema,
+    "SessionLifecycleChangePayloadSchema",
+  ),
+);
+const sessionClosedVariantSchema = buildSessionEventVariantSchema(
+  "session.closed",
+  "session_lifecycle",
+  withPiiIndirectionMembers(
+    SessionLifecycleChangePayloadSchema,
+    "SessionLifecycleChangePayloadSchema",
+  ),
+);
+const sessionPinnedVariantSchema = buildSessionEventVariantSchema(
+  "session.pinned",
+  "session_lifecycle",
+  withPiiIndirectionMembers(SessionMarkChangePayloadSchema, "SessionMarkChangePayloadSchema"),
+);
+const sessionUnpinnedVariantSchema = buildSessionEventVariantSchema(
+  "session.unpinned",
+  "session_lifecycle",
+  withPiiIndirectionMembers(SessionMarkChangePayloadSchema, "SessionMarkChangePayloadSchema"),
+);
+const sessionMutedVariantSchema = buildSessionEventVariantSchema(
+  "session.muted",
+  "session_lifecycle",
+  withPiiIndirectionMembers(SessionMarkChangePayloadSchema, "SessionMarkChangePayloadSchema"),
+);
+const sessionUnmutedVariantSchema = buildSessionEventVariantSchema(
+  "session.unmuted",
+  "session_lifecycle",
+  withPiiIndirectionMembers(SessionMarkChangePayloadSchema, "SessionMarkChangePayloadSchema"),
+);
+const usageModelReroutedVariantSchema = buildSessionEventVariantSchema(
+  "usage.model_rerouted",
+  "usage_telemetry",
+  usageModelReroutedVariantPayloadSchema,
+);
+const sessionConvertedVariantSchema = buildSessionEventVariantSchema(
+  "session.converted",
+  "session_lifecycle",
+  withPiiIndirectionMembers(SessionConvertedPayloadSchema, "SessionConvertedPayloadSchema"),
+);
+const sessionBranchChangedVariantSchema = buildSessionEventVariantSchema(
+  "session.branch_changed",
+  "session_lifecycle",
+  withPiiIndirectionMembers(SessionBranchChangedPayloadSchema, "SessionBranchChangedPayloadSchema"),
+);
+const sessionSweptToRepoRootVariantSchema = buildSessionEventVariantSchema(
+  "session.swept_to_repo_root",
+  "session_lifecycle",
+  withPiiIndirectionMembers(
+    SessionSweptToRepoRootPayloadSchema,
+    "SessionSweptToRepoRootPayloadSchema",
+  ),
+);
 
 // --------------------------------------------------------------------------
 // HydratedSessionEvent — the read projection that pairs a verified row with
@@ -2692,7 +2909,18 @@ export type SessionEvent =
   | SessionSideQuestionAnsweredEvent
   | GitSettledEvent
   | RelayPinRefusedEvent
-  | CommandEndedEvent;
+  | CommandEndedEvent
+  | UsageModelReroutedEvent
+  | SessionArchivedEvent
+  | SessionReactivatedEvent
+  | SessionClosedEvent
+  | SessionPinnedEvent
+  | SessionUnpinnedEvent
+  | SessionMutedEvent
+  | SessionUnmutedEvent
+  | SessionConvertedEvent
+  | SessionBranchChangedEvent
+  | SessionSweptToRepoRootEvent;
 export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
   z
     .object({
@@ -2756,11 +2984,11 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       payload: repoWorkspaceLifecycleVariantPayloadSchema,
     })
     .strict(),
-  // The five worktree arms. Each shares
-  // `worktreeLifecycleVariantPayloadSchema`, derived above from worktree.ts's
-  // `WorktreeLifecyclePayloadSchema` — the family factory instantiated over
-  // `WorktreeStateSchema` — so these branch schemas and the `*EventSchema`
-  // exports above cannot drift on payload shape. No `worktree.failed` arm
+  // The five worktree arms. Each uses the same derived payload const as its
+  // `*EventSchema` export above — the family factory instantiated over
+  // `WorktreeStateSchema`, with created and retired adding their kept-copy
+  // member — so these branch schemas and the exports cannot drift on payload
+  // shape. No `worktree.failed` arm
   // exists, and none is wrapped with `withEpochStamp` (`session_lifecycle`,
   // not run-scoped; see the no-epoch-stamp note on their declarations above).
   z
@@ -2768,7 +2996,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("worktree.created"),
       category: z.literal("session_lifecycle"),
-      payload: worktreeLifecycleVariantPayloadSchema,
+      payload: worktreeCreatedVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2800,7 +3028,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("worktree.retired"),
       category: z.literal("session_lifecycle"),
-      payload: worktreeLifecycleVariantPayloadSchema,
+      payload: worktreeRetiredVariantPayloadSchema,
     })
     .strict(),
   // The four `audit_integrity` / `event_maintenance` arms. Each shares the
@@ -2891,7 +3119,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       payload: toolErrorPayloadSchema,
     })
     .strict(),
-  // The arms whose payload a contract of its own declares, each built once by
+  // The arms built once by
   // `buildSessionEventVariantSchema` above.
   approvalRejectedVariantSchema,
   approvalCanceledVariantSchema,
@@ -2915,21 +3143,32 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   gitSettledVariantSchema,
   relayPinRefusedVariantSchema,
   commandEndedVariantSchema,
+  usageModelReroutedVariantSchema,
+  sessionArchivedVariantSchema,
+  sessionReactivatedVariantSchema,
+  sessionClosedVariantSchema,
+  sessionPinnedVariantSchema,
+  sessionUnpinnedVariantSchema,
+  sessionMutedVariantSchema,
+  sessionUnmutedVariantSchema,
+  sessionConvertedVariantSchema,
+  sessionBranchChangedVariantSchema,
+  sessionSweptToRepoRootVariantSchema,
 ]);
 
 // --------------------------------------------------------------------------
 // SessionEventType — the canonical event-type census.
 // --------------------------------------------------------------------------
 //
-// Every wire `type` string is registered below: 117 types across 16
+// Every wire `type` string is registered below: 156 types across 20
 // categories.
 //
 //   • Category/type bijection: every type belongs to exactly one category,
-//     `SESSION_EVENT_CATEGORY_BY_TYPE` covers all 117 types, and its
-//     values span all 16 categories. The type-level leg is the
+//     `SESSION_EVENT_CATEGORY_BY_TYPE` covers all 156 types, and its
+//     values span all 20 categories. The type-level leg is the
 //     `satisfies Record<SessionEventType, EventCategory>` totality check
 //     below (missing, unknown, or duplicate keys are compile errors); the
-//     runtime leg (size === 117, 16 distinct categories, per-category
+//     runtime leg (size === 156, 20 distinct categories, per-category
 //     partition) lives in __tests__/session-event.test.ts.
 //   • Event-type-string immutability: type strings are immutable wire
 //     identifiers (MINOR bumps are additive-only), so renaming a registered
@@ -3003,7 +3242,7 @@ export type SessionEventType =
   | "pr.prepared"
   | "pr.submitted"
   | "git.settled"
-  // session_lifecycle (30)
+  // session_lifecycle (37)
   | "session.created"
   | "session.activated"
   | "session.archived"
@@ -3016,6 +3255,11 @@ export type SessionEventType =
   | "session.provider_status"
   | "session.notice"
   | "session.renamed"
+  | "session.pinned"
+  | "session.unpinned"
+  | "session.muted"
+  | "session.unmuted"
+  | "session.converted"
   | "session.side_question_answered"
   | "session.restore_finished"
   | "agent.attached"
@@ -3032,6 +3276,8 @@ export type SessionEventType =
   | "worktree.dirty"
   | "worktree.merged"
   | "worktree.retired"
+  | "session.branch_changed"
+  | "session.swept_to_repo_root"
   | "pty.control_changed"
   | "cloud.task_updated"
   | "approval.requested"
@@ -3081,15 +3327,51 @@ export type SessionEventType =
   | "mcp.server_config_changed"
   | "mcp.server_trust_changed"
   | "mcp.tool_override_changed"
-  | "mcp.server_oauth_completed";
+  | "mcp.server_oauth_completed"
+  // workflow_lifecycle (13)
+  | "workflow.created"
+  | "workflow.started"
+  | "workflow.gated"
+  | "workflow.failed"
+  | "workflow.completed"
+  | "workflow.resumed"
+  | "workflow.canceled"
+  | "workflow.run_waiting"
+  | "workflow.schedule_armed"
+  | "workflow.schedule_fired"
+  | "workflow.trigger_armed"
+  | "workflow.trigger_fired"
+  | "workflow.results_posted"
+  // workflow_phase_lifecycle (17)
+  | "workflow.phase_admitted"
+  | "workflow.phase_waiting_on_pool"
+  | "workflow.phase_started"
+  | "workflow.phase_progressed"
+  | "workflow.phase_canceling"
+  | "workflow.phase_failed"
+  | "workflow.phase_retried"
+  | "workflow.phase_suspended"
+  | "workflow.phase_resumed"
+  | "workflow.phase_completed"
+  | "workflow.human_phase_claimed"
+  | "workflow.human_phase_escalated"
+  | "workflow.step_started"
+  | "workflow.step_finished"
+  | "workflow.step_failed"
+  | "workflow.step_canceled"
+  | "workflow.step_skipped"
+  // workflow_parallel_coordination (1)
+  | "workflow.parallel_join_cancellation"
+  // workflow_gate_resolution (1)
+  | "workflow.gate_resolved";
 
 // The SCHEMA-registered subset — the types whose payload variants are
 // registered in `SessionEventSchema` above — NOT the taxonomy census (that
-// is `SESSION_EVENT_CATEGORY_BY_TYPE`, whose keys iterate all 117 registered
+// is `SESSION_EVENT_CATEGORY_BY_TYPE`, whose keys iterate all 156 registered
 // types). The `SessionEvent["type"]` element annotation binds membership to
 // the schema union at COMPILE time: a census literal without a registered
 // payload variant is rejected here (a plain `SessionEventType` annotation
-// would admit any of the 117), and the admissible set widens as emitting
+// would admit any of the 156), and the admissible set widens as emitting
 // plans land variants through the union-registration seam. Exposed as a
 // const tuple so consumers can iterate the registered payload variants
 // without re-parsing the schemas.
@@ -3101,11 +3383,12 @@ export type SessionEventType =
 // union's branches, so a forgotten entry fails there rather than silently
 // under-reporting the registered surface.
 //
-// Membership today (43): `session.created`, the six repo/workspace variants,
+// Membership today (54): `session.created`, the six repo/workspace variants,
 // the five worktree variants, the four audit-integrity / event-maintenance
-// variants, the five body-bearing assistant / tool variants, and the
-// twenty-two whose payload a contract of its own declares. Order mirrors the
-// declaration order of the union arms above.
+// variants, the five body-bearing assistant / tool variants, the
+// thirty-two whose payload a contract of its own declares, and
+// `usage.model_rerouted`. Order mirrors the declaration order of the union
+// arms above.
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
   "repo.attached",
@@ -3150,6 +3433,17 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "git.settled",
   "relay.pin_refused",
   "command.ended",
+  "usage.model_rerouted",
+  "session.archived",
+  "session.reactivated",
+  "session.closed",
+  "session.pinned",
+  "session.unpinned",
+  "session.muted",
+  "session.unmuted",
+  "session.converted",
+  "session.branch_changed",
+  "session.swept_to_repo_root",
 ] as const;
 
 // --------------------------------------------------------------------------
@@ -3161,7 +3455,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
 // mechanically derivable from the category string (which is why the
 // `*_events` categories read `..._EVENTS_EVENT_TYPES`). Each array's member
 // set MUST equal `SESSION_EVENT_CATEGORY_BY_TYPE`'s keys filtered to that
-// category, and the 16 arrays partition the 117-type census — both asserted
+// category, and the 20 arrays partition the 156-type census — both asserted
 // per-category in __tests__/session-event.test.ts. Explicit `readonly
 // SessionEventType[]` annotations keep the exported surface
 // `--isolatedDeclarations`-clean, matching `SESSION_EVENT_TYPES` above.
@@ -3228,9 +3522,10 @@ export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] = [
   "git.settled",
 ] as const;
 
-// Five subsections flattened in spec order: session (14, incl. the side
-// question and the undo record), agent (3), repo/workspace/worktree (11),
-// pty (1), cloud task (1).
+// Five subsections flattened in spec order: session (19, incl. the side
+// question, the undo record, the pin and mute marks and a chat's conversion),
+// agent (3), repo/workspace/worktree (13, incl. the sweep to the repository
+// root and the branch change), pty (1), cloud task (1).
 export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.created",
   "session.activated",
@@ -3244,6 +3539,11 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.provider_status",
   "session.notice",
   "session.renamed",
+  "session.pinned",
+  "session.unpinned",
+  "session.muted",
+  "session.unmuted",
+  "session.converted",
   "session.side_question_answered",
   "session.restore_finished",
   "agent.attached",
@@ -3260,6 +3560,8 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "worktree.dirty",
   "worktree.merged",
   "worktree.retired",
+  "session.branch_changed",
+  "session.swept_to_repo_root",
   "pty.control_changed",
   "cloud.task_updated",
 ] as const;
@@ -3339,6 +3641,50 @@ export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] = [
   "mcp.server_oauth_completed",
 ] as const;
 
+export const WORKFLOW_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
+  "workflow.created",
+  "workflow.started",
+  "workflow.gated",
+  "workflow.failed",
+  "workflow.completed",
+  "workflow.resumed",
+  "workflow.canceled",
+  "workflow.run_waiting",
+  "workflow.schedule_armed",
+  "workflow.schedule_fired",
+  "workflow.trigger_armed",
+  "workflow.trigger_fired",
+  "workflow.results_posted",
+] as const;
+
+export const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
+  "workflow.phase_admitted",
+  "workflow.phase_waiting_on_pool",
+  "workflow.phase_started",
+  "workflow.phase_progressed",
+  "workflow.phase_canceling",
+  "workflow.phase_failed",
+  "workflow.phase_retried",
+  "workflow.phase_suspended",
+  "workflow.phase_resumed",
+  "workflow.phase_completed",
+  "workflow.human_phase_claimed",
+  "workflow.human_phase_escalated",
+  "workflow.step_started",
+  "workflow.step_finished",
+  "workflow.step_failed",
+  "workflow.step_canceled",
+  "workflow.step_skipped",
+] as const;
+
+export const WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES: readonly SessionEventType[] = [
+  "workflow.parallel_join_cancellation",
+] as const;
+
+export const WORKFLOW_GATE_RESOLUTION_EVENT_TYPES: readonly SessionEventType[] = [
+  "workflow.gate_resolved",
+] as const;
+
 // --------------------------------------------------------------------------
 // SESSION_EVENT_CATEGORY_BY_TYPE — canonical type → category registry.
 // --------------------------------------------------------------------------
@@ -3402,7 +3748,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "pr.prepared": "artifact_publication",
   "pr.submitted": "artifact_publication",
   "git.settled": "artifact_publication",
-  // session_lifecycle (30)
+  // session_lifecycle (37)
   "session.created": "session_lifecycle",
   "session.activated": "session_lifecycle",
   "session.archived": "session_lifecycle",
@@ -3415,6 +3761,11 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "session.provider_status": "session_lifecycle",
   "session.notice": "session_lifecycle",
   "session.renamed": "session_lifecycle",
+  "session.pinned": "session_lifecycle",
+  "session.unpinned": "session_lifecycle",
+  "session.muted": "session_lifecycle",
+  "session.unmuted": "session_lifecycle",
+  "session.converted": "session_lifecycle",
   "session.side_question_answered": "session_lifecycle",
   "session.restore_finished": "session_lifecycle",
   "agent.attached": "session_lifecycle",
@@ -3431,6 +3782,8 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "worktree.dirty": "session_lifecycle",
   "worktree.merged": "session_lifecycle",
   "worktree.retired": "session_lifecycle",
+  "session.branch_changed": "session_lifecycle",
+  "session.swept_to_repo_root": "session_lifecycle",
   "pty.control_changed": "session_lifecycle",
   "cloud.task_updated": "session_lifecycle",
   // approval_flow (10)
@@ -3483,6 +3836,42 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "mcp.server_trust_changed": "mcp_governance",
   "mcp.tool_override_changed": "mcp_governance",
   "mcp.server_oauth_completed": "mcp_governance",
+  // workflow_lifecycle (13)
+  "workflow.created": "workflow_lifecycle",
+  "workflow.started": "workflow_lifecycle",
+  "workflow.gated": "workflow_lifecycle",
+  "workflow.failed": "workflow_lifecycle",
+  "workflow.completed": "workflow_lifecycle",
+  "workflow.resumed": "workflow_lifecycle",
+  "workflow.canceled": "workflow_lifecycle",
+  "workflow.run_waiting": "workflow_lifecycle",
+  "workflow.schedule_armed": "workflow_lifecycle",
+  "workflow.schedule_fired": "workflow_lifecycle",
+  "workflow.trigger_armed": "workflow_lifecycle",
+  "workflow.trigger_fired": "workflow_lifecycle",
+  "workflow.results_posted": "workflow_lifecycle",
+  // workflow_phase_lifecycle (17)
+  "workflow.phase_admitted": "workflow_phase_lifecycle",
+  "workflow.phase_waiting_on_pool": "workflow_phase_lifecycle",
+  "workflow.phase_started": "workflow_phase_lifecycle",
+  "workflow.phase_progressed": "workflow_phase_lifecycle",
+  "workflow.phase_canceling": "workflow_phase_lifecycle",
+  "workflow.phase_failed": "workflow_phase_lifecycle",
+  "workflow.phase_retried": "workflow_phase_lifecycle",
+  "workflow.phase_suspended": "workflow_phase_lifecycle",
+  "workflow.phase_resumed": "workflow_phase_lifecycle",
+  "workflow.phase_completed": "workflow_phase_lifecycle",
+  "workflow.human_phase_claimed": "workflow_phase_lifecycle",
+  "workflow.human_phase_escalated": "workflow_phase_lifecycle",
+  "workflow.step_started": "workflow_phase_lifecycle",
+  "workflow.step_finished": "workflow_phase_lifecycle",
+  "workflow.step_failed": "workflow_phase_lifecycle",
+  "workflow.step_canceled": "workflow_phase_lifecycle",
+  "workflow.step_skipped": "workflow_phase_lifecycle",
+  // workflow_parallel_coordination (1)
+  "workflow.parallel_join_cancellation": "workflow_parallel_coordination",
+  // workflow_gate_resolution (1)
+  "workflow.gate_resolved": "workflow_gate_resolution",
 } satisfies Record<SessionEventType, EventCategory>;
 
 // Map from each registered wire type to its canonical category. Exposed so
@@ -3504,7 +3893,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
 // exists solely for the compile-time totality check.)
 export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, EventCategory> = new Map(
   // Cast justified by the `satisfies` check above: the record's own
-  // enumerable keys are exactly the 117 SessionEventType literals (totality
+  // enumerable keys are exactly the 156 SessionEventType literals (totality
   // + excess-property checks), so `Object.entries` narrowing from
   // `[string, ...]` is sound.
   Object.entries(SESSION_EVENT_CATEGORY_RECORD) as ReadonlyArray<[SessionEventType, EventCategory]>,

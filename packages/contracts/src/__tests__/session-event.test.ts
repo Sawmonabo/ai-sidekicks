@@ -79,6 +79,10 @@ import {
   USAGE_TELEMETRY_EVENT_TYPES,
   VerifierFailureModeSchema,
   VerifierFailurePathSchema,
+  WORKFLOW_GATE_RESOLUTION_EVENT_TYPES,
+  WORKFLOW_LIFECYCLE_EVENT_TYPES,
+  WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES,
+  WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES,
   type CapabilityDetails,
   type EventCategory,
   type EventEnvelope,
@@ -117,7 +121,7 @@ const buildSessionCreated = () => ({
 
 describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
   it("registers exactly the payload-variant roster", () => {
-    // The SCHEMA-registered subset (43), not the 117-type census. Each
+    // The SCHEMA-registered subset (54), not the 156-type census. Each
     // group's round-trip and payload coverage lives in the suite that owns
     // its contract (repo.test.ts / worktree.test.ts for the payload shapes,
     // the audit-integrity / event-maintenance and body-bearing assistant /
@@ -167,6 +171,17 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "git.settled",
       "relay.pin_refused",
       "command.ended",
+      "usage.model_rerouted",
+      "session.archived",
+      "session.reactivated",
+      "session.closed",
+      "session.pinned",
+      "session.unpinned",
+      "session.muted",
+      "session.unmuted",
+      "session.converted",
+      "session.branch_changed",
+      "session.swept_to_repo_root",
     ]);
   });
 
@@ -303,7 +318,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     expect(result.success).toBe(false);
   });
 
-  it("EventCategorySchema enumerates exactly the 16 canonical categories", () => {
+  it("EventCategorySchema enumerates exactly the 20 canonical categories", () => {
     // Pinning the enum values prevents accidental drift from the canonical
     // EventCategory definition. If adds a category, the spec edit must land
     // before this list; the test will fail until both sides agree.
@@ -324,13 +339,17 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "policy_events",
       "orchestration_admission",
       "mcp_governance",
+      "workflow_lifecycle",
+      "workflow_phase_lifecycle",
+      "workflow_parallel_coordination",
+      "workflow_gate_resolution",
     ];
     // Read `.options` from the underlying enum construct. The schema is
     // typed as the abstract `z.ZodType<EventCategory>` so we cast via
     // `unknown` to read the construct-specific `.options` property; the
     // assertions below check both length AND exact set membership.
     const schemaInternals = EventCategorySchema as unknown as { options: readonly string[] };
-    expect(schemaInternals.options).toHaveLength(16);
+    expect(schemaInternals.options).toHaveLength(20);
     expect([...schemaInternals.options].sort()).toEqual([...expected].sort());
     for (const cat of expected) {
       expect(EventCategorySchema.safeParse(cat).success).toBe(true);
@@ -543,15 +562,15 @@ describe("compareEventEnvelopeVersion", () => {
 // SessionEventType census + category registry.
 // --------------------------------------------------------------------------
 //
-// Backstops the full census (117 types across 16 categories) plus the
+// Backstops the full census (156 types across 20 categories) plus the
 // category/type bijection: SESSION_EVENT_CATEGORY_BY_TYPE covers every
-// registered type exactly once, its values span exactly the 16 canonical
-// categories (every category non-empty), and the 16 per-category arrays
+// registered type exactly once, its values span exactly the 20 canonical
+// categories (every category non-empty), and the 20 per-category arrays
 // partition the census. Assertions are exact-set style wherever set equality
 // is feasible (the hardened idiom of the EventCategorySchema pin above), with
-// the exact size assertions (size === 117, 16 distinct categories) alongside.
+// the exact size assertions (size === 156, 20 distinct categories) alongside.
 
-// One row per category with its pinned count. Rows sum to 117 (asserted
+// One row per category with its pinned count. Rows sum to 156 (asserted
 // below), mirroring the census table's Total row.
 const CENSUS_BASELINE: ReadonlyArray<
   readonly [EventCategory, readonly SessionEventType[], number]
@@ -561,7 +580,7 @@ const CENSUS_BASELINE: ReadonlyArray<
   ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 8],
   ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 17],
   ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 7],
-  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 30],
+  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 37],
   ["approval_flow", APPROVAL_FLOW_EVENT_TYPES, 10],
   ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 8],
   ["runtime_node_lifecycle", RUNTIME_NODE_LIFECYCLE_EVENT_TYPES, 2],
@@ -572,6 +591,10 @@ const CENSUS_BASELINE: ReadonlyArray<
   ["policy_events", POLICY_EVENTS_EVENT_TYPES, 2],
   ["orchestration_admission", ORCHESTRATION_ADMISSION_EVENT_TYPES, 1],
   ["mcp_governance", MCP_GOVERNANCE_EVENT_TYPES, 5],
+  ["workflow_lifecycle", WORKFLOW_LIFECYCLE_EVENT_TYPES, 13],
+  ["workflow_phase_lifecycle", WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES, 17],
+  ["workflow_parallel_coordination", WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES, 1],
+  ["workflow_gate_resolution", WORKFLOW_GATE_RESOLUTION_EVENT_TYPES, 1],
 ];
 
 // The fifteen most recently minted literals, each with the category it
@@ -582,7 +605,7 @@ const CENSUS_BASELINE: ReadonlyArray<
 // later edit renames, which the immutability rule forbids — is a COMPILE
 // error under `tsc -p tsconfig.test.json` (the package's `typecheck` leg;
 // vitest strips types and would not catch it). The runtime assertions below
-// pin the category half and the 102 + 15 = 117 arithmetic.
+// pin the category half and the 141 + 15 = 156 arithmetic.
 const LATE_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory]> = [
   ["session.provider_status", "session_lifecycle"],
   ["session.notice", "session_lifecycle"],
@@ -602,9 +625,9 @@ const LATE_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory
 ];
 
 describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", () => {
-  it("registers exactly 117 types across exactly 16 distinct categories", () => {
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(117);
-    expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(16);
+  it("registers exactly 156 types across exactly 20 distinct categories", () => {
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(156);
+    expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(20);
   });
 
   it("registry categories span exactly the canonical EventCategory set (no empty category)", () => {
@@ -616,12 +639,12 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     expect(registryCategories).toEqual([...schemaInternals.options].sort());
   });
 
-  it("census table is complete: 16 rows, one per category, counts summing to 117", () => {
+  it("census table is complete: 20 rows, one per category, counts summing to 156", () => {
     const tableCategories = CENSUS_BASELINE.map(([category]) => category);
-    expect(tableCategories).toHaveLength(16);
-    expect(new Set(tableCategories).size).toBe(16);
+    expect(tableCategories).toHaveLength(20);
+    expect(new Set(tableCategories).size).toBe(20);
     const total = CENSUS_BASELINE.reduce((sum, [, , expectedCount]) => sum + expectedCount, 0);
-    expect(total).toBe(117);
+    expect(total).toBe(156);
   });
 
   it.each(CENSUS_BASELINE)(
@@ -634,7 +657,7 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
       // Exact set equality vs the registry's keys filtered to this category
       // — anti-drift bind between arrays and registry. This also forces
       // pairwise-disjoint arrays: each registry key carries exactly one
-      // category, so the 16 filtered key sets are disjoint.
+      // category, so the 20 filtered key sets are disjoint.
       const registryKeysInCategory = [...SESSION_EVENT_CATEGORY_BY_TYPE.entries()]
         .filter(([, registeredCategory]) => registeredCategory === category)
         .map(([eventType]) => eventType)
@@ -643,10 +666,10 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     },
   );
 
-  it("the 16 per-category arrays partition the registry key set exactly", () => {
+  it("the 20 per-category arrays partition the registry key set exactly", () => {
     const aggregated = CENSUS_BASELINE.flatMap(([, categoryTypes]) => [...categoryTypes]);
-    expect(aggregated).toHaveLength(117);
-    expect(new Set(aggregated).size).toBe(117);
+    expect(aggregated).toHaveLength(156);
+    expect(new Set(aggregated).size).toBe(156);
     expect([...aggregated].sort()).toEqual([...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].sort());
   });
 
@@ -689,25 +712,25 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     },
   );
 
-  it("the census minus the fifteen late-minted literals is exactly 102 types", () => {
+  it("the census minus the fifteen late-minted literals is exactly 141 types", () => {
     // Completeness self-check for the LATE_MINTED_TYPES fixture (the same
-    // row-sum bind CENSUS_BASELINE gets above): `117 − 15 = 102`, pinning
+    // row-sum bind CENSUS_BASELINE gets above): `156 − 15 = 141`, pinning
     // the delta's SIZE so the widening cannot be over- or under-counted. A
     // dropped or duplicated fixture entry fails here instead of leaving 14
     // passing per-literal pins.
     expect(LATE_MINTED_TYPES).toHaveLength(15);
     expect(new Set(LATE_MINTED_TYPES.map(([eventType]) => eventType)).size).toBe(15);
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - LATE_MINTED_TYPES.length).toBe(102);
-    // Removing the fifteen leaves exactly 102 keys. This is a cardinality
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - LATE_MINTED_TYPES.length).toBe(141);
+    // Removing the fifteen leaves exactly 141 keys. This is a cardinality
     // bind, not an identity one: a rename edited in both the record and its
-    // per-category array would still land on 102. Names are pinned elsewhere —
+    // per-category array would still land on 141. Names are pinned elsewhere —
     // the founding literal and the prefix-mismatch rows above, plus
     // CENSUS_BASELINE's per-category counts.
     const minted = new Set<string>(LATE_MINTED_TYPES.map(([eventType]) => eventType));
     const remaining = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter(
       (eventType) => !minted.has(eventType),
     );
-    expect(remaining).toHaveLength(102);
+    expect(remaining).toHaveLength(141);
   });
 
   it.each([...LATE_MINTED_TYPES])(
@@ -2348,6 +2371,28 @@ const COMMAND_ENDED = {
   sourceEpoch: 1,
   sourcePosition: 4,
 };
+const OWNER_REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
+const OWNER_WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f12";
+const OWNER_REMOVED_WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f22";
+const SESSION_SWEPT = {
+  sessionId: SESSION_ID,
+  repoMountId: OWNER_REPO_MOUNT_ID,
+  worktreeId: OWNER_WORKTREE_ID,
+  pendingMoveCleared: true,
+};
+const WORKTREE_READY = { sessionId: SESSION_ID, worktreeId: OWNER_WORKTREE_ID, state: "ready" };
+const MODEL_REROUTED = {
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  agentId: OWNER_AGENT_ID,
+  fromModel: "claude-opus-5-5",
+  toModel: "claude-sonnet-5",
+  scope: "local",
+  cause: "safety",
+  safetyCategory: "cybersecurity",
+  sourceEpoch: 1,
+  sourcePosition: 4,
+};
 const RELAY_PIN_REFUSED = {
   relayHost: "relay.example.com",
   pinnedSpkiPrefix: "3f3f3f3f3f3f3f3f",
@@ -2514,6 +2559,108 @@ const OWNED_VARIANT_FAMILIES: ReadonlyArray<
     ownedVariantEvent("relay.pin_refused", "security_events", {
       ...RELAY_PIN_REFUSED,
       presentedSpkiPrefix: "3f".repeat(32),
+    }),
+  ],
+  [
+    "session lifecycle move",
+    "a move that names no state the session is in",
+    ownedVariantEvent("session.archived", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      previousState: "active",
+      newState: "archived",
+      actor: USER_ID,
+    }),
+    ownedVariantEvent("session.archived", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      previousState: "active",
+    }),
+  ],
+  [
+    "session mark",
+    "a pin carrying a pin order in place of its time",
+    ownedVariantEvent("session.pinned", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      at: "2026-09-29T12:30:00.000-07:00",
+    }),
+    ownedVariantEvent("session.pinned", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      pinOrder: 1,
+    }),
+  ],
+  [
+    "chat conversion",
+    "a negative copy count",
+    ownedVariantEvent("session.converted", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      repoMountId: OWNER_REPO_MOUNT_ID,
+      copiedCount: 3,
+      skippedPaths: ["README.md"],
+    }),
+    ownedVariantEvent("session.converted", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      repoMountId: OWNER_REPO_MOUNT_ID,
+      copiedCount: -1,
+      skippedPaths: [],
+    }),
+  ],
+  [
+    "sweep to the repository root",
+    "a cleared-move flag spelled false",
+    ownedVariantEvent("session.swept_to_repo_root", "session_lifecycle", SESSION_SWEPT),
+    ownedVariantEvent("session.swept_to_repo_root", "session_lifecycle", {
+      ...SESSION_SWEPT,
+      pendingMoveCleared: false,
+    }),
+  ],
+  [
+    "branch change",
+    "a change that omits the branch it left",
+    ownedVariantEvent("session.branch_changed", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      repoMountId: OWNER_REPO_MOUNT_ID,
+      worktreeId: null,
+      branch: null,
+      previousBranch: "main",
+    }),
+    ownedVariantEvent("session.branch_changed", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      repoMountId: OWNER_REPO_MOUNT_ID,
+      worktreeId: null,
+      branch: null,
+    }),
+  ],
+  [
+    "worktree put-back",
+    "the kept-copy member on a worktree event that does not declare it",
+    ownedVariantEvent("worktree.created", "session_lifecycle", {
+      ...WORKTREE_READY,
+      restoredFrom: OWNER_REMOVED_WORKTREE_ID,
+    }),
+    ownedVariantEvent("worktree.ready", "session_lifecycle", {
+      ...WORKTREE_READY,
+      restoredFrom: OWNER_REMOVED_WORKTREE_ID,
+    }),
+  ],
+  [
+    "worktree discard",
+    "a created worktree naming a copy a discard left",
+    ownedVariantEvent("worktree.retired", "session_lifecycle", {
+      ...WORKTREE_READY,
+      state: "retired",
+      removedWorktreeId: OWNER_REMOVED_WORKTREE_ID,
+    }),
+    ownedVariantEvent("worktree.created", "session_lifecycle", {
+      ...WORKTREE_READY,
+      removedWorktreeId: OWNER_REMOVED_WORKTREE_ID,
+    }),
+  ],
+  [
+    "model reroute",
+    "a subagent scope, which the payload names local",
+    ownedVariantEvent("usage.model_rerouted", "usage_telemetry", MODEL_REROUTED),
+    ownedVariantEvent("usage.model_rerouted", "usage_telemetry", {
+      ...MODEL_REROUTED,
+      scope: "subagent",
     }),
   ],
 ];

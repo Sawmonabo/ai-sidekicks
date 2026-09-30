@@ -1008,14 +1008,14 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
     expect(piiAdmissionViolations(liveBranches)).toEqual([]);
   });
 
-  it("the admitted/refused split is 39/4 over the 43 registered variants", () => {
+  it("the admitted/refused split is 50/4 over the 54 registered variants", () => {
     // The set-quantifier pin. Both halves are asserted, so neither a variant
     // that quietly stops admitting nor a newly registered refused-category
     // variant can move the split without this line moving with it.
     const refused = liveBranches.filter((branch) =>
       PII_REFUSED_CATEGORIES.includes(branch.category as EventCategory),
     );
-    expect(liveBranches).toHaveLength(43);
+    expect(liveBranches).toHaveLength(54);
     expect(refused).toHaveLength(4);
     expect(refused.map((branch) => branch.type).sort()).toEqual([
       "audit_integrity_failed",
