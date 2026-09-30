@@ -86,7 +86,7 @@
     "dependency-cruiser": "18.2.0",
     "devtools-protocol": "0.0.1687809",
     "electron": "44.1.0",
-    "electron-vite": "^5.0.0",
+    "electron-vite": "6.0.0-beta.5",
     "eslint-plugin-perfectionist": "5.11.0",
     "happy-dom": "^19.0.0",
     "memlab": "2.0.5",
