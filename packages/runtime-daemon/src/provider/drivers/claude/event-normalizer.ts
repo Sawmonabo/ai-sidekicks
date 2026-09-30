@@ -18,7 +18,7 @@ import {
 } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
-import { EVENT_DISPOSITION_BY_KIND, type NormalizedEventKind } from "../../event-disposition.js";
+import type { NormalizedEventKind } from "../../event-disposition.js";
 
 /**
  * Which channel carried the frame: stdout stream-json, or one half of the control channel. Not a
@@ -629,9 +629,8 @@ export type ClaudeFrameEmissionRoute =
   | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
 
 /**
- * The driver core's entry point onto the table. Never throws: an unknown kind, an interim
- * `typePending` kind, or a target without a payload variant routes to a diagnostic record, never
- * to an envelope or a silent drop.
+ * The driver core's entry point onto the table. Never throws: an unknown kind or a target without
+ * a payload variant routes to a diagnostic record, never to an envelope or a silent drop.
  */
 export function resolveClaudeFrameEmissionRoute(
   frameKind: string,
@@ -652,21 +651,6 @@ export function resolveClaudeFrameEmissionRoute(
   }
   if (normalization.disposition === "not-evented") {
     return { route: "not-evented", normalization };
-  }
-  if (normalization.normalizedKind !== null) {
-    const registryDisposition = EVENT_DISPOSITION_BY_KIND.get(normalization.normalizedKind);
-    if (registryDisposition !== undefined && registryDisposition.typePending !== undefined) {
-      const record: DriverDiagnosticRecord = {
-        provider: "claude",
-        kind: "unmapped_wire_kind",
-        rawWireType: frameKind,
-        dispositionReason:
-          "interim typePending kind whose SessionEventType literal has not landed; routed to the diagnostic branch until the census amendment lands its literal",
-        details: { normalizedKind: normalization.normalizedKind },
-      };
-      diagnostics.emit(record);
-      return { route: "diagnostic", record };
-    }
   }
   if (normalization.emissionReadiness === "payload-variant-pending") {
     const record: DriverDiagnosticRecord = {
