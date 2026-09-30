@@ -14,6 +14,7 @@ import { DiffRowIndex } from "../diff-row-index.js";
 import { IntralineSegmentCache } from "../intraline-segment-cache.js";
 import { useRowWindow } from "../hooks/useRowWindow.js";
 
+/** Props for `DiffRenderer`. */
 export interface DiffRendererProps {
   readonly model: DiffModel;
   readonly viewMode: DiffViewMode;
