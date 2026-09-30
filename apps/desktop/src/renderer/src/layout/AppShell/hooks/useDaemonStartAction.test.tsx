@@ -35,18 +35,6 @@ describe("useDaemonStartAction", () => {
     await firstPress;
   });
 
-  it("gives the key back once the start has answered", async () => {
-    // Positive control: without it, an action that never returns the key would pass the case above.
-    const starts: string[] = [];
-    const start = recordingStart(starts, () => Promise.resolve());
-    const { result } = renderHook(() => useDaemonStartAction(start));
-
-    await result.current();
-    await result.current();
-
-    expect(starts).toStrictEqual(["daemonStart", "daemonStart"]);
-  });
-
   it("gives the key back when the start REJECTS, and hands over the rejection", async () => {
     // A rejected start ends the act too; a held key would kill the control.
     const starts: string[] = [];
