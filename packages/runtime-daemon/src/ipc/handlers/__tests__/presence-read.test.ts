@@ -1,10 +1,9 @@
 // `presence.read` JSON-RPC handler test suite.
 //
-// `presence.read` lets a local client read the current device-presence state
-// for a session — per-device liveness of the one user's linked devices. This
-// suite exercises the handler's registry-binding boundary: round-trip through
+// `presence.read` answers the devices connected to this machine. This suite
+// exercises the handler's registry-binding boundary: round-trip through
 // `MethodRegistry.dispatch`, the correct `mutating` flag, and
-// schema-validates-before-dispatch.
+// schema-validates-before-dispatch (a request that names a session is refused).
 //
 // Invariants verified:
 //   * Duplicate `registerPresenceRead` throws
@@ -15,19 +14,14 @@
 //
 // Test-fixture posture (mirrors session-handlers.test.ts):
 //   The round-trip + mutating arms register against the REAL contract schemas
-//   (`PresenceReadRequestSchema` / `PresenceReadResponseSchema`) because the
+//   (`PresenceReadRequestSchema` / `MachinePresenceSchema`) because the
 //   registry's `safeParse` machinery delegates to each schema's native runtime
 //   `safeParse`. The runtime-daemon does NOT depend on zod; the contract
 //   schemas already implement the duck-typed interface.
 
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  HandlerContext,
-  PresenceReadRequest,
-  PresenceReadResponse,
-  SessionId,
-} from "@ai-sidekicks/contracts";
+import type { HandlerContext, MachinePresence, SessionId } from "@ai-sidekicks/contracts";
 
 import {
   MethodRegistryImpl,
@@ -48,15 +42,15 @@ const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const TEST_DEVICE_ID = "660e8400-e29b-41d4-a716-446655440001";
 
 /**
- * Build a canonical-shape `PresenceReadResponse` matching every required field
- * on `PresenceReadResponseSchema`. The mock `readPresence` returns this
+ * Build a canonical-shape `MachinePresence` matching every required field
+ * on `MachinePresenceSchema`. The mock `readPresence` returns this
  * verbatim so the registry's step-4 `safeParse(result)` succeeds and the
  * dispatched value reaches the test assertion intact.
  *
  * The liveness timestamp is RFC 3339 with an explicit offset — the schema uses
  * `z.iso.datetime({ offset: true })` per the presence.ts wire contract.
  */
-function buildPresenceReadResponse(): PresenceReadResponse {
+function buildMachinePresence(): MachinePresence {
   return {
     devices: [
       {
@@ -77,20 +71,15 @@ function buildPresenceReadResponse(): PresenceReadResponse {
 describe("presence.read — round-trip through MethodRegistry dispatch", () => {
   it("dispatches `presence.read` to the deps' readPresence; returns the canonical response shape", async () => {
     const registry = new MethodRegistryImpl();
-    const expectedResponse = buildPresenceReadResponse();
-    const mockReadPresence = vi.fn<(request: PresenceReadRequest) => Promise<PresenceReadResponse>>(
-      async () => expectedResponse,
-    );
+    const expectedResponse = buildMachinePresence();
+    const mockReadPresence = vi.fn<() => Promise<MachinePresence>>(async () => expectedResponse);
     const deps: PresenceReadDeps = { readPresence: mockReadPresence };
     registerPresenceRead(registry, deps);
 
     const directCtx: HandlerContext = {};
-    const request: PresenceReadRequest = { sessionId: TEST_SESSION_ID };
-    const result = await registry.dispatch("presence.read", request, directCtx);
+    const result = await registry.dispatch("presence.read", {}, directCtx);
 
-    // The deps callback ran exactly once with the parsed params.
     expect(mockReadPresence).toHaveBeenCalledTimes(1);
-    expect(mockReadPresence).toHaveBeenCalledWith({ sessionId: TEST_SESSION_ID });
 
     // The dispatched result equals the deps' return value verbatim (the
     // registry's step-4 `safeParse(result)` re-parses but does not mutate).
@@ -99,14 +88,11 @@ describe("presence.read — round-trip through MethodRegistry dispatch", () => {
 
   it("returns an empty projection unchanged — no reachable device is a valid answer, not an error", async () => {
     const registry = new MethodRegistryImpl();
-    const noLiveDevices: PresenceReadResponse = { devices: [] };
-    const mockReadPresence = vi.fn<(request: PresenceReadRequest) => Promise<PresenceReadResponse>>(
-      async () => noLiveDevices,
-    );
-    const deps: PresenceReadDeps = { readPresence: mockReadPresence };
+    const noLiveDevices: MachinePresence = { devices: [] };
+    const deps: PresenceReadDeps = { readPresence: async () => noLiveDevices };
     registerPresenceRead(registry, deps);
 
-    const result = await registry.dispatch("presence.read", { sessionId: TEST_SESSION_ID }, {});
+    const result = await registry.dispatch("presence.read", {}, {});
     expect(result).toStrictEqual(noLiveDevices);
   });
 
@@ -116,7 +102,7 @@ describe("presence.read — round-trip through MethodRegistry dispatch", () => {
     // flipping this flag would wrongly refuse `presence.read` in a
     // `done-incompatible` negotiation state.
     const registry = new MethodRegistryImpl();
-    const deps: PresenceReadDeps = { readPresence: async () => buildPresenceReadResponse() };
+    const deps: PresenceReadDeps = { readPresence: async () => buildMachinePresence() };
     registerPresenceRead(registry, deps);
     expect(registry.isMutating("presence.read")).toBe(false);
   });
@@ -128,21 +114,20 @@ describe("presence.read — round-trip through MethodRegistry dispatch", () => {
 // ----------------------------------------------------------------------------
 
 describe("presence.read — schema-validates-before-dispatch", () => {
-  it("malformed payload rejects with `RegistryDispatchError(invalid_params)`; handler is NEVER invoked", async () => {
+  it("a request that names a session rejects with `RegistryDispatchError(invalid_params)`; handler is NEVER invoked", async () => {
     const registry = new MethodRegistryImpl();
-    const mockReadPresence = vi.fn<(request: PresenceReadRequest) => Promise<PresenceReadResponse>>(
-      async () => buildPresenceReadResponse(),
+    const mockReadPresence = vi.fn<() => Promise<MachinePresence>>(async () =>
+      buildMachinePresence(),
     );
     const deps: PresenceReadDeps = { readPresence: mockReadPresence };
     registerPresenceRead(registry, deps);
 
-    // `PresenceReadRequestSchema` is `.strict()` with a required
-    // `sessionId`; `{ bogus: true }` both omits `sessionId` AND carries an
-    // unknown key the strict mode rejects, forcing the step-2 `safeParse`
-    // failure path.
+    // Presence is the machine's: `PresenceReadRequestSchema` is the empty strict
+    // object, so a `sessionId` is an unknown key and fails the registry's
+    // `safeParse` before the handler runs.
     let caught: unknown = null;
     try {
-      await registry.dispatch("presence.read", { bogus: true }, {});
+      await registry.dispatch("presence.read", { sessionId: TEST_SESSION_ID }, {});
     } catch (err) {
       caught = err;
     }
@@ -168,7 +153,7 @@ describe("presence.read — schema-validates-before-dispatch", () => {
 describe("presence.read — duplicate registration rejected at register-time", () => {
   it("calling registerPresenceRead twice on the same registry throws `RegistryRegistrationError(duplicate_method)`", () => {
     const registry = new MethodRegistryImpl();
-    const deps: PresenceReadDeps = { readPresence: async () => buildPresenceReadResponse() };
+    const deps: PresenceReadDeps = { readPresence: async () => buildMachinePresence() };
     registerPresenceRead(registry, deps);
 
     let caught: unknown = null;

@@ -358,7 +358,7 @@ export interface WorkspaceListResponse {
 //
 // The SCHEMA is a module-local, unexported const rather than an inline
 // `z.array(z.object({…}))`, matching event.ts's `sessionCreatedPayloadSchema`
-// and presence.ts's `PresenceReadResponseDeviceSchema`: nesting a
+// and presence.ts's `PresenceDeviceSchema`: nesting a
 // forty-line object two levels inside a call argument buries the field list.
 // Unexported, so it adds no public surface and needs no
 // `isolatedDeclarations` annotation — the outer schema's

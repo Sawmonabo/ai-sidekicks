@@ -50,11 +50,7 @@ describe("withDaemonCall — one decided method, the rest left to the scenario",
   it("answers the decided call with what the suite decided", async () => {
     const { bridge } = bridgeDecidingOneCall();
 
-    expect(
-      await callBridge(bridge, DECIDED_CALL, {
-        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
-      }),
-    ).toBe(DECIDED_RESULT);
+    expect(await callBridge(bridge, DECIDED_CALL, {})).toBe(DECIDED_RESULT);
   });
 
   it("hands a passed-through call the wrapped bridge's own scripted reply", async () => {

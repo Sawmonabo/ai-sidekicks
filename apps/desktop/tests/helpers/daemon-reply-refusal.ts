@@ -1,31 +1,13 @@
-// What both `daemon-reply` suites need before they can call `callDaemon`.
-//
-// Two roles, and neither belongs to one concern: the session id every case sends,
-// and the reader that takes the refusal off a reply. The parse suite and the
-// rejection suite each play both, and a second copy of either would be a second
-// place a failure message comes from. It holds nothing a single suite uses — the
-// user id, the instant, the off-contract value, the served reply, and the
-// retry-bound reader stay beside their one reader, which is the line
-// `fixture-bridge.ts` beside it draws for the same reason.
-
-import type { SessionId } from "@ai-sidekicks/contracts";
+// What the `daemon-reply` suites need before they can read a reply: the reader
+// that takes the refusal off it. The parse, rejection and abandonment suites each
+// use it, and a second copy would be a second place a failure message comes from.
+// It holds nothing a single suite uses — the user id, the instant, the
+// off-contract value, the served reply, and the retry-bound reader stay beside
+// their one reader, which is the line `fixture-bridge.ts` beside it draws for the
+// same reason.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
-
-/**
- * A session id the branded schema accepts, taken from a shipped scenario.
- *
- * The cast is the seam in the scenario manifest, not a shortcut taken here: a
- * scenario declares `sessionId` as a plain `string` because it is authored data,
- * and the request schema brands it. `daemon.fixture.relay.test.ts` widens the same
- * value the same way for the same reason. The value still has to satisfy the
- * branded SCHEMA at run time — every case in both suites sends it through the
- * request parse — so a cast to a malformed id fails the assertion rather than
- * slipping past it.
- */
-export const SESSION_ID: SessionId = CONCURRENT_STREAMING_SCENARIO.sessionId as SessionId;
 
 /** The refusal a reply carries, or a failure naming what it carried instead. */
 export function refusalOf(reply: DaemonReply<unknown>): Refusal {

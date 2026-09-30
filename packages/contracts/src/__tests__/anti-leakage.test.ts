@@ -55,10 +55,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MachinePresenceSchema,
   PresenceHeartbeatSchema,
   PresenceReadRequestSchema,
-  PresenceReadResponseSchema,
-  PresenceUpdateSchema,
   type PresenceState,
 } from "../index.js";
 import * as contracts from "../index.js";
@@ -91,16 +90,9 @@ const buildValidPresenceHeartbeat = () => ({
   },
 });
 
-const buildValidPresenceUpdate = () => ({
-  sessionId: SESSION_ID,
-  awarenessState: new Uint8Array([1, 2, 3]),
-});
+const buildValidPresenceReadRequest = () => ({});
 
-const buildValidPresenceReadRequest = () => ({
-  sessionId: SESSION_ID,
-});
-
-const buildValidPresenceReadResponse = () => ({
+const buildValidMachinePresence = () => ({
   devices: [
     {
       deviceId: DEVICE_ID,
@@ -173,9 +165,8 @@ describe("export inventory — required schemas re-exported from @ai-sidekicks/c
   const REQUIRED_SCHEMAS = [
     // presence.ts
     ["PresenceHeartbeatSchema", contracts.PresenceHeartbeatSchema],
-    ["PresenceUpdateSchema", contracts.PresenceUpdateSchema],
     ["PresenceReadRequestSchema", contracts.PresenceReadRequestSchema],
-    ["PresenceReadResponseSchema", contracts.PresenceReadResponseSchema],
+    ["MachinePresenceSchema", contracts.MachinePresenceSchema],
     ["PresenceStateSchema", contracts.PresenceStateSchema],
   ] as const;
 
@@ -199,16 +190,13 @@ describe("export inventory — required schemas re-exported from @ai-sidekicks/c
   // because every type ships paired with its schema, the schema-present check
   // above is sufficient as a runtime guard.
   it("re-exports all schemas as a runtime-callable surface", () => {
-    // Compact follow-up — verify the 4 OBJECT schemas (the ones with
+    // Compact follow-up — verify the 3 OBJECT schemas (the ones with
     // .strict() per the next section) all return a successful parse result
     // on minimal valid fixtures, proving the re-export chain is intact
     // end-to-end (not just symbol-present).
     expect(PresenceHeartbeatSchema.safeParse(buildValidPresenceHeartbeat()).success).toBe(true);
-    expect(PresenceUpdateSchema.safeParse(buildValidPresenceUpdate()).success).toBe(true);
     expect(PresenceReadRequestSchema.safeParse(buildValidPresenceReadRequest()).success).toBe(true);
-    expect(PresenceReadResponseSchema.safeParse(buildValidPresenceReadResponse()).success).toBe(
-      true,
-    );
+    expect(MachinePresenceSchema.safeParse(buildValidMachinePresence()).success).toBe(true);
   });
 });
 
@@ -227,7 +215,7 @@ describe("export inventory — required schemas re-exported from @ai-sidekicks/c
 // `@ai-sidekicks/contracts`, so a removed `.strict()` fails here even if the
 // per-module suite was edited to admit the change.
 //
-// Coverage: the 4 top-level presence `.strict()` schemas.
+// Coverage: the 3 top-level presence `.strict()` schemas.
 
 describe("anti-leakage — cross-contract .strict() posture", () => {
   it("PresenceHeartbeatSchema rejects extraneous TOP-LEVEL keys (.strict() outer guard)", () => {
@@ -235,18 +223,13 @@ describe("anti-leakage — cross-contract .strict() posture", () => {
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });
 
-  it("PresenceUpdateSchema rejects extraneous keys (.strict() guard)", () => {
-    const broken = { ...buildValidPresenceUpdate(), extra: "leak" };
-    expect(PresenceUpdateSchema.safeParse(broken).success).toBe(false);
-  });
-
   it("PresenceReadRequestSchema rejects extraneous keys (.strict() guard)", () => {
     const broken = { ...buildValidPresenceReadRequest(), extra: "leak" };
     expect(PresenceReadRequestSchema.safeParse(broken).success).toBe(false);
   });
 
-  it("PresenceReadResponseSchema rejects extraneous TOP-LEVEL keys (.strict() outer guard)", () => {
-    const broken = { ...buildValidPresenceReadResponse(), extra: "leak" };
-    expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
+  it("MachinePresenceSchema rejects extraneous TOP-LEVEL keys (.strict() outer guard)", () => {
+    const broken = { ...buildValidMachinePresence(), extra: "leak" };
+    expect(MachinePresenceSchema.safeParse(broken).success).toBe(false);
   });
 });

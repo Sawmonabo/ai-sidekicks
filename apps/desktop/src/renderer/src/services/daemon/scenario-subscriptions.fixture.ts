@@ -80,11 +80,11 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * afterwards, so one scenario's authoring error surfaces to whoever advanced the
  * clock without silencing the other subscribers on that beat.
  *
- * AND ONE REGISTERED NAME IS NOT AN EVENT FEED AT ALL. The Awareness subscription
- * delivers a payload-free change SIGNAL rather than frames, so a walk over beats
- * cannot serve it however the kinds are routed. The fixture holds no room that moves,
- * so the subscription is accepted and never delivers — which is what the stream row's
- * scope discriminates, rather than letting the name match as a bare event type.
+ * AND ONE REGISTERED NAME IS NOT AN EVENT FEED AT ALL. The presence subscription
+ * delivers the machine's device list rather than frames, so a walk over beats cannot
+ * serve it however the kinds are routed. The fixture scripts no device, so the
+ * subscription is accepted and never delivers — which is what the stream row's scope
+ * discriminates, rather than letting the name match as a bare event type.
  */
 export function subscribeToScenario(
   engine: ScenarioEngine,
@@ -97,7 +97,7 @@ export function subscribeToScenario(
   // represents the whole log is the one a subscriber can join late and expect the log
   // from, while the two narrowed run streams and every bare event type are live.
   const stream = sessionEventStreamFor(subscriptionName);
-  if (stream?.scope === "awareness-signal") {
+  if (stream?.scope === "machine-presence") {
     return () => undefined;
   }
   if (stream?.scope === "whole-session") {

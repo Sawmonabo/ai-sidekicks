@@ -33,7 +33,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { callDaemon } from "./daemon-reply.js";
 import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
-import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
+import { refusalOf } from "@test/helpers/daemon-reply-refusal.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 
 /** The code `callDaemon` raises for a read whose owner has gone. */
@@ -137,12 +137,7 @@ describe("callDaemon — a read whose owner has gone", () => {
     line.abort();
     const underTest = bridgeAnswering(async () => servedPresenceReply());
 
-    const reply = await callDaemon(
-      underTest.bridge,
-      "presence.read",
-      { sessionId: SESSION_ID },
-      { signal: line.signal },
-    );
+    const reply = await callDaemon(underTest.bridge, "presence.read", {}, { signal: line.signal });
 
     expect(refusalOf(reply).code).toBe(READ_ABANDONED);
     // The claim the record makes and an assertion on the reply alone cannot: the
@@ -157,12 +152,7 @@ describe("callDaemon — a read whose owner has gone", () => {
     const held = heldReply(refusedPresenceReply());
     const underTest = bridgeAnswering(async () => await held.promise);
 
-    const calling = callDaemon(
-      underTest.bridge,
-      "presence.read",
-      { sessionId: SESSION_ID },
-      { signal: line.signal },
-    );
+    const calling = callDaemon(underTest.bridge, "presence.read", {}, { signal: line.signal });
     line.abort();
 
     const reply = await calling;
@@ -183,12 +173,7 @@ describe("callDaemon — a read whose owner has gone", () => {
     const held = heldReply(refusedPresenceReply());
     const underTest = bridgeAnswering(async () => await held.promise);
 
-    const calling = callDaemon(
-      underTest.bridge,
-      "presence.read",
-      { sessionId: SESSION_ID },
-      { signal: line.signal },
-    );
+    const calling = callDaemon(underTest.bridge, "presence.read", {}, { signal: line.signal });
     line.abort();
     held.release();
 
@@ -204,12 +189,7 @@ describe("callDaemon — a read whose owner has gone", () => {
     const line = readLine();
     const underTest = bridgeAnswering(async () => refusedPresenceReply());
 
-    const reply = await callDaemon(
-      underTest.bridge,
-      "presence.read",
-      { sessionId: SESSION_ID },
-      { signal: line.signal },
-    );
+    const reply = await callDaemon(underTest.bridge, "presence.read", {}, { signal: line.signal });
 
     expect(refusalOf(reply).code).toBe("reply-unreadable");
   });
@@ -221,12 +201,7 @@ describe("callDaemon — a read whose owner has gone", () => {
       throw new Error("the transport went away");
     });
 
-    const reply = await callDaemon(
-      underTest.bridge,
-      "presence.read",
-      { sessionId: SESSION_ID },
-      { signal: line.signal },
-    );
+    const reply = await callDaemon(underTest.bridge, "presence.read", {}, { signal: line.signal });
 
     expect(refusalOf(reply).code).toBe(READ_ABANDONED);
     expect(refusalOf(reply).detail).not.toContain("the transport went away");
@@ -248,7 +223,7 @@ describe("callDaemon — a read whose owner has gone", () => {
       const reply = await callDaemon(
         underTest.bridge,
         "presence.read",
-        { sessionId: SESSION_ID },
+        {},
         { signal: line.signal },
       );
 
@@ -274,7 +249,7 @@ describe("callDaemon — a read whose owner has gone", () => {
       const reply = await callDaemon(
         underTest.bridge,
         "presence.read",
-        { sessionId: SESSION_ID },
+        {},
         { signal: line.signal },
       );
 
@@ -289,12 +264,7 @@ describe("callDaemon — a read whose owner has gone", () => {
     const line = readLine();
     const underTest = bridgeAnswering(async () => servedPresenceReply());
 
-    const reply = await callDaemon(
-      underTest.bridge,
-      "presence.read",
-      { sessionId: SESSION_ID },
-      { signal: line.signal },
-    );
+    const reply = await callDaemon(underTest.bridge, "presence.read", {}, { signal: line.signal });
 
     // The negative control for every case above: with the same `callDaemon`, the same bridge,
     // and the same request, a live line is served. Without it "the read was abandoned"

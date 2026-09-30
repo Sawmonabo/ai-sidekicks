@@ -190,7 +190,8 @@
       // `wrangler deploy` by hand, so no package script names it. `pg` and its types are the
       // Postgres client the control plane's stores are built on, not imported until those
       // stores land.
-      "ignoreDependencies": ["wrangler", "pg", "@types/pg"],
+      // `@ai-sidekicks/contracts` is imported only by the ignored file below.
+      "ignoreDependencies": ["wrangler", "pg", "@types/pg", "@ai-sidekicks/contracts"],
       // The roster's reading of the terminal write lease holder, which the persisted-holder
       // join extends (ADR-025 D7; Plan-022 CP-022-4).
       "ignoreFiles": ["src/runtime-nodes/attach-service.ts"]

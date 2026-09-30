@@ -20,7 +20,7 @@
 import { RefusalError, refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { callDaemon } from "./daemon-reply.js";
-import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
+import { refusalOf } from "@test/helpers/daemon-reply-refusal.js";
 import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js";
 
 /**
@@ -56,7 +56,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
       throw envelope;
     });
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal.code).toBe("session.not_found");
     expect(refusal.detail).toBe("no such session on this node");
@@ -77,7 +77,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
       throw remote;
     });
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal.code).toBe("session.not_found");
     expect(refusal.detail).toBe("no such session on this node");
@@ -99,7 +99,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
       throw throttled;
     });
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal.code).toBe("ratelimit.exceeded");
     expect(retryBoundOf(refusal)).toStrictEqual({ afterSeconds: 30 });
@@ -113,7 +113,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
       throw new RefusalError(carried);
     });
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal).toStrictEqual(carried);
   });
@@ -134,7 +134,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
       throw cloned;
     });
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal).toStrictEqual(carried);
   });
@@ -155,7 +155,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
       throw new HostileRejection("the socket went away");
     });
 
-    const reply = await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID });
+    const reply = await callDaemon(bridge, "presence.read", {});
 
     expect(refusalOf(reply).code).toBe("call-rejected");
   });
@@ -165,7 +165,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
       throw new Error("the socket went away");
     });
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal.code).toBe("call-rejected");
     expect(refusal.detail).toContain("presence.read");
@@ -183,7 +183,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
       throw hostile;
     });
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal.code).toBe("call-rejected");
     expect(refusal.detail).toBe("presence.read was rejected.");
@@ -208,7 +208,7 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
       },
     };
 
-    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
 
     expect(refusal.code).toBe("call-rejected");
   });

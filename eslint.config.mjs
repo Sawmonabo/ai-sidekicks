@@ -112,11 +112,8 @@ export default tseslint.config(
   // surface only: `contracts` compiles non-test `src/*.ts` into `dist/`
   // (package.json `files: ["dist"]`), and `dist` is what runs on Workers /
   // browser. Test files are never shipped and run on Node via vitest, where
-  // `Buffer` legitimately exists — `presence.test.ts` deliberately asserts that
-  // `PresenceUpdateSchema` (`z.instanceof(Uint8Array)`) accepts a Node `Buffer`
-  // (real coverage of the daemon→contracts Yjs-awareness producer path, since
-  // `Buffer extends Uint8Array`). So `__tests__/**` is excluded: the production
-  // isomorphism guarantee (R4) is unaffected by Node-only globals in tests.
+  // `Buffer` legitimately exists, so `__tests__/**` is excluded: what ships
+  // stays free of Node-only globals whatever the tests use.
   // (The `ignores` key alongside `files` is a LOCAL exclusion for this block,
   // not a global ignore.)
   {

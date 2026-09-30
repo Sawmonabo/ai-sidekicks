@@ -11,7 +11,6 @@ import { z } from "zod";
 
 import { decodedByteLength } from "./internal/base64.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
-import { DEVICE_ID_MAX_LEN } from "./presence.js";
 import { wireFreeFormString } from "./session.js";
 
 /** The longest name a machine or a device carries: the one name every other device shows. */
@@ -27,9 +26,12 @@ const SIGNATURE_PART_MAX_LEN = 4096;
 // Ids
 // --------------------------------------------------------------------------
 
+/** The longest device id any wire member carries. */
+export const DEVICE_ID_MAX_LEN = 256;
+
 /** The control plane's id for one of the person's phones or browsers. Opaque to every client. */
 export type DeviceId = string & { readonly __brand: "DeviceId" };
-/** Parses a {@link DeviceId}: a non-empty string up to the device-id bound presence uses. */
+/** Parses a {@link DeviceId}: a non-empty string up to {@link DEVICE_ID_MAX_LEN}. */
 export const DeviceIdSchema: z.ZodType<DeviceId, DeviceId> = z
   .string()
   .min(1)
