@@ -1,9 +1,5 @@
-// The order the rows come out in, and the order two reads of one list agree on.
-//
-// Both claims are about the comparator rather than about any one row, which is why
-// they are read together: the first says which key wins, and the second says that the
-// keys settle every pair rather than leaving some of them to whatever order the
-// enumeration happened to supply.
+// The order the rows come out in, and the order two reads of one list agree on: which key wins,
+// and that the keys settle every pair.
 
 import { describe, expect, it } from "vitest";
 
@@ -45,8 +41,7 @@ describe("row ordering", () => {
   });
 
   it("negative control: the input order is not the output order", () => {
-    // The case above would pass over a projection that returned its input untouched
-    // if the input happened to arrive sorted. It does not here, and this states so.
+    // Guards against a projection that returned an input that happened to arrive sorted.
     const input = [settled, activeOlder, activeNewer, parked];
     const projection = new RunListProjection(input);
     expect(projection.rows.map((row) => row.run.workflowRunId)).not.toStrictEqual(
@@ -56,20 +51,13 @@ describe("row ordering", () => {
 });
 
 /**
- * Two reads of one list, and the rows that must not move between them.
- *
- * Runs with the same `startedAt`, and runs whose starts are both unreadable, tie on the
- * start. `Array.prototype.sort` hands a tied pair back in the order it received them,
- * so without a further key their order follows the enumeration, and a list read again
- * on every refresh from a response that need not enumerate alike would swap rows under
- * a person between one read and the next.
- *
- * Each case runs the SAME rows through twice, supplied in opposite orders, and asserts
- * one output. Asserting a single expected order against one input would pass over a
- * comparator that had simply preserved that input.
+ * Two reads of one list, and the rows that must not move between them. Tied starts (equal, or
+ * both unreadable) would otherwise follow enumeration order. Each case runs the same rows in
+ * opposite orders and asserts one output, since one expected order could match a comparator that
+ * preserved its input.
  */
 describe("the order two reads of one list agree on", () => {
-  /** The same runs, enumerated forwards and backwards, as two reads would supply them. */
+  /** The same runs enumerated forwards and backwards, as two reads would supply them. */
   function bothEnumerationsOf(
     runs: readonly WorkflowRunSnapshot[],
   ): readonly (readonly string[])[] {
@@ -88,7 +76,7 @@ describe("the order two reads of one list agree on", () => {
   });
 
   it("holds two runs whose starts are both unreadable in one order", () => {
-    // Two unreadable starts tie on the start, so the run id alone settles the pair.
+    // Two unreadable starts tie, so the run id alone settles the pair.
     const [forwards, backwards] = bothEnumerationsOf([
       run({ workflowRunId: "run-b", startedAt: "2026-09-01T99:99:99.000Z" }),
       run({ workflowRunId: "run-a", startedAt: "2026-09-01T88:88:88.000Z" }),
@@ -98,9 +86,7 @@ describe("the order two reads of one list agree on", () => {
   });
 
   it("negative control: the run id never outranks the start", () => {
-    // Without this, both cases above would pass over a list sorted by id alone —
-    // which would put the oldest run at the top whenever its id happened to sort
-    // first, and lose the newest-first reading.
+    // Guards the cases above against a list sorted by id alone.
     const [forwards, backwards] = bothEnumerationsOf([
       run({ workflowRunId: "run-a-older", startedAt: "2026-09-01T08:00:00.000Z" }),
       run({ workflowRunId: "run-z-newer", startedAt: "2026-09-01T12:00:00.000Z" }),

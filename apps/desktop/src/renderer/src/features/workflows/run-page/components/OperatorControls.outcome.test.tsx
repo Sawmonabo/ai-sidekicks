@@ -1,11 +1,7 @@
-// What the controls do with an ANSWER, which is the half a press earns.
-//
-// Every case but the last group holds the form still and varies the
-// `WorkflowRunControlOutcome`, the input a form cannot produce (`OperatorControls.test.tsx`
-// is what an operator can compose). Eligibility is the daemon's, so a press puts the
-// question and the answer renders BESIDE the button, never in place of it and never as a
-// pre-press claim. The last group mounts the controls over the real dispatcher, because
-// which control an answer lands under is decided between the two.
+// What the controls do with an answer. Every case but the last group holds the form still and
+// varies the `WorkflowRunControlOutcome`, an input a form cannot produce. Eligibility is the
+// daemon's, so the answer renders beside the button, never in place of it. The last group mounts
+// the controls over the real dispatcher, because it decides which control an answer lands under.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -32,14 +28,12 @@ const NOTHING_PRESSED: OperatorControlsProps = {
 describe("a control is offered, and a refusal stands beside it rather than instead of it", () => {
   it("draws both buttons before anything has been pressed", () => {
     render(<OperatorControls {...NOTHING_PRESSED} />);
-    // Nothing is decided in advance: both acts are offered until the daemon answers.
     expect(screen.queryAllByRole("button")).toHaveLength(2);
   });
 
   it("says nothing about an act nobody has performed", () => {
     render(<OperatorControls {...NOTHING_PRESSED} />);
-    // `idle` draws no absence and no refusal: reporting on a question never put is
-    // the conflation the five kinds of nothing exist to prevent.
+    // `idle` draws no absence and no refusal.
     expect(screen.queryAllByRole("status")).toHaveLength(0);
   });
 
@@ -58,16 +52,14 @@ describe("a control is offered, and a refusal stands beside it rather than inste
     expect(screen.getByText("act-already-in-flight")).toBeDefined();
     const button = screen.getByRole("button", { name: /cancel this run/iu });
     expect(button.hasAttribute("disabled")).toBe(false);
-    // The refusal joined the control, it did not replace it, so the operator can act
-    // again once the outstanding call settles.
+    // The refusal joined the control, so the operator can act again once the call settles.
     fireEvent.click(button);
     expect(cancel).toHaveBeenCalledWith(undefined);
   });
 
   it("negative control: the refusal code is the raiser's own and is not reworded", () => {
-    // Without this the case above would pass over a component that printed a fixed
-    // sentence of its own for every refusal, a second vocabulary this component must
-    // never grow.
+    // Without this the case above would pass over a component that printed its own fixed
+    // sentence for every refusal.
     const refusal = actAlreadyInFlightRefusal("resume");
     render(
       <OperatorControls
@@ -91,8 +83,7 @@ describe("a control is offered, and a refusal stands beside it rather than inste
         resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
-    // The wire word and not a paraphrase of it, so an operator who then reads
-    // `canceled` on the run sees the same string the settlement showed them.
+    // The wire word, not a paraphrase, so it matches what the operator then reads on the run.
     expect(screen.getByText("canceled")).toBeDefined();
     expect(screen.getByText("This run is canceled.")).toBeDefined();
   });

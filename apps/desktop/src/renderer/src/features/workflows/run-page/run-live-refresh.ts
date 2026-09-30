@@ -1,48 +1,7 @@
-// When the run this pane is showing has moved under the answer it is holding.
-//
-// The run lifecycle is evented: every `workflow.*` type in the session event census. A
-// pane that read its snapshot once and re-read only when an operator at this keyboard
-// performed a served control would go stale whenever the run moved another way: the
-// engine advancing a phase, a park arming a resume, a second window's cancel or gate
-// resolution. This module reports those moves as a round number the snapshot read is
-// keyed on.
-//
-// AND IT IS NOT A POLL. The console's read policy puts reads on subscribe, on window
-// focus, on reconnect, and on the terminal events each reading names, through one
-// coalescing scheduler — and forbids an interval outright. This module is that policy
-// applied to one run: `store/reads/session-refresh-triggers.ts` observes the three outside
-// reasons, `lib/reads/refresh-scheduler.ts` coalesces them, and what comes out is a
-// ROUND NUMBER the snapshot read is keyed on. No timer is armed here beyond the
-// scheduler's own coalescing window, and a session where nothing happens costs nothing.
-//
-// NO SECOND SUBSCRIPTION. The session's events are already held: `SessionStoreRegistry`
-// opens one `session.subscribe` per open session and projects its frames into a
-// `SessionStore`. What this watches is that store's own transitions, which is why the
-// mechanism is `SessionRefreshTriggers` rather than a stream of its own — a second
-// subscription for one pane would be a second copy of the session's history, a second
-// cursor to keep, and a second answer to what the timeline holds.
-//
-// WHY A ROUND RATHER THAN A READ. The scheduler's performer normally puts a call on
-// the wire. Here it advances a number that joins the snapshot read's SUBJECT KEY, and
-// the read itself is `useSubjectRead`'s, which already owns the supersession this
-// performer's own `ReadRound` would otherwise carry: a new key settles the read during
-// the render that brings it, so no frame shows the previous round's snapshot as the
-// answer to the new question. Two supersession mechanisms over one read would be two
-// places to decide whether an answer still counts.
-//
-// AND IT IS SCOPED TO ONE RUN. A session runs many workflows, and every one of the
-// `workflow.*` types is emitted for whichever run the engine advanced — so a reading that
-// matched on KIND alone answered "something workflow-shaped happened in this session",
-// which is true while another run is progressing and this one is not. Every pane in the
-// window then re-read, once per frame, for as long as anything anywhere in the session
-// was moving. The reading therefore takes the run it is about and admits a frame unless
-// the frame names a different one; `ReadTriggerTarget.admitsTriggeringEvent` is the
-// seam, and both of the console's trigger wirings consult it through one predicate so
-// the two cannot come to disagree about when an answer goes stale.
-//
-// A FRAME THAT NAMES NO RUN IS ADMITTED. Some census types have no registered payload,
-// so nothing guarantees their frames carry the run id, and a reading that demanded it
-// would go quiet on exactly those frames.
+// Counts the moves of the run a pane shows, as a round number the pane's snapshot read is keyed on.
+// Event-driven, no timer: `SessionRefreshTriggers` watches the session store's own transitions
+// (no second subscription) and `RefreshScheduler` coalesces them. A new key supersedes the read
+// itself, so nothing here supersedes an in-flight answer. Frames are scoped to one run.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 
@@ -58,52 +17,18 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 export interface WorkflowRunLiveRefreshOptions {
   /** The window's clock, which the coalescing window is measured on. */
   readonly clock: Clock;
-  /**
-   * The session whose frames say this run moved.
-   *
-   * ABSENT on a pane with no session behind it — the pane layout can open a run pane from a
-   * keybinding before a session is chosen. Such a reading observes nothing and its
-   * round never advances, which is honest: with no store there is no timeline to
-   * watch, and inventing one would be watching a session nobody named.
-   */
+  /** Absent on a pane with no session (opened before one is chosen); observes nothing. */
   readonly sessionStore: SessionStore | undefined;
-  /**
-   * The run the pane holding this reading is showing.
-   *
-   * ABSENT on a pane that names no run, the same arm the store above has: such a pane
-   * reads nothing, so there is no answer for a frame to make stale and every frame that
-   * names a run names a different one.
-   */
+  /** Absent on a pane that names no run: every frame naming a run then names a different one. */
   readonly workflowRunId: string | undefined;
 }
 
-/**
- * How many times the run under this pane has been reported as having moved.
- *
- * A monotonic counter and deliberately not a snapshot: what a reader needs is "the
- * answer in hand is stale, ask again", and a number that only goes up says exactly
- * that with nothing else to keep in step. It is also why the value is safe to fold
- * into a subject key — every advance is a new key, and no advance is ever un-done.
- */
+/** How many times the run under this pane has been reported as moved; each advance is a new key. */
 export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
   /**
-   * The frames whose arrival owes this pane a fresh read.
-   *
-   * Declared on the READING rather than handed to it by the pane that mounts it,
-   * which is `ReadTriggerTarget`'s own rule: which events change an answer is a
-   * property of the question, and two panes asking the same one must not disagree
-   * about when it goes stale.
-   *
-   * Every `workflow.*` type rather than a chosen few. A run read projects the run's
-   * status, every phase's state, every live park and the pin it is frozen on, so
-   * there is no type in the taxonomy that cannot move something this pane draws —
-   * and a shorter list would be this module deciding which of the engine's own
-   * announcements do not matter.
-   *
-   * THE KIND IS HALF THE QUESTION AND THE RUN IS THE OTHER HALF, which is what
-   * {@link admitsTriggeringEvent} below adds. Every one of these types is emitted for
-   * whichever run the engine advanced, so this set alone is "something workflow-shaped
-   * happened somewhere in this session" — true of a run this pane is not showing.
+   * Every `workflow.*` type: a run read projects status, phases, parks and the pin, so any of them
+   * can move what the pane draws. The run is the other half of the question, see
+   * {@link admitsTriggeringEvent}.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = WORKFLOW_EVENT_TYPES;
 
@@ -123,18 +48,10 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
     this.#workflowRunId = options.workflowRunId;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
-      // The whole of the "read": advance the round and say so. A burst of frames —
-      // a fan-out completing four phases at once — collapses into one advance, which
-      // is one re-read rather than four.
-      //
-      // The performer's own `ReadRound` is deliberately unused: this puts nothing on
-      // the wire, so there is no in-flight answer to supersede here. The read this
-      // round drives is superseded by its own subject key, one module over.
-      //
-      // No `onError` is supplied, so a rejection re-throws rather than being
-      // swallowed. Nothing in this path can refuse — the only way it rejects is a
-      // subscriber throwing, which is a renderer defect and not a wire refusal, and
-      // an `onError` that absorbed it would hide the one failure this can have.
+      // A burst of frames (a fan-out completing four phases) collapses into one advance. The
+      // performer's `ReadRound` goes unused: nothing goes on the wire, and the read this round
+      // drives is superseded by its own subject key. No `onError`: a rejection can only be a
+      // subscriber throwing, a renderer defect that must surface.
       perform: () => {
         this.#advance();
         return Promise.resolve();
@@ -151,52 +68,31 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
     return this.#round;
   }
 
-  /** Whether this reading has ended. How the resource seam recognizes a corpse. */
+  /** Whether this reading has ended. */
   public get isDisposed(): boolean {
     return this.#disposed;
   }
 
   /**
-   * Whether this reading watches `sessionStore`.
-   *
-   * `ArtifactListReader.isReadingFor`'s name and its reason: the seam keys on the
-   * session id, and a projection rebuilt for the same session across a reconnect keeps
-   * that key while being a different object — the one axis a key cannot carry. Without
-   * the check this reading would go on listening to a store nothing else reads and its
-   * round would stop advancing, silently.
+   * Whether this reading watches `sessionStore`. A store rebuilt for the same session across a
+   * reconnect keeps its key but is a different object; without this check the round would stop
+   * advancing silently.
    */
   public isReadingFor(sessionStore: SessionStore | undefined): boolean {
     return this.#sessionStore === sessionStore;
   }
 
   /**
-   * Whether this frame is about the run this reading is watching.
-   *
-   * THE RULE IS "UNLESS IT NAMES A DIFFERENT RUN", not "only if it names this one", and
-   * the difference is the whole of what this method decides. A frame carrying a run
-   * identifier is attributable and is admitted for this run and refused for every
-   * other. A frame carrying none is not attributable at all, and this reading cannot
-   * rule it out, so it is admitted and the pane re-reads.
-   *
-   * The asymmetry is deliberate. A census type with no registered payload does not
-   * guarantee the run id on its frame, so a reading that demanded one would go quiet on
-   * every frame that omits it and leave the pane stale. Admitting the unattributable frame gives up only the saving of
-   * skipping a read, and only for frames nobody could attribute.
-   *
-   * WITH NO RUN ADDRESSED every named frame names a different run and is refused, which
-   * falls out of the same comparison rather than being a second rule: such a pane has
-   * put no read, so there is no answer for a frame to make stale.
+   * Whether this frame is about this run: admitted unless it names a different run. A frame with
+   * no run id is admitted because some census types have no registered payload, so demanding one
+   * would leave the pane stale. With no run addressed, every named frame is refused.
    */
   public admitsTriggeringEvent(event: ProjectedSessionEvent): boolean {
     const namedRunId = workflowRunIdOfEventPayload(event.payload);
     return namedRunId === undefined || namedRunId === this.#workflowRunId;
   }
 
-  /**
-   * Begin observing. Idempotent, because React mounts an effect twice in development
-   * strict mode and a second observer would double every re-read in exactly the
-   * environment where the budget is watched.
-   */
+  /** Begin observing. Idempotent: React strict mode mounts an effect twice in development. */
   public start(): void {
     if (this.#started || this.#disposed) {
       return;
@@ -214,11 +110,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
     this.#scheduler.request(reason);
   }
 
-  /**
-   * Terminal. No later frame and no later focus can advance a round behind an unmount
-   * or across a bridge swap — both schedulers this composes are terminal on dispose,
-   * so a timer cannot outlive the pane that armed it.
-   */
+  /** Terminal: no later frame or focus advances a round, and no timer outlives the pane. */
   public dispose(): void {
     this.#disposed = true;
     this.#triggers?.dispose();
@@ -234,15 +126,10 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
   }
 }
 
-/** Every `workflow.*` type in the session event census. */
 const WORKFLOW_EVENT_TYPES: ReadonlySet<string> = new Set(
   [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter((type) => type.startsWith("workflow.")),
 );
 
-/**
- * Which run a workflow frame's payload names, if it names one. Every workflow payload
- * names a run `workflowRunId`; a frame without that member answers `undefined`.
- */
 function workflowRunIdOfEventPayload(
   payload: Readonly<Record<string, unknown>> | undefined,
 ): string | undefined {

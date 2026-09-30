@@ -1,23 +1,11 @@
 // How a park card reaches the form that ends its wait, where the caller can offer one.
-//
-// A SIBLING RATHER THAN A SECOND COMPONENT IN `ParkBadge.tsx`, for the reason
-// `ParkSchedule.tsx` beside it states: one component per `.tsx`, imported by the badge
-// by relative path and not exported from the feature's `index.ts`.
-//
-// THE ROUTE TYPE IS DECLARED HERE, WITH THE COMPONENT THAT CONSUMES IT, rather than in
-// the badge that merely passes it through. Declared on the badge it would have to be
-// imported back by this module, which closes a cycle the layering gate rejects; every
-// other reader — the badge's own props, and the run page's park list that builds one —
-// reaches the one declaration from here.
+// The route type is declared here, with its consumer, because declaring it on the badge would
+// make this module import it back and close a cycle.
 
 /**
- * How this card reaches the form that ends its wait, where the caller can offer one.
- *
- * Three arms because the operator's next move differs: press this to answer the phase,
- * nothing to press because this phase's form is already the one open, and nothing to
- * press because the run did not report the handle it would be answered through. A
- * boolean plus a detail string would collapse the last two, and they are the difference
- * between "you are already here" and "this cannot be answered from this build".
+ * How this card reaches the form that ends its wait: press to open it, already open, or no
+ * handle to open it with. The last two stay apart because "you are already here" and "this
+ * cannot be answered from this build" are different messages.
  */
 export type WorkflowParkFormRoute =
   | { readonly kind: "openable"; readonly openForm: () => void }

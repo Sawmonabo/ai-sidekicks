@@ -1,66 +1,8 @@
-// The one call the renderer makes into a schema library, and the wrapper that makes it
-// safe to make.
-//
-// THE LINT CONFIG LETS THIS MODULE IMPORT `zod`, WHICH THE RENDERER'S FEATURES OTHERWISE
-// MAY NOT. A person's answer checked against a workflow's input schema is not a wire
-// read, so it is validated here, where the data is owned, and nowhere else: every other
-// module of the form that needs a verdict asks this one, so the renderer holds one
-// reading of a schema. What is checked here is a
-// DRAFT and never a daemon reply; a reply is parsed at `daemon/daemon-reply.ts` and
-// nowhere else, and nothing in this module can reach one.
-//
-// AND IT IS REACHED THROUGH A LOADER, WHICH IS WHY IT HOLDS ONLY THE COMPILER.
-// `json-schema-validator-loader.ts` reaches this module through `import()` and through
-// nothing else, so this module and the schema library's JSON-Schema entry point arrive on
-// a chunk of their own. How a member is ADDRESSED lives apart in `schema-member-path.ts`,
-// which needs no library, because the form's descriptors, controls and plan all read it
-// before any schema is compiled. What is left here is the one thing that needs the
-// library.
-//
-// WHY IT IS WRAPPED RATHER THAN CALLED. The console's library set admits Zod's
-// JSON-Schema reader for exactly this job and nothing else, and the library's own
-// documentation calls that reader experimental and outside its stable API. It THROWS —
-// it does not return a verdict — on the draft-07 constructs it does not implement:
-// `$ref`, `if`/`then`/`else`, `dependentRequired`. A form that let that throw would take
-// the pane down over a definition somebody authored, which is the opposite of the rule
-// this whole subtree is built on: an unusual schema is answered in the raw editor and
-// never refused.
-//
-// SO THE VERDICT IS A VALUE. Compiling either succeeds or reports why it did not, and a
-// caller that got no validator still has a working editor — it validates the JSON's
-// syntax and says plainly that the schema itself could not be checked. Two different
-// honesties, and the type keeps them apart.
-//
-// THE ISSUE PATH TRAVELS AS SEGMENTS, AND `schema-member-path.ts` STATES WHY. The library
-// reports a path of property keys and array indices; what leaves this module is those
-// segments whole, in the one representation every control is addressed by. A second
-// reading of that path is what `schema-member-path.ts` exists to prevent, and nothing
-// here re-derives one.
-//
-// THE VERDICT DESCRIBES THE BYTES SENT, WHICH IS WHY IT CARRIES THEM. `safeParse` does
-// not answer about the value it was handed — it answers about the value the schema READS
-// that value as, and hands that reading back. A member declaring a `default` makes `{}`
-// valid, because the reader supplies the member, so a report carrying only `valid` would
-// be a verdict on `{ approver: "ada" }` rendered beside a form about to send `{}`. The
-// accepted value therefore travels ON the clean arm, for the caller that has no other
-// way to show it: the form's raw editor submits THAT, because its display is the person's
-// own document and nothing rewrites it. A caller whose controls can show every member
-// seeds them instead and submits what they hold — same rule, closed at the display rather
-// than at the wire (`hooks/useSchemaForm.ts`).
-//
-// AND THE LIBRARY CANNOT BE ASKED FOR LESS. `FromJSONSchemaParams` declares exactly two
-// members, `defaultTarget` and `registry` (`zod/v4/classic/from-json-schema.d.ts` at the
-// 4.3.6 pin), so there is no switch that compiles a schema without its defaults — the
-// choice is between carrying the accepted value and describing a value nobody sends.
-// Measured at that same pin, default application is also the only difference the reader
-// introduces: an unknown member passes through rather than being stripped,
-// `additionalProperties: false` refuses rather than trims, and a `format` annotation
-// transforms nothing. So an accepted value is the composed answer plus the members the
-// schema itself declares a value for, and never less than what somebody typed.
-//
-// NO SCHEMA COMPILATION IS CACHED. A validator is minted per schema per mount and lives
-// as long as the form does — the console keeps no unbounded cache keyed on values it
-// does not own, and a phase definition's schema is read once per open.
+// Compiles a workflow input schema into a validator for a person's draft answer. The only module
+// that imports the schema library, and it is reached through `json-schema-validator-loader.ts`
+// so the library arrives on its own chunk.
+// The schema reader throws on constructs it does not implement (`$ref`, `if`/`then`/`else`,
+// `dependentRequired`); that failure is returned as a value so the raw editor keeps working.
 
 import * as zod from "zod";
 
@@ -71,30 +13,24 @@ export interface SchemaValidationIssue {
   /** Where the finding is, as segments. Empty for an issue about the whole answer. */
   readonly memberPath: SchemaMemberPath;
   /**
-   * The library's own sentence, carried verbatim — except for the one class the library
-   * cannot phrase for a form, a required member nobody has answered (`unansweredSentence`).
+   * The library's own sentence, carried verbatim, except for a required member nobody has
+   * answered (see `sentenceOf`).
    */
   readonly message: string;
 }
 
 /**
- * What checking one answer against one schema came back with.
- *
- * Two arms rather than one shape with an optional member, because the accepted value
- * exists on exactly one of them: a refused answer has no reading for the schema to hand
- * back, and a member that is sometimes there is a member every caller has to re-decide
- * whether to trust.
+ * What checking one answer against one schema came back with. Two arms because the accepted
+ * value exists only on the valid one.
  */
 export type SchemaValidationReport =
   | {
       readonly status: "valid";
       readonly issues: readonly SchemaValidationIssue[];
       /**
-       * The value the schema accepted — what a submission composed from this answer
-       * must carry.
-       *
-       * `unknown` for the reason the answer is: what a schema accepts is whatever that
-       * schema describes, and this module proves nothing about the shape of it.
+       * The value the schema accepted, which a submission must carry: the reader supplies
+       * declared defaults, so `{}` can be valid as `{ approver: "ada" }`. The reader has no
+       * switch to compile without defaults (zod 4.3.6).
        */
       readonly acceptedValue: unknown;
     }
@@ -105,14 +41,12 @@ export type SchemaValidator =
   | { readonly status: "compiled"; readonly check: (answer: unknown) => SchemaValidationReport }
   | { readonly status: "uncompilable"; readonly detail: string };
 
-/** The finding list a clean verdict carries. Held once; nothing ever writes to it. */
+/** The finding list of a clean verdict; shared and never written to. */
 const NOTHING_WRONG: readonly SchemaValidationIssue[] = [];
 
 /**
- * Compile one input schema into something an answer can be checked against.
- *
- * Total: every schema resolves to one of the two arms and none of them escapes as a
- * throw, which is what lets the form's own fallback stay a fallback rather than a crash.
+ * Compile one input schema into a validator, uncached. Total: every schema resolves to one of
+ * the two arms and none throws.
  */
 export function compileSchemaValidator(inputSchema: unknown): SchemaValidator {
   let compiled: zod.ZodType;
@@ -129,8 +63,7 @@ export function compileSchemaValidator(inputSchema: unknown): SchemaValidator {
     check: (answer) => {
       const parsed = compiled.safeParse(answer);
       if (parsed.success) {
-        // `parsed.data` and never the answer that went in: the header's rule, and the
-        // one line that makes the verdict and the submission be about one value.
+        // `parsed.data`, not the answer: the verdict and the submission describe one value.
         return { status: "valid", issues: NOTHING_WRONG, acceptedValue: parsed.data };
       }
       return {
@@ -144,22 +77,12 @@ export function compileSchemaValidator(inputSchema: unknown): SchemaValidator {
   };
 }
 
-/**
- * A library issue path, carried as segments and never as one joined string.
- *
- * A number stays a number, which is what the array position is. Everything else becomes a
- * string, so the mapping is total over the `PropertyKey` the library declares.
- */
+/** A library issue path as segments; a number stays a number (an array position). */
 function memberPathOf(path: readonly PropertyKey[]): SchemaMemberPath {
   return path.map((segment) => (typeof segment === "number" ? segment : String(segment)));
 }
 
-/**
- * The value an answer holds at one issue path, or `undefined` where it holds none.
- *
- * Walked on the answer the library was handed, so "absent" means absent from what the
- * person composed and never from the library's reading of it.
- */
+/** The value at an issue path in the answer as composed, or `undefined` where it holds none. */
 function memberAt(answer: unknown, path: readonly PropertyKey[]): unknown {
   let current: unknown = answer;
   for (const segment of path) {
@@ -171,7 +94,7 @@ function memberAt(answer: unknown, path: readonly PropertyKey[]): unknown {
   return current;
 }
 
-/** `"a"`, `"a" or "b"`, `"a", "b" or "c"` — the members an enumeration offers, quoted. */
+/** `"a"`, `"a" or "b"`, `"a", "b" or "c"`: the members an enumeration offers, quoted. */
 function offeredMembers(values: readonly unknown[]): string {
   const quoted = values.map((value) => JSON.stringify(value));
   if (quoted.length <= 1) {
@@ -181,16 +104,9 @@ function offeredMembers(values: readonly unknown[]): string {
 }
 
 /**
- * The sentence for one finding — the library's, except about a required member the
- * answer does not hold at all.
- *
- * THE LIBRARY PHRASES AN ABSENT MEMBER AS A WRONG VALUE: "Invalid option: expected one of
- * …", "expected string, received undefined". On a form that is a finding drawn beside a
- * control reading "Not answered", telling a person they picked badly when they have not
- * picked. So the absent class — a member path the answer holds nothing at — is phrased as
- * what the form needs, and every other finding stays the library's own words: a member
- * that is present and wrong is exactly the case those words are for. The whole-answer
- * path is never rephrased, because there is no control an "unanswered" would sit beside.
+ * The sentence for one finding: the library's, except for a member the answer does not hold at
+ * all. The library words that as a wrong value ("Invalid option", "received undefined"), which
+ * misleads beside a control reading "Not answered". A whole-answer path is never rephrased.
  */
 function sentenceOf(issue: zod.core.$ZodIssue, answer: unknown): string {
   if (issue.path.length === 0 || memberAt(answer, issue.path) !== undefined) {
@@ -202,13 +118,7 @@ function sentenceOf(issue: zod.core.$ZodIssue, answer: unknown): string {
   return "Not answered — required.";
 }
 
-/**
- * Read a thrown value's sentence without asserting anything about its shape.
- *
- * The library throws a plain `Error` for an unimplemented construct today, and the
- * console's rule for a caught value is that it is `unknown` until something proves
- * otherwise — so this reads a message where there is one and says so where there is not.
- */
+/** A thrown value's message, or a stated absence of one. */
 function thrownDetail(thrown: unknown): string {
   return thrown instanceof Error && thrown.message.length > 0
     ? thrown.message

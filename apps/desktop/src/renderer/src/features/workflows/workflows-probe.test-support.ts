@@ -1,10 +1,6 @@
-// What every suite in the workflows feature needs before it can assert anything: the shared
-// identities, a definition-row factory, one `settle` boundary, and the runs the suites read.
-//
-// `settle` is one `act` boundary awaiting a macrotask boundary rather than a count of
-// microtasks, so a suite waiting on a read is not also asserting a count of turns nobody
-// chose. The row factory takes overrides so a new required member of the wire type is one
-// edit here and every caller keeps compiling because it only names what it asserts on.
+// Shared by the workflows suites: the identities, a definition-row factory, one `settle` boundary
+// and the runs the suites read. `settle` awaits a macrotask boundary rather than counting
+// microtasks, so no suite asserts a count of turns nobody chose.
 
 import type { WorkflowDefinitionId, WorkflowVersionChainEntry } from "@ai-sidekicks/contracts";
 import { act } from "@testing-library/react";
@@ -13,7 +9,7 @@ import type { WorkflowRunSnapshot } from "@renderer/services/wire-shapes/workflo
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 
-/** The session every workflows suite addresses. One id, so every suite probes one. */
+/** The session every workflows suite addresses. */
 export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
 /** The other session, for a case whose whole claim is that the scope moved off the first. */

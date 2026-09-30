@@ -1,20 +1,8 @@
-// The two acts a definition's detail offers, and what each of them settled to.
-//
-// OFFERED AND NEVER GREYED. Whether this caller may write at a scope is the daemon's
-// adjudication, and nothing here pre-empts it: every control is pressable and the
-// answer — a daemon's typed code, a parse's reason — renders under the control that
-// asked. A console that disabled the controls would be asserting an eligibility nobody
-// asked about.
-//
-// THE PASTE BOX IS PART OF THE IMPORT ACT AND NOT A SEPARATE VIEW. An import needs
-// bytes, this build has no file-open wire, and a modal for one textarea would be a
-// window between a person and a control they had already pressed. So the box is
-// revealed by the act and collapses when it settles.
-//
-// THE EXPORT'S BYTES STAY ON SCREEN AFTER THE COPY. The host may refuse the clipboard,
-// and a person left with a settled control and nothing to select would have to press it
-// again to find out. The file is rendered read-only either way, and the refusal — if
-// there was one — renders beside it.
+// The two acts a definition's detail offers, and what each settled to. Controls are never
+// greyed: whether a caller may write at a scope is the daemon's adjudication, and the answer
+// renders under the control that asked. The paste box belongs to the import act (this build has
+// no file-open wire). The export's bytes stay on screen after the copy, since the host may refuse
+// the clipboard.
 
 import { useId, useState } from "react";
 
@@ -41,8 +29,7 @@ export function DefinitionAuthoringActs(props: DefinitionAuthoringActsProps): Re
   const { authoring } = props;
   const [pastedFile, setPastedFile] = useState("");
   const [importOpen, setImportOpen] = useState(false);
-  // Generated rather than fixed: two builder panes can stand in one pane layout, and a
-  // hardcoded id would give the second one's label a control belonging to the first.
+  // Generated: two builder panes can stand in one layout, and a fixed id would cross their labels.
   const pasteBoxId = useId();
   return (
     <section className="meridian-definition-detail__acts">
@@ -71,8 +58,7 @@ export function DefinitionAuthoringActs(props: DefinitionAuthoringActsProps): Re
         <form
           className="meridian-definition-detail__import"
           onSubmit={(submission) => {
-            // The default would navigate the renderer's own document, which for a
-            // custom-scheme bundle is a reload of the whole console.
+            // The default would navigate the renderer's own document, reloading the console.
             submission.preventDefault();
             authoring.importDefinition(pastedFile);
           }}
@@ -117,9 +103,8 @@ export function DefinitionAuthoringActs(props: DefinitionAuthoringActsProps): Re
       ) : null}
       <ul className="meridian-definition-detail__outcomes">
         {/*
-         * Iterated over the closed TUPLE rather than over the record's own entries, so
-         * the order is the one the acts are declared in and no cast is needed to get a
-         * key back out of `Object.entries`, which types one as a bare string.
+         * Iterated over the closed tuple so the order is declaration order and no cast is needed
+         * to recover a key type from `Object.entries`.
          */}
         {WORKFLOW_DETAIL_ACTS.map((act) => (
           <ActOutcomeRow key={act} label={ACT_LABEL[act]} outcome={authoring.outcomes[act]} />

@@ -34,9 +34,8 @@ describe("useWorkflowDefinitionDirectory — the pages beyond the first", () => 
   });
 
   it("keeps the daemon's cursor and appends the page it reaches, in order", async () => {
-    // The negative control for the whole continuation: over the hook that discarded
-    // `nextCursor` this list stopped at two rows with nothing on screen saying there
-    // were more — the definitions past the first page were unreachable, not unshown.
+    // Negative control for the continuation: a hook that discarded `nextCursor` would stop at
+    // two rows with nothing saying there were more.
     const observed = observeDirectory(twoPageCall(), PROBE_SESSION_ID);
     await settle();
     expect(definitionIds(lastState(observed))).toStrictEqual(["first", "second"]);
@@ -52,8 +51,7 @@ describe("useWorkflowDefinitionDirectory — the pages beyond the first", () => 
   });
 
   it("marks the continuation in flight, distinctly from the first read", async () => {
-    // A wait ON pages already held is a different fact from a wait FOR the first page:
-    // the rows stay on screen through one and there are none to show through the other.
+    // Rows stay on screen through a continuation, unlike the wait for the first page.
     const observed = observeDirectory(twoPageCall(), PROBE_SESSION_ID);
     await settle();
 
@@ -68,7 +66,6 @@ describe("useWorkflowDefinitionDirectory — the pages beyond the first", () => 
         status: "reading",
         cursor: SECOND_PAGE_CURSOR,
       });
-      // The rows held are not withdrawn while the next page arrives.
       expect(definitionIds(inFlight)).toStrictEqual(["first", "second"]);
     }
     await settle();
@@ -88,9 +85,8 @@ describe("useWorkflowDefinitionDirectory — the pages beyond the first", () => 
   });
 
   it("negative control: a single-page answer offers no continuation at all", async () => {
-    // Without this, a hook that reported `available` unconditionally would pass every
-    // case above — and the definitions list would render a control that fetched one page
-    // forever.
+    // Without this, a hook that reported `available` unconditionally would pass every case
+    // above and render a control that fetched one page forever.
     const observed = observeDirectory(
       async () => ({ definitions: [definitionWithId("only")] }),
       PROBE_SESSION_ID,
@@ -105,9 +101,8 @@ describe("useWorkflowDefinitionDirectory — the pages beyond the first", () => 
   });
 
   it("never shows one definition twice when two pages overlap", async () => {
-    // The wire guarantees no disjointness a console may rely on: a definition authored
-    // between two reads shifts the window. A row rendered twice is also two React
-    // children carrying one key.
+    // Paging guarantees no disjointness: a definition authored between reads shifts the window,
+    // and a repeated row would be two React children with one key.
     const observed = observeDirectory(twoPageCall(["second", "third"]), PROBE_SESSION_ID);
     await settle();
 

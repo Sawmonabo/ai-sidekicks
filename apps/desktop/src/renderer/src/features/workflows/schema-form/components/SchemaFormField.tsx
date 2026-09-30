@@ -1,16 +1,5 @@
-// One drawn field: what it is called, what it asks, what is wrong with the answer.
-//
-// THE CHROME IS HERE AND NOT IN THE FIVE CONTROLS. A label a control drew for itself would
-// be drawn five ways, and the five would each have to decide how a description is attached
-// and how a verdict is announced. One module owns it, and each control owns its value.
-//
-// THE ISSUES ARE THE SCHEMA'S SENTENCES, VERBATIM. Nothing here paraphrases a validation
-// message, ranks them, or shows only the first: a schema that says two things about one
-// member said both of them, and a form that showed one would send a person round twice.
-//
-// THE REQUIRED MARK IS A READING OF THE SCHEMA AND NOT AN ENFORCEMENT. It says what the
-// schema declared; whether an answer satisfies it is the compiled validator's verdict,
-// arriving as an issue on this same member.
+// One drawn field: label, control, description and the schema's findings. The chrome lives
+// here so each control owns only its value. Findings are the schema's sentences, all of them.
 
 import { useId } from "react";
 
@@ -22,6 +11,7 @@ import { describedByOf } from "./field-control-props.js";
 import type { SchemaFieldDescriptor } from "../plan/schema-fields.js";
 import type { SchemaControlView } from "../answer/schema-projection.js";
 
+/** The props of one labeled field. */
 export interface SchemaFormFieldProps {
   readonly field: SchemaFieldDescriptor;
   /** What this member's control displays, projected from the draft node it holds. */
@@ -37,9 +27,7 @@ export function SchemaFormField(props: SchemaFormFieldProps): React.JSX.Element 
   const controlId = useId();
   const descriptionId = useId();
   const issuesId = useId();
-  // Both are attached through one attribute, which is the only way a control can carry a
-  // description AND its findings. The composition itself is a leaf's, because one list
-  // entry's chrome composes the same attribute from the same rule.
+  // Description and findings share the one `aria-describedby` attribute.
   const describedBy = describedByOf([
     field.description === undefined ? undefined : descriptionId,
     issues.length === 0 ? undefined : issuesId,

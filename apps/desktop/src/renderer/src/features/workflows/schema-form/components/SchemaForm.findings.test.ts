@@ -1,16 +1,8 @@
-// WHERE A DESCRIPTION AND A FINDING ARE ATTACHED, AND AT WHAT DEPTH EACH FINDING LANDS.
-//
-// One of three suites over the drawn form — `SchemaForm.test.tsx` states the split and
-// owns the leaf controls, `SchemaForm.groups.test.tsx` owns the group fieldset. What this
-// file owns is the one attribute every container and every control composes the same way:
-// `aria-describedby`, naming the member's own description ahead of the member's own
-// findings. A case here is about a reader who never sees the form, so the assertions read
-// the ATTRIBUTE and resolve the ids it names rather than looking at what is drawn near
-// what.
-//
-// Driven through the real hook for the sibling suites' reason, and the depth cases read
-// the report beside the DOM because "every finding reached a person" is a claim about the
-// two together.
+// Where a description and a finding are attached, and at what depth each finding lands: the
+// `aria-describedby` every container and control composes (description ahead of findings).
+// Assertions read the attribute and resolve the ids it names, since a reader never sees the
+// layout. The depth cases read the report beside the DOM. Sibling suites: `SchemaForm.test.ts`
+// (leaf controls) and `SchemaForm.groups.test.ts` (the group fieldset).
 
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,7 +17,7 @@ import {
 
 afterEach(cleanup);
 
-/** The ids one element's `aria-describedby` names, in the order it names them. */
+/** The ids one element's `aria-describedby` names, in order. */
 function describedByIds(described: Element | null): readonly string[] {
   const attribute = described?.getAttribute("aria-describedby") ?? "";
   return attribute === "" ? [] : attribute.split(" ");
@@ -45,9 +37,7 @@ describe("what a member's description is attached to", () => {
   });
 
   it("names a group's description in the fieldset's description, ahead of any finding", async () => {
-    // The same gap the collection's fieldset carried: the paragraph was drawn, carried no
-    // id, and the fieldset named only findings — so a reader moving among the section's
-    // own controls heard its name and never the author's instructions.
+    // The group's paragraph must carry an id the fieldset names, as the collection's does.
     const container = await renderForm({
       type: "object",
       properties: {
@@ -67,17 +57,9 @@ describe("what a member's description is attached to", () => {
   });
 
   it("names a collection's description ahead of its finding when the fieldset carries both", async () => {
-    // THE ORDER, ON THE ONE SHAPE THAT CAN CARRY BOTH AT ONCE. The group case above
-    // establishes that a description is named at all, over a fieldset with nothing wrong
-    // with it; every other case here has a finding and no description. Neither pins the
-    // SEQUENCE, and the sequence is what a reader hears: `aria-describedby` is announced in
-    // the order the attribute lists, so instructions-then-verdict and verdict-then-
-    // instructions are two different readings built from the same two elements, and the
-    // one `SchemaFieldList.tsx` composes is description first.
-    //
-    // A required collection is answered from the mount, so `minItems` is unsatisfied the
-    // moment the form opens and the fieldset carries a finding about its own path with no
-    // interaction at all.
+    // The order, on the one shape that carries both at once: `aria-describedby` is announced
+    // in listed order, so description-then-findings differs from findings-then-description.
+    // A required collection is answered from the mount, so `minItems` fails with no interaction.
     const container = await renderForm({
       type: "object",
       properties: {
@@ -99,9 +81,7 @@ describe("what a member's description is attached to", () => {
     expect(findings?.textContent ?? "").not.toBe("");
     expect(description?.textContent).toBe("Who signs off.");
     expect(describedBy).toEqual([description?.id, findings?.id]);
-    // The negative control on the same two elements: the set is right either way round, so
-    // a case that only asserted membership would pass over a form that reads the
-    // verdict out before the instructions it is a verdict on.
+    // Negative control: the set is right either way round, so membership alone would pass.
     expect(describedBy).not.toEqual([findings?.id, description?.id]);
   });
 });
@@ -120,12 +100,9 @@ describe("where a finding lands", () => {
   });
 
   it("renders a finding addressed to a group on the group's own fieldset", async () => {
-    // A CONSTRAINT ON THE OBJECT ITSELF, which is what a group-addressed finding now is.
-    // "This required group is missing" used to be the case here, and it is not reachable
-    // any more: a required group opens at the `{}` its legend stands over, which is the
-    // seed's whole point — that finding named a member the form offered no control to
-    // create. What the schema says about the OBJECT still arrives at the group's own path
-    // and has no child to be drawn against, so the fieldset is where it goes.
+    // A constraint on the object itself. A required group opens at the `{}` its legend stands
+    // over, so the missing-group finding is unreachable; what the schema says about the object
+    // arrives at the group's own path with no child to hang on, so the fieldset draws it.
     const container = await renderForm({
       type: "object",
       properties: {
@@ -156,9 +133,8 @@ describe("where a finding lands", () => {
         approver: { type: "string", title: "Approver" },
         deputy: { type: "string", title: "Deputy" },
       },
-      // Both members are optional, so every control on this form reads clean and the ONLY
-      // thing wrong with the answer is the root constraint — reported at the empty path,
-      // which is the one member this form draws no control for.
+      // Both members are optional, so the only thing wrong is the root constraint, reported at
+      // the empty path, which this form draws no control for.
       oneOf: [{ required: ["approver"] }, { required: ["deputy"] }],
     });
 
@@ -171,17 +147,14 @@ describe("where a finding lands", () => {
   });
 
   it("draws every finding the report carries, at whatever depth the schema addressed it", async () => {
-    // Three constraints failing at three depths at once: the root's `oneOf`, the group's
-    // own requiredness, and one leaf's length. The property is that the report and the
-    // drawn sentences are the SAME multiset — every finding reaches a person, and none is
-    // drawn twice by two blocks both claiming it.
+    // Three constraints fail at three depths; the report and the drawn sentences must be the
+    // same multiset: every finding reaches a person and none is drawn twice.
     const container = await renderForm({
       type: "object",
       properties: {
         approver: { type: "string", title: "Approver", minLength: 3, default: "ab" },
-        // Drawn because the constraint below can require it: a member a root combinator
-        // names and `properties` does not declare sends the whole schema to the raw
-        // editor, which would have made this a case about a form that is never drawn.
+        // Drawn because the constraint can require it: a member a root combinator names but
+        // `properties` does not declare sends the whole schema to the raw editor.
         deputy: { type: "string", title: "Deputy" },
         scope: {
           type: "object",
@@ -198,9 +171,8 @@ describe("where a finding lands", () => {
 
     expect(reported).toHaveLength(3);
     expect([...renderedIssueTexts(container)].sort()).toEqual(reported);
-    // Three findings drawn by three separate blocks, which is what "each is addressed to
-    // what it is about" means here: one list carrying all three would satisfy the multiset
-    // above while telling a person nothing about where to go.
+    // Three separate blocks: one list carrying all three would pass the multiset above while
+    // telling a person nothing about where to go.
     expect(container.querySelectorAll(".meridian-schema-field__issues")).toHaveLength(3);
     expect(rootIssuesElement(container)?.textContent ?? "").not.toBe("");
   });

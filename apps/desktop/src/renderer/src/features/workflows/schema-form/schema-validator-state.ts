@@ -1,105 +1,45 @@
-// Where one form stands with the thing that checks it, and which input mode that puts it in.
-//
-// WHY IT IS ITS OWN MODULE. `hooks/useSchemaForm.ts` owns the form's STATE — a draft
-// tree, a raw document, one composed answer, one derived report. What is here is a
-// different subject that happens to be read on every one of its renders: the four positions
-// a form can be in with respect to the schema compiler, and the single function that turns
-// one of them into the arm a person is answering in. The hook grew past this package's file
-// ceiling holding both, and this is the seam it grew along — every declaration below is
-// about the compiler and none of them is about a draft.
-//
-// A SCHEMA NOTHING COULD CHECK IS ANSWERED AS JSON, WHATEVER THE MAPPER DREW. A drawn
-// control is a promise that the form will refuse a wrong value in it, and a schema the
-// validator could not compile from cannot keep that promise — so the arm is decided in one
-// place that holds BOTH readings, the mapper's plan and the compiler's verdict, rather than
-// at the component: deciding it there would show the editor while the composed answer still
-// read controls nobody could see.
-//
-// THE COMPILER ARRIVES, WHICH IS WHY THE VALIDATOR IS STATE AND WHY THERE IS AN ARM FOR
-// BEFORE IT DOES. `compileSchemaValidator` reaches the form through a loader, so the
-// schema library behind it arrives on a chunk of its own — and between a form's first
-// render and that chunk landing there is a window in which the form exists and nothing
-// can check what is typed into it. That window is a THIRD arm on this state and never a
-// widening of the compiler's two-armed `SchemaValidator`: a component reading `compiling`
-// is being told the verdict has not been reached, which is a different fact from a
-// schema that could not be compiled and from one that came back clean. While it holds, a
-// form has NO report — not a clean one — and `SchemaFormAnswer` offers no act, because a
-// verdict describes the bytes a submission carries and there is no verdict yet.
-//
-// AND THE ARRIVAL CAN FAIL, WHICH IS THE FOURTH ARM AND NOT A REUSE OF THE THIRD OR THE
-// SECOND. A chunk fetch rejects on a damaged or half-updated install, and the window that
-// opened for it does not close on its own: without an arm for it the controls stay drawn,
-// the act stays shut, `aria-busy` stays true, and nothing on the screen says why — the
-// worst state this form can reach, because it is indistinguishable from one still loading
-// and never ends. `checker-unavailable` closes it. It is not `compiling`, which promises an
-// answer that is not coming, and it is deliberately not `uncompilable`, whose stated reason
-// is that the SCHEMA could not be compiled: that reason would be false, nothing having read
-// the schema, and would send a person to correct a definition that is fine. What the arm
-// does is what `uncompilable` does — open the raw editor and arm the act — because the
-// honest position is the same one: this window will not check the answer, and the run
-// itself still decides whether the answer is admissible.
-//
-// THE TWO SENTENCES A RAW ARM CARRIES ARE BOTH HERE, and they say different things on
-// purpose. The FALLBACK is why the controls are absent, and it is read above the editor;
-// the VALIDATOR's own detail is what will not be checked, and it is read beneath the
-// document. Held together in one module because a reader deciding whether they overlap has
-// to see both, and held once each because a literal composed per render would hand the
-// form a new plan on every keystroke.
+// Where a form stands with the schema compiler, and the arm a person answers in. The compiler
+// arrives on its own chunk, so a form has four states: `compiling` (no verdict, no report, and
+// `SchemaFormAnswer` disables its act), `compiled`, `uncompilable`, and `checker-unavailable` (the
+// chunk fetch failed). The last is not `uncompilable`, whose reason would wrongly blame a good
+// definition; both open the raw editor. The arm is chosen here from both the plan and the
+// verdict. Each raw arm's fallback sentence is held once so a render hands the form the same
+// plan.
 
 import type { SchemaFallback, SchemaFormPlan } from "./plan/schema-fields.js";
 import type { SchemaValidator } from "./json-schema-validator.js";
 
 /**
- * What a form settled on for one schema: the compiler's own verdict, or the fact that the
- * thing that would have produced one never reached this window.
- *
- * Held apart from {@link SchemaValidatorState} because it is what a compile ROUND ends
- * with: `compiling` is the absence of a settlement rather than one of them, so a state
- * field typed over the whole union could hold a value the round never produces.
+ * What a compile round settled on: the compiler's verdict, or the fact that the chunk never
+ * arrived. Excludes `compiling`, which is the absence of a settlement.
  */
 export type SettledSchemaValidator =
   | SchemaValidator
   | {
       readonly status: "checker-unavailable";
-      /** One sentence for the person looking at the form. See the header for its job. */
+      /** One sentence for the person looking at the form. */
       readonly detail: string;
     };
 
 /**
- * Where a form is with the compiler it needs: still fetching it, or how that ended.
- *
- * The compiler's two arms plus the two they cannot express. `SchemaValidator` answers
- * what compiling a schema CAME BACK WITH, and both of its arms are answers — so a third
- * arm added there would make every reader of a compiled validator re-check whether an
- * answer had arrived at all, and a fourth would make the compiler's verdict speak about a
- * fetch the compiler does not perform. Here they are one union in one module, above the
- * two consumers that branch on it ({@link choosePlanForValidator} and the raw editor),
- * and `SchemaValidator` stays two arms.
+ * Where a form is with the compiler it needs: still fetching it, or how that ended. Kept out of
+ * `SchemaValidator`, whose two arms are both answers, so its readers need not check whether one
+ * arrived.
  */
 export type SchemaValidatorState = { readonly status: "compiling" } | SettledSchemaValidator;
 
 /**
- * The one key a form's compile round is claimed under.
- *
- * One key and not one per schema: the rule is that a form has at most one compile in
- * flight, so a schema that supersedes another has to take the SAME key to abandon it.
+ * The one key a form's compile round is claimed under. One key, not one per schema, so a schema
+ * that supersedes another abandons its round.
  */
 export const VALIDATOR_COMPILE_KEY = "schema-validator-compile";
 
-/**
- * What the validator reads as before an answer exists. Held once, so a render that has
- * not compiled yet hands the form the same value as the one before it.
- */
+/** The validator state before any answer exists; held once so renders share one value. */
 export const COMPILING_VALIDATOR: SchemaValidatorState = { status: "compiling" };
 
 /**
- * The arm a form takes when the compiler's chunk did not arrive, sentence and all.
- *
- * Held once for {@link COMPILING_VALIDATOR}'s reason.
- *
- * The sentence says the CONSEQUENCE rather than repeating the failure the fallback below
- * already states, and it says what is still true: the answer can be sent, and what is
- * admissible was never a form's reading anyway — it is the run's.
+ * The arm a form takes when the compiler's chunk did not arrive. The sentence states the
+ * consequence: the answer can still be sent, and the run decides what is admissible.
  */
 export const CHECKER_UNAVAILABLE: SettledSchemaValidator = {
   status: "checker-unavailable",
@@ -108,13 +48,8 @@ export const CHECKER_UNAVAILABLE: SettledSchemaValidator = {
 };
 
 /**
- * What a settled compile round installs, and the schema identity it is about.
- *
- * The two travel together because the answer is only about that schema: held apart, a
- * settlement for the schema a form has just left would read as that form's verdict for
- * exactly as long as the next compile takes. That holds for a round that ended in a
- * failed FETCH as much as for one that ended in a verdict, which is why the member is
- * typed over both.
+ * What a settled compile round installs, with the schema it is about, so a settlement for a schema
+ * the form has just left is never read as the current verdict. Covers a failed fetch as well.
  */
 export interface CompiledForSchema {
   readonly inputSchema: unknown;
@@ -122,12 +57,8 @@ export interface CompiledForSchema {
 }
 
 /**
- * Why a schema whose members are all drawable is answered as JSON anyway.
- *
- * One sentence, and deliberately not the reader's: the raw editor already renders the
- * compiler's own detail beneath the document, so a reason repeating it would say one
- * thing twice. This one says what that sentence does not — which arm this is and why the
- * controls are absent rather than drawn and unchecked.
+ * Why a schema whose members are all drawable is answered as JSON anyway. It does not repeat the
+ * compiler's detail, which the raw editor renders beneath the document.
  */
 const UNCHECKABLE_SCHEMA_FALLBACK: SchemaFallback = {
   cause: "schema-uncheckable",
@@ -137,12 +68,8 @@ const UNCHECKABLE_SCHEMA_FALLBACK: SchemaFallback = {
 };
 
 /**
- * Why a schema the mapper drew is answered as JSON when the compiler never arrived.
- *
- * The sentence above it, one arm over: it says which arm this is and why the controls are
- * absent, and it deliberately does not say what is unchecked — the raw editor renders
- * {@link CHECKER_UNAVAILABLE} beneath the document for that, exactly as it renders the
- * reader's own detail on the uncompilable arm.
+ * Why a schema the mapper drew is answered as JSON when the compiler never arrived; the raw
+ * editor renders {@link CHECKER_UNAVAILABLE} beneath the document for what is unchecked.
  */
 const UNAVAILABLE_CHECKER_FALLBACK: SchemaFallback = {
   cause: "checker-unavailable",
@@ -152,12 +79,9 @@ const UNAVAILABLE_CHECKER_FALLBACK: SchemaFallback = {
 };
 
 /**
- * Which validator states send a drawn schema to the raw editor, and with which sentence.
- *
- * A table total over the union rather than a comparison per arm, so an arm added to
- * {@link SchemaValidatorState} has to DECIDE here — a condition written as `!==` answered
- * for the new arm by accident, and the accident it answered with was "keep the controls",
- * which is the failing side.
+ * Which validator states send a drawn schema to the raw editor, and with which sentence. A table
+ * total over the union, so a new arm must decide here (a `!==` test would keep the controls by
+ * accident, the failing side).
  */
 const RAW_ARM_FALLBACKS: Record<SchemaValidatorState["status"], SchemaFallback | undefined> = {
   compiling: undefined,
@@ -167,20 +91,10 @@ const RAW_ARM_FALLBACKS: Record<SchemaValidatorState["status"], SchemaFallback |
 };
 
 /**
- * The arm a form opens on: the mapper's reading, unless nothing could check it.
- *
- * COMPILING KEEPS THE MAPPER'S ARM, and the alternative is worse in both directions. The
- * drawn controls are what this schema will be answered in if it compiles, so opening them
- * is opening the form a person is about to use; opening the raw editor instead would show
- * a fallback whose stated reason — that the schema could not be compiled — is not yet
- * known to be true, and would then take it away. What a drawn control promises while the
- * compiler is arriving is kept by the act being closed rather than by the arm being moved:
- * nothing can be submitted until the verdict exists.
- *
- * A FAILED FETCH MOVES THE ARM FOR THE SAME REASON A REFUSED COMPILE DOES. A drawn control
- * promises the form will refuse a wrong value in it, and a window with no compiler cannot
- * keep that promise any better than a schema that would not compile — the two differ in
- * the sentence they carry and in nothing else here.
+ * The arm a form opens on: the mapper's reading, unless nothing could check it. While `compiling`
+ * the drawn controls stay, since moving to the raw editor would show a reason not yet known to be
+ * true; the closed act keeps the promise instead. A failed fetch moves the arm like a refused
+ * compile, since a window with no compiler cannot refuse a wrong value either.
  */
 export function choosePlanForValidator(
   plan: SchemaFormPlan,

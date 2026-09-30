@@ -1,16 +1,7 @@
-// The state one form holds: where a value lands, what a list does when an entry leaves,
-// and which of the two input modes the answer is read from.
-//
-// The list case is the one worth writing down. Removing the middle entry of three has to
-// renumber the answer, because the entries are positions and the position is the name —
-// a hole left at index one would leave the third entry called "3" while the answer carried
-// it second, and the schema would then report a finding against a control nobody is
-// looking at.
-//
-// WHAT A FORM OPENS HOLDING IS `use-schema-form.opening.test.tsx`. Split because the two
-// are different claims — what an edit does to the answer, and what the answer already says
-// before anybody has made one — and one file holding both had grown past what a reader can
-// hold at once. The mount both drive through is `use-schema-form.test-support.tsx`.
+// The state one form holds: where a value lands, what a list does when an entry leaves, and
+// which input mode the answer is read from. Removing the middle of three entries renumbers
+// the answer, since an entry's name is its position. What a form opens holding is
+// `useSchemaForm.opening.test.ts`; the shared mount is `useSchemaForm.test-support.tsx`.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -37,9 +28,8 @@ describe("the schema form's state", () => {
     });
 
     expect(memberValueOf(form(), ["title"])).toBe("Ship it");
-    // `reviewers` is OPTIONAL here, so it is absent until somebody adds an entry: an empty
-    // collection and one nobody has added to look identical on the screen, and the rule
-    // that tells them apart in the answer is the schema's own requiredness.
+    // `reviewers` is optional, so it is absent until an entry is added; requiredness is what
+    // tells an empty collection from one nobody has added to.
     expect(form().answer).toEqual({ title: "Ship it" });
   });
 
@@ -98,11 +88,8 @@ describe("the schema form's state", () => {
   });
 
   it("returns an optional collection to absent on the control that answers it, not on an empty one", async () => {
-    // The other half of opening absent, and the half a row count cannot give. Read off the
-    // rows, `[]` and absent were one display, so a schema that tells them apart had a state
-    // the form could not compose; read off the LATCH they are two, and the way back out is
-    // the control on the legend. This schema will not accept an empty `reviewers` and will
-    // accept none at all, so both readings are in the VERDICT and not only in the shape.
+    // The row count cannot tell `[]` from absent; the active state can. This schema rejects an
+    // empty `reviewers` and accepts none at all, so both readings show in the verdict.
     const form = await mountForm({
       type: "object",
       properties: { reviewers: { type: "array", items: { type: "string" }, minItems: 1 } },
@@ -123,8 +110,7 @@ describe("the schema form's state", () => {
       form().removeListEntry(["reviewers"], 0);
     });
 
-    // Present and empty: somebody is answering this collection and it holds nothing, which
-    // is the state `minItems: 1` refuses and the state an absent member is not.
+    // Present and empty: the state `minItems: 1` refuses and an absent member is not.
     expect(form().answer).toEqual({ reviewers: [] });
     expect(form().report?.status).toBe("invalid");
 
@@ -154,11 +140,8 @@ describe("the schema form's state", () => {
   });
 
   it("opens an optional group unanswered, and takes it back out when it is left unanswered", async () => {
-    // The same claim as before the draft tree — an optional group can be absent from the
-    // answer, and a person can get it back there — moved onto the control that now says
-    // so. `release` is optional here and holds a REQUIRED `tag`, which is the shape that
-    // made the old rule unreachable: seeded through its children, the group opened present
-    // and no control on the form could remove it.
+    // `release` is optional and holds a required `tag`, so seeding it through its children
+    // would open it present with no control able to remove it; the legend control can.
     const form = await mountForm(NESTED_SCHEMA);
 
     expect(form().answer).not.toHaveProperty("release");
@@ -180,10 +163,8 @@ describe("the schema form's state", () => {
   });
 
   it("keeps a row with nothing in it out of the answer and names it instead", async () => {
-    // The representation's whole point. An added number entry nobody has answered was
-    // `undefined` inside the answer's array, which `JSON.stringify` writes as `null`: the
-    // validator checked one value, the daemon would have received another, and the blank
-    // control displayed neither. The row is now a draft node the answer never carries.
+    // An unanswered number entry must not sit in the array as `undefined`, which
+    // `JSON.stringify` writes as `null`: the validator and the wire would see different values.
     const form = await mountForm({
       type: "object",
       properties: { scores: { type: "array", items: { type: "number" } } },
@@ -195,8 +176,7 @@ describe("the schema form's state", () => {
 
     const answer = form().answer;
     expect(JSON.parse(JSON.stringify(answer))).toEqual(answer);
-    // The collection is present — adding a row is answering it — and the row itself is not
-    // in the array, which is the whole claim: no position serializes to `null`.
+    // The collection is present (adding a row answers it) and the row is not in the array.
     expect(answer).toEqual({ scores: [] });
     expect(form().report?.status).toBe("invalid");
     expect(form().listEntryIssues(["scores"], 0)).toEqual(["Entry 1 has no value yet."]);
@@ -204,9 +184,8 @@ describe("the schema form's state", () => {
   });
 
   it("keeps an unreadable figure on the row it was typed into when an earlier row leaves", async () => {
-    // Keyed by index, the control state holding `1e309` followed the POSITION: removing an
-    // earlier entry moved the text to whichever row inherited the reused subtree. It lives
-    // on the entry node now, so it travels with its own entry.
+    // The unreadable `1e309` text lives on the entry node, so removing an earlier entry
+    // does not move it to the row that inherits the subtree.
     const form = await mountForm({
       type: "object",
       properties: { scores: { type: "array", items: { type: "number" } } },
@@ -272,8 +251,7 @@ describe("the schema form's state", () => {
 
     expect(form().rawReading.status).toBe("unparsable");
     expect(form().answer).toBeUndefined();
-    // No verdict at all, because there is nothing to check yet — and never a verdict of
-    // `valid`, which would say the answer satisfied a schema it was never handed to.
+    // No verdict, and never `valid`, since the answer was never checked.
     expect(form().report).toBeUndefined();
   });
 
@@ -288,10 +266,8 @@ describe("the schema form's state", () => {
   });
 
   it("reads the answer off the raw text when the drawable schema compiled nowhere", async () => {
-    // The mapper is happy with this member; the schema READER refuses the root. An arm
-    // chosen from the mapper alone drew controls whose answer nothing would ever check —
-    // so what this pins is where the answer COMES FROM, which is the half a test of the
-    // drawn markup cannot reach.
+    // The mapper accepts this member but the schema reader refuses the root; this pins that
+    // the arm follows the validator, which markup tests cannot reach.
     const form = await mountForm({
       type: "object",
       properties: { title: { type: "string" } },

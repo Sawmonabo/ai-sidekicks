@@ -20,11 +20,9 @@ export const MISADDRESSED: EntityRef = {
 };
 
 /**
- * The fields the pane and its chrome read, and nothing else.
- *
- * Cast rather than built: a real pane context carries stores that open a database, and
- * the cases drive addresses the pane's type makes unconstructible and its guards still
- * refuse, as a parsed layout row produces.
+ * The fields the pane and its chrome read, and nothing else. Cast rather than built: a real
+ * pane context carries stores that open a database, and the cases drive addresses the pane's
+ * type makes unconstructible.
  */
 export function paneContext(entity: EntityRef | undefined): PaneContextOf<"workflow-run"> {
   return {

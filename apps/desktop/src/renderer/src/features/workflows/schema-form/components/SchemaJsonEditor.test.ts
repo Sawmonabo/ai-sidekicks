@@ -1,15 +1,7 @@
-// The OTHER arm: a schema this form cannot draw controls for, answered as JSON.
-//
-// SPLIT FROM `SchemaForm.test.tsx` because the two are different subjects and that file
-// had stopped being one reading. It owns the drawn form — which control a member draws,
-// where a finding addressed to a member, a group, or the whole answer is rendered. This
-// one owns the arm that draws no controls at all: which schemas reach it, what it says
-// about a schema nothing could check, and how the one control it does draw carries the
-// two verdicts about the document typed into it.
-//
-// Driven through the same real mount, for that suite's reason: a case fed a fabricated
-// plan would pass with the mapper deleted, and half of every case here is that the mapper
-// sent this schema to the editor rather than drawing it.
+// The other arm: a schema this form cannot draw controls for, answered as JSON. Covers which
+// schemas reach it, what it says about a schema nothing could check, and how its one control
+// carries the two verdicts. Driven through the real mount, since half of every case is that
+// the mapper sent the schema to the editor.
 
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -27,16 +19,13 @@ describe("the raw JSON arm of a schema-derived form", () => {
 
     expect(container.querySelector(".meridian-schema-raw__editor")?.tagName).toBe("TEXTAREA");
     expect(container.querySelector(".meridian-schema-raw__reason")?.textContent).toContain("rows");
-    // Nothing in this editor reports a refusal: the console's refusal shapes all carry
-    // this class, and the whole point of the fallback is that none of them is reached.
+    // The fallback is not a refusal: none of the console's refusal shapes is reached.
     expect(container.querySelector(".meridian-refusal")).toBeNull();
   });
 
   it("attaches the raw editor's own findings to the editor, as a drawn control does", async () => {
-    // Focus stays in the textarea while somebody types, so a reader whose document had
-    // just become invalid was told neither that it was invalid nor what the schema said —
-    // on the one arm where the whole answer is typed into a single control. Same primitive
-    // and same attribute the drawn fields use, not a second mechanism beside them.
+    // Focus stays in the textarea while typing, so the verdict must reach a reader through
+    // `aria-describedby`, the primitive the drawn fields use.
     const container = await renderForm({
       type: "object",
       properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
@@ -48,8 +37,7 @@ describe("the raw JSON arm of a schema-derived form", () => {
     expect(editor?.getAttribute("aria-invalid")).toBe("true");
     expect(describedBy).not.toBe("");
     expect(document.getElementById(describedBy)?.textContent ?? "").not.toBe("");
-    // Through the one issues primitive, so the sentence a reader reaches here is the
-    // sentence a drawn field would have shown them.
+    // Through the one issues primitive, so the sentence matches what a drawn field shows.
     expect(
       container.querySelector(".meridian-schema-raw .meridian-schema-field__issues"),
     ).not.toBeNull();
@@ -87,9 +75,8 @@ describe("the raw JSON arm of a schema-derived form", () => {
     const container = await renderForm({
       type: "object",
       properties: { title: { type: "string", title: "Title" } },
-      // Drawable members and an unreadable ROOT construct: the mapper is happy, the
-      // schema reader is not, and the arm that used to be chosen from the mapper alone
-      // drew a control whose answer nothing could refuse.
+      // Drawable members and an unreadable root construct: the mapper accepts, the schema
+      // reader does not, so the arm must follow the validator.
       if: { properties: { title: { const: "urgent" } } },
       then: { required: ["title"] },
     });

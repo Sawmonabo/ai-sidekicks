@@ -1,15 +1,7 @@
-// A chunk fetch that failed once, asked for again.
-//
-// SEPARATE FROM `RunGraph.chunk-refusal.test.tsx` BECAUSE THE SUBSTITUTED LOADER IS A
-// DIFFERENT ONE. That file's premise is a loader that always refuses, which is what lets
-// it say what a refusal renders; every case here scripts a SEQUENCE of answers, because
-// the claim is about what the second ask gets. A `vi.mock` is file-scoped, so the two
-// premises cannot reach each other.
-//
-// WHY THE ARM IS WORTH A SUITE. `run-graph-loader.ts` drops its memo on a rejection
-// precisely so a second `load()` re-fetches — the expected cause is a transient network
-// or disk failure — and the only caller latched the refusal under dependencies that
-// never move again. The hardening existed and nothing on screen could reach it.
+// A chunk fetch that failed once, asked for again. Separate from `RunGraph.chunk-refusal.test.tsx`
+// because each case here scripts a sequence of answers, where that file's loader always
+// refuses, and a `vi.mock` is file-scoped. The loader drops its memo on a rejection so a second
+// `load()` re-fetches; this suite proves the screen can reach that.
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,10 +12,8 @@ import type { RunGraphNode } from "./phase-topology.js";
 /**
  * The answers this case has scripted for the chunk, in order, and how many were asked.
  *
- * A box hoisted with the mock rather than a value closed over: `vi.mock` factories are
- * lifted above the imports, so a plain binding is not initialized when the factory runs.
- * The queue is read at CALL time, which is what lets one substitution serve a case whose
- * first ask fails and whose second succeeds.
+ * Hoisted with the mock because `vi.mock` factories run above the imports; read at call time
+ * so one substitution serves a case whose first ask fails and second succeeds.
  */
 const chunkAnswers = vi.hoisted(() => ({
   queue: [] as (() => Promise<unknown>)[],
@@ -35,8 +25,8 @@ vi.mock("./run-graph-loader.js", () => ({
     load: (): Promise<unknown> => {
       chunkAnswers.asks += 1;
       const answer = chunkAnswers.queue.shift();
-      // Refusing rather than repeating the last answer: a case that asked more times
-      // than it scripted has proved something other than what it claims to.
+      // Refusing rather than repeating the last answer: a case that asked more times than it
+      // scripted has proved something other than what it claims to.
       return answer === undefined
         ? Promise.reject(new Error("the chunk was asked for more times than this case scripted"))
         : answer();
@@ -124,15 +114,14 @@ describe("a chunk fetch that can be asked for again", () => {
       expect(container.querySelector(".meridian-nothing")).not.toBeNull();
     });
     expect(container.querySelector(".meridian-refusal--banner")).toBeNull();
-    // The skeleton is a claim that a fetch is running, so the ask is asserted beside
-    // it: a press that only reset the state would put a wait on screen over nothing.
+    // The skeleton claims a fetch is running, so the ask is asserted beside it: a press that
+    // only reset the state would put a wait on screen over nothing.
     expect(chunkAnswers.asks).toBe(2);
   });
 
   it("negative control: without the press the refusal stands and nothing is re-asked", async () => {
-    // Without this the cases above would pass over a component that re-fetched on every
-    // render — which would turn a refused chunk into a fetch loop and would mean the
-    // control proved nothing about the press.
+    // Without this, a component that re-fetched on every render (a fetch loop) would pass the
+    // cases above.
     const container = renderGraph([refusing(), arriving()]);
     await retryControl(container);
 
@@ -147,9 +136,8 @@ describe("a chunk fetch that can be asked for again", () => {
   });
 
   it("negative control: the read-in-flight absence offers no way to ask again", async () => {
-    // The grammar's own split, asserted: `action` is what to do about a refusal, and a
-    // chunk still coming has nothing to offer — a control there would invite a person
-    // to restart a fetch that had not finished.
+    // `action` is what to do about a refusal; a control beside a chunk still coming would
+    // invite restarting a fetch that had not finished.
     const container = renderGraph([neverSettling()]);
 
     await waitFor(() => {

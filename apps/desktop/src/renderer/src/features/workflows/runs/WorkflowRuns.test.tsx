@@ -51,12 +51,7 @@ const RUN_ENTRIES: readonly WorkflowRunListEntry[] = PROBE_RUNS.map((run) => {
   };
 });
 
-/**
- * The same runs as a daemon that sent no definition facts would answer.
- *
- * Cast because the entry type requires the name: the projection tolerates its absence,
- * and this is the one way to reach that arm.
- */
+/** The same runs as a daemon that sent no definition facts (cast: the type requires the name). */
 const RUNS_WITHOUT_DEFINITION_FACTS = PROBE_RUNS as unknown as readonly WorkflowRunListEntry[];
 
 function served(runs: readonly WorkflowRunListEntry[]): WorkflowRunDirectoryState {
@@ -114,15 +109,11 @@ describe("the runs the session holds", () => {
     await settle();
 
     expect(rowLabels(container)).toHaveLength(4);
-    // Asserted on the row's own identity rather than its label, which is the
-    // definition's name and repeats across runs.
     expect(rowRunIds(container)[0]).toBe(NEWEST_RUN.workflowRunId);
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
 
   it("names each run by the definition it was started from", async () => {
-    // Without the definition facts every row falls back to an opaque run id, which is
-    // not the thing a person is looking for.
     const { container } = renderRuns(served(RUN_ENTRIES));
     await settle();
 
@@ -135,8 +126,6 @@ describe("the runs the session holds", () => {
   });
 
   it("marks the run pinned to a version its definition has moved past", async () => {
-    // The frozen pin is an inequality between the run's pinned version and the
-    // definition's newest, and only the enumeration carries the second.
     const { container } = renderRuns(served(RUN_ENTRIES));
     await settle();
 
@@ -150,8 +139,6 @@ describe("the runs the session holds", () => {
   });
 
   it("negative control: entries without the definition facts fall back to ids and no mark", async () => {
-    // The three claims above rest on the join being real. Without the two members the
-    // list must draw opaque ids, and a frozen state reported as unknown, not guessed.
     const { container } = renderRuns(served(RUNS_WITHOUT_DEFINITION_FACTS));
     await settle();
 
@@ -163,8 +150,6 @@ describe("the runs the session holds", () => {
   });
 
   it("negative control: an enumeration with no runs draws the empty absence", async () => {
-    // Served-and-empty is a real answer: the list says there are none rather than that
-    // nothing was asked.
     const { container } = renderRuns(served([]));
     await settle();
 
@@ -183,8 +168,7 @@ describe("what the runs section says out loud", () => {
     rerender();
     await settle();
 
-    // Negative control: the same settlement re-rendered says nothing further. A
-    // repeat would talk over the section it just described.
+    // A repeat settlement would talk over the section it just described.
     expect(politeAnnouncement(container)).toBe("Runs in this session: 4.");
   });
 });

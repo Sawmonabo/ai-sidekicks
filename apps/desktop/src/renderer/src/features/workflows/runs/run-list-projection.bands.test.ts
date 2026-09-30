@@ -1,8 +1,5 @@
-// What one row reads: whether it is parked, and the parks it folds.
-//
-// The park discriminator itself is asserted against the module that owns it, in
-// `run-list-rows.test.ts`; what is asserted here is what the LIST reads off a set of
-// runs.
+// What one row reads: whether it is parked, and the parks it folds. The park discriminator itself
+// is asserted in `run-list-rows.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -11,8 +8,7 @@ import { phase, run } from "./run-list-projection.test-support.js";
 
 describe("whether a run is parked", () => {
   it("is parked by a phase's park, whatever the run's status says", () => {
-    // A projection that read only the run's status would report this running run as not
-    // parked: a phase's `state` never says parked, its park members do.
+    // A phase's `state` never says parked; its park members do.
     const projection = new RunListProjection([
       run({
         state: "running",
@@ -63,9 +59,7 @@ describe("what a row reads off its parks", () => {
         ],
       }),
     ]);
-    // One park armed a schedule and one did not, and the run still needs a person. The
-    // classification is per PARK, because the badge that draws it draws one park at a
-    // time: a row-level "something here is unscheduled" cannot say which one.
+    // The classification is per park: the badge draws one park at a time.
     expect(projection.rows[0]?.parkedPhases.map((parked) => parked.schedule.kind)).toStrictEqual([
       "unscheduled",
       "armed",
@@ -84,9 +78,8 @@ describe("what a row reads off its parks", () => {
   });
 
   it("counts a suspended run with no park members, which the row already shows as parked", () => {
-    // A `suspended` run can carry no park members, so it has no parked phase and is
-    // parked on its status alone. Counting phases reported nothing parked while the list
-    // drew this row as parked; the count reads the row's own flag.
+    // A `suspended` run has no park members and is parked on its status alone; the count reads
+    // the row's own flag.
     const projection = new RunListProjection([
       run({ workflowRunId: "run-suspended", state: "suspended", phaseStates: [phase()] }),
     ]);
@@ -96,8 +89,7 @@ describe("what a row reads off its parks", () => {
   });
 
   it("negative control: a settled run with no parks is not parked and is not counted", () => {
-    // Without this the case above would pass over a count that answered `rows.length`,
-    // which agrees with the flag on a one-run list and on nothing else.
+    // Guards against a count that answered `rows.length`, which agrees only on a one-run list.
     const projection = new RunListProjection([
       run({ workflowRunId: "run-done", state: "completed", phaseStates: [phase()] }),
       run({ workflowRunId: "run-suspended", state: "suspended", phaseStates: [phase()] }),

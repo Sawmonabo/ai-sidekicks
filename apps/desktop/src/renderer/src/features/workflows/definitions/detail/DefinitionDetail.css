@@ -1,11 +1,6 @@
 /*
- * The definition detail, inside the body box of the container that mounts it.
- *
- * Owned by `DefinitionDetail.tsx` and its siblings. Whichever lazily-loaded chunk mounts
- * the detail imports this sheet, so its rules are charged to no session that never opens
- * one.
- *
- * Every selector is the detail's own block: `meridian-definition-detail` appears in no
+ * The definition detail, inside the body box of the container that mounts it. Whichever lazily
+ * loaded chunk mounts the detail imports this sheet. `meridian-definition-detail` appears in no
  * other sheet.
  */
 
@@ -27,9 +22,8 @@
 }
 
 /*
- * The identity block and the version block share one description-list shape, because
- * they are the same kind of thing — a labeled wire value — and two layouts for one
- * shape is how one view starts looking like two.
+ * The identity and version blocks share one description-list shape: both are a labeled wire
+ * value.
  */
 .meridian-definition-detail__facts {
   display: grid;
@@ -49,9 +43,8 @@
   margin: 0;
   min-inline-size: 0;
   /*
-   * A hash is 70 characters of mono with no break opportunity in it, and the pane's
-   * body box does not widen. Anywhere-breaking is what keeps it inside its own column
-   * rather than pushing the label out of the pane.
+   * A hash is 70 characters of mono with no break opportunity and the pane's body box does not
+   * widen, so it must break anywhere to stay in its column.
    */
   overflow-wrap: anywhere;
   display: flex;
@@ -113,9 +106,8 @@
   color: var(--meridian-text-muted);
 }
 
-/* The bindings sit under their phase rather than beside it: a server and tool pair is
- * a wire string of its own length, and inline it would push the phase's own chips off
- * the row it names. */
+/* Bindings sit under their phase: a server and tool pair is a wire string of its own length,
+ * and inline it would push the phase's chips off the row. */
 .meridian-definition-detail__bindings {
   flex-basis: 100%;
   padding-inline-start: var(--meridian-space-3);
@@ -128,9 +120,8 @@
 }
 
 /*
- * The accent is kept for interactive controls, and these are the detail's own: a
- * bordered control on the raised `surface` token whose border takes the accent on
- * hover, so the acts read as pressable beside the facts they act on.
+ * The accent is kept for interactive controls: a bordered control on the raised surface whose
+ * border takes the accent on hover.
  */
 .meridian-definition-detail__act {
   font-family: var(--meridian-font-sans);
@@ -162,9 +153,8 @@
 }
 
 /*
- * Both boxes are mono, because both hold a file rather than prose: what a person
- * pastes in and what an export writes out are the same bytes in the same form, and a
- * proportional face would make one of them look like something else.
+ * Both boxes are mono because both hold the same file bytes; a proportional face would make one
+ * look like something else.
  */
 .meridian-definition-detail__import-box,
 .meridian-definition-detail__file {

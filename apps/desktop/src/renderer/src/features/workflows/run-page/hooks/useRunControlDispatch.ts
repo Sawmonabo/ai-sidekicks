@@ -1,44 +1,7 @@
-// The two run controls as CALLS: what a press puts, what may be dispatched at all, and
-// what the answer settles to.
-//
-// The calls are the caller's. This hook keeps the single flight, the per-run state and
-// the served-act round, and a rejected call is not caught here.
-//
-// SINGLE FLIGHT IS THE LATCH'S AND NOT A FLAG'S, and the distinction is a real defect
-// rather than a preference. A `dispatching` value read inside a press handler is the
-// one from the render that produced that handler, so two presses in one frame both
-// find the control idle and both dispatch — two cancellations for one intended act,
-// and two replies racing to decide which settlement is shown. `store/
-// generation-latch.ts` decides inside the handler's own tick, and it is `claim` and
-// never `supersedeAndClaim`: the newest intent does NOT win here. A run control is not
-// a durable write being re-typed; the first press is already outstanding against the
-// daemon and cannot be recalled, so the honest answer to the second is no — said out
-// loud on the control, rather than queued or dropped.
-//
-// THE KEY IS `(action, run)` AND THE SUBJECT IS THE CALLS. Canceling and resuming are
-// separately grantable and separately in flight — an outstanding resume must not
-// refuse a cancel — so each action takes its own key, and the run is in the key
-// because this pane is RETARGETED IN PLACE: run A's outstanding call must not refuse
-// run B's first press. The subject is the calls because replacing them retires a call
-// made through the previous ones.
-//
-// TWO GUARDS ON THE SETTLEMENT, AND THEY ANSWER DIFFERENT QUESTIONS. The claim's
-// `settle` asks whether this round is still the live one — the unmount and teardown
-// path, where `supersedeAll` retires every key. The publisher asks whether the pane is
-// still addressed at the run this call was made about; captured at render, it carries
-// its own addressing, so an answer arriving after a retarget installs nowhere rather
-// than settling run A's cancellation under run B. Neither subsumes the other.
-//
-// NOTHING HERE MUTATES THE RUN. There is no optimistic state: what the pane shows is
-// the read it holds plus what the daemon actually answered. A served act does re-ARM
-// that read, which is a different thing — see `servedActCount`.
-//
-// AND THAT ROUND IS THE RUN'S RATHER THAN THESE TWO CONTROLS'. Answering a phase parked
-// on a person moves the run exactly as canceling it does, and what does it is the form
-// body inside the human-form mount point, with no dispatcher in reach — so the count is
-// published here and its advance is offered through `served-run-act.ts`, which states why
-// the seam is a context. One counter reached from the controls and from the form body,
-// and not a second number the pane would have to sum.
+// The two run controls as calls: what a press puts, and what the answer settles to. The
+// calls are the caller's and a rejected call is not caught here. Nothing mutates the run:
+// the pane shows the read it holds plus what the daemon answered, and a served act re-arms
+// that read through `servedActCount` instead of splicing the reply in.
 
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
 import { type GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
@@ -82,26 +45,15 @@ export interface WorkflowRunControls {
   /**
    * The resume call and its outcome, and deliberately not the version chain.
    *
-   * The chain is a read addressed by the version the run's snapshot reports, and that
-   * snapshot is put at the round this hook publishes — so a chain taken as a parameter
-   * here would have to be resolved before the value it is resolved from exists. The
-   * component that mounts the control is where the two producers meet, and
-   * `run-controls.ts` states the split on the pair of interfaces it declares for it.
+   * The chain is read for the version this hook's round re-reads, so taking it here would be
+   * a cycle; the component that mounts the control joins the two.
    */
   readonly resume: WorkflowResumeDispatch;
   /** The run read's round. Advances by one per served act; see the state above. */
   readonly servedActCount: number;
   /**
-   * Advance that round for a served act this dispatcher did not put.
-   *
-   * The pane's parked phases are answered through the human-form mount point, whose body
-   * reaches no dispatcher — and a submission the daemon recorded moved the run exactly
-   * as a served cancel did. So the advance is offered rather than a second count being
-   * kept in another module: `served-run-act.ts` is the seam the pane hands
-   * this across, and states why it is a context rather than a member on the mount.
-   *
-   * Does nothing on a pane naming no run, which is the arm both controls above take —
-   * such a pane has put no read, so there is no answer for an act to make stale.
+   * Advance that round for a served act this dispatcher did not put, such as a human-form
+   * submission. Does nothing on a pane naming no run, which has put no read to make stale.
    */
   readonly recordServedAct: RecordServedRunAct;
 }
@@ -116,21 +68,10 @@ interface ServedActReading {
 interface RunControlDispatchState {
   readonly outcomes: Readonly<Record<WorkflowRunControlAction, WorkflowRunControlOutcome>>;
   /**
-   * How many acts on this run have come back SERVED.
+   * How many acts on this run have come back served, human-form submissions included.
    *
-   * The run read's re-arm round, and the reason it is a count rather than a flag: a
-   * cancel followed by nothing and a cancel followed by a resume are two different
-   * numbers of settled acts, and the read has to be put again for each. The pane feeds
-   * it to `useWorkflowRunSnapshot`, whose subject key it joins — so one settled act
-   * puts exactly one further read. That is a re-arm and not a poll: nothing here arms
-   * a timer, and no read is put by anything but a settled act. Nor is the state the
-   * reply reported ever written into the snapshot — the daemon is asked again rather
-   * than believed twice, so the phases on screen are always one answer and not a
-   * splice of two.
-   *
-   * ACTS ON THIS RUN, AND NOT ONLY THIS DISPATCHER'S TWO. A served human-form
-   * submission is one of them and reaches this count through
-   * {@link WorkflowRunControls.recordServedAct}.
+   * The run read's re-arm round: a count, not a flag, since each settled act needs its own
+   * read. The reply's state is never written into the snapshot.
    */
   readonly servedActCount: number;
 }
@@ -165,11 +106,7 @@ export function useRunControlDispatch(
     workflowRunId,
     () => IDLE_DISPATCH_STATE,
   );
-  // WHETHER THERE IS A CALL TO PUT AT ALL, decided once and where the request is
-  // formed — the answer `run-snapshot.ts` gives at this same seam. Both requests carry
-  // a required run id, so a pane naming none has nothing to address and the press
-  // composes nothing rather than sending a fabricated id. That arm is unrenderable
-  // besides: the pane returns its empty and misaddressed bodies above these controls.
+  // A pane naming no run has nothing to address, so a press composes no call.
   const runtime: RunControlRuntime | undefined =
     workflowRunId === undefined ? undefined : { latch, calls, workflowRunId, publish };
   return {
@@ -184,8 +121,7 @@ export function useRunControlDispatch(
           () =>
             calls.cancelRun({
               workflowRunId: runtime.workflowRunId,
-              // Spread on the arm that has one rather than passed as an explicit
-              // `undefined`: the request's `reason` is optional under
+              // Omitted rather than `undefined`: `reason` is optional under
               // `exactOptionalPropertyTypes`, and a cancel with no reason is legal.
               ...(reason === undefined ? {} : { reason }),
             }),
@@ -225,11 +161,7 @@ export function useRunControlDispatch(
 /**
  * Advance the re-arm round by one, leaving both controls' outcomes as they stand.
  *
- * The FUNCTION form of publish for {@link publishOutcome}'s own reason — one held record
- * carries both — and the outcomes are carried through untouched because an act performed
- * through the human form settles neither control here. The publish is the one this render
- * captured, so an act recorded after the pane was retargeted writes nowhere rather than
- * re-reading the run the person moved to.
+ * Uses the publish this render captured, so an act recorded after a retarget writes nowhere.
  */
 function advanceServedActRound(runtime: RunControlRuntime): void {
   runtime.publish((previous) => ({
@@ -250,6 +182,8 @@ async function dispatchAct<TValue>(
   call: () => Promise<TValue>,
   describe: (value: TValue) => ServedActReading,
 ): Promise<void> {
+  // Single flight through the latch, not a rendered flag: two presses in one frame both read
+  // the same idle render. `claim`, never `supersedeAndClaim`: the first call is outstanding.
   const claim = runtime.latch.claim(runtime.calls, actKey(action, runtime.workflowRunId));
   if (claim === undefined) {
     publishOutcome(runtime, action, {
@@ -261,6 +195,8 @@ async function dispatchAct<TValue>(
   publishOutcome(runtime, action, { kind: "dispatching" });
   try {
     const outcome: WorkflowRunControlOutcome = { kind: "settled", ...describe(await call()) };
+    // `settle` drops the answer once the round is retired; the publish captured at render
+    // drops it once the pane was retargeted to another run.
     claim.settle(() => {
       publishOutcome(runtime, action, outcome);
     });
@@ -269,7 +205,10 @@ async function dispatchAct<TValue>(
   }
 }
 
-/** One key per `(action, run)`. The action set is closed and carries no colon. */
+/**
+ * One key per `(action, run)`. Cancel and resume are in flight independently, and a
+ * retargeted pane must not inherit the previous run's key. The action set carries no colon.
+ */
 function actKey(action: WorkflowRunControlAction, workflowRunId: string): string {
   return `${action}:${workflowRunId}`;
 }
@@ -277,12 +216,8 @@ function actKey(action: WorkflowRunControlAction, workflowRunId: string): string
 /**
  * Write one action's outcome into the state this render is addressed at.
  *
- * The FUNCTION form of publish rather than a value, because the two actions share one
- * held record and a settlement composed from a closure's copy of it would drop the
- * other action's outcome — a resume settling while a cancel refusal was on screen
- * would erase the refusal. The re-arm round advances from the outcome itself rather
- * than from a second parameter, so a settled act and an advanced round cannot come
- * apart.
+ * A function-form publish, because both actions share one record and a closure's copy would
+ * erase the other action's outcome. A settled outcome advances the round in the same write.
  */
 function publishOutcome(
   runtime: RunControlRuntime,

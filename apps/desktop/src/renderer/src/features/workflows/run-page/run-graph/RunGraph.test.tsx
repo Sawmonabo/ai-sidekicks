@@ -1,18 +1,7 @@
-// The mount point: the four absences it can stand in the box, the picture it draws
-// once the renderer's code arrives, and the gestures the canvas does not offer.
-//
-// THE LOADER IS THE REAL ONE. A stub that resolved the canvas synchronously would
-// test a component that does not exist — the whole point of the arrangement is that
-// the renderer arrives a commit later than the mount, and a substitute that erased
-// that gap would pass over the bug it exists to catch.
-//
-// WHAT THIS FILE ASSERTS ABOUT THE CANVAS AND WHAT IT DOES NOT. The read-only claim
-// is asserted through the classes the library itself puts on a node — `draggable`
-// and `selectable` are its own marks for the two gestures, so reading them reads the
-// library's state rather than restating the props we passed. Edge GEOMETRY is not
-// asserted here: this tier runs under a DOM shim that returns zero for every rect,
-// so where an edge is drawn is not a question it can answer. The edge SET is the
-// layout module's subject and is asserted there, over values rather than pixels.
+// The mount point: the absences it can stand in the box, the picture it draws once the
+// renderer arrives, and the gestures the canvas does not offer. The loader is the real one,
+// since a synchronous stub would erase the gap under test. Edge geometry is not asserted: the
+// DOM shim returns zero for every rect.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -48,13 +37,11 @@ const TWO_PHASE_TOPOLOGY: PhaseTopology = [
 ];
 
 /**
- * Wait for the renderer's chunk to have been fetched AND for every callback
- * registered on it to have run.
+/**
+ * Wait for the renderer's chunk to be fetched and every callback registered on it to run.
  *
- * Awaiting the loader's own promise is what makes the wait exact rather than a
- * guessed number of ticks: the component registered its continuation on that same
- * promise first, so by the time this one settles the component's has already run,
- * and `act` flushes the state it set.
+ * Awaiting the loader's own promise is exact: the component registered its continuation on
+ * that promise first, so it has run by the time this settles, and `act` flushes its state.
  */
 async function settleGraphLoad(): Promise<void> {
   await act(async () => {
@@ -78,8 +65,8 @@ describe("a run with nothing to draw", () => {
   });
 
   it("negative control: an empty run is not a read in flight and not a failure", () => {
-    // `not-loaded` would say the picture is coming and `error` would say something
-    // went wrong. Both are claims about this console; the run having no phases is a
+    // `not-loaded` would say the picture is coming and `error` would say something went wrong;
+    // an empty run is a fact about the run.
     // fact about the run.
     const { container } = render(<RunGraph phases={[]} label="Phase sequence" />);
     const className = absenceClassName(container);
@@ -102,8 +89,7 @@ describe("a sequence that cannot be drawn", () => {
   });
 
   it("negative control: a well-formed sequence is not refused", () => {
-    // Without this the refusal above would also fire on a run that merely has two
-    // phases, and no run would ever draw.
+    // Without this the refusal above would also fire on any two-phase run.
     const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     expect(absenceClassName(container)).not.toContain("meridian-nothing--error");
   });
@@ -112,15 +98,14 @@ describe("a sequence that cannot be drawn", () => {
 describe("the renderer's code is fetched, not linked", () => {
   it("stands the box in as a read-in-flight absence before the chunk lands", async () => {
     const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
-    // Synchronously after the mount there is no canvas, because the module that
-    // draws one has not arrived.
+    // Synchronously after the mount there is no canvas: the module that draws one has not
+    // arrived.
     expect(absenceClassName(container)).toContain("meridian-nothing--not-loaded");
     expect(container.querySelector(".react-flow")).toBeNull();
 
     await settleGraphLoad();
 
-    // And once it lands the absence is replaced by the canvas rather than joined by
-    // it: a skeleton left beside a live graph would read as a second graph loading.
+    // Replaced, not joined: a skeleton beside a live graph would read as a second graph loading.
     expect(container.querySelector(".react-flow")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing")).toBeNull();
   });
@@ -157,35 +142,27 @@ describe("the drawn graph", () => {
   it("offers no gesture that would change the run", async () => {
     const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
-    // The library's own marks for the two gestures. Read together with the count
-    // above, an empty result here means the nodes are there and neither draggable
-    // nor selectable — rather than that there are no nodes at all.
+    // The library's own marks for the two gestures. With the node count above, an empty result
+    // means the nodes are neither draggable nor selectable, not that there are none.
     expect(container.querySelectorAll(".react-flow__node.draggable")).toHaveLength(0);
     expect(container.querySelectorAll(".react-flow__node.selectable")).toHaveLength(0);
   });
 
   it("says in words that it is drawing states rather than a graph", async () => {
-    // A run read carries no dependencies, so a graph mounted without its definition
-    // paints disconnected boxes — which on screen is indistinguishable from a
-    // workflow whose phases genuinely depend on nothing. The caption is the only
-    // thing that tells those two apart.
+    // A run read carries no dependencies, so without its definition the boxes look like a
+    // workflow whose phases depend on nothing; the caption tells the two apart.
     const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
 
-    // The caption and not the edge count, on this file's own rule: the shim returns
-    // zero for every rect and the library draws no edge element under it, so the
-    // edge SET is asserted over values in the layout and topology suites beside this
-    // one. What this tier can see is whether the graph tells a person which
-    // picture they are looking at.
+    // The caption and not the edge count: the shim draws no edge element, and the edge set is
+    // asserted over values in the layout and topology suites.
     expect(container.querySelector(".meridian-run-graph__caption")?.textContent ?? "").toContain(
       "has not been read here",
     );
   });
 
   it("negative control: a graph handed a definition captions nothing", async () => {
-    // Without this the case above would pass over a component that captioned every
-    // picture, which would tell a person their definition had not been read on the
-    // one graph where it had.
+    // Without this, a component that captioned every picture would pass.
     const { container } = render(
       <RunGraph phases={TWO_PHASES} topology={TWO_PHASE_TOPOLOGY} label="Phase sequence" />,
     );
@@ -202,36 +179,31 @@ describe("the drawn graph", () => {
     expect(parked?.textContent).toContain("running");
     expect(parked?.textContent).toContain("gate closed");
     expect(parked?.textContent).toContain("parked");
-    // Negative control: park is read from the park member, so the phase that is not
-    // parked carries no park attribute at all and prints no such word.
+    // Negative control: park is read from the park member, so the unparked phase carries no
+    // park attribute and prints no such word.
     const notParked = container.querySelector(".meridian-phase-node:not([data-park])");
     expect(notParked).not.toBeNull();
     expect(notParked?.textContent).not.toContain("parked");
   });
 
   it("draws the identifier as a wire figure and an authored name as prose", async () => {
-    // Every figure the daemon sent renders in mono, the sign of where it came from. A
-    // phase id is a string the daemon sent; drawn in the sans face and weight an
-    // authored name has, it would present an opaque key as something a person had
-    // chosen, and no read in this build supplies a name to tell them apart.
+    // Every daemon-sent figure renders in mono. A phase id drawn in the face an authored name
+    // has would present an opaque key as something a person chose.
     const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
     const node = container.querySelector('.react-flow__node[data-id="build"]');
 
     const identifier = node?.querySelector(".meridian-phase-node__id");
     expect(identifier?.querySelector(".meridian-figure--wire")?.textContent).toBe("build");
-    // The control on the same box: the authored name sits beside it and is NOT a
-    // figure, so an implementation that put the whole box in mono fails here.
+    // The authored name is not a figure, so putting the whole box in mono fails here.
     const authored = node?.querySelector(".meridian-phase-node__name");
     expect(authored?.textContent).toBe("Build");
     expect(authored?.querySelector(".meridian-figure--wire")).toBeNull();
   });
 
   it("draws no name element for a phase the caller read no name for", async () => {
-    // The case every read reachable from this build produces. Nothing stands in for
-    // the name: the identifier is already on the box, in the face that says where it
-    // came from, and a second copy of it in the name's place is the invention this
-    // whole split exists to stop.
+    // Nothing stands in for the name: a second copy of the identifier in its place is the
+    // invention the name/identifier split exists to stop.
     const nameless: readonly RunGraphNode[] = TWO_PHASES.map((entry) => ({
       ...entry,
       displayName: undefined,
@@ -246,8 +218,7 @@ describe("the drawn graph", () => {
   });
 
   it("draws the state and the gate state as wire figures, and the word gate as prose", async () => {
-    // Both are closed enum values the daemon sent, so both wear the signature. The
-    // word "gate" is the console's own and does not.
+    // Closed enum values the daemon sent wear the wire signature; the word "gate" does not.
     const { container } = render(<RunGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
     const state = container.querySelector(
@@ -264,10 +235,8 @@ describe("the drawn graph", () => {
   });
 
   it("gives a scheduled park a treatment of its own rather than the amber one", async () => {
-    // Amber means a person is needed and nothing else. A phase parked on provider
-    // capacity that the engine armed a readable resume for needs nobody, and drawing
-    // it in the same border as one waiting on a person is the pane asking for
-    // attention nothing is owed.
+    // Amber means a person is needed. A phase parked on provider capacity with a readable
+    // resume needs nobody, so it must not draw the same border.
     const scheduled: readonly RunGraphNode[] = [
       phase({ phaseId: "plan", displayName: "Plan", state: "completed", gateState: "open" }),
       phase({

@@ -1,31 +1,7 @@
-// What a human phase will ask, drawn from the definition an author is reading.
-//
-// THE INSPECTOR'S HALF AND NOT THE RUN'S. A parked phase is answered in the run pane,
-// through the workflow plan's own form body and the submit that carries the revision it
-// was composed against. This is the other question, and it is a definition question: does
-// the schema I wrote draw the form I meant? It is answered from bytes the definition read
-// already returned, so it costs no read and reaches no run.
-//
-// WHICH IS WHY THERE IS NO SUBMIT CONTROL. "Absent, not disabled" — the console offers a
-// control when its caller supplies the act and never before, and nothing here can send an
-// answer anywhere: this phase has no run, so there is no attempt to submit against and no
-// revision to carry. A greyed Submit would be a control that could never work.
-//
-// AND WHY IT IS STILL LIVE. The fields are real controls over a real schema, so an author
-// typing into them learns exactly what a user will meet — including the raw editor,
-// which is what a schema outside the drawn set actually opens as. A picture of a form
-// would answer the same question worse and would go stale against the mapper.
-//
-// WHICH IS WHY IT REFUSES WHERE THE RUN'S FORM REFUSES. A root asking for a single value
-// rather than named fields is a schema no submission can carry (`schema-root-shape.ts`),
-// so the run's form offers no act for it — and a preview that drew an editor there would
-// tell the author their phase is answerable when the user will be told it is not.
-// The author is the one person who can repair it, so this is where the sentence is worth
-// the most.
-//
-// ONE READ, ONE HOOK, NO EFFECT. The schema comes off the phase the caller already holds
-// and the hook memoizes the plan and the compiled validator on it, so a keystroke re-walks
-// nothing.
+// The definition-side preview of what a human phase will ask, drawn live from the schema the
+// author is reading. It sends nothing (there is no run to submit against), so it has no submit
+// control, and it refuses on a root no submission can carry (`schema-root-shape.ts`) as the
+// run's form does.
 
 import { SchemaForm } from "./SchemaForm.js";
 import { humanPhaseFormConfigOf } from "../human-phase-config.js";
@@ -34,6 +10,7 @@ import { useSchemaForm } from "../hooks/useSchemaForm.js";
 import type { WorkflowPhaseDefinition } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 
+/** The props of a phase's form preview. */
 export interface SchemaFormPreviewProps {
   readonly phase: WorkflowPhaseDefinition;
 }
@@ -41,16 +18,12 @@ export interface SchemaFormPreviewProps {
 /** The form this phase will ask, or nothing at all where it asks for none. */
 export function SchemaFormPreview(props: SchemaFormPreviewProps): React.ReactNode {
   const config = humanPhaseFormConfigOf(props.phase);
-  // Called unconditionally with whatever the config carried, because a hook may not be
-  // called behind a branch: a phase with no form hands `undefined` to the mapper, which
-  // resolves it to the raw arm like any other unreadable schema — and the element that
-  // would render it is never returned.
+  // Called unconditionally: a hook may not sit behind a branch. A phase with no form passes
+  // `undefined`, which the mapper resolves to the raw arm.
   const form = useSchemaForm(config?.inputSchema);
   if (config === undefined) {
     return null;
   }
-  // Below the early return rather than beside the hook: this is an ordinary read and not
-  // a hook, so it is asked only where there is a form to preview.
   const rootRefusal = schemaRootRefusal(config.inputSchema);
   return (
     <div className="meridian-schema-preview">

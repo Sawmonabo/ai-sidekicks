@@ -1,32 +1,13 @@
-// The one edge into the graph renderer's code, and the only one that is asynchronous.
-//
-// WHY THIS MODULE EXISTS. The console bounds the renderer's initial bundle excluding
-// lazy chunks — terminal, node graph, math, diagrams, browser tools — so the node
-// graph is a LAZY chunk by the budget it is measured against. The chunk's entry,
-// `RunGraphCanvas.tsx`, pulls in `@xyflow/react`, its `@xyflow/system` runtime
-// sibling, the library's own `base.css` and this directory's sheet; reached by a
-// static import from a pane the console can open at boot, every one of those bytes
-// lands in the document the operator waits for whether or not a run is ever drawn.
-//
-// So that entry is reached through `import()` and through nothing else. That makes this
-// module the bundler's split point: everything only `RunGraphCanvas.tsx` reaches is
-// emitted as its own chunk, with the two sheets it imports, and fetched the first time a
-// graph mounts.
-//
-// WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoized: two
-// run panes mounting in one frame must not start two fetches, and a remount must not
-// re-enter the module. A module-level `let` holding that promise is the state
-// `apps/desktop/AGENTS.md` rejects, and it would also be untestable — there would be
-// no second instance to compare a first against. The memo is a private field, so a
-// test builds its own loader and the page's default is one `const` beside it.
+// The one edge into the graph renderer's code, and the only asynchronous one. The chunk entry,
+// `RunGraphCanvas.tsx`, pulls in `@xyflow/react` and both sheets, which the initial-bundle
+// budget excludes, so it is reached through `import()` alone. The memo is a private field so
+// two panes mounting in one frame share one fetch and a test can build its own loader.
 
 /**
- * What a caller gets: the canvas component, and deliberately nothing else.
+ * What a caller gets: the canvas component, and nothing else.
  *
- * Narrowed from the entry module's own shape rather than restated, so a rename in
- * `RunGraphCanvas.tsx` fails here instead of drifting. `typeof import(...)` in a TYPE position
- * is erased by the compiler — it opens no runtime edge into the chunk this module
- * exists to keep out of the initial graph.
+ * Narrowed from the entry module's own shape so a rename there fails here. `typeof import()` in
+ * a type position is erased, so it opens no runtime edge into the chunk.
  */
 export type RunGraphModule = Pick<typeof import("./RunGraphCanvas.js"), "RunGraphCanvas">;
 
@@ -40,8 +21,8 @@ export class RunGraphLoader {
   }
 
   /**
-   * The graph chunk, fetched once. Every later call gets the same promise, so two
-   * graphs mounting together share one fetch rather than racing two.
+   * The graph chunk, fetched once. Every later call gets the same promise, so two graphs
+   * mounting together share one fetch.
    */
   public load(): Promise<RunGraphModule> {
     this.#modulePromise ??= this.#fetchModule();
@@ -53,11 +34,9 @@ export class RunGraphLoader {
       const { RunGraphCanvas } = await import("./RunGraphCanvas.js");
       return { RunGraphCanvas };
     } catch (loadError) {
-      // A chunk that did not arrive is not a chunk that cannot: the fetch fails
-      // transiently. Memoizing the rejection would leave every later mount for the
-      // life of the window holding a failure that a second request would not have
-      // reproduced, so the memo is dropped and the caller that asked still sees this
-      // attempt's error.
+      // A failed fetch is often transient. Memoizing the rejection would hand every later
+      // mount a failure a second request would not reproduce, so the memo is dropped and the
+      // caller that asked still sees this attempt's error.
       this.#modulePromise = undefined;
       throw loadError;
     }

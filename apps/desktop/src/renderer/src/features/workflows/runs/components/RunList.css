@@ -1,10 +1,7 @@
 /*
- * The run list: its header counts, its rows, and what a row says about one run.
- *
- * Imported by `RunList.tsx`, the main component of the three that draw it. Every class here
- * belongs to one of the list's own blocks (`meridian-run-list`, `meridian-run-row`,
- * `meridian-run-attention`), and no other sheet declares them. The park badges a row stacks
- * are in `ParkBadge.css`.
+ * The run list: header counts, rows, and the park-attention fold. Every class here belongs to
+ * `meridian-run-list`, `meridian-run-row` or `meridian-run-attention`. The park badges a row
+ * stacks are in `ParkBadge.css`.
  */
 
 /* ----------------------------------------------------------------- run list */
@@ -99,9 +96,8 @@
 }
 
 /*
- * The failure reason is the daemon's sentence, so it renders as prose on the red
- * text color rather than inside a refusal shape: a run that failed is a fact the
- * list is reporting, not a refusal of a control the operator just pressed.
+ * The failure reason is the daemon's sentence: prose in the red text color, not a refusal shape,
+ * because a failed run is a fact the list reports.
  */
 .meridian-run-row__failure {
   margin: 0;
@@ -110,11 +106,8 @@
 }
 
 /*
- * The same wire member on a run that did not fail. One member carries two facts — a
- * bound breach's reason and a cancel's — so a row painted red for both would report
- * an outcome an operator asked for as a breach. This arm is prose in the ordinary
- * text color, with the label in front saying which reading arrived; the hue is spent
- * on the failure and nowhere else, because red means something failed.
+ * The same wire member on a run that did not fail. It also carries a cancel's reason, so this
+ * arm is not red: red means something failed.
  */
 .meridian-run-row__reason {
   margin: 0;
@@ -128,10 +121,7 @@
 
 /* --------------------------------------------------------- park attention */
 
-/*
- * The fold above the rows: one line per cause, not one per run. Owned by this sheet
- * because `RunParkAttention.tsx` is a component of this list.
- */
+/* The fold above the rows: one line per cause, not one per run. */
 
 .meridian-run-attention {
   display: flex;

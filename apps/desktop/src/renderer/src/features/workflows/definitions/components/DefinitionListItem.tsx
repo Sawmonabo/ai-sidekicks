@@ -1,8 +1,4 @@
 // One definition's row in the Workflows tab's table.
-//
-// A SIBLING RATHER THAN A SECOND COMPONENT IN A LIST MODULE, which is the package's
-// one-component-per-`.tsx` rule: a module holding several components is a module whose
-// name answers for one of them, and the others are reached only by reading the file.
 
 import "./DefinitionListItem.css";
 
@@ -20,11 +16,8 @@ interface DefinitionListItemProps {
 }
 
 /**
- * One definition's row.
- *
- * Memoized: the table re-renders on every page of a cursor-paged fetch, and rows already
- * on screen have not changed. Row values are frozen wire summaries, so the default
- * shallow comparison is the right one.
+ * One definition's row, memoized: the table re-renders on every page of a cursor-paged fetch,
+ * and row values are frozen wire summaries.
  *
  * @consumedBy the Workflows tab's table of definitions
  */

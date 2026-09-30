@@ -1,10 +1,5 @@
-// What the park attention line draws, driven through the projection that folds it.
-//
-// The cases build `RunListProjection` rather than hand-built entries, on
-// `RunList.test.tsx`'s reason: a suite that constructed its own fold would prove the
-// markup and leave the seam between the fold and the component — the part that can
-// actually drift — unchecked. What is asserted here is the RENDERING; the fold's own
-// arithmetic is `park-attention-fold.test.ts`.
+// Driven through `RunListProjection`, on `RunList.test.tsx`'s reason. Asserts the rendering; the
+// fold's arithmetic is `park-attention-fold.test.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -56,15 +51,13 @@ describe("the run list's park attention line", () => {
     expect(entries).toHaveLength(1);
     const [entry] = entries;
     expect(entry?.textContent).toContain("Waiting on provider capacity");
-    // The key verbatim, in the mono provenance signature every wire value wears.
     expect(entry?.querySelector(".meridian-figure--wire")?.textContent).toBe("account-1");
     expect(entry?.textContent).toContain("Runs affected");
     expect(entry?.querySelector(".meridian-figure--derived")?.textContent).toBe("2");
   });
 
   it("badges the number of entries and never the number of runs", () => {
-    // The two counts answer different questions and are deliberately different
-    // numbers: `Parked` is runs, `Waiting on` is causes.
+    // `Parked` counts runs; `Waiting on` counts causes.
     const root = renderList([
       run({ workflowRunId: "run-a", phaseStates: [correlatedPark("account-1")] }),
       run({ workflowRunId: "run-b", phaseStates: [correlatedPark("account-1")] }),
@@ -114,7 +107,6 @@ describe("the run list's park attention line", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.classList.contains("meridian-run-attention__entry--single")).toBe(true);
     expect(entries[0]?.textContent).toContain("run-a");
-    // The same park card the run's own row draws, through the same component.
     expect(entries[0]?.querySelector(".meridian-park")).not.toBeNull();
   });
 
@@ -126,8 +118,7 @@ describe("the run list's park attention line", () => {
   });
 
   it("negative control: the line is absent for the reason claimed, not always", () => {
-    // Without this, the case above would pass against a component that rendered
-    // nothing under every input — including the parked one it exists to draw.
+    // Guards the case above against a component that rendered nothing for every input.
     const root = renderList([
       run({ workflowRunId: "run-a", phaseStates: [correlatedPark("account-1")] }),
     ]);

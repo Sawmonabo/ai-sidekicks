@@ -1,69 +1,33 @@
-// How one member of an answer is ADDRESSED: the representation every control and every
-// finding shares, and the single string spelling it takes where a string is what the
-// platform wants.
-//
-// IT IS KEPT APART FROM THE VALIDATOR, AND THE SPLIT IS THE POINT.
-// `json-schema-validator.ts` compiles a delivered schema, which means it imports a schema
-// library and is reached through a loader so that library arrives on a chunk of its own.
-// Addressing needs none of that: it is a few lines of string and array work that the
-// schema form's descriptors, its controls, its draft writes and its plan all read on
-// their first render. Left in the validator's module, every one of them would wait on the
-// library's chunk, so this module is imported statically and the compiler arrives when a
-// form first compiles a schema.
-//
-// THE ISSUE PATH TRAVELS AS SEGMENTS, BECAUSE A JOINED PATH IS NOT INJECTIVE. The schema
-// library reports a path of property keys and array indices, and joining those with a dot
-// collapses members a schema keeps apart: a property literally named `items.0` and the
-// first entry of an array named `items` both spell `items.0`, and so do a property named
-// `a.b` and a `b` nested inside an `a`. A control keyed on that string draws one member's
-// verdict under another member's control — or under both — which is a finding rendered
-// about a value the schema said nothing about. So the segments travel whole, the lookup
-// that matches a control to its findings compares them element by element through
-// `isSameMemberPath`, and the one place a path has to become a string — a React key, an
-// element id, a sentence naming the member — takes the RFC 6901 JSON Pointer that
-// `encodeMemberPointer` composes, which escapes rather than collapses. One representation,
-// one encoder, and nothing re-derives either.
+// How one member of an answer is addressed: the representation every control and finding shares.
+// Kept apart from the validator so the descriptors, controls, draft writes and plan can import it
+// statically without waiting on the schema library's chunk. A path travels as segments because a
+// dot-joined path is not injective (`items.0` the property and the first entry of `items` collide),
+// which would draw one member's finding under another's control. Where a string is needed (a React
+// key, an element id) `encodeMemberPointer` composes an escaping RFC 6901 JSON Pointer.
 
 /**
- * Where one member sits inside an answer: property keys and array positions, in order.
- *
- * `number` is not decoration. The reader reports an array position AS a number, and that
- * is the only thing keeping it apart from a property whose name happens to be a digit —
- * a distinction any single-string spelling of the path throws away.
+ * Where one member sits inside an answer: property keys and array positions, in order. A position
+ * stays a `number` to keep it apart from a property whose name is a digit.
  */
 export type SchemaMemberPath = readonly (string | number)[];
 
 /**
- * One member path as the RFC 6901 JSON Pointer that names it — the string spelling, where
- * a string is what the platform takes.
- *
- * Reversible where a join is not: `/` and `~` are the two characters that grammar gives
- * meaning to, so a segment carrying either is escaped rather than left to read as a
- * boundary. The empty path encodes as the empty string, which is that grammar's own name
- * for the whole document and is what an issue about the answer itself carries.
+ * One member path as the RFC 6901 JSON Pointer that names it. `/` and `~` are escaped, so it is
+ * reversible where a join is not; the empty path encodes as `""`, the pointer for the whole answer.
  */
 export function encodeMemberPointer(path: SchemaMemberPath): string {
   return path.map((segment) => `/${referenceTokenOf(segment)}`).join("");
 }
 
 /**
- * Whether two member paths address the same member.
- *
- * Element by element and by identity, so a property named `"0"` and the array position `0`
- * stay apart. This is the comparison every lookup makes, and it is here rather than beside
- * one of them because a second comparison is how two readings of one path come apart.
+ * Whether two member paths address the same member: element by element and by identity, so a
+ * property named `"0"` and the array position `0` stay apart. Every lookup uses this comparison.
  */
 export function isSameMemberPath(left: SchemaMemberPath, right: SchemaMemberPath): boolean {
   return left.length === right.length && left.every((segment, at) => segment === right[at]);
 }
 
-/**
- * One segment as an RFC 6901 reference token.
- *
- * The escape character is replaced FIRST. Doing the separator first would then escape the
- * `~` this step just wrote, turning `a/b` into `a~01b` — a token that decodes to something
- * nobody wrote.
- */
+/** One segment as an RFC 6901 token; `~` is escaped first so the `~` written for `/` survives. */
 function referenceTokenOf(segment: string | number): string {
   return String(segment).replace(/~/g, "~0").replace(/\//g, "~1");
 }

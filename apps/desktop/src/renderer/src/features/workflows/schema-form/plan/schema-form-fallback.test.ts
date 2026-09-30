@@ -1,11 +1,6 @@
-// What the mapper declines to draw — the half that matters more. Each cause the mapper
-// itself minds is reachable, and each of them names the member that sent it there, because
-// "this could not be drawn" with nothing named is a sentence nobody can act on. What it
-// DOES draw is `schema-form-plan.test.ts`.
-//
-// EVERY FALLBACK CASE IS PAIRED WITH A NEGATIVE CONTROL wherever the check could pass by
-// refusing everything: a rule that sends one schema to the raw editor proves nothing until
-// a schema it must NOT send there is drawn beside it.
+// What the mapper declines to draw: each cause is reachable and names the member that sent it
+// there. What it does draw is `schema-form-plan.test.ts`. A fallback case is paired with a
+// negative control wherever the check could pass by refusing everything.
 
 import { describe, expect, it } from "vitest";
 
@@ -97,9 +92,8 @@ describe("the schema field mapper's raw arm", () => {
   });
 
   it("sends a group default naming a member no control draws to the raw editor", () => {
-    // A value the group declares for a member it does not have reaches the schema's own
-    // reading of the answer and reaches no control at all, which is the divergence the
-    // whole seed exists to close.
+    // A value for a member the group does not have reaches the schema's own reading of the
+    // answer and no control.
     const plan = planSchemaForm(
       objectSchema({
         release: { ...objectSchema({ tag: { type: "string" } }), default: { ghost: "v1" } },
@@ -124,9 +118,8 @@ describe("the schema field mapper's raw arm", () => {
   });
 
   it("sends a root combinator that can require a member no control draws to the raw editor", () => {
-    // Drawn, this form offers one control for `kind` and none for either member the
-    // constraint can ask for — so the root finding is visible and there is nothing on the
-    // screen a person could do about it.
+    // This form offers one control for `kind` and none for either member the constraint can ask
+    // for, so the finding is visible and nothing on screen can clear it.
     const plan = planSchemaForm({
       ...objectSchema({ kind: { type: "string" } }),
       oneOf: [{ required: ["email"] }, { required: ["phone"] }],
@@ -154,10 +147,8 @@ describe("the schema field mapper's raw arm", () => {
   });
 
   it("sends a group's own combinator requiring a member it draws no control for to the raw editor", () => {
-    // The root case one level down: `release` draws a control for `tag` and none for
-    // `signedBy`, so the group carries a finding no control inside it can clear. The member
-    // is named by its FULL PATH, because `signedBy` on its own names nothing an author can
-    // find in a schema that declares two groups.
+    // The root case one level down: `release` draws `tag` but not `signedBy`. The member is named
+    // by its full path because `signedBy` alone is not findable in a schema with two groups.
     const plan = planSchemaForm(
       objectSchema({
         release: {
@@ -177,8 +168,7 @@ describe("the schema field mapper's raw arm", () => {
   });
 
   it("sends a group whose own required list names a member it declares to the raw editor", () => {
-    // The plainest shape of the same defect and the commonest one an author writes: a
-    // `required` entry inside a group with no matching property beside it.
+    // The commonest form of the defect: a `required` entry with no matching property.
     expect(
       planSchemaForm(
         objectSchema({
@@ -242,8 +232,7 @@ describe("the schema field mapper's raw arm", () => {
   });
 
   it("sends a repeated control's own default its entry could not display to the raw editor", () => {
-    // The item's `default` is what EVERY added entry opens holding, so a value of another
-    // kind is the same divergence repeated once per press of the add control.
+    // The item's `default` is what every added entry opens holding.
     const plan = planSchemaForm(
       objectSchema({ scores: { type: "array", items: { type: "number", default: "high" } } }),
     );
@@ -255,10 +244,8 @@ describe("the schema field mapper's raw arm", () => {
   });
 
   it("sends an enumerated default the choice control could not offer to the raw editor", () => {
-    // A string is not enough: the control offers this enumeration's members and one
-    // unanswered option, so a declared value outside the set selects "Not answered" while
-    // the seed carries the author's string — the verdict reads invalid and a press sends a
-    // value nobody on the screen ever saw.
+    // The control offers the enumeration's members and one unanswered option, so a declared value
+    // outside the set shows "Not answered" while the seed carries it.
     const plan = planSchemaForm(
       objectSchema({ severity: { type: "string", enum: ["low", "high"], default: "retired" } }),
     );
@@ -270,9 +257,8 @@ describe("the schema field mapper's raw arm", () => {
   });
 
   it("sends a collection default holding one entry outside the enumeration to the raw editor", () => {
-    // One bad entry in an otherwise drawable list is the same divergence at one position:
-    // the repeated control shows its unanswered option there and the answer carries the
-    // author's string.
+    // One bad entry in a drawable list: its control shows the unanswered option while the answer
+    // carries the author's string.
     const plan = planSchemaForm(
       objectSchema({
         severities: {

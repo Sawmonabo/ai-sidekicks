@@ -1,29 +1,7 @@
-// One run's row: the definition it came from, what state it is in, when it started,
-// whichever phases are parked, and the sentence it carries about its own ending.
-//
-// A SIBLING RATHER THAN A SECOND COMPONENT IN `RunList.tsx`, which is the package's
-// one-component-per-`.tsx` rule: a module holding two components is a module whose
-// name answers for one of them, and the other is reached only by reading the file.
-// `RunList.tsx` imports it by relative path and the feature's public entry does not
-// export it, because nothing outside this feature composes a row on its own;
-// `components/ParkSchedule.tsx` is the same shape beside `ParkBadge.tsx`.
-//
-// WHAT A ROW SHOWS, and why it stops there. The definition's name, the run's status,
-// the run id, when it started, whichever parks are live, and whether the run's pin
-// has fallen behind its definition. Everything else about a run — phase sections,
-// retries, pool waits, outputs — is the run pane's subject and the workflow engine's
-// body; a list that grew them would be a second run view competing with the one that
-// owns the question.
-//
-// ABSENT, NOT DISABLED. A row carries an open control only when the caller supplies
-// the action. A list rendered without one is a list of facts, not a wall of dead
-// buttons — which is the honest shape for a caller that offers no way to open a run,
-// as against the destination, which supplies one for every row.
-//
-// THE ROW DERIVES NOTHING. Every reading it draws — the park discriminator, the
-// schedule classification, the frozen-pin inequality, the reading of the start — is
-// `run-list-projection.ts`'s and arrives on the row value. A row that re-derived one
-// would be the second authority the projection's own header exists to prevent.
+// One run's row: the definition it came from, its state, when it started, its parked phases, and
+// the sentence it carries about its own ending. Everything else about a run belongs to the run
+// pane. The open control is absent, not disabled, when the caller supplies none. The row derives
+// nothing; every reading arrives on the row value from `run-list-projection.ts`.
 
 import { memo } from "react";
 
@@ -36,27 +14,17 @@ import type { OpenRun, WorkflowRunListRow } from "../run-list-projection.js";
 import type { WorkflowRunState } from "../run-list-rows.js";
 
 /**
- * What this row prints where the start is a value `workflowInstant` refused.
- *
- * The same em dash `primitives/figures/wire-figures.ts` prints for a figure it cannot stand
- * behind, restated here because that module keeps the glyph private and this row
- * refuses under a STRICTER policy than the formatter does — so the branch cannot be
- * delegated to it. Named rather than inlined so the one place it is spent says what it
- * means, and a substrate request stands to publish the glyph from the module that owns
- * the convention.
+ * What this row prints where the start is a value `workflowInstant` refused. The em dash is
+ * restated because `lib/wire-figures.ts` keeps its glyph private and this row refuses under a
+ * stricter policy than the formatter does.
  */
 const UNREADABLE_START = "—";
 
 /**
- * The start a row prints, taken from the reading the projection already made.
- *
- * One parse, one truth. `formatDateTime`'s default `"any-offset"` policy is WIDER than
- * the `"utc-only"` one `workflowInstant` declares and the sort obeys, so handing it
- * `run.startedAt` directly would print a legible time on a start spelled with a numeric
- * offset while the sort placed it last as unreadable. A reading `workflowInstant`
- * refused prints the em dash the sort's own placement already stands for; one it
- * admitted goes to the figure chokepoint, which cannot refuse what the stricter reader
- * accepted.
+ * The start a row prints, taken from the reading the projection already made. `formatDateTime`
+ * accepts any offset while `workflowInstant` and the sort accept UTC only, so formatting
+ * `run.startedAt` directly would print a legible time for a start the sort placed last as
+ * unreadable.
  */
 function startFigureFor(startedAt: InstantReading): string {
   return startedAt.kind === "malformed" ? UNREADABLE_START : formatDateTime(startedAt.text);
@@ -64,43 +32,21 @@ function startFigureFor(startedAt: InstantReading): string {
 
 /** How the sentence a run carries about its own ending reads on a row. */
 interface RunReasonReading {
-  /**
-   * `failure` is the one reading that spends the red text; everything else is prose.
-   *
-   * Named rather than expressed as a class name so this table says what it decides —
-   * the class follows from the tone, and a table of class names would be a table of
-   * spellings.
-   */
+  /** `failure` is the one reading that spends the red text; the class follows from the tone. */
   readonly tone: "failure" | "neutral";
-  /**
-   * What the reason is called, where the treatment alone does not say it.
-   *
-   * `undefined` on the failure arm, which is the one arm whose treatment IS the name:
-   * red prose under a failed run reads as the failure it is, and a label above it
-   * would be the row saying twice what it has already said once.
-   */
+  /** What the reason is called; `undefined` on the failure arm, whose red treatment is the name. */
   readonly label: string | undefined;
 }
 
 /**
  * How a run's reason reads, per status.
  *
- * `failureReason` is ONE wire member carrying two different facts — it is preserved
- * on any bound breach and it also carries the reason a cancel supplied — so the run's
- * own status is the only thing that says which of them arrived. Rendered
- * unconditionally in the failure treatment, an operator's "the incident was resolved
- * out of band" was presented as a breach, which is the opposite of what happened.
- *
- * TOTAL over the status set rather than a switch with a default, and that totality is
- * the point: a default arm is how a seventh status inherits a color nobody chose for
- * it, and a default of `failure` would inherit the wrong one. Placed here, a seventh
- * status is a compile error at this table until somebody says what its reason is
- * called.
+ * `failureReason` is one wire member carrying two facts, a bound breach's reason and a cancel's,
+ * so the status alone says which arrived. Total over the status set, not a switch with a
+ * default: a new status is a compile error here until someone says what its reason is called.
  */
 const RUN_REASON_READINGS = {
-  // The four statuses no V1 producer sends a reason with. They take the neutral arm
-  // anyway rather than being left out: a reason arriving on one of them is a fact
-  // this list shows, and showing it in red would be inventing an outcome for it.
+  // No producer sends a reason with these four; a reason that arrives is shown neutral, not red.
   pending: { tone: "neutral", label: "Reason" },
   running: { tone: "neutral", label: "Reason" },
   suspended: { tone: "neutral", label: "Reason" },
@@ -109,13 +55,7 @@ const RUN_REASON_READINGS = {
   canceled: { tone: "neutral", label: "Cancellation reason" },
 } as const satisfies Readonly<Record<WorkflowRunState, RunReasonReading>>;
 
-/**
- * The sentence a run carries about its ending, read as what its status makes it.
- *
- * The daemon's text verbatim in both arms — only the treatment and the name in front
- * of it change, because paraphrasing the engine is what the refusal grammar exists to
- * prevent.
- */
+/** The sentence a run carries about its ending, the daemon's text verbatim in both arms. */
 function renderRunReason(state: WorkflowRunState, reason: string): React.JSX.Element {
   const reading = RUN_REASON_READINGS[state];
   return reading.tone === "failure" ? (
@@ -134,24 +74,15 @@ interface RunListItemProps {
 }
 
 /**
- * One run's row.
- *
- * Memoized because a run list re-renders whenever any run in it moves, and a park
- * badge that re-rendered on every neighbor's transition would be paying for
- * everyone else's changes. The projection hands out frozen row values, so the
- * default shallow comparison is exactly the right one: a row object is replaced when
- * and only when something in that run changed.
+ * One run's row. Memoized because the list re-renders whenever any run moves; the projection
+ * hands out frozen rows, so shallow comparison replaces a row exactly when its run changed.
  */
 export const RunListItem: React.MemoExoticComponent<
   (props: RunListItemProps) => React.JSX.Element
 > = memo(function RunListItem(props: RunListItemProps): React.JSX.Element {
   const { row, onOpenRun } = props;
   const { run } = row;
-  // The definition's name where the caller holds one, and the run's own identity
-  // where it does not. No registered read joins a run to the name of the definition
-  // it was started from, so the fallback is the opaque id the wire DID send, worn as
-  // a wire value in mono — which reads as an identifier rather than as a title, and
-  // is the one thing on this row a person can paste into a search.
+  // No read joins a run to its definition's name, so the fallback is the wire id, in mono.
   const runLabel =
     run.definitionName === undefined ? (
       <WireFigure value={run.workflowRunId} />
@@ -175,19 +106,14 @@ export const RunListItem: React.MemoExoticComponent<
           </button>
         )}
         {/*
-          The status is the daemon's own word for this run, so it wears the mono
-          provenance signature rather than being title-cased into prose. Its tone is
-          the status itself and not a reading of the parks: a run whose phases are
-          parked shows that on its park badges, and coloring the status chip for it
-          too would spend amber twice on one fact.
+          The status is the daemon's word, in the mono signature. Its tone is the status, not the
+          parks: the park badges already say that, and amber would be spent twice.
         */}
         <Chip tone={run.state === "failed" ? "failure" : "neutral"} mono label={run.state} />
         {/*
-          The frozen pin states a condition and offers nothing. Whether it may be
-          repaired is the daemon's adjudication on a resume, and an operator who asks
-          meets `workflow.repair_not_parked`, `workflow.repair_attempt_in_flight`, or
-          `workflow.repair_version_unaccountable` — rendered as the refusal it is,
-          never predicted here.
+          States a condition and offers nothing: whether the pin may be repaired is the daemon's
+          answer on a resume, rendered as the refusal it is (`workflow.repair_not_parked` and
+          the like), never predicted here.
         */}
         {row.isPinnedBehindLatestVersion ? (
           <Chip tone="neutral" glyph="workflow" label="Frozen on an older version" />
@@ -196,14 +122,8 @@ export const RunListItem: React.MemoExoticComponent<
       <div className="meridian-run-row__meta">
         <WireFigure value={run.workflowRunId} />
         {/*
-          The start carries its DATE as well as its time. A run list is not a transcript —
-          nothing above these rows divides them by day — so two runs started a week
-          apart at the same hour read as one figure under the transcript's date-free
-          clock, which is the reading this row used to draw.
-
-          The title is the wire's own spelling on both arms, including the refused one:
-          the malformed value is the only evidence of what the engine actually sent, and
-          a row that dropped it would report an unreadable start as an absent one.
+          The start carries its date: unlike a transcript nothing here divides rows by day. The
+          title is the wire's own spelling, so a malformed start is not reported as absent.
         */}
         <WireFigure value={startFigureFor(row.startedAt)} title={run.startedAt} />
         {row.isPinnedBehindLatestVersion ? (

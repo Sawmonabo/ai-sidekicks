@@ -1,6 +1,5 @@
-// The submit channel around a supplied body: what it keeps, and what it hands over. The body
-// here is a press and nothing else, so the cases hold for any body and not only for the
-// console's default body.
+// The submit channel around a supplied body: what it keeps and what it hands over. The body here
+// is a press and nothing else, so the cases hold for any body.
 
 import { cleanup, screen } from "@testing-library/react";
 import { act } from "react";
@@ -77,7 +76,7 @@ describe("the submit binding keeps the submit and the settlement, and the body k
     });
     await settle();
 
-    // In the live region the binding draws beneath the body, rather than inside the body.
+    // The live region is the binding's, beneath the body, not inside it.
     expect(screen.getByRole("status").textContent).toContain(
       "The background service recorded this answer and one output came of it.",
     );
@@ -87,10 +86,9 @@ describe("the submit binding keeps the submit and the settlement, and the body k
   });
 
   it("refuses a second press out loud, so a body needs no guard of its own", async () => {
-    // A body pressing twice in one frame reads the same render's state both times, so
-    // the guard is the binding's, taken at dispatch.
-    //
-    // Held, because the refusal lives between the press and the answer.
+    // A body pressing twice in one frame reads the same render's state both times, so the guard
+    // is the binding's, taken at dispatch. The submit is held because the refusal lives between
+    // the press and the answer.
     const probe = holdingSubmits();
     const { container } = await renderSwitchableMountPoint({
       phase: fixtureWaitPhase(),
@@ -110,8 +108,8 @@ describe("the submit binding keeps the submit and the settlement, and the body k
   });
 
   it("negative control: a body that never presses leaves the binding with nothing to say", async () => {
-    // Without this, the cases above would hold over a binding that drew its settlement
-    // unconditionally — which would report an answer nobody had given.
+    // Without this, the cases above would pass over a binding that drew its settlement
+    // unconditionally and reported an answer nobody had given.
     const probe = watchingSubmits();
     const { container } = await renderSwitchableMountPoint({
       phase: fixtureWaitPhase(),

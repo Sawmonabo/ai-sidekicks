@@ -1,16 +1,11 @@
 /*
- * The workflows screen's own composition: the column its runs section stands in, and the
- * open pane that replaces it while a pane is open. Imported by `WorkflowsScreen.tsx`.
- *
- * Values come from the generated token sheet: there is no literal color and no literal
- * length off the space scale, and nothing animates.
+ * The workflows screen's own composition: the runs column and the open pane that replaces it.
+ * Values come from the generated token sheet; nothing animates.
  */
 
 /*
- * ONE scrolling column over the whole destination. The scroll lives HERE and not on an inner
- * wrapper, which is an accessibility fact rather than a tidiness one: a scrollable region a
- * keyboard cannot reach is an axe violation (`scrollable-region-focusable`), so the element
- * that scrolls has to be the one that contains the focusable controls.
+ * The scroll lives on this element, not an inner wrapper: the element that scrolls must
+ * contain the focusable controls, or axe reports `scrollable-region-focusable`.
  */
 .meridian-workflows-destination {
   display: flex;
@@ -21,12 +16,7 @@
   overflow-y: auto;
 }
 
-/* ---------------------------------------------------------------- the runs */
-
-/*
- * The runs section, inset by the same gutter as `.meridian-workflow__strip` so the two
- * columns line up rather than stepping in and out by a few pixels at their shared edge.
- */
+/* Inset by the same gutter as `.meridian-workflow__strip` so the two columns line up. */
 .meridian-workflows-runs {
   display: flex;
   flex-direction: column;
@@ -45,9 +35,8 @@
 }
 
 /*
- * The opened pane. On a bare route there is no pane layout to put one in, so the pane
- * stands where the destination was, under one control back to it. A column rather than a
- * pane layout: one pane at a time, no layout, nothing beside it.
+ * On a bare route there is no pane layout, so the opened pane takes the destination's place
+ * under one control back.
  */
 .meridian-workflows-open-pane {
   display: flex;
@@ -56,11 +45,7 @@
   min-height: 0;
 }
 
-/*
- * The one control back. It wears the workflows feature's own action treatment
- * (`.meridian-workflow__action`) and this rule adds only where it sits, because a second
- * button style for one button is the drift that treatment exists to prevent.
- */
+/* Shares `.meridian-workflow__action`'s look; this rule only adds where the button sits. */
 .meridian-workflows-open-pane__back {
   align-self: flex-start;
 }

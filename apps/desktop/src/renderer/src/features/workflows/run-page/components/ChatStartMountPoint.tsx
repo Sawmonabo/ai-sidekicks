@@ -1,35 +1,22 @@
-// The conversational start's mount point: the way a run begins from where the conversation is
-// happening.
-//
-// Owned by the workflow engine. Three callers collapse onto one start operation with no
-// new start mode: the registered command, the composer's own affordance, and the agent
-// leg's withheld callback tool. The console authors none of them.
-//
-// The run pane offers it on its empty arm and on no other: a run view with no run offers
-// the start affordance, while on every other arm the pane already names a run and a
-// second entry point would compete with it. The session is supplied because a start
-// binds to one.
-//
-// Nor does this mount carry eligibility. The daemon's verdict is rendered by the body
-// beside the daemon's message when a start is denied.
+// The conversational start's mount point: how a run begins from where the conversation is
+// happening. The workflow engine owns the body; the run pane offers it on its empty arm only,
+// since any other arm already names a run. Eligibility is the daemon's verdict, rendered by the
+// body, never decided here.
 
 import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 
 /** What the mounting pane hands the conversational-start body. */
 export interface ChatStartMount {
   /**
-   * The session a started run binds to, or `undefined` on a route with none.
-   *
-   * Required-carrying-undefined rather than optional: a pane that could not resolve
-   * a session has to say so, and an absent key would read identically to one that
-   * simply forgot to look.
+   * The session a started run binds to, or `undefined` on a route with none. Required rather
+   * than optional so a pane that could not resolve a session says so.
    */
   readonly sessionId: string | undefined;
 }
 
 /**
- * The body the workflow engine authors: a COMPONENT the mount renders, never a function
- * it calls, because a call would put the body's hooks into the wrapper's hook list.
+ * The body the workflow engine authors. It is rendered as a component, never called, so its
+ * hooks stay out of the wrapper's hook list.
  */
 export type ChatStartBody = (mount: ChatStartMount) => React.ReactNode;
 

@@ -1,19 +1,7 @@
-// One window's composition of the workflows screen, for every suite that drives it.
-//
-// Hoisted on the second use, per `apps/desktop/AGENTS.md`: the mount cases and the
-// bridge-swap cases both need a real bridge, a real frame store and a real pane board with
-// this feature's own bodies registered into it.
-//
-// Everything here is real except the persistence stores, which are cast away for
-// `app/router.test.tsx`'s reason: constructing them opens a database to hand a branch that
-// never touches it. The session store is `undefined` because `#/workflows` names no session.
-// The bodies reach the board through `registerWorkflowPanes`, the feature's own registration
-// call, rather than a hand-built table: the screen's claim is that it mounts what the pane layout
-// would mount.
-//
-// THE SCREEN IS MOUNTED WITH A SERVED RUN DIRECTORY, so a suite opens a run by pressing a
-// real row; `pressOpenRun` presses the first one.
-
+// One window's composition of the workflows screen, shared by the suites that drive it.
+// Everything is real except the persistence stores, which are cast away because constructing
+// them opens a database; the session store is `undefined` because `#/workflows` names no
+// session. Bodies register through `registerWorkflowPanes`, as the pane layout would.
 import { fireEvent, render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
@@ -35,12 +23,8 @@ export const SERVED_DIRECTORY: WorkflowRunDirectoryState = {
 };
 
 /**
- * One window's composition: the context the screen is handed, and the board inside it.
- *
- * The board is handed back beside the context so a case can register a probe into the
- * very registry the render will resolve from. Built per case rather than shared,
- * because a pane registry is owner-scoped state and two cases holding one instance
- * would make the second depend on whether the first had run.
+ * One window's composition: the screen context and its pane board. Built per case, because a
+ * pane registry is owner-scoped state and a shared one would make cases depend on order.
  */
 export interface ComposedWindow {
   readonly context: ScreenContext;
@@ -66,12 +50,7 @@ export function composeWindow(): ComposedWindow {
   };
 }
 
-/**
- * The same composition with a replaced bridge.
- *
- * Everything a window keeps across a swap is kept: the frame store, the board and its
- * bodies. What a swap case is about is what the screen carried over.
- */
+/** The same composition with a new bridge; the frame store, board and bodies carry over. */
 export function withReplacedBridge(composed: ComposedWindow): ComposedWindow {
   return {
     paneRegistry: composed.paneRegistry,
@@ -96,11 +75,8 @@ export function remountWorkflowsScreen(
 }
 
 /**
- * Replace the run body on one composition's board with a recording one.
- *
- * The probe observes the pane context this screen composed and nothing else. It replaces
- * the body on that composition's board, so nothing outside the case sees it and no
- * teardown is owed.
+ * Replace the run body on one composition's board with one that records the pane contexts it
+ * is mounted with. The board is per composition, so no teardown is owed.
  */
 export function probeRunPane(paneRegistry: PaneRegistry): readonly PaneContext[] {
   const mountedContexts: PaneContext[] = [];
@@ -126,9 +102,8 @@ export function pressFirst(container: HTMLElement, selector: string): void {
 }
 
 /**
- * Loads the run pane's lazy body ahead of the cases. A case that opens the pane would
- * otherwise start that import and could end, and tear its environment down, before it
- * finished.
+ * Load the run pane's lazy body ahead of the cases, so none ends and tears down its
+ * environment mid-import.
  */
 export async function loadRunPaneBody(): Promise<void> {
   await import("./run-page/run-page-body.js");
@@ -144,13 +119,7 @@ function screenOver(composed: ComposedWindow): React.JSX.Element {
   return <WorkflowsScreen context={composed.context} directory={SERVED_DIRECTORY} />;
 }
 
-/**
- * The screen inside the announcer every screen really renders in.
- *
- * A function and not a component: it composes an element for a caller that is already
- * rendering, so a component here would put a second tree in between and remount the
- * whole screen every time a case re-rendered.
- */
+/** The screen inside the announcer every screen renders in. */
 function inWindowChrome(screen: React.ReactNode): React.JSX.Element {
   return <LiveAnnouncerProvider>{screen}</LiveAnnouncerProvider>;
 }

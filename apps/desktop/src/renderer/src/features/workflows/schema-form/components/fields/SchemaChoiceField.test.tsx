@@ -1,14 +1,7 @@
-// What a selection MEANS, which is the one thing a rendered choice control cannot show.
-//
-// A select that offers the right options and reports the wrong value looks identical to
-// one that reports the right value, so every case here reads what the control handed its
-// caller rather than what it drew.
-//
-// THE FIELD COMES FROM THE MAPPER AND IS NEVER HAND-BUILT. An enumeration containing the
-// empty string is the case this file exists for, and half of that case is that the mapper
-// still classifies it as a drawn choice rather than sending the whole schema to the raw
-// editor — a hand-written descriptor would assert the control's half while assuming the
-// half that puts it on screen.
+// What a selection means, which a rendered choice control cannot show: cases read what the
+// control handed its caller. Fields come from the mapper, since an enumeration containing the
+// empty string must still be classified as a drawn choice, which a hand-built descriptor
+// would assume.
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -33,13 +26,7 @@ function choiceFieldOver(choices: readonly string[]): SchemaFieldDescriptor {
   return entry.field;
 }
 
-/**
- * The descriptor the mapper draws for an OPTIONAL yes-or-no, which this control also draws.
- *
- * A boolean the answer may leave out has three states and a box has two, so the mapper
- * hands that member to this control rather than to the checkbox. Read from the mapper for
- * the reason the enumeration is: half the claim is that the mapper routes it here.
- */
+/** The descriptor the mapper draws for an optional yes-or-no, which this control also draws. */
 function optionalBooleanField(): SchemaFieldDescriptor {
   const plan = planSchemaForm({
     type: "object",
@@ -83,7 +70,7 @@ function renderChoice(
   return renderControl(choiceFieldOver(choices), value);
 }
 
-/** The option offering one member, found by the text it shows rather than by its value. */
+/** The option offering one member, found by the text it shows rather than its value. */
 function optionShowing(select: HTMLSelectElement, member: string): HTMLOptionElement {
   const found = [...select.options].find((option) => option.textContent === member);
   if (found === undefined) {
@@ -104,8 +91,7 @@ describe("the enumerated choice control", () => {
   it("shows an answered empty string as that member rather than as no answer", () => {
     const { select } = renderChoice(["", "high"], "");
 
-    // By position rather than by value: the empty member and the unanswered option are
-    // the two the finding conflated, and only their positions tell them apart.
+    // By position: the empty member and the unanswered option differ only there.
     expect(select.selectedIndex).toBe([...select.options].indexOf(optionShowing(select, "")));
   });
 
@@ -118,9 +104,8 @@ describe("the enumerated choice control", () => {
   });
 
   it("reports a boolean rather than the word its option showed", () => {
-    // The option text is what a person reads and the member value is what the answer
-    // carries; a control writing "Yes" would put a string at a member the schema declared
-    // a boolean, which every reading below it would then have to undo.
+    // The option text is what a person reads and the member value is what the answer carries;
+    // writing "Yes" would put a string at a boolean member.
     const { select, onChange } = renderControl(optionalBooleanField(), undefined);
 
     fireEvent.change(select, { target: { value: optionShowing(select, "Yes").value } });
@@ -143,8 +128,7 @@ describe("the enumerated choice control", () => {
   });
 
   it("shows no answer for a held value that is not a member at all", () => {
-    // A restored draft can hold anything; the schema's verdict is what reports it, and
-    // the control's job is to not claim a member nobody picked.
+    // A restored draft can hold anything; the control must not claim a member nobody picked.
     const { select } = renderChoice(["low", "high"], "retired");
 
     expect(select.selectedIndex).toBe(0);

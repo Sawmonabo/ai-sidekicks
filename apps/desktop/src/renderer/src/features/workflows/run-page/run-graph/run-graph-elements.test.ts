@@ -1,9 +1,6 @@
-// The translation into the renderer's shapes: identity, stated dimensions, and the
-// words a reader who is not looking at the canvas is given.
-//
-// The memo case uses the real hook against the real layout objects rather than a
-// stand-in, because the property under test is exactly that a layout the cache held
-// still produces arrays the renderer holds still.
+// The translation into the renderer's shapes: identity, stated dimensions, and the words a
+// reader who is not looking at the canvas is given. The memo case uses the real hook against
+// real layout objects, since the property is that a held layout yields arrays held still.
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -41,9 +38,8 @@ const SEQUENCE: readonly RunGraphNode[] = [
 /**
  * The definition those two phases were run from.
  *
- * Supplied rather than left out, because edges exist only where a definition
- * declares them: a translation test driven off a run alone would have no edge to
- * translate and would pass while saying nothing.
+ * Edges exist only where a definition declares them, so a test driven off a run alone would
+ * have nothing to translate.
  */
 const SEQUENCE_TOPOLOGY: PhaseTopology = [
   { phaseId: "plan", dependsOn: [] },
@@ -70,9 +66,8 @@ describe("the renderer's node array", () => {
   });
 
   it("states every box's size, so nothing on the canvas waits to be measured", () => {
-    // A node without dimensions is drawn hidden until a `ResizeObserver` reports
-    // one, and its neighbors move when it does. Both are the reasons the layout
-    // owns these numbers rather than the browser.
+    // A node without dimensions is hidden until a `ResizeObserver` reports one, and its
+    // neighbors move when it does.
     const { nodes } = toRunGraphElements(drawnSequence());
     for (const node of nodes) {
       expect(node.width).toBe(PHASE_NODE_WIDTH_PX);
@@ -93,8 +88,8 @@ describe("the renderer's edge array", () => {
   it("draws one directed edge per declared dependency", () => {
     const { edges } = toRunGraphElements(drawnSequence());
     expect(edges.map((edge) => [edge.source, edge.target])).toStrictEqual([["plan", "build"]]);
-    // The arrowhead is what makes the picture directed for a reader who is looking
-    // at it; the accessible name does the same job for one who is not.
+    // The arrowhead makes the picture directed for a viewer; the accessible name does the
+    // same for a listener.
     expect(edges[0]?.markerEnd).toBeDefined();
   });
 
@@ -105,8 +100,7 @@ describe("the renderer's edge array", () => {
     }
     const name = sequenceEdgeAccessibleName(edge);
     expect(name).toContain("Build");
-    // Negative control: the library's own default would read out both wire ids,
-    // which is the outcome this function exists to replace.
+    // Negative control: the library's default would read out both wire ids.
     expect(name).not.toContain("plan");
   });
 });
@@ -120,16 +114,13 @@ describe("what a phase is called out loud", () => {
   });
 
   it("announces the identifier where the caller read no name", () => {
-    // The box draws the name and the identifier as two separate figures, one of them
-    // in mono. A sentence has neither option, so it says the identifier — which is
-    // what the box shows in that case, so a reader listening and a reader looking are
+    // A sentence has no mono face, so it says the identifier, which is what the box shows.
     // still told the same string.
     const name = phaseNodeAccessibleName(
       phase({ phaseId: "build", displayName: undefined, state: "running", gateState: "open" }),
     );
     expect(name).toBe("build: running, gate open");
-    // Negative control: a name that IS read is still what gets announced, so this is
-    // a fallback rather than the identifier winning everywhere.
+    // Negative control: a name that is read is still what gets announced.
     expect(
       phaseNodeAccessibleName(
         phase({ phaseId: "build", displayName: "Build", state: "running", gateState: "open" }),
@@ -144,8 +135,8 @@ describe("what a phase is called out loud", () => {
       parkAttention: "awaiting-person",
     });
     expect(phaseNodeAccessibleName(parked)).toContain("parked");
-    // Negative control: park is read from the park member and never inferred from a
-    // state that merely looks like waiting.
+    // Negative control: park comes from the park member, not from a state that looks like
+    // waiting.
     expect(phaseNodeAccessibleName({ ...parked, parkAttention: undefined })).not.toContain(
       "parked",
     );
@@ -155,10 +146,8 @@ describe("what a phase is called out loud", () => {
   });
 
   it("says which kind of park it is, so a listener is told what the color says", () => {
-    // A reader who cannot see the neutral border is told the same thing it says: the
-    // engine will pick this phase back up, and nobody is being asked for anything.
-    // Announcing both kinds as "parked" would give that reader the amber reading of
-    // every park, which is the conflation the two treatments exist to prevent.
+    // A listener who cannot see the neutral border must be told the engine will resume this
+    // phase and nobody is being asked, not the amber reading of every park.
     const scheduled = phase({ phaseId: "build", displayName: "Build", parkAttention: "scheduled" });
     const awaiting = phase({
       phaseId: "build",
@@ -167,8 +156,7 @@ describe("what a phase is called out loud", () => {
     });
     expect(phaseNodeAccessibleName(scheduled)).toContain("resume scheduled");
     expect(phaseNodeAccessibleName(awaiting)).not.toContain("resume scheduled");
-    // Negative control: the words come from the table rather than from one constant,
-    // so the two readings cannot collapse into one sentence.
+    // Negative control: the words come from the table, so the two readings cannot collapse.
     expect(phaseNodeAccessibleName(scheduled)).not.toBe(phaseNodeAccessibleName(awaiting));
   });
 });
@@ -182,16 +170,14 @@ describe("the element memo", () => {
     );
     const first = result.current;
     rerender(layout);
-    // Reference identity: the renderer re-enters its store when either array moves,
-    // so a fresh array on an unchanged run is work nobody asked for.
+    // Reference identity: the renderer re-enters its store when either array moves.
     expect(result.current).toBe(first);
     expect(result.current.nodes).toBe(first.nodes);
     expect(result.current.edges).toBe(first.edges);
   });
 
   it("negative control: a layout that moved produces different arrays", () => {
-    // Without this the case above would pass against a memo that never recomputed,
-    // which would leave the canvas showing the first run it was ever handed.
+    // Without this the case above would pass against a memo that never recomputed.
     const { result, rerender } = renderHook(
       (current: DrawnPhaseSequence) => useRunGraphElements(current),
       { initialProps: drawnSequence() },

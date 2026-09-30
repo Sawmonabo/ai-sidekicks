@@ -1,25 +1,16 @@
 // Where a body another part of the system authors is mounted, and what stands there until it
-// is: an empty framed box.
-//
-// A body is a component, never a call. React attributes a hook to whichever component is
-// rendering when the hook runs, so a wrapper that invoked `body(mount)` inside its own
-// render would put the body's hooks into the wrapper's hook list, and every one of these
-// mounts is conditional. This component builds an element from the body and the mount it
-// is handed, and an absent body is an empty frame rather than a call skipped. The caller
-// keeps the reciprocal duty: the body must be a stable reference, because a component
-// composed inline on each render is a new type each time and React remounts it.
+// is: an empty framed box. A body is a component, never a call: invoking `body(mount)` would
+// put its hooks into the wrapper's hook list, and every mount is conditional. The caller must
+// pass a stable body reference, since a component composed inline each render remounts.
 
 /** What this mount is handed: the body once there is one, and what it is handed to render. */
 export interface EngineMountPointProps<TMount extends object> {
   /** The body, or `undefined` while nobody has filled the mount point. */
   readonly body: ((mount: TMount) => React.ReactNode) | undefined;
   /**
-   * What the view doing the mounting hands the body.
-   *
-   * Absent where that view cannot supply it, which is one mount point's real state: the human form
-   * is opened from a phase, and a form composed against a phase nobody resolved would be
-   * answerable in appearance and unsubmittable in fact. No mount, no body, and the frame
-   * stands empty.
+   * What the view doing the mounting hands the body. Absent where that view cannot supply it
+   * (a form composed against an unresolved phase would look answerable but be unsubmittable),
+   * and the frame then stands empty.
    */
   readonly mount: TMount | undefined;
 }

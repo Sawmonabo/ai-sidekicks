@@ -1,12 +1,5 @@
-// The version chain a definition's pinned version belongs to.
-//
-// ITS OWN MODULE BECAUSE EVERY `.tsx` HOLDS ONE COMPONENT — the module-shape rule in
-// `apps/desktop/AGENTS.md`, held in review. It is composed from `DefinitionDetail.tsx`
-// and from nothing else.
-//
-// THE SECOND ARM DRAWS NOTHING. `unaddressable` means the definition read carried no opaque
-// version id, so the chain read could not be put at all — the console composes no id from
-// the version NUMBER, because no encoding over that pair exists on this wire.
+// The version chain a definition's pinned version belongs to. `unaddressable` draws nothing: the
+// definition read carried no opaque version id, and the console composes none from the number.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";

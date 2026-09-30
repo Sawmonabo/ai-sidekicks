@@ -1,13 +1,11 @@
-// What every human-form mount point suite needs before it can render a wait or put a press.
-//
-// The wait is derived from the probe run through `humanFormPhaseFor`, never written out,
-// so a run read that stopped carrying a prompt or a schema would fail the suites here
-// rather than keep passing on a hand-built phase.
+// What every human-form mount point suite needs before it can render a wait or put a press. The
+// wait is derived from the probe run through `humanFormPhaseFor`, so a run read that stopped
+// carrying a prompt or a schema fails the suites instead of passing on a hand-built phase.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 
-// The schema form's own wait for its two chunks: the form opens in two steps, and a press
-// straight after `render` would hit a control the form has not armed yet.
+// The schema form opens in two steps; a press straight after `render` would hit a control it
+// has not armed yet.
 import { resolveSchemaFormChunks } from "../schema-form/hooks/useSchemaForm.test-support.js";
 import { PARKED_RUN, settle } from "../workflows-probe.test-support.js";
 import { humanFormPhaseFor } from "./human-form-phase.js";
@@ -25,10 +23,8 @@ export const SECOND_WAIT_PHASE_RUN_ID = "019b7a10-0280-7aa1-8100-701a11150009";
 export const SECOND_WAIT_PHASE_ID = "security-sign-off";
 
 /**
- * A schema asking for one fractional figure and one whole one.
- *
- * `number` and `integer` draw one control and differ only in the precision it admits, so
- * each is the other's negative control.
+ * A schema asking for one fractional figure and one whole one. `number` and `integer` draw one
+ * control and differ only in precision, so each is the other's negative control.
  */
 export const FIGURES_SCHEMA = {
   type: "object",
@@ -85,10 +81,8 @@ export interface HumanFormMountPointMounting {
 }
 
 /**
- * A submit call that records what it was asked and answers at once.
- *
- * Built once per case, not inside a render: the hook holds its attempt against the
- * call's identity, so a call composed on each render would reset it on every re-render.
+ * A submit call that records what it was asked and answers at once. Build it once per case: the
+ * hook holds its attempt against the call's identity, so a call composed per render resets it.
  */
 export function watchingSubmits(): SubmitProbe {
   const requests: SubmitProbe["requests"] = [];
@@ -102,10 +96,8 @@ export function watchingSubmits(): SubmitProbe {
 }
 
 /**
- * A submit call that stays in flight until the case serves it.
- *
- * The single-flight refusal lives in the window between the press and the answer, which
- * a call that answered on the calling turn would close before it could be observed.
+ * A submit call that stays in flight until the case serves it, since the single-flight refusal
+ * lives between the press and the answer.
  */
 export function holdingSubmits(): HeldSubmit {
   const requests: SubmitProbe["requests"] = [];
@@ -127,10 +119,7 @@ export function holdingSubmits(): HeldSubmit {
 /** What a failing submit call fails with, so a case can tell it from any other failure. */
 export const SUBMIT_FAILURE: Error = new Error("the submit call failed");
 
-/**
- * A submit call that fails the two ways a call can: it rejects, or it throws before it
- * returns a promise at all.
- */
+/** A submit call that fails the two ways a call can: it rejects, or throws before returning. */
 export function failingSubmits(failure: "rejects" | "throws"): SubmitProbe {
   const requests: SubmitProbe["requests"] = [];
   return {
@@ -169,11 +158,9 @@ export async function renderMountPoint(
 }
 
 /**
- * The same mount point, kept addressable so a case can move it to a second wait.
- *
- * The call is fixed once and reused across renders, which is what makes the switch a
- * switch: a fresh call would re-address the attempt for a reason that is not the phase.
- * Awaits both schema chunks, because a press before they land hits a closed control.
+ * The same mount point, kept addressable so a case can move it to a second wait. The call is
+ * fixed once so the switch re-addresses the attempt only because the phase changed. Awaits both
+ * schema chunks, since a press before they land hits a closed control.
  */
 export async function renderSwitchableMountPoint(
   mounting: HumanFormMountPointMounting,
@@ -181,7 +168,7 @@ export async function renderSwitchableMountPoint(
   await resolveSchemaFormChunks();
   const submitForm = mounting.submitForm ?? answerSubmit;
   // Spread on the arm that carries one: `exactOptionalPropertyTypes` refuses an explicit
-  // `undefined` on an optional prop.
+  // `undefined`.
   const ownerBody = mounting.body === undefined ? {} : { body: mounting.body };
   const mountPointFor = (phase: HumanFormPhase | undefined): React.JSX.Element => (
     <ServedRunActContext.Provider value={mounting.recordServedAct}>
@@ -200,11 +187,9 @@ export async function renderSwitchableMountPoint(
 }
 
 /**
- * Press the one act the form offers, refusing a control the form has not armed.
- *
- * A press on a disabled button dispatches nothing, so without the throws a case pressing
- * before the schema chunk landed would fail later on a count that names none of that.
- * The narrowing is an assertion so an `<input type="submit">` cannot skip the guard.
+ * Press the one act the form offers, throwing on a control the form has not armed. A press on a
+ * disabled button dispatches nothing, and the narrowing is an assertion so an
+ * `<input type="submit">` cannot skip the guard.
  */
 export function pressSubmit(): void {
   const submit = screen.getByRole("button", { name: "Submit answer" });

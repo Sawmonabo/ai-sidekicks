@@ -1,19 +1,8 @@
-// The console's run and phase rows, DERIVED from the substrate's wire declaration
-// rather than written a second time beside it.
-//
-// `services/wire-shapes/workflow-projection.ts` declares the workflow projection's read
-// shapes and the closed vocabularies inside them. This module is the one place the
-// console narrows those shapes for a list: it drops what a row does not show, replaces
-// the phase collection with its own row type, and adds the two members a caller joins
-// in from beside the run read. It declares no status, no park reason, and no second
-// snapshot.
-//
-// WHY DERIVATION AND NOT A MIRROR. A mirrored shape agrees with its original until
-// the original moves, and then it compiles anyway — which is how a list comes to read
-// a stale vocabulary.
-// Every row below is a `Pick` chosen by a disposition map that is TOTAL over the wire
-// shape's members, so a member added on the substrate fails to compile here until
-// this file says what becomes of it.
+// The console's run and phase rows, derived from the substrate's wire declaration
+// (`services/wire-shapes/workflow-projection.ts`) rather than mirrored, so a mirrored shape cannot
+// go stale. Each row is a `Pick` chosen by a disposition map that is total over the wire shape's
+// members: a member added on the substrate fails to compile here until this file says what
+// becomes of it.
 
 import type {
   WorkflowPhaseState,
@@ -25,38 +14,24 @@ import { parseInstant, type InstantReading } from "@renderer/lib/instant.js";
 export type WorkflowRunState = WorkflowWireRunSnapshot["state"];
 
 /**
- * One park reason, read off the substrate's own declaration.
- *
- * `NonNullable` rather than a second tuple: the member is live-scoped and therefore
- * optional on the wire, while what a park CARRIES once there is one is the reason
- * itself. Exported because the badge that names each reason on screen is total over
- * this set, which is what makes a third reason a compile error rather than a phase
- * that parks and says nothing.
+ * One park reason, read off the substrate's own declaration. `NonNullable` because the wire
+ * member is optional; the badge that names each reason is total over this set.
  */
 export type WorkflowParkReason = NonNullable<WorkflowPhaseState["parkReason"]>;
 
 /**
- * A park, as a value that exists only when there IS one.
- *
- * The wire carries four independent optional members; this carries a park or
- * nothing. The difference matters at every call site downstream: a renderer handed
- * four optionals has to re-derive "is this parked" from the right one of them, and
- * the wrong one is `parkCause`, which is present whenever `parkReason` is and
- * therefore looks like it would do. Narrowing once here means no component repeats
- * the discriminator rule, and no component gets it wrong.
+ * A park, as a value that exists only when there is one. The wire carries four independent
+ * optional members; narrowing once here keeps components from re-deriving the discriminator,
+ * and from picking `parkCause` (present whenever `parkReason` is) instead.
  */
 export interface WorkflowPhasePark {
   readonly parkReason: WorkflowParkReason;
   /** The engine's own bounded sentence about the wait. Rendered verbatim. */
   readonly parkCause: string;
   /**
-   * RFC 3339 UTC. Present only where the park armed a schedule.
-   *
-   * Spelled `| undefined` rather than merely optional because this shape is
-   * CONSTRUCTED from four wire members rather than written as a literal, and under
-   * `exactOptionalPropertyTypes` "the key is absent" and "the key holds undefined"
-   * are different types. The wire rows keep the plain optional form, since a caller
-   * omits those keys outright.
+   * RFC 3339 UTC. Present only where the park armed a schedule. `| undefined` because this
+   * shape is constructed from wire members, and under `exactOptionalPropertyTypes` an absent key
+   * and a key holding `undefined` are different types.
    */
   readonly autoResumeAt?: string | undefined;
   /** The provider-account key concurrently parked phases fold by. */
@@ -69,15 +44,9 @@ export type WorkflowPhaseStateRow = ProjectedFrom<
   WirePhaseMemberDispositions
 > & {
   /**
-   * The phase's own name, for a park a person has to act on — where anything
-   * carries one.
-   *
-   * Added rather than picked, because no registered read carries it. The run read
-   * projects phases by `phaseId` and nothing else names them, so a row built from
-   * the wire has an opaque identity and no label; a projection that required a name
-   * would force its caller to invent one, and an invented phase name is
-   * indistinguishable on screen from an authored one. A row without it shows the id
-   * as the wire value it is.
+   * The phase's own name, where anything carries one. Added, not picked: no registered read
+   * carries it, and a required name would force a caller to invent one. Without it the row shows
+   * the id as the wire value it is.
    */
   readonly phaseName?: string;
 };
@@ -92,25 +61,15 @@ export type WorkflowRunSnapshot = ProjectedFrom<
 > & {
   readonly phaseStates: readonly WorkflowPhaseStateRow[];
   /**
-   * The definition's name, so a run row reads as something other than an id —
-   * where the caller holds one.
-   *
-   * Optional HERE while it is required on the enumeration's own entry
-   * (`services/wire-shapes/workflow-projection.ts`), because this row is also built from a single
-   * run read, which carries the pinned `workflowVersionId` and nothing about the
-   * definition. A caller holding an enumeration entry passes it through; one holding
-   * only a run passes nothing and the row shows the run's own identity rather than a
-   * name nobody sent.
+   * The definition's name, where the caller holds one. Optional here though required on the
+   * enumeration entry, because this row is also built from a single run read, which names no
+   * definition; the row then shows the run's own id.
    */
   readonly definitionName?: string;
   /**
-   * The definition's newest version id, when the caller holds it.
-   *
-   * Optional for the reason above, and additive-optional on the enumeration entry
-   * itself. Absent, the frozen-pin state is UNKNOWN and the projection reports
-   * `false` rather than guessing, which is the fail-closed direction: claiming a run
-   * is current is a smaller error than claiming it is stale and inviting a repair the
-   * daemon would refuse.
+   * The definition's newest version id, when the caller holds it. Absent means the frozen-pin
+   * state is unknown and the projection reports `false`: calling a run current is a smaller
+   * error than inviting a repair the daemon would refuse.
    */
   readonly definitionLatestWorkflowVersionId?: string;
 };
@@ -118,107 +77,48 @@ export type WorkflowRunSnapshot = ProjectedFrom<
 /** A parked phase, paired with the park that made it one and what that park says. */
 export interface WorkflowParkedPhase {
   readonly phaseId: string;
-  /**
-   * Spelled `| undefined` rather than merely optional, on this file's own stated
-   * rule: the shape is CONSTRUCTED from a row rather than written as a literal, and
-   * under `exactOptionalPropertyTypes` an absent key and a key holding `undefined`
-   * are different types.
-   */
+  /** `| undefined` for the reason stated on `WorkflowPhasePark.autoResumeAt`. */
   readonly phaseName?: string | undefined;
   readonly park: WorkflowPhasePark;
   /**
-   * What this park says about the end of the wait, classified once.
-   *
-   * Beside the park rather than derived from it at each reader, because the
-   * classification is not `autoResumeAt === undefined`: a present instant that no
-   * parser accepts is unscheduled too, and a reader that derived it from presence
-   * alone would render a park as scheduled and then have no time to show for it.
+   * What this park says about the end of the wait, classified once. Not derivable from
+   * `autoResumeAt === undefined`: a present instant no parser accepts is unscheduled too.
    */
   readonly schedule: WorkflowParkSchedule;
 }
 
 /**
- * What a park says about when, if ever, the engine picks the phase back up.
- *
- * Three arms and no boolean, because the three are three different things to draw. A
- * park that armed a readable boundary resumes itself and asks nobody for anything. A
- * park that armed nothing waits for a person. And a park that armed an instant this
- * console cannot read waits for a person too — the fail-closed reading of "we cannot
- * tell when this resumes" — but it is not the same fact, and a badge that folded it
- * into the second would drop the only evidence a daemon sent something malformed.
+ * What a park says about when, if ever, the engine picks the phase back up. Three arms, because
+ * they draw differently: `armed` resumes itself; `unscheduled` waits for a person; `unreadable`
+ * also waits for a person (fail closed) but is kept apart as the only evidence of a malformed
+ * instant.
  */
 export type WorkflowParkSchedule =
   /**
-   * The wire's instant, carried verbatim, on the arm the reading admitted it to.
-   *
-   * No parsed milliseconds ride beside it: nothing compares two resumes — every
-   * component that draws one draws the park it belongs to — so a number here would be
-   * a second derived value carried for nobody.
+   * The wire's instant, verbatim, on the arm the reading admitted it to. No parsed milliseconds
+   * ride beside it: nothing compares two resumes.
    */
   | { readonly kind: "armed"; readonly autoResumeAt: string }
   | { readonly kind: "unscheduled" }
   | { readonly kind: "unreadable"; readonly autoResumeAt: string };
 
 /**
- * Read one of the workflow projection's instants: RFC 3339, in UTC, and nothing wider.
- *
- * THE ENCODING IS THE WIRE'S RULE RATHER THAN A CONVENTION CHOSEN HERE. The workflow
- * projection states it on the member that carries the consequence —
- * `WorkflowPhasePark.autoResumeAt` above, and the same sentence on the payload
- * contract this file's header names — and `packages/contracts` cites it back as "the
- * encoding `PhaseState.autoResumeAt` already consumes". `"utc-only"` is that sentence
- * said to the reader: a numeric offset parses unambiguously, so admitting it would
- * cost nothing today, but a wire that declares ONE encoding and a console that
- * quietly reads a second is where a producer's encoding change enters unremarked
- * instead of arriving as the unreadable value it is.
- *
- * `lib/instant.ts` RATHER THAN A VALIDATOR OF THIS FEATURE'S OWN, and the check is
- * the one a digit-shaped pattern cannot make: it validates the CALENDAR and the
- * CLOCK, not just the groups. Month `13`, day `31` in a 30-day month, `2027-02-29` in
- * a year that has no such day, hour `24`, and minute or second `60` are each refused,
- * where a pattern admits them all and hands them to `Date.parse` — which silently
- * normalizes `2026-02-30T10:00:00Z` into March and `2026-01-01T24:00:00Z` into the
- * next day. Both used to reach the armed arm below, so a park advertised a resume on
- * a date the wire never sent. The reader also refuses a timezone-less
- * `2026-01-01T10:00:00`, which `Date.parse` reads in the HOST's zone, and a date-only
- * `2026-01-01`, which it reads in UTC.
- *
- * Deliberately NOT a numeric sentinel. An unreadable start sorts LAST in the run list,
- * and a numeric floor cannot express that: the value that sorts last ascending sorts
- * first descending, so the rule would hold in one direction and invert in the other.
- * Each caller states its own rule against the malformed ARM instead.
- *
- * IT ANSWERS THE READING RATHER THAN THE NUMBER, because that is what both of its
- * callers want. The park classification wants only which arm the value landed on —
- * an instant the console can read is a schedule and one it cannot is not — and the run
- * sort wants the reading itself, because `compareInstants` orders readings and is what
- * puts an unreadable start last in BOTH directions.
- *
- * Exported because those two are the only readers of a wire instant in this feature,
- * and this reader's `"utc-only"` declaration said at two call sites is one rule with two
- * homes — which is how a console comes to refuse an encoding in one list and accept
- * it in the next.
+ * Read one of the workflow projection's instants: RFC 3339 in UTC and nothing wider. The wire
+ * declares one encoding, so a producer's encoding change should arrive as the unreadable value it
+ * is, not be read quietly. Uses `lib/instant.ts`, which validates the calendar and clock (month
+ * 13, `2027-02-29`, hour 24 are refused; `Date.parse` would normalize them into another day) and
+ * refuses a zoneless or date-only spelling. Returns the reading, not a number, and no numeric
+ * sentinel: an unreadable start must sort last in both directions, which `compareInstants` does.
+ * Exported so the park classification and the run sort share one rule.
  */
 export function workflowInstant(iso: string): InstantReading {
   return parseInstant(iso, "utc-only");
 }
 
 /**
- * Whether this park is waiting on a PERSON, read off the classified schedule.
- *
- * The one place that reading is made, and it is a reading rather than a restatement
- * of the union: `armed` is a machine waiting for a machine, and the other two arms
- * both end when somebody ends them — an unreadable boundary is fail-closed into the
- * second group, because nothing legible says this run resumes itself.
- *
- * It exists as a function because two components spend attention on the answer and
- * neither may spend it differently: the park badge chooses its tone from this, and
- * the run pane's phase graph chooses a node's border treatment from it. Amber means
- * "a person is needed" and nothing else, so a badge and a node
- * disagreeing about one phase is one of them telling an operator to look at something
- * the other says needs nobody. Each deriving `schedule.kind !== "armed"` for itself
- * is exactly how that disagreement arrives — silently, since both readings are
- * plausible in isolation.
+ * Whether this park is waiting on a person: everything but `armed`. An unreadable boundary fails
+ * closed, since nothing legible says the run resumes itself. One function so the park badge and
+ * the phase node spend amber on the same answer.
  */
 export function parkAwaitsPerson(schedule: WorkflowParkSchedule): boolean {
   return schedule.kind !== "armed";
@@ -236,13 +136,9 @@ export function parkSchedule(park: WorkflowPhasePark): WorkflowParkSchedule {
 }
 
 /**
- * The park a phase carries, or nothing.
- *
- * The one place the discriminator rule is written. `parkReason` present means parked
- * now; `parkCause` accompanies it by the producer's own requirement, so a reason
- * without a cause is a malformed response rather than a park with no explanation —
- * and this returns nothing for it rather than rendering a park with an empty
- * sentence, which would read as an engine that had no reason.
+ * The park a phase carries, or nothing. The one place the discriminator is written: `parkReason`
+ * present means parked now. A reason without a cause is a malformed response and yields nothing,
+ * not a park with an empty sentence.
  */
 export function phasePark(phase: WorkflowPhaseStateRow): WorkflowPhasePark | undefined {
   if (phase.parkReason === undefined || phase.parkCause === undefined) {
@@ -257,29 +153,19 @@ export function phasePark(phase: WorkflowPhaseStateRow): WorkflowPhasePark | und
 }
 
 /**
- * What this console does with one member of a wire shape.
- *
- * Three answers and no fourth: carried through unchanged, replaced by a shape of the
- * console's own, or deliberately not consumed. Naming the third is the point — a
- * member simply left out of a `Pick` reads exactly like one nobody noticed.
+ * What this console does with one member of a wire shape: carry it through, replace it with a
+ * shape of its own, or deliberately not consume it. Naming the third keeps a dropped member from
+ * reading like one nobody noticed.
  */
 type WireMemberDisposition = "projected" | "replaced" | "dropped";
 
 /**
- * The members of a wire shape a row carries through unchanged, chosen by a TOTAL
- * disposition map.
- *
- * The CONSTRAINT is the compile-time control: `Dispositions extends
- * Record<keyof WireShape, …>` fails at the use site, naming the missing key, the
- * moment a member is added on the substrate and not dispositioned here. The maps are
- * TYPES rather than `as const` values for two reasons that point the same way — a
- * value read only as a type is dead weight at runtime and the lint rules say so, and
- * `--isolatedDeclarations` refuses to emit a `satisfies`-narrowed variable without an
- * annotation that would widen away the literal types this `Pick` reads.
- *
- * `-?` on the mapped type is load-bearing rather than decorative — a homomorphic map
- * over a shape with optional members yields `Member | undefined` at those keys, and
- * `Pick` refuses a key set that admits `undefined`.
+ * The members of a wire shape a row carries through unchanged, chosen by a total disposition
+ * map: `Dispositions extends Record<keyof WireShape, ...>` fails at the use site, naming the
+ * missing key, when a substrate member is not dispositioned. The maps are types, not `as const`
+ * values, because `--isolatedDeclarations` would refuse the annotation-free literal. `-?` is
+ * needed because a homomorphic map over optional members yields `Member | undefined`, which
+ * `Pick` refuses.
  */
 type ProjectedFrom<
   WireShape,
@@ -292,15 +178,8 @@ type ProjectedFrom<
 >;
 
 /**
- * What a list row does with each member of the wire's phase projection.
- *
- * The six dropped members go on one rule: a row says whether a phase is parked and
- * never opens the phase. `phaseRunId` and `attemptNumber` address one execution of
- * it, `formRevision` is the token a form submit carries back, `gateState` is the
- * phase's own gate, and `prompt` and `inputSchema` are the question a waiting phase
- * asks — all six are the run pane's subject, and a list that read one would be
- * growing into the view that owns the question. The last two most of all: drawing a
- * form is opening the phase, which is the one thing a row is for not doing.
+ * What a list row does with each member of the wire's phase projection. The six dropped members
+ * are the run pane's subject; a row says whether a phase is parked and never opens it.
  */
 type WirePhaseMemberDispositions = {
   readonly phaseId: "projected";
@@ -318,12 +197,8 @@ type WirePhaseMemberDispositions = {
 };
 
 /**
- * What a list row does with each member of the wire's run shape.
- *
- * `sessionId` is dropped because a list is rendered inside one session's context and
- * a row carrying its own would invite a list holding two. `phaseStates` is REPLACED
- * rather than projected: the phase rows above are this console's narrowing, and a
- * snapshot carrying both collections would leave every caller to pick one.
+ * What a list row does with each member of the wire's run shape. `sessionId` is dropped because
+ * a list renders inside one session; `phaseStates` is replaced by the console's phase rows.
  */
 type WireRunMemberDispositions = {
   readonly workflowRunId: "projected";

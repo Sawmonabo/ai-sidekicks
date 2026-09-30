@@ -1,22 +1,7 @@
-// One act at a time, about the run in front of the operator, and a re-read only when
-// one of them changed something.
-//
-// SEPARATE FROM `run-control-dispatch.test.tsx` BECAUSE THE SUBJECT IS DIFFERENT. That
-// file is about whether a press composes and arrives; every case here holds the call
-// still and varies the TIMING or the ADDRESS — a second press while one is outstanding,
-// an answer landing after the pane was retargeted, the round a served act advances.
-//
-// EACH GROUP RULES OUT A DIFFERENT SILENT FAILURE. A rendered `dispatching` flag read
-// inside a press handler is the value from the render that produced the handler, so
-// two presses in one frame both find the control idle and the daemon takes two
-// cancellations for one intended act. An answer installed without regard for the
-// address settles run A's cancellation under run B. And a round advanced by anything
-// but a served act is the beginning of a refresh cadence this read forbids.
-//
-// WHICH IS WHY THE FIRST CASE PRESSES INSIDE ONE `act` AND FROM ONE CAPTURED CONTROL.
-// The distinction being tested lives entirely inside a single frame: across two `act`
-// scopes a rendered flag and a dispatch-time latch behave identically, so a case
-// written that way passes over the very implementation it exists to reject.
+// Single flight and addressing for the run controls: a second press while one is outstanding,
+// an answer landing after a retarget, and the round a served act advances. Every case holds
+// the call still and varies timing or address; `useRunControlDispatch.test.ts` covers whether
+// a press composes and arrives.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -40,20 +25,16 @@ describe("one act per run and action is in flight, and a second press is told so
   it("refuses the second press instead of dispatching it", async () => {
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
-    // ONE CAPTURED CONTROL, PRESSED TWICE INSIDE ONE `act`, which is the whole subject.
-    // Two presses in two `act` scopes are two frames: the second reads a control the
-    // first press has already re-rendered, so a rendered `dispatching` flag refuses it
-    // exactly as the latch does and the case cannot tell the two apart. Held still,
-    // this is the frame a flag cannot see — both handlers are the ones the first render
-    // produced, both would read `dispatching: false`, and only a latch claimed at
+    // One captured control pressed twice inside one `act`: across two `act` scopes a rendered
+    // `dispatching` flag refuses the second press just as the latch does, so only a single
+    // frame tells them apart. Both handlers read `dispatching: false`; only a latch claimed at
     // dispatch stops the second call.
     const pressed = controls.latest().cancel;
     await act(async () => {
       pressed.cancel(undefined);
       pressed.cancel(undefined);
     });
-    // One call, not two: the daemon would otherwise take two cancellations for one
-    // intended act.
+    // One call, not two: the daemon would otherwise take two cancellations for one act.
     expect(held.requests).toHaveLength(1);
     const { outcome } = controls.latest().cancel;
     expect(outcome.kind).toBe("refused");
@@ -80,8 +61,8 @@ describe("one act per run and action is in flight, and a second press is told so
   });
 
   it("negative control: an outstanding cancel does not refuse a resume", async () => {
-    // The two controls are separately grantable and separately in flight. A single key
-    // for the run would make an outstanding cancel look like a reason to refuse the
+    // The two controls are separately grantable and separately in flight, so a per-run key
+    // would let an outstanding cancel refuse the resume.
     // other act entirely.
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
@@ -111,17 +92,15 @@ describe("an answer is about the run that asked", () => {
       held.serve();
     });
     await settle();
-    // And run A's answer lands nowhere: settling it under run B would tell an operator
-    // that the run in front of them had been canceled when it had not.
+    // Run A's answer lands nowhere: settling it under run B would tell an operator that the
+    // run in front of them had been canceled when it had not.
     expect(controls.latest().cancel.outcome.kind).toBe("idle");
     expect(controls.latest().servedActCount).toBe(0);
   });
 
   it("lets the newly addressed run be canceled while the old one's act is outstanding", async () => {
-    // The run belongs in the single-flight key, not just the action. Without it, run A's
-    // outstanding cancel would refuse run B's FIRST press — a pane that retargets in
-    // place would offer a control the operator cannot use, for a reason about a run
-    // that is no longer on screen.
+    // The run belongs in the single-flight key, not just the action: otherwise run A's
+    // outstanding cancel would refuse run B's first press after an in-place retarget.
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
@@ -135,8 +114,8 @@ describe("an answer is about the run that asked", () => {
   });
 
   it("negative control: without a retarget the same act settles on the control", async () => {
-    // Without this the case above would be satisfied by a dispatcher whose settlements
-    // never installed at all.
+    // Without this the case above would be satisfied by a dispatcher that never installed
+    // a settlement.
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
@@ -166,9 +145,8 @@ describe("the run read's round advances for served acts and for nothing else", (
   });
 
   it("negative control: a refused press advances no round", async () => {
-    // The re-arm exists because a served act CHANGED the run. A refused press changed
-    // nothing, so re-reading after it would be a read nobody's act justified — the
-    // first step towards a cadence.
+    // A served act changed the run; a refused press changed nothing, so re-reading after it
+    // would be a read nobody's act justified.
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
     const pressed = controls.latest().cancel;
@@ -181,8 +159,8 @@ describe("the run read's round advances for served acts and for nothing else", (
   });
 
   it("advances the same round for an act recorded outside the controls", async () => {
-    // A submission the daemon recorded moves the run as a served cancel does, so it
-    // advances the one count rather than keeping a second number for the pane to sum.
+    // A submission the daemon recorded moves the run as a served cancel does, so it advances
+    // the one count rather than a second number.
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
@@ -204,8 +182,8 @@ describe("the run read's round advances for served acts and for nothing else", (
   });
 
   it("negative control: a call that rejects advances no round and frees the key", async () => {
-    // No reply was served, so the run was not moved and no read is owed; and the key must
-    // go back, or the control would refuse every later press as a duplicate.
+    // No reply was served, so no read is owed; the key must go back or every later press
+    // would be refused as a duplicate.
     const failing = rejectingCancelCalls();
     const controls = observeControls(failing.calls, RUN_A);
     // The dispatcher does not catch the rejection, so the runner reports it; the witness

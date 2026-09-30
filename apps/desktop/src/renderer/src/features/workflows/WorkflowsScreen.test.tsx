@@ -1,14 +1,7 @@
-// The screen draws the runs it is handed, and a run a person presses becomes the pane that
-// run names.
-//
-// The screen is driven with the real frame store and a real pane registry with this
-// feature's own bodies registered into it by its own registration call, so a stand-in
-// registry cannot agree with a screen that resolved nothing.
-//
-// THE BOARD IS THE COMPOSITION'S AND IS BUILT PER CASE. `registerFeatureContributions` takes a
-// pane registry so a test and an auxiliary window can compose their own, and this screen
-// resolves from the one on its screen context. A suite that registered into the
-// process-wide singleton instead would prove only that the screen reads a global.
+// The screen draws the runs it is handed; pressing a run opens the pane that run names.
+// The pane registry is real, built per case with the feature's own bodies, because the screen
+// resolves from the registry on its screen context and a singleton would prove only that it
+// reads a global.
 
 import { render } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -31,10 +24,8 @@ import {
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**
- * Mount the screen over a composition whose run body records what it was opened on.
- *
- * The recording body stands where the run pane would: what this screen owes is the exact
- * address per act, and the pane context the body is handed carries that address.
+ * Mount the screen over a composition whose run body records the pane context it is opened
+ * with, which carries the address the screen composed.
  */
 function renderDestination(directoryProps: { readonly directory?: WorkflowRunDirectoryState }): {
   readonly container: HTMLElement;
@@ -51,12 +42,10 @@ function renderDestination(directoryProps: { readonly directory?: WorkflowRunDir
   return { container, openedContexts };
 }
 
-/** Mount one already-composed window and hand back the tree it rendered into. */
 function renderComposed(composed: ComposedWindow): HTMLElement {
   return mountWorkflowsScreen(composed).container;
 }
 
-/** Compose a window and mount the screen into it. */
 function renderScreen(): HTMLElement {
   return renderComposed(composeWindow());
 }
@@ -103,8 +92,7 @@ describe("the workflows screen — what its list opens", () => {
   });
 
   it("negative control: nothing is opened until something is pressed", async () => {
-    // Without this the case above would pass over a screen that opened a pane on
-    // mount, which is a different defect wearing the same assertions.
+    // Guards against a screen that opened a pane on mount.
     const { openedContexts } = renderDestination({ directory: SERVED_DIRECTORY });
     await settle();
 
@@ -122,8 +110,7 @@ describe("what the workflows screen mounts", () => {
   });
 
   it("swaps the runs for the run pane when a run opens, and goes back", async () => {
-    // The registered body, resolved through the pane layout's own lookup — so this screen
-    // renders what the pane layout will render and cannot drift from it.
+    // Resolved through the pane layout's own lookup, so the screen renders what the layout would.
     const container = renderScreen();
     await settle();
 
@@ -140,9 +127,8 @@ describe("what the workflows screen mounts", () => {
   });
 
   it("draws only its back control where the pane kind has no registered body", async () => {
-    // The negative control for the case above: with the body unregistered nothing but the
-    // screen's own frame stands, which is how to know the mount above resolved a real
-    // descriptor rather than rendering whatever it was given.
+    // With the body unregistered only the screen's own frame stands, so the mount above resolved a
+    // real descriptor.
     const composed = composeWindow();
     composed.paneRegistry.unregister("workflow-run");
     const container = renderComposed(composed);
@@ -156,20 +142,14 @@ describe("what the workflows screen mounts", () => {
 });
 
 describe("which pane board the screen opens out of", () => {
-  // `registerFeatureContributions` takes a pane registry so a test and an auxiliary window can
-  // compose their own. A screen that read the process-wide singleton instead would give such
-  // a composition the wrong body, or none.
+  // A screen reading the process-wide singleton would give a separately composed window
+  // the wrong body.
 
   /** A body only the process-wide board carries, so a case can tell the two apart. */
   const PROCESS_WIDE_RUN_TEXT = "the process-wide run body";
 
-  /**
-   * Put that body on the process-wide board.
-   *
-   * The singleton is process state, so the one case that touches it restores it in its
-   * own `finally` rather than through a suite-wide hook — which would leave every other
-   * case sharing a registry it never asked for.
-   */
+  // The singleton is process state; the one case that touches it restores it in its own `finally`,
+  // since a suite-wide hook would make every case share a registry it never asked for.
   function registerProcessWideRunBody(): void {
     paneRegistry.register({
       kind: "workflow-run",
@@ -190,9 +170,7 @@ describe("which pane board the screen opens out of", () => {
 
       expect(mountedContexts).toHaveLength(1);
       expect(container.textContent).toContain("probe");
-      // Not consulted at all, rather than consulted and overruled: a screen that read
-      // both would still be reading a global, and would still drift the day the two
-      // boards carry different bodies for one kind.
+      // Not consulted at all: a screen that read both would still be reading a global.
       expect(processWideReads).not.toHaveBeenCalled();
     } finally {
       processWideReads.mockRestore();
@@ -200,16 +178,13 @@ describe("which pane board the screen opens out of", () => {
   });
 
   it("negative control: the process-wide body does not stand in for one this board lacks", async () => {
-    // Without this, the case above would pass over a screen that read the singleton and
-    // happened to find nothing there. Here the singleton HAS a body and this
-    // composition does not, which is the shape an auxiliary window composing a subset
-    // is in.
+    // Here the singleton has a body and this composition lacks one, as an auxiliary window
+    // composing a subset would.
     const composed = composeWindow();
     composed.paneRegistry.unregister("workflow-run");
     registerProcessWideRunBody();
     try {
-      // The two boards disagree, which is what makes the assertion below say which one
-      // was read rather than merely that something rendered.
+      // The boards disagree, so the assertion below says which one was read.
       expect(paneRegistry.descriptorFor("workflow-run")).toBeDefined();
       expect(composed.paneRegistry.descriptorFor("workflow-run")).toBeUndefined();
 
@@ -228,11 +203,8 @@ describe("which pane board the screen opens out of", () => {
 
 describe("the pane about to open is warmed before the address is published", () => {
   it("starts the body loading while the runs are still on screen", async () => {
-    // The ordering IS the claim. Publishing the address re-renders this screen and mounts
-    // the pane, and a loader-backed body reached at that mount would show its reserved
-    // frame first; one statement earlier, the fetch is already in flight. So the spy
-    // asserts where the screen was when it warmed — the runs still up, the open pane not
-    // yet in the tree — rather than merely that a warm happened at all.
+    // The warm must start before the address is published, because publishing mounts the pane
+    // and a loader-backed body reached then shows its fallback first.
     const composed = composeWindow();
     const warmedWhileRunsShowing: string[] = [];
     const container = renderComposed(composed);
@@ -253,9 +225,7 @@ describe("the pane about to open is warmed before the address is published", () 
   });
 
   it("negative control: nothing is warmed while the runs are merely showing", async () => {
-    // Without this, both cases above would pass over a screen that warmed every kind on
-    // its board at mount — every loader-backed body fetched for a screen a person may
-    // never open a pane from, which is the static import back under another name.
+    // Guards against a screen that warmed every kind at mount, fetching bodies it may never need.
     const composed = composeWindow();
     const preload = vi.spyOn(composed.paneRegistry, "preload");
     renderComposed(composed);

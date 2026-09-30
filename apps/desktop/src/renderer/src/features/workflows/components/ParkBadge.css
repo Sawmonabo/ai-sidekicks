@@ -1,24 +1,17 @@
 /*
- * The park badge, and the stack the views that show more than one arrange them in.
- *
- * Owned and imported by `ParkBadge.tsx`. The stack rule travels with the badge rather than
- * with the run pane that places it, because a stack of badges is only ever a stack of these.
+ * The park badge and the stack that arranges several of them, imported by `ParkBadge.tsx`. The
+ * stack rule travels with the badge because a stack is only ever a stack of these.
  */
 
 /*
- * The run pane's park stack.
- *
- * A stack rather than a grid: the badges are read top to bottom in the order the
- * phases run, and a two-column arrangement would put a park a person has to act on
- * beside one nothing is waiting for and imply they are peers.
+ * A stack, not a grid: badges read top to bottom in phase order, and columns would set a park a
+ * person must act on beside one nothing waits for, implying they are peers.
  */
 .meridian-workflow__parks {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-3);
 }
-
-/* --------------------------------------------------------------- park badge */
 
 .meridian-park {
   display: flex;
@@ -38,10 +31,8 @@
 }
 
 /*
- * The phase's identity: its authored name where there is one, and its wire
- * identifier always. Baseline-aligned rather than stacked, because the two are one
- * reading of one phase and the mono figure beside prose is the badge's own
- * established shape — the park reason one position to the left does exactly this.
+ * The phase's authored name where there is one, and its wire identifier always. Baseline-aligned
+ * because the two are one reading of one phase.
  */
 .meridian-park__phase {
   display: inline-flex;
@@ -53,9 +44,8 @@
 }
 
 /*
- * The engine's own sentence, verbatim. Prose rather than mono: it is bounded at 8 KiB
- * at its source and a paragraph set in mono is a paragraph nobody reads — the same
- * split a refusal has between its code (mono) and its message (prose).
+ * The engine's sentence, verbatim. Prose, not mono: it is bounded at 8 KiB at its source, and a
+ * paragraph set in mono goes unread.
  */
 .meridian-park__cause {
   margin: 0;
@@ -74,9 +64,8 @@
 }
 
 /*
- * The malformed instant a park armed, reported beside the sentence that says nobody
- * scheduled anything. It wraps onto its own line rather than pushing the sentence
- * out, because the sentence is the operator's next move and this is the evidence.
+ * The malformed instant a park armed. It wraps onto its own line because the sentence is the
+ * operator's next move and this is the evidence.
  */
 .meridian-park__unreadable {
   display: flex;
@@ -85,10 +74,8 @@
 }
 
 /*
- * The route to this phase's own form, where the view drawing the card can offer
- * one. A control and not an adjudication: pressing it opens the form beside these
- * cards and asks the daemon nothing, which is why it carries the accent
- * reserved for something a person can act on.
+ * The route to this phase's own form. A control, not an adjudication: it opens the form beside
+ * these cards and asks the daemon nothing, so it carries the accent reserved for action.
  */
 .meridian-park__form-action {
   align-self: flex-start;
@@ -107,10 +94,8 @@
 }
 
 /*
- * The same position, for a card with nothing to press — the form is already open, or
- * the run reported no handle to open it with. Faint prose rather than a disabled
- * control, because a control nobody can use says a thing is possible and unavailable
- * when the truth is that there is nothing to do here.
+ * For a card with nothing to press (the form is open, or the run reported no handle): faint
+ * prose, not a disabled control, since there is nothing to do here rather than something blocked.
  */
 .meridian-park__form-state {
   margin: 0;

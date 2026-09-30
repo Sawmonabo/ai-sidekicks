@@ -1,7 +1,6 @@
-// A press puts the run and the operator's reason on the calls, and a served answer
-// settles the control. Timing and address (single flight, retarget, the re-arm round)
-// are in `run-control-dispatch.flight.test.tsx`; both share their scaffolding through
-// `run-control-dispatch.test-support.tsx`.
+// A press puts the run and the operator's reason on the calls, and a served answer settles the
+// control. Timing and address are in `useRunControlDispatch.flight.test.ts`; both share
+// `useRunControlDispatch.test-support.tsx`.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -24,9 +23,8 @@ describe("a press reaches the calls", () => {
   });
 
   it("omits the reason key entirely when the operator gave none", async () => {
-    // Not `reason: undefined`. The request's member is optional under
-    // `exactOptionalPropertyTypes`, and a key carrying nothing is a different request
-    // from one that does not carry the key.
+    // Not `reason: undefined`: the member is optional under `exactOptionalPropertyTypes`, and
+    // a key carrying nothing is a different request from one without the key.
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, RUN_A);
     await act(async () => {
@@ -47,8 +45,7 @@ describe("a press reaches the calls", () => {
   });
 
   it("negative control: a pane naming no run puts nothing on the calls", async () => {
-    // Both requests carry a required run id, so there is nothing to address; a
-    // fabricated one would ask the daemon about a run that does not exist.
+    // Both requests need a run id; a fabricated one would ask about a run that does not exist.
     const held = heldCancelCalls();
     const controls = observeControls(held.calls, undefined);
     await act(async () => {

@@ -1,18 +1,6 @@
-// What a `human` phase's config says, read off a record nothing has typed.
-//
-// THE CONFIG IS UNTYPED ON THE WIRE. A phase definition carries `config` as an open
-// record — the definition body declares no shape for it, because the shape differs by
-// phase type — so a reader has to probe rather than cast. Every member below is absent
-// where it is not a string, which is the same answer as absent: neither reads as a value.
-//
-// TWO MEMBERS AND NO OTHERS. The prompt is what the phase asks; the input schema is what
-// it asks for. The deadline posture, the claim state and the revision token are the RUN's
-// facts rather than the definition's, and a reader of a definition has none of them — so
-// this module names none of them either, rather than reading absence as a default.
-//
-// A PHASE THAT IS NOT `human` HAS NO FORM CONFIG, and the caller asks before it reads:
-// this module answers what a record holds and takes no view on whether the phase should
-// have held it.
+// What a `human` phase's config says, read off an untyped record: the prompt and the input
+// schema, each absent where it is not what it should be. Deadline, claim and revision are the
+// run's facts, not the definition's, so they are not read here.
 
 import type { WorkflowPhaseDefinition } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 
@@ -20,14 +8,7 @@ import type { WorkflowPhaseDefinition } from "@renderer/services/wire-shapes/wor
 export interface HumanPhaseFormConfig {
   /** The question, as the author wrote it. Absent where the definition carries none. */
   readonly prompt: string | undefined;
-  /**
-   * The schema the answer is shaped by, untyped on purpose.
-   *
-   * Handed to the mapper as `unknown` rather than narrowed here, because the mapper's
-   * whole job is to decide what a schema is and its fallback is what covers everything
-   * it is not. A narrowing here would be that decision made twice, in two places, with
-   * only one of them able to say why it went the way it did.
-   */
+  /** The schema the answer is shaped by, left `unknown`: the mapper decides what a schema is. */
   readonly inputSchema: unknown;
 }
 
@@ -35,11 +16,8 @@ export interface HumanPhaseFormConfig {
 const HUMAN_PHASE_TYPE = "human";
 
 /**
- * Read one phase's form config, or nothing where this phase has no form.
- *
- * `undefined` covers two cases on purpose — a phase that is not a human phase, and a
- * human phase whose definition declared no schema — because the form's mount renders
- * nothing for both, and a second discriminator would be a distinction nothing acts on.
+ * Read one phase's form config. `undefined` covers both a non-human phase and a human phase
+ * with no schema, since the mount renders nothing for either.
  */
 export function humanPhaseFormConfigOf(
   phase: WorkflowPhaseDefinition,

@@ -6,58 +6,36 @@ import {
 } from "@renderer/registries/panes/pane-registry.js";
 
 /**
- * The feature's owner string, as the pane and screen registries' duplicate policy reads it.
- *
- * One binding rather than two literals: the registry's policy is owner-scoped, so a
- * hot reload re-registering under the same owner replaces and a DIFFERENT owner
- * claiming a taken kind raises. Two literals that drifted by a character would make
- * the second registration a conflict with the first — a failure that reads as two
- * features claiming one pane kind when it is one typo inside one feature.
+ * The feature's owner string. One binding, because the registries' duplicate policy is
+ * owner-scoped and a mistyped second literal would read as two features claiming one kind.
  */
 export const WORKFLOWS_OWNER = "workflows";
 
 /**
- * Both pane kinds this feature claims.
- *
- * THE NARROWING AND ITS REFUSAL ARE THE REGISTRY'S, NOT THIS FEATURE'S. The registry hands
- * every body the whole context union and only one arm is each pane's; the mismatched
- * arm is unreachable through the pane layout and is rendered rather than thrown anyway,
- * because `lib/refusal.ts`' rule is that a boundary refuses by name and leaves the
- * pane standing. Six features answering that once each is six sentences for one
- * case, which is what `paneBodyForKind` exists to prevent — applied by each body module
- * this table names rather than here, since a loader-form registration carries a
- * specifier and not a render.
+ * Both pane kinds this feature claims. Each body module applies `paneBodyForKind` itself,
+ * since a loader-form registration carries a specifier, not a render.
  */
 const WORKFLOW_PANES: readonly PaneRegistration[] = [
   {
     kind: "workflow-run",
     owner: WORKFLOWS_OWNER,
-    // A LOADER, like the builder below it: a run pane opens from the destination's run
-    // list or from a run address, so nothing paints it before a person asks.
-    //
-    // The operator controls' class has one owner — this feature's block is
-    // `meridian-workflow-run-controls` — so no bundle boundary decides how the pane
-    // looks. The module-shape rule in `apps/desktop/AGENTS.md` keeps a collision from
-    // landing unnoticed, and review is what reads it.
+    // A loader: a run pane opens from the run list or a run address, so nothing paints it
+    // before a person asks. The operator controls' class `meridian-workflow-run-controls` has
+    // one owner, so chunking cannot change how the pane lays out.
     body: () => import("../run-page/run-page-body.js"),
   },
   {
     kind: "workflow-builder",
     owner: WORKFLOWS_OWNER,
-    // The builder carries its own sheet, which no other feature declares against, so
-    // its body travels as its own chunk: the rail's destination opens it and nothing
-    // paints it before a person asks.
+    // Its own chunk: the builder carries a sheet no other feature declares against, and
+    // nothing paints it before a person asks.
     body: () => import("../builder/builder-pane-body.js"),
   },
 ];
 
 /**
- * Claim this feature's pane kinds against a registry.
- *
- * Takes the registry rather than reaching for the module-scope singleton, for
- * `registerFeatureContributions`' reason: a test composes the same bodies into a registry it
- * owns, and an auxiliary window composes a different subset without a second code
- * path.
+ * Claim this feature's pane kinds against a registry rather than the module-scope singleton, so
+ * a test or an auxiliary window can compose its own set.
  */
 export function registerWorkflowPanes(registry: PaneRegistry): void {
   for (const descriptor of WORKFLOW_PANES) {

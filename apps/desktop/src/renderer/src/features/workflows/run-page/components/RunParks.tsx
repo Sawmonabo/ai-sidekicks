@@ -1,17 +1,7 @@
-// Every phase parked at the moment the run snapshot was built, as cards.
-//
-// One component per `.tsx`, for the reason `RunGraphSection.tsx` beside it states.
-//
-// THE FORM ROUTE TRAVELS WITH THE CARDS. `formRoutePropsFor` has exactly one caller
-// and it is the component below; splitting the two apart would leave the rule that
-// decides whether a wait is addressable in one module and the only component it governs
-// in another.
-//
-// THE PARKS THEMSELVES ARE NOT DERIVED HERE. `projectParkedPhases` in
-// `workflows/runs/run-list-projection.ts` applies the discriminator, classifies the
-// schedule, and carries the phase's name; this file used to do all three and named the
-// phase from a module constant instead of from the row, so the run list beside this
-// pane named a parked phase that these cards drew nameless.
+// Every phase parked at the moment the run snapshot was built, as cards. The form route stays
+// here because `formRoutePropsFor` has one caller and the rule that decides whether a wait is
+// addressable governs only these cards. The parks are derived by `projectParkedPhases` in
+// `runs/run-list-projection.ts`, shared with the run list, so both name a phase the same way.
 
 import type {
   WorkflowPhaseState,
@@ -28,34 +18,21 @@ import type { HumanFormSelection } from "../hooks/useHumanFormSelection.js";
 /**
  * Every phase parked at the moment the snapshot was built, and nothing else.
  *
- * A park is read from `parkReason` and never from a phase's `state` — the status
- * union has no suspended arm and the park members are live-scoped, so a phase that
- * has resumed past its park carries none of them and must not be shown as waiting.
- * `phasePark` applies that discriminator once, in the projection, and this component
- * never re-derives it.
- *
- * A run with nothing parked says so rather than rendering an empty region: "nothing
- * is waiting on anyone" is the answer an operator opened this pane for.
- *
- * EVERY CARD IDENTIFIES ITS PHASE. A run that branches parks more than one phase at
- * a time, and a stack of cards carrying only reason, cause and schedule leaves an
- * operator unable to tell which branch stopped — the two cards of a fan-out read
- * identically. The badge draws that identity from `phaseId`, which is the same value
- * the node above the cards draws, so a person reads one key in two places rather
- * than matching a card to a node by position.
+ * A park is read from `parkReason`, never from a phase's `state` (the status union has no
+ * suspended arm, and a phase that resumed carries no park members). A run with nothing parked
+ * says so. Every card identifies its phase by `phaseId`, the value the graph node draws, so a
+ * fan-out's cards can be told apart.
  */
 export function RunParks(props: {
   /**
-   * The served run, not its phases: a card's route to its own form is the same mount
-   * the mount point below is handed, and that mount names the run as well as the phase.
+   * The served run, not its phases: a card's route to its own form names the run as well as the
+   * phase.
    */
   readonly run: WorkflowRunSnapshot;
   readonly humanForms: HumanFormSelection;
 }): React.JSX.Element {
-  // Indexed by phase rather than zipped by position: the projection returns the parked
-  // phases in the run's own order, and the cards need each entry paired with the WIRE
-  // phase it came from — the form route is decided from members the projected entry
-  // deliberately does not carry.
+  // Indexed by phase rather than zipped by position: the form route is decided from members the
+  // projected entry deliberately does not carry, so each entry is paired with its wire phase.
   const parkedByPhaseId = new Map(
     projectParkedPhases(props.run.phaseStates).map((entry) => [entry.phaseId, entry]),
   );
@@ -79,15 +56,12 @@ export function RunParks(props: {
   return (
     <div className="meridian-workflow__parks">
       {parked.map(({ entry, phase }) => (
-        // Keyed by the phase, which is the run's own identity for it, and the same
-        // value the graph draws on that phase's node.
+        // Keyed by the phase, the same value the graph draws on that phase's node.
         <ParkBadge
           key={entry.phaseId}
           parked={entry}
-          // Spread on the arm that has one and omitted on every other, rather than
-          // passed as an explicit `undefined`: the prop's PRESENCE is what says the run
-          // pane can reach the phase's form, and a park waiting on provider
-          // capacity has no form to reach at all.
+          // Spread on the arm that has one, not passed as `undefined`: the prop's presence says
+          // the run pane can reach the phase's form.
           {...formRoutePropsFor(props.run.workflowRunId, phase, props.humanForms)}
         />
       ))}
@@ -98,14 +72,9 @@ export function RunParks(props: {
 /**
  * The route one park card offers to its own form, where the card has one.
  *
- * A run that branches parks more than one phase on a person at a time, and the pane
- * mounts ONE form mount point — so every addressable wait carries the action that makes its
- * form the open one, and the card whose form is already open says so instead. A wait
- * the run reported without its handle says why it cannot be opened, which is the fact
- * the operator needs and the one a missing control does not give them.
- *
- * Returns the prop bag rather than the route, so the arm with no route omits the key
- * instead of passing `undefined` through it — the mount's own presence rule.
+ * The pane mounts one form mount point, so every addressable wait offers the action that opens
+ * its form and the card whose form is open says so. A wait reported without its handle says
+ * why it cannot be opened. It returns a prop bag so the arm with no route omits the key.
  */
 function formRoutePropsFor(
   workflowRunId: string,

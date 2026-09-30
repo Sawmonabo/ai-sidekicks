@@ -1,18 +1,7 @@
-// The codec, checked on the one claim it makes that its form module does not: its two
-// calls fetch the form and then answer exactly what the form answers.
-//
-// WHAT IS NOT CHECKED HERE, AND WHERE IT IS. That the form stays off the initial import
-// graph is a fact about the emitted bundle, and asserting it from inside the module
-// graph is not possible — a transformed dynamic import resolves in the same tick. The
-// only guard for it is the `renderer-initial-bundle` byte budget, which bounds the
-// graph's SIZE rather than its membership — a static import of the form from the codec
-// puts those bytes back on the graph and is caught only if it moves the total past the
-// budget. That the codec stays free of it is a reviewer's check.
-//
-// AND THE READING ITSELF IS NOT RE-CHECKED. Every refusal, every marker rule and the
-// round trip belong to `workflow-definition-file-form.test.ts`, which reads them off the
-// module that performs them. Restating one here would be a second copy of an assertion
-// that moves when the form moves.
+// The codec's one claim: its two calls fetch the form, then answer exactly what the form
+// answers. Keeping the form off the initial graph cannot be asserted from inside the module
+// graph (a transformed dynamic import resolves in the same tick); the `renderer-initial-bundle`
+// budget bounds its size, not its membership. Refusals and the round trip are in the form's test.
 
 import { describe, expect, it } from "vitest";
 

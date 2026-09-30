@@ -1,22 +1,11 @@
-// One act's last answer, or nothing at all.
-//
-// ITS OWN MODULE BECAUSE EVERY `.tsx` HOLDS ONE COMPONENT — the module-shape rule in
-// `apps/desktop/AGENTS.md`, held in review. It is composed from the act strip in
-// `DefinitionAuthoringActs.tsx` and from nothing else.
-//
-// `idle` RENDERS NOTHING, deliberately: a row saying an act has not been attempted is
-// the console narrating its own inactivity. The absences the console tells apart (not
-// loaded, empty, error, not checked, unknown) describe READS a person is waiting on,
-// not controls they have not pressed.
-//
-// AND THE IN-FLIGHT SENTENCE IS THE ACT'S, NOT THIS ROW'S. One word here read
-// "Submitting…" under every act, which is false of the export — it submits nothing and
-// hands bytes to the host — so the sentence travels on the arm, exactly as the settled
-// one does, and this component renders whichever it was given.
+// One act's last answer, or nothing at all. `idle` renders nothing: a row saying an act has not
+// been attempted would narrate the console's inactivity. The in-flight sentence travels on the
+// outcome arm, since one word would read "Submitting…" under an export that submits nothing.
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import type { WorkflowDetailActOutcome } from "../definition-authoring.js";
 
+/** An act's label and its last outcome. */
 export interface ActOutcomeRowProps {
   readonly label: string;
   readonly outcome: WorkflowDetailActOutcome;

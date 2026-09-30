@@ -1,9 +1,6 @@
-// What the directory suites need before they can watch the hook.
-//
-// Each suite mounts a probe that renders nothing, collects every directory it hands back,
-// and reads the last one; the mount lives here once so a "the probe never rendered"
-// failure has one source. The two-page call is here because both the settlement and the
-// paging suite want a served list with a cursor that reaches a second page.
+// What the directory suites need to watch the hook. Each suite mounts a probe that renders
+// nothing and collects every directory it is handed; the mount lives here once so a "never
+// rendered" failure has one source.
 
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -18,10 +15,8 @@ import {
 } from "./useWorkflowDefinitionDirectory.js";
 
 /**
- * One row per id, which is what these cases read back: the id is the only member that
- * says WHICH read committed. Everything else is the workflows feature's shared row, built once at
- * `../workflows-probe.test-support.ts` — including `scopeRef`, whose default is this
- * same probe session.
+ * One row per id; the id is the only member that says which read committed. Everything else
+ * is the shared probe row from `../../workflows-probe.test-support.ts`.
  */
 export function definitionWithId(id: string): WorkflowDefinitionRow {
   return definition({
@@ -59,10 +54,8 @@ export function observeDirectory(
 }
 
 /**
- * The same probe, with the handle a scope change needs.
- *
- * The browser is not remounted when the operator moves to another session — it is
- * re-rendered with a different scope, which is the subject of the rescope case below.
+ * The same probe, with the handle a scope change needs: the browser is re-rendered with a
+ * different scope, not remounted.
  */
 export function rescopableDirectory(
   listDefinitions: WorkflowDefinitionListCall,

@@ -1,21 +1,7 @@
-// What one draft-07 member schema DECLARES, read out of an untyped value.
-//
-// SPLIT FROM THE PLANNER BECAUSE THESE ARE PROBES AND THE PLANNER IS A WALK. Everything
-// here answers one question about one schema record — what type did it name, what enum,
-// what title, what step — and answers it with `undefined` wherever the record did not say
-// or said something it could not have meant. Nothing here knows what a form is, which
-// member is being read, or what happens when a reading comes back empty; those are the
-// planner's, and holding both in one module was what took it past the length at which a
-// reader stops seeing two jobs.
-//
-// THE INPUT IS `unknown` BY CONSTRUCTION. A phase definition carries its config as an
-// untyped record — the wire declares no shape for it — so every read here is a probe and
-// a member that is not what it claims comes back as nothing rather than as a cast.
-//
-// AND THE WHOLE-SCHEMA READERS LIVE HERE TOO. `asRecord` and `requiredKeysOf` are asked
-// of a member schema, of a group, and of the root alike, which is why the constraint walk
-// beside the planner reaches them here rather than reaching into the planner: two readers
-// of one schema shape, one implementation of the reading.
+// What one draft-07 member schema declares, read out of an untyped value: a phase definition's
+// config has no wire shape, so every read is a probe that returns `undefined` for a member that
+// is not what it claims. `asRecord` and `requiredKeysOf` live here so the planner and the
+// constraint walk share one reading.
 
 import {
   LONG_TEXT_FORMAT,
@@ -36,10 +22,8 @@ export function declaredType(schema: Readonly<Record<string, unknown>>): string 
 }
 
 /**
- * Which of the five a member schema is, or nothing where it is none of them.
- *
- * Order matters in one place and only one: `enum` is read BEFORE `type`, because an
- * enumerated string carries both and the choice control is the richer reading of it.
+ * Which of the five kinds a member schema is, or nothing. `enum` is read before `type`: an
+ * enumerated string carries both and the choice control is the richer reading.
  */
 export function fieldKindOf(
   schema: Readonly<Record<string, unknown>>,
@@ -82,11 +66,9 @@ export function requiredKeysOf(schema: Readonly<Record<string, unknown>>): Reado
 }
 
 /**
- * One STANDALONE control, composed from the member schema and where it sits.
- *
- * A member the enclosing level does not require may be left out of the answer, which is
- * what its control's unanswered state means — so requiredness and the ability to be
- * unanswered are one reading here, and the entry constructor below is where they part.
+ * One standalone control from the member schema and where it sits. A member the enclosing level
+ * does not require may be left out of the answer, so requiredness and being unanswered are one
+ * reading here.
  */
 export function fieldDescriptor(
   schema: Readonly<Record<string, unknown>>,
@@ -110,13 +92,8 @@ export function fieldDescriptor(
 }
 
 /**
- * One REPEATED control: the same reading, at a position that always holds a value.
- *
- * A list entry exists the moment somebody presses the add control, so it can never be
- * absent however the collection itself was declared — which is why this is a named variant
- * rather than the same call with a different argument. The collection's own requiredness
- * still travels on `isRequired`, because that is what the entry belongs to and it is the
- * only requiredness the schema declared anywhere near it.
+ * One repeated control: a list entry exists once someone presses add, so it can never be
+ * unanswered whatever the collection declared. `isRequired` carries the collection's requiredness.
  */
 export function listItemDescriptor(
   schema: Readonly<Record<string, unknown>>,
@@ -145,11 +122,8 @@ function declaredFormat(schema: Readonly<Record<string, unknown>>): string | und
 }
 
 /**
- * The schema's `multipleOf`, or nothing where it declared none worth stepping by.
- *
- * JSON Schema requires it to be strictly positive; a zero, a negative, or a non-finite
- * value is a schema the validator will refuse on its own terms, and a control given
- * that as a step would refuse every answer before the validator could say why.
+ * The schema's `multipleOf`, or nothing where it is not strictly positive and finite: a control
+ * given such a step would refuse every answer before the validator could say why.
  */
 function multipleOfOf(schema: Readonly<Record<string, unknown>>): number | undefined {
   const declared = schema["multipleOf"];

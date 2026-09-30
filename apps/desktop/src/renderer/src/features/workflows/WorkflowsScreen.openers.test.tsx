@@ -1,15 +1,7 @@
-// The opener this screen hands its run list, and whether it holds still.
-//
-// Separate from `WorkflowsScreen.test.tsx` because the run list is substituted here and
-// that file's premise is that it is real. What a prop's identity is across a re-render is not
-// a fact any rendered markup carries, so the only place to read it is where it is handed
-// over. The probe records what it was given and renders nothing else.
-//
-// It matters because `WorkflowRuns` memoizes its projection on the read state, so a row value
-// is replaced when and only when something in that run changed, which is what makes
-// `RunListItem`'s `memo` worth having. An opener minted inline is a fresh identity every
-// pass, the shallow compare fails for every row, and any state change above re-renders the
-// whole list.
+// The opener the screen hands its run list must keep its identity across re-renders.
+// `RunListItem` is memoized, so an opener minted inline would fail the shallow compare for
+// every row and re-render the whole list on any state change above. Identity is not visible
+// in markup, so `WorkflowRuns` is replaced with a probe that records the prop.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -24,12 +16,7 @@ import {
 } from "./WorkflowsScreen.test-support.js";
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
-/**
- * What the run list was handed, in render order.
- *
- * A box hoisted with the mock rather than a value closed over: `vi.mock` factories are
- * lifted above the imports, so a plain binding is not initialized when they run.
- */
+/** Hoisted with the mock: `vi.mock` factories run before a plain binding is initialized. */
 const handedDown = vi.hoisted(() => ({ runOpeners: [] as unknown[] }));
 
 vi.mock("./runs/WorkflowRuns.js", () => ({
@@ -42,12 +29,10 @@ vi.mock("./runs/WorkflowRuns.js", () => ({
 /** One read state for every render, so a re-render differs only where a case says. */
 const DIRECTORY: WorkflowRunDirectoryState = { status: "served", runs: [] };
 
-/** The element every case renders. */
 function screenElement(composed: ComposedWindow): React.JSX.Element {
   return <WorkflowsScreen context={composed.context} directory={DIRECTORY} />;
 }
 
-/** What the run list was handed on the most recent render. */
 function latestRunOpener(): (row: WorkflowRunListRow) => void {
   const opener = handedDown.runOpeners.at(-1);
   if (typeof opener !== "function") {
@@ -62,15 +47,13 @@ describe("the opener the screen hands its run list", () => {
     const rendered = render(screenElement(composed));
     rendered.rerender(screenElement(composed));
 
-    // The premise: there really were two renders to compare.
     expect(handedDown.runOpeners.length).toBeGreaterThanOrEqual(2);
     expect(handedDown.runOpeners.at(-1)).toBe(handedDown.runOpeners.at(-2));
   });
 
   it("negative control: a different composition for opened panes is a different opener", () => {
-    // Without this, the case above would pass over an opener memoized on an empty
-    // dependency list — which would go on opening panes into the board the screen was
-    // mounted over first, however the window around it had since been recomposed.
+    // Guards against an opener memoized on an empty dependency list, which would keep opening
+    // panes into the first board.
     const rendered = render(screenElement(composeWindow()));
     const openersBefore = handedDown.runOpeners.length;
     rendered.rerender(screenElement(composeWindow()));
@@ -80,9 +63,7 @@ describe("the opener the screen hands its run list", () => {
   });
 
   it("negative control: the opener it hands down still opens what it is called with", () => {
-    // Without this, the two cases above would be satisfied by a stable callback that
-    // opened nothing — the identity claim says where the address comes from and not
-    // that one arrives.
+    // Guards against a stable callback that opens nothing; identity alone does not show an address.
     const composed = composeWindow();
     const openedContexts = probeRunPane(composed.paneRegistry);
     render(screenElement(composed));

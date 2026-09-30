@@ -1,5 +1,5 @@
-// What the run-control dispatch suites need before they can put a press: a probe that
-// mounts the hook, and plain calls whose cancel the case settles by hand.
+// What the run-control dispatch suites share: a probe that mounts the hook, and calls whose
+// cancel the case settles by hand.
 
 import { render } from "@testing-library/react";
 
@@ -10,6 +10,7 @@ import {
 } from "./useRunControlDispatch.js";
 import type { WorkflowRunCancelReply } from "../run-controls.js";
 
+/** Two run ids, so a case can retarget a pane from one run to another. */
 export const RUN_A = "run-a";
 export const RUN_B = "run-b";
 
@@ -32,9 +33,8 @@ export interface HeldCancel {
 /**
  * Calls whose cancel stays in flight until the case serves it.
  *
- * The window between dispatch and answer is where single flight, the retarget drop and
- * the `dispatching` state all live, and a call that answered on the pressing turn
- * would close it before any of them could be observed. Resume answers at once.
+ * The window between dispatch and answer is where single flight, the retarget drop and the
+ * `dispatching` state live. Resume answers at once.
  */
 export function heldCancelCalls(): HeldCancel {
   const requests: CancelRequest[] = [];

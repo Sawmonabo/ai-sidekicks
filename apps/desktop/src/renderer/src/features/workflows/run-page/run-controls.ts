@@ -1,49 +1,21 @@
-// The run controls' vocabulary: the two actions, what a dispatched act can have got
-// to, and the two refusals the controls can raise on their own.
-//
-// WHY A MODULE RATHER THAN PROPS ON THE COMPONENT. Three of the four things below
-// are CLOSED SETS — the actions, the refusal codes, the states a served reply may
-// answer with — and a closed set spelled inside a component is a set the next
-// component re-spells. The fourth, the reason bound, is NOT here at all: a number with
-// a rationale has one home, and the config single-sourcing rule in
-// `apps/desktop/AGENTS.md` rejects a view that declares a copy of its own — so this
-// module imports `WORKFLOW_CANCEL_REASON_BYTE_CAP` from `@ai-sidekicks/contracts` and
-// declares nothing about it.
-//
-// ELIGIBILITY IS NEVER COMPUTED HERE, AND THAT IS WHY THERE IS NO REFUSED CONTROL.
-// Whether a run may be canceled or resumed is a daemon adjudication, and nothing in
-// this console can know it before it asks. So a control is OFFERED and its press puts
-// the question; an act the daemon served lands on {@link WorkflowRunControlOutcome}
-// beside the button that asked it.
-//
-// THE TWO REFUSALS THE CONTROLS RAISE THEMSELVES are the reason bound and a second press
-// while the first is still in flight, and both are raised BEFORE a call rather than
-// instead of one. An operator's cancellation reason past the bound would be rejected
-// at the far end, and refusing it here — loudly, with the budget visible — is the
-// difference between a control that explains itself and one that fails after the
-// operator has committed. A second press is refused for the opposite reason: the
-// first call is still outstanding, a queue would perform an act nobody re-confirmed
-// against a run whose state has moved, and dropping it silently is a button that
-// looks broken.
+// The run controls' vocabulary: the two actions, what a dispatched act can have got to, and the
+// two refusals the controls raise themselves. Eligibility is never computed here: a control is
+// always offered and the daemon's answer lands on `WorkflowRunControlOutcome`. Both refusals
+// are raised before a call, not instead of one.
 
 import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { WorkflowRunState } from "../runs/run-list-rows.js";
-// The renderer's one byte measurement, from `lib/utf8-byte-length.ts`.
-// The cancel control bounds a cancellation reason exactly as the durable path bounds a
-// record, and the chokepoint rule in `apps/desktop/AGENTS.md` gives that one
-// function: a second one here agreed on ASCII and would have drifted on the first
-// rule either grew.
+// The renderer's one byte measurement: the reason is bounded the way the durable path bounds a
+// record, and a second counter would drift on non-ASCII text.
 import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 
 /**
  * The two run controls, and exactly two.
  *
- * They are separately grantable — a principal may hold one and not the other, and
- * the daemon's denial names which — so they are enumerated rather than implied by
- * the two members of the props type. The tuple is the declaration and the union
- * derives from it, so a third control is one edit a reviewer sees.
+ * Separately grantable, so enumerated rather than implied by the props. The union derives
+ * from the tuple.
  */
 export const WORKFLOW_RUN_CONTROL_ACTIONS = ["cancel", "resume"] as const;
 
@@ -56,17 +28,8 @@ export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
 /**
  * The refusals the run controls raise on their own, and no others.
  *
- * Deliberately short and deliberately not the daemon's vocabulary. These two are the
- * cases where there is no daemon in the loop at all — an input a control can measure
- * before it spends anyone's round trip, and a press it can see is a duplicate of one
- * already outstanding.
- *
- * A UNION AND NOT AN EXPORTED TUPLE, unlike the actions above, and the difference is
- * that the actions array is READ — the component renders a control per member — while
- * nothing ever read this one. It was published all the same, which is how a second
- * module comes to restate the literals rather than import them; and a value whose
- * only reader is `typeof` is dead weight at runtime, which is the reason
- * `run-list-rows.ts` gives for its own type-over-value choice.
+ * Both have no daemon in the loop: an input measured before the round trip, and a press that
+ * duplicates one already outstanding.
  */
 export type WorkflowRunControlRefusalCode = "reason-past-bound" | "act-already-in-flight";
 
@@ -94,15 +57,8 @@ export type WorkflowRunControlRunState =
 /**
  * Where one control's dispatched act has got to, for the run it was pressed on.
  *
- * FOUR ARMS BECAUSE FOUR THINGS ARE TRUE AT DIFFERENT MOMENTS and none of them is
- * another: nothing has been pressed, a call is out, an answer came back, or the act
- * was refused. `idle` is not "it succeeded and there is nothing to say", and
- * `dispatching` is not a settlement — a control that collapsed either into the other
- * would be reporting an act that had not happened.
- *
- * There is deliberately no optimistic arm. Nothing here mutates the run the pane is
- * rendering: what a person sees change is what the daemon answered, so a refused act
- * leaves the run on screen as it was, with the reason beside the control.
+ * `idle` is not success and `dispatching` is not a settlement. There is no optimistic arm: a
+ * refused act leaves the run on screen as it was, with the reason beside the control.
  */
 export type WorkflowRunControlOutcome =
   | { readonly kind: "idle" }
@@ -122,9 +78,7 @@ export const IDLE_RUN_CONTROL_OUTCOME: WorkflowRunControlOutcome = { kind: "idle
 /**
  * The state a resume answers with when the run re-parks on its next dispatch.
  *
- * The dispatcher reads the reply against it to decide which sentence the settlement
- * carries. Annotated with the derived union, so a word this reply cannot answer with is a
- * compile error.
+ * Annotated with the derived union, so a word this reply cannot answer with fails to compile.
  */
 export const WORKFLOW_RUN_RE_PARKED_STATE: WorkflowRunControlRunState = "suspended";
 
@@ -149,15 +103,11 @@ export function cancelReasonBudget(reason: string): CancelReasonBudget {
 /**
  * The refusal a reason past the bound earns.
  *
- * Names the bound and never the value: the reason is user content, and
- * `core/refusal.ts` fixes `detail` as one actionable sentence that is never the
- * refused value itself.
+ * Names the bound and never the value: the reason is user content, and a refusal's detail is
+ * never the refused value.
  */
 export function reasonPastBoundRefusal(budget: CancelReasonBudget): Refusal {
-  // Bound through the closed vocabulary before it reaches `refuse`, whose `code`
-  // parameter is a deliberately-wide `string` — `core/refusal.ts` cannot close it
-  // without importing every producer and inverting the DAG. The annotation is what
-  // keeps this producer inside its own declared set.
+  // Annotated with the closed union so the code cannot drift outside this producer's set.
   const code: WorkflowRunControlRefusalCode = "reason-past-bound";
   return refuse(
     WORKFLOW_RUN_CONTROL_ORIGIN,
@@ -185,11 +135,8 @@ export interface WorkflowVersionChoice {
 /**
  * The re-pin a resume carries, when it carries one.
  *
- * `targetWorkflowVersionId` is required WITHIN the member and the member itself is
- * optional, which is the whole shape: a resume either re-pins onto a version the
- * operator named or it does not re-pin at all. There is deliberately no "latest"
- * — a server-resolved latest would race the definition's own edits and leave the
- * audited from-and-to pair unverifiable against what the operator saw.
+ * A resume re-pins onto a version the operator named or not at all. There is no "latest": a
+ * server-resolved one would race the definition's edits and leave the audited pair unverifiable.
  */
 export interface WorkflowVersionRepin {
   readonly targetWorkflowVersionId: string;
@@ -203,15 +150,10 @@ export interface WorkflowCancelControl {
 }
 
 /**
- * What a resume control's DISPATCHER composes: the call, and where the last press of
- * it got to.
+ * What a resume control's dispatcher composes: the call, and where the last press got to.
  *
- * SEPARATE FROM THE CONTROL BELOW BECAUSE THE CHAIN COMES FROM SOMEWHERE ELSE. The
- * dispatcher puts the call and reads the answer; the chain is a second read, addressed
- * by the version the run's own snapshot reports — and that snapshot's round is the
- * dispatcher's own output, so a dispatcher that also took the chain would close a
- * cycle through itself. Two interfaces, one per producer, and the component that mounts
- * both is where they meet.
+ * Separate from the control below because the chain is a second read addressed by the version
+ * in the run snapshot, whose round is this dispatcher's output. Joined where the control mounts.
  */
 export interface WorkflowResumeDispatch {
   readonly resume: (repin: WorkflowVersionRepin | undefined) => void;
@@ -221,9 +163,8 @@ export interface WorkflowResumeDispatch {
 /** What a resume control is, plus the chain a re-pin may choose from. */
 export interface WorkflowResumeControl extends WorkflowResumeDispatch {
   /**
-   * The version chain, as the caller read it. Empty means no chain was read,
-   * so no target can be named explicitly and the re-pin control is ABSENT —
-   * not a disabled picker, and never a silent "latest".
+   * The version chain, as the caller read it. Empty means no chain was read, so no target can
+   * be named and the re-pin control is absent, never a disabled picker or a silent "latest".
    */
   readonly versionChain: readonly WorkflowVersionChoice[];
 }
@@ -231,16 +172,8 @@ export interface WorkflowResumeControl extends WorkflowResumeDispatch {
 /**
  * The refusal a second press earns while the first call is still outstanding.
  *
- * REFUSED AND NEVER QUEUED, and never dropped either. Queued, the second press would
- * perform an act nobody re-confirmed against a run whose state the first call has by
- * then moved; dropped, the operator presses a button that does nothing and is told
- * nothing, which is the failure an inline refusal exists to prevent. So the press is
- * answered, in the control's own body, with the fact that the run already has this
- * act in flight.
- *
- * "In flight" and never "denied": no question was put to a daemon by this press at
- * all, so a console that rendered it as an adjudication would be asserting one that
- * never happened.
+ * Refused, never queued (it would act on a run the first call has moved) or dropped (a button
+ * that seems broken). It says "in flight", not "denied": no question went to a daemon.
  */
 export function actAlreadyInFlightRefusal(action: WorkflowRunControlAction): Refusal {
   const code: WorkflowRunControlRefusalCode = "act-already-in-flight";

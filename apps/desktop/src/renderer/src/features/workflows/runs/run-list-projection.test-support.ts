@@ -1,14 +1,6 @@
-// The two rows every run-list suite builds its cases out of.
-//
-// One home for the phase and the run, because the projection's suites — whether a run
-// is parked and the parks a row folds, the order the rows come out in, the instants,
-// and the frozen pin — all read the same two shapes and differ only in what they
-// override on them. Four copies of a two-line builder is four places a member added to
-// the wire row has to be defaulted, and three of them would be found by a failing test
-// rather than by the edit.
-//
-// What is deliberately NOT here is anything one suite reads: the unreadable instant and
-// the two-enumeration helper each have a single reader and stay beside it.
+// The phase and run builders every run-list suite shares, so a member added to the wire row is
+// defaulted in one place. The unreadable instant and the two-enumeration helper each have one
+// reader and stay beside it.
 
 import type { WorkflowPhaseStateRow, WorkflowRunSnapshot } from "./run-list-rows.js";
 

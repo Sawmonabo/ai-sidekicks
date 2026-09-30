@@ -1,34 +1,8 @@
-// The mount every case over this hook drives, and the one schema both halves of the suite
-// need.
-//
-// HOISTED ON THE SPLIT AND NOT WRITTEN TWICE. The suite over this hook grew past what one
-// file should hold and became two — the state a form holds and what a form OPENS holding —
-// and both need the same probe: the hook mounted in a component that renders nothing, with
-// a live handle on its latest state. A second copy of that would have been two answers to
-// what "the form under test" is, and they would drift the first time either grew a wrapper.
-//
-// A HANDLE RATHER THAN A SNAPSHOT, because the state is a new object on every render: a
-// case that captured one and read it after an `act` would be reading the form as it was
-// before the edit it just made.
-//
-// AND THE SETTLED MOUNT IS THE DEFAULT, because the form opens in two steps. The schema
-// compiler arrives on its own chunk, so a mount read straight after `render` is read
-// during the window where nothing has checked anything — every case about what a form
-// HOLDS would be asserting against a form that had not finished opening. So `mountForm`
-// waits, and the window itself has its own mount and its own suite
-// (`useSchemaForm.compiler.test.tsx`), which is the one place a case may read the form
-// before the compiler lands.
-//
-// AND WHAT IT WAITS FOR IS THE CHUNK ITSELF, never a turn count. `settle` crosses one
-// macrotask, which is enough for the promise chain a resolved module hands back and is NOT
-// enough for the dynamic import that resolves it — so a settle alone RACES the first
-// `import()` in a file's isolated module registry, and the first case in that file reads a
-// form whose verdict had not landed while every later case passes on the warmed module.
-// Measured: `useSchemaForm.opening.test.ts`'s first case, alone and in a 36-file batch.
-// `resolveSchemaValidatorCompiler` below is the resolve-the-thing answer every other
-// loader-backed mount in this tree already takes
-// (`tests/helpers/feature-mounts/pane-body-resolution.ts`), and it is warmed BEFORE the
-// mount so what a case then reads is what a person who has already opened one form sees.
+// The mount every case over the hook drives: the hook in a component that renders nothing,
+// with a live handle on its latest state (a new object each render, so a captured snapshot
+// goes stale). `mountForm` waits for the compiler chunk itself, never a turn count: a bare
+// `settle` races the first `import()` in a file's module registry, so that file's first
+// case would read a form with no verdict. Measured on `useSchemaForm.opening.test.ts`.
 
 import { act, render } from "@testing-library/react";
 
@@ -41,18 +15,16 @@ import { type SchemaMemberPath } from "../schema-member-path.js";
 
 /** One mounted form: its latest state, the schema it is showing, and its ending. */
 export interface MountedSchemaForm {
-  /** The hook's latest state, read live for the reason the header gives. */
+  /** The hook's latest state, read live. */
   readonly form: () => SchemaFormState;
-  /** Re-render this same mount over another schema, which is what moves the identity. */
+  /** Re-render this same mount over another schema. */
   readonly showSchema: (inputSchema: unknown) => void;
   readonly unmount: () => void;
 }
 
 /**
- * Mount the hook and hand it back without waiting for anything.
- *
- * For the one suite whose subject IS the window before the compiler lands. Every other
- * case wants {@link mountForm}, which is this plus the wait.
+ * Mount the hook and hand it back without waiting; for the suite whose subject is the window
+ * before the compiler lands. Every other case wants {@link mountForm}.
  */
 export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
   let latest: SchemaFormState | undefined;
@@ -78,43 +50,20 @@ export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
 }
 
 /**
- * Resolve the schema compiler's chunk, so a form mounted after this opens in ONE step.
- *
- * THE ONE PLACE ANYTHING IN THIS TREE WAITS FOR THAT CHUNK, and it lives here rather than
- * in whichever support was written first: several mounts need it — this hook's,
- * `SchemaFormWithReadout`'s, the run page's human-form body's and the shared schema-form
- * test mount — and one copy per mount is exactly the shape where some wait and one races. The test and
- * shared-code rules in `apps/desktop/AGENTS.md` say where the single copy goes: the lowest
- * module that owns the concern, which is the hook's own mount.
- *
- * Awaiting the loader rather than the module map: the loader memoizes nothing itself, but
- * the registry behind it does, so a caller arriving after the module has landed awaits a
- * settled promise and costs nothing.
+ * Resolve the schema compiler's chunk, so a form mounted after this opens in one step. The
+ * one copy of that wait for every mount that needs it, at the lowest module that owns the
+ * concern; the registry memoizes, so a later caller awaits a settled promise.
  */
 export async function resolveSchemaValidatorCompiler(): Promise<void> {
   await loadSchemaValidatorCompiler();
 }
 
 /**
- * Resolve BOTH chunks the form loads from, so a form mounted after this opens armed.
- *
- * The compiler above is one of the two. The other is the kit itself, and a caller that
- * resolved only the compiler mounted a form that suspended on its own body, while a
- * caller that resolved only the kit mounted a form whose one act was still DISABLED —
- * `SchemaFormAnswer` closes it while the validator reads `compiling`, so a press put
- * there dispatches nothing and the case fails on whatever the press was supposed to move.
- * Three mounts across two tiers hit one side or the other of that pair; this is their one
- * answer, and it lives beside the compiler wait for the reason that wait lives here.
- *
- * Measured rather than assumed: a pane suite that warmed only the kit lost that race by
- * ~13-21 ms on this tree and failed about one run in three, on a park-card count naming
- * none of it. That is the evidence for warming BOTH, and the reason to keep doing so.
- *
- * THE ANSWER MOUNT AND NOT THE BARE CHUNK, because `LoaderBackedBody` holds a SECOND memo:
- * the settled body it renders directly. Resolving `schemaFormChunk` alone leaves that
- * memo empty, so a warmed mount still commits the reserved region for a frame — the one
- * thing a warm exists to avoid. Its own load awaits `schemaFormChunk.load()`, so a caller
- * that then reads the kit off that chunk gets a promise that is already settled.
+ * Resolve both chunks the form loads, so a form mounted after this opens armed: the compiler
+ * and the kit's answer body. Warming only one either suspends on the body or leaves the submit
+ * act disabled while the validator reads `compiling`; a pane suite that warmed only the kit
+ * lost that race by ~13-21 ms and failed about one run in three. The answer mount is loaded,
+ * not the bare chunk, because the loader-backed body holds a second memo.
  */
 export async function resolveSchemaFormChunks(): Promise<void> {
   await resolveSchemaValidatorCompiler();
@@ -123,22 +72,14 @@ export async function resolveSchemaFormChunks(): Promise<void> {
 
 /** Mount the hook, let its compiler land, and hand back a live handle on its state. */
 export async function mountForm(inputSchema: unknown): Promise<() => SchemaFormState> {
-  // Warmed BEFORE the mount, so the hook's own load resolves off the registry and the
-  // settle below carries its state write. Warmed after, the settle would be racing the
-  // fetch it is supposed to be waiting for.
+  // Warmed before the mount so the hook's own load resolves off the registry.
   await resolveSchemaValidatorCompiler();
   const mounted = mountFormUnsettled(inputSchema);
   await settle();
   return mounted.form;
 }
 
-/**
- * What one drawn control is displaying, which is the reading a case makes about a member.
- *
- * A case asks about a VALUE and the hook answers with a control view — the value beside
- * the text a control could not read — so this takes the half every case here is about.
- * Written once beside the mount for the reason the mount is: two suites read it.
- */
+/** What one drawn control is displaying at a member. */
 export function memberValueOf(form: SchemaFormState, memberPath: SchemaMemberPath): unknown {
   return form.memberView(memberPath).value;
 }
@@ -151,13 +92,7 @@ export function listValuesOf(
   return form.listEntries(memberPath).map((entry) => entry.value);
 }
 
-/**
- * Answer one member with a value, or take the answer back where the value is nothing.
- *
- * The draft node a control would report, composed through the real constructors rather
- * than as an object literal: a case writing its own node would be a second reading of
- * what "answered" means, and the first one to drift would drift silently.
- */
+/** Answer one member through the real draft constructors, or take the answer back on nothing. */
 export function answerMember(
   form: SchemaFormState,
   memberPath: SchemaMemberPath,

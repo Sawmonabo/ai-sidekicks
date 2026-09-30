@@ -1,23 +1,7 @@
-// One entry of a list, with the chrome that makes it a control a person can use.
-//
-// AN ENTRY IS NAMED BY WHERE IT SITS, AND THE NAME IS SPOKEN RATHER THAN DRAWN. The
-// legend names the collection and the ordered list draws the position, so a visible
-// "Reviewers, entry 2" above every row would say twice what the layout already says once.
-// It is still a `<label>` and not an `aria-label`, because that is the primitive the
-// scalar fields use and the association it makes is a real one — a click on it reaches
-// the control — while `meridian-visually-hidden` takes it out of the picture and leaves
-// it in the tree.
-//
-// AND THE ENTRY'S FINDINGS ARE ITS OWN. The validator addresses an array member by index,
-// so a length, a range, or an enum failure belongs under the control that holds the value
-// it is about. A list of four entries with one bad one would otherwise report one
-// unattributed sentence beneath all four — or, as it did, report nothing anywhere.
-//
-// THE IDS ARE MINTED PER ENTRY rather than composed from the member path, because two
-// forms over one schema can be mounted at once — a definition's preview beside a run's
-// answer — and a path-derived id would be the same id in both documents. Which entry a
-// mounted row IS, when positions shift, is the collection's own question and is answered
-// by the entry id it keys on.
+// One entry of a list with its chrome. Its name is spoken, not drawn: a visually hidden
+// `<label>`, since the legend and list order already show it. Findings at the entry's
+// indexed path draw under its control. Ids are minted per entry, not from the member path,
+// because two forms over one schema can be mounted at once.
 
 import { useId } from "react";
 
@@ -29,6 +13,7 @@ import { listEntryLabel } from "./schema-list-labels.js";
 import type { SchemaListDescriptor } from "../plan/schema-fields.js";
 import type { SchemaControlView } from "../answer/schema-projection.js";
 
+/** The props of one repeated control. */
 export interface SchemaListEntryProps {
   /** The collection this entry belongs to, which is what names it and types it. */
   readonly list: SchemaListDescriptor;

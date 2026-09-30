@@ -1,13 +1,7 @@
-// One parked phase, drawn by the pane's card and by the run list's row, from one
-// projection.
-
-// The run pane's park cards, and the other views that draw the same parks.
-//
-// A parked phase is drawn by the pane's card, by the run list's row and by the phase
-// graph's node from one projection, so the cases that claim agreement render both
-// views: a suite that rendered only one could not see them disagree. The route each
-// card offers to its own form is the card's line, decided from members the park
-// projection does not carry, so those cases drive `RunParks` with a stub selection.
+// The run pane's park cards and the other views that draw the same parks. Cases that claim
+// agreement render both views, since a suite rendering one could not see them disagree. The form
+// route is decided from members the park projection does not carry, so those cases drive
+// `RunParks` with a stub selection.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
@@ -43,13 +37,9 @@ const NO_FORM_OPEN: HumanFormSelection = {
 };
 
 /**
- * One phase, parked on a person, carrying an authored name.
- *
- * Bound to a variable rather than written inline at the snapshot: `WorkflowPhaseState`
- * declares no `phaseName`, so a fresh literal in the `phaseStates` position would be
- * refused for the excess property. Through a binding the shape is merely wider than the
- * wire's, which is the shape the two views have to agree on when a phase carries a
- * name.
+ * One phase, parked on a person, carrying an authored name. It is bound to a variable because
+ * `WorkflowPhaseState` declares no `phaseName`, so a fresh literal in `phaseStates` would be
+ * refused for the excess property.
  */
 const NAMED_PARKED_PHASE = {
   phaseId: "phase-review",
@@ -104,18 +94,16 @@ describe("the phase a park is about", () => {
   });
 
   it("negative control: neither view invents a name where the read carries none", () => {
-    // Without this the case above would be satisfied by two views that both printed
-    // the identifier in the name's place, which is the invention the workflows feature renders
-    // the absence of rather than papering over.
+    // Without this the case above would pass over two views that both printed the identifier in
+    // the name's place.
     const run = runWith(UNNAMED_PARKED_PHASE);
     expect(paneParkPhaseName(run)).toBeUndefined();
     expect(listParkPhaseName(run)).toBeUndefined();
   });
 
   it("negative control: both views still identify the phase by its wire id", () => {
-    // And without THIS, the case above would be satisfied by a card that had stopped
-    // saying which phase it is about at all — which is what makes a fan-out's cards
-    // indistinguishable.
+    // Without this, the case above would pass over a card that stopped saying which phase it is
+    // about, leaving a fan-out's cards indistinguishable.
     const run = runWith(UNNAMED_PARKED_PHASE);
     const { container } = render(<RunParks run={run} humanForms={NO_FORM_OPEN} />);
     expect(container.querySelector(".meridian-park__phase")?.textContent).toContain("phase-review");
@@ -244,9 +232,8 @@ describe("a park card's route to its own form", () => {
   });
 
   it("says a wait reported without its handle cannot be opened here, and offers no control", () => {
-    // `phaseRunId` and `formRevision` are optional on the wire, so a wait can arrive
-    // without what its form is answered through. A control there would be answerable in
-    // appearance and unsubmittable in fact.
+    // `phaseRunId` and `formRevision` are optional on the wire, so a wait can arrive without what
+    // its form is answered through; a control there would be unsubmittable.
     const run = runWithAnUnaddressableWait();
     const { selection, openFormFor } = selectionOver(run, undefined);
     const { container } = render(<RunParks run={run} humanForms={selection} />);
@@ -262,8 +249,7 @@ describe("a park card's route to its own form", () => {
 
 describe("every park card names its phase", () => {
   it("identifies the phase on each card, so two parked branches are told apart", () => {
-    // The two human waits read identically in reason, cause and schedule: the phase is
-    // the only thing that says which branch stopped.
+    // The two human waits read identically in reason, cause and schedule.
     const { container } = render(
       <RunParks run={runWithTwoHumanWaits()} humanForms={NO_FORM_OPEN} />,
     );
@@ -323,8 +309,7 @@ describe("the phase graph and the park cards of one run", () => {
         node.querySelector(".meridian-phase-node")?.getAttribute("data-park") ?? null,
       ]),
     );
-    // One phase waits on a person, one is parked on capacity with a readable resume,
-    // and the other two are not parked.
+    // One phase waits on a person, one on capacity with a readable resume; two are not parked.
     expect(drawn).toStrictEqual({
       [PHASE_DRAFT]: null,
       [PHASE_BUILD]: "scheduled",
@@ -334,7 +319,7 @@ describe("the phase graph and the park cards of one run", () => {
   });
 
   it("spends the amber exactly where the park cards spend it", async () => {
-    // A node in amber beside a neutral card is one view telling an operator to look at
+    // A node in amber beside a neutral card would be one view telling an operator to look at
     // something the other says needs nobody.
     const container = await renderGraphAndParks(PARKED_RUN);
     const cards = [...container.querySelectorAll(".meridian-park")];

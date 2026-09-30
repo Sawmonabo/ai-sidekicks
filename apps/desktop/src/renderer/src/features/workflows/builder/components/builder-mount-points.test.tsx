@@ -1,16 +1,7 @@
-// The two workflow-engine mount points the builder mounts, checked on the two things a mount point owes.
-//
-//   1. **The frame stands while nobody has filled it**, and holds nothing — no copy and
-//      no shape that reads as a broken one.
-//   2. **The mount obligation is delivered.** A mount point's props type is a promise
-//      about what the body receives, and a promise nothing checks is prose. Each
-//      case below supplies a body and reads back exactly what arrived.
-//
-// AND ONE THING ONLY THIS PAIR CAN BE CHECKED ON: the two client-local tiers stay
-// apart. The canvas's geometry goes to the durable UI-state store and a person's
-// unsent prose goes to the window-lifetime draft store, and the mounts are what
-// keep a body from reaching the wrong one. So each case asserts the store it was
-// handed AND that the other never arrived.
+// The two engine mount points the builder mounts: an unfilled one is an empty frame, and a
+// filled one hands its body exactly what its props type promises. Each filled case also
+// asserts the other store never arrives: canvas geometry goes to the durable UI-state store,
+// unsent prose to the window-lifetime draft store.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -24,14 +15,8 @@ import { NodeGraphMountPoint, type NodeGraphMount } from "./NodeGraphMountPoint.
 const DEFINITION_ID = "workflow-definition-01";
 
 /**
- * The real store, holding an adapter that never arrives.
- *
- * The class itself and not a hand-made double, because what is under test is WHICH
- * store reaches the body and a double would prove only that a double was passed
- * along. Its own `opening()` factory is avoided for the reason `RunPage`'s
- * tests give for casting a whole context: that path opens a database, and these
- * cases never read or write one. The constructor only wraps what it is handed, so a
- * pending adapter costs nothing and arms nothing.
+ * The real store holding an adapter that never arrives: the subject is which store reaches the
+ * body, which a double cannot show. `opening()` is avoided because it opens a database.
  */
 function unopenedUiStateStore(): UiStateStore {
   return new UiStateStore({ adapter: new Promise(() => undefined) });
@@ -83,13 +68,10 @@ describe("a filled builder mount point receives exactly what the mount promised"
         body={body}
       />,
     );
-    // Identity and not deep equality: two stores compare equal field-for-field —
-    // every field is private — so a body handed the WRONG store would pass a
-    // structural check and fail the only one that matters.
+    // Identity, not deep equality: every field is private, so a wrong store would pass a
+    // structural check.
     expect(body.mock.calls[0]?.[0]?.uiStateStore).toBe(uiStateStore);
-    // The first argument rather than the whole call: React owns the argument list of
-    // a component it renders, and an assertion on its arity would be a claim about
-    // React rather than about this mount.
+    // The first argument only: React owns the argument list of a component it renders.
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
       workflowDefinitionId: DEFINITION_ID,
       uiStateStore,
@@ -105,8 +87,8 @@ describe("a filled builder mount point receives exactly what the mount promised"
     render(
       <DraftsMountPoint workflowDefinitionId={DEFINITION_ID} draftStore={draftStore} body={body} />,
     );
-    // The durable store is absent by design and not by omission: a draft that
-    // survived a restart would be user prose in a durable home.
+    // The durable store is absent by design: a draft that survived a restart would be user prose
+    // in a durable home.
     expect(body.mock.calls[0]?.[0]?.draftStore).toBe(draftStore);
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
       workflowDefinitionId: DEFINITION_ID,

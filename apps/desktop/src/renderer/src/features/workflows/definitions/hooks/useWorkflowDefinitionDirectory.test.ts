@@ -1,9 +1,6 @@
-// The enumeration has three states, and the definitions list has to be able to tell them
-// apart.
-//
-// The mount the suites share — the probe, the readings taken off it, and the call that
-// answers per cursor — is `useWorkflowDefinitionDirectory.test-support.tsx`. The pages
-// beyond the first are `useWorkflowDefinitionDirectory.paging.test.ts`.
+// The enumeration's three states, which the definitions list has to tell apart. The shared
+// mount is `useWorkflowDefinitionDirectory.test-support.tsx`; the pages beyond the first are
+// `useWorkflowDefinitionDirectory.paging.test.ts`.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,10 +38,8 @@ describe("useWorkflowDefinitionDirectory — one read, three answers", () => {
   });
 
   it("puts no question at all where no session is in scope", () => {
-    // `unasked` and never `reading`: a spinner over an address that names no session
-    // would promise an answer that is never coming. Asserted on the FIRST render as
-    // well as the last, so the arm that must stay `unasked` is held to the same
-    // moment as the arm below that must not be.
+    // `unasked`, never `reading`: a spinner over an address that names no session would promise
+    // an answer that never comes. Asserted on the first render as well as the last.
     const listDefinitions = vi.fn(twoPageCall());
     const observed = observeDirectory(listDefinitions, undefined);
     expect(firstState(observed).status).toBe("unasked");
@@ -53,17 +48,15 @@ describe("useWorkflowDefinitionDirectory — one read, three answers", () => {
   });
 
   it("is already reading on the first render a session is in scope for", () => {
-    // A state that only became `reading` in an effect, which runs after the commit,
-    // would commit one render claiming nobody had asked — and a list draws that as a
-    // served-looking empty answer before the request has answered.
+    // A state that became `reading` only in an effect would commit one render claiming nobody
+    // had asked, drawn as a served-looking empty answer.
     const observed = observeDirectory(async () => ({ definitions: [] }), PROBE_SESSION_ID);
     expect(firstState(observed).status).toBe("reading");
   });
 
   it("shows the previous session's definitions nowhere once the scope moves", async () => {
-    // A state keyed on the session alone would keep the first session's rows renderable
-    // under the second session's name until an effect reset them, with nothing on screen
-    // saying which session they had been read for.
+    // State keyed on the session alone would keep the first session's rows renderable under the
+    // second session until an effect reset them.
     const probe = rescopableDirectory(twoPageCall(), PROBE_SESSION_ID);
     await settle();
     expect(definitionIds(lastState(probe.observed))).toEqual(["first", "second"]);
@@ -76,10 +69,9 @@ describe("useWorkflowDefinitionDirectory — one read, three answers", () => {
   });
 
   it("starts as a read in flight and settles served, empty included", async () => {
-    // An empty page is a real answer about this context, not the absence of one.
+    // An empty page is a real answer, not the absence of one.
     const observed = observeDirectory(async () => ({ definitions: [] }), PROBE_SESSION_ID);
-    // The state after the mount and before the answer. Every render of it, first
-    // included, because the read is held against the session it is about.
+    // Every render before the answer, first included, is `reading`.
     expect(lastState(observed).status).toBe("reading");
 
     await settle();

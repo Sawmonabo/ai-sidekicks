@@ -1,13 +1,7 @@
-// What a phase row says about a tool binding, and the member without which two
-// separately configured servers read as one.
-//
-// THE SUBJECT IS THE BINDING'S IDENTITY. `McpServerBindingRef` is a three-arm union
-// because the scope reference is part of what a binding IS: two `project` bindings
-// under different repository roots name two different configured servers, so a row
-// drawing only the provider, the names and the broad scope word leaves an operator
-// unable to say which one the phase will invoke. Each case below drives the real
-// component over a hand-built phase, since a definition body with one binding per
-// scope arm never has two that collide, which is exactly the case this pins.
+// What a phase row says about a tool binding. `McpServerBindingRef` is a three-arm union because
+// the scope reference is part of the binding's identity: two `project` bindings under different
+// roots are different servers. Cases drive the real component over a hand-built phase, since a
+// body with one binding per arm never has two that collide.
 
 import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
 import { cleanup, render } from "@testing-library/react";
@@ -19,7 +13,7 @@ import { DefinitionPhaseRow } from "./DefinitionPhaseRow.js";
 
 afterEach(cleanup);
 
-/** Two repository roots, which is the whole difference the collided rows had. */
+/** Two repository roots, the whole difference between the colliding rows. */
 const ATLAS_ROOT = "/Users/operator/work/atlas";
 const BEACON_ROOT = "/Users/operator/work/beacon";
 
@@ -58,9 +52,7 @@ function figureCount(row: HTMLElement): number {
   return row.querySelectorAll(".meridian-figure").length;
 }
 
-// The phase preview arrives on the schema form's own chunk. Resolved once here so every
-// case below renders the loaded preview rather than the reserved region its mount would
-// otherwise suspend on.
+// Resolved once so every case renders the loaded preview, not its reserved region.
 beforeAll(async () => {
   await schemaFormPreviewBody.load();
 });
@@ -76,8 +68,7 @@ describe("a phase's tool bindings — the scope and what it refers to", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]?.textContent ?? "").toContain(ATLAS_ROOT);
     expect(rows[1]?.textContent ?? "").toContain(BEACON_ROOT);
-    // The claim in one line: equal in provider, server and tool, the two rows must not
-    // read the same. Without the reference they did.
+    // Equal in provider, server and tool, the two rows must not read the same.
     expect(rows[0]?.textContent).not.toBe(rows[1]?.textContent);
   });
 
@@ -93,15 +84,14 @@ describe("a phase's tool bindings — the scope and what it refers to", () => {
   });
 
   it("draws no reference for the `user` arm, which carries none", () => {
-    // The negative control for both cases above: a row that printed a reference
-    // unconditionally would pass them and put an empty figure where a path belongs.
+    // A row that printed a reference unconditionally would put an empty figure where a path
+    // belongs.
     const container = renderPhase([{ provider: "claude", scope: "user", serverName: "notes" }]);
 
     const row = bindingRows(container)[0];
     expect(row).toBeDefined();
     expect(row?.textContent ?? "").toContain("user");
-    // One figure and not two: the server-and-tool pair, and nothing standing in for a
-    // reference this arm does not have.
+    // One figure, the server-and-tool pair, with nothing standing in for a reference.
     expect(row === undefined ? 0 : figureCount(row)).toBe(1);
   });
 });

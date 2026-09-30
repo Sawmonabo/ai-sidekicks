@@ -1,15 +1,8 @@
-// The version chain moves under a selection the run never moved away from.
-//
-// SEPARATE FROM `OperatorControls.test.tsx` BECAUSE THE SUBJECT IS DIFFERENT. That file
-// varies the RUN and asserts the two fields are answers about one of them; every case
-// here holds the run still and varies the CHAIN, which is the input scoping cannot
-// speak to — a version published while the pane stood open, or a resume control
-// re-served after a refusal, replaces `versionChain` on a run that has not changed.
-//
-// WHAT MADE THE DEFECT SILENT is asserted at the foot of this file rather than
-// described: a `<select>` handed a value no option carries reports `selectedIndex`
-// −1 and an empty `value`, so the picker went blank while the state behind it still
-// held the old id — and the sentence beside it, and the submit, still spent that id.
+// The version chain moves under a selection the run never moved away from. Every case holds the
+// run still and varies the chain (a version published while the pane stood open, or a resume
+// control re-served after a refusal), which run scoping cannot cover. A `<select>` handed a value
+// no option carries reports `selectedIndex` -1, so the picker went blank while the held id was
+// still spent; the last case asserts that platform behavior.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -69,7 +62,6 @@ function chooseThenMoveChain(
 ): ReturnType<typeof render> {
   const rendered = render(admitted({ versionChain: CHAIN_BEFORE, resume }));
   fireEvent.change(screen.getByRole("combobox"), { target: { value: "wfv-02" } });
-  // The premise: the picker really did take the operator's choice on the old chain.
   expect(chosenRepin()).toBe("wfv-02");
   rendered.rerender(admitted({ versionChain: chain, resume }));
   return rendered;
@@ -80,8 +72,7 @@ describe("a chain that moves under a held re-pin target", () => {
     chooseThenMoveChain(CHAIN_AFTER, vi.fn());
 
     expect(chosenRepin()).toBe(NO_REPIN_VALUE);
-    // And the line quoting the target goes with it, rather than naming a version the
-    // picker beside it does not offer.
+    // The line quoting the target goes with it.
     expect(screen.queryByText(/resuming onto/iu)).toBeNull();
   });
 
@@ -95,9 +86,8 @@ describe("a chain that moves under a held re-pin target", () => {
   });
 
   it("negative control: a chain that still carries the choice keeps it", () => {
-    // Without this, the two cases above would pass over a component that dropped the
-    // target on every chain change — which would discard a person's choice each time
-    // an unrelated version was published.
+    // Without this, the two cases above would pass over a component that dropped the target on
+    // every chain change, discarding a person's choice whenever an unrelated version landed.
     const resume = vi.fn();
     chooseThenMoveChain(CHAIN_AFTER_KEEPING_CHOICE, resume);
 
@@ -107,8 +97,7 @@ describe("a chain that moves under a held re-pin target", () => {
   });
 
   it("negative control: a picker handed an unofferable value shows nothing at all", () => {
-    // The premise, asserted on the platform rather than assumed: a stale held id
-    // would otherwise read as a blank picker while the submit still spent it.
+    // The platform premise, asserted rather than assumed.
     const picker = document.createElement("select");
     for (const choice of CHAIN_AFTER) {
       const option = document.createElement("option");

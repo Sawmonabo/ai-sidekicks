@@ -1,31 +1,8 @@
-// The mapper: what a human phase's input schema turns into, and where it stops turning
-// into one. The vocabulary it produces — the five kinds, the descriptors, the fallback
-// causes — lives in `schema-fields.ts`; what one member schema DECLARES is read in
-// `schema-declarations.ts`; this module is the walk between them.
-//
-// EVERYTHING ELSE FALLS BACK, AND NOTHING REFUSES. `$ref`, a tuple's positional
-// `items`, a nullable union, an object nested two deep: each of them is a schema this
-// mapper cannot draw richly, and the answer is the raw editor beside the schema rather
-// than a phase nobody can answer. The fallback carries WHICH member sent it there,
-// because "this form could not be drawn" with no member named is a sentence an author
-// cannot act on.
-//
-// AND TWO OF THE FALLBACKS ARE ABOUT A FORM THAT WOULD HAVE DRAWN PERFECTLY. A declared
-// value no control could display, and a constraint that can require a member the level it
-// sits on never declared, both produce controls that render and an answer nobody can make
-// valid — the first by seeding a value the control does not show, the second by reporting
-// a finding no control on the screen can clear. Both are decided here, before the plan
-// says "fields", because deciding them later means deciding them after somebody has
-// started typing.
-//
-// THE CONSTRAINT READING IS MADE AT EVERY LEVEL THAT DRAWS CONTROLS, root and group alike,
-// each against the members that level actually drew. One cause covers both depths and the
-// member it names carries its full path, so the sentence a person reads says which group
-// is short a control rather than only which key is.
-//
-// THE INPUT IS `unknown` BY CONSTRUCTION. A phase definition carries its config as an
-// untyped record — the wire declares no shape for it — so every read here is a probe
-// and a member that is not what it claims lands in the fallback like any other.
+// Walks a human phase's input schema into a form plan. Never refuses: a schema it cannot draw
+// (`$ref`, tuple `items`, a nullable union, objects nested two deep) becomes the raw-editor
+// fallback naming the member that forced it. A declared value no control could show, and a
+// constraint requiring a member the level never declared, also fall back, decided here so
+// nobody starts typing into a form whose answer can never be made valid.
 
 import { encodeMemberPointer, type SchemaMemberPath } from "../schema-member-path.js";
 import {
@@ -51,17 +28,12 @@ import {
 import { schemaRootAsksOutsideNamedValues } from "./schema-root-shape.js";
 
 /**
- * Turn one input schema into the form the console draws for it.
- *
- * Total over every input: an unreadable schema, an empty one, and one carrying a member
- * outside the render set all resolve to the raw arm, which is what makes "never a
- * refusal" a property of the type rather than a promise in a comment.
+ * Turn one input schema into the form the console draws for it. Total: an unreadable, empty or
+ * out-of-set schema resolves to the raw arm.
  */
 export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
   const schema = asRecord(inputSchema);
-  // The root's own shape is `schema-root-shape.ts`'s reading and not a second one here:
-  // that module decides which roots this console can answer at all, and a schema it
-  // refuses must not also reach the raw editor.
+  // The root's shape is decided by `schema-root-shape.ts`; a root it refuses is not drawn.
   if (schema === undefined || schemaRootAsksOutsideNamedValues(inputSchema)) {
     return {
       shape: "raw",
@@ -88,9 +60,7 @@ export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
   const entries: SchemaFormEntry[] = [];
   for (const [key, memberSchema] of Object.entries(properties)) {
     const child = asRecord(memberSchema);
-    // One read of this level's `required` set, whichever shape the member turned out to
-    // be: a group carries it onto its legend exactly as a scalar and a list carry it onto
-    // their own.
+    // A group carries this level's requiredness onto its legend as a scalar and a list do.
     const isRequired = required.has(key);
     const planned =
       child !== undefined && declaredType(child) === "object"
@@ -101,11 +71,8 @@ export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
     }
     entries.push(planned);
   }
-  // LAST, BECAUSE IT IS ASKED OF THE CONTROLS THAT WERE ACTUALLY DRAWN. Every member the
-  // root's own constraints can require has to reach one of them; a name that reaches none
-  // is a finding reported against the whole answer with nothing on the screen to clear it.
-  // The enclosing path is empty here — this is the depth-0 call of the check each drawn
-  // group has already made of its own constraints.
+  // Last, against the controls actually drawn: a required name that reaches none is a finding on
+  // the whole answer with nothing on screen to clear it.
   const undrawnConstraint = undrawnConstraintFallback(schema, [], entries);
   if (undrawnConstraint !== undefined) {
     return { shape: "raw", fallback: undrawnConstraint };
@@ -141,13 +108,8 @@ function undrawableConstraint(memberPath: SchemaMemberPath): SchemaFallback {
 }
 
 /**
- * Whether one declared value is one this leaf's control would display.
- *
- * ONE PREDICATE AT BOTH LEVELS. A collection shows entries, so a declared value for one is
- * a list of what its repeated control draws — and an entry of another shape, or one outside
- * the enumeration that entry's control offers, is the same divergence one level in. Asked
- * of the ITEM's own descriptor rather than of its kind, so the members a repeated choice
- * offers are read exactly where a standalone one's are.
+ * Whether one declared value is one this leaf's control would display. A collection's value must
+ * be a list of what its repeated control draws, judged by the item's own descriptor.
  */
 function valueSuitsLeaf(leaf: SchemaLeafEntry, value: unknown): boolean {
   if (leaf.form === "field") {
@@ -157,14 +119,9 @@ function valueSuitsLeaf(leaf: SchemaLeafEntry, value: unknown): boolean {
 }
 
 /**
- * Whether a group's declared value is one its own controls could show, member by member.
- *
- * TOTAL OVER THE DECLARED VALUE AND NOT OVER THE GROUP. Every member of it has to reach a
- * control: a member naming no drawn child is a value the schema's own reading supplies to
- * the accepted answer and nothing on the screen accounts for, which is the divergence
- * this form exists to close, and a member of the wrong shape is that divergence with the
- * control visibly showing something else. A child the declared value says nothing about
- * is not a gap — it simply opens where it would have anyway.
+ * Whether a group's declared value is one its own controls could show. Every member of it must
+ * reach a drawn child of a matching shape, or the accepted answer carries what the screen does
+ * not show; a child the value says nothing about is not a gap.
  */
 function groupDefaultIsDrawable(
   declared: Readonly<Record<string, unknown>>,
@@ -193,11 +150,8 @@ function planLeaf(
   if (isFallback(leaf)) {
     return leaf;
   }
-  // ASKED OF THE LEAF THAT WAS JUST BUILT, and through the one predicate a group's own
-  // declared value is read by: the schema's `default` is what this control opens holding,
-  // so a value of another kind is a control rendering its empty state over an answer that
-  // already carries something. Seeding it silently is how `{ type: "number",
-  // default: "auto" }` sent a string nobody had seen and nobody could clear.
+  // The schema's `default` is what this control opens holding, so a value of another kind
+  // would leave the control showing its empty state over an answer that already carries one.
   const declaredDefault = schema["default"];
   return declaredDefault !== undefined && !valueSuitsLeaf(leaf, declaredDefault)
     ? undrawableDefault(memberPath)
@@ -205,11 +159,9 @@ function planLeaf(
 }
 
 /**
- * Which of the two leaf shapes a member schema draws as.
- *
- * The MEMBER's own declared value is the caller's, because both shapes read it the same
- * way. The list ITEM's is read here, because it is the only value with no leaf of its own
- * to be asked about — one descriptor stands for every entry a person adds.
+ * Which of the two leaf shapes a member schema draws as. The member's own declared value is
+ * checked by the caller; the list item's is checked here, since one descriptor stands for every
+ * entry.
  */
 function planLeafShape(
   schema: Readonly<Record<string, unknown>>,
@@ -227,14 +179,11 @@ function planLeafShape(
   const items = asRecord(schema["items"]);
   const itemKind = items === undefined ? undefined : fieldKindOf(items);
   if (items === undefined || itemKind === undefined) {
-    // A tuple's positional `items`, an array of objects, an array of arrays: each is a
-    // repetition of something this form has no control for, so the array goes with it.
+    // A tuple, an array of objects or of arrays repeats something with no control.
     return outOfSet(memberPath);
   }
-  // The ITEM's own declared value, which is what every added entry opens holding. Its
-  // control is the repeated one, so the same reading applies one level in — asked of the
-  // entry's own descriptor, and the member named is the collection's, because that is the
-  // control a person can see.
+  // The item's declared value is what every added entry opens holding; the collection is the
+  // member named because that is the control a person can see.
   const item = listItemDescriptor(items, itemKind, memberPath, key, isRequired);
   const declaredEntryValue = items["default"];
   if (declaredEntryValue !== undefined && !valueSuitsField(item, declaredEntryValue)) {
@@ -254,11 +203,8 @@ function planLeafShape(
 }
 
 /**
- * Whether a planned entry came back as the fallback rather than as something to draw.
- *
- * Widened to every entry form rather than to the leaf pair, because both planners return
- * through it — the group planner answers with a group or a fallback, and the leaf planner
- * with a field, a list, or one. The discriminant is `cause`, which no entry form carries.
+ * Whether a planned entry came back as the fallback. Widened to every entry form because both
+ * planners return through it; `cause` is the discriminant no entry form carries.
  */
 function isFallback(value: SchemaFormEntry | SchemaFallback): value is SchemaFallback {
   return "cause" in value;
@@ -266,9 +212,7 @@ function isFallback(value: SchemaFormEntry | SchemaFallback): value is SchemaFal
 
 /**
  * One level down: a group's own leaves, or the first fallback one of them forces.
- *
- * `isRequired` is the ENCLOSING level's reading of this group, taken the same way the leaf
- * planner takes it: a group is a member of the level above and its legend says so.
+ * `isRequired` is the enclosing level's reading of this group.
  */
 function planGroup(
   schema: Readonly<Record<string, unknown>>,
@@ -296,10 +240,8 @@ function planGroup(
       return undrawableDefault(memberPath);
     }
   }
-  // The group's OWN constraints, asked of the controls this group drew — the same reading
-  // the root makes of its own, one level in. It sends the WHOLE schema to the raw editor
-  // rather than only this group, because a group drawn beside a finding no control in it
-  // can clear is the state this check exists to prevent, and there is no half-raw form.
+  // The whole schema goes raw, not just this group: there is no half-raw form, and a group drawn
+  // beside a finding none of its controls can clear is the state this check prevents.
   const undrawnConstraint = undrawnConstraintFallback(schema, memberPath, entries);
   if (undrawnConstraint !== undefined) {
     return undrawnConstraint;
@@ -330,19 +272,10 @@ function drawnMemberNames(entries: readonly SchemaFormEntry[]): ReadonlySet<stri
 }
 
 /**
- * The fallback one level's own constraints force, or nothing where every name they can
- * require reaches a control that level drew.
- *
- * ONE RULE AT BOTH DEPTHS, AND THE ROOT IS THE DEPTH-0 INSTANCE. `enclosingPath` is empty
- * at the root and is the group's path inside a group, which is the whole difference — the
- * member is named by its FULL path either way, so one cause covers both and a person
- * reading `/release/signedBy` is told which group is missing the control rather than only
- * which key.
- *
- * ONE NAME AND NOT THE SET, because the fallback shows a person one sentence and that
- * sentence names one member — the first met walking the schema as written, which is the
- * one an author reading their own document would look for first. The rest are the same
- * defect and are found again the moment this one is declared.
+ * The fallback one level's own constraints force, or nothing where every name they can require
+ * reaches a control that level drew. `enclosingPath` is empty at the root; the member is named by
+ * its full path so a person learns which group lacks the control. Only the first name met in
+ * schema order is named, since the rest are found again once it is declared.
  */
 function undrawnConstraintFallback(
   schema: Readonly<Record<string, unknown>>,

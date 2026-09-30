@@ -1,32 +1,14 @@
-// The graph's data vocabulary, and the one place a run's edges come from.
-//
-// WHY THIS IS ITS OWN MODULE. Placing phases and deciding which phases connect are
-// two jobs, and until this fold they were one function because there was only ever
-// one answer: phase N to phase N+1. That answer was wrong. `workflow.runRead`
-// carries an ORDERED `phaseStates` array and NO topology at all — the sequence
-// edges, the fan-out and the joins live on the pinned definition's `dependsOn`
-// lists — so an adjacency-derived edge asserted a dependency the run never
-// declared, and a parallel run was drawn as a serial chain. Deriving edges from a
-// declaration is enough work, and enough rules, to be read on its own.
-//
-// NOTHING HERE IS GEOMETRY. No pixel, no rank, no position: this module answers
-// which phases connect, and `phase-sequence-layout.ts` beside it answers where they
-// sit. That is also why the vocabulary both of them read lives here rather than
-// there — the dependency runs one way, and a module that decides edges has no
-// business importing a module that decides pixels.
-//
-// NOTHING HERE IMPORTS THE GRAPH LIBRARY, not even for a type, for the reason its
-// neighbor states: both sit on the initial bundle path, and a static edge into
-// `@xyflow/react` would pull the chunk the lazy arrangement exists to keep out.
+// The graph's data vocabulary, and the one place a run's edges come from. A run read carries an
+// ordered `phaseStates` array and no topology; edges come from the pinned definition's
+// `dependsOn` lists. No geometry here (that is `phase-sequence-layout.ts`), and no import of
+// the graph library, because both modules sit on the initial bundle path.
 
 /**
- * One phase of the pinned DEFINITION, as the definition declares it.
+ * One phase of the pinned definition, as the definition declares it.
  *
- * The only source of edges this module accepts. `dependsOn` is transcribed from the
- * registered `PhaseDefinition` shape verbatim, optional exactly as it is there: the
- * ids of the phases whose gates must resolve before this one becomes eligible, an
- * empty list marking an entry-node successor, and absence — on EVERY phase together
- * — meaning the declaration order is the chain.
+ * `dependsOn` mirrors the registered `PhaseDefinition`: the ids whose gates must resolve first,
+ * an empty list for an entry node, and absence on every phase together meaning declaration
+ * order is the chain.
  */
 export interface PhaseDependencyDeclaration {
   readonly phaseId: string;
@@ -36,55 +18,33 @@ export interface PhaseDependencyDeclaration {
 /**
  * The pinned definition's phases in declaration order, where one has been read.
  *
- * A list rather than a map, because the order is load-bearing: it is what declares
- * the chain for a definition that omits `dependsOn` throughout.
+ * A list because order declares the chain for a definition that omits `dependsOn` throughout.
  */
 export type PhaseTopology = readonly PhaseDependencyDeclaration[];
 
 /**
  * Why a drawn sequence carries no edges. Two, because the next move differs.
  *
- *   • `not-supplied` — no definition reached this graph, so there is no topology to
- *     draw. Nothing is wrong; the picture is simply incomplete and says so.
- *   • `not-drawable` — a definition DID reach it and its topology is not one a graph
- *     can draw: it supplies `dependsOn` on some phases and not others, which the
- *     all-or-none rule forbids, it describes a phase set that is not the run's, or its
- *     dependencies close a cycle, so phases in it can never become eligible. Drawing
- *     part of it would be a picture short of a dependency, and drawing a cycle would
- *     present a definition no run can execute as one this run is executing.
+ *   - `not-supplied`: no definition reached this graph; the picture is incomplete and says so.
+ *   - `not-drawable`: the definition has `dependsOn` on some phases only, a phase set that is
+ *     not the run's, or a dependency cycle. A partial or cyclic picture would mislead.
  */
 export type PhaseTopologyAbsence = "not-supplied" | "not-drawable";
 
 /**
  * What a park on this canvas is waiting for, and exactly two answers.
  *
- * A BOOLEAN WOULD BE THE DEFECT. A parked flag gives every park the same amber
- * border — including a provider-limited phase the engine armed a readable resume
- * for, which needs nobody. Amber means "a person is needed" and nothing else, and
- * the park badge beside the graph reads it that way: a flag on the node would give
- * one phase two attention readings with nothing failing.
- *
- * The caller supplies the answer rather than deriving it here, and derives it
- * through `workflows/runs/run-list-rows.ts`'s `parkAwaitsPerson` — the same reading the
- * badge takes its tone from, so the two cannot come apart.
- *
- * A UNION AND NOT AN EXPORTED TUPLE. Nothing reads these answers as an array — not
- * this module, not the graph, not a test — and a value read only as a type is dead
- * weight at runtime. An exported array with no consumer would be worse still, because
- * a closed set published with no consumer is how the next module comes to restate the
- * literals rather than import them. The marks table below is total over this union, so a third
- * reading is still one edit a reviewer sees.
+ * A boolean would give every park the amber border, including a provider-limited phase with a
+ * readable resume that needs nobody; amber means a person is needed. The caller derives the
+ * answer through `parkAwaitsPerson` in `runs/run-list-rows.ts`, as the park badge does.
  */
 export type PhaseParkAttention = "awaiting-person" | "scheduled";
 
 /**
  * What a node prints, and says out loud, for each attention reading.
  *
- * Total over the closed set, so a third reading is a compile error here rather than
- * a park that draws a treatment and names nothing. It lives beside the vocabulary
- * because both the box and the accessible name read it, and two tables would be two
- * chances for a reader who is looking and one who is listening to be told different
- * things about one phase.
+ * Total over the closed set, and shared by the box and the accessible name so a reader who
+ * looks and one who listens are told the same thing.
  */
 export const PHASE_PARK_ATTENTION_MARKS: Readonly<Record<PhaseParkAttention, string>> = {
   "awaiting-person": "parked",
@@ -92,20 +52,11 @@ export const PHASE_PARK_ATTENTION_MARKS: Readonly<Record<PhaseParkAttention, str
 };
 
 /**
- * One phase of a RUN, as the caller reports it.
+ * One phase of a run, as the caller reports it.
  *
- * The other half of the pair: a declaration above is what the definition says
- * should happen, and this is what the run says did. Every member is the caller's,
- * and in particular the display name is supplied rather than composed — a phase's
- * name is a fact about the run, and a graph that invented one would be asserting
- * something it never read.
- *
- * THE NAME AND THE IDENTIFIER ARE TWO MEMBERS, NOT ONE LABEL. A single `label` would
- * let a caller with no name to give pass the phase id in its place, and the box would
- * draw a wire identifier in the face and weight an authored name has — an opaque key
- * read as something a person had chosen. Keeping them apart means the absence of a
- * name is representable, and the id renders in mono wherever it is drawn, the sign
- * that a figure came from the daemon.
+ * The display name is supplied, never composed: a graph that invented one would assert
+ * something it never read. Name and identifier are separate members so a caller with no name
+ * cannot pass the phase id in its place, and the id renders in mono as a daemon figure.
  */
 export interface RunGraphNode {
   /** The run's own identity for this phase. Wire-verbatim; never parsed, never prettified. */
@@ -113,9 +64,8 @@ export interface RunGraphNode {
   /**
    * The phase's authored name, where the caller holds one.
    *
-   * `undefined` means no read available to the caller carries a name — not that the
-   * phase has none. Spelled `| undefined` rather than left optional because the
-   * caller builds this shape per node and states the member every time.
+   * `undefined` means no read available to the caller carries a name, not that the phase has
+   * none. Stated on every node rather than left optional.
    */
   readonly displayName: string | undefined;
   readonly state: "pending" | "running" | "completed" | "failed" | "skipped";
@@ -123,10 +73,8 @@ export interface RunGraphNode {
   /**
    * How this phase's park reads, or nothing where the phase is not parked.
    *
-   * Absence is the not-parked case and is spelled `| undefined` rather than left
-   * optional: the caller builds this shape from a wire phase and states the member
-   * on every node, so under `exactOptionalPropertyTypes` an absent key and a key
-   * holding `undefined` would be different types at the one call site there is.
+   * Spelled `| undefined` because, under `exactOptionalPropertyTypes`, an absent key and a key
+   * holding `undefined` are different types at the one call site.
    */
   readonly parkAttention: PhaseParkAttention | undefined;
 }
@@ -143,11 +91,8 @@ export interface PhaseSequenceEdge {
 /**
  * The words that stand for one phase where only a string will do.
  *
- * An accessible name and an edge's label are sentences rather than markup, so
- * neither can draw the name and the identifier differently — they get the name where
- * there is one and the identifier where there is not. That fallback is stated once
- * here because two call sites choosing it separately is how one of them comes to
- * announce a phase the other calls something else.
+ * The authored name where there is one, else the identifier. Stated once so the accessible
+ * name and an edge label cannot announce different strings for one phase.
  */
 export function phaseDisplayText(phase: RunGraphNode): string {
   return phase.displayName ?? phase.phaseId;
@@ -156,27 +101,17 @@ export function phaseDisplayText(phase: RunGraphNode): string {
 /**
  * The edges one definition declares over one run's phases, or nothing.
  *
- * `undefined` means the topology is not drawable — the caller renders no edges and
- * says so. Every refusal here is a definition the daemon's own author-time checks
- * would have rejected, so nothing partial is drawn from one: a graph short of a
- * dependency looks finished and is wrong, which is the failure this whole module is
- * written against.
+ * `undefined` means the topology is not drawable and the caller draws no edges. Nothing
+ * partial is drawn: a graph short of a dependency looks finished and is wrong.
  */
 export function declaredEdges(
   phases: readonly RunGraphNode[],
   topology: PhaseTopology,
 ): readonly PhaseSequenceEdge[] | undefined {
   const phaseById = new Map(phases.map((phase) => [phase.phaseId, phase]));
-  // The definition has to describe each of the run's phases EXACTLY ONCE. A topology
-  // naming a phase the run does not carry would draw an edge to nowhere, and one
-  // silent about a phase the run does carry leaves that phase's dependencies
-  // unstated — neither is a picture of this run.
-  //
-  // Counted by identifier rather than by length, because a length beside a membership
-  // test is not that claim: two declarations for one phase and none for another have
-  // the right count and pass the membership test, and the picture drawn from them is
-  // a run with a phase missing — and, on the order-chain path, one that depends on
-  // itself.
+  // The definition must describe each of the run's phases exactly once. Counted by identifier
+  // rather than by length: two declarations for one phase and none for another pass a length
+  // check and a membership test yet draw a run with a phase missing.
   const declaredPhaseIds = new Set<string>();
   for (const declaration of topology) {
     if (!phaseById.has(declaration.phaseId) || declaredPhaseIds.has(declaration.phaseId)) {
@@ -193,9 +128,8 @@ export function declaredEdges(
     return chainOverDeclarationOrder(phaseById, topology);
   }
   if (declaring.length !== topology.length) {
-    // The all-or-none rule, which the owning contract makes a typed refusal at the
-    // daemon. A console that drew the declared half would show a run whose
-    // undeclared phases float free of everything.
+    // The all-or-none rule, a typed refusal at the daemon. Drawing the declared half would
+    // leave the undeclared phases floating free.
     return undefined;
   }
 
@@ -208,19 +142,15 @@ export function declaredEdges(
       }
       const edge = dependencyEdge(sourcePhaseId, target);
       if (edges.has(edge.edgeId)) {
-        // One dependency listed twice. Deduping it would hide a definition the
-        // daemon should have refused, and keeping both would collide on the canvas.
+        // One dependency listed twice: deduping would hide a definition the daemon should
+        // have refused, and keeping both would collide on the canvas.
         return undefined;
       }
       edges.set(edge.edgeId, edge);
     }
   }
-  // A dependency cycle, checked over the WHOLE declaration rather than one edge at a
-  // time. The direct self-dependency this used to reject is the one-phase case of it,
-  // and rejecting only that let A-depends-on-B-depends-on-A through: both edges were
-  // drawn, the layout reported the sequence drawable, and an impossible definition was
-  // presented as a picture of a run — without even the `not-drawable` caption that
-  // would have said the graph could not be trusted.
+  // A dependency cycle, checked over the whole declaration: A depends on B depends on A has no
+  // self-edge yet no phase in it can ever become eligible.
   if (phasesNeverEligible(declaring).length > 0) {
     return undefined;
   }
@@ -230,21 +160,9 @@ export function declaredEdges(
 /**
  * Every declared phase that can never become eligible, in declaration order.
  *
- * Kahn's peel, run to exhaustion: a phase whose dependencies are all satisfied comes
- * off, which satisfies the phases waiting on it, and so on. A well-formed definition
- * peels away entirely. What is left is the phases a cycle blocks — its own members and
- * anything waiting behind them, which is deliberate: the operator's question is which
- * phases will never run, and a list of only the cycle's members would be silent about
- * the branch stalled behind it.
- *
- * NAMED RATHER THAN COUNTED. "This definition is cyclic" leaves an operator to find
- * the loop by reading the whole declaration; the identifiers are the only thing here
- * that says where to look, which is the same reason the repeated-id refusal beside
- * this one names its ids.
- *
- * Every dependency named here is already known to be a declared phase — `declaredEdges`
- * establishes that before it calls this — so an unresolved name is impossible rather
- * than silently treated as satisfied.
+ * Kahn's peel run to exhaustion: what is left is a cycle's members and anything waiting
+ * behind them. Named rather than counted, so an operator can find the loop. Every dependency
+ * is already known to be a declared phase.
  */
 export function phasesNeverEligible(topology: PhaseTopology): readonly string[] {
   const unsatisfied = new Map<string, Set<string>>(
@@ -264,8 +182,8 @@ export function phasesNeverEligible(topology: PhaseTopology): readonly string[] 
       peeled = true;
     }
   }
-  // Declaration order rather than map order, so two runs of one definition name the
-  // phases in the same sequence a reader meets them in.
+  // Declaration order, so two runs of one definition name the phases in the order a reader
+  // meets them.
   return topology
     .map((declaration) => declaration.phaseId)
     .filter((phaseId) => unsatisfied.has(phaseId));
@@ -274,9 +192,8 @@ export function phasesNeverEligible(topology: PhaseTopology): readonly string[] 
 /**
  * One edge, from the phase depended on to the phase that waits for it.
  *
- * Built through one function so the id and the carried label are composed in one
- * place: an edge whose id disagreed with its endpoints would collide on the canvas,
- * where node and edge identity are the only keys there are.
+ * Built in one place so the id and the label always agree with the endpoints; edge identity
+ * is the only key on the canvas.
  */
 function dependencyEdge(sourcePhaseId: string, target: RunGraphNode): PhaseSequenceEdge {
   return {
@@ -290,10 +207,7 @@ function dependencyEdge(sourcePhaseId: string, target: RunGraphNode): PhaseSeque
 /**
  * The chain a definition that omits `dependsOn` throughout declares by its order.
  *
- * The DEFINITION's order and not the run's: the contract makes the declaration order
- * the chain, and the run read's array order is a separate fact that happens to agree
- * today. Reading it off the run instead would be this module inferring the edge set
- * again, one indirection further along.
+ * Read off the definition's order, not the run's array order, which is a separate fact.
  */
 function chainOverDeclarationOrder(
   phaseById: ReadonlyMap<string, RunGraphNode>,

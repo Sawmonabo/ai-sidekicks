@@ -1,14 +1,6 @@
 // The collection field list: what a repeated control is called, where its findings land, and
-// what the two controls that change how many are called.
-//
-// SPLIT FROM `SchemaForm.test.tsx` because the two are different subjects and the file had
-// stopped being one reading. That suite is about the form — which control a member draws,
-// where a finding addressed to a member, a group, or the whole answer is rendered. This
-// one is about a collection: a fieldset holding positions rather than names, whose entries
-// are named by where they sit and whose add and remove controls are named for it.
-//
-// Driven through the same real mount, for that suite's reason: a case fed a fabricated
-// list descriptor would pass with the mapper deleted.
+// what its add and remove controls are called. Driven through the real mount, since a
+// fabricated list descriptor would pass with the mapper deleted.
 
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,12 +17,8 @@ import {
 afterEach(cleanup);
 
 /**
- * The shape a present EMPTY collection is the only answer to.
- *
- * The root demands at least one member and the collection accepts no entries, so
- * `{ reviewers: [] }` is the one value this schema takes. Projected through the unanswered
- * value, a zero-row draft was omitted for being optional, adding a row broke `maxItems`,
- * and the drawn form could never reach the single state that satisfies its own schema.
+ * A schema whose only valid answer is a present empty collection: the root demands a member
+ * and the array accepts no entries, so `{ reviewers: [] }` is the one value it takes.
  */
 const PRESENT_EMPTY_SCHEMA = {
   type: "object",
@@ -56,13 +44,9 @@ describe("the collection a schema-derived form draws", () => {
   });
 
   it("draws a yes-or-no entry as the box a position always holds a value for", async () => {
-    // WHERE REQUIREDNESS AND "MAY BE LEFT OUT" PART COMPANY, which is the one thing the
-    // entry descriptor exists to say. This collection is OPTIONAL, so the answer may leave
-    // `flags` out entirely — but a POSITION inside it cannot be left out: the entry is on
-    // the screen from the moment somebody presses add. Read off the collection's own
-    // requiredness, the entry would have drawn the three-state choice a standalone
-    // optional boolean draws, and offered an unanswered option that writes nothing into an
-    // entry that has to hold something.
+    // The collection is optional, but a position inside it cannot be left out: the entry is on
+    // screen once add is pressed. So its boolean draws as a box, not the three-state choice a
+    // standalone optional boolean gets.
     answerEveryCollection(
       await renderForm({
         type: "object",
@@ -75,16 +59,13 @@ describe("the collection a schema-derived form draws", () => {
     addListEntry("Flags");
 
     expect(screen.getByLabelText("Flags, entry 1")).toHaveProperty("type", "checkbox");
-    // The control: the same kind, equally optional, standing on its own — where absence IS
-    // available and the third state is therefore the honest one. Without this, an entry
-    // drawn as a box would look like the rule rather than the exception to it.
+    // The control: the same optional kind standing on its own, where the third state is honest.
     expect(screen.getByLabelText("Notify").tagName).toBe("SELECT");
   });
 
   it("names each collection's add control after the collection it adds to", async () => {
-    // A fieldset legend is not part of a button's accessible name, so two lists drawn with
-    // the same visible text are two controls a person navigating between buttons cannot
-    // tell apart — and pressing one of them adds an entry somewhere they did not choose.
+    // A legend is not part of a button's accessible name, so two lists with the same visible
+    // text would give indistinguishable buttons.
     answerEveryCollection(
       await renderForm({
         type: "object",
@@ -97,14 +78,12 @@ describe("the collection a schema-derived form draws", () => {
 
     expect(screen.getByRole("button", { name: "Add an entry to Reviewers" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Add an entry to Approvers" })).toBeDefined();
-    // The visible text is unchanged, so no control on either fieldset got longer; what
-    // moved is the name spoken for it, and no button is left carrying the bare one.
+    // The visible text is unchanged; only the spoken name carries the collection.
     expect(screen.queryAllByRole("button", { name: "Add an entry" })).toHaveLength(0);
   });
 
   it("names each entry's remove control after the entry it removes", async () => {
-    // The same defect one control over, and it arrives the moment somebody adds anything:
-    // the first entry of every collection on the form is "entry 1".
+    // The same for remove: the first entry of every collection is "entry 1".
     answerEveryCollection(
       await renderForm({
         type: "object",
@@ -133,8 +112,7 @@ describe("the collection a schema-derived form draws", () => {
 
     expect(screen.getByRole("textbox", { name: "Reviewers, entry 1" })).toBeDefined();
     expect(screen.getByRole("textbox", { name: "Reviewers, entry 2" })).toBeDefined();
-    // Spoken rather than drawn: the legend already names the collection and the ordered
-    // list already draws the position, so a visible label would say both a second time.
+    // Spoken rather than drawn: the legend and list order already show it.
     expect(container.querySelector(".meridian-schema-list__item label")?.className).toContain(
       "meridian-visually-hidden",
     );
@@ -155,9 +133,7 @@ describe("the collection a schema-derived form draws", () => {
 
     expect(describedBy).not.toBe("");
     expect(document.getElementById(describedBy)?.textContent ?? "").not.toBe("");
-    // The collection itself has nothing wrong with it — `minItems` and its siblings are
-    // what a list-level finding is — so a message drawn against the fieldset here would
-    // be one nobody could attribute to an entry.
+    // The collection itself has nothing wrong, so no message may be drawn against its fieldset.
     expect(
       container.querySelector(".meridian-schema-list > .meridian-schema-field__issues"),
     ).toBeNull();
@@ -167,9 +143,7 @@ describe("the collection a schema-derived form draws", () => {
     const container = await renderForm(PRESENT_EMPTY_SCHEMA);
     const list = listFieldset(container);
 
-    // Unanswered: absent from the answer, offering the one control that answers it and
-    // none that adds an entry — a row under a collection nobody is answering would be a
-    // row whose value reaches nothing, which is the rule an optional group already keeps.
+    // Unanswered: absent from the answer, offering only the control that answers it and no add.
     expect(composedAnswer(container)).toEqual({});
     expect(within(list).queryByRole("button", { name: "Add an entry to Reviewers" })).toBeNull();
 
@@ -185,9 +159,7 @@ describe("the collection a schema-derived form draws", () => {
   });
 
   it("keeps an answered collection present after its last entry is removed", async () => {
-    // Present-empty and absent are two states, and only the activation control moves
-    // between them: a collection somebody answered and then emptied is an empty array,
-    // not a member they never answered.
+    // Present-empty and absent are two states; only the activation control moves between them.
     const container = await renderForm({
       type: "object",
       properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
@@ -205,8 +177,7 @@ describe("the collection a schema-derived form draws", () => {
   });
 
   it("draws a required collection answered from the mount, with no control that takes it back", async () => {
-    // The other half of the rule, unchanged: the schema demands the array, so there is no
-    // state the control could reach and it is absent rather than drawn and inert.
+    // The schema demands the array, so the control is absent rather than drawn and inert.
     const container = await renderForm({
       type: "object",
       properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
@@ -220,8 +191,7 @@ describe("the collection a schema-derived form draws", () => {
   });
 
   it("names the collection's description in the fieldset's description, ahead of any finding", async () => {
-    // A person moving between the entry, add, and remove controls hears the legend and
-    // never the author's instructions, which the fieldset drew visibly and named nowhere.
+    // The description is attached to the fieldset, so it is heard among the entry controls.
     const container = await renderForm({
       type: "object",
       properties: {
@@ -278,10 +248,8 @@ describe("the collection a schema-derived form draws", () => {
   });
 
   it("keeps an entry's finding off a member whose own name reads like that entry's position", async () => {
-    // The negative control for the path representation. Joined with a dot, the property
-    // literally named `items.0` and the first entry of the array named `items` are ONE
-    // string, so the entry's finding was drawn under both controls — under a control whose
-    // value the schema had said nothing about.
+    // Negative control for the path representation: joined with a dot, the property `items.0`
+    // and entry 0 of `items` are one string, so the finding would draw under both controls.
     const container = await renderForm({
       type: "object",
       properties: {

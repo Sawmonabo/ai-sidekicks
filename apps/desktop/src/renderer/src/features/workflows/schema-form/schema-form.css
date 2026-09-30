@@ -1,9 +1,6 @@
 /*
- * The schema-derived form: its fields, its groups, its lists, and the raw editor a
- * schema outside the drawn set opens as.
- *
- * Imported by the form's chunk root, `schema-form-body.ts`, so these rules load with the
- * first form a person opens and never before. Meridian tokens only.
+ * The schema-derived form: fields, groups, lists and the raw editor. Loaded by the chunk root
+ * `schema-form-body.ts`, so it arrives with the first form. Meridian tokens only.
  */
 
 .meridian-schema-form {
@@ -30,11 +27,7 @@
   color: var(--meridian-text);
 }
 
-/*
- * The required mark is a reading of the schema and not a warning, so it is set as quiet
- * prose beside the name rather than in the refusal hue: nothing is wrong with a field
- * that has not been answered yet.
- */
+/* The required mark is quiet prose, not a warning: an unanswered field is not wrong. */
 .meridian-schema-field__required {
   font-weight: 400;
   font-size: var(--meridian-text-xs);
@@ -53,18 +46,13 @@
   padding: var(--meridian-space-1) var(--meridian-space-2);
 }
 
-/*
- * A figure the wire carries — a number, an artifact id — is set in mono, like every
- * other value the daemon sent.
- */
+/* A figure the wire carries (a number, an artifact id) is set in mono like other daemon values. */
 .meridian-schema-field__input--figure {
   font-family: var(--meridian-font-mono);
 }
 
-/*
- * An enum member is the string the engine stores, so the options are mono for the same
- * reason. The `select` itself carries it, because a browser draws its own option list.
- */
+/* Enum members are the strings the engine stores, so mono; the `select` carries it because the
+   browser draws its own option list. */
 .meridian-schema-field__select {
   font-family: var(--meridian-font-mono);
 }
@@ -83,10 +71,7 @@
   color: var(--meridian-text-muted);
 }
 
-/*
- * The schema's own findings. Red because something IS wrong with the answer, unlike the
- * required mark above, and set as a list because a schema that said two things said both.
- */
+/* The schema's findings: red because the answer is wrong, listed because it may say several. */
 .meridian-schema-field__issues {
   margin: 0;
   padding-inline-start: var(--meridian-space-4);
@@ -121,14 +106,9 @@
 }
 
 /*
- * The activation control sits ON the legend, beside the name it is about, so a reader
- * moving down the form meets the container and the question of whether to answer it in one
- * place. Inline-start margin rather than a flex legend: a `legend` box is laid out by the
- * fieldset and a display change on it is the one thing that moves the border notch.
- *
- * ONE CLASS FOR BOTH CONTAINERS, because one component draws it: a group's legend and a
- * collection's legend ask the same question, and a second class would be this sheet
- * describing one control twice.
+ * The activation control sits on the legend beside the name it is about. Inline-start margin
+ * rather than a flex legend: a display change on a `legend` moves the border notch. One class for
+ * group and collection, since one component draws it.
  */
 .meridian-schema-activation {
   margin-inline-start: var(--meridian-space-2);
@@ -150,10 +130,9 @@
 }
 
 /*
- * One entry: its control, and the schema's findings about that entry beneath it. A column
- * inside the row so the control that removes the entry stays beside the entry rather than
- * dropping under its message, and `min-inline-size: 0` so a long finding wraps inside the
- * column instead of widening the row past the fieldset.
+ * One entry: its control and the findings beneath it. A column inside the row keeps the remove
+ * control beside the entry; `min-inline-size: 0` lets a long finding wrap instead of widening
+ * the row past the fieldset.
  */
 .meridian-schema-list__entry {
   display: flex;
@@ -164,12 +143,9 @@
 }
 
 /*
- * The two controls that change how many entries a list holds, and the one that says
- * whether an optional container is being answered at all.
- *
- * The form's own classes rather than `.meridian-workflow__action`, which
- * `WorkflowStateStrip.css` declares: that sheet loads with the state strip, and a view
- * that mounts a form cannot count on it having loaded.
+ * Controls that change a list's entry count, and the one that answers an optional container.
+ * The form's own classes, not `.meridian-workflow__action`, whose sheet loads with the state
+ * strip and may not have loaded when a form mounts.
  */
 
 .meridian-schema-activation,
@@ -192,17 +168,14 @@
   gap: var(--meridian-space-2);
 }
 
-/*
- * Why this schema is answered as text. It is a statement about the schema and not a
- * failure of the form, so it reads as muted prose on the form's own background.
- */
+/* Why this schema is answered as text: muted prose, since nothing failed. */
 .meridian-schema-raw__reason {
   margin: 0;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
 }
 
-/* The submitted value itself, so it wears the wire's own face. */
+/* The submitted value itself, so it wears the wire's mono face. */
 .meridian-schema-raw__editor {
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-sm);
@@ -221,10 +194,7 @@
   color: var(--meridian-red-text);
 }
 
-/*
- * The schema could not be checked against. Amber and not red: the answer is not wrong,
- * the check is missing, and saying so in the refusal hue would read as a rejection.
- */
+/* The schema could not be checked. Amber, not red: the check is missing, not the answer wrong. */
 .meridian-schema-raw__uncheckable {
   margin: 0;
   font-size: var(--meridian-text-xs);
@@ -268,11 +238,7 @@
   color: var(--meridian-text);
 }
 
-/*
- * The act and whatever came back of it, on one row: a refused press leaves the button in
- * place with the reason beside it, so the settlement wraps under the button on a narrow
- * pane instead of pushing it out of the pane.
- */
+/* The act and its outcome on one row; a settlement wraps under the button on a narrow pane. */
 .meridian-schema-answer__act {
   display: flex;
   flex-wrap: wrap;
@@ -287,11 +253,9 @@
 }
 
 /*
- * The act while the form has no verdict yet — the schema compiler is on its own chunk and
- * has not landed. Quieted and un-pressable rather than hidden, on the start menu's rule:
- * the control is arriving and not missing, so the place it will be stays where a person is
- * already looking, and the pointer stops advertising a press that would send an answer
- * nothing has checked.
+ * The act while the form has no verdict yet (the schema compiler chunk has not landed). Quieted
+ * and un-pressable rather than hidden, so its place stays put and no press sends an unchecked
+ * answer.
  */
 .meridian-schema-answer__submit:disabled {
   color: var(--meridian-text-muted);
@@ -299,10 +263,8 @@
 }
 
 /*
- * What the daemon answered the last press. Declared here beside the act it settles, and
- * drawn by the run page's submit binding BENEATH the form rather than inside it: the
- * settlement reads the daemon's reply and is not part of the answer, so whichever view
- * mounts the form gets it drawn without owning a line of it.
+ * What the daemon answered the last press. Drawn by the run page's submit binding beneath the
+ * form, since the reply is not part of the answer.
  */
 .meridian-schema-answer__settlement {
   display: flex;

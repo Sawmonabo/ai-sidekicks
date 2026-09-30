@@ -1,8 +1,6 @@
-// The run enumeration is always about one session, and about one call.
-//
-// Every case observes the COMMITTED state through the probe the store already owns: this
-// hook re-addresses during the render, and a render React discards still ran, so a log
-// written from a render body shows a value no commit ever carried.
+// Every case observes the committed state through the shared probe: the hook re-addresses during
+// the render, and a render React discards still ran, so a log written from a render body shows a
+// value no commit carried.
 
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -64,8 +62,7 @@ describe("useWorkflowRunDirectory — one read, always about one session", () =>
   });
 
   it("puts no question at all where no session is in scope", async () => {
-    // `unasked` on the FIRST committed frame as well as the last, so the arm that must
-    // stay unasked is held to the same moment as the arm below that must not be.
+    // Asserted on the first committed frame too, as the arm below is.
     const listRuns = vi.fn(listRunsNamed("Ship pipeline"));
     const probe = observeRunDirectory(listRuns, undefined);
     await settle();
@@ -76,8 +73,7 @@ describe("useWorkflowRunDirectory — one read, always about one session", () =>
   });
 
   it("is already reading on the first frame it commits with a session in scope", () => {
-    // A state that started `unasked` and became `reading` only in the effect would paint
-    // one frame claiming nobody had asked, on every scoped mount.
+    // A state that became `reading` only in the effect would paint one `unasked` frame.
     const probe = observeRunDirectory(listRunsNamed("Ship pipeline"), PROBE_SESSION_ID);
     expect(firstCommitted(probe.committed).status).toBe("reading");
   });
@@ -96,8 +92,6 @@ describe("useWorkflowRunDirectory — one read, always about one session", () =>
 
     probe.readdress({ source: listRuns, subject: SECOND_PROBE_SESSION_ID });
 
-    // Reading, not the first session's rows: before the stamp, those stayed
-    // renderable under the second session's name until the effect reset them.
     expect(latestCommitted(probe.committed).status).toBe("reading");
 
     await settle();
@@ -111,9 +105,8 @@ describe("useWorkflowRunDirectory — the call is half of what the read is about
   });
 
   it("commits no run from the previous call once the call is replaced", async () => {
-    // A replaced call comes with the same session id. A state keyed on the session alone
-    // would agree with itself, so the render would commit the previous call's runs and
-    // only the passive effect afterwards would take them down.
+    // The same session id with a replaced call: a state keyed on the session alone would commit
+    // the previous call's runs.
     const probe = observeRunDirectory(listRunsNamed("first call"), PROBE_SESSION_ID);
     await settle();
     expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["first call"]);
@@ -126,14 +119,11 @@ describe("useWorkflowRunDirectory — the call is half of what the read is about
     );
 
     await settle();
-    // The reset is only half the claim: a hook that reset and never re-read would leave
-    // the runs section reading forever under a call that can answer.
     expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["second call"]);
   });
 
   it("negative control: a re-render at the SAME call keeps the runs, asks nothing", async () => {
-    // Without this, the case above passes for a hook that reset on every render, which
-    // would re-read the enumeration forever and never show an answer at all.
+    // Guards the case above against a hook that reset on every render and never showed an answer.
     const listRuns = vi.fn(listRunsNamed("first call"));
     const probe = observeRunDirectory(listRuns, PROBE_SESSION_ID);
     await settle();

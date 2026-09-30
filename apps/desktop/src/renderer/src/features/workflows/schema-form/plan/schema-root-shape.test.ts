@@ -1,8 +1,5 @@
-// Which roots this console can answer at all, and which it refuses.
-//
-// The rule is a contract reading rather than a taste: a submitted answer travels as a set
-// of named values, so the cases below are the root declarations a phase could write, each
-// asserted against whether an answer for it could reach the wire.
+// Which roots this console can answer at all: each root a phase could write, asserted against
+// whether an answer for it could reach the wire.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,9 +20,8 @@ describe("the human-phase schema root reading", () => {
   });
 
   it("refuses a type UNION that names no object, which admits the same values", () => {
-    // The array spelling declares the whole set the root admits, so a union of `string`
-    // and `null` is exactly as unanswerable as a bare `string` — and it was admitted while
-    // the reading asked only which single type was spelled.
+    // The array spelling declares the whole set the root admits, so `string` or `null` is as
+    // unanswerable as a bare `string`.
     expect(schemaRootAsksOutsideNamedValues({ type: ["string", "null"] })).toBe(true);
     expect(schemaRootAsksOutsideNamedValues({ type: ["string", "object"] })).toBe(false);
   });
@@ -36,9 +32,7 @@ describe("the human-phase schema root reading", () => {
   });
 
   it("admits a root that declares no type at all, which asked for nothing in particular", () => {
-    // The negative half of the rule: an absent or unreadable root says nothing about
-    // whether the answer may be an object, so it is not this fault and the mapper's own
-    // raw editor stays answerable there.
+    // An absent or unreadable root says nothing about whether the answer may be an object.
     expect(schemaRootAsksOutsideNamedValues(undefined)).toBe(false);
     expect(schemaRootAsksOutsideNamedValues("not a schema at all")).toBe(false);
     expect(schemaRootAsksOutsideNamedValues({ properties: {} })).toBe(false);
@@ -49,23 +43,19 @@ describe("the human-phase schema root reading", () => {
 
     expect(refusal?.code).toBe(SCHEMA_ROOT_NOT_NAMED_VALUES);
     expect(refusal?.detail).toContain("definition");
-    // Never the schema's own words: `type` is author-written, and this sentence is fixed.
+    // Never the schema's own words: `type` is author-written and this sentence is fixed.
     expect(refusal?.detail).not.toContain("string");
   });
 });
 
 describe("a root that closes the answer set without naming a type", () => {
-  // The class a type-only reading misses: none of these roots spells a `type`, so a
-  // reading that asked only that question would admit every one of them and the form
-  // would offer an editor whose every schema-valid answer the submit path then refuses.
+  // None of these roots spells a `type`, so a type-only reading would admit every one.
   it("refuses an alternation no arm of which an object could satisfy", () => {
     const stringOrNumber = { oneOf: [{ type: "string" }, { type: "number" }] };
 
     expect(schemaRootAsksOutsideNamedValues(stringOrNumber)).toBe(true);
     expect(schemaRootRefusal(stringOrNumber)?.code).toBe(SCHEMA_ROOT_NOT_NAMED_VALUES);
-    // What the form would render instead, read from the real mapper rather than
-    // described: the plan for this root is the raw arm, so without the refusal the editor
-    // would be drawn and the act beside it offered.
+    // Without the refusal the raw editor would be drawn and offered.
     expect(planSchemaForm(stringOrNumber).shape).toBe("raw");
   });
 
@@ -79,8 +69,7 @@ describe("a root that closes the answer set without naming a type", () => {
   });
 
   it("refuses a conjunction ANY arm of which an object could not satisfy", () => {
-    // `allOf` is the other quantifier: an answer has to satisfy every arm, so one
-    // unanswerable arm closes the set however many object arms sit beside it.
+    // An answer has to satisfy every `allOf` arm, so one unanswerable arm closes the set.
     expect(
       schemaRootAsksOutsideNamedValues({ allOf: [{ type: "object" }, { type: "string" }] }),
     ).toBe(true);
@@ -100,10 +89,8 @@ describe("a root that closes the answer set without naming a type", () => {
   });
 
   it("terminates over a root that reaches itself, and mints no refusal from the give-up", () => {
-    // The arms are values a caller supplied, so a root that reaches itself is a probe that
-    // would otherwise never return — the hazard `schema-constraints.ts` guards beside this.
-    // A schema that is its own ancestor answers "possible", so the give-up admits rather
-    // than refusing: this module only ever refuses on a reading it finished.
+    // The arms are caller-supplied, so a self-reaching root would never return; the give-up
+    // admits rather than refuses.
     const selfReaching: Record<string, unknown> = { properties: {} };
     selfReaching["allOf"] = [selfReaching];
 
@@ -111,18 +98,15 @@ describe("a root that closes the answer set without naming a type", () => {
   });
 
   it("reads one schema named by two arms twice, because the guard holds the path", () => {
-    // The other half of the guard, and what makes it an ANCESTOR set rather than a history:
-    // a set that remembered everything seen would answer the second arm from the first
-    // arm's entry, so an alternation of one unanswerable schema with itself would come back
-    // admitted. Both arms are the same object here, and both have to be read.
+    // An ancestor set, not a history: remembering everything seen would answer the second arm
+    // from the first and admit an alternation of one unanswerable schema with itself.
     const scalarArm = { type: "string" };
 
     expect(schemaRootAsksOutsideNamedValues({ oneOf: [scalarArm, scalarArm] })).toBe(true);
   });
 
   it("reads an alternation's arms with the same question, at any depth", () => {
-    // The arms are schemas, so the reading recurses rather than special-casing one level:
-    // an alternation of alternations closes the set exactly when every leaf does.
+    // The reading recurses: an alternation of alternations closes the set when every leaf does.
     const nestedScalars = {
       oneOf: [{ oneOf: [{ type: "string" }, { type: "number" }] }, { type: "boolean" }],
     };

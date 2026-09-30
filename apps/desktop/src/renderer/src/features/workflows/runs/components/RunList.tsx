@@ -1,19 +1,7 @@
-// The run list: every run this context holds, newest first.
-//
-// The list renders `RunListProjection`'s rows and derives nothing of its own. That
-// split is the point — the park discriminator, the parked flag, and the frozen-pin
-// inequality are one computation with two readers (this body and its own header),
-// and computing them here would be the second implementation.
-//
-// WHAT THIS FILE OWNS AND WHAT `RunListItem.tsx` DOES. This is the absence, the
-// header's counts, and the order the rows come out in; a ROW is its own module beside
-// this one, on the package's one-component-per-`.tsx` rule. The two were one file
-// until the rule was given an instrument, and the row was the component a reader
-// looking for it could only find by opening the list.
-//
-// The projection reaches this component from its caller. A served answer of no runs is
-// a real answer and draws the `empty` absence; a caller with no answer does not mount
-// this list, because "nobody asked" and "there are none" are different facts.
+// The run list: every run this context holds, newest first. It renders `RunListProjection`'s rows
+// and derives nothing, so the park discriminator, parked flag and frozen-pin inequality have one
+// implementation. A served answer of no runs draws the `empty` absence; a caller with no answer
+// does not mount this list.
 
 import "./RunList.css";
 
@@ -48,11 +36,8 @@ export function RunList(props: RunListProps): React.JSX.Element {
   return (
     <div className="meridian-run-list">
       {/*
-        The counts are the console's own readings of the list it is showing, so they
-        wear the derived signature rather than the wire's. The noun sits beside the
-        figure rather than inside it: a count folded into a sentence would have to
-        pluralize, and a hand-pluralized string is a formatter this console has
-        exactly one home for and no reason to grow a second of.
+        The counts wear the derived signature. The noun sits beside the figure so no count is
+        folded into a sentence that would need pluralizing.
       */}
       <div className="meridian-run-list__summary">
         <span className="meridian-run-list__summary-item">
@@ -69,16 +54,9 @@ export function RunList(props: RunListProps): React.JSX.Element {
           </span>
         )}
         {/*
-          THE BADGE COUNTS ENTRIES AND NOT RUNS, which is the fold's whole point:
-          six runs parked on one spent provider account are one thing to look at,
-          and a figure reading `6` here beside one line under it would undo the fold
-          on the figure most likely to be glanced at rather than read. It is
-          deliberately a different number from `Parked` above, which counts runs —
-          the two answer different questions and agreeing by construction would mean
-          one of them was not being asked.
-
-          And never a zero: nothing waiting is the ordinary state of a healthy
-          session, on the same rule the two counts beside it already obey.
+          Counts entries, not runs: six runs parked on one spent account are one thing to look
+          at, so this differs from `Parked` above on purpose. Never a zero, like the counts
+          beside it.
         */}
         {parkAttentionCount === 0 ? null : (
           <span className="meridian-run-list__summary-item">
@@ -86,17 +64,9 @@ export function RunList(props: RunListProps): React.JSX.Element {
           </span>
         )}
       </div>
-      {/*
-        The fold stands above the rows because it is the question a person opening
-        this list is asking — what is holding things up — and the rows are the answer
-        to a different one. It renders nothing at all when nothing is parked.
-      */}
+      {/* The fold stands above the rows: it answers what is holding things up. */}
       <RunParkAttention entries={parkAttention} />
-      {/*
-        Ordered, because the order is the content: newest first, so the run a person
-        just started is the top row. A reader who cannot see that sequence cannot tell
-        a list sorted by start from one sorted by chance.
-      */}
+      {/* Ordered because the order is the content: newest first. */}
       <ol className="meridian-run-list__rows">
         {rows.map((row) => (
           <RunListItem key={row.run.workflowRunId} row={row} onOpenRun={props.onOpenRun} />

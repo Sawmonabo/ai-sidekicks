@@ -1,25 +1,11 @@
-// A yes-or-no answer.
-//
-// AN UNTOUCHED BOX IS `false`, AND THE ANSWER SAYS SO BEFORE ANYBODY TOUCHES IT. A
-// checkbox has no third state to render: unchecked is not "unanswered", it is NO. So the
-// member is `false` in the composed answer from the mount, and stays there whatever a
-// person does to the box — `schema-fields.ts` owns that rule, which is why this control
-// alone writes no absence. Leaving it out until the first toggle displayed one thing and
-// submitted another, and made `false` the one value a person could not send without
-// checking the box and unchecking it again.
-//
-// WHICH IS STILL NOT THIS CONTROL DECIDING REQUIREDNESS. The compiled validator reads the
-// answer; a member the schema demands and nobody set is its finding to report. What
-// changed is what the answer holds, not who judges it.
-//
-// A VALUE THAT IS NOT A BOOLEAN RENDERS UNCHECKED. A restored draft or a hand-edited
-// answer can put anything at this member, and `=== true` is the honest reading of it: the
-// box shows the one thing it can show, and the schema reports what is actually there.
+// A yes-or-no answer. An untouched box is `false` in the composed answer from the mount
+// (`schema-fields.ts` owns the rule): a checkbox has no unanswered state. A value that is not
+// a boolean renders unchecked, and the schema reports what is actually there.
 
 import { answeredScalar } from "../../answer/schema-draft.js";
 import { type SchemaFieldControlProps } from "../field-control-props.js";
 
-/** True or false. */
+/** A checkbox bound to a boolean member. */
 export function SchemaCheckboxField(props: SchemaFieldControlProps): React.JSX.Element {
   return (
     <input

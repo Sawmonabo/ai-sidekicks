@@ -1,11 +1,6 @@
-// The control vocabulary's two claims: the bound is measured in BYTES, and a
-// refusal never carries the value it refused.
-//
-// Both are the kind of rule that passes by accident under a lazy implementation —
-// `String.length` agrees with the byte count for the whole of ASCII, and a refusal
-// that interpolated the reason would read perfectly well in a test that only
-// checked for the word "bytes". So every case below has a negative control that
-// fails against the lazy version.
+// The control vocabulary's two claims: the bound is measured in bytes, and a refusal never
+// carries the value it refused. Each case has a negative control that fails against the lazy
+// version (`String.length` agrees with byte count on ASCII).
 
 import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
 
@@ -21,12 +16,9 @@ import {
 } from "./run-controls.js";
 
 describe("the reason bound is measured on the encoding", () => {
-  // Read through the budget rather than through a measurement function of this
-  // module's own: the bound is measured by the renderer's one `measureUtf8ByteLength`,
-  // and a second measurement would agree with it on ASCII while each was free to grow a
-  // surrogate-pair or normalization rule the other did not. The budget is what a caller
-  // consumes, so asserting on it checks the bound AND the fact that it is reached through the one
-  // measurement the chokepoint rule in `apps/desktop/AGENTS.md` gives every cap.
+  // Read through the budget rather than a measurement function of this module's own: the bound
+  // must reach the renderer's one `measureUtf8ByteLength`, since a second measurement would
+  // agree on ASCII and drift on surrogate pairs or normalization.
   it("counts UTF-8 bytes and not code units", () => {
     expect(cancelReasonBudget("abc").byteLength).toBe(3);
     expect(cancelReasonBudget("é").byteLength).toBe(2);
@@ -34,19 +26,16 @@ describe("the reason bound is measured on the encoding", () => {
   });
 
   it("agrees byte for byte with the measurement the durable path's own cap uses", () => {
-    // One ruler, asserted as one. Two functions that agree today are two functions
-    // that disagree on the day either grows a rule — and a cap is exactly where that
-    // is invisible until somebody's sentence is refused at a length nothing states.
+    // One ruler, asserted as one: two functions that agree today disagree the day either
+    // grows a rule, and a cap makes that invisible.
     for (const text of ["abc", "é", "😀", "a".repeat(1000), ""]) {
       expect(cancelReasonBudget(text).byteLength).toBe(measureUtf8ByteLength(text));
     }
   });
 
   it("negative control: the code-unit count disagrees, so the case above is not vacuous", () => {
-    // `"😀".length` is 2 and `"é".length` is 1. An implementation that returned
-    // `value.length` would pass the ASCII case and fail here — which is exactly the
-    // implementation this bound has to rule out, since a cap counted in code units
-    // refuses a shorter sentence in one script than in another.
+    // `"😀".length` is 2 and `"é".length` is 1, so an implementation returning `value.length`
+    // would pass the ASCII case and fail here.
     expect("😀".length).not.toBe(cancelReasonBudget("😀").byteLength);
     expect("é".length).not.toBe(cancelReasonBudget("é").byteLength);
   });
@@ -59,9 +48,8 @@ describe("the reason bound is measured on the encoding", () => {
   });
 
   it("floors the remaining budget at zero rather than reporting a negative", () => {
-    // A negative remainder would reach `formatByteQuantity`, which answers "—" for
-    // one — so the operator past the bound would be told nothing at all about how
-    // far past they are.
+    // A negative remainder would reach `formatByteQuantity`, which answers "—" for one, so an
+    // operator past the bound would be told nothing about how far past they are.
     expect(
       cancelReasonBudget("a".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP + 64)).remainingBytes,
     ).toBe(0);
@@ -87,8 +75,8 @@ describe("the refusals the run controls raise themselves", () => {
     const refusal = actAlreadyInFlightRefusal("cancel");
     expect(refusal.origin).toBe(WORKFLOW_RUN_CONTROL_ORIGIN);
     expect(refusal.code).toBe("act-already-in-flight");
-    // "Denied" would be an adjudication nobody performed: this press put no question
-    // to a daemon at all, because the previous one is still outstanding.
+    // "Denied" would be an adjudication nobody performed: this press put no question to a
+    // daemon.
     expect(refusal.detail.toLowerCase()).not.toContain("denied");
   });
 
@@ -96,18 +84,15 @@ describe("the refusals the run controls raise themselves", () => {
     const cancel = actAlreadyInFlightRefusal("cancel");
     const resume = actAlreadyInFlightRefusal("resume");
     expect(cancel.detail).not.toBe(resume.detail);
-    // The wire method name belongs to the daemon contract, so a refusal sentence that
-    // printed "workflow.cancel" would be a second copy of it.
+    // The wire method name belongs to the daemon contract; printing it would copy it.
     for (const refusal of [cancel, resume]) {
       expect(refusal.detail).not.toContain("workflow.");
     }
   });
 
   it("negative control: the refusal says the press was not queued, so it is not a wait", () => {
-    // Without this, the cases above would be satisfied by a refusal that read as
-    // "hold on, this is coming" — which is what a queue would do, and a queue is the
-    // one disposition this control must never take: it would perform an act nobody
-    // re-confirmed against a run whose state the first call has already moved.
+    // Without this, a refusal reading "hold on, this is coming" would pass, and a queue would
+    // perform an act nobody re-confirmed against a run the first call has moved.
     expect(actAlreadyInFlightRefusal("cancel").detail).toContain("not queued");
   });
 

@@ -1,41 +1,7 @@
-// One phase, as a box on the canvas.
-//
-// The visuals are OWN-BUILT, which the console's library policy requires of the
-// node and edge treatment: the library supplies the box's position, its focus
-// handling and its handle geometry, and everything a reader looks at is this file's
-// and `run-graph.css`'s. Nothing here reads a library color — the treatment comes
-// off Meridian tokens through data attributes, so light and dark are one rule.
-//
-// THE SAME WORDS, LOOKING AND LISTENING. The state line below prints exactly the
-// members `phaseNodeAccessibleName` reads, in the same order, so the node's
-// accessible name is a rendering of what is on screen rather than a second, drifting
-// description of it.
-//
-// WHY THE HANDLES ARE HERE AT ALL ON A READ-ONLY CANVAS. The renderer draws an edge
-// between two handles and not between two boxes: a node with none is a node no edge
-// can reach, and the sequence would render as a column of disconnected cards. They
-// are declared unconnectable, so they are geometry and never a drag origin — there
-// is no connect mode on this canvas and no path that creates an edge.
-//
-// PARK IS READ FROM THE PARK MEMBER. The phase-state vocabulary carries no suspended
-// arm, and park is live-scoped — true for exactly the phases parked when the caller
-// built this list. A box that inferred park from a state that looked like waiting
-// would be asserting something the run never said.
-//
-// THREE OF THE FOUR THINGS ON THIS BOX CAME OFF THE WIRE, AND THEY LOOK LIKE IT.
-// Every figure the daemon sent renders in mono, the sign of where it came from, and the phase
-// id, the state and the gate state are all strings a daemon sent. They were drawn as
-// ordinary interface prose, which read worst on the id: with no authored name
-// available to any read this console can put, the id stood in the name's place, in
-// the name's face and weight, and an opaque key was presented as something a person
-// had chosen. So the name — where there is one — is the only text here the console
-// sets as prose, and the identifier and the two enum values go through `WireFigure`.
-//
-// AND THE PARK'S ATTENTION IS THE CALLER'S READING, NOT THIS BOX'S. Amber means a
-// person is needed; a phase parked on provider capacity with a readable resume
-// instant needs nobody, so it takes the neutral scheduled treatment. The two are one
-// attribute rather than a parked flag plus a hue rule, so the sheet cannot paint a
-// treatment the caller never asked for.
+// One phase, as a box on the canvas. The library supplies position, focus and handle geometry;
+// everything a reader looks at is drawn here from design tokens through data attributes. The
+// state line prints the members `phaseNodeAccessibleName` reads, and the daemon-sent id, state
+// and gate state render as wire figures. Park comes from `parkAttention`, never from state.
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
@@ -43,7 +9,12 @@ import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { PhaseFlowNode } from "./run-graph-elements.js";
 import { PHASE_PARK_ATTENTION_MARKS } from "./phase-topology.js";
 
-/** One phase's box. Rendered by the library, addressed by `PHASE_NODE_TYPE`. */
+/**
+ * One phase's box. Rendered by the library, addressed by `PHASE_NODE_TYPE`.
+ *
+ * The handles are unconnectable geometry: an edge attaches to a handle, and this canvas has
+ * no connect mode.
+ */
 export function PhaseNode(props: NodeProps<PhaseFlowNode>): React.JSX.Element {
   const { phase } = props.data;
   return (

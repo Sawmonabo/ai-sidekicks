@@ -1,8 +1,5 @@
-// The pin a run is frozen at, held against the definition's own latest.
-//
-// The reading is a comparison rather than a flag on the wire, so what it owes is the
-// third case: absent a latest to compare against there is nothing to say, and saying
-// `true` would invite a repair the daemon would refuse.
+// The pin a run is frozen at, held against the definition's own latest. With no latest to compare
+// against there is nothing to say, and `true` would invite a repair the daemon would refuse.
 
 import { describe, expect, it } from "vitest";
 
@@ -26,10 +23,8 @@ describe("the frozen-definition state", () => {
   });
 
   it("negative control: unknown latest is not stale", () => {
-    // Without the caller's latest there is no comparison to make, and guessing
-    // `true` would invite a repair the daemon would refuse. The control matters
-    // because `undefined !== "version-1"` is true, which is exactly the shape a
-    // careless implementation reports as frozen.
+    // `undefined !== "version-1"` is true, which is the shape a careless implementation reports
+    // as frozen.
     const projection = new RunListProjection([run({ workflowVersionId: "version-1" })]);
     expect(projection.rows[0]?.isPinnedBehindLatestVersion).toBe(false);
     expect(projection.frozenPinCount).toBe(0);

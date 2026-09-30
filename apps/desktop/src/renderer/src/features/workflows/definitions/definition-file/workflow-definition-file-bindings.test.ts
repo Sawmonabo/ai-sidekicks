@@ -1,9 +1,6 @@
-// A phase's tool bindings in the file form, checked on the rule that is not a shape
-// rule: a definition carries a REFERENCE to a configured server and never the governance
-// posture that server runs under.
-//
-// The three arms are checked as three, because the identity is a discriminated union:
-// `user` carries no scope reference at all, and `project` and `local` require one.
+// Tool bindings in the file form, checked on the rule that is not a shape rule: a definition
+// carries a reference to a configured server and never the governance posture it runs under.
+// The three arms are checked as three, since the identity is a union on scope.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,7 +38,6 @@ function writtenBindings(overrides: Record<string, unknown> = {}): readonly unkn
   return toolBindingFileRecords(EVERY_ARM).map((record) => ({ ...record, ...overrides }));
 }
 
-/** One binding document, with the reference member replaced. */
 function bindingDocumentWith(binding: unknown): readonly unknown[] {
   return [{ binding, toolName: "run_suite" }];
 }
@@ -52,9 +48,8 @@ describe("tool bindings in the file form", () => {
   });
 
   it("refuses a binding carrying a governance facet, and says whose setting it is", () => {
-    // The rule the refusal exists for: `enabled`, `approvalMode` and `idempotencyClass`
-    // are node-operator settings, so a definition exported from one machine cannot import
-    // a weakened posture onto another.
+    // `enabled`, `approvalMode` and `idempotencyClass` are node-operator settings; an exported
+    // definition must not import a weakened posture.
     for (const facet of ["enabled", "approvalMode", "idempotencyClass"]) {
       const reading = readToolBindings(
         bindingDocumentWith({

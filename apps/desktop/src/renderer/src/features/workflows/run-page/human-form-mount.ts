@@ -1,60 +1,15 @@
-// What the run pane owes the body that answers a phase parked on a person.
-//
-// A MODULE OF ITS OWN BECAUSE FOUR MODULES NEED IT AND ONE OF THEM IS A BODY. The mount point
-// wrapper declares the phase it is handed, the submit channel composes the mount, the
-// console's default body is handed one, and the submit dispatch reads every member
-// of the request off it — so leaving the type in the wrapper would have made the default body
-// import the wrapper that renders it, and a type-only edge is still an edge:
-// `no-circular` reads the pre-compilation graph. The contract is what all four share, so
-// the contract is what moves.
-//
-// TWO TYPES BECAUSE TWO PARTIES SUPPLY THEM. `HumanFormPhase` is what the mounting PANE
-// resolves out of the run read; `HumanFormMount` is what the body is finally rendered
-// with, which is that phase plus the one thing the pane cannot resolve — the act of
-// sending an answer. They are declared as a base and an extension rather than as one
-// type with an optional member, because a body handed a mount whose `submit` might be
-// absent would have to decide what to do about a form it cannot send, and the answer is
-// that there is no such state: a body is mounted only inside the submit binding, which
-// always holds a submit for it.
-//
-// WHAT THE MOUNT OWES, AS A TYPE. Four things the mounting pane knows and the body must
-// not re-derive, and the first three are exactly what the submit request is addressed
-// by — the channel composes the request out of them so the body never has to:
-//
-//   • **The run**, verbatim as the pane was addressed by it. The request takes
-//     `workflowRunId` beside the phase, and `phaseRunId` is opaque and non-reversible, so
-//     a mount without the run could not compose the request at all.
-//   • **The phase reference**, so the submission is addressed at one phase.
-//   • **The optimistic-concurrency token**, passed through verbatim. It is `0` while an
-//     attempt has no accepted submission and `1` after one, and a retry mints a new
-//     attempt that reads `0` again — which is exactly why the value the form was
-//     COMPOSED against is what travels, rather than whatever the newest run read says.
-//   • **What the phase asks** — its prompt and its input schema, as the run read carried
-//     them. Handed over rather than re-read for the reason the run snapshot is handed to
-//     the detail body: the pane has the answer already, and a body that fetched the
-//     definition to draw its own would put one question twice and hold two answers to it
-//     on one screen. It could not put it at all, in fact — the definition's version read
-//     is addressed by a version NUMBER and a run carries one opaque version id.
-//
-// AND ONE THING THE MOUNT REFUSES TO OWE: whether the form may be submitted. That is the
-// daemon's adjudication, reaching the SUBMIT BINDING as a typed refusal, and a mount
-// that predicted it would be a second authority on a question the daemon owns. A stale-revision submit
-// is one of the uncoded refusal points, so the daemon's own message is the primary text
-// there.
-//
-// THE DRAFT IS NOT THIS MOUNT'S. Autosave is renderer-local and window-scoped; the
-// workflows feature's separate draft mount point carries it, and a draft that reached
-// the durable store would be user content in a durable home.
+// What the run pane owes the body that answers a phase parked on a person. It lives apart from
+// the mount point wrapper so the default body, the submit channel and the submit dispatch
+// share the contract without importing the component that renders them. Whether the form may
+// be submitted is the daemon's to answer and is never predicted here.
 
 /** The phase whose form is open, as the mounting pane resolved it out of the run read. */
 export interface HumanFormPhase {
   /**
    * The run this phase belongs to, wire-verbatim, as the submit is addressed by it.
    *
-   * Read off the SNAPSHOT the phases came from rather than off the pane's address, so
-   * the run and the phases in one mount are always the same answer: a pane retargeted
-   * mid-read would otherwise pair the new run's id with the old run's phases, and the
-   * submit composed from it would carry a phase that run never had.
+   * Read off the snapshot the phases came from, so a pane retargeted mid-read never pairs the
+   * new run's id with the old run's phases.
    */
   readonly workflowRunId: string;
   /** The phase run whose form this is. Opaque and wire-verbatim. */
@@ -64,26 +19,21 @@ export interface HumanFormPhase {
   /**
    * The revision this attempt's form is composed against, as the run read reported it.
    *
-   * Never compared here: the pane carries the number and the daemon decides whether it
-   * is still current. What the submit binding sends is the value CAPTURED when the attempt opened
-   * rather than this member re-read at press time — a run read that refreshes under a
-   * live form moves this number without moving the answer somebody typed, and sending
-   * the newer one would defeat the very comparison it exists for.
+   * Never compared here. The submit sends the value captured when the attempt opened, not this
+   * member re-read at press time, which a refresh may have moved under a live form.
    */
   readonly formRevision: number;
   /**
    * What this phase asks, where the run read carried it.
    *
-   * Optional because the wire member is: a daemon below the contract revision reports
-   * the park and not the question. Absent is therefore "this build was not told", never
-   * "the phase asks nothing".
+   * Handed over rather than fetched again by the body. Optional because the wire member is:
+   * absent means this build was not told, never that the phase asks nothing.
    */
   readonly prompt?: string;
   /**
-   * The schema the answer is shaped by, untyped and optional on the same reading.
+   * The schema the answer is shaped by, optional on the same reading.
    *
-   * `unknown` rather than a JSON Schema type, because deciding what a schema IS belongs
-   * to the one mapper that draws it and its fallback covers everything it is not.
+   * `unknown` because deciding what a schema is belongs to the one mapper that draws it.
    */
   readonly inputSchema?: unknown;
 }
@@ -93,26 +43,17 @@ export interface HumanFormMount extends HumanFormPhase {
   /**
    * Send this answer, whatever input mode composed it.
    *
-   * THE CHANNEL IS THE RUN PANE'S AND NOT THE BODY'S, which is the whole reason it is on
-   * the mount. The submit call, the single-flight guard, the revision this attempt was
-   * composed against, the re-armed run read and the rendering of whatever came back are
-   * all the run pane's, so a body that dispatched for itself would be a second
-   * implementation of every one of them.
-   *
-   * Bound to the attempt on screen: a body may call it with the answer alone, and the
-   * run, the phase and the revision it travels with are the submit binding's own reading of which
-   * wait this is.
+   * Bound to the attempt on screen, so a body passes the answer alone: the submit call, guard,
+   * revision and rendering of the reply belong to the run pane.
    */
   readonly submit: (answer: unknown) => void;
 }
 
 /**
- * A body that stands in the form mount point: a COMPONENT the mount point renders, never a function it
- * calls.
+ * A body that stands in the form mount point: a component the mount point renders, never a
+ * function it calls.
  *
- * The distinction is React's, not a preference: a called body's hooks join the WRAPPER's
- * hook list, and a wrapper that calls conditionally changes that list between renders. A
- * supplied body must therefore be a stable reference — a component composed inline on
- * each render is a different type each time, and React remounts it.
+ * A called body's hooks would join the wrapper's changing hook list, so a supplied body must
+ * be a stable reference: an inline component is a new type each render.
  */
 export type HumanFormBody = (mount: HumanFormMount) => React.ReactNode;
