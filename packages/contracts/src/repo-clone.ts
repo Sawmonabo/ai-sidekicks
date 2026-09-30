@@ -45,6 +45,31 @@ export const RepoCloneRequestSchema: z.ZodType<RepoCloneRequest, RepoCloneReques
   })
   .strict();
 
+/**
+ * The refusal `repo.clone` answers before any clone starts: the address is neither
+ * https nor ssh, or the destination folder is not empty. Nothing is made.
+ */
+export type RepoCloneRefusedCode = "repo.clone_refused";
+/** The code of {@link RepoCloneRefusedCode}. */
+export const REPO_CLONE_REFUSED_CODE: RepoCloneRefusedCode = "repo.clone_refused";
+
+/** Why a clone was refused before it started. */
+export type RepoCloneRefusedReason = "unsupported_address" | "destination_not_empty";
+/** Every {@link RepoCloneRefusedReason}. */
+export const REPO_CLONE_REFUSED_REASONS: readonly RepoCloneRefusedReason[] = Object.freeze([
+  "unsupported_address",
+  "destination_not_empty",
+]);
+
+/** The details a `repo.clone_refused` refusal carries. */
+export interface RepoCloneRefusedDetails {
+  reason: RepoCloneRefusedReason;
+}
+/** Wire schema for {@link RepoCloneRefusedDetails}. */
+export const RepoCloneRefusedDetailsSchema: z.ZodType<RepoCloneRefusedDetails> = z
+  .object({ reason: z.enum(REPO_CLONE_REFUSED_REASONS) })
+  .strict();
+
 /** The `repo.clone` result: the project the clone fills. */
 export interface RepoCloneResponse {
   projectId: ProjectId;

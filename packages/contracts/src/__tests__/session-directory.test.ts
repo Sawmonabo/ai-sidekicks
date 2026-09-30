@@ -10,6 +10,7 @@ import {
   SessionSetWorkingFolderRequestSchema,
   SessionStartRequestSchema,
   SessionStartResponseSchema,
+  sessionActivityAsOf,
 } from "../session-directory.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -32,6 +33,7 @@ const projectEntry = {
   pinnedAt: AT,
   muted: true,
   exchange: { peerSessionId: PEER_SESSION_ID, peerName: "builder", messageCount: 14 },
+  activityRenewedAt: AT,
   lastActivityAt: AT,
 };
 const chatEntry = {
@@ -42,6 +44,7 @@ const chatEntry = {
   state: "archived",
   activity: "done",
   muted: false,
+  activityRenewedAt: AT,
   lastActivityAt: AT,
 };
 
@@ -92,6 +95,24 @@ describe("session.list entries", () => {
     expect(SessionListChangeSchema.safeParse({ kind: "remove", entry: chatEntry }).success).toBe(
       false,
     );
+  });
+});
+
+describe("reading a row's activity", () => {
+  const renewedAt = Date.parse(AT);
+
+  it("believes a running or waiting reading for 45 seconds, then reads it as idle", () => {
+    for (const activity of ["running", "waiting"] as const) {
+      const entry = { activity, activityRenewedAt: AT };
+      expect(sessionActivityAsOf(entry, renewedAt + 45_000)).toBe(activity);
+      expect(sessionActivityAsOf(entry, renewedAt + 45_001)).toBe("idle");
+    }
+  });
+
+  it("never ages a failed session", () => {
+    expect(
+      sessionActivityAsOf({ activity: "failed", activityRenewedAt: AT }, renewedAt + 3_600_000),
+    ).toBe("failed");
   });
 });
 

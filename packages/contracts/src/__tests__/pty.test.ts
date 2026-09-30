@@ -152,6 +152,25 @@ describe("the per-shell lease", () => {
     ).toBe(true);
   });
 
+  it("accepts a forced take off another device, and refuses one off nobody or by a run", () => {
+    const forced = {
+      ...SHELL,
+      holderDeviceId: "desktop",
+      previousHolderDeviceId: "laptop",
+      reason: "taken_by_force",
+    };
+    expect(PtyControlChangedPayloadSchema.safeParse(forced).success).toBe(true);
+    expect(
+      PtyControlChangedPayloadSchema.safeParse({ ...forced, previousHolderDeviceId: null }).success,
+    ).toBe(false);
+    expect(
+      PtyControlChangedPayloadSchema.safeParse({ ...forced, holderRunId: RUN_ID }).success,
+    ).toBe(false);
+    expect(
+      PtyControlChangedPayloadSchema.safeParse({ ...forced, holderDeviceId: null }).success,
+    ).toBe(false);
+  });
+
   it("refuses a take that names nobody", () => {
     const payload = {
       ...SHELL,

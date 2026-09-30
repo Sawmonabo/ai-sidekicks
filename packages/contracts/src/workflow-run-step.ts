@@ -10,6 +10,7 @@ import { ApprovalDecisionSchema, type ApprovalDecision } from "./approval.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
+import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
 import {
   WorkflowNodeIdSchema,
   WorkflowStepErrorSchema,
@@ -218,6 +219,7 @@ export interface WorkflowGateResolveResponse {
 export const WorkflowGateResolveResponseSchema: z.ZodType<WorkflowGateResolveResponse> = z
   .object({
     gateResolutionId: z.string().min(1),
+    deviceId: DeviceIdSchema,
     rowHash: z.string().min(1),
     decidedAt: z.iso.datetime({ offset: true }),
   })
@@ -496,7 +498,7 @@ export const WorkflowStepSkippedPayloadSchema: z.ZodType<WorkflowStepSkippedPayl
 /**
  * `workflow.gate_resolved`: the answer and its place in the approval record, written
  * with the record's entry in one step. `nodeId` names the approval step; a chain's
- * question names none.
+ * question names none. `deviceId` is the device that answered.
  */
 export interface WorkflowGateResolvedPayload {
   sessionId: SessionId;
@@ -504,6 +506,7 @@ export interface WorkflowGateResolvedPayload {
   nodeId?: WorkflowNodeId | undefined;
   outcome: ApprovalDecision;
   gateResolutionId: string;
+  deviceId: DeviceId;
   rowHash: string;
 }
 /** Wire schema for {@link WorkflowGateResolvedPayload}. */
@@ -514,6 +517,7 @@ export const WorkflowGateResolvedPayloadSchema: z.ZodType<WorkflowGateResolvedPa
     nodeId: WorkflowNodeIdSchema.optional(),
     outcome: ApprovalDecisionSchema,
     gateResolutionId: z.string().min(1),
+    deviceId: DeviceIdSchema,
     rowHash: z.string().min(1),
   })
   .strict();

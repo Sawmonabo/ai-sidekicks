@@ -73,6 +73,31 @@ export const SessionActivitySchema: z.ZodType<SessionActivity> = z.enum([
   "idle",
 ]);
 
+/** How often the daemon republishes a quiet running or waiting session's entry. */
+export const SESSION_ACTIVITY_RENEW_INTERVAL_MS = 15_000;
+
+/**
+ * How old a `running` or `waiting` reading may be before a reader stops believing it: three
+ * missed renewals, so a daemon that stopped publishing never leaves a row claiming work.
+ */
+export const SESSION_ACTIVITY_STALE_AFTER_MS = 45_000;
+
+/**
+ * The activity a reader shows for an entry at `nowMs`: a `running` or `waiting` reading
+ * renewed longer ago than {@link SESSION_ACTIVITY_STALE_AFTER_MS} reads as `idle`. Every other
+ * word stands as published; a `failed` session never ages out of being failed.
+ */
+export function sessionActivityAsOf(
+  entry: Pick<SessionListEntry, "activity" | "activityRenewedAt">,
+  nowMs: number,
+): SessionActivity {
+  if (entry.activity !== "running" && entry.activity !== "waiting") {
+    return entry.activity;
+  }
+  const renewedAtMs = Date.parse(entry.activityRenewedAt);
+  return nowMs - renewedAtMs > SESSION_ACTIVITY_STALE_AFTER_MS ? "idle" : entry.activity;
+}
+
 /**
  * The line a session's row shows in place of its branch or document count while it trades
  * messages with another session: the other session and how many messages the two have traded
@@ -107,7 +132,8 @@ export type SessionListEntryPlace =
  * - `pinnedAt` is present exactly while the session is pinned; pinned rows sit in the order
  *   they were pinned.
  * - `state` puts archived and closed sessions in the `Archived` group; `activity` is the row's
- *   state word.
+ *   state word, and `activityRenewedAt` is when the daemon last published it (see
+ *   {@link sessionActivityAsOf}).
  * - `lastActivityAt` is the age the row shows.
  */
 export type SessionListEntry = SessionListEntryPlace & {
@@ -116,6 +142,7 @@ export type SessionListEntry = SessionListEntryPlace & {
   firstMessagePreview?: string | undefined;
   state: SessionState;
   activity: SessionActivity;
+  activityRenewedAt: string;
   pinnedAt?: string | undefined;
   muted: boolean;
   exchange?: SessionExchange | undefined;
@@ -130,6 +157,7 @@ const sessionListEntryCommonFields = {
   ).optional(),
   state: SessionStateSchema,
   activity: SessionActivitySchema,
+  activityRenewedAt: z.iso.datetime({ offset: true }),
   pinnedAt: z.iso.datetime({ offset: true }).optional(),
   muted: z.boolean(),
   exchange: SessionExchangeSchema.optional(),

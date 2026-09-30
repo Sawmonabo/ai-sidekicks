@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   REPO_CLONE_LINE_MAX_LEN,
   RepoCloneAnswerRequestSchema,
+  RepoCloneRefusedDetailsSchema,
   RepoCloneFolderReadResponseSchema,
   RepoCloneRequestSchema,
   RepoCloneStatusSchema,
@@ -11,6 +12,15 @@ import {
 
 const PROJECT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
 const CLONE_QUESTION_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f21";
+
+describe("repo.clone_refused", () => {
+  it("names one of the two reasons a clone is refused before it starts", () => {
+    for (const reason of ["unsupported_address", "destination_not_empty"]) {
+      expect(RepoCloneRefusedDetailsSchema.safeParse({ reason }).success).toBe(true);
+    }
+    expect(RepoCloneRefusedDetailsSchema.safeParse({ reason: "clone_failed" }).success).toBe(false);
+  });
+});
 
 describe("repo.clone and its card", () => {
   it("clones a URL into the clone folder, a chosen folder, or again for a project", () => {

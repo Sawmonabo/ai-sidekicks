@@ -367,16 +367,19 @@ export const SessionTakeControlResponseSchema: z.ZodType<SessionTakeControlRespo
 export const PTY_CONTROL_CHANGED_EVENT = "pty.control_changed" as const;
 
 /**
- * Why a shell's holder changed: it was taken, the holding connection ended, or
- * the holding run left its running state.
+ * Why a shell's holder changed: it was taken, it was taken by force off another
+ * device's hold, the holding connection ended, or the holding run left its
+ * running state.
  */
 export type PtyControlChangedReason =
   | "taken"
+  | "taken_by_force"
   | "auto_released_disconnect"
   | "auto_released_run_idle";
 /** Every {@link PtyControlChangedReason}. */
 export const PTY_CONTROL_CHANGED_REASONS: readonly PtyControlChangedReason[] = Object.freeze([
   "taken",
+  "taken_by_force",
   "auto_released_disconnect",
   "auto_released_run_idle",
 ]);
@@ -396,8 +399,9 @@ export interface PtyControlChangedPayload {
   reason: PtyControlChangedReason;
 }
 /**
- * Parses a {@link PtyControlChangedPayload}. A `taken` that names no holder, or a
- * release that names one, contradicts itself and is refused.
+ * Parses a {@link PtyControlChangedPayload}. A take that names no holder, or a
+ * release that names one, contradicts itself and is refused. A forced take is a
+ * device's, never a run's, and always moves the shell off another device.
  */
 export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload> = z
   .object({
@@ -411,12 +415,21 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
   .strict()
   .refine(
     (payload) =>
-      payload.reason === "taken"
+      payload.reason === "taken" || payload.reason === "taken_by_force"
         ? payload.holderDeviceId !== null
         : payload.holderDeviceId === null && payload.holderRunId === undefined,
     {
       message: "a take names the holder after it, and a release names nobody",
       path: ["holderDeviceId"],
+    },
+  )
+  .refine(
+    (payload) =>
+      payload.reason !== "taken_by_force" ||
+      (payload.previousHolderDeviceId !== null && payload.holderRunId === undefined),
+    {
+      message: "a forced take moves the shell off another device to this one",
+      path: ["previousHolderDeviceId"],
     },
   );
 
