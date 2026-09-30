@@ -109,9 +109,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   readonly #terminalEmissionGates: Map<SessionId, ClaudeTerminalEmissionGate> = new Map();
   // A session's router and accountant, in one map so they are created and released together.
   readonly #routingBands: Map<SessionId, ClaudeSessionRoutingBand> = new Map();
-  // The writer composes all provider-bound text; the tripwire correlates each frame with the turn
-  // that settles it; the quarantine holds bindings a trip disposed.
-  readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
+  // The tripwire correlates each frame with the turn that settles it; the quarantine holds
+  // bindings a trip disposed.
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #runtimeBindingQuarantine: RuntimeBindingQuarantine = new RuntimeBindingQuarantine();
   readonly #transcriptReplaySurfaceReader: ClaudeTranscriptReplaySurfaceReader | undefined;
@@ -143,7 +142,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
           };
         }),
     );
-    this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
+    // Composes all provider-bound text; handed to the collaborators that write it.
+    const outboundTextFrameWriter = new OutboundTextFrameWriter({
       // `emulated` at the pinned build: its input intercepts command-shaped text (measured).
       mechanismGrade: dependencies.textNeutralityMechanismGrade ?? "emulated",
       mintCorrelationId: dependencies.mintOutboundFrameCorrelationId,
@@ -163,7 +163,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     });
     this.#textNeutralization = new ClaudeTextNeutralization({
       ...dependencies,
-      outboundTextFrameWriter: this.#outboundTextFrameWriter,
+      outboundTextFrameWriter,
       outboundFrameTripwire: this.#outboundFrameTripwire,
       runtimeBindingQuarantine: this.#runtimeBindingQuarantine,
       runRoutes: this.#runRoutes,
@@ -173,7 +173,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     });
     this.#compactionDispatch = new ClaudeCompactionDispatch({
       pendingCompactions: this.#pendingCompactions,
-      outboundTextFrameWriter: this.#outboundTextFrameWriter,
+      outboundTextFrameWriter,
       diagnostics: dependencies.diagnostics,
     });
     this.#replaySeeding = new ClaudeReplaySeeding(this.#replayTargets);

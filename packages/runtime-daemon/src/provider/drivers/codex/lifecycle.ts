@@ -120,9 +120,6 @@ const UNSUBSCRIBE_TIMEOUT_MS = 5_000;
 export class CodexLifecycleManager {
   readonly #options: CodexLifecycleOptions;
   readonly #turnStartTimeoutMs: number;
-  // The only composer of provider-bound text on this leg: `turn/start` and `turn/steer` take their
-  // input from a frame it minted.
-  readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #runtimeBindingQuarantine = new RuntimeBindingQuarantine();
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
@@ -165,7 +162,9 @@ export class CodexLifecycleManager {
       options.scheduleTimeout ?? defaultScheduleTimeout,
     );
     this.#ambiguousDeliveryReconciler = new AmbiguousDeliveryReconciler(options.userTurnReadback);
-    this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
+    // The only composer of provider-bound text on this leg: `turn/start` and `turn/steer` take
+    // their input from a frame it minted.
+    const outboundTextFrameWriter = new OutboundTextFrameWriter({
       mechanismGrade: options.textNeutralityMechanismGrade ?? "emulated",
       mintCorrelationId: options.mintOutboundFrameCorrelationId,
     });
@@ -180,7 +179,7 @@ export class CodexLifecycleManager {
     this.#spawnPosture = new CodexSpawnPosture(options);
     this.#textNeutralization = new CodexTextNeutralization({
       options,
-      outboundTextFrameWriter: this.#outboundTextFrameWriter,
+      outboundTextFrameWriter,
       outboundFrameTripwire: this.#outboundFrameTripwire,
       runtimeBindingQuarantine: this.#runtimeBindingQuarantine,
       sessions: this.#sessions,
@@ -190,7 +189,7 @@ export class CodexLifecycleManager {
       },
     });
     this.#steerDispatch = new CodexSteerDispatch({
-      outboundTextFrameWriter: this.#outboundTextFrameWriter,
+      outboundTextFrameWriter,
       outboundFrameTripwire: this.#outboundFrameTripwire,
       textNeutralization: this.#textNeutralization,
     });

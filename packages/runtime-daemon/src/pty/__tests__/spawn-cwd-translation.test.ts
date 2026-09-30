@@ -15,11 +15,8 @@ import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  RustSidecarPtyHost,
-  type SidecarChildProcess,
-  type SidecarSpawnFn,
-} from "../rust-sidecar-pty-host.js";
+import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
+import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar-child-supervisor.js";
 import { translateSpawnCwd } from "../../session/spawn-cwd-translator.js";
 
 import type { Envelope, SpawnRequest } from "@ai-sidekicks/contracts";

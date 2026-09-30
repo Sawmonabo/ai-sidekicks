@@ -5,11 +5,29 @@
 //   call then rejects with `PtyBackendUnavailableError`. A fixed window would let a steady rate
 //   through.
 
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
 import type { TaskkillResult } from "./taskkill-windows.js";
 import { PtyBackendUnavailableError } from "./sidecar-binary-path.js";
 import { ContentLengthParser, SidecarFrameDecodeError } from "./sidecar-frame-codec.js";
-import type { SidecarChildProcess, SidecarSpawnFn } from "./rust-sidecar-pty-host.js";
+
+/** The subset of `ChildProcess` the supervisor uses, so tests can build a fake. */
+export interface SidecarChildProcess {
+  /** OS pid; `undefined` if spawn failed first. Only the Windows hard-kill escalation reads it. */
+  readonly pid?: number | undefined;
+  readonly stdin: NodeJS.WritableStream;
+  readonly stdout: NodeJS.ReadableStream;
+  readonly stderr: NodeJS.ReadableStream;
+  on(event: "exit", listener: (code: number | null, signal: string | null) => void): this;
+  on(event: "error", listener: (err: Error) => void): this;
+  kill(signal?: NodeJS.Signals | number): boolean;
+}
+
+/** The `child_process.spawn` overload the supervisor calls; it always pipes all three streams. */
+export type SidecarSpawnFn = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options: SpawnOptions,
+) => ChildProcessWithoutNullStreams;
 
 /** Width of the sliding crash-budget window. */
 export const CRASH_BUDGET_WINDOW_MS = 60_000;

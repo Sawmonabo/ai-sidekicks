@@ -10,7 +10,6 @@
 // - Effectful primitives are injectable through `RustSidecarPtyHostDeps`.
 
 import { Buffer } from "node:buffer";
-import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
 import {
   type DrainResult,
   type Envelope,
@@ -25,28 +24,11 @@ import { PtyBackendUnavailableError, resolveSidecarBinaryPath } from "./sidecar-
 import { isStrictBase64, serializeFrame, SidecarFrameDecodeError } from "./sidecar-frame-codec.js";
 import {
   SidecarChildSupervisor,
+  type SidecarChildProcess,
   type SidecarChildSupervisorDependencies,
+  type SidecarSpawnFn,
 } from "./sidecar-child-supervisor.js";
 import { SidecarPreSpawnBuffer } from "./sidecar-pre-spawn-buffer.js";
-
-/** The subset of `ChildProcess` the supervisor uses, so tests can build a fake. */
-export interface SidecarChildProcess {
-  /** OS pid; `undefined` if spawn failed first. Only the Windows hard-kill escalation reads it. */
-  readonly pid?: number | undefined;
-  readonly stdin: NodeJS.WritableStream;
-  readonly stdout: NodeJS.ReadableStream;
-  readonly stderr: NodeJS.ReadableStream;
-  on(event: "exit", listener: (code: number | null, signal: string | null) => void): this;
-  on(event: "error", listener: (err: Error) => void): this;
-  kill(signal?: NodeJS.Signals | number): boolean;
-}
-
-/** The `child_process.spawn` overload the supervisor calls; it always pipes all three streams. */
-export type SidecarSpawnFn = (
-  command: string,
-  args: ReadonlyArray<string>,
-  options: SpawnOptions,
-) => ChildProcessWithoutNullStreams;
 
 /** Effectful primitives `RustSidecarPtyHost` reaches through; tests inject a double for each. */
 export interface RustSidecarPtyHostDeps {
