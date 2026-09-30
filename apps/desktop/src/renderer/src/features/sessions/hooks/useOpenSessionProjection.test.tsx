@@ -11,6 +11,7 @@ import { SessionStoreRegistry } from "@renderer/store/session/session-store-regi
 import { worstDegradedCause } from "@renderer/store/session-degradation.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { readsNothing } from "@test/helpers/session-store-fixtures.js";
+import { countStoreListeners } from "@test/helpers/session-store-listeners.js";
 import { OpenSessionRowProjection, useOpenSessionProjection } from "./useOpenSessionProjection.js";
 import type { SessionListRow } from "../rows/session-rows.js";
 
@@ -109,6 +110,7 @@ describe("OpenSessionRowProjection", () => {
     if (store === undefined) {
       throw new Error("the registry did not open the session");
     }
+    const liveListeners = countStoreListeners(store);
     const projection = new OpenSessionRowProjection(registry);
     let notifications = 0;
     const release = projection.subscribe(() => {
@@ -117,10 +119,13 @@ describe("OpenSessionRowProjection", () => {
     // Negative control, taken first: while subscribed, it is woken.
     establish(store, { cursor: 1, touchedAtIso: "2026-01-01T12:00:00.000Z" });
     expect(notifications).toBe(1);
+    expect(liveListeners()).toBe(1);
 
     release();
 
     expect(projection.subscribedSessionIds).toStrictEqual([]);
+    // Counted on the store: with no subscriber left, a listener left behind notifies nobody.
+    expect(liveListeners()).toBe(0);
     establish(store, { cursor: 2, touchedAtIso: "2026-01-01T13:00:00.000Z" });
     expect(notifications).toBe(1);
   });

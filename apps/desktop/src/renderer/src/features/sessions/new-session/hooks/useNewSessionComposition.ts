@@ -177,9 +177,9 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
   }, [onSessionDirectoryRecheck]);
 
   // The settlement callback as of the last commit, so the effect below does not depend on its
-  // identity. The destination hands over a fresh function each pass; depending on it would
-  // re-run the settlement on every render, saying the sentence and navigating twice. Written
-  // from a layout effect because a discarded render still runs the render body.
+  // identity. A destination may hand over a fresh function each pass; depending on it would
+  // re-run the effect on every render and say a standing result's sentence again each time.
+  // Written from a layout effect because a discarded render still runs the render body.
   const committedSessionCreatedRef = useRef(onSessionCreated);
   useLayoutEffect(() => {
     committedSessionCreatedRef.current = onSessionCreated;

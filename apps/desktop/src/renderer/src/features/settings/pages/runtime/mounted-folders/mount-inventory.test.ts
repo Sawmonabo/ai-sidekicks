@@ -22,6 +22,7 @@ import {
 import { PAST_REFRESH_DEBOUNCE_MS } from "@test/helpers/settle.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import { initializedStore } from "@test/helpers/session-store-fixtures.js";
+import { countStoreListeners } from "@test/helpers/session-store-listeners.js";
 
 /**
  * Let the scheduler's in-flight read settle without advancing the clock.
@@ -226,5 +227,16 @@ describe("what refreshes the inventory", () => {
 
     expect(listCallCount()).toBe(1);
     read.dispose();
+  });
+
+  it("holds no listener on the session's store once disposed", async () => {
+    const sessionStore = initializedStore(SESSION_ID);
+    const liveListeners = countStoreListeners(sessionStore);
+    const { read } = await startedRead(sessionStore);
+    expect(liveListeners()).toBe(1);
+
+    read.dispose();
+
+    expect(liveListeners()).toBe(0);
   });
 });

@@ -9,6 +9,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
+import { countStoreListeners } from "@test/helpers/session-store-listeners.js";
 import { handAnsweredCall } from "@test/helpers/held-calls.js";
 import { ArtifactListReader } from "./artifact-list-reader.js";
 import {
@@ -84,13 +85,18 @@ describe("artifact list reader — what makes it read again", () => {
   it("negative control: nothing polls at rest, and a disposed reader hears nothing", async () => {
     const clock = new ManualClock();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const liveListeners = countStoreListeners(sessionStore);
     const reader = readerOver(sessionStore, clock);
     reader.start();
     await readThrough(clock);
     // No timer is armed once the read has settled: the reader owns no interval.
     expect(clock.pendingCount).toBe(0);
+    expect(liveListeners()).toBe(1);
 
     reader.dispose();
+    // Counted rather than inferred from silence: a disposed reader also ignores what a
+    // listener it forgot to release would hear.
+    expect(liveListeners()).toBe(0);
     sessionStore.initialize({ cursor: 0, entities: [] });
     sessionStore.applyBatch([eventOfKind(SESSION_ID, "artifact.published", 1)]);
     window.dispatchEvent(new Event("focus"));

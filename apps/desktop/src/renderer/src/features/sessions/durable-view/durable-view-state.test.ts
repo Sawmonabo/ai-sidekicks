@@ -80,14 +80,23 @@ describe("hydrating a durable view state", () => {
   });
 
   it("still counts as hydrated, so a remount does not re-read over the newer value", async () => {
-    // The read settled; a remount's second `hydrate` must not re-ask for the refused record.
-    const state = stateOver(await storeHoldingRecord());
+    // The commit's write is still held at the store, which still answers the older record, so
+    // a remount's second `hydrate` that read again would put that record back.
+    const store = heldWriteStore();
+    const seeded = store.writeGlobal(VIEW_STATE_KEY, "expansion", [...STORED_IDS]);
+    await store.admitOneWrite();
+    await seeded;
+    const state = stateOver(store);
     const hydration = state.hydrate();
-    await state.commit([...COMMITTED_IDS]);
+    const committing = state.commit([...COMMITTED_IDS]);
     await hydration;
     expect(state.isHydrated).toBe(true);
+
     await state.hydrate();
+
     expect(state.value).toStrictEqual(COMMITTED_IDS);
+    await store.admitOneWrite();
+    await committing;
   });
 
   it("negative control: a commit AFTER the read settles is not treated as a race", async () => {
