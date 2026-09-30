@@ -43,6 +43,14 @@ const NOTES_QUESTION: QuestionPrompt = {
 
 const QUESTIONS = [BRANCH_QUESTION, NOTES_QUESTION];
 
+const TOKEN_QUESTION: QuestionPrompt = {
+  header: "Deploy",
+  text: "Paste the deploy token",
+  options: [],
+  severalAnswers: false,
+  secret: true,
+};
+
 /** One refused delivery, carrying the call's own refusal shape. */
 const REFUSED_DELIVERY: AnswerDelivery = {
   status: "refused",
@@ -177,6 +185,55 @@ describe("the answers it sends", () => {
       { kind: "typed", text: "a release branch" },
       { kind: "picked", labels: ["main"] },
     ]);
+  });
+});
+
+describe("a secret question", () => {
+  it("draws one masked field and sends its value only as a secret", () => {
+    // A `typed` answer is stored and a `secret` one is not, so a secret that left as
+    // `typed` would be written down.
+    const sent: QuestionAnswer[][] = [];
+    const { container } = render(
+      <QuestionCard
+        body={undefined}
+        question={OPEN_QUESTION}
+        questions={[TOKEN_QUESTION]}
+        delivery={UNSENT_ANSWER_DELIVERY}
+        onAnswer={(answers) => sent.push(answers)}
+      />,
+    );
+    const field = within(container).getByLabelText<HTMLInputElement>("Paste the deploy token");
+
+    expect(field.type).toBe("password");
+    expect(container.querySelector(".meridian-input-ask__options")).toBeNull();
+    expect(container.textContent).not.toContain("Something else…");
+
+    fireEvent.change(field, { target: { value: "tok-8f2c" } });
+    fireEvent.click(answerButton(container));
+
+    expect(sent).toStrictEqual([[{ kind: "secret", value: "tok-8f2c" }]]);
+  });
+});
+
+describe("another record", () => {
+  it("starts another record's card from empty drafts", () => {
+    const card = (question: QuestionReading): React.JSX.Element => (
+      <QuestionCard
+        body={undefined}
+        question={question}
+        questions={QUESTIONS}
+        delivery={UNSENT_ANSWER_DELIVERY}
+        onAnswer={() => undefined}
+      />
+    );
+    const { container, rerender } = render(card(OPEN_QUESTION));
+    pick(container, 0, "develop");
+    type(container, 1, "the flaky test is known");
+
+    rerender(card({ ...OPEN_QUESTION, questionId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e12" }));
+
+    expect(optionRow(container, 0, "develop").getAttribute("aria-pressed")).toBe("false");
+    expect(fieldOf(container, 1).value).toBe("");
   });
 });
 

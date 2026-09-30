@@ -7,13 +7,14 @@
 // WHAT THE CARD DRAWS. Every question of the record in its own order: the agent's short
 // header, the question, the summary line where one was sent, the option rows with each
 // description that was sent, and a typed field under every question, because both
-// providers always take typed text and a question may offer no options at all. The
+// providers always take typed text and a question may offer no options at all. A secret
+// question draws one masked field instead of the rows and the typed field. The
 // questions are drawn one under another; paging through them is not built here.
 //
 // EVERY ANSWER GOES BACK TOGETHER. A press on an option row marks it and never sends
-// anything by itself. `Answer` stays closed until each question has either a marked row
-// or typed text, then sends one answer per question, in the record's order, in one
-// call. `useQuestionDrafts` holds the marks and the typed text.
+// anything by itself. `Answer` stays closed until each question has a marked row, typed
+// text or a secret, then sends one answer per question, in the record's order, in one
+// call. `useQuestionDrafts` holds the drafts and decides which answer each one makes.
 //
 // AN ANSWER IS A SETTLED ACT AND NOT A KEYSTROKE THAT VANISHED. The card draws what
 // became of the answer's reply once: the call is out, the daemon took it, or it was
@@ -25,6 +26,7 @@ import type { QuestionAnswer, QuestionAskedPersonalData } from "@ai-sidekicks/co
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { useQuestionDrafts } from "./hooks/useQuestionDrafts.js";
+import { SecretAnswerField } from "./SecretAnswerField.js";
 import { TypedAnswerField } from "./TypedAnswerField.js";
 import type {
   AnswerDelivery,
@@ -69,7 +71,11 @@ export interface QuestionCardProps {
 /** The question card: the built-in one, or the supplied `body` when the mount passes one. */
 export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
   const deliveryStatus = props.delivery.status;
-  const questionDrafts = useQuestionDrafts(props.questions, deliveryStatus);
+  const questionDrafts = useQuestionDrafts(
+    props.question.questionId,
+    props.questions,
+    deliveryStatus,
+  );
   if (props.body !== undefined) {
     return (
       <div className="meridian-input-ask">
@@ -108,40 +114,53 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
           {prompt.heading === undefined ? null : (
             <p className="meridian-input-ask__heading">{prompt.heading}</p>
           )}
-          {prompt.options.length === 0 ? null : (
-            <ul
-              className="meridian-input-ask__options"
-              aria-label="the answers this question offers"
-            >
-              {prompt.options.map((option) => (
-                <li key={option.label}>
-                  <button
-                    type="button"
-                    className="meridian-input-ask__option meridian-action-button"
-                    aria-pressed={drafts[index]?.pickedLabel === option.label}
-                    disabled={isSettling}
-                    onClick={() => {
-                      questionDrafts.pickOption(index, option.label);
-                    }}
-                  >
-                    <span className="meridian-input-ask__option-label">{option.label}</span>
-                    {option.description === undefined ? null : (
-                      <span className="meridian-input-ask__option-description">
-                        {option.description}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
+          {prompt.secret ? (
+            <SecretAnswerField
+              questionText={prompt.text}
+              value={drafts[index]?.secretValue ?? ""}
+              isClosed={isSettling}
+              onValueChange={(value) => {
+                questionDrafts.enterSecret(index, value);
+              }}
+            />
+          ) : (
+            <>
+              {prompt.options.length === 0 ? null : (
+                <ul
+                  className="meridian-input-ask__options"
+                  aria-label="the answers this question offers"
+                >
+                  {prompt.options.map((option) => (
+                    <li key={option.label}>
+                      <button
+                        type="button"
+                        className="meridian-input-ask__option meridian-action-button"
+                        aria-pressed={drafts[index]?.pickedLabel === option.label}
+                        disabled={isSettling}
+                        onClick={() => {
+                          questionDrafts.pickOption(index, option.label);
+                        }}
+                      >
+                        <span className="meridian-input-ask__option-label">{option.label}</span>
+                        {option.description === undefined ? null : (
+                          <span className="meridian-input-ask__option-description">
+                            {option.description}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <TypedAnswerField
+                draft={drafts[index]?.typedText ?? ""}
+                isClosed={isSettling}
+                onDraftChange={(text) => {
+                  questionDrafts.typeAnswer(index, text);
+                }}
+              />
+            </>
           )}
-          <TypedAnswerField
-            draft={drafts[index]?.typedText ?? ""}
-            isClosed={isSettling}
-            onDraftChange={(text) => {
-              questionDrafts.typeAnswer(index, text);
-            }}
-          />
         </section>
       ))}
       <button
