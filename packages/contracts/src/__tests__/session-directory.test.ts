@@ -1,9 +1,15 @@
-// The session directory: how a reader ages a row's activity, and the rules `session.create`
-// holds a new session to (born with its lead; a scratch session is a definition's, in a chat).
+// The session directory: how a reader ages a row's activity, the rules `session.create` holds a
+// new session to (born with its lead; a scratch session is a definition's, in a chat), and its
+// reply, which echoes the configuration resolved from a definition.
 import { describe, expect, it } from "vitest";
 
-import { SessionCreateRequestSchema, sessionActivityAsOf } from "../session-directory.js";
+import {
+  SessionCreateRequestSchema,
+  SessionCreateResponseSchema,
+  sessionActivityAsOf,
+} from "../session-directory.js";
 
+const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const MOUNT_ID = "770e8400-e29b-41d4-a716-446655440002";
 const DEFINITION_ID = "990e8400-e29b-41d4-a716-446655440004";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
@@ -85,6 +91,28 @@ describe("session.create", () => {
         leadDefinitionId: DEFINITION_ID,
         scratch: true,
       }).success,
+    ).toBe(false);
+  });
+
+  it("answers with the session's shape, and the configuration its definition resolved", () => {
+    expect(
+      SessionCreateResponseSchema.safeParse({
+        sessionId: SESSION_ID,
+        shape: "chat",
+        state: "provisioning",
+        resolvedConfiguration: {
+          resolvedFromDefinitionId: DEFINITION_ID,
+          resolvedBinding: lead,
+          executionPostureMode: null,
+          toolAllowlist: null,
+          instructions: "Review the diff.",
+          goal: null,
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      SessionCreateResponseSchema.safeParse({ sessionId: SESSION_ID, state: "provisioning" })
+        .success,
     ).toBe(false);
   });
 });
