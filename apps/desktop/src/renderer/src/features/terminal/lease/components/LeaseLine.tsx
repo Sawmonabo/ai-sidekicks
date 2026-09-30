@@ -1,4 +1,4 @@
-// The lease line: where the session's one shared shell is held, and the control region
+// The lease line: where one of the session's shells is held, and the control region
 // beside it.
 //
 // The pane shows output and this line only. The line states the holder from the fold
@@ -21,7 +21,10 @@ export interface LeaseLineProps {
 }
 
 /**
- * What the chip says for each holding. Total over the closed set.
+ * What the chip says for each holding. Total over the closed set; `null` draws no chip.
+ *
+ * A run's hold draws none: the line for it is the one sentence the pane's design
+ * states, with nothing beside it.
  *
  * `unrecognized-transition` is the one amber row, and amber is spent on exactly what it
  * means: a person is needed. The daemon moved the shell under a transition this build
@@ -29,11 +32,14 @@ export interface LeaseLineProps {
  * or looks at the log — which is a different thing from the neutral "not checked",
  * where the console simply has not asked.
  */
-const HOLDING_CHIPS: Readonly<Record<TerminalLeaseHolder, { label: string; tone: ChipTone }>> = {
+const HOLDING_CHIPS: Readonly<
+  Record<TerminalLeaseHolder, { label: string; tone: ChipTone } | null>
+> = {
   "not-checked": { label: "Not checked", tone: "neutral" },
   unheld: { label: "Free", tone: "neutral" },
   "held-by-this-device": { label: "You hold it", tone: "accent" },
   "held-by-another-device": { label: "Held", tone: "neutral" },
+  "held-by-run": null,
   "unrecognized-transition": { label: "Unread transition", tone: "attention" },
 };
 
@@ -46,7 +52,7 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
     <div className="meridian-lease-line" role="group" aria-label="Terminal lease">
       <div className="meridian-lease-line__head">
         <span className="meridian-lease-line__holder">
-          <Chip tone={chip.tone} label={chip.label} />
+          {chip === null ? null : <Chip tone={chip.tone} label={chip.label} />}
           <LeaseHolderSentence holding={state.holding} />
         </span>
         <div className="meridian-lease-line__controls">{props.controls}</div>

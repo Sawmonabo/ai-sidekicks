@@ -1,19 +1,21 @@
-// Who holds a session's shared-terminal write lease, as the session roster reads it.
-import type { UserId } from "@ai-sidekicks/contracts";
+// Who holds each of a session's shells, as the session roster reads it.
+import type { TerminalControlHolder, TerminalId } from "@ai-sidekicks/contracts";
+
+/** One held shell: the shell, and the device (and, while a run holds it, the run) holding it. */
+export interface SessionTerminalControlEntry extends TerminalControlHolder {
+  terminalId: TerminalId;
+}
 
 /**
- * The roster's reading of a session's one shared-terminal write lease.
+ * The roster's reading of a session's shell leases: one entry per held shell.
  *
- * The lease is per session, so the holder rides beside the session's nodes rather
- * than on each of them.
- *
- * `controlHolder` is required and nullable, so a client cannot read "nobody holds it"
- * out of an absent member. `null` carries two readings a client deliberately cannot
- * tell apart: the lease is free, or it is held by a node the control plane reads as
- * `offline`. Both render as no holder, because no client should offer to write
- * against a holder that cannot be vouched live. The suppression binds at `offline`
- * and nothing weaker; `degraded` is a band a node recovers from.
+ * The lease is per shell, so a session with several shells has a holder for each, and
+ * this device may hold one while another device or a run holds another. A shell
+ * nobody holds has no entry. Neither does a shell held by a node the control plane
+ * reads as `offline`: no client should offer to write against a holder that cannot be
+ * vouched live, so both read as a free shell. The suppression binds at `offline` and
+ * nothing weaker; `degraded` is a band a node recovers from.
  */
 export interface SessionTerminalControlReading {
-  controlHolder: UserId | null;
+  controlHolder: readonly SessionTerminalControlEntry[];
 }

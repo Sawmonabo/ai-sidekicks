@@ -34,4 +34,8 @@ describe("the acquisition control is offered on the identity alone", () => {
   it("offers nothing to the device that already holds the shell", () => {
     expect(resolve("held-by-this-device", IDENTITY_READ)).toStrictEqual({ control: "none" });
   });
+
+  it("offers nothing while a run holds the shell, which only stopping the run ends", () => {
+    expect(resolve("held-by-run", IDENTITY_READ)).toStrictEqual({ control: "none" });
+  });
 });

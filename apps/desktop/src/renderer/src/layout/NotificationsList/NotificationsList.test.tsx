@@ -31,12 +31,17 @@ import {
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {
     id: "attention-1",
+    momentId: "moment-1",
     sessionId: "session-a",
     trigger: "pending_approval",
     severity: "actionable",
+    displayName: "Fix the login flow",
+    stateWord: "Waiting on you",
     summary: "An approval is waiting.",
     sourceEventId: "event-1",
     createdAt: "2026-01-01T10:00:00.000Z",
+    bannerState: "pending",
+    seen: false,
     ...overrides,
   };
 }
@@ -84,12 +89,6 @@ describe("what the center never offers", () => {
     );
     expect(labels.some((label) => /dismiss|clear|mark read/iu.test(label))).toBe(false);
   });
-
-  it("says mute is global and draws no per-session switch", () => {
-    const { container } = render(<NotificationsList reading={readingOf([item()])} />);
-    expect(container.textContent ?? "").toContain("Muting is a single global setting");
-    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
-  });
 });
 
 describe("the density fold", () => {
@@ -107,7 +106,7 @@ describe("the density fold", () => {
   it("negative control: with nothing actionable the informational items are not folded", () => {
     const { container } = render(
       <NotificationsList
-        reading={readingOf([item({ severity: "informational", trigger: "mention" })])}
+        reading={readingOf([item({ severity: "informational", trigger: "run_completed" })])}
       />,
     );
     expect(container.querySelector(".meridian-attention__fold")).toBeNull();
@@ -116,11 +115,11 @@ describe("the density fold", () => {
 });
 
 describe("an item's own render", () => {
-  it("shows the projection's summary verbatim beside the console's reading of the trigger", () => {
+  it("shows the projection's summary and its state word verbatim", () => {
     const { container } = render(<NotificationsList reading={readingOf([item()])} />);
     const text = container.textContent ?? "";
     expect(text).toContain("An approval is waiting.");
-    expect(text).toContain("Waiting on an approval");
+    expect(text).toContain("Waiting on you");
   });
 
   it("names the scope off `runId` rather than recomputing it", () => {

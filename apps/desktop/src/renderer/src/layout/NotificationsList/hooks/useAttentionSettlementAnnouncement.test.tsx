@@ -30,12 +30,17 @@ const CREATED_AT = "2026-01-01T10:00:00.000Z";
 function itemNeeding(id: string): AttentionItem {
   return {
     id,
+    momentId: "moment-1",
     sessionId: "session-a",
     trigger: "pending_approval",
     severity: "actionable",
+    displayName: "Fix the login flow",
+    stateWord: "Waiting on you",
     summary: "An approval is waiting.",
     sourceEventId: `event-${id}`,
     createdAt: CREATED_AT,
+    bannerState: "pending",
+    seen: false,
   };
 }
 

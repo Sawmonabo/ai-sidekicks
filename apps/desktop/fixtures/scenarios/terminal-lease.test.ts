@@ -21,7 +21,7 @@ describe("the terminal scenario ends held", () => {
   function holderAfter(beats: readonly ScenarioBeat[]): unknown {
     return beats
       .filter((beat) => beat.event.kind === "pty.control_changed")
-      .map((beat) => beat.event.payload?.["holderUserId"])
+      .map((beat) => beat.event.payload?.["holderDeviceId"])
       .at(-1);
   }
 

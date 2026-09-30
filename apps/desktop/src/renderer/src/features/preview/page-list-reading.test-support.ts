@@ -7,24 +7,26 @@
 // forgot it would still compile: every field here has a default, so an omission reads
 // as a deliberate choice rather than as a gap.
 
-import type { PreviewPage } from "@ai-sidekicks/contracts";
+import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts";
 
 import type { PageListReading } from "./page-list-reading.js";
 
 /** One page, defaulted so a case names only the field it is about. */
 export function previewPage(
-  overrides: Partial<PreviewPage> & { readonly pageId: string },
+  overrides: Omit<Partial<PreviewPage>, "pageId"> & { readonly pageId: string },
 ): PreviewPage {
   return {
-    label: null,
     title: `Title ${overrides.pageId}`,
     address: `https://example.test/${overrides.pageId}`,
     host: "example.test",
-    isLoading: false,
-    loadProgress: null,
+    favicon: null,
+    loadState: { kind: "loaded" },
     backDepth: 0,
     forwardDepth: 0,
+    zoomFactor: 1,
+    released: false,
     ...overrides,
+    pageId: overrides.pageId as PreviewPageId,
   };
 }
 

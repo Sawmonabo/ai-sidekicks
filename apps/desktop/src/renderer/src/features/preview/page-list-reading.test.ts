@@ -9,18 +9,13 @@ import { describe, expect, it } from "vitest";
 import type { PreviewPage } from "@ai-sidekicks/contracts";
 
 import { pagesOf, type PageListReading } from "./page-list-reading.js";
+import { previewPage } from "./page-list-reading.test-support.js";
 
-const PAGE: PreviewPage = {
+const PAGE: PreviewPage = previewPage({
   pageId: "page-a",
-  label: null,
   title: "Example",
   address: "https://example.test/",
-  host: "example.test",
-  isLoading: false,
-  loadProgress: null,
-  backDepth: 0,
-  forwardDepth: 0,
-};
+});
 
 describe("the pages a reading carries", () => {
   it("carries the served frame's pages", () => {

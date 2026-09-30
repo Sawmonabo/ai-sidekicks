@@ -5,26 +5,9 @@
 // A run's attention follows its current state, so the table is keyed by run state
 // rather than by the event that announced it. A later transition into a state the
 // table does not list is how an item resolves; there is no separate resolution rule.
-import type { RunState } from "@ai-sidekicks/contracts";
+import type { AttentionSeverity, AttentionTrigger, RunState } from "@ai-sidekicks/contracts";
 
 import { normalizeOccurredAt } from "../events/canonicalizer.js";
-
-/**
- * What raised an attention item.
- *
- * @consumedBy the attention projector
- */
-export type AttentionTrigger =
-  | "pending_approval"
-  | "pending_input"
-  | "run_completed"
-  | "run_failed";
-
-/**
- * `actionable` blocks on the person (a run waiting for a decision or for input);
- * `informational` tells them something and blocks on nobody.
- */
-export type AttentionSeverity = "actionable" | "informational";
 
 /**
  * How one run state reaches a person, and which class it falls in.

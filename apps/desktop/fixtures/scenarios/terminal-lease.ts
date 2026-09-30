@@ -1,4 +1,4 @@
-// The terminal-lease scenario: one shared shell changing hands, and ending held.
+// The terminal-lease scenario: one of a session's shells changing hands, and ending held.
 //
 // The script is read in order to be understood: which beat follows which, and why. The
 // cast and the beat envelope sit above it.
@@ -12,17 +12,19 @@
 // A HOLD ENDS THREE WAYS, AND THE SCRIPT REACHES EACH. There is no release control on a
 // shell: a device hands it back only by another device taking it, or by the hold ending
 // on its own. The automatic endings are the holder's connection ending and the
-// acquiring agent run leaving its running state. All three appear below, in the order
+// holding agent run leaving its running state. All three appear below, in the order
 // a session reaches them.
+//
+// THE LEASE IS PER SHELL, and the holder is a device. Every transition names the
+// shell it moves; a run's hold names the machine's own device and the run.
 //
 // AND EACH ONE IS REACHED THE WAY THE DAEMON REACHES IT. A reason scripted onto a
 // sequence no daemon produces is a fixture that looks exercised and is not, so the
 // run-idle release below is preceded by the acquisition it releases: the agent's run
 // queued, started, and reached `running`; an AGENT-PATH take bound to that run; the
 // run leaving `running`; and only then `auto_released_run_idle` for that holder.
-// The lease design makes this release the acquiring run's first lifecycle transition
-// out of `running` after an agent-path take, and it leaves a client-acquired human
-// hold alone.
+// The lease design makes this release the holding run's first lifecycle transition
+// out of `running`, and it leaves a device's hold alone.
 //
 // IT ENDS HELD. `runToCompletion()` is the screenshot tier's entry point, so the last
 // beat is the frame a screenshot pins — and the last beat is the owner taking the
@@ -44,12 +46,19 @@ const HUMAN_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
 const SECOND_DEVICE_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
 const AGENT_USER_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 
-/** The session whose one shared shell this scenario is about. */
+/** The session whose shell this scenario is about. */
 const TERMINAL_SCENARIO_SESSION_ID = "019b7b30-0280-75e5-8510-ada11a5a5555";
 
 /**
+ * The shell the lease moves on. The terminal pane names the one shell it shows by its
+ * session's id until it reads the session's shell list, so the scenario's shell
+ * carries that id for the pane to fold its lease.
+ */
+const TERMINAL_SCENARIO_SHELL_ID = TERMINAL_SCENARIO_SESSION_ID;
+
+/**
  * The agent's run, here rather than implied: `auto_released_run_idle` releases the
- * lease when THE ACQUIRING RUN leaves its running state, so the reason cannot be
+ * lease when THE HOLDING RUN leaves its running state, so the reason cannot be
  * scripted without a run to bind it to.
  */
 const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
@@ -64,14 +73,17 @@ const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
  * index does not, and keeps the ids declared exactly once.
  */
 interface TerminalScenarioRoles {
-  /** The session's owner. Holds the lease first, and holds it at the end. */
+  /**
+   * The session's owner, at the device this window runs on, which is also the machine
+   * the agent's run holds the shell from. Holds the lease at the end.
+   */
   readonly owner: string;
   /** The other device the lease changes hands to. */
   readonly otherDevice: string;
   /**
    * The attached agent, whose run's idling is one of the ways a hold ends. The
-   * RUN binds to the lease, never this id: an agent-path take holds as the
-   * node-owner user, so `owner` above is the holder that take names.
+   * RUN binds to the lease, never this id: a run's take names the machine's own
+   * device, `owner` above, and the run.
    */
   readonly agent: string;
 }
@@ -136,14 +148,16 @@ interface TerminalLeaseTransitionBeatInput {
   readonly atMs: number;
   readonly sequence: number;
   /**
-   * Who holds it after this transition.
+   * The device holding the shell after this transition.
    *
    * `null` is the free lease, and it is written as an explicit null rather than an
    * omitted member because an unheld lease is an explicit state that reads
    * differently from a suppressed one.
    */
-  readonly holderUserId: string | null;
-  readonly previousHolderUserId: string | null;
+  readonly holderDeviceId: string | null;
+  /** The run holding the shell after this transition, on a run's take only. */
+  readonly holderRunId?: string;
+  readonly previousHolderDeviceId: string | null;
   /** One of the reasons the wire closes the set at. */
   readonly reason: string;
   /** Omitted for a take the daemon's own lease authority performed. */
@@ -207,8 +221,10 @@ function terminalLeaseTransitionBeat(transition: TerminalLeaseTransitionBeatInpu
     ...(transition.actorId === undefined ? {} : { actorId: transition.actorId }),
     payload: {
       sessionId: TERMINAL_SCENARIO_SESSION_ID,
-      holderUserId: transition.holderUserId,
-      previousHolderUserId: transition.previousHolderUserId,
+      terminalId: TERMINAL_SCENARIO_SHELL_ID,
+      holderDeviceId: transition.holderDeviceId,
+      ...(transition.holderRunId === undefined ? {} : { holderRunId: transition.holderRunId }),
+      previousHolderDeviceId: transition.previousHolderDeviceId,
       reason: transition.reason,
     },
   });
@@ -224,7 +240,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
   id: TERMINAL_LEASE_SCENARIO_ID,
   label: "Lease changing hands",
   purpose:
-    "The session's one shared shell moving between two of the user's devices and an agent " +
+    "One of the session's shells moving between two of the user's devices and an agent " +
     "run — the run queued, started, taken on the agent path, and completed, so the run-idle " +
     "release follows the acquisition it releases — reaching each automatic ending of a hold " +
     "and ending held. The output stream is absent until the terminal pane's " +
@@ -282,16 +298,16 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     terminalLeaseTransitionBeat({
       atMs: 1200,
       sequence: 4,
-      holderUserId: OTHER_DEVICE,
-      previousHolderUserId: null,
+      holderDeviceId: OTHER_DEVICE,
+      previousHolderDeviceId: null,
       reason: "taken",
       actorId: OTHER_DEVICE,
     }),
     terminalLeaseTransitionBeat({
       atMs: 1800,
       sequence: 5,
-      holderUserId: null,
-      previousHolderUserId: OTHER_DEVICE,
+      holderDeviceId: null,
+      previousHolderDeviceId: OTHER_DEVICE,
       reason: "auto_released_disconnect",
       actorId: OTHER_DEVICE,
     }),
@@ -337,25 +353,23 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
         newState: "running",
       },
     }),
-    // THE AGENT-PATH TAKE, with no actor on purpose: the node's own agent runs take
-    // through the daemon's in-process lease authority, so nobody pressed a control
-    // and the transcript's actor column reads "The daemon". The holder is the
-    // NODE-OWNER user, which is who an agent-path take holds as: agents are
-    // `AgentId`-keyed domain actors and not `users` rows, so no
-    // agent-user exists to hold and the holder fields stay user
-    // ids, exactly as the terminal-control method registry declares.
+    // THE RUN'S TAKE, with no actor on purpose: the agent's run takes through the
+    // daemon's own lease authority, so nobody pressed a control and the transcript's
+    // actor column reads "The daemon". The holder is the machine's own device, with
+    // the run named beside it, so every device reads the shell as the run's.
     terminalLeaseTransitionBeat({
       atMs: 3300,
       sequence: 9,
-      holderUserId: OWNER,
-      previousHolderUserId: null,
+      holderDeviceId: OWNER,
+      holderRunId: TERMINAL_AGENT_RUN_ID,
+      previousHolderDeviceId: null,
       reason: "taken",
     }),
     terminalScenarioBeat({
       atMs: 3600,
       sequence: 10,
       kind: "run.completed",
-      // The acquiring run's first lifecycle transition out of `running` — what the
+      // The holding run's first lifecycle transition out of `running` — what the
       // auto-release below is a consequence of, rather than an asserted state.
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
@@ -368,16 +382,16 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     terminalLeaseTransitionBeat({
       atMs: 3700,
       sequence: 11,
-      holderUserId: null,
-      previousHolderUserId: OWNER,
+      holderDeviceId: null,
+      previousHolderDeviceId: OWNER,
       reason: "auto_released_run_idle",
     }),
     // The held-lease steady state: the holder the pane's header names.
     terminalLeaseTransitionBeat({
       atMs: 4100,
       sequence: 12,
-      holderUserId: OWNER,
-      previousHolderUserId: null,
+      holderDeviceId: OWNER,
+      previousHolderDeviceId: null,
       reason: "taken",
       actorId: OWNER,
     }),

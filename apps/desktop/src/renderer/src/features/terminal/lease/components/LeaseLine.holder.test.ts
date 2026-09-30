@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { TERMINAL_LEASE_HOLDERS, UNREAD_TERMINAL_LEASE } from "../lease-model.js";
 import { leaseState, renderLease } from "./LeaseLine.test-support.js";
-import { OTHER_DEVICE_ID, THIS_DEVICE_ID } from "../lease-model.test-support.js";
+import { OTHER_DEVICE_ID, RUN_ID, THIS_DEVICE_ID } from "../lease-model.test-support.js";
 
 describe("the holding line — every state the fold settles into", () => {
   it("says the lease has not been read, which is not the lease being free", () => {
@@ -36,19 +36,21 @@ describe("the holding line — every state the fold settles into", () => {
     const { container } = renderLease(
       leaseState({
         holding: "held-by-another-device",
-        holderUserId: OTHER_DEVICE_ID,
+        holderDeviceId: OTHER_DEVICE_ID,
       }),
     );
     expect(container.textContent).toContain("Held");
     expect(container.textContent).toContain("The shell is held from another device.");
     expect(container.textContent).not.toContain(OTHER_DEVICE_ID);
+    // Negative control for the run's line below: every other holding draws its chip.
+    expect(container.querySelector(".meridian-chip")).not.toBeNull();
   });
 
   it("tells the holding device it may type, and offers no control at all", () => {
     const { container } = renderLease(
       leaseState({
         holding: "held-by-this-device",
-        holderUserId: THIS_DEVICE_ID,
+        holderDeviceId: THIS_DEVICE_ID,
       }),
     );
     expect(container.textContent).toContain("You hold it");
@@ -56,6 +58,22 @@ describe("the holding line — every state the fold settles into", () => {
     // The idempotent self-take is not reachable from the lease line, so there is no
     // transition for it to animate; and there is no release control to hand back with.
     expect(container.querySelector(".meridian-lease-line__take")).toBeNull();
+  });
+
+  it("reads the design's sentence alone, with no chip, when a run holds the shell", () => {
+    const { container } = renderLease(
+      leaseState({
+        holding: "held-by-run",
+        holderDeviceId: THIS_DEVICE_ID,
+        holderRunId: RUN_ID,
+      }),
+    );
+    // The design's sentence alone, with no chip beside it.
+    expect(container.textContent).toContain("Running command holds the shell.");
+    expect(container.querySelector(".meridian-chip")).toBeNull();
+    // The run's machine is the holding device, and that may be this one; the line
+    // still never tells it that it may type.
+    expect(container.textContent).not.toContain("You may type into the shared shell.");
   });
 
   it("says the lease is unreadable when a transition arrived this build cannot read", () => {
@@ -93,9 +111,9 @@ describe("the holding line — every state the fold settles into", () => {
   });
 
   it("negative control: every holding renders its own sentence", () => {
-    // Counted off the closed set rather than written down, so a sixth holding added
+    // Counted off the closed set rather than written down, so a holding added
     // without a sentence of its own fails here instead of quietly reading like one
-    // of the five.
+    // of the others.
     const sentences = new Set(
       (
         [
@@ -103,11 +121,16 @@ describe("the holding line — every state the fold settles into", () => {
           leaseState({ holding: "unheld" }),
           leaseState({
             holding: "held-by-another-device",
-            holderUserId: OTHER_DEVICE_ID,
+            holderDeviceId: OTHER_DEVICE_ID,
           }),
           leaseState({
             holding: "held-by-this-device",
-            holderUserId: THIS_DEVICE_ID,
+            holderDeviceId: THIS_DEVICE_ID,
+          }),
+          leaseState({
+            holding: "held-by-run",
+            holderDeviceId: THIS_DEVICE_ID,
+            holderRunId: RUN_ID,
           }),
           leaseState({
             holding: "unrecognized-transition",

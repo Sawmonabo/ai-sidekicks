@@ -23,12 +23,17 @@ function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   const id = overrides.id ?? "attention-1";
   return {
     id,
+    momentId: "moment-1",
     sessionId: "session-a",
     trigger: "pending_approval",
     severity: "actionable",
+    displayName: "Fix the login flow",
+    stateWord: "Waiting on you",
     summary: "An approval is waiting.",
     sourceEventId: `event-for-${id}`,
     createdAt: "2026-01-01T10:00:00.000Z",
+    bannerState: "pending",
+    seen: false,
     ...overrides,
   };
 }

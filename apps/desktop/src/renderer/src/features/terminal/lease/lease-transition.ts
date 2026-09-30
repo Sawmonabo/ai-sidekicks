@@ -2,11 +2,10 @@
 // folds to.
 //
 // The two questions were one module, and they are not one job. This half is a
-// READER: it holds the wire vocabulary the daemon sends, the shape each reason
-// obliges the payload to have, and the two ways an event is read off that payload. It
-// knows nothing about a device or which of five holdings the lease line settles into —
-// both are `lease-model.ts`'s, because both are properties of the SEQUENCE rather than
-// of the event.
+// READER: it reads one event's payload through the contract, decoded at the bridge,
+// and records a payload the contract refuses. It knows nothing about a device or which holding the
+// lease line settles into — both are `lease-model.ts`'s, because both are properties
+// of the SEQUENCE rather than of the event.
 //
 // The split is along that seam and not along a line count. A reader can be driven
 // with one event and no session; the fold cannot be driven at all without a log. So
@@ -15,70 +14,26 @@
 //
 // Both halves obey one hard rule — **the holder is a wire field and is never derived
 // from the last observed take** — and this is where it is enforced, because this is
-// where a payload becomes a reading at all.
+// where a payload becomes a reading at all. The shape each reason obliges the
+// payload to have (a take names its holder, a release names nobody) is the
+// contract's refinement, so a payload that contradicts its own reason is refused
+// here without this module restating the rule.
+
+import type { PtyControlChangedReason, RunId, TerminalId } from "@ai-sidekicks/contracts";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
+import { readPtyControlChangedPayload } from "@renderer/services/daemon/pty-control-changed-payload.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-
-/** The event a lease transition arrives on. Wire-verbatim, rendered as received. */
-export const TERMINAL_LEASE_EVENT_KIND = "pty.control_changed";
-
-/**
- * The transition reasons the wire closes the set at.
- *
- * Declared once as a tuple with the union derived from it. No contract package exports
- * this vocabulary, so this is the console's single declaration of it, and every
- * consumer (the holder-shape table, the guard, the terminal feature's own scenario
- * test) derives from this array rather than restating it.
- */
-export const TERMINAL_LEASE_TRANSITION_REASONS = [
-  "taken",
-  "auto_released_disconnect",
-  "auto_released_run_idle",
-] as const;
-
-/** One transition reason. Derived, never restated. */
-export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_REASONS)[number];
-
-/**
- * What each reason says the holder looks like AFTER it, which is the other half of
- * reading a transition.
- *
- * A reason alone was taken as the whole reading, and the holder was then read
- * tolerantly beside it: any non-empty string became a holder and everything else
- * became the free lease. So a `taken` whose payload named nobody was presented as a
- * FREE lease — a shell the daemon has just handed to someone, offered here as one
- * anybody may take — and a release that carried this device's own id was presented
- * as `held-by-this-device`, which opens stdin until the daemon rejects the writes. Neither
- * payload is a transition this build understands, and the honest reading of a
- * transition it cannot understand is the unread one.
- *
- * Two shapes and not three, because the direction is what the holder member reports:
- * a take names who holds it, and both releases — the holder's connection ending and
- * the acquiring run leaving its running state — leave nobody holding it. The member is documented as who
- * holds the lease AFTER the transition, so a release that named a holder is
- * contradicting itself rather than naming the user it took the shell from;
- * that user is the `previousHolderUserId` the same payload carries.
- *
- * The check is HERE because there is nowhere else for it. `packages/contracts`
- * registers `pty.control_changed` as an event type and no payload variant for it, so
- * this module is the console's one declaration of the shape and the tolerant envelope
- * above it validates nothing. Keyed by the reason union so a fourth reason is a
- * compile error rather than a payload nothing checks.
- */
-const TRANSITION_HOLDER_SHAPES: Readonly<
-  Record<TerminalLeaseTransitionReason, "names-the-holder" | "names-nobody">
-> = {
-  taken: "names-the-holder",
-  auto_released_disconnect: "names-nobody",
-  auto_released_run_idle: "names-nobody",
-};
 
 /** One transition, as the fold reads it. */
 export interface TerminalLeaseTransition {
-  readonly reason: TerminalLeaseTransitionReason;
-  /** Who holds it after this transition; `null` is the free lease, explicitly. */
-  readonly holderUserId: string | null;
+  /** The shell whose holder changed. */
+  readonly terminalId: TerminalId;
+  readonly reason: PtyControlChangedReason;
+  /** The device holding the shell after this transition; `null` is the free lease. */
+  readonly holderDeviceId: string | null;
+  /** The run holding the shell after this transition, while an agent's run holds it. */
+  readonly holderRunId: RunId | undefined;
 }
 
 /**
@@ -99,38 +54,33 @@ export interface TerminalLeaseUnreadTransition {
   readonly reason: string | undefined;
 }
 
-/** A reason the wire sent, or `undefined` when it sent something outside the set. */
-export function asTerminalLeaseTransitionReason(
-  candidate: unknown,
-): TerminalLeaseTransitionReason | undefined {
-  return TERMINAL_LEASE_TRANSITION_REASONS.find((reason) => reason === candidate);
-}
-
 /**
- * Read one transition off an event, or `undefined` when the payload is not one.
- *
- * Both halves have to agree. A recognized reason with a holder shape that
- * contradicts it is not a transition this build can read, and returning it with the
- * holder quietly normalized is how a malformed `taken` became a free lease and a
- * release carrying this device became `held-by-this-device`.
+ * Read one transition off an event, or `undefined` when the payload is not one the
+ * contract admits: a reason outside the closed set, a missing member, or a holder
+ * shape that contradicts its reason.
  */
 export function readTerminalLeaseTransition(
   event: ProjectedSessionEvent,
 ): TerminalLeaseTransition | undefined {
-  const payload = event.payload;
+  const payload = readPtyControlChangedPayload(event.payload);
   if (payload === undefined) {
     return undefined;
   }
-  const reason = asTerminalLeaseTransitionReason(payload["reason"]);
-  if (reason === undefined) {
-    return undefined;
-  }
-  const holderUserId = readUserId(payload["holderUserId"]);
-  const namesAHolder = holderUserId !== null;
-  if (namesAHolder !== (TRANSITION_HOLDER_SHAPES[reason] === "names-the-holder")) {
-    return undefined;
-  }
-  return { reason, holderUserId };
+  return {
+    terminalId: payload.terminalId,
+    reason: payload.reason,
+    holderDeviceId: payload.holderDeviceId,
+    holderRunId: payload.holderRunId,
+  };
+}
+
+/**
+ * The shell an event names, read as a plain string, whether or not the rest of the
+ * payload is readable. The fold uses it to skip a transition on another shell it
+ * cannot read, and to keep one that names no shell at all.
+ */
+export function readTerminalLeaseShell(event: ProjectedSessionEvent): string | undefined {
+  return readWireString(event.payload?.["terminalId"]);
 }
 
 /**
@@ -146,20 +96,4 @@ export function readTerminalLeaseUnreadTransition(
   event: ProjectedSessionEvent,
 ): TerminalLeaseUnreadTransition {
   return { reason: readWireString(event.payload?.["reason"]) };
-}
-
-/**
- * A user id, or the free lease.
- *
- * Anything that is not a non-empty string reads as the free lease rather than as
- * an identity: an absent member and an explicit null both mean "nobody holds it",
- * and a lease line that treated a missing member as a holder would attribute the
- * shell to `undefined`.
- *
- * The predicate is the console's one wire-string reading; what this module owns is
- * the mapping of its absence onto the free lease, which is a lease fact and not a
- * wire one.
- */
-function readUserId(candidate: unknown): string | null {
-  return readWireString(candidate) ?? null;
 }

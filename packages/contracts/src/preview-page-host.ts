@@ -9,7 +9,7 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import { PreviewAddressSchema, PreviewPageIdSchema } from "./preview.js";
+import { PreviewAddressSchema, PreviewPageIdSchema, type PreviewPageId } from "./preview.js";
 
 /**
  * One debug-protocol message between the daemon's relay and a page's in-process
@@ -71,7 +71,7 @@ export const PreviewDebuggerMessageSchema: z.ZodType<
 
 /** Main reports the debug target behind one page's view, once the view exists. */
 export interface PreviewPageTargetReportRequest {
-  pageId: string;
+  pageId: PreviewPageId;
   targetId: string;
 }
 /** Parses a {@link PreviewPageTargetReportRequest}. */
@@ -85,7 +85,7 @@ export const PreviewPageTargetReportRequestSchema: z.ZodType<
  * command to main, and main returns the replies and events to the daemon.
  */
 export interface PreviewPageDebuggerMessageRequest {
-  pageId: string;
+  pageId: PreviewPageId;
   message: PreviewDebuggerMessage;
 }
 /** Parses a {@link PreviewPageDebuggerMessageRequest}. */

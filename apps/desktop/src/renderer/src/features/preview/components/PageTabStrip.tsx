@@ -1,8 +1,9 @@
 // The pane's tab strip: one tab per page the session owns.
 //
-// Each tab carries the page's label where the agent set one and its title otherwise,
-// and a close control. The strip draws a reading and decides nothing: which tab is
-// current and whether a page is loading are read off the frame. It is present only at
+// Each tab carries the page's icon, its title (the host until the title arrives), and a
+// close control; while the page loads, a turning mark takes the icon's place. The strip
+// draws a reading and decides nothing: which tab is current and whether a page is
+// loading are read off the frame. It is present only at
 // two or more pages: with one page or none there is nothing to choose between, and a
 // list nobody has reported is never shown as a session with no pages.
 //
@@ -17,9 +18,10 @@ import "./PageTabStrip.css";
 
 import { useState } from "react";
 
-import type { PreviewPage } from "@ai-sidekicks/contracts";
+import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts";
 
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { PageTabIcon } from "./PageTabIcon.js";
 import { activePageOf, pagesOf, type PageListReading } from "../page-list-reading.js";
 import {
   isTabDrag,
@@ -31,10 +33,10 @@ import {
 /** The page reading a strip draws and the acts its controls dispatch. */
 export interface PageTabStripProps {
   readonly reading: PageListReading;
-  readonly onSelect: (pageId: string) => void;
-  readonly onClose: (pageId: string) => void;
+  readonly onSelect: (pageId: PreviewPageId) => void;
+  readonly onClose: (pageId: PreviewPageId) => void;
   /** `toIndex` addresses the list WITHOUT the moved page. See `tab-reorder.ts`. */
-  readonly onReorder: (pageId: string, toIndex: number) => void;
+  readonly onReorder: (pageId: PreviewPageId, toIndex: number) => void;
 }
 
 /** One tab per open page, with drag reordering; draws nothing below two pages. */
@@ -50,12 +52,13 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
 
   const dropAt = (dropPosition: number, transfer: DataTransfer): void => {
     setHoveredDropPosition(undefined);
-    const pageId = readTabDragPayload(transfer);
-    if (pageId === undefined) {
+    const draggedPageId = readTabDragPayload(transfer);
+    if (draggedPageId === undefined) {
       return;
     }
-    const fromIndex = pages.findIndex((page) => page.pageId === pageId);
-    if (fromIndex < 0) {
+    const fromIndex = pages.findIndex((page) => page.pageId === draggedPageId);
+    const dragged = pages[fromIndex];
+    if (dragged === undefined) {
       return;
     }
     // THE ONE CALL SITE. The drop position is a position among the tabs as drawn and the
@@ -65,7 +68,7 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
     if (toIndex === undefined) {
       return;
     }
-    onReorder(pageId, toIndex);
+    onReorder(dragged.pageId, toIndex);
   };
 
   if (pages.length < 2) {
@@ -109,12 +112,7 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
                 onSelect(page.pageId);
               }}
             >
-              {page.isLoading ? (
-                <>
-                  <span className="meridian-preview-tab__spinner" aria-hidden="true" />
-                  <span className="meridian-visually-hidden">Loading</span>
-                </>
-              ) : null}
+              <PageTabIcon page={page} />
               <span className="meridian-preview-tab__label">{tabLabel(page)}</span>
             </button>
             <button
@@ -175,10 +173,7 @@ function tabClassName(isSelected: boolean, isDropTarget: boolean): string {
     .join(" ");
 }
 
-/** What a tab shows when the agent set no label: the page's own title, then its host. */
+/** What a tab shows: the page's own title, then its host until the title arrives. */
 function tabLabel(page: PreviewPage): string {
-  if (page.label !== null && page.label.length > 0) {
-    return page.label;
-  }
   return page.title.length > 0 ? page.title : page.host;
 }

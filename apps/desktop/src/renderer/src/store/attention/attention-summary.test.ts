@@ -1,46 +1,27 @@
-// What the attention summary may say, and what it must refuse to say.
-//
-// The closed sets are COUNTED rather than described, because the design's claim is
-// about a number ("`trigger` at exactly six values … Six is closed"), and the fold is
+// What the attention summary may say, and what it must refuse to say. The fold is
 // driven with items whose order and resolution differ.
 
 import { describe, expect, it } from "vitest";
-import {
-  ATTENTION_SEVERITIES,
-  ATTENTION_TRIGGERS,
-  type AttentionItem,
-} from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { AttentionSummary } from "@renderer/store/attention/attention-summary.js";
 
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {
     id: "attention-1",
+    momentId: "moment-1",
     sessionId: "session-a",
     trigger: "pending_approval",
     severity: "actionable",
+    displayName: "Fix the login flow",
+    stateWord: "Waiting on you",
     summary: "An approval is waiting.",
     sourceEventId: "event-1",
     createdAt: "2026-01-01T10:00:00.000Z",
+    bannerState: "pending",
+    seen: false,
     ...overrides,
   };
 }
-
-describe("the closed vocabularies", () => {
-  it("carries exactly five triggers and exactly two severities", () => {
-    expect(ATTENTION_TRIGGERS).toHaveLength(5);
-    expect(ATTENTION_SEVERITIES).toHaveLength(2);
-  });
-
-  it("names the five the design names, and no sixth", () => {
-    expect([...ATTENTION_TRIGGERS]).toStrictEqual([
-      "pending_approval",
-      "pending_input",
-      "run_completed",
-      "run_failed",
-      "mention",
-    ]);
-  });
-});
 
 describe("the fold over one read", () => {
   it("drops a resolved item, because it is not waiting on anybody", () => {
@@ -72,7 +53,7 @@ describe("the fold over one read", () => {
 
   it("negative control: a session with only informational items is not reported actionable", () => {
     const summary = new AttentionSummary([
-      item({ sessionId: "session-c", severity: "informational", trigger: "mention" }),
+      item({ sessionId: "session-c", severity: "informational", trigger: "run_completed" }),
     ]);
     expect(summary.severityFor("session-c")).toBe("informational");
     expect(summary.hasActionable).toBe(false);

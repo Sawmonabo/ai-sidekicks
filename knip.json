@@ -192,8 +192,8 @@
       // stores land.
       // `@ai-sidekicks/contracts` is imported only by the ignored file below.
       "ignoreDependencies": ["wrangler", "pg", "@types/pg", "@ai-sidekicks/contracts"],
-      // The roster's reading of the terminal write lease holder, which the persisted-holder
-      // join extends (ADR-025 D7; Plan-022 CP-022-4).
+      // The roster's per-shell reading of the terminal write lease holder, which nothing
+      // imports until the roster joins the persisted holder.
       "ignoreFiles": ["src/runtime-nodes/attach-service.ts"]
     },
     "packages/runtime-daemon": {

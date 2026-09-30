@@ -49,12 +49,17 @@ describe("an attention item", () => {
 
     sessionDestinationActs(contextWith({ navigations }), () => undefined).openAttentionItem({
       id: "attention-1",
+      momentId: "moment-1",
       sessionId: "session-node",
       trigger: "pending_approval",
       severity: "actionable",
+      displayName: "Fix the login flow",
+      stateWord: "Waiting on you",
       summary: "A tool call is waiting on you.",
       sourceEventId: "event-1",
       createdAt: "2026-01-01T10:00:00.000Z",
+      bannerState: "pending",
+      seen: false,
     });
 
     expect(navigations).toStrictEqual([{ kind: "session", sessionId: "session-node" }]);

@@ -13,7 +13,9 @@
 // own.
 //
 // THERE IS NO RELEASE. The control is drawn only while this device does not hold the
-// shell, and the next device that takes it displaces the holder.
+// shell, and the next device that takes it displaces the holder. A run's hold is the
+// exception: the daemon refuses a take against it, and only stopping the run ends it,
+// so no take is offered while a run holds the shell.
 
 import type { TerminalLeaseHolder } from "./lease-model.js";
 import type { TerminalDeviceIdentity } from "./hooks/useTerminalDeviceIdentity.js";
@@ -30,7 +32,11 @@ export function resolveTakeShellAvailability(input: {
   readonly holding: TerminalLeaseHolder;
   readonly deviceIdentity: TerminalDeviceIdentity;
 }): TakeShellAvailability {
-  if (input.holding === "held-by-this-device" || input.deviceIdentity.status !== "read") {
+  if (
+    input.holding === "held-by-this-device" ||
+    input.holding === "held-by-run" ||
+    input.deviceIdentity.status !== "read"
+  ) {
     return { control: "none" };
   }
   return { control: "acquire" };

@@ -36,5 +36,11 @@ export function LeaseHolderSentence(props: LeaseHolderSentenceProps): React.JSX.
       return <DerivedFigure text="You may type into the shared shell." />;
     case "held-by-another-device":
       return <DerivedFigure text="The shell is held from another device." />;
+    // The design's line is `<agent>'s running command holds the shell.` beside a
+    // `Stop the run` link. The fold has the holding run and nothing that names its
+    // agent, and there is no act here to stop it, so both are left out rather than
+    // replaced with words the design does not say.
+    case "held-by-run":
+      return <DerivedFigure text="Running command holds the shell." />;
   }
 }
