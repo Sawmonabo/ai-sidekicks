@@ -115,7 +115,7 @@ const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
 function costUpdateEntry(input: {
   readonly atMs: number;
   readonly runId: string;
-  readonly costCents: number;
+  readonly costUsdMicros: number;
   readonly causedBy: string;
 }): ScriptEntry {
   return {
@@ -124,7 +124,7 @@ function costUpdateEntry(input: {
     payload: {
       sessionId: SESSION_ID,
       runId: input.runId,
-      costCents: input.costCents,
+      costUsdMicros: input.costUsdMicros,
       costStatus: "priced",
       costSource: "provider_reported",
       effectivePrincipal: { kind: "user", userId: input.causedBy },
@@ -330,7 +330,7 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
   costUpdateEntry({
     atMs: 1_500,
     runId: RUN_IMPLEMENTER,
-    costCents: 34,
+    costUsdMicros: 340_000,
     causedBy: USER_YOU,
   }),
   lane.tool(RUN_REVIEWER, {
@@ -380,7 +380,7 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
   costUpdateEntry({
     atMs: 1_800,
     runId: RUN_REVIEWER,
-    costCents: 21,
+    costUsdMicros: 210_000,
     causedBy: USER_YOU,
   }),
   approvalEntry({
@@ -416,7 +416,7 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     contentType: "text/markdown",
     contentLength: 1_412,
   }),
-  costUpdateEntry({ atMs: 2_000, runId: RUN_SCOUT, costCents: 9, causedBy: USER_YOU }),
+  costUpdateEntry({ atMs: 2_000, runId: RUN_SCOUT, costUsdMicros: 90_000, causedBy: USER_YOU }),
   lane.output(RUN_REVIEWER, {
     atMs: 2_050,
     kind: "assistant.thinking_update",
@@ -469,7 +469,7 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
   costUpdateEntry({
     atMs: 2_250,
     runId: RUN_ARCHITECT,
-    costCents: 57,
+    costUsdMicros: 570_000,
     causedBy: USER_YOU,
   }),
   lane.output(RUN_REVIEWER, {
