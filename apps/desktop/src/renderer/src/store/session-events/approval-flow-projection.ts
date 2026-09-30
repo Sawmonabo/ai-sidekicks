@@ -82,9 +82,6 @@ const APPROVAL_EVENT_READINGS = {
   "approval.rule_revoked": { schema: ApprovalRuleRevokedPayloadSchema, state: undefined },
 } as const satisfies Readonly<Record<ApprovalEventKind, ApprovalEventReading>>;
 
-/** The event kinds this projector claims: the ask's `approval.*` kinds. */
-export const APPROVAL_FLOW_EVENT_KINDS: readonly string[] = Object.keys(APPROVAL_EVENT_READINGS);
-
 /** The projector table the composer feature claims its kinds with, one fold per kind. */
 export const APPROVAL_FLOW_PROJECTORS: EntityProjectorTable = Object.fromEntries(
   Object.entries(APPROVAL_EVENT_READINGS).map(([eventKind, reading]) => [

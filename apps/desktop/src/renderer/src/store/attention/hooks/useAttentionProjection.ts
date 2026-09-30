@@ -56,9 +56,8 @@ export type AttentionProjectionReadCall = () => Promise<AttentionProjectionRead>
 const ATTENTION_READ_ORIGIN = "attention-projection";
 
 /**
- * Performs the projection read and keeps it current. One read serves the whole destination:
- * the notification center renders it and the all-sessions list takes each row's severity off
- * it, so the two cannot disagree about what needs a person.
+ * Performs the projection read and keeps it current. One read serves the whole destination, so
+ * no two views of it can disagree about what needs a person.
  *
  * The read is constructed in the render body and started in an effect, so a render React
  * discards leaves no subscription behind. The clock is the caller's, so the read is rebuilt in

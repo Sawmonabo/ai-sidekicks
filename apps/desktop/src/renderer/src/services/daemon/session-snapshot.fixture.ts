@@ -1,5 +1,5 @@
 // The base state the fixture's session read establishes: what one session already contains when a
-// store opens on it. `session-answers.fixture.ts` serves it.
+// store opens on it.
 //
 // It is cursor zero, no entities and the scripted timeline cursors. Zero rather than a position
 // derived from the beats, because a base state ahead of the stream would make the store discard

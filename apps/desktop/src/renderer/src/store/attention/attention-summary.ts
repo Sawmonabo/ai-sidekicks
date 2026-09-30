@@ -5,7 +5,7 @@
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { unreadableDeliveryReading, type ReadingState } from "@renderer/lib/partial-read.js";
-import type { AttentionItem, AttentionSeverity } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 
 /** One session the projection read could not cover, with the refusal it answered with. */
 export interface RefusedAttentionSession {
@@ -52,25 +52,18 @@ export type AnsweredAttentionReading = Extract<AttentionReading, { readonly phas
 /**
  * The fold over one projection read.
  *
- * One value answers the center, the all-sessions list and the tests, so they cannot disagree
- * about what "live" means. It counts nothing the daemon did not send: the only arithmetic is
+ * One value answers every view of the projection, so they cannot disagree about what "live"
+ * means. It counts nothing the daemon did not send: the only arithmetic is
  * partitioning and ordering, and severity is read off each item. A resolved item is dropped at
  * construction, since `resolvedAt` is the daemon's word that it has cleared.
  */
 export class AttentionSummary {
   readonly #liveItems: readonly AttentionItem[];
   readonly #groups: readonly AttentionSessionGroup[];
-  readonly #severityBySessionId: ReadonlyMap<string, AttentionSeverity>;
 
   public constructor(items: readonly AttentionItem[]) {
     this.#liveItems = oldestFirst(items.filter((item) => item.resolvedAt === undefined));
     this.#groups = groupBySession(this.#liveItems);
-    this.#severityBySessionId = new Map(
-      this.#groups.map((group) => [
-        group.sessionId,
-        group.actionable.length > 0 ? "actionable" : "informational",
-      ]),
-    );
   }
 
   /**
@@ -95,16 +88,6 @@ export class AttentionSummary {
   /** True while any session has actionable attention. Drives the density fold. */
   public get hasActionable(): boolean {
     return this.#groups.some((group) => group.actionable.length > 0);
-  }
-
-  /**
-   * The severity that applies to one session, or `undefined` when the projection carries
-   * nothing for it. `undefined` is not "clear": a row renders it as nothing at all, since an
-   * all-clear mark for a session the projection never mentioned would answer a question nobody
-   * asked.
-   */
-  public severityFor(sessionId: string): AttentionSeverity | undefined {
-    return this.#severityBySessionId.get(sessionId);
   }
 }
 

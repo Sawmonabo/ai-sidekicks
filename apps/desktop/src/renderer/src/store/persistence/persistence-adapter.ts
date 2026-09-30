@@ -114,16 +114,6 @@ export class PersistenceAdapterError extends RefusalError {
 }
 
 /**
- * The operator-facing sentence for a gauge whose storage is not durable, or `undefined` when
- * it is. Views render the reason through this table so they cannot disagree about a reason.
- */
-export function describeQuotaUnavailability(gauge: QuotaGauge): string | undefined {
-  return gauge.unavailableReason === undefined
-    ? undefined
-    : PERSISTENCE_UNAVAILABLE_DESCRIPTIONS[gauge.unavailableReason];
-}
-
-/**
  * The partition holding preferences that belong to the window rather than one session (the
  * color scheme). A reserved identifier rather than an empty string, so a bug that loses a
  * session id writes somewhere obviously wrong.
