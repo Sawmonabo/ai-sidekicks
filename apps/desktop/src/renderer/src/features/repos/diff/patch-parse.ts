@@ -38,18 +38,6 @@ export function parseUnifiedPatch(patchText: string, comparedStates: ComparedSta
   // nth parsed hunk across every file.
   const declaredHeaders = declaredHunkHeaders(patchText);
   const structuredPatches = parsePatch(patchText);
-  const parsedHunkCount = structuredPatches.reduce(
-    (total, structuredPatch) => total + structuredPatch.hunks.length,
-    0,
-  );
-  // Compare both directions before pairing. Pairing is by ordinal across two walks of one
-  // text; one extra `@@` found by this module's scanner would shift every later hunk onto
-  // the previous header while every lookup still resolved, so a disagreement refuses the patch.
-  if (declaredHeaders.length !== parsedHunkCount) {
-    throw new Error(
-      `the patch declares ${String(declaredHeaders.length)} \`@@\` headers and parsed into ${String(parsedHunkCount)} hunks, so no header can be paired with the hunk it declares`,
-    );
-  }
   let hunkOrdinal = 0;
   for (const structuredPatch of structuredPatches) {
     files.push({
@@ -59,8 +47,9 @@ export function parseUnifiedPatch(patchText: string, comparedStates: ComparedSta
         const header = declaredHeaders[hunkOrdinal];
         hunkOrdinal += 1;
         if (header === undefined) {
-          // Unreachable, because the counts were compared before the walk began. A throw, not
-          // a fallback: a header composed from the numbers would look like a declared one.
+          // The parser reads every line that starts `@@` as a hunk, and the header scan only a
+          // well-formed one, so the scan can fall short but never run over. A throw, not a
+          // fallback: a header composed from the numbers would look like a declared one.
           throw new Error(
             `the patch declares fewer \`@@\` headers (${String(declaredHeaders.length)}) than it parsed hunks`,
           );

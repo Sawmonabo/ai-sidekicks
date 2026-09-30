@@ -147,9 +147,6 @@ export class RepoMountsReader implements ReadTriggerTarget {
    * way a reason reaches this reader, so `performCount` is the whole record of what ran.
    */
   public requestRead(reason: RefreshReason): void {
-    if (this.#disposed) {
-      return;
-    }
     this.#scheduler.request(reason);
   }
 
@@ -216,9 +213,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
       if (this.#isAbandoned(round)) {
         return;
       }
-      if (!mounts.some((held) => held.id === mount.id)) {
-        mounts.push(mount);
-      }
+      mounts.push(mount);
     }
 
     const worktrees: WorktreeStatusRecord[] = [];

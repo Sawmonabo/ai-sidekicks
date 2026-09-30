@@ -61,21 +61,12 @@ export function resolveBindForm(
   const selection = resolveServedSelection<ExecutionMode>({
     chosen: form.executionMode,
     servedChoices: capabilities?.availableModes,
-    defaultChoice: capabilities === undefined ? undefined : defaultBindMode(capabilities),
+    defaultChoice: capabilities?.defaultMode,
   });
   return {
     selectedMode: selectedChoiceOf(selection),
     verdict: bindVerdictFor(form, selection),
   };
-}
-
-/** The mode to pre-fill: the daemon's own default, and never a guess of the console's. */
-export function defaultBindMode(
-  capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
-): ExecutionMode | undefined {
-  return capabilities.availableModes.includes(capabilities.defaultMode)
-    ? capabilities.defaultMode
-    : undefined;
 }
 
 /**

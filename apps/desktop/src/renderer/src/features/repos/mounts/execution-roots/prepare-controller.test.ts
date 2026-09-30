@@ -7,17 +7,17 @@ import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { DIRTY_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
-import { ExecutionRootPrepareController } from "./prepare-controller.js";
+import { ExecutionRootPrepareController, type PrepareOperations } from "./prepare-controller.js";
 
 const controllers: ExecutionRootPrepareController[] = [];
 
-function open(): {
+function open(operations: PrepareOperations = preparingDaemon()): {
   readonly controller: ExecutionRootPrepareController;
   readonly clock: ManualClock;
 } {
   const clock = new ManualClock();
   const controller = new ExecutionRootPrepareController({
-    operations: scriptedRepoOperations(preparingDaemon()),
+    operations: scriptedRepoOperations(operations),
     subject: {
       workspaceId: "workspace-sidekicks",
       repoMountId: "mount-sidekicks",
@@ -85,5 +85,40 @@ describe("ExecutionRootPrepareController — the prepare", () => {
     expect(act.status).toBe("prepared");
     expect(act.status === "prepared" && act.executionRoot.length).toBeGreaterThan(0);
     expect(act.status === "prepared" && act.state).toBe("ready");
+  });
+  it("asks about its own mount, and names the checked candidate with the consent it was given", async () => {
+    // A prepare naming another mount's candidate, or none, would reuse or rebuild the wrong
+    // worktree; a consent sent without its candidate would consent to nothing.
+    const daemon = preparingDaemon();
+    const mountsChecked: string[] = [];
+    const prepares: Parameters<PrepareOperations["prepareExecutionRoot"]>[0][] = [];
+    const { controller, clock } = open({
+      checkWorktreeReuse: async (repoMountId, branchName, signal) => {
+        mountsChecked.push(repoMountId);
+        return await daemon.checkWorktreeReuse(repoMountId, branchName, signal);
+      },
+      prepareExecutionRoot: async (request) => {
+        prepares.push(request);
+        return await daemon.prepareExecutionRoot(request);
+      },
+    });
+
+    controller.checkReuse(DIRTY_BRANCH);
+    await settleCheck(controller, clock);
+    await controller.prepare(DIRTY_BRANCH, true);
+    controller.checkReuse("feat/fresh-root");
+    await settleCheck(controller, clock);
+    await controller.prepare("feat/fresh-root", true);
+
+    expect(mountsChecked).toStrictEqual(["mount-sidekicks", "mount-sidekicks"]);
+    expect(prepares).toStrictEqual([
+      {
+        workspaceId: "workspace-sidekicks",
+        branchName: DIRTY_BRANCH,
+        reuseWorktreeId: "worktree-dirty",
+        acknowledgeDirtyCandidate: true,
+      },
+      { workspaceId: "workspace-sidekicks", branchName: "feat/fresh-root" },
+    ]);
   });
 });

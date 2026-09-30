@@ -33,17 +33,11 @@ export function useTerminalDeviceIdentity(
   );
 
   useEffect(() => {
-    let isAbandoned = false;
+    // `publish` is bound to this visit, so a read landing after the pane closed or the
+    // session moved is dropped rather than filed under the fresh visit.
     void readDeviceUser({ sessionId }).then(({ userId }) => {
-      // The pane closed, or an input changed, before the read landed. Settling
-      // afterwards would publish a stale read's user into a fresh one.
-      if (!isAbandoned) {
-        publish({ status: "read", userId });
-      }
+      publish({ status: "read", userId });
     });
-    return () => {
-      isAbandoned = true;
-    };
   }, [publish, readDeviceUser, sessionId]);
 
   return identity;

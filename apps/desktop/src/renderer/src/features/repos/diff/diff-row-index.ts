@@ -63,7 +63,7 @@ export class DiffRowIndex {
       const hunkSpans: HunkRowSpan[] = [];
       file.hunks.forEach((hunk, hunkIndex) => {
         const available = hunk.precedingContext.length;
-        const revealed = Math.min(available, expansion.get(diffGapKey(fileIndex, hunkIndex)) ?? 0);
+        const revealed = expansion.get(diffGapKey(fileIndex, hunkIndex)) ?? 0;
         const hidden = available - revealed;
         const bodyLayout = buildHunkBodyLayout(hunk.lines, viewMode);
         this.#bodyLayoutBuildCount += 1;

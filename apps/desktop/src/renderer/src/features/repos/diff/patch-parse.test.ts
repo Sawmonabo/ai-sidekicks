@@ -66,6 +66,23 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
     expect(model.files[0]?.hunks).toHaveLength(1);
     expect(model.files[0]?.hunks[0]?.header).toBe("@@ -1,2 +1,2 @@ Section");
   });
+
+  it("refuses a patch with a hunk its headers do not declare, rather than shifting them", () => {
+    // The parser takes the malformed `@@ @@ …` line as a hunk the header scan does not see, so
+    // the first hunk would be drawn under the second one's numbers.
+    const patchText = [
+      "--- a/notes.md",
+      "+++ b/notes.md",
+      "@@ @@ -1 +1 @@",
+      "-a",
+      "+b",
+      "@@ -5 +5 @@",
+      "-c",
+      "+d",
+      "",
+    ].join("\n");
+    expect(() => parseUnifiedPatch(patchText, COMPARED_STATES)).toThrow(/fewer `@@` headers/u);
+  });
 });
 
 describe("parseUnifiedPatch", () => {

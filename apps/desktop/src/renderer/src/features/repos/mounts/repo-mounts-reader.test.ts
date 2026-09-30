@@ -2,7 +2,7 @@
 // that disposal leaves none able to fire. The real reader runs over scripted calls on a frozen
 // clock.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
@@ -10,15 +10,19 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
 import {
+  ALL_MODES_CAPABILITIES,
   CANONICAL_ROOT,
   DRIFTED_MOUNT_ID,
   HEALTHY_MOUNT_ID,
+  HEALTHY_WORKSPACE_ID,
   SESSION_ID,
   UNREACHABLE_MOUNT_ID,
+  WORKSPACES,
   disposeTrackedReaders,
   openReader,
   sessionOperations,
   settle,
+  workspaceRow,
   worktreeRecord,
 } from "./repo-mounts.test-support.js";
 
@@ -64,8 +68,20 @@ describe("RepoMountsReader — the read", () => {
   });
 
   it("reads each workspace's own execution-mode capabilities", async () => {
+    // Each workspace answers a different default, so an answer filed under another workspace's
+    // id shows.
     const clock = new ManualClock();
-    const reader = openReader(sessionOperations(), clock);
+    const reader = openReader(
+      sessionOperations({
+        readWorkspaceExecutionModes: (workspaceId) =>
+          Promise.resolve({
+            ...ALL_MODES_CAPABILITIES,
+            defaultMode:
+              workspaceId === HEALTHY_WORKSPACE_ID ? "provisioned-worktree" : "bound-root",
+          }),
+      }),
+      clock,
+    );
     reader.start();
     await settle(clock, reader);
 
@@ -74,9 +90,44 @@ describe("RepoMountsReader — the read", () => {
     expect(Object.keys(reading.capabilitiesByWorkspaceId).sort()).toStrictEqual(
       reading.workspaces.map((row) => row.id).sort(),
     );
-    const firstWorkspaceId = reading.workspaces[0]?.id ?? "";
-    expect(reading.capabilitiesByWorkspaceId[firstWorkspaceId]?.defaultMode).toBe(
-      "provisioned-worktree",
+    for (const row of reading.workspaces) {
+      expect(reading.capabilitiesByWorkspaceId[row.id]?.defaultMode).toBe(
+        row.id === HEALTHY_WORKSPACE_ID ? "provisioned-worktree" : "bound-root",
+      );
+    }
+  });
+
+  it("reads a mount two workspaces share once, and lists it once", async () => {
+    const mountsRead: string[] = [];
+    const operations = sessionOperations({
+      listWorkspaces: () =>
+        Promise.resolve({
+          workspaces: [
+            ...WORKSPACES,
+            workspaceRow({ id: "workspace-second", repoMountId: HEALTHY_MOUNT_ID }),
+          ],
+        }),
+    });
+    const readMount = operations.readMount;
+    const clock = new ManualClock();
+    const reader = openReader(
+      {
+        ...operations,
+        readMount: async (repoMountId, signal) => {
+          mountsRead.push(repoMountId);
+          return await readMount(repoMountId, signal);
+        },
+      },
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+
+    expect(mountsRead.sort()).toStrictEqual(
+      [DRIFTED_MOUNT_ID, HEALTHY_MOUNT_ID, UNREACHABLE_MOUNT_ID].sort(),
+    );
+    expect(reader.snapshot.mounts.map((mount) => mount.id).sort()).toStrictEqual(
+      [DRIFTED_MOUNT_ID, HEALTHY_MOUNT_ID, UNREACHABLE_MOUNT_ID].sort(),
     );
   });
 
@@ -194,11 +245,19 @@ describe("RepoMountsReader — the reasons it reads again", () => {
 });
 
 describe("RepoMountsReader — teardown", () => {
-  it("is terminal: a disposed reader arms nothing and reads nothing more", async () => {
+  it("is terminal: a disposed reader arms nothing, reads nothing more, and stops listening", async () => {
+    const added = vi.spyOn(window, "addEventListener");
+    const removed = vi.spyOn(window, "removeEventListener");
+    onTestFinished(() => {
+      added.mockRestore();
+      removed.mockRestore();
+    });
     const clock = new ManualClock();
     const reader = openReader(sessionOperations(), clock);
     reader.start();
     await settle(clock, reader);
+    // A read armed and not yet fired when the section unmounts.
+    reader.requestRead("window-focus");
     const performedBeforeDispose = reader.performCount;
 
     reader.dispose();
@@ -209,5 +268,10 @@ describe("RepoMountsReader — teardown", () => {
     expect(reader.performCount).toBe(performedBeforeDispose);
     // No timer outlives the section that armed it.
     expect(clock.pendingCount).toBe(0);
+    // Nor a focus listener holding the reader alive.
+    const focusListeners = (calls: readonly unknown[][]): unknown[] =>
+      calls.filter(([type]) => type === "focus").map(([, listener]) => listener);
+    expect(focusListeners(added.mock.calls)).toHaveLength(1);
+    expect(focusListeners(removed.mock.calls)).toStrictEqual(focusListeners(added.mock.calls));
   });
 });

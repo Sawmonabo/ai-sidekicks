@@ -127,14 +127,17 @@ describe("intraline segmentation — when the word diff runs", () => {
       insertions.push(`+const value${String(ordinal)} = nextBudget;`);
     }
     const cache = new IntralineSegmentCache(modelOf([...deletions, ...insertions]));
-    for (let lineIndex = 0; lineIndex < pairCount; lineIndex += 1) {
+    for (let lineIndex = 0; lineIndex < pairCount - 1; lineIndex += 1) {
       cache.readingFor(bodyRow(lineIndex), lineIndex);
     }
-    expect(cache.computeCount).toBe(pairCount);
-    // The most recently read is still held, and the least recently read is not.
+    // Read again, so the first pair is now the most recently read rather than the oldest.
+    cache.readingFor(bodyRow(0), 0);
     cache.readingFor(bodyRow(pairCount - 1), pairCount - 1);
     expect(cache.computeCount).toBe(pairCount);
+    // The pair read again is still held, and the least recently read is not.
     cache.readingFor(bodyRow(0), 0);
+    expect(cache.computeCount).toBe(pairCount);
+    cache.readingFor(bodyRow(1), 1);
     expect(cache.computeCount).toBe(pairCount + 1);
   });
 });
@@ -153,11 +156,14 @@ describe("intraline segmentation — what a pair segments to", () => {
   });
 
   it("pairs a longer delete run with a shorter insert run by ordinal and leaves the surplus whole", () => {
+    // The context line after the runs is where a surplus delete paired past its insert run
+    // would land, highlighting words against a line it was never replaced by.
     const cache = new IntralineSegmentCache(
       modelOf([
         "-const value = compute(previousBudget, 1);",
         "-const dropped = true;",
         "+const value = compute(nextBudget, 1);",
+        " const kept = false;",
       ]),
     );
     expect(
@@ -168,13 +174,36 @@ describe("intraline segmentation — what a pair segments to", () => {
       skipped: false,
     });
   });
+
+  it("leaves a longer insert run's overhang whole", () => {
+    const cache = new IntralineSegmentCache(
+      modelOf([
+        "-const value = compute(previousBudget, 1);",
+        "+const value = compute(nextBudget, 1);",
+        "+const added = true;",
+      ]),
+    );
+    expect(cache.readingFor(bodyRow(2), 2)).toStrictEqual({
+      segments: [{ text: "const added = true;", changed: false }],
+      skipped: false,
+    });
+  });
 });
 
 describe("intraline segmentation — the size bound", () => {
   it("keeps the whole line and says the comparison was skipped past the character cap", () => {
-    const model = modelOf(modifiedPair("x".repeat(DIFF_INTRALINE_LINE_CHARACTER_CAP)));
+    // Against a short partner, so the pair's product is in bounds and only the line cap can
+    // decide: one long line against a short one costs the square of the long one.
+    const model = modelOf([
+      `-const value = previousBudget;${"x".repeat(DIFF_INTRALINE_LINE_CHARACTER_CAP)}`,
+      "+const value = nextBudget;",
+    ]);
     const deletedText = diffLineText(bodyLineAt(model, 0));
+    const insertedText = diffLineText(bodyLineAt(model, 1));
     expect(deletedText.length).toBeGreaterThan(DIFF_INTRALINE_LINE_CHARACTER_CAP);
+    expect(deletedText.length * insertedText.length).toBeLessThanOrEqual(
+      DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
+    );
     const reading = new IntralineSegmentCache(model).readingFor(bodyRow(0), 0);
     expect(reading.skipped).toBe(true);
     // The fallback withholds the highlight, never characters.

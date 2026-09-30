@@ -118,7 +118,7 @@ describe("the emulator outlives the parent's callback identities", () => {
   });
 
   it("sends no keystroke from a device that does not hold the lease", async () => {
-    // The second half of the gate: a keystroke that reaches `onData` is still dropped.
+    // The emulator's own gate drops the keystroke, not only the read-only input element.
     const watcherKeystrokeHandler = vi.fn();
     const { container } = await renderSettledMountPoint(
       <XtermMountPoint
@@ -151,7 +151,7 @@ describe("the write gate", () => {
     expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(true);
   });
 
-  it("keeps the same emulator when the lease changes", async () => {
+  it("keeps the same emulator when the lease changes, and moves its gate both ways", async () => {
     const observed = vi.fn();
     const { container, rerender } = await renderSettledMountPoint(
       <XtermMountPoint
@@ -163,22 +163,29 @@ describe("the write gate", () => {
       />,
     );
     const emulatorBefore = emulatorElementOf(container).firstElementChild;
-    act(() => {
-      rerender(
-        <XtermMountPoint
-          terminalId="terminal-1"
-          isWriteEnabled
-          label="Terminal output"
-          onKeystroke={sendToWire}
-          onRendererMode={observed}
-        />,
-      );
-    });
+    const renderWithLease = (isWriteEnabled: boolean): void => {
+      act(() => {
+        rerender(
+          <XtermMountPoint
+            terminalId="terminal-1"
+            isWriteEnabled={isWriteEnabled}
+            label="Terminal output"
+            onKeystroke={sendToWire}
+            onRendererMode={observed}
+          />,
+        );
+      });
+    };
+    renderWithLease(true);
     // A transition never disturbs the foreground process: the mount effect does not run again,
     // only the gate moves.
     expect(observed).toHaveBeenCalledTimes(1);
     expect(emulatorElementOf(container).firstElementChild).toBe(emulatorBefore);
     expect(emulatorElementOf(container).getAttribute("aria-label")).toBe("Terminal output");
+    expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(true);
+    // The shell taken by another device: this window must stop typing into it.
+    renderWithLease(false);
+    expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(false);
   });
 
   it("keeps a watcher's gate shut on the emulator a new terminal id builds", async () => {

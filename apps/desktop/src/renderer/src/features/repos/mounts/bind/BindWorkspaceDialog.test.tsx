@@ -154,11 +154,13 @@ async function refreshCapabilitiesTo(
 }
 
 describe("the bind dialog — the mount's own default survives a close", () => {
-  it("applies it again when the same mount is reopened", async () => {
+  it("applies it again when the same mount is reopened, over the mode picked before", async () => {
     // A pre-fill held in a ref keyed on the mount would survive a close that reset the form:
     // on a reopen the effect declines to run again, leaving a picker with nothing chosen
-    // behind a control that will not send.
+    // behind a control that will not send. A form that survived the close would instead send
+    // the last visit's pick.
     const open = await openDialog(EVERY_MODE);
+    fireEvent.click(radioFor("bound-root"));
     act(() => {
       document.querySelector<HTMLButtonElement>(".meridian-bind__cancel")?.click();
     });

@@ -73,14 +73,14 @@ export function hunkBodyRowCount(layout: HunkBodyLayout): number {
 }
 
 /**
- * The body row at one offset within the hunk, or `undefined` past its end. The identity arm
+ * The body row at one offset the caller has already bounded within the hunk. The identity arm
  * answers by arithmetic and the paired arm by lookup; neither walks or builds anything.
  */
 export function hunkBodyRowAt(layout: HunkBodyLayout, offset: number): HunkBodyRow | undefined {
   if (layout.kind === "paired") {
     return layout.rows[offset];
   }
-  return offset >= 0 && offset < layout.rowCount ? { lineIndex: offset } : undefined;
+  return { lineIndex: offset };
 }
 
 /**

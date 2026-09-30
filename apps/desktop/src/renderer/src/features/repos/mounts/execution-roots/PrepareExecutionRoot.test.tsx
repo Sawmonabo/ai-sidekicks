@@ -129,7 +129,7 @@ describe("PrepareExecutionRoot — the dirty-candidate consent", () => {
     expect(confirmButton(container).disabled).toBe(false);
   });
 
-  it("shuts the control on a branch edit, though the consent was given", async () => {
+  it("withdraws the consent on a branch edit, even one back to the same checkout", async () => {
     const { container, advanceUntil } = renderForm();
     nameBranch(container, DIRTY_BRANCH);
     await advanceUntil(() => {
@@ -139,6 +139,15 @@ describe("PrepareExecutionRoot — the dirty-candidate consent", () => {
     expect(confirmButton(container).disabled).toBe(false);
 
     nameBranch(container, `${DIRTY_BRANCH}-2`);
+    expect(confirmButton(container).disabled).toBe(true);
+
+    // Back to the same dirty checkout: a consent kept across the edit would open the control
+    // on uncommitted work nobody agreed to reuse this time.
+    nameBranch(container, DIRTY_BRANCH);
+    await advanceUntil(() => {
+      expect(consentBox(container)).toBeDefined();
+    });
+    expect((consentBox(container) as HTMLInputElement).checked).toBe(false);
     expect(confirmButton(container).disabled).toBe(true);
   });
 });
