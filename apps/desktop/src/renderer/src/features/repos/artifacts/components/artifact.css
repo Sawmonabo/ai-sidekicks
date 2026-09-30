@@ -1,10 +1,7 @@
 /* The artifact payload section's sheet. Meridian tokens only. */
 
-/* What a payload fetch established, above the list it was fetched from.
-
-   Above rather than below: the fetch is the act the user just performed, and
-   its answer belongs where their attention already is. It is present only after a
-   fetch — there is no empty frame holding a place for one. */
+/* Above the list it was fetched from, where the user's attention already is after the fetch.
+   Present only after a fetch; there is no empty frame holding a place. */
 .meridian-artifact-payload {
   display: flex;
   flex-direction: column;
@@ -12,18 +9,15 @@
   margin-block-end: var(--meridian-space-3);
 }
 
-/* The one line that says which arm came back, and what it means. */
+/* Says which arm came back, and what it means. */
 .meridian-artifact-payload__note {
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
 
-/* The payload text, whole.
-
-   A `pre` because a payload's own line breaks and indentation are part of what it
-   is, and `overflow` rather than wrapping because a diff or a log read wrapped is a
-   different document. The block scrolls; the page never does. */
+/* The payload text, whole. A `pre` keeps the payload's own line breaks and indentation; it
+   scrolls rather than wraps, since a wrapped diff or log is a different document. */
 .meridian-artifact-payload__preview {
   max-block-size: 18rem;
   margin: 0;

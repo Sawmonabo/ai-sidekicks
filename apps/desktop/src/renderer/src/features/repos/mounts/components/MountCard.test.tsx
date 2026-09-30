@@ -1,8 +1,5 @@
-// The mount card: two axes, two paths, and one control the renderer must not have.
-//
-// Three negative controls carry `MountCard.tsx`'s three hardest claims: the resolved root
-// is never shortened in the STRING, the two status axes are never one chip, and no detach
-// control exists anywhere on the card.
+// The mount card: two axes, two paths, and one control the renderer must not have. The root
+// is never shortened in the string, the axes are never one chip, and no detach control exists.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -21,10 +18,7 @@ import {
   workspaceRow,
 } from "../repo-mounts.test-support.js";
 
-/**
- * The card's own state sentence. Each workspace's prepare form repeats a held reason
- * inside its collapsed disclosure, so a whole-tree text query would find it twice.
- */
+/** The card's own state sentence; each prepare form repeats a held reason in its disclosure. */
 function withheldLine(container: HTMLElement): string | null {
   return container.querySelector(".meridian-mount-card__withheld")?.textContent ?? null;
 }
@@ -36,10 +30,8 @@ function renderCard(
 ): ReturnType<typeof render> {
   const { bridge, clock } = bridgeOnClock("repos");
   return render(
-    // The announcer is the card's environment rather than its dependency: an act on the
-    // card announces its settlement, and `useAnnounce` throws outside the provider on
-    // purpose — a component speaking into nothing is invisible to everyone who can see
-    // the screen.
+    // An act on the card announces its settlement, and `useAnnounce` throws outside the
+    // provider on purpose.
     <LiveAnnouncerProvider>
       <MountCard
         mount={buildMount()}
@@ -61,11 +53,8 @@ function renderCard(
 }
 
 /**
- * The card's head, which is where the resolved root lives.
- *
- * Scoped rather than document-wide: a workspace legitimately roots AT the mount's
- * canonical root, so the same string appears on the card and on the row beneath it, and
- * a document-wide query would fail on a coincidence rather than on the claim.
+ * The card's head, where the resolved root lives. Scoped because a workspace can root at the
+ * mount's canonical root, so the same string also appears on the row beneath.
  */
 function head(container: HTMLElement): HTMLElement {
   return container.querySelector(".meridian-mount-card__head") as HTMLElement;
@@ -79,10 +68,8 @@ describe("MountCard — the two paths", () => {
   });
 
   it("negative control: the resolved root is never shortened in the string", () => {
-    // Truncation is the stylesheet's, at the measure; the value in the DOM is the
-    // whole root. A card that abbreviated the home directory or kept the basename
-    // would make two different roots render identically, which is the one thing the card
-    // says the renderer must never be the reason for.
+    // The value in the DOM is the whole root; truncation is the stylesheet's. Shortening it
+    // would make two different roots render identically.
     const { container } = renderCard();
     expect(within(head(container)).getByTitle(CANONICAL_ROOT).textContent).toBe(CANONICAL_ROOT);
   });
@@ -137,8 +124,7 @@ describe("MountCard — the way into a change set", () => {
 
 describe("MountCard — what the renderer must not offer", () => {
   it("negative control: nothing on the card is a detach control", () => {
-    // The desktop renderer has no detach control and no force option on a refused
-    // detach. This case fails the moment either becomes a control.
+    // The desktop renderer has no detach control and no force option on a refused detach.
     const { container } = renderCard();
     for (const element of container.querySelectorAll("button, input, a")) {
       const description = `${element.getAttribute("aria-label") ?? ""} ${element.textContent ?? ""}`;
@@ -150,9 +136,8 @@ describe("MountCard — what the renderer must not offer", () => {
 
 describe("MountCard — the drifted mount and its one control", () => {
   it("offers the re-attach on a mount whose identity no longer matches", () => {
-    // The one verdict that carries a control, and only that one: `unreachable` may
-    // resolve on its own, so offering a re-attach there would push a person into
-    // minting a second mount for a path that is about to answer again.
+    // `unreachable` may resolve on its own, so a re-attach there would mint a second mount for
+    // a path about to answer again.
     const { getByLabelText } = renderCard({
       mount: buildMount({
         health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
@@ -179,8 +164,7 @@ describe("MountCard — the drifted mount and its one control", () => {
         health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },
       }),
     });
-    // The card states the consequence before the confirm does, because a user
-    // reads the card before they press anything.
+    // The card states the consequence before the confirm does.
     expect(withheldLine(container)).toMatch(/mints a new mount/u);
   });
 });
@@ -193,8 +177,7 @@ describe("MountCard — the bind entry point", () => {
   });
 
   it("negative control: an unreachable mount offers no bind", () => {
-    // The card already carries the reason on its withheld line; a control the daemon
-    // would refuse anyway would be a second, worse statement of the same fact.
+    // The withheld line already carries the reason.
     const { queryByText } = renderCard({
       mount: buildMount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
     });
@@ -207,8 +190,7 @@ describe("MountCard — the bind entry point", () => {
   });
 
   it("negative control: a drifted mount offers the re-attach and no bind", () => {
-    // The two controls are mutually exclusive by construction: `readBindControlAvailability`
-    // withholds on any non-healthy verdict, and the re-attach draws on exactly one.
+    // Mutually exclusive: bind is withheld on any non-healthy verdict, re-attach draws on one.
     const { getByLabelText, queryByText } = renderCard({
       mount: buildMount({
         health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" },

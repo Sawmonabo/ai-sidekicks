@@ -1,14 +1,8 @@
-// What the intraline register costs, and what it does when a pair is too long to
-// compare.
-//
-// The claims here are the ones the bound exists for, and every one of them is about
-// WORK rather than about output: that parsing a patch runs no word diff at all, that
-// materializing a row runs exactly one and a second read of that row runs none, that
-// the register does not grow without limit, and that a pair past the bounds keeps its
-// whole line and SAYS the comparison was declined. The library call is wrapped by the
-// mock below so the count is read off the library itself rather than off a figure this
-// module keeps about itself — a register that reported one compute and ran ten would
-// pass every assertion made from the inside.
+// What the intraline register costs and does when a pair is too long to compare. The claims
+// are about work, not output: parsing runs no word diff, materializing a row runs one and a
+// second read runs none, the register stays bounded, and an over-bound pair keeps its whole
+// line and reports the skip. The library call is counted at the mock, not by a figure the
+// module keeps about itself.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -27,14 +21,9 @@ import { COMPARED_STATES } from "@test/helpers/patch-parsing.js";
 
 const wordDiffCalls = vi.hoisted(() => vi.fn());
 
-// The adopted library, with its one expensive call counted on the way through. The
-// real implementation still runs, so every segmentation asserted below is the one the
-// console would render rather than a stub's answer.
-//
-// THE SUBPATH AND NOT THE PACKAGE ROOT, because that is the specifier the module under
-// test resolves — see `patch-parse.ts`, which takes the published `./lib/*.js` entries
-// so the package's other differs stay off the initial import graph. A mock of the root
-// would load, intercept nothing, and leave every call below uncounted.
+// The real word diff still runs, counted on the way through so the assertions read the
+// library's own call count. The mock targets the `./lib/*.js` subpath the module under test
+// imports; a mock of the package root would intercept nothing.
 vi.mock("diff/lib/diff/word.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("diff/lib/diff/word.js")>();
   return {
@@ -66,7 +55,7 @@ function modelOf(bodyLines: readonly string[]): DiffModel {
   return parseUnifiedPatch(patchText, COMPARED_STATES);
 }
 
-/** A body row of the first hunk of the first file, which is where every case builds. */
+/** A body row of the first hunk of the first file, where every case builds. */
 function bodyRow(lineIndex: number): DiffLineRow {
   return { kind: "line", fileIndex: 0, hunkIndex: 0, source: "hunk-body", lineIndex };
 }
@@ -81,11 +70,8 @@ function bodyLineAt(model: DiffModel, lineIndex: number): DiffLine {
 }
 
 /**
- * A modified pair the word diff splits into three runs, at whatever length is asked.
- *
- * The padding trails the statement rather than sitting beside the identifier, so
- * lengthening the pair never changes which token the comparison finds — a padded
- * identifier is one token and the assertions would move with the padding.
+ * A modified pair the word diff splits into three runs, at any length. The padding trails the
+ * statement because a padded identifier would be one token and move the assertions.
  */
 function modifiedPair(padding: string): readonly string[] {
   return [`-const value = previousBudget;${padding}`, `+const value = nextBudget;${padding}`];
@@ -94,11 +80,9 @@ function modifiedPair(padding: string): readonly string[] {
 const MODIFIED_PAIR_BODY = modifiedPair("");
 
 /**
- * Two modified pairs in one hunk: a delete run of two, then an insert run of two.
- *
- * Pairing is positional within the runs, so body line 0 pairs with 2 and 1 with 3 —
- * which is what lets a case read two lines that are two PAIRS rather than two sides of
- * one, the distinction the register is keyed on.
+ * Two modified pairs in one hunk: a delete run of two, then an insert run of two. Pairing is
+ * positional within the runs, so body line 0 pairs with 2 and 1 with 3, giving two lines
+ * that are two pairs rather than two sides of one.
  */
 const TWO_MODIFIED_PAIRS_BODY = [
   "-const first = previousBudget;",
@@ -109,9 +93,8 @@ const TWO_MODIFIED_PAIRS_BODY = [
 
 describe("intraline segmentation — when the word diff runs", () => {
   it("runs none while a patch is parsed", () => {
-    // The whole bound: the parser used to segment every pair in the change set
-    // before it returned. A modified pair is present in this patch and the register
-    // below splits it, so a zero here is a decision rather than an absence.
+    // The parser must not segment pairs itself; this patch holds a modified pair, so zero is a
+    // decision rather than an absence.
     modelOf(MODIFIED_PAIR_BODY);
     expect(wordDiffCalls).not.toHaveBeenCalled();
   });
@@ -121,8 +104,8 @@ describe("intraline segmentation — when the word diff runs", () => {
     const first = cache.readingFor(bodyRow(0), 0);
     expect(wordDiffCalls).toHaveBeenCalledTimes(1);
     expect(cache.computeCount).toBe(1);
-    // A scroll re-renders its whole window on every tick, so this is the case that
-    // decides whether the window costs one word diff or one per frame.
+    // A scroll re-renders its window every tick, so this decides whether the window costs one
+    // word diff or one per frame.
     const second = cache.readingFor(bodyRow(0), 0);
     expect(second).toBe(first);
     expect(wordDiffCalls).toHaveBeenCalledTimes(1);
@@ -130,19 +113,15 @@ describe("intraline segmentation — when the word diff runs", () => {
   });
 
   it("serves both rows of one pair from the single comparison that made them", () => {
-    // The register was keyed by LINE, so this read two entries and ran two word diffs
-    // over one alignment, each discarding the half it did not need — double the work
-    // for every changed pair on screen, and two of the register's entries per pair.
-    // This case asserted `computeCount === 2` and passed, which is how it survived.
+    // One comparison serves both rows; a register keyed by line would run two.
     const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY));
     const deleted = cache.readingFor(bodyRow(0), 0);
     const inserted = cache.readingFor(bodyRow(1), 1);
 
     expect(wordDiffCalls).toHaveBeenCalledTimes(1);
     expect(cache.computeCount).toBe(1);
-    // And the two rows are still the two SIDES of that comparison: one answer, two
-    // readings — a register that served one reading to both would highlight the
-    // deleted line's words on the inserted line.
+    // The two rows are still the two sides of that comparison: a register that served one
+    // reading to both would highlight the deleted line's words on the inserted line.
     expect(deleted.segments.filter((segment) => segment.changed)).toStrictEqual([
       { text: "previousBudget", changed: true },
     ]);
@@ -152,9 +131,8 @@ describe("intraline segmentation — when the word diff runs", () => {
   });
 
   it("negative control: a row of a DIFFERENT pair is a second computation", () => {
-    // Without this the case above would pass over a register that answered every
-    // address with the first reading it ever computed. Body lines 0 and 1 are two
-    // delete lines of two different pairs, so nothing here is one alignment.
+    // Without this the case above would pass over a register that answered every address with
+    // its first reading; body lines 0 and 1 belong to two different pairs.
     const cache = new IntralineSegmentCache(modelOf(TWO_MODIFIED_PAIRS_BODY));
     cache.readingFor(bodyRow(0), 0);
     cache.readingFor(bodyRow(1), 1);
@@ -162,9 +140,8 @@ describe("intraline segmentation — when the word diff runs", () => {
   });
 
   it("drops the least recently read reading past the register's cap", () => {
-    // A reader who scrolls a large change set end to end must not accumulate one
-    // segment list per changed line, so the register is bounded — and a bound that
-    // never evicts is not a bound.
+    // Scrolling a large change set end to end must not accumulate a segment list per changed
+    // line, so the register must actually evict.
     const pairCount = DIFF_INTRALINE_CACHE_ENTRY_CAP + 1;
     const deletions: string[] = [];
     const insertions: string[] = [];
@@ -185,8 +162,7 @@ describe("intraline segmentation — when the word diff runs", () => {
   });
 
   it("compares nothing for a gap's revealed context line", () => {
-    // Revealed context is context by construction, so there is no counterpart to
-    // compare it against and nothing to hold.
+    // Revealed context has no counterpart to compare against and nothing to hold.
     const model = buildDiffFixture(SMALL_DIFF_SHAPE);
     const contextLine = model.files[0]?.hunks[0]?.precedingContext[0];
     expect(contextLine).toBeDefined();
@@ -215,7 +191,7 @@ describe("intraline segmentation — what a pair segments to", () => {
   });
 
   it("reassembles each side to the line it was read for", () => {
-    // What makes a reading a view of the text rather than a second copy of it.
+    // A reading is a view of the text, not a second copy of it.
     const model = modelOf(MODIFIED_PAIR_BODY);
     const cache = new IntralineSegmentCache(model);
     for (const lineIndex of [0, 1]) {
@@ -244,9 +220,8 @@ describe("intraline segmentation — what a pair segments to", () => {
   });
 
   it("negative control: an unpaired insertion is one unchanged segment and costs no word diff", () => {
-    // Without this the segmentation cases would pass over a register that marked
-    // every line's whole text as changed. This insertion has no deleted counterpart,
-    // so nothing about it is a word-level change.
+    // Without this the segmentation cases would pass over a register that marked every line's
+    // whole text as changed; this insertion has no deleted counterpart.
     const cache = new IntralineSegmentCache(
       modelOf([" const kept = true;", "+const added = true;"]),
     );
@@ -265,15 +240,13 @@ describe("intraline segmentation — the size bound", () => {
     expect(deletedText.length).toBeGreaterThan(DIFF_INTRALINE_LINE_CHARACTER_CAP);
     const reading = new IntralineSegmentCache(model).readingFor(bodyRow(0), 0);
     expect(reading.skipped).toBe(true);
-    // The line is still whole and still drawn — the fallback withholds the
-    // highlight, never characters.
+    // The fallback withholds the highlight, never characters.
     expect(reading.segments).toStrictEqual([{ text: deletedText, changed: false }]);
     expect(wordDiffCalls).not.toHaveBeenCalled();
   });
 
   it("negative control: the same pair inside the cap is compared rather than skipped", () => {
-    // Without this the fallback case would pass over a register that skipped every
-    // pair, which would draw the note on every changed line in the console.
+    // Without this the fallback case would pass over a register that skipped every pair.
     const cache = new IntralineSegmentCache(modelOf(modifiedPair("x".repeat(16))));
     const reading = cache.readingFor(bodyRow(0), 0);
     expect(reading.skipped).toBe(false);
@@ -283,9 +256,8 @@ describe("intraline segmentation — the size bound", () => {
   });
 
   it("skips a pair whose product is out of bounds though neither line is", () => {
-    // The product is the bound that matters for cost: the adopted word diff is
-    // O(n·m) in tokens, so two lines each comfortably under the per-line cap still
-    // multiply into work no row is worth.
+    // The adopted word diff is O(n·m) in tokens, so two lines each under the per-line cap can
+    // still multiply into work no row is worth.
     const model = modelOf(
       modifiedPair("x".repeat(Math.ceil(Math.sqrt(DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP)))),
     );

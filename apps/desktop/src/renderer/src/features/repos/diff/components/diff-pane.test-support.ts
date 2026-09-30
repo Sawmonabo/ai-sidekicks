@@ -1,17 +1,7 @@
-// What every diff-pane suite mounts the pane with.
-//
-// HOISTED WHEN THE PANE'S CASES SPLIT IN TWO. The pane answers two questions that are
-// read for different reasons — what a pane holding NO model renders (its chrome and the
-// absence it owes every subject) and what a pane holding one renders (the compared
-// states, the file list, the rows, and the toolbar) — and each half is a suite. Both
-// mount the same pane over the same workspace, and both need the stated height the
-// virtualized rows are laid out against, so those two live here rather than being
-// written twice and drifting.
-//
-// THE LAYOUT DISCIPLINE IS A CALL AND NOT A CONSTANT, because what is shared is the
-// pairing: an install with no restore leaks a stubbed geometry into whichever suite
-// runs next, and a helper that handed back only the fixture would leave each caller to
-// remember the second half.
+// What every diff-pane suite mounts the pane with: the shared workspace address and the pane
+// height the virtualized rows are laid out against. The layout install is a call, not a
+// constant, because it pairs an install with its restore, so a stubbed geometry cannot leak
+// into the next suite.
 
 import { afterEach, beforeEach } from "vitest";
 
@@ -32,22 +22,16 @@ export const DIFF_PANE_WORKSPACE_ENTITY = {
 } as const;
 
 /**
- * A pane context whose collaborators are never reached.
- *
- * These cases are about what the pane renders from the address, and a real bridge,
- * store pair, and persistence stack would be constructions none of them can observe —
- * so the builder is handed the address alone. The entity parameter is the arm's own, so
- * a subject a diff is never opened over fails to compile at the call site.
+ * A pane context whose collaborators are never reached: these cases render from the address
+ * alone. The entity is the arm's own, so a subject a diff never opens over fails to compile.
  */
 export function diffPaneContextFor(entity: DiffPaneContext["entity"]): DiffPaneContext {
   return paneContext({ address: { kind: "diff", entity }, paneId: "pane-diff-1" });
 }
 
 /**
- * Give a suite the stated pane height its rows are laid out against.
- *
- * The rows are virtualized, so a case that reads one has to say how tall the pane is:
- * happy-dom lays nothing out, and a scroller with no height correctly holds no rows.
+ * Give a suite the pane height its rows are laid out against. happy-dom lays nothing out, and
+ * a scroller with no height correctly holds no rows.
  */
 export function installDiffPaneLayout(): void {
   const layout = new DiffLayoutFixture();

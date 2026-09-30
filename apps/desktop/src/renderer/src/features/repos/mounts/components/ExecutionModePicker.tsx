@@ -12,8 +12,9 @@ import { selectionInFlightCopy } from "../execution-mode-selection.js";
 import type { WorkspaceControlAvailability } from "../mount-health.js";
 import { controlHoldSentence } from "../mount-health.js";
 
+/** What the picker reads: a workspace's modes, its current binding, and any pending switch. */
 export interface ExecutionModePickerProps {
-  /** Wire-verbatim workspace id; the group's inputs are named by it so two pickers never collide. */
+  /** Wire-verbatim workspace id; it names the group's inputs so two pickers never collide. */
   readonly workspaceId: string;
   /** What this workspace is bound as NOW — the daemon's `WorkspaceListResponse` row. */
   readonly currentMode: ExecutionMode;
@@ -22,18 +23,17 @@ export interface ExecutionModePickerProps {
   /** The mode a switch is on the wire for, where one is. Absent means nothing is pending. */
   readonly pendingMode: ExecutionMode | undefined;
   /**
-   * Whether this workspace's binding controls are live, derived once by the card.
-   *
-   * `pendingMode` travels beside it because the announcement below names the mode, which a
-   * posture does not carry.
+   * Whether the binding controls are live, derived once by the card. `pendingMode` travels
+   * beside it because the announcement below names the mode, which a posture does not carry.
    */
   readonly posture: WorkspaceControlAvailability;
   readonly onSelect: (executionMode: ExecutionMode) => void;
 }
 
+/** Radio group of the modes a workspace can switch between; held when the mount says so. */
 export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.Element {
   const { capabilities } = props;
-  // The mount's own posture. Absent means the group is live.
+  // Absent means the group is live.
   const heldBecause = controlHoldSentence(props.posture);
   if (capabilities === undefined) {
     return (
@@ -48,9 +48,8 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
 
   const rows = executionModeRows(capabilities);
   const { pendingMode } = props;
-  // The sentence `readWorkspaceControlAvailability` composes for an outstanding switch, asked of
-  // the module that composes it. `undefined` while nothing is pending, which no hold
-  // reason can equal.
+  // The hold sentence `readWorkspaceControlAvailability` composes for an outstanding switch;
+  // `undefined` while nothing is pending, which no hold reason can equal.
   const pendingCopy = pendingMode === undefined ? undefined : selectionInFlightCopy(pendingMode);
   return (
     <div className="meridian-mode-picker">
@@ -70,25 +69,18 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
         ))}
       </fieldset>
       {heldBecause === undefined || heldBecause === pendingCopy ? null : (
-        // THE GROUP NEVER GOES QUIET. A `fieldset` is disabled as a whole — the radios
-        // inside it stop taking a press and the browser paints nothing that says why —
-        // so the sentence is rendered as text beside it. It is the mount's own wording;
-        // this picker composes no second one.
-        //
-        // AND IT IS ONE LIVE REGION, NEVER TWO. The line below is the SPECIALIZED
-        // rendering of exactly one hold cause — it puts the mode in mono, which a
-        // composed sentence cannot — so where the posture's reason IS that cause the two
-        // would announce one fact twice, in two different wordings. The comparison is
-        // against the composing module's own output rather than a literal written here,
-        // so a copy change moves both sides at once, and a mismatch falls through to this
-        // general line, which is never the wrong sentence.
+        // A disabled `fieldset` stops taking presses and paints nothing that says why, so the
+        // mount's own hold sentence is rendered beside it.
+        // One live region, never two: the line below is the specialized rendering of the
+        // in-flight hold, so where the posture's reason is that sentence the two would announce
+        // one fact twice. Comparing against the composing module's output keeps both in step,
+        // and a mismatch falls through to this general line.
         <p className="meridian-mode-picker__held" role="status">
           {heldBecause}
         </p>
       )}
       {pendingMode !== undefined && heldBecause === pendingCopy ? (
-        // `role="status"` rather than an alert: a switch that was sent is progress
-        // rather than a problem, and it is announced once when it starts.
+        // A sent switch is progress, not a problem, so `status` rather than an alert.
         <p className="meridian-mode-picker__pending" role="status">
           Switching to <WireFigure value={pendingMode} />. The picker is held until the background
           service answers.

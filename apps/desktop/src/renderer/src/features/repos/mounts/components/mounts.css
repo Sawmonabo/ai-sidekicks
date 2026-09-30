@@ -1,12 +1,7 @@
 /*
  * The mount half of the repos section: the section, and the mount and workspace cards.
- *
- * Imported by `MountList.tsx`. No literal values: every length is on the space scale,
- * every size on the type scale, every color a custom property.
- *
- * Its siblings in this directory are `execution-mode-picker.css` and
- * `execution-root-cards.css`, which dress the components that live here; the shape the
- * attach, bind and execution-root acts share is `../mount-controls.css`.
+ * Imported by `MountList.tsx`. No literal values: lengths on the space scale, sizes on the
+ * type scale, colors as custom properties. The shared act-dialog shape is `../mount-controls.css`.
  */
 
 /* --------------------------------------------------------- sidebar section */
@@ -17,11 +12,8 @@
   gap: var(--meridian-space-2);
 }
 
-/*
- * A collapsed section's one line. It carries the same absence the open section
- * carries, in the badge shape, because a collapsed section has one line of room and
- * the alternative — saying nothing — reads as a section with nothing in it.
- */
+/* A collapsed section's one line carries the same absence the open section does; saying
+   nothing would read as a section with nothing in it. */
 .meridian-repo-section__summary {
   margin: 0;
   padding: 0 var(--meridian-space-3);
@@ -29,11 +21,8 @@
   color: var(--meridian-text-muted);
 }
 
-/*
- * Where the mount cards land, one per mount. A column at one gap rather than a
- * bordered box: the cards carry their own edges, and a container edge around them
- * would draw a second boundary around every single-mount session.
- */
+/* Where the mount cards land. No box of its own: the cards carry their edges, and a container
+   edge would draw a second boundary around a single-mount session. */
 .meridian-repo-section__mounts {
   display: flex;
   flex-direction: column;
@@ -43,12 +32,8 @@
 
 /* -------------------------------------------------------------- mount card */
 
-/*
- * One mount, on two axes. The card carries its own edge because the section's
- * container deliberately does not (see `__mounts` above), and a withheld card is
- * marked by its edge rather than by dimming its content: the facts on a card whose
- * bind controls are withheld are exactly the facts a reader needs most.
- */
+/* One mount card. A withheld card is marked by its edge, not by dimming, since its facts are
+   the ones a reader needs most. */
 .meridian-mount-card {
   display: flex;
   flex-direction: column;
@@ -70,11 +55,8 @@
   min-inline-size: 0;
 }
 
-/*
- * The resolved root is truncated at the MEASURE and never in the string. That is the
- * figure primitive's own `--truncate` modifier, asked for by `MountCard.tsx` where it
- * renders the figure — this sheet declares no rule for a class `primitives/` owns.
- */
+/* The resolved root truncates at the measure through `WireFigure`'s `--truncate` modifier,
+   requested in `MountCard.tsx`; no rule for it here. */
 
 .meridian-mount-card__copy {
   flex: 0 0 auto;
@@ -152,11 +134,8 @@
   gap: var(--meridian-space-2);
 }
 
-/*
-  One workspace and its open-changes control. Tighter than the gap between workspaces:
-  the card and its control are one subject, so they must not read as two entries in the
-  list above them.
-*/
+/* A workspace and its open-changes control are one subject, so their gap is tighter than the
+   gap between workspaces. */
 .meridian-mount-card__workspace {
   display: flex;
   flex-direction: column;
@@ -191,11 +170,8 @@
   color: var(--meridian-text-muted);
 }
 
-/*
- * The daemon's captured failure detail, quoted rather than paraphrased. It reads at
- * a wider measure than the chrome around it because it is the one thing on the row
- * a person has to read whole.
- */
+/* The daemon's captured failure detail, quoted. The one thing on the row a person must read
+   whole. */
 .meridian-workspace-card__last-error {
   margin: 0;
   padding: var(--meridian-space-2);

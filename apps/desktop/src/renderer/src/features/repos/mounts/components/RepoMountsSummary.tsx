@@ -2,13 +2,7 @@ import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type RepoMountsReading } from "../repo-mounts-model.js";
 import { REPO_MOUNTS_NOT_READ_TITLE } from "../repo-mounts-copy.js";
 
-/**
- * The collapsed line.
- *
- * A collapsed section has one line of room, and the sidebar decided to collapse it,
- * so the line reports the fact that decision was made against rather than repeating
- * the section's name back.
- */
+/** The collapsed sidebar line: how many mounts there are and how many are unreachable. */
 export function RepoMountsSummary(props: {
   readonly reading: RepoMountsReading;
 }): React.JSX.Element {

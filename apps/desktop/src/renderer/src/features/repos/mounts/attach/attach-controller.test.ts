@@ -1,7 +1,5 @@
-// The attach act: the call it makes and what it publishes.
-//
-// Driven through the real controller over a scripted attach call, which records what it was
-// asked so a case can say exactly what went out.
+// The attach act: the call it makes and what it publishes, through the real controller over a
+// scripted attach call that records what it was asked.
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
@@ -58,8 +56,7 @@ describe("AttachController — the attach itself", () => {
     const controller = open(call);
 
     const first = controller.attach("/Users/dev/code/new-repo");
-    // The single-flight key is already taken, so the second call returns without
-    // reaching the wire.
+    // The single-flight key is taken, so the second call returns without reaching the wire.
     await controller.attach("/Users/dev/code/other-repo");
     await first;
 

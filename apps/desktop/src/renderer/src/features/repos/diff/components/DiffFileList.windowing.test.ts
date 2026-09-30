@@ -1,11 +1,5 @@
-// The file list as a window: what it mounts, what it does not, and what each row says
-// about which slice it is in.
-//
-// WHAT AN ENTRY IS is `DiffFileList.test.tsx` — a change that lives only in the
-// extended headers, a narrowing the filter hides, and a move made in a list that then
-// changed. Every case here is about the WINDOW rather than the entry: a change set too
-// long to mount, an entry reached past the mounted slice, and the row that names the
-// slice it is in.
+// The file list as a window: what it mounts, what it does not, and what each row says about the
+// slice it is in. Entry content is covered in `DiffFileList.test.tsx`.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -39,11 +33,8 @@ afterEach(() => {
 
 describe("diff file list — a change set too long to mount", () => {
   /**
-   * The mounted-entry ceiling one window may reach.
-   *
-   * Derived from the bounds rather than picked, exactly as the rows renderer's is:
-   * the viewport's own rows plus overscan on both sides, plus the boundary row and
-   * the reset control. A list that mounted more than this is not windowing.
+   * Mounted-entry ceiling one window may reach: the viewport's rows plus overscan on both
+   * sides, plus the boundary row and the reset control.
    */
   const MAXIMUM_MOUNTED_ENTRY_COUNT =
     Math.ceil(DIFF_FIXTURE_VIEWPORT_HEIGHT_PX / DIFF_FILE_ROW_HEIGHT_PX) +
@@ -55,22 +46,18 @@ describe("diff file list — a change set too long to mount", () => {
   }
 
   it("mounts a window of a five-thousand-file change set rather than all of it", () => {
-    // The whole defect: past its threshold the list added a scrolling class and
-    // mounted every matching file anyway, so a generated or repository-wide patch
-    // cost thousands of buttons before the already virtualized body could help.
+    // Past its threshold the list must not mount every matching file: a repository-wide patch
+    // would cost thousands of buttons before the virtualized body could help.
     const container = renderFileList(REPOSITORY_WIDE_DIFF);
 
     expect(mountedEntryCount(container)).toBeLessThanOrEqual(MAXIMUM_MOUNTED_ENTRY_COUNT);
-    // And the list is still ABOUT the whole change set: the reset control counts every
-    // file, not the handful the window mounted.
+    // The reset control still counts every file, not the handful the window mounted.
     expect(container.querySelector(".meridian-diff-files__entry")?.textContent).toContain("5000");
   });
 
   it("stays bounded when the filter narrows to thousands of paths", () => {
-    // A keystroke rebuilds the entry list, and the list that was rebuilt used to be
-    // every matching row. The filter below matches most of the change set on purpose:
-    // a bound that only held for a filter matching nothing would hold for the wrong
-    // reason.
+    // The filter matches most of the change set on purpose: a bound that only held for a
+    // filter matching nothing would hold for the wrong reason.
     const container = renderFileList(REPOSITORY_WIDE_DIFF);
     const filter = container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input");
     if (filter === null) {
@@ -84,8 +71,8 @@ describe("diff file list — a change set too long to mount", () => {
   });
 
   it("opens the window on a selection the window would not otherwise reach", () => {
-    // A narrowing whose row is off-window is a control a reader cannot see the state
-    // of — and a pane reopened on a file a thousand rows down opens on exactly that.
+    // A narrowing whose row is off-window has no visible state, and a pane reopened on a file
+    // far down opens on exactly that.
     const selected = fixtureFileAt(REPOSITORY_WIDE_DIFF, 4_000).path;
     const container = renderFileList(REPOSITORY_WIDE_DIFF, selected);
 
@@ -95,33 +82,26 @@ describe("diff file list — a change set too long to mount", () => {
   });
 
   it("negative control: a change set under the threshold mounts every entry", () => {
-    // Without this, every bound above would be satisfied by a list that mounted
-    // nothing at all — which is what a windowed list does against a viewport a DOM
-    // shim reports as zero.
+    // Negative control: a list that mounted nothing (happy-dom reports a zero viewport) would
+    // satisfy every bound above.
     const container = renderFileList(TEXTUAL_ONLY_DIFF);
     expect(mountedEntryCount(container)).toBe(SMALL_DIFF_SHAPE.fileCount + 1);
   });
 });
 
 describe("diff file list — reaching an entry the window has not mounted", () => {
-  /** The entry a browser would move focus to, by the index its own row carries. */
   function focusedEntryIndex(container: HTMLElement): number {
     const row = container.ownerDocument.activeElement?.closest(".meridian-diff-files__row");
     return Number(row?.getAttribute("data-index") ?? Number.NaN);
   }
 
   it("moves between entries on the arrow keys, because tab can only reach the window", () => {
-    // A window mounts the rows a scroll position needs, so tabbing reaches those and
-    // no others. The list is one tab stop with the arrows inside it, which is what
-    // keeps every entry reachable however few of them are mounted.
+    // Tab reaches only the mounted rows; the list is one tab stop with arrows inside it, which
+    // keeps every entry reachable.
     //
-    // THIS TIER CANNOT SEE WHETHER THE RING ACTUALLY MOVED. happy-dom focuses any
-    // element it is asked to, an `<li>` with no `tabindex` included, so this case
-    // passed over a list whose row marked itself as the focus target and whose ring
-    // therefore never moved in a browser. `test/console/browser/
-    // repos-windowed-focus.test.tsx` is where that claim is made, in Chromium, with
-    // the engine's refusal as its own control. What is asserted here is the INDEX
-    // arithmetic, which is this tier's to own.
+    // This tier cannot see whether the focus ring moved: happy-dom focuses any element, an
+    // `<li>` without `tabindex` included. `tests/browser/windowed-list-focus.test.tsx` covers
+    // that in Chromium; this case asserts the index arithmetic.
     const container = renderFileList(TEXTUAL_ONLY_DIFF);
     firstEntry(container).focus();
 
@@ -145,8 +125,8 @@ describe("diff file list — reaching an entry the window has not mounted", () =
   });
 
   it("keeps exactly one entry in the page's tab order", () => {
-    // The other half of the composite-widget rule: a windowed list that left every
-    // mounted row tabbable would put a moving number of tab stops in the page.
+    // A windowed list that left every mounted row tabbable would put a moving number of tab
+    // stops in the page.
     const container = renderFileList(TEXTUAL_ONLY_DIFF);
     const tabbable = [...container.querySelectorAll(".meridian-diff-files__entry")].filter(
       (entry) => entry.getAttribute("tabindex") === "0",
@@ -155,8 +135,8 @@ describe("diff file list — reaching an entry the window has not mounted", () =
   });
 
   it("negative control: a key the list does not own moves nothing", () => {
-    // Without this, a handler that moved on every key would satisfy the cases above
-    // while stealing the character a person is typing into the filter beside it.
+    // A handler that moved on every key would satisfy the cases above while stealing the
+    // character typed into the filter.
     const container = renderFileList(TEXTUAL_ONLY_DIFF);
     firstEntry(container).focus();
 
@@ -167,7 +147,6 @@ describe("diff file list — reaching an entry the window has not mounted", () =
 });
 
 describe("diff file list — a window is a slice, and each row says so", () => {
-  /** The set size and position one mounted row reports, by its own index. */
   function rowPositionAt(
     container: HTMLElement,
     entryIndex: number,
@@ -182,8 +161,8 @@ describe("diff file list — a window is a slice, and each row says so", () => {
   }
 
   it("reports the whole change set's length and each row's place in it", () => {
-    // Only the window's rows exist in the accessibility tree, so without these a
-    // screen reader reads a thirty-row slice as the complete changed-file list.
+    // Only the window's rows are in the accessibility tree, so without these a screen reader
+    // reads the slice as the whole list.
     const container = renderFileList(REPOSITORY_WIDE_DIFF);
 
     // The reset control plus one row per file, which is the list the `<ul>` holds.
@@ -193,8 +172,8 @@ describe("diff file list — a window is a slice, and each row says so", () => {
   });
 
   it("counts a filtered list as the rows that filter leaves", () => {
-    // The set is what the list DRAWS, so a filter shortens it — a row claiming a
-    // place in five thousand while nine are drawn would be as wrong as the slice.
+    // The set is what the list draws, so a filter shortens it; a row claiming a place in five
+    // thousand while nine are drawn would be as wrong as the slice.
     const container = renderFileList(REPOSITORY_WIDE_DIFF);
 
     filterTo(container, "module-01");
@@ -204,8 +183,8 @@ describe("diff file list — a window is a slice, and each row says so", () => {
   });
 
   it("negative control: the position is the row's own and not the window's", () => {
-    // Without this, rows numbered from the top of the mounted window would satisfy
-    // the first case for row zero and misreport every row below the fold.
+    // Rows numbered from the top of the mounted window would pass the first case for row zero
+    // and misreport every row below the fold.
     const container = renderFileList(
       REPOSITORY_WIDE_DIFF,
       fixtureFileAt(REPOSITORY_WIDE_DIFF, 4_000).path,

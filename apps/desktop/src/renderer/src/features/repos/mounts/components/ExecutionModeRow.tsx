@@ -3,6 +3,7 @@ import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { type ExecutionMode } from "@ai-sidekicks/contracts";
 import { type ExecutionModeRowReading } from "../execution-mode-rows.js";
 
+/** One radio row: a mode, whether it is bound now or the default, and why it is restricted. */
 export interface ExecutionModeRowProps {
   readonly row: ExecutionModeRowReading;
   readonly workspaceId: string;
@@ -11,6 +12,7 @@ export interface ExecutionModeRowProps {
   readonly onSelect: (executionMode: ExecutionMode) => void;
 }
 
+/** A single execution-mode radio; a restricted mode is disabled and carries the mount's reason. */
 export function ExecutionModeRow(props: ExecutionModeRowProps): React.JSX.Element {
   const { row } = props;
   const inputId = `meridian-mode-${props.workspaceId}-${row.mode.replace(/\s+/gu, "-")}`;
@@ -26,8 +28,7 @@ export function ExecutionModeRow(props: ExecutionModeRowProps): React.JSX.Elemen
         className="meridian-mode-picker__input"
         type="radio"
         id={inputId}
-        // Grouped per workspace, so a session showing several pickers keeps each
-        // one's selection to its own workspace.
+        // Grouped per workspace so several pickers keep their selections apart.
         name={`meridian-mode-${props.workspaceId}`}
         value={row.mode}
         checked={props.isCurrent}
@@ -37,8 +38,7 @@ export function ExecutionModeRow(props: ExecutionModeRowProps): React.JSX.Elemen
         }}
       />
       <label className="meridian-mode-picker__label" htmlFor={inputId}>
-        {/* The mode is a wire string, shown verbatim rather than as a label of the
-            console's own (`packages/contracts/src/repo.ts`). */}
+        {/* The mode is a wire string, shown verbatim. */}
         <WireFigure value={row.mode} />
         {props.isCurrent ? <span className="meridian-mode-picker__tag">bound now</span> : null}
         {props.isDefault ? (

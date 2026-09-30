@@ -1,42 +1,10 @@
-// Putting an execution root on disk for one workspace, ahead of any run.
-//
-// THE REUSE CHECK IS THE FORM, not a step hidden behind the button. A person naming
-// a branch is asking a question the daemon can already answer — is there a checkout of
-// this branch, is it clean, is it usable — and the answer decides whether the prepare
-// they are about to send is a create, a reuse, a reuse that needs their consent, or a
-// refusal no consent lifts. So the verdict is drawn under the field as the name is
-// settled, and the control below it changes with it.
-//
-// THE CONSENT IS A CHECKBOX THAT EXISTS ONLY FOR THE DIRTY VERDICT, and never a
-// permanently visible one that is sometimes ignored. `acknowledgeDirtyCandidate` means
-// one thing — this person has read that the candidate has uncommitted work in it and
-// wants to run there anyway — and a box that were always present would collect that
-// consent for the case that does not need it and, worse, would look like the override
-// for the case that has none. What the box RECORDS is the candidate's own id, so the
-// consent belongs to one tree rather than to the branch text that found it.
-//
-// AND THE CONTROL IS SHUT WHILE THE CHECK IS IN FLIGHT. The verdict is what decides
-// whether the prepare names a candidate at all, so a form that were sendable during the
-// debounce window would send a prepare with no `reuseWorktreeId` against a branch that
-// has one — an implicit collision the daemon refuses, which can leave the workspace
-// `stale`. The blocked line under the button says so rather than leaving a dead control.
-//
-// THE INCOMPATIBLE VERDICT OFFERS NOTHING TO PRESS THROUGH. It is a state, not a
-// gate: the daemon will not bind that candidate under any acknowledgement, so the
-// control closes and the sentence says what to do instead — a different branch, or
-// retire the root first.
-//
-// IT IS COLLAPSED: preparing a root ahead of a run is deliberate and infrequent, and an
-// open form on every workspace card would put four controls on a section whose subject is
-// what the session already holds.
-//
-// AND IT IS HELD BY THE SAME POSTURE THE MODE PICKER IS. A prepare IS a bind, so a
-// mount that refuses every bind refuses this one, and the mode a prepare is read off is
-// exactly what a pending switch is replacing — so the row derives one
-// `readWorkspaceControlAvailability` and hands it to both controls. Held rather than withheld,
-// on `mount-health.ts`'s own rule: the form stays where a person left it and the
-// sentence says what is holding it, because a control that vanished would report a
-// capability this workspace does not have rather than one that is momentarily closed.
+// Puts an execution root on disk for one workspace ahead of any run. The reuse check is the
+// form: the verdict for the named branch (create, reuse, reuse needing consent, or refusal) is
+// drawn under the field, and the control follows it, shut while the check is in flight. The
+// consent box exists only for the dirty verdict and records the candidate's id, so it belongs to
+// one tree. The incompatible verdict closes the control. The form is collapsed and held by the
+// same posture as the mode picker, since a prepare is a bind; held, not withheld, so the
+// sentence says what is holding it.
 
 import "./execution-roots.css";
 
@@ -90,13 +58,10 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
     props.sessionStore,
     props.operations,
   );
-  // THE FORM DIES WITH THE CONTROLLER IT IS BEING READ AGAINST. This row is keyed by
-  // workspace id, so a mode switch re-mints the mode-scoped controller underneath a
-  // component React never unmounts — and a plain register would carry the branch typed
-  // under the old mode into a controller that has asked nothing about it. Addressed at
-  // the controller's identity, so the pass that first sees the new one already reads an
-  // empty form; an effect would clear it one committed frame later, and that frame has a
-  // pressable control in it.
+  // The form dies with the controller it is read against: a mode switch re-mints the
+  // mode-scoped controller under a component React never unmounts, and a plain register would
+  // carry the old branch across. Addressing state at the controller's identity re-seeds it in
+  // the same pass; an effect would leave one committed frame with a pressable control.
   const { value: form, publish: publishForm } = useSubjectScopedState<PrepareFormState>(
     controllerIdentity,
     undefined,
@@ -110,10 +75,9 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
 
   const nameBranch = useCallback(
     (branchName: string) => {
-      // THE CONSENT IS DROPPED WHENEVER THE BRANCH CHANGES, because it was given for a
-      // specific candidate: carried across an edit it would consent to a different
-      // tree's uncommitted work, which is the one mistake this control exists to make
-      // impossible. Clearing the act with it keeps a stale settlement off a new intent.
+      // The consent is dropped whenever the branch changes: it was given for one candidate and
+      // would otherwise consent to another tree's uncommitted work. Clearing the act keeps a
+      // stale settlement off the new intent.
       publishForm({ branchName, acknowledgedCandidateId: undefined });
       clearAct();
       checkReuse(branchName);
@@ -157,11 +121,8 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
           <input
             type="checkbox"
             disabled={heldBecause !== undefined}
-            // THE BOX IS TICKED FOR A TREE AND NOT FOR A FORM. Both halves read the
-            // candidate the verdict is naming NOW, so a refresh that serves a different
-            // dirty checkout of the same branch draws the box unticked — the consent it
-            // is asking for has not been given for that tree, and `isDirtyReuseAcknowledged`
-            // is the same predicate the act sends on.
+            // Ticked for a tree, not a form: both halves read the candidate the verdict names
+            // now, so a refresh serving a different dirty checkout draws the box unticked.
             checked={isDirtyReuseAcknowledged(form, verdict)}
             onChange={(event) => {
               publishForm((current) => ({
@@ -189,8 +150,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         Prepare
       </button>
       {heldBecause === undefined ? null : (
-        // The mount's own sentence, or the selection act's — never a third wording for
-        // a state two other views are already reporting.
+        // The mount's own sentence, or the selection act's; never a third wording.
         <p className="meridian-prepare-root__held" role="status">
           {heldBecause}
         </p>
@@ -220,11 +180,8 @@ function summaryLineFor(reading: PrepareReading): string {
 }
 
 /**
- * What the reuse check found, and the daemon's own reason where it gave one.
- *
- * The reason is rendered beside the console's sentence and never instead of it. The
- * console's sentence says what the verdict means for the act about to be sent; the daemon's
- * `reason` says what it found.
+ * What the reuse check found, and the daemon's own reason where it gave one. The reason is
+ * rendered beside the console's sentence, which says what the verdict means for the act.
  */
 function renderReuse(reading: PrepareReading): React.JSX.Element | null {
   switch (reading.prerequisite.status) {
@@ -270,13 +227,8 @@ function renderSettlement(
         <div className="meridian-prepare-root__prepared" role="status">
           <WireFigure value={reading.act.executionRoot} title={reading.act.executionRoot} />
           <span className="meridian-prepare-root__state">{reading.act.state}</span>
-          {/*
-            THE RE-READ IS A CONTROL, NOT AN EFFECT. A prepared root lands in the
-            section's own roots list on its next read, and the user asking for
-            that read is one of the three admitted refresh reasons — which is why
-            the control stays after the first press rather than disappearing: the
-            list can be asked again.
-          */}
+          {/* The re-read is a control, not an effect: it stays after the first press because the
+              list can be asked again. */}
           <button type="button" className="meridian-prepare-root__reread" onClick={onPrepared}>
             Show it in the roots list
           </button>

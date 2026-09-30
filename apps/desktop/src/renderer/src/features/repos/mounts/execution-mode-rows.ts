@@ -1,16 +1,7 @@
-// One row of the execution-mode picker, and the one derivation that builds the set.
-//
-// A MODULE OF ITS OWN because two components build these rows and two views draw them,
-// so the shape is the seam between them rather than either one's private vocabulary —
-// and a type declared in a parent component and imported by its child closes an import
-// cycle.
-//
-// AND THE DERIVATION LIVES HERE BESIDE THE SHAPE, because two components need it. The mode
-// picker and the bind dialog each read one `repo.executionModeCapabilitiesRead` reply
-// into rows, and two separate readings could drift on the case that matters most: a mode
-// named in BOTH halves of the reply. If one kept the reason and the other blanked it, the
-// same malformed reply would disclose its restriction in one component and hide it on the
-// other. One implementation serves both.
+// One row of the execution-mode picker, and the derivation that builds the set. The mode
+// picker and the bind dialog both read a capabilities reply through it, so a mode named in
+// both halves of a malformed reply cannot disclose its restriction in one and hide it in the
+// other.
 
 import { type ExecutionMode } from "@ai-sidekicks/contracts";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
@@ -24,16 +15,10 @@ export interface ExecutionModeRowReading {
 }
 
 /**
- * The rows, built from the reply and from nothing else.
- *
- * Available modes first, in the order the daemon listed them; then every restricted
- * mode, in the order its reasons arrived. The console imposes no ranking of its own on
- * either half, and an excluded mode with no entry in the map has no reason on file,
- * which the row says outright rather than filling in.
- *
- * A MODE NAMED IN BOTH HALVES IS RENDERED ONCE, AS AVAILABLE, AND KEEPS ITS REASON
- * VISIBLE. The reply is malformed in that case, and hiding half of it would be the
- * renderer deciding which half was true.
+ * The rows, built from the reply alone: available modes first in the daemon's order, then each
+ * restricted mode. A mode with no entry in `restrictions` has no reason on file and gets none
+ * composed. A mode named in both halves is rendered once, as available, with its reason kept
+ * visible rather than picking which half is true.
  */
 export function executionModeRows(
   capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,

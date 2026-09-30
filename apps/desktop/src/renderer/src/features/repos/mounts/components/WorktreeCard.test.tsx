@@ -1,6 +1,4 @@
 // What a worktree card puts on screen, and what it refuses to.
-//
-// The cases drive the real card against real records rather than a stand-in.
 
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -15,8 +13,7 @@ import {
   WORKTREE_DETAIL_COLUMNS,
 } from "../execution-root-columns.js";
 
-// Built rather than parsed: a fixture instant is this suite's own decision, and the
-// console's one reader of a wire stamp is `parseInstant`, not this line.
+// A fixture instant built directly, not parsed.
 const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
 
 describe("WorktreeCard — the face", () => {
@@ -34,9 +31,7 @@ describe("WorktreeCard — the face", () => {
   });
 
   it("renders the branch verbatim, ordinal suffix included", () => {
-    // Never auto-suffix and never re-derive: a daemon-derived name that took a
-    // suffix is displayed as sent, and a card that normalized it would be showing
-    // a branch the daemon does not have.
+    // A daemon-derived name that took a suffix is displayed as sent, never normalized.
     const record = worktreeRecord({ branchName: "sidekicks/abc123/rate-limit-wiring-2" });
     const { container } = render(
       <WorktreeCard record={record} nowMilliseconds={NOW_MILLISECONDS} />,
@@ -47,7 +42,6 @@ describe("WorktreeCard — the face", () => {
   });
 
   it("keeps the exact creation stamp beside the reading of it", () => {
-    // No formatted figure hides the value the daemon sent.
     const record = worktreeRecord();
     const { container } = render(
       <WorktreeCard record={record} nowMilliseconds={NOW_MILLISECONDS} />,
@@ -100,9 +94,8 @@ describe("WorktreeCard — provenance", () => {
 
 describe("WorktreeCard — the controls it does not offer", () => {
   it("offers no retire, force, or branch-switch control on any state", () => {
-    // Preview is consent: the retire confirm enumerates an inspection this card is
-    // never given, and a force-override is deliberately unscheduled. A card that
-    // grew one of these buttons would be offering an act with no preview behind it.
+    // The retire confirm enumerates an inspection this card is never given, so a button here
+    // would offer an act with no preview behind it.
     for (const state of ["ready", "dirty", "merged", "failed", "creating"] as const) {
       const { container } = render(
         <WorktreeCard record={worktreeRecord({ state })} nowMilliseconds={NOW_MILLISECONDS} />,

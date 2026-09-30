@@ -1,12 +1,5 @@
-// One change set on screen: the toolbar, the changed-file list, and the rows.
-//
-// SPLIT OUT OF `DiffPane.tsx` because only a change set needs the view state it is read
-// with. Left in the pane, its hooks would have run on every address the pane opens at,
-// including the ones that hold no diff.
-//
-// THE TWO HOOKS ARE THE MODEL'S AND NOT THE PANE'S, which is why they live with this
-// body: both are scoped to the change set being rendered, and both drop what they hold
-// when the diff does.
+// One change set on screen: the toolbar, the changed-file list and the rows. Split from
+// `DiffPane.tsx` so the view-state hooks do not run for addresses that hold no diff.
 
 import { DiffFileList } from "./DiffFileList.js";
 import { DiffRenderer } from "./DiffRenderer.js";
@@ -15,29 +8,23 @@ import { useDiffViewControls } from "../hooks/useDiffViewControls.js";
 import { type DiffModel } from "../diff-model.js";
 import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 
+/** What one change set is drawn from. */
 export interface DiffChangeSetProps {
   readonly diff: DiffModel;
 }
 
+/** The toolbar, changed-file list and rows of one diff, with the view state that diff owns. */
 export function DiffChangeSet(props: DiffChangeSetProps): React.JSX.Element {
   const { diff } = props;
   const viewControls = useDiffViewControls();
-  // This pane's own density: it opens on the changed-file list with the first
-  // file expanded. Selecting a file narrows the rows to it; selecting none reads
-  // the whole change set, which is what "the first file expanded" degrades to
-  // once a reader has scrolled past it.
-  //
-  // BOTH PIECES ARE THE MODEL'S AND NOT THE PANE'S, so they live in a hook that
-  // drops them when the diff does — a selected path the next diff does not
-  // contain would narrow the rows to nothing, and the renderer would report two
-  // identical states over a change set that has changes. The toolbar's split toggle
-  // is the pane's and is deliberately not reset with them.
+  // The selected file and gap expansion belong to the model and are dropped with it, so a stale
+  // selected path cannot narrow the rows to nothing. The split toggle is the pane's and is not
+  // reset with them.
   const modelViewState = useDiffModelViewState(diff);
 
   return (
-    // A column of its own inside the chrome's body box, because the body scrolls as one
-    // and this view has two bands: the toolbar, and the list-and-rows pair that takes
-    // the rest of the height.
+    // Its own column inside the chrome's body box: the toolbar, then the list-and-rows pair
+    // filling the remaining height.
     <div className="meridian-diff-pane">
       <DiffToolbar controls={viewControls} />
       <div className="meridian-diff-pane__content">

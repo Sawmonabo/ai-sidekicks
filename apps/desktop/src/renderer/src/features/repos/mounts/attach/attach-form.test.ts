@@ -1,8 +1,5 @@
-// What the attach form admits, and what it does not decide.
-//
-// THE TWO REFUSALS THIS MODULE MAKES ARE THE TWO THE CONTRACT'S PARSER WOULD MAKE, and
-// every case below is about not making a third: no resolution, no normalization, no
-// eligibility, and no trimming on the way out.
+// What the attach form admits and what it does not decide: the two refusals the contract's
+// parser would make, and no resolution, normalization, eligibility or trimming on the way out.
 
 import { describe, expect, it } from "vitest";
 
@@ -25,15 +22,15 @@ describe("resolveAttachForm — the path is checked and never rewritten", () => 
   });
 
   it("negative control: a path exactly at the cap is sendable", () => {
-    // The guard is `>` and not `>=`, because the contract's own `max` admits the
-    // boundary — a console refusing it would refuse a path the daemon accepts.
+    // The guard is `>` not `>=`: the contract's `max` admits the boundary, and refusing it
+    // would refuse a path the daemon accepts.
     const atCap = "/".repeat(FILE_PATH_MAX_LEN);
     expect(resolveAttachForm({ localPath: atCap }).verdict.status).toBe("sendable");
   });
 
   it("sends what was typed, spaces and all", () => {
-    // A leading or trailing space is a legal POSIX filename character. The emptiness
-    // guard reads a trimmed COPY; the request carries the original.
+    // A leading or trailing space is a legal POSIX filename character: the emptiness guard
+    // reads a trimmed copy, but the request carries the original.
     const verdict = resolveAttachForm({ localPath: " /Users/dev/code " }).verdict;
     expect(verdict.status === "sendable" && verdict.localPath).toBe(" /Users/dev/code ");
   });

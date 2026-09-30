@@ -1,11 +1,7 @@
-// How both renderer suites mount the diff and read the count it reports.
-//
-// SPLIT BY SUBJECT, NOT BY SCAFFOLDING. `DiffRenderer.test.ts` is about the ROWS the
-// renderer draws and `DiffRenderer.geometry.test.tsx` about the offsets under them,
-// and the props builder, the mount and the row-count reader were copied into both
-// rather than hoisted. The props builder is the one that matters: it names every prop
-// the component takes, so the copy that was not updated the day one moved would have
-// gone on compiling against a component nobody renders that way.
+// Shared mount, props builder and row-count reader for the renderer suites
+// (`DiffRenderer.test.ts` for rows, `DiffRenderer.geometry.test.tsx` for offsets). The props
+// builder names every prop, so a stale copy would keep compiling against a component nobody
+// renders that way.
 
 import { render } from "@testing-library/react";
 
@@ -18,13 +14,8 @@ import type { DiffGapExpansion } from "../diff-row-model.js";
 export const SMALL_DIFF: ReturnType<typeof buildDiffFixture> = buildDiffFixture(SMALL_DIFF_SHAPE);
 
 /**
- * No gap expanded, which is what every case starts from.
- *
- * A FUNCTION AND NOT A SHARED EMPTY MAP. An exported `Map` is one object every case in
- * both suites would hold, and `DiffGapExpansion` hides its mutators from a reader and
- * from nothing at runtime — so a single case that expanded a gap through the prop it
- * was handed would carry that expansion into every case after it, in whatever order
- * the runner happened to pick. Each caller gets its own.
+ * No gap expanded, the start of every case. A function, not a shared `Map`: the expansion type
+ * hides its mutators only at compile time, so one case expanding a gap would leak into the rest.
  */
 export function noExpansion(): DiffGapExpansion {
   return new Map();

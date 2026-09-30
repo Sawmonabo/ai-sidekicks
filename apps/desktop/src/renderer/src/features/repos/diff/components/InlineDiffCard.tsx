@@ -1,53 +1,7 @@
-// The diff card a transcript row carries, and the inline card registration that fills it.
-//
-// Diff cards go in the transcript at a height cap and then offer "show all", and THIS
-// CARD'S OWN RULE says exactly how
-// that behaves: an inline transcript card uses the same
-// renderer at a height cap, expanded to that cap by default with collapse
-// retained, plus expand-in-place and jump-to-end. No capped diff ends in a fade
-// with nowhere to go.
-//
-// Each clause of that rule is a decision this file makes and could have made
-// wrongly:
-//
-//   • THE SAME RENDERER. `DiffRenderer`, not a lighter one. A card that rendered
-//     its own rows would drift from the pane in exactly the details a diff is
-//     read for.
-//   • EXPANDED BY DEFAULT, COLLAPSE RETAINED. A card that opened collapsed would
-//     make every diff in a session cost a click before it says anything, and the
-//     turn it belongs to would read as having produced nothing.
-//   • EXPAND-IN-PLACE AND JUMP-TO-END. Both, because they answer different
-//     questions — "show me the rest here" and "take me past it" — and a card with
-//     only the first strands a reader at the bottom of a five-thousand-line diff
-//     inside a conversation.
-//   • NO FADE WITH NOWHERE TO GO. The cap always ships with the controls that
-//     leave it, in the same footer, always rendered.
-//
-// TWO FEATURES MEET AT THE INLINE CARD REGISTRY AND NEITHER IMPORTS THE OTHER. The
-// transcript renders the card's place in the row; this feature owns the body. The
-// registration in `contributions/inline-cards.ts` is the only point of contact.
-//
-// WHAT THE REGISTRY HANDS OVER, AND THE TWO DENSITIES IT SELECTS BETWEEN.
-// `DiffInlineCardProps` carries a `runId`, the `diffArtifactId` the registered diff
-// result names itself by, the `artifactManifestId` that diff minted, and — where the
-// row knows them — the pair of COMPARED STATES a diff was taken between. A unified
-// patch names neither of those states, so they can only arrive from the row, which is
-// why they are members of `DiffInlineCardProps` and never a base and a head this card invented.
-//
-// THE PAIR IS WHAT SELECTS THE DENSITY, and the four clauses above are the rule for
-// the arm where it is absent. A row that names no comparison identifies a diff by its
-// artifact id alone, so what the card can honestly show is a GLANCE at its rows: the
-// capped renderer, one control, and the two escape hatches. A row that names both
-// states has said what the turn compared, and the honest rendering of a named
-// comparison is the CHANGE SET — `DiffChangeSet`, the same body the pane renders, so
-// the compared states are drawn and the changed files are reachable rather than being
-// facts the card holds and does not show.
-//
-// AND THE PAIR IS READ WHERE THERE IS NO MODEL TOO. `diff` stays the seam a fetch
-// lands on, and until one lands the absence says what was compared instead of only
-// that nothing was read — a row that knows the two states has already answered half
-// the question, and withholding that half would be the card reporting less than it
-// holds.
+// The transcript's diff card. Without a compared pair it shows the capped `DiffRenderer`, open
+// by default, with collapse, expand-in-place and jump-to-end always rendered so a cap never
+// ends in a fade with nowhere to go. With both compared states it shows `DiffChangeSet`. A
+// unified patch names neither state, so they come from the row (`contributions/inline-cards.ts`).
 
 import "./diff.css";
 
@@ -63,26 +17,23 @@ import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "../hooks/useDiffViewControls.js";
 import { type DiffModel } from "../diff-model.js";
 import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
-// TYPE-ONLY, AND THAT IS LOAD-BEARING RATHER THAN TIDY. `patch-parse.ts` is where the
-// adopted diff library is called, and this card is registered eagerly — a value import
-// of that module would put the parser on the initial import graph for every session,
-// including the ones that open no diff at all. A type import is erased, so the shape
-// the compared states travel in has one home and the graph does not move.
+// Type-only: `patch-parse.ts` calls the diff library, and this card is registered eagerly, so
+// a value import would put the parser on the initial import graph.
 import type { ComparedStates } from "../patch-parse.js";
 
+/** What the diff card is drawn from: the row's registry props and, once read, the diff. */
 export interface InlineDiffCardProps {
   readonly card: DiffInlineCardProps;
-  /** The diff to render. Absent until a wire produces one — see the header. */
+  /** The diff to render; absent until a fetch produces one. */
   readonly diff?: DiffModel;
 }
 
+/** A transcript row's diff card: a capped glance, or the full change set when states are named. */
 export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
   const headingId = useId();
   const viewControls = useDiffViewControls();
-  // The gap expansion is the MODEL's, and this card is reused for whichever diff
-  // its transcript row carries, so it comes from the same hook the pane reads —
-  // keyed by the prop reference, dropped when that moves. The card narrows to no
-  // file, so it reads only the expansion half.
+  // Gap expansion is the model's, so it comes from the hook the pane reads. The card narrows
+  // to no file, so only the expansion half is used.
   const { expansion, expandGapAt } = useDiffModelViewState(props.diff);
   const comparedStates = comparedStatesOf(props.card);
   const [isCapped, setIsCapped] = useState(true);
@@ -96,11 +47,9 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
           <Glyph name="diff" size={GLYPH_SIZE_ROW} />
           Diff
         </h4>
-        {/* Wire-verbatim, and the diff rather than the run: the run is the row's own
-            subject and repeating it here would say nothing the transcript has not already
-            said one line above. The manifest id is not rendered beside it — it is the
-            provenance and retention of the same object, which is a reading the
-            artifact views do, not a second name for what this card shows. */}
+        {/* Wire-verbatim, and the diff rather than the run: the run is the row's own subject.
+            The manifest id is not shown; it is provenance of the same object, which the
+            artifact views read. */}
         <span className="meridian-diff-card__change-set" title={props.card.diffArtifactId}>
           {props.card.diffArtifactId}
         </span>
@@ -125,10 +74,8 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
               detail={unreadDiffDetail(comparedStates)}
             />
           ) : comparedStates !== undefined ? (
-            // THE CHANGE SET, because the row named what was compared. The same body
-            // the pane renders, so the compared states are drawn once and the changed
-            // files are reachable — see the header for why the props' compared pair is what
-            // selects this arm.
+            // The row named what was compared, so draw the pane's own body: the states are shown
+            // once and the changed files are reachable.
             <DiffChangeSet diff={props.diff} />
           ) : (
             <>
@@ -140,10 +87,8 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
                 {...(isCapped ? { heightCapPx: INLINE_DIFF_CARD_HEIGHT_CAP_PX } : {})}
                 label={`Diff, ${props.diff.baseRef} to ${props.diff.headRef}`}
               />
-              {/* Always rendered, capped or not — the cap's escape hatches are
-                  what keep it from being a fade with nowhere to go, and a footer
-                  that appeared only while capped would move the card's bottom
-                  edge every time somebody used it. */}
+              {/* Always rendered, capped or not: a footer that appeared only while capped
+                  would move the card's bottom edge on use. */}
               <div className="meridian-diff-card__footer">
                 <button
                   type="button"
@@ -155,14 +100,9 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
                 >
                   {isCapped ? "Expand in place" : "Restore height"}
                 </button>
-                {/* A FOCUS MOVE, NOT A SCROLL WRITE. Jump-to-end means "take me
-                    past this card to the rest of the conversation", and focusing
-                    the sentinel below does exactly that — the browser brings a
-                    focused element into view, the caret lands where reading
-                    resumes, and no code writes `scrollTop`, which the transcript's
-                    own scroll chokepoint owns. A link to a fragment would
-                    additionally rewrite the location hash, which this console
-                    routes on. */}
+                {/* A focus move, not a scroll write: focusing the sentinel brings it into
+                    view, and the transcript's scroll chokepoint owns `scrollTop`. A fragment
+                    link would rewrite the location hash, which the console routes on. */}
                 <button
                   type="button"
                   className="meridian-diff-card__control"
@@ -188,11 +128,8 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
 }
 
 /**
- * The comparison the row named, or `undefined` where it named neither.
- *
- * BOTH OR NOTHING, checked here rather than at each reader: half a comparison names no
- * diff at all, so a base with no head is the same answer as no base — and a reader that
- * tested one member would draw a comparison with a blank on one side of it.
+ * The comparison the row named, or `undefined` unless it named both states: half a comparison
+ * names no diff, so a base with no head answers the same as no base.
  */
 function comparedStatesOf(card: DiffInlineCardProps): ComparedStates | undefined {
   const { baseRef, headRef } = card;

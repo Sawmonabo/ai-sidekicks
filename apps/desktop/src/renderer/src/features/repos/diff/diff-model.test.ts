@@ -15,9 +15,8 @@ import { intralineSegments } from "./patch-parse.js";
 
 describe("diff model — the closed sets", () => {
   it("declares three line kinds and two view modes", () => {
-    // Counts rather than membership, because each of these is a claim a spec
-    // makes about how many answers exist, and a fourth line kind added without a
-    // renderer branch is the failure this catches.
+    // Counts, not membership: a fourth line kind added without a renderer branch is what
+    // this catches.
     expect(DIFF_LINE_KINDS).toHaveLength(3);
     expect(DIFF_VIEW_MODES).toHaveLength(2);
   });
@@ -34,9 +33,8 @@ describe("diff model — derived figures", () => {
   });
 
   it("negative control: hidden context never counts as a change", () => {
-    // Without this, a counter that walked `precedingContext` too would report a
-    // file's totals differently depending on how much of its gaps a reader had
-    // expanded — a figure that changes when nobody changed anything.
+    // Without this, a counter that walked `precedingContext` would report different totals
+    // depending on how much of its gaps a reader had expanded.
     const withMoreContext = buildDiffFixture({
       ...SMALL_DIFF_SHAPE,
       precedingContextPerHunk: SMALL_DIFF_SHAPE.precedingContextPerHunk * 10,
@@ -52,10 +50,8 @@ describe("diff model — derived figures", () => {
     const insertedLine = lines?.[2];
     expect(deletedLine).toBeDefined();
     expect(insertedLine).toBeDefined();
-    // A PARSED line carries one whole-line segment; the multi-segment shape this
-    // function has to survive is the derived intraline reading. So the subject is
-    // built through the seam that produces it rather than typed out by hand, which
-    // would assert reassembly over a shape nothing makes.
+    // A parsed line carries one whole-line segment, so the multi-segment subject is built
+    // through the intraline reading that produces it.
     const segmented = {
       ...deletedLine!,
       segments: intralineSegments(diffLineText(deletedLine!), diffLineText(insertedLine!)).deleted,

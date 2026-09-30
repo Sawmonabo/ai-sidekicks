@@ -1,33 +1,7 @@
-// One worktree row of `repo.worktreeStatusRead`, drawn.
-//
-// THIS CARD'S DENSITY, stated where it is obeyed: each list shows state, branch, root,
-// and age, and the provenance columns collapse behind a row disclosure. That is the
-// whole shape of this card — secondary facts live one click away, applied to a column
-// set.
-//
-// THE DISCLOSURE IS A NATIVE `<details>`. Keyboard reachable, labeled, and
-// focus-visible without a line of code, and — the reason that matters more than the
-// convenience — it holds no state. A card with its own open/closed `useState` would
-// be per-row state beside the session store for a fact the platform already keeps,
-// and a list of them would re-render on every toggle.
-//
-// EVERY COLUMN IS THE WIRE'S OWN STRING, and the card computes none of them: `execution-root-model.ts` says why (no derived branch name, no derived checkout
-// root, no snapshot refs in a branch column). The one reading the card DOES derive
-// is the age, which is two instants the console holds put through
-// `formatRelativeTime` — and the exact stamp rides the same element's `title`, so
-// no formatted figure hides the value the daemon sent.
-//
-// WHAT THIS CARD DOES NOT OFFER, and why none of it is an omission:
-//   • No retire control. The retire confirm is the strongest interaction this
-//     card could carry and it enumerates the candidate's branch, its uncommitted files, its
-//     unmerged commits, and any inspection failure — a preview this card is not
-//     given and must not fabricate. Preview is consent, so the control belongs to
-//     the view that can run the inspection.
-//   • No force-retire, force-detach, or boundary-obstruction override. The design
-//     names a force-override a possible future enhancement, deliberately not
-//     scheduled.
-//   • No branch switch. The daemon never checks out, creates, or switches a branch
-//     inside a bound checkout; a mismatch is a typed refusal with no action on it.
+// One worktree row of `repo.worktreeStatusRead`. Every column is the wire's own string; only
+// the age is derived, and its exact stamp rides the element's `title`. Secondary facts sit in a
+// native `<details>`, which keeps no per-row state. There is no retire control: its confirm
+// needs an inspection preview this card is not given and must not fabricate.
 
 import "./execution-root-cards.css";
 
@@ -49,18 +23,14 @@ import {
 } from "../execution-root-columns.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 
+/** A worktree status record, plus the instant the section read at. */
 export interface WorktreeCardProps {
   readonly record: WorktreeStatusRecord;
-  /**
-   * The instant the section read at.
-   *
-   * A prop rather than a clock this card reaches for, because interval polling is
-   * forbidden: the age moves when the section re-reads and at no other time,
-   * and a card that read the wall clock would move it on any unrelated re-render.
-   */
+  /** The instant the section read at; the age moves when the section re-reads, never on a timer. */
   readonly nowMilliseconds: number;
 }
 
+/** One worktree: branch, state, root, age, and a provenance disclosure. */
 export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
   const { record, nowMilliseconds } = props;
   const headingId = useId();
@@ -70,11 +40,8 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
     <article className="meridian-root-card" aria-labelledby={headingId}>
       <header className="meridian-root-card__head">
         <Glyph name="worktree" size={GLYPH_SIZE_CHROME} />
-        {/*
-          The branch is the card's name. Mono and verbatim, suffix included: a
-          daemon-derived name that took an ordinal suffix is displayed as it was
-          sent, and nothing here re-suffixes a user's own.
-        */}
+        {/* The branch is the card's name, mono and verbatim: a daemon-derived ordinal suffix is
+            shown as sent. */}
         <h4 className="meridian-root-card__title" id={headingId}>
           <WireFigure value={record.branchName} />
         </h4>
@@ -97,10 +64,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
         </div>
         <div className="meridian-root-card__pair">
           <dt>{WORKTREE_COLUMN_LABELS.createdAt}</dt>
-          {/*
-            `title` carries the exact stamp beside the console's own reading of it, so
-            no formatted figure hides the value the daemon sent.
-          */}
+          {/* `title` carries the exact stamp beside the derived reading. */}
           <dd title={record.createdAt}>
             <DerivedFigure text={formatRelativeTime(record.createdAt, nowMilliseconds)} />
           </dd>
@@ -119,9 +83,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
                   {cell.kind === "value" ? (
                     <WireFigure value={cell.value} />
                   ) : (
-                    // A real producer state, not a gap: the model's copy says which
-                    // one. `empty` is the absence kind for "the read succeeded and
-                    // there is none", which is exactly what an omitted column is.
+                    // A real producer state, not a gap: the model's copy says which one.
                     <Nothing kind="empty" placement="inline" title={cell.copy} />
                   )}
                 </dd>

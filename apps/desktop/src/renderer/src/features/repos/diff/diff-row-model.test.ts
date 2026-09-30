@@ -1,10 +1,6 @@
-// Gap expansion with predecessor retention: what a second press may never take back.
-//
-// Beside the value it is about, on the same seam `diff-row-model.ts` cuts: the
-// expansion is a value the pane holds and replaces, and its rule — monotonic growth,
-// clamped, never mutating — is checkable without an index at all. The two cases that
-// DO build one build it to show that the row count and the gap row follow the value,
-// which is the claim the pane rests on.
+// Gap expansion with predecessor retention: what a second press may never take back. The
+// rule (monotonic growth, clamped, never mutating) is checkable without an index; the two
+// cases that build one show the row count and the gap row follow the value.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,8 +16,8 @@ describe("hunk virtualization — gap expansion with predecessor retention", () 
   it("reveals one band, and the gap row survives while anything is hidden", () => {
     const expansion = expandGap(new Map(), 0, 0, SMALL_DIFF_SHAPE.precedingContextPerHunk);
     const index = new DiffRowIndex(SMALL_DIFF, expansion);
-    // The fixture's gap is smaller than one expansion band, so one activation
-    // reveals all of it and the gap row is gone.
+    // The fixture's gap is smaller than one expansion band, so one activation reveals all of
+    // it and the gap row is gone.
     expect(SMALL_DIFF_SHAPE.precedingContextPerHunk).toBeLessThan(DIFF_GAP_EXPANSION_LINE_COUNT);
     expect(index.rowAt(1)).toStrictEqual({
       kind: "line",
@@ -33,8 +29,7 @@ describe("hunk virtualization — gap expansion with predecessor retention", () 
   });
 
   it("retains what a previous activation revealed", () => {
-    // The retention claim needs a gap wider than one band, so it is checked on a
-    // shape that has one rather than on the small fixture.
+    // Retention needs a gap wider than one band, so it uses a shape that has one.
     const wideGapDiff = buildDiffFixture({
       ...SMALL_DIFF_SHAPE,
       precedingContextPerHunk: DIFF_GAP_EXPANSION_LINE_COUNT * 3,
@@ -56,8 +51,8 @@ describe("hunk virtualization — gap expansion with predecessor retention", () 
       precedingContextPerHunk: available,
     });
     const index = new DiffRowIndex(wideGapDiff, expandGap(new Map(), 0, 0, available));
-    // Row 1 is the surviving gap row; row 2 is the first revealed line, and it is
-    // the one immediately above the hunk rather than the top of the gap.
+    // Row 1 is the surviving gap row; row 2 is the first revealed line, the one immediately
+    // above the hunk rather than the top of the gap.
     expect(index.rowAt(2)).toStrictEqual({
       kind: "line",
       fileIndex: 0,
@@ -74,9 +69,9 @@ describe("hunk virtualization — gap expansion with predecessor retention", () 
   });
 
   it("negative control: expanding never mutates the value it was given", () => {
-    // Without this, `expandGap` could be mutating in place and returning the same
-    // reference — every count above would pass and React would render nothing,
-    // because the identity a memo compares would never change.
+    // Without this, `expandGap` could mutate in place and return the same reference: every
+    // count above would pass and React would render nothing, since the memo identity never
+    // changes.
     const before: ReadonlyMap<string, number> = new Map();
     expandGap(before, 0, 0, 10);
     expect(before.size).toBe(0);

@@ -1,43 +1,7 @@
-// The next move, per daemon refusal code, for every call the repo mounts make.
-//
-// ONE TABLE FOR ALL THE REPO MOUNTS, and that is the point rather than a convenience.
-// What reaches the screen from the daemon is fixed — the code in mono, the message
-// verbatim, never paraphrased — and that leaves the
-// NEXT MOVE to the caller as a gap. Written per call site, that gap is where a code's
-// recovery gets invented twice and the two copies drift; written once, a code has one
-// answer wherever it surfaces, and the codes with no console-side move have visibly
-// none rather than a sentence somebody felt obliged to write.
-//
-// THE RECOVERY IS NEVER THE DAEMON'S SENTENCE RESTATED. Each entry below says what a
-// PERSON does next, which is a different claim from what the daemon said happened, and
-// three of them are the reason this module exists at all:
-//
-//   • `repo.already_attached` is not a failure to correct. A second working tree of one
-//     repository is, by design, a re-attach: the resolved root is already live on this
-//     node, so the move is to go to the mount that holds it rather than to change the
-//     path and try again.
-//   • `workspace.mode_unsupported` is answered by the capabilities read and not by this
-//     table: the mount's own reason for that mode is a wire string, so the recovery
-//     CARRIES it rather than composing one. A mode refused with no reason on file says
-//     exactly that, and does not invent one.
-//   • `worktree.reuse_conflict` covers three different situations with three different
-//     moves, and the daemon's own message says which. So the recovery enumerates all
-//     three rather than picking one — the console cannot tell them apart from the code
-//     alone, and a single generic sentence would be wrong two times in three.
-//   • `repo.root_resolution_failed` for a folder with no git repository in it states
-//     what happened rather than a move: the only move is to pick a folder that holds a
-//     repository, and "not a git repository" already says that.
-//
-// WHAT IS DELIBERATELY ABSENT. `repo.detach_conflict` is registered beside these and is
-// not here, because no renderer view in the repo mounts sends `repo.detach` — an entry
-// would be a next move for a refusal this console cannot receive. There is no force
-// option in any entry either: force-override is unscheduled and V1 has no
-// force-detach, so a recovery offering one would name a control that does not exist.
-//
-// THE LOOKUP TAKES A `string`, not the union. A refusal arrives off the wire and the
-// console never asserts that a code it has not seen is one of these — an unlisted code
-// answers `undefined` and renders with no next move beside it, which is the honest
-// reading of a refusal the repo mounts have no move for.
+// The next move per daemon refusal code, for every call the repo mounts make. The daemon's code
+// and message reach the screen verbatim; this table says what a person does next, once per code.
+// The lookup takes a `string` because refusals arrive off the wire: an unlisted code answers
+// `undefined` and renders with no next move.
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
@@ -45,11 +9,8 @@ import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 import type { CasedRefusalRemedy } from "@renderer/lib/refusal-remedies.js";
 
 /**
- * Every daemon refusal code the repo mount views can receive.
- *
- * The repo, workspace, and worktree namespaces — the ones the `repo.*` methods this
- * console binds refuse in. A tuple rather than a count in prose, on the feature's own
- * rule: a number in a sentence is not something a missing code can fail against.
+ * Every daemon refusal code the repo mount views can receive. `repo.detach_conflict` is
+ * omitted because no view here sends `repo.detach`.
  */
 export const MOUNT_REFUSAL_CODES = [
   "repo.not_found",
@@ -75,18 +36,10 @@ export const MOUNT_REFUSAL_CODES = [
 export type MountRefusalCode = (typeof MOUNT_REFUSAL_CODES)[number];
 
 /**
- * What the caller knows that the code alone does not.
- *
- * `restrictionReason` exists because one code's recovery is a wire string this table
- * must not write: `workspace.mode_unsupported` is paired with the mount's own reason
- * for the mode that was refused, which arrives on
- * `WorkspaceExecutionModeCapabilitiesReadResponse.restrictions` and is sparse. Absent
- * means the read gave no reason for that mode, which the recovery says outright rather
- * than filling in.
- *
- * `resolutionReason` is the `reason` a `repo.root_resolution_failed` refusal carries,
- * which names the step of the attach that failed. One of them, a folder that is not a git
- * repository, is the common case and has a sentence of its own.
+ * What the caller knows that the code alone does not. `restrictionReason` is the mount's own
+ * reason for a refused mode (sparse in
+ * `WorkspaceExecutionModeCapabilitiesReadResponse.restrictions`); absent means none on file.
+ * `resolutionReason` is the `reason` a `repo.root_resolution_failed` refusal carries.
  */
 export interface MountRefusalContext {
   readonly restrictionReason?: string | undefined;
@@ -101,10 +54,7 @@ const NOT_A_GIT_REPOSITORY_REMEDY: CasedRefusalRemedy = {
   distinctions: NO_DISTINCTIONS,
 };
 
-/**
- * The table. Total over the codes above, so a code added to the tuple and not here
- * fails to compile rather than surfacing with no move.
- */
+/** The table, total over the codes above, so a code missing here fails to compile. */
 const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalRemedy>> = {
   "repo.not_found": {
     nextMove:
@@ -112,26 +62,23 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
     distinctions: NO_DISTINCTIONS,
   },
   "repo.root_resolution_failed": {
-    // The arm for every reason but a folder with no repository in it, which
-    // `mountRefusalRemedy` answers from the context.
+    // The arm for every reason but a folder with no repository, which `mountRefusalRemedy`
+    // answers from the context.
     nextMove:
       "Nothing was attached. The background service's message above says what it could not resolve; one named case is a linked worktree, which attaches from the main checkout instead.",
     distinctions: NO_DISTINCTIONS,
   },
   "repo.outside_trust_envelope": {
-    // The console does not name the path here, and it could not: the daemon's message
-    // for this code deliberately does not echo the attempted path, and the console
-    // resolves and compares no path of its own.
+    // The path is not named: the daemon's message does not echo it and the console compares no
+    // path of its own.
     nextMove:
       "The resolved path is outside the roots this session admits. Attaching a root the session already admits is what brings a path inside the envelope; the console cannot widen it.",
     distinctions: NO_DISTINCTIONS,
   },
   "repo.already_attached": {
-    // ROUTING, NOT CORRECTION. The reply carries no mount id and this console will not
-    // guess one: matching the entered path against a rendered `canonicalRoot` would be
-    // the renderer comparing paths, which the trust envelope reserves to the daemon.
-    // So the move is stated as the place to go rather than as a link the console
-    // fabricates a target for.
+    // Routing, not correction. The reply carries no mount id, and matching the entered path
+    // against a rendered `canonicalRoot` would be the renderer comparing paths, which the daemon
+    // owns.
     nextMove:
       "This repository is already attached to the session on this node — a second working tree of one repository is a re-attach by design. Close this and use the mount that already holds it; nothing needs attaching twice.",
     distinctions: NO_DISTINCTIONS,
@@ -147,9 +94,8 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.mode_unsupported": {
-    // Replaced wholesale by `mountRefusalRemedy` when a reason is in hand. This is
-    // the arm for a refusal whose mode the capabilities read gave no reason for, and
-    // it says that rather than implying one exists somewhere on screen.
+    // Replaced by `mountRefusalRemedy` when a reason is in hand; this is the arm for a mode the
+    // capabilities read gave no reason for.
     nextMove:
       "This workspace cannot take that mode. The mount reported no reason for it, so the modes it can take are the ones the picker lists as available.",
     distinctions: NO_DISTINCTIONS,
@@ -160,9 +106,8 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
     distinctions: NO_DISTINCTIONS,
   },
   "workspace.branch_mismatch": {
-    // The expected branch is the daemon's own string and is copyable text with no
-    // action attached: the daemon never checks out, creates, or switches a branch in
-    // the bound checkout, so a control that offered to do it would offer what nothing
+    // The expected branch is copyable text with no action: the daemon never checks out or
+    // switches a branch in the bound checkout, so a control offering to would offer what nothing
     // performs.
     nextMove:
       "The bound checkout is on a different branch than the run needs, and nothing here switches it — that checkout's branch is yours. The background service's message names the branch it expected.",
@@ -194,18 +139,15 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
     distinctions: NO_DISTINCTIONS,
   },
   "worktree.branch_collision": {
-    // Never auto-suffixed here. A daemon-DERIVED name may take an ordinal suffix and
-    // is displayed with it; a name a user typed is never silently adapted.
+    // Never auto-suffixed here: a daemon-derived name may take an ordinal suffix, a name the
+    // user typed is never silently adapted.
     nextMove:
       "That branch already has a live checkout on this mount. Choosing a different branch name, or reusing the existing checkout, are the two moves — the name you typed is never adapted for you.",
     distinctions: NO_DISTINCTIONS,
   },
   "worktree.reuse_conflict": {
-    // THREE SITUATIONS, THREE MOVES, and the console cannot tell them apart from the
-    // code: all three sit behind this one code and the daemon's message says which.
-    // Enumerated rather than collapsed, because a single
-    // sentence would be wrong in two cases out of three — and because the middle case
-    // has no override at all, which a generic "acknowledge and retry" would deny.
+    // Three situations sit behind this one code and the daemon's message says which. The
+    // middle one has no override, which a generic "acknowledge and retry" would deny.
     nextMove:
       "The named reuse candidate was not bound. The background service's message says which of three situations this is:",
     distinctions: [
@@ -222,16 +164,9 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
 };
 
 /**
- * The next move for one refusal code, or `undefined` where the repo mounts have none.
- *
- * TWO CODES ARE ANSWERED FROM THE CONTEXT AND NOT FROM THE TABLE. A
- * `workspace.mode_unsupported` refusal is paired with the mount's own reason for the
- * mode that was refused (the capability gap is explicit rather than silently
- * substituted), and that reason is a wire string this
- * module must not compose. When the caller has it, it IS the recovery, quoted; when the
- * capabilities read gave none for that mode, the table's own arm says so. A
- * `repo.root_resolution_failed` refusal whose reason is `not_a_git_repository` reads as
- * its own sentence; any other reason takes the table's arm.
+ * The next move for one refusal code, or `undefined` where the repo mounts have none. Two codes
+ * read the context: `workspace.mode_unsupported` quotes the mount's own reason when given, and
+ * `repo.root_resolution_failed` with reason `not_a_git_repository` has a sentence of its own.
  */
 export function mountRefusalRemedy(
   code: string,
@@ -253,12 +188,8 @@ export function mountRefusalRemedy(
 }
 
 /**
- * The mount's own reason for one mode, off the capabilities reply.
- *
- * A READER AND NOT A DERIVATION: `restrictions` is sparse and per mode, and a mode with
- * no entry has no reason on file rather than an empty one. Declared here beside the
- * table that consumes it so the one code whose recovery is a wire string has its reader
- * and its copy in one place.
+ * The mount's own reason for one mode, off the capabilities reply. `restrictions` is sparse: a
+ * mode with no entry has no reason on file, not an empty one.
  */
 export function modeRestrictionReason(
   restrictions: Readonly<Partial<Record<ExecutionMode, string>>> | undefined,

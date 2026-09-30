@@ -1,8 +1,5 @@
-// The card, and the four clauses of `InlineDiffCard.tsx`'s own rule it implements.
-//
-// The registration is checked here rather than in the registry's own suite, which says
-// nothing about which feature registers which card. Which body fills the `diff` card is
-// the repos feature's claim, so its test is where it belongs.
+// The diff card and its registration. Registration is checked here rather than in the
+// registry's suite, which says nothing about which feature registers which card.
 
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -30,11 +27,8 @@ const CARD: DiffInlineCardProps = {
 };
 
 /**
- * The same card, from a row that also knows what the turn compared.
- *
- * The two refs are the fixture's own, so the change set the card draws and the
- * comparison the row names are one comparison rather than two that happen to render
- * side by side.
+ * The same card from a row that also knows what the turn compared. The refs are the fixture's
+ * own, so the change set and the named comparison are one comparison.
  */
 const CARD_NAMING_COMPARED_STATES: DiffInlineCardProps = {
   ...CARD,
@@ -44,9 +38,8 @@ const CARD_NAMING_COMPARED_STATES: DiffInlineCardProps = {
 
 const DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 
-// The card renders the pane's own virtualized rows, so it needs the same stated
-// pane height every diff case does — happy-dom lays nothing out, and a scroller
-// with no height correctly holds no rows.
+// The card renders the pane's virtualized rows, so it needs the stated pane height: happy-dom
+// lays nothing out, and a scroller with no height correctly holds no rows.
 const layout = new DiffLayoutFixture();
 
 beforeEach(() => {
@@ -58,12 +51,7 @@ afterEach(() => {
 });
 
 describe("inline diff card — the registration", () => {
-  /**
-   * A registry this case owns.
-   *
-   * The registrar writes only what it is handed, so there is nothing to release
-   * afterwards.
-   */
+  /** A registry this case owns; the registrar writes only what it is handed. */
   function fill(): InlineCardRegistry {
     const registry = new InlineCardRegistry();
     registerReposInlineCards(registry);
@@ -83,14 +71,13 @@ describe("inline diff card — the registration", () => {
   });
 
   it("negative control: an empty registry answers nothing", () => {
-    // Without this, the two cases above would pass over a registry that answered from
-    // somewhere else entirely, and the registration call would be doing nothing.
+    // Negative control: a registry answering from elsewhere would pass the cases above.
     expect(new InlineCardRegistry().bodyFor("diff")).toBeUndefined();
   });
 
   it("writes the registry it is given and never the process-wide one", () => {
-    // The registrar closes over no singleton. A body that reached one would render
-    // correctly in every case above and still leak into the running console.
+    // The registrar closes over no singleton; one that did would render correctly above and
+    // still leak into the running console.
     fill();
     expect(inlineCardRegistry.registeredCardKinds()).toStrictEqual([]);
   });
@@ -111,18 +98,16 @@ describe("inline diff card — the absence, and the diff", () => {
   });
 
   it("negative control: the manifest id is not what the card names itself by", () => {
-    // The two identifiers the registered diff result carries are both on the arm, and
-    // only one of them is this card's subject. Without this the case above would pass
-    // over a card that rendered whichever id it was handed first.
+    // Both identifiers are on the arm and only one is this card's subject; a card rendering
+    // whichever id came first would pass the case above.
     const { container } = render(<InlineDiffCard card={CARD} />);
     const changeSet = container.querySelector(".meridian-diff-card__change-set");
     expect(changeSet?.textContent).not.toBe(CARD.artifactManifestId);
   });
 
   it("uses the same renderer the pane uses", () => {
-    // Not "a renderer" — THE renderer. `DiffRenderer.tsx`: one implementation, so a
-    // one-character edit reads as one character in the card and the pane. The rows carry
-    // the renderer's own classes, which is what makes this checkable.
+    // The one renderer, so a one-character edit reads as one character in the card and the
+    // pane. The rows carry the renderer's own classes.
     const { container } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
     expect(container.querySelectorAll(".meridian-diff__row--line").length).toBeGreaterThan(0);
   });
@@ -147,8 +132,7 @@ describe("inline diff card — expanded to the cap, with somewhere to go", () =>
   });
 
   it("always offers a way past the cap, capped or not", () => {
-    // "No capped diff ends in a fade with nowhere to go." Both escape hatches are
-    // rendered in both states, so the card's bottom edge never moves under a
+    // Both escape hatches render in both states, so the card's bottom edge never moves under a
     // reader who used one.
     const { getByRole } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
     expect(getByRole("button", { name: "Jump to end" })).toBeDefined();
@@ -159,9 +143,8 @@ describe("inline diff card — expanded to the cap, with somewhere to go", () =>
 
 describe("inline diff card — the controls it carries", () => {
   it("renders no toolbar in the capped card, where the pane renders one", () => {
-    // A card is read inside a conversation. Toolbar chrome per diff is the density
-    // `InlineDiffCard.tsx`'s own rule exists to avoid, and a card that grew the pane's
-    // toolbar would pass every other case in this file.
+    // A card is read inside a conversation; one that grew the pane's toolbar would pass every
+    // other case in this file.
     const { queryByRole } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
     expect(queryByRole("toolbar")).toBeNull();
   });
@@ -169,9 +152,8 @@ describe("inline diff card — the controls it carries", () => {
 
 describe("inline diff card — the density the row's compared states select", () => {
   it("renders the change set where the row names both compared states", () => {
-    // `DiffChangeSet` and not a second body: the toolbar and the changed-file list are
-    // the pane's own, so a comparison the row named is drawn once and the files it touched
-    // are reachable from inside the conversation.
+    // `DiffChangeSet`, not a second body: a comparison the row named is drawn once and its
+    // files are reachable from inside the conversation.
     const { container, getByRole } = render(
       <InlineDiffCard card={CARD_NAMING_COMPARED_STATES} diff={DIFF} />,
     );
@@ -180,9 +162,8 @@ describe("inline diff card — the density the row's compared states select", ()
   });
 
   it("negative control: a row that names neither state keeps the capped reading", () => {
-    // The prior reading, unchanged — the glance the four clauses of this card's own
-    // rule describe. Without this the case above would pass over a card that had
-    // grown the change set on every row, which is the density the rule forbids.
+    // The glance, unchanged. Negative control: a card that grew the change set on every row
+    // would pass the case above.
     const { container, getByRole } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
     expect(container.querySelector(".meridian-diff-pane")).toBeNull();
     expect(container.querySelector(".meridian-diff-card__footer")).not.toBeNull();
@@ -190,8 +171,8 @@ describe("inline diff card — the density the row's compared states select", ()
   });
 
   it("reads the pair as a pair, so half a comparison selects nothing", () => {
-    // A base with no head names no comparison at all, and a card that tested one
-    // member would draw a change set with a blank on one side of its comparison.
+    // A base with no head names no comparison; testing one member would draw a change set
+    // with a blank on one side.
     const { container } = render(
       <InlineDiffCard card={{ ...CARD, baseRef: "main" }} diff={DIFF} />,
     );
@@ -199,9 +180,8 @@ describe("inline diff card — the density the row's compared states select", ()
   });
 
   it("says what was compared while the lines are still unread", () => {
-    // The row's pair is read on the absence arm too: a row that knows the two states
-    // has answered half the question already, and withholding that half would be the
-    // card reporting less than it holds.
+    // The row's pair is read on the absence arm too: withholding what the row knows would
+    // report less than the card holds.
     const { container } = render(<InlineDiffCard card={CARD_NAMING_COMPARED_STATES} />);
     const nothing = container.querySelector(".meridian-nothing--not-checked");
     expect(nothing?.textContent).toContain("main");

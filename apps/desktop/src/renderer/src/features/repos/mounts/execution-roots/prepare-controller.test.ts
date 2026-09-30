@@ -1,7 +1,4 @@
 // Preparing an execution root: the check first, then the act, over scripted calls.
-//
-// The order is the subject. Without the reuse check the form could not ask for the
-// consent the dirty case needs, so every case below is about what the check tells the form.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -34,7 +31,6 @@ function open(): {
   return { controller, clock };
 }
 
-/** Move past the debounce and let the check land. */
 async function settleCheck(
   controller: ExecutionRootPrepareController,
   clock: ManualClock,
@@ -103,8 +99,7 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
   });
 
   it("declares the repos feature's event census, so a retired root re-asks the question", () => {
-    // A worktree appearing or being retired is exactly what makes a verdict wrong, and
-    // the census is the repos feature's own rather than a list written in this module.
+    // A worktree appearing or being retired is what makes a verdict wrong.
     const { controller } = open();
     expect([...controller.triggeringEventKinds].sort()).toStrictEqual(
       [...REPO_LIFECYCLE_EVENT_KINDS].sort(),
@@ -114,10 +109,8 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
 
 describe("ExecutionRootPrepareController — the prepare", () => {
   it("publishes the root the daemon put on disk, settled the only way a prepare settles", async () => {
-    // `ready` AND NOT `preparing`, which is a claim about the producer rather than
-    // about the fixture: the execution-root service awaits the reprovision completion
-    // before it answers and every path that does not reach it throws, so a settlement
-    // this form renders as "prepared / provisioning" is a pair no daemon can send.
+    // `ready`, not `preparing`: the execution-root service awaits the reprovision completion
+    // before answering, so "prepared / provisioning" is a pair no daemon can send.
     const { controller, clock } = open();
     controller.checkReuse("feat/fresh-root");
     await settleCheck(controller, clock);

@@ -15,6 +15,7 @@ import type { DiffModel } from "../diff-model.js";
 import { useRowWindow } from "../hooks/useRowWindow.js";
 import { DiffFileEntryButton } from "./DiffFileEntryButton.js";
 
+/** What the changed-file list is drawn from. */
 export interface DiffFileListProps {
   readonly diff: DiffModel;
   /** The path whose rows are shown, or `undefined` for the whole change set. */
@@ -22,15 +23,11 @@ export interface DiffFileListProps {
   readonly onSelectFilePath: (path: string | undefined) => void;
 }
 
+/** The filter and windowed list of a change set's changed files, with the reset row first. */
 export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   const filterId = useId();
-  // SCOPED TO THE MODEL, on `useDiffModelViewState.ts`'s rule and for its reason: this is a
-  // predicate over the change set's own file PATHS, so it means nothing about another
-  // one. A bare register survived a re-point — the list is not keyed, so it is not
-  // remounted — and the new change set opened saying no file matches a filter that was
-  // typed against the previous one, over a diff that has files. The subject is the
-  // model reference and the key is `undefined`, exactly as the selection and the gap
-  // expansion are addressed.
+  // Scoped to the model like the selection and gap expansion: a filter typed against one
+  // change set means nothing for another, and the list is not remounted on a re-point.
   const { value: filterText, publish: publishFilterText } = useSubjectScopedState<string>(
     props.diff,
     undefined,
@@ -43,21 +40,19 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     [props.diff, filterText],
   );
   const selectedRow = selectedEntryRow(entries, props.selectedFilePath);
-  // The row `aria-current` goes on, and `undefined` where the narrowing has none: a
-  // hidden selection marks nothing rather than marking the reset control, which would
-  // say the list is showing every file while the renderer shows one.
+  // The row `aria-current` goes on. A selection hidden by the filter marks nothing, not the
+  // reset control, which would say every file is shown while the renderer shows one.
   const currentIndex = selectedRow.kind === "row" ? selectedRow.index : undefined;
-  // Where the window opens and where the keyboard starts. Row zero for a hidden
-  // selection, which is the only row a filter that hides the narrowing always draws.
+  // Where the window opens and the keyboard starts. Row zero is the one row a filter that
+  // hides the selection always draws.
   const openingIndex = currentIndex ?? 0;
 
   const entryWindow = useRowWindow({
     rowCount: entries.length,
     getScrollElement: () => scrollerRef.current,
     estimatedRowHeightPx: DIFF_FILE_ROW_HEIGHT_PX,
-    // Where the list OPENS. A first paint happens before anything can scroll, so a
-    // pane reopened on a selection a thousand rows down would otherwise open at the
-    // top with the selected row unmounted; the effect below carries every later move.
+    // Where the list opens: first paint precedes any scroll, so a reopened deep selection would
+    // start unmounted at the top. The effect below carries every later move.
     initialOffsetPx: openingIndex * DIFF_FILE_ROW_HEIGHT_PX,
   });
   const revealIndex = useCallback(
@@ -67,10 +62,8 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     [entryWindow],
   );
   const virtualRows = entryWindow.getVirtualItems();
-  // One tab stop, arrow keys inside it, and the moved-to row focused once the window
-  // mounts it. The drawn sequence is the move's identity: the filter can shrink the
-  // set under a move and grow it back, and an index into a sequence that no longer
-  // exists addresses a different file, or none.
+  // One tab stop with arrow keys inside it. The drawn sequence is the move's identity: the
+  // filter can shrink the set under a move, and a stale index addresses another file or none.
   const { activeIndex, onKeyDown } = useWindowedRovingIndex({
     rowCount: entries.length,
     anchorIndex: openingIndex,
@@ -80,9 +73,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     windowRevision: virtualRows,
   });
 
-  // The selection is the narrowing, and a narrowing whose row is off-window is a
-  // control a reader cannot see the state of. Asked for on every change rather than
-  // only on mount, because the filter can move a selected file's index under it.
+  // Keeps the selected row inside the window on every change; the filter can move its index.
   useEffect(() => {
     entryWindow.scrollToIndex(openingIndex);
   }, [entryWindow, openingIndex]);
@@ -106,9 +97,8 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
         />
       </label>
       <div className="meridian-diff-files__scroller" ref={scrollerRef}>
-        {/* The list holds the whole height so the scrollbar reports every entry, and
-            each rendered row is placed at its own offset. The row height has ONE
-            home, `diff-measures.ts`, and the sheet reads it from here. */}
+        {/* The list holds the whole height so the scrollbar spans every entry; each row sits at
+            its own offset. Row height lives in `diff-measures.ts`, and the sheet reads it. */}
         <ul
           className="meridian-diff-files__list"
           style={
@@ -122,19 +112,10 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
           {virtualRows.map((virtualRow) => {
             const entry = entries[virtualRow.index];
             return entry === undefined ? null : (
-              // The window mounts a slice, so each row says how long the list is and
-              // where in it this row sits — without which a reader is told the change
-              // set is as long as the window happens to be. The primitive writes that
-              // pair and the index the roving move is resolved against.
-              //
-              // THE TAB STOP IS THE BUTTON INSIDE, NOT THE ROW — a row is a list item
-              // and the control is what activates a file, so a stop on the `<li>`
-              // would answer Enter with nothing. The row is TOLD which row is active
-              // and DELEGATES the stop through the renderer form, so the element the
-              // roving effect focuses and the element that holds `tabindex` are one
-              // element. Passing the flag to the button instead left the row marking
-              // itself as the focus target while the stop sat on the button, and
-              // `focus()` on an `<li>` with no `tabindex` is a no-op in Chromium.
+              // Each row says how long the list is and where it sits, since the window mounts
+              // only a slice. The tab stop is the button inside, not the `<li>`: the row is
+              // told which row is active and delegates the stop through the renderer form, as
+              // `focus()` on an `<li>` without `tabindex` is a no-op in Chromium.
               <WindowedListRow
                 as="li"
                 key={entry.kind === "all-files" ? "all-files" : `file:${entry.path}`}
@@ -161,9 +142,8 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
         <p className="meridian-diff-files__no-match">No changed file matches that filter.</p>
       ) : null}
       {selectedRow.kind === "hidden-by-filter" ? (
-        // Said out loud rather than left to an absent highlight: the rows on the right
-        // are still the narrowed file's, and a list with nothing current and no line
-        // explaining it reads as a list that lost the selection.
+        // Said aloud: the rows shown are still the narrowed file's, and a list with nothing
+        // current reads as if it lost the selection.
         <p className="meridian-diff-files__hidden-selection">{HIDDEN_SELECTION_COPY}</p>
       ) : null}
     </div>

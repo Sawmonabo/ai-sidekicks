@@ -1,14 +1,6 @@
-// One mode switch per workspace on the wire at a time.
-//
-// Driven through `RepoMountsReader.requestModeSelection`, which is the one seam a view
-// has: the selections are constructed by the reader and handed its host, so a case that
-// built an `ExecutionModeSelections` over a hand-written host would be asserting against a
-// host the console never composes.
-//
-// The daemon is scripted with one call held open. Every read a case makes is answered at
-// once, and only the mode select is parked, because the whole subject here is what happens
-// between a press and its answer, a window a call that settles immediately has no way to
-// open.
+// One mode switch per workspace on the wire at a time. Driven through
+// `RepoMountsReader.requestModeSelection`, the one seam a view has, with the daemon's mode
+// select parked so a case can observe the window between a press and its answer.
 
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,19 +21,14 @@ import {
   trackReader,
 } from "./repo-mounts.test-support.js";
 
-// Every reader a case opens is tracked, and none of them outlives its case.
 afterEach(disposeTrackedReaders);
 
-/** The daemon with its mode-select call parked, and the two handles for it. */
 interface HeldModeSelect {
   readonly operations: RepoOperations;
-  /** How many selects actually reached the daemon — the "no second call" assertion. */
   readonly selectCallCount: () => number;
-  /** Let every parked select through, in the order they were made. */
   readonly release: () => void;
 }
 
-/** What a released select answers. */
 type ReleasedSelect = "served" | "rejected";
 
 function daemonHoldingModeSelect(released: ReleasedSelect = "served"): HeldModeSelect {
@@ -65,7 +52,6 @@ function daemonHoldingModeSelect(released: ReleasedSelect = "served"): HeldModeS
   };
 }
 
-/** A section that has read, with its mode-select call parked. */
 async function openWithHeldSelect(released: ReleasedSelect = "served"): Promise<{
   reader: RepoMountsReader;
   clock: ManualClock;
@@ -96,16 +82,14 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
 
-    // THE MODE AND NOT A FLAG: the rows go on showing the mode the workspace is bound
-    // as now, so a picker that only grayed out would report nothing about what was
-    // pressed.
+    // The mode, not a flag: the rows keep showing the current mode, so a picker that only
+    // grayed out would report nothing about what was pressed.
     expect(reader.snapshot.pendingModeByWorkspaceId[HEALTHY_WORKSPACE_ID]).toBe(WORKTREE_MODE);
   });
 
   it("sends no second selection while one is unanswered", async () => {
-    // Two selects issued before the first settles both run, and whichever reaches the
-    // daemon last decides what the workspace is bound as — so a corrected choice could
-    // lose to the one it corrected away from, silently, with both calls reporting success.
+    // Two selects issued before the first settles both run and the last to reach the daemon
+    // decides, so a corrected choice could silently lose to the one it corrected away from.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
@@ -126,17 +110,16 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     await crossMacrotaskBoundary();
 
     expect(reader.snapshot.pendingModeByWorkspaceId[HEALTHY_WORKSPACE_ID]).toBeUndefined();
-    // Absent, never a held key with no value: the picker asks whether there IS an entry.
+    // Absent, never a held key with no value: the picker asks whether there is an entry.
     expect(Object.keys(reader.snapshot.pendingModeByWorkspaceId)).toStrictEqual([]);
-    // An accepted switch re-reads, because the workspace transitions
-    // `ready -> provisioning -> ready` on its existing id and the row has to follow it.
+    // An accepted switch re-reads because the workspace goes `ready -> provisioning -> ready`.
     clock.advance(REFRESH_DEBOUNCE_MS);
     await crossMacrotaskBoundary();
     expect(reader.performCount).toBe(readsBefore + 1);
   });
 
   it("accepts the corrected choice once the first has settled", async () => {
-    // The user's correction is not lost: it waits for a picker that comes back.
+    // The correction is not lost: it waits for a picker that comes back.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
@@ -151,9 +134,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
   });
 
   it("negative control: another workspace's switch is not held", async () => {
-    // The register is keyed per workspace on purpose. Without this case a section-wide
-    // register would satisfy every assertion above while dropping a press on a row that
-    // cannot collide with the one waiting.
+    // Keyed per workspace: a section-wide register would drop a press on an independent row.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
@@ -184,8 +165,8 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
   });
 
   it("keeps the picker held when a read lands while the switch is on the wire", async () => {
-    // A read is published beside a mutation it knows nothing about: a publish that rebuilt
-    // the pending map would release the picker before the switch it is holding for settled.
+    // A read published beside a mutation must not rebuild the pending map, which would release
+    // the picker before the switch settles.
     const { reader, clock, port } = await openWithHeldSelect();
     void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
@@ -202,9 +183,8 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
   });
 
   it("negative control: a reply landing after the section unmounted writes nothing", async () => {
-    // Settled by liveness AND by request identity, asked in one place. The release in the
-    // `finally` is the write that would move the snapshot, so a continuation that
-    // published on a torn-down section would show here.
+    // Settled by liveness and request identity together; the release in the `finally` is the
+    // write that would move the snapshot on a torn-down section.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();
@@ -230,15 +210,13 @@ describe("ExecutionModeSelections — the register empties on every exit", () =>
     port.release();
     await crossMacrotaskBoundary();
 
-    // A give-back that misses on one exit leaks a key, and the row it belongs to then
-    // drops every later press for the life of the section while every case above goes on
-    // passing. That is the property a hand-rolled register loses first.
+    // A give-back that misses on one exit leaks a key, and that row then drops every later
+    // press while the cases above keep passing.
     expect(reader.inFlightSelectionCount).toBe(0);
   });
 
   it("negative control: two workspaces in flight hold two keys, and each is its own", async () => {
-    // Without this a register that held one key for the whole section would satisfy
-    // both cases above while dropping a press on a row that cannot collide.
+    // Without this a one-key register would satisfy both cases above.
     const { reader, port } = await openWithHeldSelect();
     void reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
     await crossMacrotaskBoundary();

@@ -20,11 +20,7 @@ export interface BindBinding {
   readonly clearAct: () => void;
 }
 
-/**
- * Bind one mount's bind controller to a dialog.
- *
- * KEYED ON THE MOUNT, which is the whole of what the read and the act are scoped to.
- */
+/** Bind one mount's bind controller to a dialog, keyed on the mount. */
 export function useBindController(
   bridge: PlatformBridge,
   repoMountId: string,

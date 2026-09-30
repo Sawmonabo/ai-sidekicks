@@ -1,24 +1,7 @@
-// What a bind form holds, what makes it sendable, and which modes it may offer.
-//
-// PURE, AND SEPARATE FROM THE ACT FOR THAT REASON. Everything here is a function of what
-// a user typed and what the mount-scoped capabilities read answered; nothing
-// reaches a bridge or holds a lifetime.
-//
-// THE CONSOLE OFFERS WHAT THE MOUNT ADMITS AND WITHHOLDS NOTHING SILENTLY. The read
-// carries `availableModes` and a sparse `restrictions` map, and the capability gap is
-// stated rather than substituted — so an excluded
-// mode is rendered, disabled, and never dropped from the list, carrying the mount's own
-// reason beside it WHEN THE REPLY SENT ONE. The map is sparse, so a mode can be
-// excluded with no reason on file, and `BindModePicker` then draws the row and no
-// sentence rather than composing one the daemon did not send — which is what
-// `ExecutionModeRow` does with the same rows. A form that showed one row on a plain
-// directory would leave a person wondering where the other three went.
-//
-// ONE `directory` FIELD AND NO SELECTOR BESIDE IT. The wire carries both forms the trust
-// envelope admits — a subtree relative to the mount's canonical root, and an absolute
-// path naming a registered working tree — over one optional member, so a control saying
-// which kind it is would be the console splitting a field the contract keeps whole.
-// Empty means the mount root, which is the default-workspace case.
+// The bind form: what it holds, what makes it sendable, and which modes it may offer.
+// An excluded mode is shown disabled, with the mount's reason if the reply sent one, and is
+// never dropped from the list. One `directory` field covers both wire forms (a subtree of the
+// mount root or an absolute working-tree path); empty means the mount root.
 
 import {
   FILE_PATH_MAX_LEN,
@@ -37,12 +20,8 @@ export interface BindFormState {
   /** Exactly what was typed, or empty for the mount root. Never normalized here. */
   readonly directory: string;
   /**
-   * The mode a user PICKED, or none picked yet.
-   *
-   * NEVER THE DAEMON'S DEFAULT. That default is derived per read by
-   * {@link resolveBindForm} from the capabilities on screen, so a reopened dialog gets
-   * it again and a refresh that withdraws it takes it away — neither of which a value
-   * written in here could do, because form state has no idea which read it came from.
+   * The mode a user picked, or none yet. Never the daemon's default: {@link resolveBindForm}
+   * derives that per read, so a reopened dialog gets it again and a refresh can withdraw it.
    */
   readonly executionMode: ExecutionMode | undefined;
 }
@@ -62,31 +41,18 @@ export type BindFormVerdict =
 /** One form read against what the mount admits: the mode it is on, and its verdict. */
 export interface BindFormResolution {
   /**
-   * The mode the picker draws as checked, which is the mode the verdict would send.
-   *
-   * ONE READING SERVING BOTH. The picker drew from the capabilities read and the verdict
-   * read the form alone, so a refresh that withdrew the held mode drew the row excluded
-   * and left the button beside it open over exactly that mode.
+   * The mode the picker draws as checked, which is the mode the verdict would send. One
+   * reading serves both, so a refresh that withdraws the held mode cannot leave the button open.
    */
   readonly selectedMode: ExecutionMode | undefined;
   readonly verdict: BindFormVerdict;
 }
 
 /**
- * Read one bind form against the capabilities that are currently served.
- *
- * THE DAEMON'S DEFAULT IS DERIVED HERE RATHER THAN WRITTEN INTO THE FORM, which is what
- * makes it survive a close: a pre-fill applied once per mount needs a memory of having
- * been applied, and that memory outlived the form it was about — so a dialog reopened on
- * the same mount met a picker with nothing chosen and a control that would not send.
- *
- * IT IS STILL NOT A GUESS OF THE CONSOLE'S, which is the rule `repo.workspaceBind`'s own
- * refusal to conflate "omitted a mode" with "chose one" is about. The value comes from
- * `defaultMode` on the mount's own reply, and a reply that names one outside its own
- * `availableModes` resolves to nothing at all.
- *
- * `undefined` where the read has not answered, which is a different fact from a mount
- * that admits nothing: the first cannot confirm a pick, the second withdraws one.
+ * Read one bind form against the capabilities currently served. The daemon's default is
+ * derived here, not written into the form, so a reopened dialog gets it again. It comes from
+ * the reply's `defaultMode` and resolves to nothing when that is outside `availableModes`.
+ * An unanswered read cannot confirm a pick; a mount that admits nothing withdraws one.
  */
 export function resolveBindForm(
   form: BindFormState,
@@ -113,19 +79,9 @@ export function defaultBindMode(
 }
 
 /**
- * The verdict itself, once the mode question has an answer.
- *
- * AN EMPTY DIRECTORY IS OMITTED RATHER THAN SENT, because the wire's absent member means
- * the mount root and an empty string does not — it is a path, and a path of no
- * characters is a request the parser refuses.
- *
- * WHAT IS TYPED IS WHAT IS SENT. The emptiness test reads a trimmed copy; a leading or
- * trailing space is a legal POSIX filename character, so trimming on the way out would
- * bind a different directory from the one that was named.
- *
- * EACH CLOSED ARM NAMES ITS OWN FACT. A withdrawn mode and a read that has not answered
- * shut the control for different reasons, and one sentence covering both would be false
- * about whichever it was not written for.
+ * The verdict, once the mode question has an answer. An empty directory is omitted rather than
+ * sent: an absent wire member means the mount root, an empty string is refused. What is typed is
+ * what is sent; only the emptiness test trims, because edge spaces are legal in POSIX names.
  */
 function bindVerdictFor(
   form: BindFormState,

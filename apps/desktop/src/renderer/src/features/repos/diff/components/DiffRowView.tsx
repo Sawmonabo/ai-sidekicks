@@ -15,21 +15,16 @@ export interface DiffRowViewProps {
   readonly row: DiffRow;
   readonly index: DiffRowIndex;
   /**
-   * Where this row's word-level segmentation comes from.
-   *
-   * Held per MODEL rather than per index, so a gap expansion — which builds a new
-   * index and changes no line's text — keeps everything already computed.
+   * Where this row's word-level segmentation comes from. Held per model, not per index, so a
+   * gap expansion keeps everything already computed.
    */
   readonly intraline: IntralineSegmentCache;
   readonly viewMode: DiffViewMode;
   /** Reveal one more band of this row's gap. Only a `gap` row calls it. */
   readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
   /**
-   * The virtualizer's measurement callback.
-   *
-   * Every row reports its own height, which is what a wrapped line three lines tall
-   * has to do for the offsets below it to be true. It is one stable function for the
-   * life of the virtualizer, so the memo below still holds.
+   * The virtualizer's measurement callback: each row reports its own height so offsets stay
+   * true under wrapped lines. Stable for the virtualizer's life, so the memo holds.
    */
   readonly rowElementRef: (element: HTMLDivElement | null) => void;
 }
@@ -39,8 +34,7 @@ export const DiffRowView: React.MemoExoticComponent<
   (props: DiffRowViewProps) => React.JSX.Element
 > = memo(function DiffRowView(props: DiffRowViewProps): React.JSX.Element {
   const { row, index, rowIndex } = props;
-  // `data-index` is the virtualizer's own contract for a measured node: it reads the
-  // row's index back off the element it was handed, and it paints nothing.
+  // `data-index` is the virtualizer's contract for a measured node; it paints nothing.
   const rowProps = {
     role: "row",
     "aria-rowindex": rowIndex + 1,
@@ -50,9 +44,8 @@ export const DiffRowView: React.MemoExoticComponent<
 
   if (row.kind === "file-header") {
     const file = index.model.files[row.fileIndex];
-    // What the patch's extended headers said, where they said anything. A
-    // rename-only, copy-only, mode-only, or binary file has no hunks at all, so this
-    // row is the ONLY row it has and the note is the only place its change appears.
+    // The patch's extended-header notes. A rename-only, copy-only, mode-only or binary file has
+    // no hunks, so this row is the only place its change appears.
     const changeNotes = file === undefined ? [] : diffFileChangeNotes(file);
     return (
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
@@ -71,8 +64,8 @@ export const DiffRowView: React.MemoExoticComponent<
     const hunk = index.model.files[row.fileIndex]?.hunks[row.hunkIndex];
     return (
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--hunk">
-        {/* Wire-verbatim: an `@@` header is the daemon's own string and the
-            console neither re-parses nor re-renders its numbers. */}
+        {/* Wire-verbatim: the `@@` header is the daemon's string and its numbers are not
+            re-parsed. */}
         <span className="meridian-diff__hunk-header" role="cell">
           {hunk?.header ?? ""}
         </span>
@@ -101,25 +94,19 @@ export const DiffRowView: React.MemoExoticComponent<
 
   const line = index.lineFor(row);
   if (line === undefined) {
-    // Unreachable while the index and the model agree, and rendered rather than
-    // thrown: a row that cannot find its line is a defect in the flattening, and
-    // a blank row with a stable height keeps the rest of the diff readable while
-    // it is diagnosed.
+    // Unreachable while index and model agree. Rendered blank at a stable height rather than
+    // thrown, so the rest of the diff stays readable.
     return <div {...rowProps} className="meridian-diff__row meridian-diff__row--line" />;
   }
 
   const reading = props.intraline.readingFor(row, row.lineIndex);
   if (props.viewMode === "split") {
-    // WHICH LINE EACH SIDE HOLDS FOLLOWS FROM THE ROW, and the row was paired by
-    // the flattening. A deletion occupies the base side and carries its paired
-    // insertion — if the index found one — on the head side; an insertion that
-    // paired with nothing occupies the head side alone; a context line occupies
-    // both. So the two cells can carry DIFFERENT text, which is the one thing
-    // split view exists to show.
+    // The flattening paired the row: a deletion fills the base side and carries its paired
+    // insertion, if any, on the head side; an unpaired insertion fills the head alone; context
+    // fills both. So the two cells can carry different text, which split view exists to show.
     const pairedLine = index.pairedLineFor(row);
-    // The head cell of a paired deletion draws the INSERTION, so it asks for that
-    // line's own reading — the two sides of one comparison, taken from one cache by
-    // the two addresses the flattening paired.
+    // The head cell of a paired deletion draws the insertion, so it takes that line's own
+    // reading from the same cache.
     const pairedReading =
       pairedLine === undefined || row.pairedLineIndex === undefined
         ? undefined
@@ -142,8 +129,8 @@ export const DiffRowView: React.MemoExoticComponent<
 
   return (
     <div {...rowProps} className="meridian-diff__row meridian-diff__row--line">
-      {/* One cell, not three: `role="row"` admits only cells as children, and the
-          gutters are part of the line rather than columns a reader navigates. */}
+      {/* One cell, not three: `role="row"` admits only cells, and the gutters belong to the
+          line. */}
       <span
         className={`meridian-diff__side meridian-diff__side--unified meridian-diff__side--${line.kind}`}
         role="cell"

@@ -1,18 +1,7 @@
-// The diff pane's body, as the pane layout's registry loads it.
-//
-// A LOADER-BACKED BODY, so the diff viewer is not on the initial import graph. This
-// pane reaches `diff` (jsdiff) and the shared virtualized diff-row renderer, and
-// none of it is painted before a person opens a changed file — which is exactly the condition `apps/desktop/AGENTS.md` states the rule
-// on: a pane body not on the flagship first paint registers through a loader.
-//
-// ONLY THE `import()` IN `panes.ts` NAMES THIS MODULE. A static import from any of the
-// feature's contributions would put the viewer back on the entry graph, which is the
-// edge the loader exists to remove.
-//
-// THE INLINE DIFF CARD IS DELIBERATELY NOT BEHIND THIS BOUNDARY. It is a transcript row's
-// card rather than a pane, it renders inside the transcript a session opens on, and it
-// keeps its static registration in `inline-cards.ts` — the two share the feature's
-// vocabulary and not their loading terms.
+// The diff pane's body, loaded through a loader-backed registration so the diff parser
+// (`diff`) and the virtualized row renderer stay off the first-paint import graph. Only the
+// `import()` in `panes.ts` may name this module; a static import would undo that. The inline
+// diff card is not behind this boundary: it renders in the transcript a session opens on.
 
 import { createElement } from "react";
 
@@ -21,13 +10,9 @@ import { paneBodyForKind } from "@renderer/registries/panes/pane-body-for-kind.j
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 
 /**
- * The diff pane, at an address the pane layout resolved to this kind.
- *
- * Named `Body` because `components/LazyBody/lazy-body.ts` fixes the export name a loader
- * module publishes. The narrowing and the mismatch refusal are `paneBodyForKind`'s:
- * every pane body writing that comparison itself would be one answer per pane to one
- * question, and a mismatch is a rendered refusal rather than a throw because one bad
- * layout row must lose that row and not the pane layout.
+ * The diff pane's body at an address the pane layout resolved to this kind. Named `Body`
+ * because a loader module publishes that export name. A kind mismatch is a rendered refusal
+ * from `paneBodyForKind`, so one bad layout row loses that row and not the whole layout.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind("diff", (context) =>
   createElement(DiffPane, { context }),

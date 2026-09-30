@@ -1,20 +1,9 @@
 /*
- * Binding a workspace to an execution mode: the mount root it is bound under, and the
- * modes this mount cannot offer.
- *
- * The dialog shape this dialog shares with the attach and execution-root dialogs is in
- * `../mount-controls.css`, imported ahead of this sheet; what is here is what only the
- * bind dialog wears, including the one rule that overrides a shared one (`--out`'s
- * `cursor`), which is why this sheet loads after that one.
- *
- * Imported by `BindWorkspaceDialog.tsx`, which renders `BindModePicker.tsx`.
+ * The bind dialog's own rules. The shared dialog shape is in `../mount-controls.css`, imported
+ * before this sheet; the `--out` cursor override below depends on that order.
  */
 
-/*
- * The mount root, above the directory field it is the base of. A row rather than a
- * column, because the legend is naming ONE value and the pair reads as a caption on the
- * figure — the field below it is the thing being composed and gets the column shape.
- */
+/* A row, not a column: the legend names one value, so the pair reads as a caption on the field. */
 .meridian-bind__root {
   display: flex;
   align-items: baseline;
@@ -23,11 +12,7 @@
   min-width: 0;
 }
 
-/*
- * An excluded mode is dimmed and still legible: the gap is explicit, so the row must
- * stay readable next to its reason. Dimming it to the
- * point of vanishing would be the same as dropping it, with extra steps.
- */
+/* Dimmed but still legible: the gap is explicit, so the row stays readable beside its reason. */
 .meridian-bind__mode--out {
   color: var(--meridian-text-muted);
   cursor: default;

@@ -1,5 +1,5 @@
-// First, so the act sheets its children import load after it: `bind/bind.css`
-// overrides one of its rules at equal specificity.
+// Loaded first so the sheets its children import (`bind/bind.css`) override it at equal
+// specificity.
 import "./mount-controls.css";
 
 import { useCallback } from "react";
@@ -14,6 +14,7 @@ import { type OpenDiffSubject } from "./components/OpenDiffControl.js";
 import { MountList } from "./components/MountList.js";
 import { RepoMountsSummary } from "./components/RepoMountsSummary.js";
 
+/** Props for the repositories section. */
 export interface RepoSectionProps {
   readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore;
@@ -25,6 +26,7 @@ export interface RepoSectionProps {
   readonly operations: RepoOperations;
 }
 
+/** The repositories section of the sidebar: attach control, mount cards, and their actions. */
 export function RepoSection(props: RepoSectionProps): React.JSX.Element {
   const { bridge, sessionStore, operations, isOpen, openPane } = props;
   const { reading, requestModeSelection, requestRead } = useRepoMounts(
@@ -40,10 +42,9 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
     [bridge],
   );
 
-  // THE SECTION IS WHERE THE OPENER LIVES, because the pane layout is handed to a section
-  // rather than imported by one — a sidebar rendered in an auxiliary window opens its
-  // panes in THAT window's pane layout. The rows below take a callback and never the opener,
-  // so no card knows a pane address exists.
+  // The pane layout is handed to the section rather than imported, so a sidebar in an
+  // auxiliary window opens panes in that window's layout. Rows take this callback and never
+  // the opener.
   const openDiff = useCallback(
     (subject: OpenDiffSubject) => {
       openPane({ kind: "diff", entity: subject });
@@ -62,10 +63,8 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
   return (
     <div className="meridian-repo-section">
       {/*
-        THE ATTACH ENTRY POINT SITS ABOVE THE LIST AND NOT INSIDE THE EMPTY CARD,
-        because a session that already holds one repository can attach a second: an
-        affordance that only appeared when the list was empty would make the first
-        attach reachable and every later one not.
+        Above the list, not inside the empty card: a session that already holds a repository
+        can attach a second.
       */}
       <AttachRepositoryDialog
         bridge={bridge}

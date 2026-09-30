@@ -1,23 +1,17 @@
-// The one reading of one capabilities reply into picker rows.
-//
-// THE CASE THAT MAKES THIS ONE FUNCTION IS THE LAST ONE BELOW. A mode the reply names as
-// BOTH available and restricted must keep the daemon's reason on the row on every
-// component: two derivations could disagree, one keeping the reason and the other blanking
-// it, so the same malformed reply would disclose a restriction in one component and hide it
-// on the other. That arm is what holds the single implementation to it.
+// The one reading of one capabilities reply into picker rows. The last case is the one that
+// justifies a single implementation: a mode both available and restricted must keep the
+// daemon's reason on every component.
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { executionModeRows } from "./execution-mode-rows.js";
 
-/** An open mount's answer: both modes, nothing restricted. */
 const OPEN_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
   availableModes: ["bound-root", "provisioned-worktree"],
   defaultMode: "provisioned-worktree",
 };
 
-/** A restricted answer: one mode, the other excluded with the mount's reason. */
 const RESTRICTED_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
   availableModes: ["bound-root"],
   defaultMode: "bound-root",
@@ -41,10 +35,8 @@ describe("executionModeRows", () => {
   });
 
   it("keeps an available-AND-restricted mode's reason visible, on one row", () => {
-    // The reply is malformed: it offers `bound-root` and also gives a reason for excluding
-    // it. Hiding either half would be the renderer deciding which one was true, so the
-    // row is offered — the reply is the authority on what is admitted — AND carries
-    // what the daemon said about it.
+    // A malformed reply offers `bound-root` and also gives a reason for excluding it; the row
+    // is offered (the reply is the authority on what is admitted) and carries the reason.
     const rows = executionModeRows({
       availableModes: ["bound-root", "provisioned-worktree"],
       defaultMode: "bound-root",

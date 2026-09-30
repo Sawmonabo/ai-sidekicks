@@ -1,11 +1,6 @@
-// The flattening, which is the claim the diff views rest on and the one
-// nothing else in the console can check.
-//
-// Every case here runs without a DOM, because the addressing is separable from
-// the rendering — which is the property that lets the endurance tier measure a
-// five-thousand-line change set at all. The WINDOW is no longer this module's:
-// `@tanstack/react-virtual` computes it, and the claims about it are asserted
-// against the DOM in `DiffRenderer.test.ts`, where a measured row can exist.
+// The flattening the diff views rest on. Every case runs without a DOM, which is what lets
+// the endurance tier measure a five-thousand-line change set; the window itself comes from
+// `@tanstack/react-virtual` and is asserted against the DOM in `DiffRenderer.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,11 +22,9 @@ import { DiffRowIndex } from "./diff-row-index.js";
 const SMALL_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 
 /**
- * The row count the shape implies, derived from the shape rather than counted
- * off a run of the code under test.
- *
- * Per file: one file header, then per hunk one gap row (while anything is
- * hidden), the revealed context, the hunk header, and the hunk's own lines.
+ * The row count the shape implies, derived from the shape rather than counted off the code
+ * under test: per file one header, then per hunk a gap row (while anything is hidden), the
+ * revealed context, the hunk header and the hunk's own lines.
  */
 function expectedRowCount(revealedPerGap: number): number {
   const shape = SMALL_DIFF_SHAPE;
@@ -90,8 +83,7 @@ describe("hunk virtualization — flattening", () => {
   });
 
   it("negative control: an index past the end resolves to nothing", () => {
-    // Without this, `rowAt` could be returning the last row for every index past
-    // it and every case above would still pass.
+    // Without this, `rowAt` could return the last row for every index past the end.
     const index = new DiffRowIndex(SMALL_DIFF);
     expect(index.rowAt(index.rowCount)).toBeUndefined();
     expect(index.rowAt(-1)).toBeUndefined();
@@ -109,9 +101,8 @@ describe("hunk virtualization — narrowing to one file", () => {
   const secondFilePath = SMALL_DIFF.files[1]?.path ?? "";
 
   it("keeps the model's own file index on every row it hands out", () => {
-    // The whole point of narrowing rather than filtering. A renumbered index
-    // would call the shown file zero, and the host resolving how much context a
-    // gap holds would resolve the FIRST file's.
+    // A renumbered index would call the shown file zero, and the host would resolve the first
+    // file's gap context.
     const narrowed = new DiffRowIndex(SMALL_DIFF, new Map(), secondFilePath);
     expect(narrowed.rowAt(0)).toStrictEqual({ kind: "file-header", fileIndex: 1 });
     expect(narrowed.rowAt(1)).toStrictEqual({
@@ -125,16 +116,14 @@ describe("hunk virtualization — narrowing to one file", () => {
   it("holds only the named file's rows, and reports the whole model unchanged", () => {
     const narrowed = new DiffRowIndex(SMALL_DIFF, new Map(), secondFilePath);
     expect(narrowed.rowCount).toBe(expectedRowCount(0) / SMALL_DIFF_SHAPE.fileCount);
-    // The model is not narrowed with the rows — a row's `fileIndex` addresses it,
-    // and a smaller model would make that address mean something else.
+    // A row's `fileIndex` addresses the model, so it is not narrowed with the rows.
     expect(narrowed.model.files).toHaveLength(SMALL_DIFF_SHAPE.fileCount);
     expect(narrowed.rowIndexOfFile(1)).toBe(0);
     expect(narrowed.rowIndexOfFile(0)).toBeUndefined();
   });
 
   it("negative control: unnarrowed, the same row indices address the first file", () => {
-    // Without this the case above would pass over an index that ignored the path
-    // and always started at the file it was given first.
+    // Without this, the case above would pass over an index that ignored the path.
     const whole = new DiffRowIndex(SMALL_DIFF);
     expect(whole.rowAt(0)).toStrictEqual({ kind: "file-header", fileIndex: 0 });
     expect(whole.rowIndexOfFile(0)).toBe(0);
@@ -176,8 +165,8 @@ describe("hunk virtualization — pairing a modified line in split view", () => 
   });
 
   it("negative control: unified spells the same modified line as two rows", () => {
-    // Without this the case above would pass over an index that dropped a line
-    // rather than pairing one, and over a unified layout it had also changed.
+    // Without this, the case above would pass over an index that dropped a line rather than
+    // pairing it.
     const modifiedLine = diffWithHunkBody(["delete", "insert"]);
     const unified = new DiffRowIndex(modifiedLine, new Map(), undefined, "unified");
     const bodyRows = everyRow(unified).filter((row) => row.kind === "line");
@@ -186,9 +175,8 @@ describe("hunk virtualization — pairing a modified line in split view", () => 
   });
 
   it("leaves the longer run's overhang unpaired, one row per line", () => {
-    // Three deletions and one insertion is three rows: the first pairs, and the
-    // two below it have a base line and no head line, which is what makes a
-    // deletion of three lines read as a deletion rather than as three modifications.
+    // Three deletions and one insertion is three rows: the first pairs and the other two
+    // have a base line and no head line, so the change reads as a deletion.
     const uneven = diffWithHunkBody(["delete", "delete", "delete", "insert"]);
     const split = new DiffRowIndex(uneven, new Map(), undefined, "split");
     const bodyRows = everyRow(split).filter((row) => row.kind === "line");
@@ -211,9 +199,8 @@ describe("hunk virtualization — pairing a modified line in split view", () => 
   });
 
   it("counts what it addresses, in both modes and every shape", () => {
-    // The count and the addressing come from one walk, and this is the case that
-    // says so: a second implementation of the count would agree on the even
-    // shapes and place every row below the first uneven one at the wrong offset.
+    // The count and the addressing come from one walk: a second implementation of the count
+    // would agree on even shapes and misplace every row below the first uneven one.
     const shapes = [
       ["delete", "insert"],
       ["delete", "delete", "delete", "insert"],
@@ -231,8 +218,7 @@ describe("hunk virtualization — pairing a modified line in split view", () => 
   });
 
   it("negative control: the two modes really do disagree on those shapes", () => {
-    // Without this, the case above would pass over an index that ignored the view
-    // mode entirely and flattened everything the unified way.
+    // Without this, the case above would pass over an index that ignored the view mode.
     const uneven = diffWithHunkBody(["delete", "delete", "delete", "insert"]);
     expect(new DiffRowIndex(uneven, new Map(), undefined, "split").rowCount).toBeLessThan(
       new DiffRowIndex(uneven, new Map(), undefined, "unified").rowCount,
@@ -240,8 +226,7 @@ describe("hunk virtualization — pairing a modified line in split view", () => 
   });
 
   it("defaults to the unified flattening when no mode is named", () => {
-    // The existing callers pass three arguments, and a fourth that changed their
-    // row count on arrival would move every offset in the console at once.
+    // A fourth argument that changed existing callers' row counts would move every offset.
     const modifiedLine = diffWithHunkBody(["delete", "insert"]);
     expect(new DiffRowIndex(modifiedLine).rowCount).toBe(
       new DiffRowIndex(modifiedLine, new Map(), undefined, "unified").rowCount,
@@ -258,8 +243,8 @@ describe("hunk virtualization — a hunk is flattened once, not once per lookup"
   });
 
   it("builds nothing further however many rows are read from it", () => {
-    // The claim `rowAt` used to break: it re-flattened every hunk it walked past,
-    // so a scroll cost the change set rather than the viewport.
+    // `rowAt` must not re-flatten every hunk it walks past, or a scroll would cost the change
+    // set rather than the viewport.
     const index = new DiffRowIndex(SMALL_DIFF);
     const afterConstruction = index.bodyLayoutBuildCount;
     for (let pass = 0; pass < 3; pass += 1) {
@@ -277,8 +262,7 @@ describe("hunk virtualization — a hunk is flattened once, not once per lookup"
   });
 
   it("addresses inside one large hunk without flattening it again", () => {
-    // The shape the forty-file fixture cannot express: one hunk holding the whole
-    // change, which is what a generated file or a lockfile produces.
+    // One hunk holding the whole change, as a generated file or a lockfile produces.
     const oneBigHunk = buildDiffFixture(SINGLE_LARGE_HUNK_DIFF_SHAPE);
     const index = new DiffRowIndex(oneBigHunk);
     expect(index.bodyLayoutBuildCount).toBe(1);
@@ -289,8 +273,7 @@ describe("hunk virtualization — a hunk is flattened once, not once per lookup"
   });
 
   it("negative control: a fresh index for a new expansion does flatten again", () => {
-    // The counter would be vacuous if it never moved. It moves exactly where the
-    // index is rebuilt, which is the only place a flattening can become stale.
+    // The counter would be vacuous if it never moved; it moves where the index is rebuilt.
     const expanded = new DiffRowIndex(
       SMALL_DIFF,
       expandGap(new Map(), 0, 0, SMALL_DIFF_SHAPE.precedingContextPerHunk),
@@ -299,9 +282,8 @@ describe("hunk virtualization — a hunk is flattened once, not once per lookup"
   });
 
   it("hands back the same rows in both modes as a full sweep of every index", () => {
-    // Byte-for-byte against the addressing the other cases in this file pin: every
-    // row of every mode resolves, every line row resolves to a line, and the line
-    // rows account for exactly the hunk bodies the shape holds.
+    // Every row of every mode resolves, every line row resolves to a line, and the line rows
+    // account for exactly the hunk bodies the shape holds.
     for (const viewMode of DIFF_VIEW_MODES) {
       const index = new DiffRowIndex(SMALL_DIFF, new Map(), undefined, viewMode);
       const rows = everyRow(index);
@@ -310,8 +292,8 @@ describe("hunk virtualization — a hunk is flattened once, not once per lookup"
       for (const row of bodyRows) {
         expect(index.lineFor(row)).toBeDefined();
       }
-      // Unified spells every line as its own row, so the two counts agree there and
-      // split's pairing is the only thing that can make them differ.
+      // Unified spells every line as its own row, so only split's pairing can make the two
+      // counts differ.
       expect(bodyRows.length).toBeLessThanOrEqual(fixtureChangedLineCount(SMALL_DIFF_SHAPE));
     }
   });
@@ -319,11 +301,8 @@ describe("hunk virtualization — a hunk is flattened once, not once per lookup"
 
 describe("hunk virtualization — the bounds it spends", () => {
   it("overscans in both directions and estimates a row above zero", () => {
-    // The bounds are a table of numbers, and a table of numbers is only a
-    // decision while the relations between them hold. An overscan of zero would
-    // expose the unrendered band on every flick, and a row height of zero would
-    // hand the virtualizer an estimate under which every row sits at the same
-    // offset.
+    // Zero overscan would expose the unrendered band on every flick, and a zero row height
+    // would give the virtualizer an estimate under which every row sits at one offset.
     expect(DIFF_WINDOW_OVERSCAN_ROWS).toBeGreaterThan(0);
     expect(DIFF_GAP_EXPANSION_LINE_COUNT).toBeGreaterThan(0);
     expect(DIFF_ROW_HEIGHT_PX).toBeGreaterThan(0);

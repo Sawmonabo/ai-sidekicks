@@ -4,17 +4,9 @@ import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
 
 /**
- * One side of a split row.
- *
- * THE GROUND WEIGHT IS PAINTED HERE AND NOT ON THE ROW. A paired row holds a
- * deletion and an insertion at once, so a single modifier on the row would have
- * to name one of two kinds — and would paint the whole width in it. The kind
- * modifier rides the CELL, in both layouts, so the unified row keeps exactly the
- * ground it had (its one cell fills the row) and a split row paints each side
- * its own.
- *
- * An absent line renders an empty cell that still occupies its gutter, so the
- * two sides stay in column even where only one of them has a line.
+ * One side of a split row. The ground weight is painted on the cell, not the row, because a
+ * paired row holds a deletion and an insertion and a row modifier would paint both sides in
+ * one. An absent line renders an empty cell with its gutter, so the sides stay in column.
  */
 export function DiffSplitCell(props: {
   readonly line: DiffLine | undefined;

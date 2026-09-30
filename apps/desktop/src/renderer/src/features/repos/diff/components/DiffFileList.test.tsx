@@ -1,16 +1,7 @@
-// The changed-file list: the change it used to render as nothing, and the change set
-// it used to render all of.
-//
-// A rename, a copy, a mode change, and a binary change all live in a git patch's
-// extended headers and produce no hunks, so such a file counted `+0 −0` and its
-// entry read as a path nothing had happened to. The subject is the diff tests' own
-// fixture, parsed by the real parser, so what is asserted is what the console
-// renders for a patch a daemon could actually send.
-//
-// AND THE LIST IS WINDOWED, so every case here states the pane's height: a window is
-// computed against a viewport, and happy-dom reports every box as zero. Without the
-// layout fixture a bound on the mounted row count is satisfied by a list that mounted
-// nothing, which is the state that makes such a bound meaningless.
+// The changed-file list over the diff tests' fixture, parsed by the real parser. A rename, copy,
+// mode change or binary change lives only in a patch's extended headers and has no hunks, so its
+// entry must still say what changed. Every case states the pane height: the list is windowed and
+// happy-dom reports every box as zero, so a bound on mounted rows would hold for an empty list.
 
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,7 +40,6 @@ afterEach(() => {
   layout.restore();
 });
 
-/** The entry for one path, as the list drew it. */
 function entryFor(container: HTMLElement, path: string): HTMLElement {
   const entry = [...container.querySelectorAll<HTMLElement>(".meridian-diff-files__entry")].find(
     (candidate) => candidate.querySelector(".meridian-diff-files__path")?.textContent === path,
@@ -60,7 +50,6 @@ function entryFor(container: HTMLElement, path: string): HTMLElement {
   return entry;
 }
 
-/** The change note on one path's entry, or `undefined` where it drew none. */
 function changeNoteFor(container: HTMLElement, path: string): string | undefined {
   return (
     entryFor(container, path).querySelector(".meridian-diff-files__change")?.textContent ??
@@ -73,8 +62,8 @@ describe("diff file list — a change that lives only in the extended headers", 
     const container = renderFileList(EXTENDED_HEADER_DIFF);
     const { renamed } = EXTENDED_HEADER_FIXTURE_FILES;
     expect(changeNoteFor(container, renamed.to)).toBe(`renamed from ${renamed.from}`);
-    // The counts stay: they are true, and a suppressed pair would make this the
-    // one row a reader cannot compare with its neighbors.
+    // The counts stay: they are true, and a suppressed pair would make this the one row a
+    // reader cannot compare with its neighbors.
     expect(entryFor(container, renamed.to).textContent).toContain("+0");
   });
 
@@ -102,16 +91,13 @@ describe("diff file list — a change that lives only in the extended headers", 
   });
 
   it("negative control: an ordinary change draws no note at all", () => {
-    // Without this, a list that stamped every entry with a note would pass every
-    // case above while telling a reader that every file in the change set had
-    // moved.
+    // Negative control: a list stamping every entry with a note would pass the cases above.
     const container = renderFileList(TEXTUAL_ONLY_DIFF);
     expect(container.querySelectorAll(".meridian-diff-files__change")).toHaveLength(0);
   });
 
   it("negative control: the filter still matches the path and not the note", () => {
-    // The note is a second string on every entry, and the filter's subject is the
-    // wire-verbatim path — a filter that searched the note would surface a file
+    // The filter's subject is the wire-verbatim path; searching the note would surface a file
     // under a path the list is not showing.
     const container = renderFileList(EXTENDED_HEADER_DIFF);
     const filter = container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input");
@@ -127,7 +113,6 @@ describe("diff file list — a narrowing this filter hides", () => {
   const FIRST_FILE = fixtureFileAt(TEXTUAL_ONLY_DIFF, 0);
   const SECOND_FILE = fixtureFileAt(TEXTUAL_ONLY_DIFF, 1);
 
-  /** The list, narrowed to the first file and filtered to the second. */
   function renderWithHiddenNarrowing(): {
     readonly container: HTMLElement;
     readonly onSelectFilePath: ReturnType<typeof vi.fn>;
@@ -145,8 +130,8 @@ describe("diff file list — a narrowing this filter hides", () => {
   }
 
   it("marks no row current, because the row the narrowing is on is not drawn", () => {
-    // The whole defect: the hidden narrowing fell back to row zero, so "All files"
-    // took `aria-current` while the renderer beside it went on showing one file.
+    // The hidden narrowing must not fall back to row zero: "All files" would take
+    // `aria-current` while the renderer beside it goes on showing one file.
     const { container } = renderWithHiddenNarrowing();
 
     expect(container.querySelector('.meridian-diff-files__entry[aria-current="true"]')).toBeNull();
@@ -154,8 +139,8 @@ describe("diff file list — a narrowing this filter hides", () => {
   });
 
   it("keeps the narrowing the user chose rather than clearing it", () => {
-    // The filter is a way of looking at the list; the narrowing is a choice. Clearing
-    // it here would change what the pane renders as a side effect of typing.
+    // The filter is a way of looking at the list and the narrowing is a choice; clearing it
+    // here would change what the pane renders as a side effect of typing.
     const { onSelectFilePath } = renderWithHiddenNarrowing();
 
     expect(onSelectFilePath).not.toHaveBeenCalled();
@@ -172,8 +157,8 @@ describe("diff file list — a narrowing this filter hides", () => {
   });
 
   it("negative control: a filter that still shows the narrowing marks its row", () => {
-    // Without this the cases above would pass against a list that marked nothing
-    // current and printed the line under every filter anybody typed.
+    // Negative control: a list that marked nothing current and printed the line under every
+    // filter would pass the cases above.
     const { container } = render(
       <DiffFileList
         diff={TEXTUAL_ONLY_DIFF}
@@ -191,7 +176,6 @@ describe("diff file list — a narrowing this filter hides", () => {
 });
 
 describe("diff file list — the filter belongs to the change set it filters", () => {
-  /** The filter input's current text, which is what a user is looking at. */
   function filterInputText(container: HTMLElement): string {
     return (
       container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input")?.value ?? ""
@@ -199,10 +183,8 @@ describe("diff file list — the filter belongs to the change set it filters", (
   }
 
   it("drops the filter when the pane is pointed at another change set", () => {
-    // The defect: `filterText` was a bare register, and this list is not keyed — so a
-    // pane re-pointed at another diff kept the previous change set's filter in the
-    // input and drew "No changed file matches that filter." over a change set that
-    // has files. On that code both assertions below are false.
+    // The list is not keyed, so a bare register would keep the previous change set's filter
+    // and draw "No changed file matches that filter." over a change set that has files.
     const { container, rerender } = render(
       <DiffFileList
         diff={EXTENDED_HEADER_DIFF}
@@ -226,9 +208,8 @@ describe("diff file list — the filter belongs to the change set it filters", (
   });
 
   it("negative control: a re-render at the same change set keeps what was typed", () => {
-    // Without this the case above would pass against a filter cleared on every render,
-    // which would erase a user's narrowing on any unrelated pane update — and a
-    // pane layout composes a fresh props object on each of its own renders.
+    // Negative control: a filter cleared on every render would pass above and erase a user's
+    // narrowing on any pane update, since a pane layout composes fresh props each render.
     const { container, rerender } = render(
       <DiffFileList
         diff={TEXTUAL_ONLY_DIFF}
@@ -253,9 +234,8 @@ describe("diff file list — the filter belongs to the change set it filters", (
 
 describe("diff file list — a move made in a list that then changed", () => {
   it("keeps the list in the page's tab order after a filter comes and goes", () => {
-    // The whole defect: the move survived the filter that shrank the entry set, so
-    // clearing the filter restored an index a thousand rows below the window and left
-    // every mounted button `tabIndex={-1}` — a file list a keyboard could not enter.
+    // A move must not survive a filter that shrank the entry set: clearing the filter would
+    // restore an index far below the window and leave every mounted button `tabIndex={-1}`.
     const container = renderFileList(REPOSITORY_WIDE_DIFF);
     fireEvent.keyDown(firstEntry(container), { key: "End" });
 
@@ -266,9 +246,8 @@ describe("diff file list — a move made in a list that then changed", () => {
   });
 
   it("negative control: a move inside an unchanged list still stands", () => {
-    // Without this the case above would pass against a list that dropped the moved
-    // position on every render, which would put the keyboard back at the top after
-    // every arrow key.
+    // Negative control: a list that dropped the moved position on every render would put the
+    // keyboard back at the top after every arrow key.
     const container = renderFileList(TEXTUAL_ONLY_DIFF);
     fireEvent.keyDown(firstEntry(container), { key: "End" });
 

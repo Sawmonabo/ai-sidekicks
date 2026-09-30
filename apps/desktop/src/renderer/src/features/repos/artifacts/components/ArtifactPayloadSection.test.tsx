@@ -1,12 +1,7 @@
-// The artifact payload section: what each arm of a fetched payload draws, and what the
-// fetch control does while one is outstanding.
-//
-// Mounted through the reader's own binding and never over a hand-written reading, so the
-// section is asserted against the half the fetch is meant to be correct against.
-//
-// The last block covers the subject stamp: a binding re-addressed to a second artifact must
-// not keep the first artifact's payload arm, or one artifact's bytes would be drawn under
-// another's header.
+// The artifact payload section: what each arm of a fetched payload draws, and what the fetch
+// control does while one is outstanding. Mounted through the reader's own binding, not a
+// hand-written reading. The last block covers the subject stamp: a binding re-addressed to a
+// second artifact must not keep the first artifact's payload arm.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -42,8 +37,8 @@ afterEach(() => {
 
 describe("artifact payload — fetching is an act, and every arm is drawn", () => {
   it("asks for nothing until the control is pressed", async () => {
-    // A payload is bounded only by the ingest cap, so a fetch that ran on mount would
-    // spend a hundred megabytes of somebody's link on a section they passed through.
+    // A payload is bounded only by the ingest cap, so a fetch on mount would spend the user's
+    // link on a section they merely passed through.
     const artifactRead = vi.fn(async () => deferredRead("published"));
     const subject = artifactPayloadSubject(
       artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
@@ -141,9 +136,8 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
   });
 
   it("holds the fetch control while one is outstanding, and gives it back when it settles", async () => {
-    // A payload is bounded only by the ingest cap, so a second press before the first
-    // settles would be a second download of the same bytes. The arm the reading is on holds
-    // the control, so a second press is never offered.
+    // A payload is bounded only by the ingest cap, so a second press before the first settles
+    // would download the same bytes twice; the arm the reading is on holds the control.
     const readCall = handAnsweredCall<ArtifactReadResponse>();
     const artifactRead = vi.fn(readCall.invoke);
     const subject = artifactPayloadSubject(
@@ -177,9 +171,8 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
 
 describe("artifact payload — the reader is stamped to its subject", () => {
   it("does not render one artifact's fetched payload under another's subject", async () => {
-    // Neither the text nor the opaque arm draws an artifact id, so a reader that survived
-    // the address change with its payload arm intact would present A's bytes as B's with
-    // nothing on screen to say otherwise.
+    // Neither arm draws an artifact id, so a reader keeping its payload arm across an address
+    // change would present A's bytes as B's.
     const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
@@ -205,9 +198,8 @@ describe("artifact payload — the reader is stamped to its subject", () => {
   });
 
   it("does not hold the next subject's control with the previous subject's fetch", async () => {
-    // The other half. The control is held by the `fetching` arm, and that arm belongs
-    // to an artifact this binding is no longer addressed to — so a user met a
-    // disabled Fetch on a subject nothing had ever been asked about.
+    // The control is held by the `fetching` arm of the previous artifact; a user would meet a
+    // disabled Fetch on a subject nothing was asked about.
     const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
@@ -228,9 +220,7 @@ describe("artifact payload — the reader is stamped to its subject", () => {
   });
 
   it("negative control: the same subject keeps its reader, its payload, and its reads", async () => {
-    // Without this, a memo keyed on the address OBJECT would pass both cases above
-    // and mint a reader — and a read — on every render a section performs, which
-    // is the cost the stamp is deliberately narrow to avoid.
+    // A memo keyed on the address object would mint a reader, and a read, on every render.
     const artifactList = vi.fn(async () => LISTED_ONE_ROW);
     const subject = artifactPayloadSubject(
       artifactOperations({

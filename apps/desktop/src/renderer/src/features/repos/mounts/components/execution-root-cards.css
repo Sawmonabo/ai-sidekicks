@@ -1,21 +1,9 @@
 /*
- * One execution-root card: a worktree row.
- *
- * It is a SIBLING of `mounts.css` rather than a resident of `roots/`, because ownership
- * follows the components: these rules dress `WorktreeCard.tsx`, which lives in this
- * directory, and `WorktreeCard.tsx` imports it. `execution-roots/` holds the two ACT
- * dialogs — preparing a root, and retiring one; a card is what an act produced, not the
- * act.
- *
- * No selector here appears in any other sheet, so the order this sheet loads in beside
- * the others decides nothing.
+ * One execution-root card: a worktree row. These rules dress `WorktreeCard.tsx`;
+ * `execution-roots/` holds the dialogs for the acts, not the card an act produced.
  */
 
-/*
- * One card per worktree row: the branch, the root and the age in the same three places
- * on every card, so an operator scanning for what is safe to reclaim reads them at a
- * glance.
- */
+/* Branch, root and age sit in the same places on every card, so a scan reads them at a glance. */
 .meridian-root-card {
   display: flex;
   flex-direction: column;
@@ -32,11 +20,8 @@
   gap: var(--meridian-space-2);
 }
 
-/*
- * The branch name is the card's title and a wire string, so it is mono and it
- * truncates at the measure rather than in the string — the full value stays
- * reachable, and two branches differing only in their tail never render alike.
- */
+/* The branch is a wire string, so the title is mono and truncates at the measure, not in the
+   string; two branches differing only in their tail never render alike. */
 .meridian-root-card__title {
   flex: 1 1 auto;
   min-inline-size: 0;
@@ -66,7 +51,7 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* A filesystem root is long and its TAIL is the part that identifies it. */
+/* A filesystem root is long and its tail is the part that identifies it. */
 .meridian-root-card__path {
   direction: rtl;
   overflow: hidden;

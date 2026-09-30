@@ -1,36 +1,11 @@
-// What the repos section knows, who asked for it, and when it asks again.
-//
-// Every read here goes through the console's one `RefreshScheduler`, which coalesces a
-// burst of reasons into one read and serializes reads so two never overlap. The refresh
-// policy is fixed: reads happen on subscribe, on window focus, on reconnect, and on the
-// terminal events this class names, and never on an interval. `subscribe` is this class's
-// own `start`; the other three come from the shared `SessionRefreshTriggers`, which this
-// class hands itself. This class owns the read and that one owns when.
-//
-// The roots come from their own read, and it is the only one that names a worktree. A
-// workspace row carries no worktree id, so the worktree status read is what says which
-// worktrees exist. That read is keyed by the project's folder, so it is one call per
-// mount the session has bound, and the rows are listed mount by mount.
-//
-// The read order is forced by the wire. There is no mount list call, so the session's
-// mounts are learned from its workspaces: every workspace names its mount, so the roster
-// names every mount this session has bound a workspace on. A mount attached and not yet
-// bound is on no workspace, so it is not in the roster. Hence list, then one mount read per
-// distinct mount, which is the only read carrying `health`.
-//
-// This state is not in the session store because a mount read is not an event projection.
-// It is a probe whose `checkedAt` is the point of it, and the store's entity kinds have no
-// repo mount.
-//
-// A call that rejects is not caught here: the scheduler re-throws it, so the reading stays
-// where it was and the rejection reaches whoever runs the scheduler's callback.
-//
-// The mode switch is its own class. Four reads on a scheduler and one mutation with a register
-// of its own are two jobs: `execution-mode-selection.ts` holds the mutation,
-// `repo-mounts-model.ts` the reading both of them publish, and `hooks/useRepoMounts.ts` the
-// hook that mounts this class. This class owns the switch, handing it the three things
-// `RepoMountsReadingPublisher` names: the standing reading, the publish, and the refresh an
-// accepted switch asks for.
+// Reads a session's mounts, workspaces and roots through the console's one `RefreshScheduler`,
+// which coalesces a burst of reasons into one read and never overlaps two. Reads happen on
+// subscribe, window focus, reconnect and the terminal events this class names, never on an
+// interval. The order is forced by the wire: there is no mount list call, so mounts are learned
+// from the workspace roster, then read once per distinct mount (the only read carrying
+// `health`), then worktree status once per mount. A rejected call is not caught here: the
+// scheduler re-throws it and the reading stays where it was. The state is not in the session
+// store because a mount read is a probe, not an event projection.
 
 import type {
   ExecutionMode,
@@ -59,24 +34,16 @@ export interface RepoMountsReaderOptions {
   /** The reads and the mode switch this section makes; nothing else reaches the daemon. */
   readonly operations: RepoOperations;
   /**
-   * The session being read, and two of the three reasons to read again.
-   *
-   * The STORE rather than a bare session id: a `workspace.stale` frame and the repair
-   * edge that stands for reconnect are both transitions of this object, and a reader
-   * handed only an id could observe neither. The id is read off it, so the section and
-   * the store can never name two sessions.
+  /**
+   * The session being read and two of the three reasons to read again. A store, not a bare id:
+   * a `workspace.stale` frame and the repair edge that stands for reconnect are transitions of
+   * this object, and the id is read off it so the two never name different sessions.
    */
   readonly sessionStore: SessionStore;
   /**
-   * The clock this section's reading is stamped with. Supplied, never defaulted.
-   *
-   * REQUIRED, BECAUSE A DEFAULT WOULD BE THE WALL CLOCK. `useBridgeClock` is the one
-   * answer to which clock a window runs on, and under the fixture that is the
-   * scenario's frozen clock — so a reader that fell back to a `RealClock` of its own
-   * stamped `readAtMilliseconds` on wall time while the deadline wake-up beside it ran
-   * on the scenario's, and every card rendering an age against that stamp re-rendered
-   * a different string every day. A reader without a clock is a construction error
-   * rather than a reader on the machine's clock.
+   * The clock this section's reading is stamped with, and the scheduler measures from. Required:
+   * a wall-clock default would stamp `readAtMilliseconds` on a different time base than the
+   * window's, and every age drawn against it would change string daily.
    */
   readonly clock: Clock;
 }
@@ -84,13 +51,8 @@ export interface RepoMountsReaderOptions {
 /** Reads a session's mounts, workspaces and roots, and owns the mode switch. */
 export class RepoMountsReader implements ReadTriggerTarget {
   /**
-   * The frames whose arrival owes this section a fresh read.
-   *
-   * DECLARED HERE rather than handed to the trigger wiring, because which events
-   * change an answer is a property of the question: a kind list passed in at each call
-   * site is how two readers of one answer come to watch different frames. The repos
-   * feature's census is `repo-lifecycle-events.ts`, which derives it from the contract's own
-   * registry and is where the `SessionEventType` check lives.
+   * The frames whose arrival owes this section a fresh read. Declared here so two readers of one
+   * answer cannot watch different frames; `repo-lifecycle-events.ts` derives the set.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
     REPO_LIFECYCLE_EVENT_KINDS,
@@ -112,9 +74,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
     this.#operations = options.operations;
     this.#sessionStore = options.sessionStore;
     this.#sessionId = options.sessionStore.sessionId;
-    // Bound once and shared with the scheduler, so the instant a reading is stamped
-    // with and the instant a refresh is measured from are the same time base — under
-    // the fixture that is the scenario's frozen clock and under the app it is the wall.
+    // Shared with the scheduler, so the reading's stamp and the refresh deadline share a time base.
     this.#clock = options.clock;
     this.#scheduler = new RefreshScheduler({
       clock: this.#clock,
@@ -122,8 +82,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
         await this.#performRead(round);
       },
     });
-    // The three reasons to read again. They reach this reader through `requestRead`
-    // and the scheduler behind it, and through nothing else.
+    // The three reasons to read again reach this reader through `requestRead` only.
     this.#triggers = new SessionRefreshTriggers({
       target: this,
       sessionStore: options.sessionStore,
@@ -140,27 +99,17 @@ export class RepoMountsReader implements ReadTriggerTarget {
   }
 
   /**
-   * Whether this reader is over, terminally.
-   *
-   * READ BY THE BINDING, because `dispose` is terminal and React's strict-mode
-   * double-mount runs a cleanup and then the same effect's setup again: `start()` on a
-   * disposed reader returns early, so the section would sit unread with nothing on
-   * screen to say why. The binding asks and mints a replacement instead of this class
-   * growing a second, revivable lifecycle.
+   * Whether this reader is over, terminally. The binding asks so it can mint a replacement:
+   * strict-mode's replayed setup would otherwise `start()` a disposed reader that returns early.
    */
   public get isDisposed(): boolean {
     return this.#disposed;
   }
 
   /**
-   * Whether this reader's reads are taken against `sessionStore`.
-   *
-   * The seam holds a resource per `(subject, key)` and this reader has three
-   * collaborators — the bridge, the calls it makes and the store it reads against — where
-   * the seam has one subject and one string key. The bridge and the calls are the
-   * subject and the session id is the key, so the axis they cannot carry is the store's
-   * own identity: a projection replaced under the same id retires every read taken
-   * against the old one, and this is how the binding notices.
+   * Whether this reader's reads are taken against `sessionStore`. The resource seam keys on the
+   * bridge, the calls and the session id, so a projection replaced under the same id is
+   * noticed only through this.
    */
   public isReadingFor(sessionStore: SessionStore): boolean {
     return this.#sessionStore === sessionStore;
@@ -181,11 +130,8 @@ export class RepoMountsReader implements ReadTriggerTarget {
   }
 
   /**
-   * Begin reading, and keep listening for the reasons to read again.
-   *
-   * Idempotent: a second call adds no listener and asks for no second read. React
-   * mounts an effect twice in development strict mode, and a reader that armed twice
-   * there would double every read in the one environment where the budget is watched.
+   * Begin reading and keep listening for the reasons to read again. Idempotent, so strict mode's
+   * double effect adds no second listener or read.
    */
   public start(): void {
     if (this.#started || this.#disposed) {
@@ -197,12 +143,8 @@ export class RepoMountsReader implements ReadTriggerTarget {
   }
 
   /**
-   * Ask for a read. Coalescing, debouncing, and the call itself stay the scheduler's.
-   *
-   * The ONE way a reason reaches this reader, which is why the trigger wiring beside
-   * it is given this object rather than the scheduler: a second entry point would be a
-   * second place for a reason to be dropped, renamed, or double-counted, and the
-   * `performCount` this class publishes would stop being the whole record of what ran.
+   * Ask for a read; coalescing, debouncing and the call itself stay the scheduler's. The one
+   * way a reason reaches this reader, so `performCount` is the whole record of what ran.
    */
   public requestRead(reason: RefreshReason): void {
     if (this.#disposed) {
@@ -242,26 +184,18 @@ export class RepoMountsReader implements ReadTriggerTarget {
   }
 
   /**
-   * Whether this pass has stopped mattering, by either of the two ways it can.
-   *
-   * A METHOD RATHER THAN THE EXPRESSION AT EACH OF THE FOUR SITES, for two reasons.
-   * The reading is a disjunction that must not drift between the awaits it guards,
-   * and `AbortSignal.aborted` is a readonly property TypeScript narrows on first
-   * inspection and keeps narrowed across an `await` — the very interval in which it
-   * changes — so a repeated inline check reads as settled to the compiler while being
-   * the opposite in fact.
+   * Whether this pass has stopped mattering (disposed or aborted). A method because
+   * `AbortSignal.aborted` stays narrowed across an `await` in TypeScript, so a repeated inline
+   * check would read as settled while the value changes.
    */
   #isAbandoned(round: ReadRound): boolean {
     return this.#disposed || round.signal.aborted;
   }
 
   /**
-   * The section's whole reading: a workspace roster, one mount read per distinct
-   * mount, one worktree read per mount, and one capability read per workspace.
-   *
-   * Serial, and so the most worth abandoning. The round's signal reaches each read, so a
-   * pass abandoned because the section was left costs `callDaemon`'s pre-send check per
-   * remaining call and nothing else.
+   * The section's whole reading: the workspace roster, one mount read per distinct mount, one
+   * worktree read per mount and one capability read per workspace. The round's signal reaches
+   * each read, so an abandoned pass costs only the pre-send check per remaining call.
    */
   async #performRead(round: ReadRound): Promise<void> {
     this.#publish({ ...this.#reading, status: "reading" });
@@ -317,10 +251,8 @@ export class RepoMountsReader implements ReadTriggerTarget {
       worktrees,
       readAtMilliseconds: this.#clock.now(),
       capabilitiesByWorkspaceId,
-      // Spread forward, never rebuilt. A switch the daemon has not answered is still on the
-      // wire while a read runs beside it, since the accepted switch asks for this read, so
-      // a publish that reset the map would release the picker before the mutation it is
-      // holding for had settled.
+      // Spread forward, never rebuilt: a switch still on the wire while a read runs beside it
+      // must keep holding the picker.
       pendingModeByWorkspaceId: this.#reading.pendingModeByWorkspaceId,
     });
   }

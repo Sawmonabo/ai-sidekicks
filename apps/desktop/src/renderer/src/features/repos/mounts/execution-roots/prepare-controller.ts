@@ -1,22 +1,8 @@
-// Preparing one workspace's execution root: the reuse check first, then the prepare.
-//
-// Two calls in order, and the order is the point. `repo.worktreeReuseCheck` answers whether
-// a live checkout of the named branch already exists and whether it is clean and
-// compatible; only then does the form know whether the prepare it is about to send needs
-// a consent, cannot be sent at all, or is an ordinary create.
-//
-// The check is keyed on what was typed and is re-run when it changes, which is why the
-// branch name is the prerequisite question the store's act controller is scoped to: it does
-// not exist until someone types one, a different one abandons the answer in flight, and an
-// emptied field withdraws it rather than leaving a verdict on screen attached to a branch
-// nobody named.
-//
-// Nothing is re-read after a settlement by this class. The section owns its own reading and
-// re-reads on the user's act.
-//
-// The prepare itself is not refreshable, which is why only the check half is scheduled. A
-// prepare is an act a person took once; re-sending it on a window focus would put a second
-// execution root on disk for one press.
+// Prepares one workspace's execution root: the reuse check first, then the prepare. The check
+// (`repo.worktreeReuseCheck`) tells the form whether the prepare is a create, needs consent, or
+// cannot be sent, so the branch name is the prerequisite question: a different one abandons the
+// answer in flight and an emptied field withdraws it. Only the check is refreshable; re-sending
+// a prepare on a window focus would put a second root on disk for one press.
 
 import type {
   ExecutionMode,
@@ -75,9 +61,8 @@ export class ExecutionRootPrepareController extends ActControllerBase<
       label: "execution root prepare reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
-      // The repos feature's census and not a list of its own: a worktree appearing, being retired,
-      // or changing state is what makes a reuse verdict wrong, and two readers of one
-      // answer must not disagree about when it goes stale.
+      // The repos feature's census: a worktree appearing, being retired or changing state makes a
+      // reuse verdict wrong.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
     });
     this.#operations = options.operations;
@@ -85,24 +70,17 @@ export class ExecutionRootPrepareController extends ActControllerBase<
   }
 
   /**
-   * Arm the refresh triggers. Idempotent, and takes NO first read.
-   *
-   * The reader beside this one reads on `subscribe` because its question exists the
-   * moment it is constructed. This one's does not — there is no branch until somebody
-   * names one — so arming is the whole of what this does, and the first read arrives
-   * with the first `checkReuse`.
+   * Arm the refresh triggers and take no first read: there is no branch until somebody names
+   * one, so the first read arrives with the first `checkReuse`. Idempotent.
    */
   public start(): void {
     this.startTriggers();
   }
 
   /**
-   * Ask whether this branch already has a live checkout on the mount.
-   *
-   * AN EMPTY BRANCH ASKS NOTHING and puts the reading back to unchecked rather than
-   * sending a request the contract would refuse: a user who cleared the field
-   * has withdrawn the question, and leaving the last verdict on screen would attach it
-   * to a branch nobody named.
+   * Ask whether this branch already has a live checkout on the mount. An empty branch asks
+   * nothing and puts the reading back to unchecked, so a cleared field leaves no verdict
+   * attached to a branch nobody named.
    */
   public checkReuse(branchName: string): void {
     if (branchName.trim().length === 0) {
@@ -113,11 +91,8 @@ export class ExecutionRootPrepareController extends ActControllerBase<
   }
 
   /**
-   * Prepare a worktree root, reusing a named candidate where the verdict admits one.
-   *
-   * The consent and the candidate travel together or not at all. Naming a candidate and
-   * consenting to its uncommitted work are two decisions, and sending the acknowledgement
-   * without the id would consent to nothing, so the reuse id decides whether either is sent.
+   * Prepare a worktree root, reusing a named candidate where the verdict admits one. The
+   * acknowledgement travels only with a candidate id: sent alone it would consent to nothing.
    */
   public async prepare(branchName: string, acknowledgeDirtyCandidate: boolean): Promise<void> {
     const reuseWorktreeId = this.#reusableCandidate();
@@ -139,12 +114,8 @@ export class ExecutionRootPrepareController extends ActControllerBase<
   }
 
   /**
-   * The reuse check, asked for whatever branch name the form currently holds.
-   *
-   * The round's signal goes straight to the call, which matters most on exactly this
-   * read: a user typing a branch name supersedes their own check every few keystrokes,
-   * and each superseded one stops instead of being folded into a verdict for a branch
-   * that has already been edited away from.
+   * The reuse check for the branch the form holds. The round's signal goes to the call, so a
+   * check superseded by further typing stops instead of folding into a stale verdict.
    */
   protected override async readPrerequisite(
     branchName: string,
@@ -158,7 +129,6 @@ export class ExecutionRootPrepareController extends ActControllerBase<
     return reuseVerdictFor(reply);
   }
 
-  /** The worktree the newest verdict names, where the verdict names one at all. */
   #reusableCandidate(): string | undefined {
     const verdict = this.prerequisiteValue;
     return verdict !== undefined && verdict.kind !== "none" ? verdict.worktreeId : undefined;

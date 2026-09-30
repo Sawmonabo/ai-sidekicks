@@ -1,12 +1,7 @@
 /*
- * Preparing an execution root, and removing one.
- *
- * The trigger, dialog and field shape these two dialogs share with the attach and bind
- * dialogs is in `../mount-controls.css`, imported ahead of this sheet; what is here is
- * what only a root's own dialogs wear — the reuse verdict's two toned readings and the
- * settled line a removal leaves behind.
- *
- * Imported by both components it dresses, `PrepareExecutionRoot.tsx` and
+ * Preparing an execution root, and removing one. The shared dialog shape is in
+ * `../mount-controls.css`, imported before this sheet; here are the reuse verdict's toned
+ * readings and the settled line a removal leaves. Imported by `PrepareExecutionRoot.tsx` and
  * `RootRemovalConfirmation.tsx`.
  */
 
@@ -42,12 +37,8 @@
   margin: 0;
 }
 
-/*
- * THE TWO VERDICTS THAT CHANGE WHAT A PRESS DOES ARE TONED, and the two that do not
- * are left plain. A dirty candidate is a consent about to be given, and an
- * incompatible one is a control that cannot be pressed at all — those are the readings
- * a person must not skim past. `none` and `reusable` are ordinary outcomes.
- */
+/* Only the verdicts that change what a press does are toned: a dirty candidate is a consent
+   about to be given and an incompatible one cannot be pressed. `none` and `reusable` are plain. */
 .meridian-prepare-root__verdict--dirty {
   color: var(--meridian-amber-text);
 }
@@ -70,10 +61,8 @@
   cursor: pointer;
 }
 
-/* Why the preparation is closed, restated from the state that closed it — the mount's
-   own withheld reason, or the sentence a pending switch already holds the picker with.
-   Muted and not red: whichever of the two it is, that state is already reported in its
-   own color further up this same card, and a second alarm for one fact reads as two
+/* Why the preparation is closed, restated from the state that closed it. Muted, not red: that
+   state is already reported in its own color on this card, and a second alarm reads as two
    problems. */
 .meridian-prepare-root__held {
   margin: 0;

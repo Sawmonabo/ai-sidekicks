@@ -1,10 +1,5 @@
-// The two axes stay two axes.
-//
-// `mount-health.ts`'s central claim about the mount card is a
-// NEGATIVE one — lifecycle and health never collapse into one chip — and a negative
-// claim needs a case that fails when it stops holding. The disjointness case below is
-// that case: it fails the moment one axis borrows the other's vocabulary, which is
-// the shape a collapse actually takes.
+// Lifecycle and health stay two axes: the disjointness case fails the moment one axis borrows
+// the other's vocabulary, which is the shape a collapse takes.
 
 import { describe, expect, it } from "vitest";
 
@@ -43,9 +38,6 @@ describe("mount-health — the health axis", () => {
 
 describe("mount-health — the third verdict", () => {
   it("reads `identity_mismatch` as its own verdict rather than a second unreachable", () => {
-    // Mount health has three statuses. Before the contract carried the third, this
-    // reading did not exist and a drifted mount
-    // could not be rendered at all.
     const drifted = mountHealthReading({
       status: "identity_mismatch",
       checkedAt: "2026-01-01T00:00:00Z",
@@ -60,9 +52,8 @@ describe("mount-health — the third verdict", () => {
   });
 
   it("says the refusal is permanent, which is what separates it from unreachable", () => {
-    // An unreachable root can start answering again; a root holding a different
-    // repository cannot become the one that was attached, so waiting is the wrong move
-    // and the copy has to say so.
+    // An unreachable root can answer again; a root holding a different repository cannot
+    // become the attached one, so the copy has to say waiting is the wrong move.
     const drifted = mountHealthReading({
       status: "identity_mismatch",
       checkedAt: "2026-01-01T00:00:00Z",
@@ -82,10 +73,8 @@ describe("mount-health — the third verdict", () => {
 
 describe("mount-health — the two axes never collapse", () => {
   it("negative control: no lifecycle word is also a health word", () => {
-    // The failure this guards is not hypothetical: `stale` was rejected as a health
-    // status in `packages/contracts/src/repo.ts` precisely because it already names a
-    // WORKSPACE state, and one vocabulary across two axes is how a reader stops being
-    // able to tell a detached mount from an unreachable one.
+    // `stale` was rejected as a health status because it already names a workspace state; one
+    // vocabulary across two axes leaves a reader unable to tell detached from unreachable.
     const lifecycleWords = new Set(
       (["attached", "detached", "archived"] as const).map(
         (state) => mountLifecycleReading(state).label,
@@ -117,9 +106,8 @@ describe("mount-health — the bind-control posture", () => {
   });
 
   it("negative control: lifecycle is checked before health, so a detached row never reads as unreachable", () => {
-    // Both axes are failing here. A posture that reported the health reason would tell
-    // a reader to go and fix a path, when the row's actual state is that its life is
-    // over — the exact conflation `mount-health.ts` forbids.
+    // Both axes are failing. Reporting the health reason would tell a reader to fix a path
+    // when the row's life is over.
     const posture = readBindControlAvailability(
       buildMount({
         state: "detached",

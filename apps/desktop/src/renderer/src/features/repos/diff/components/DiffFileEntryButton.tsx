@@ -2,7 +2,7 @@ import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.
 import { type WindowedRowTargetProps } from "@renderer/components/WindowedListRow/WindowedListRow.js";
 import { type DiffFileListEntry } from "../diff-file-entries.js";
 
-/** One row's control, and the row's own statement that this element holds its stop. */
+/** What one file-list row's control is drawn from, plus the row's target props. */
 export type DiffFileEntryButtonProps = {
   readonly entry: DiffFileListEntry;
   readonly isSelected: boolean;
@@ -10,16 +10,10 @@ export type DiffFileEntryButtonProps = {
 } & WindowedRowTargetProps;
 
 /**
- * One row's control: the reset at row zero, or one changed file.
- *
- * ONE TAB STOP FOR THE WHOLE LIST, and the row is what says so. The roving `tabIndex`
- * and the target marker arrive together from the row primitive's renderer form
- * (`primitives/windowing/windowed-row-markers.ts` declares the marker) and are spread onto this
- * button and onto nothing else — which is what makes the marked element and the
- * focusable element the same element. Computing the index here from an `isTabbable`
- * prop left the row marking ITSELF as the focus target while the stop sat on this
- * button, so the roving effect focused an `<li>` with no `tabindex`, which Chromium
- * ignores: the ring never moved and the next Tab left the list.
+ * One row's control: the reset at row zero, or one changed file. The list has one tab stop, so
+ * the roving `tabIndex` and target marker (`lib/windowed-row-markers.ts`) arrive together from
+ * the row's renderer form and go onto this button alone. Marking the `<li>` while the stop sat
+ * on the button left `focus()` a no-op in Chromium, so the ring never moved.
  */
 export function DiffFileEntryButton({
   entry,
@@ -45,8 +39,7 @@ export function DiffFileEntryButton({
         </>
       ) : (
         <>
-          {/* Wire-verbatim path, truncated at the measure with the full string
-              recoverable through the title — the pane subject's own rule. */}
+          {/* Wire-verbatim path, truncated at the measure; the full string stays in the title. */}
           <span className="meridian-diff-files__path" title={entry.path}>
             {entry.path}
           </span>

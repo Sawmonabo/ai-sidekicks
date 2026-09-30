@@ -10,7 +10,7 @@ import {
   type RootRemovalRecorder,
 } from "../root-removal-controller.js";
 
-/** Nothing sent. */
+/** The reading before anything is sent. */
 export const ROOT_REMOVAL_IDLE: RootRemovalReading = { status: "idle" };
 
 /** What the hook hands a confirmation: the reading, and the two things it can ask for. */
@@ -27,9 +27,8 @@ export function useRootRemoval(
   operations: RootRemovalOperations,
 ): RootRemovalBinding {
   const [reading, setReading] = useState<RootRemovalReading>(ROOT_REMOVAL_IDLE);
-  // THE RECORDER IS ONE OBJECT FOR THE LIFE OF THE CONFIRMATION, over React's own stable
-  // state setter: the resource seam holds the factory's product against a key, and a
-  // recorder minted per render would hand the controller a reporter the next pass replaces.
+  // One recorder for the confirmation's life, over React's stable setter: the resource seam
+  // holds the factory's product against a key, and a per-render recorder would be replaced.
   const recorder = useMemo<RootRemovalRecorder>(() => ({ recordRemoval: setReading }), []);
   const { value: controller } = useSubjectScopedResource(
     bridge,
@@ -37,18 +36,16 @@ export function useRootRemoval(
     () => new RootRemovalController({ operations, rootId, recorder }),
     CONTROLLER_DISPOSAL,
   );
-  // A NEW CONTROLLER MEANS A NEW ROOT, and the settlement on screen belongs to the
-  // old one. Cleared here rather than left standing, so a second row's confirmation
-  // never opens already reporting the first row's answer.
+  // A new controller means a new root, and the settlement on screen belongs to the old one,
+  // so a second row's confirmation never opens reporting the first row's answer.
   useEffect(() => {
     setReading(ROOT_REMOVAL_IDLE);
   }, [controller]);
   const send = useCallback(() => {
     void controller.send();
   }, [controller]);
-  // CLEARS WHAT IS ON SCREEN AND CANCELS NOTHING. A call already on the wire is not
-  // recallable, and the controller's own guard is what keeps a reopened confirmation
-  // from sending a second one behind it.
+  // Clears what is on screen and cancels nothing: a call on the wire is not recallable, and
+  // the controller's own guard stops a reopened confirmation sending a second one.
   const clear = useCallback(() => {
     setReading(ROOT_REMOVAL_IDLE);
   }, []);

@@ -1,25 +1,7 @@
-// What the changed-file list holds: the rows it draws, in order, under one filter.
-//
-// A PURE MODEL BESIDE THE COMPONENT, on the diff viewer's own seam — `diff-model.ts`
-// beside the renderer, `hunk-row-layout.ts` beside the row index. The list is
-// windowed, and a window is addressed by INDEX: which row a scroll position needs,
-// which row an arrow key moves to, which row the selection is on. So the ordered
-// sequence those indices address has to be a value something can hold and a test can
-// walk, rather than an array built inside a render body and reachable only through
-// the DOM it produced.
-//
-// THE RESET CONTROL IS ROW ZERO AND NOT A ROW BESIDE THE LIST. "All files" clears the
-// narrowing, and folding it into the sequence is what makes one index space serve the
-// window, the keyboard, and the selection at once: kept outside, every one of those
-// three would need an off-by-one of its own, and the three would disagree the first
-// time one of them was changed.
-//
-// THE FILTER IS A SUBSTRING MATCH OVER THE WIRE-VERBATIM PATH, and deliberately
-// nothing cleverer. A fuzzy matcher exists already
-// (`@ai-sidekicks/search-ranking`) and belongs to the palette's ranked-result
-// problem; a file list is a dozen to a hundred exact strings a person is scanning
-// rather than recalling, and a subsequence match over them surfaces paths whose
-// letters merely appear in order, which reads as the filter being broken.
+// The rows of the changed-file list under one filter, as a pure model so the window, the
+// keyboard and the selection address one index space. Row zero is the "All files" reset
+// control. The filter is a substring match over the wire-verbatim path, not a fuzzy match:
+// a subsequence match over a short list of exact paths surfaces paths that merely look wrong.
 
 import {
   diffFileChangeCounts,
@@ -52,26 +34,16 @@ export type DiffFileListEntry = AllFilesEntry | ChangedFileEntry;
 export interface DiffFileListReading {
   readonly entries: readonly DiffFileListEntry[];
   /**
-   * How many changed files matched. Zero draws the no-match line.
-   *
-   * Carried rather than derived from `entries.length` by the caller, because row zero
-   * is always there and a caller subtracting one for it would be restating this
-   * module's own shape at every call site.
+   * How many changed files matched; zero draws the no-match line. Carried so callers need
+   * not subtract row zero from `entries.length`.
    */
   readonly matchCount: number;
 }
 
 /**
- * Where the current narrowing sits in the drawn rows, or that this filter hides it.
- *
- * A CLOSED TWO-ARM ANSWER RATHER THAN AN INDEX WITH A FALLBACK. A narrowing the filter
- * hides has no row, and answering row zero for it made the list say the opposite of
- * what the pane was doing: "All files" took `aria-current` while the renderer went on
- * showing the one hidden file. The narrowing is the user's own choice and the
- * filter is a way of looking at the list, so the choice STANDS and the list reports
- * that it has no row to point at — which is a state, not a value, and so is a member
- * of this union rather than a number outside the index space (`-1` is a number every
- * arithmetic in the caller would happily use).
+ * Where the current narrowing sits in the drawn rows, or that the filter hides it. A hidden
+ * narrowing has no row; answering row zero would mark "All files" current while the renderer
+ * still shows the file, and `-1` would pass as an index, so the state is a union member.
  */
 export type SelectedEntryRow =
   /** Row zero for the whole change set, or the row a selected path is drawn on. */

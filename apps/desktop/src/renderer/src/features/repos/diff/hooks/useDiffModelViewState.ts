@@ -1,44 +1,7 @@
-// The view state that belongs to ONE diff, and is dropped when the diff moves.
-//
-// A pane is reused. `DiffPane` and `InlineDiffCard` both take their model as a
-// prop, and a host that points either at a different change set hands it a
-// different `DiffModel` on the next render. Two pieces of their state are
-// addressed against that model and mean nothing without it:
-//
-//   • the SELECTED FILE PATH, which narrows the rows. A path the new diff does
-//     not contain narrows the index to no file at all — `rowCount` is zero and
-//     the renderer says "nothing to review" over a diff that has
-//     changes, which is the console asserting a fact nobody established.
-//   • the GAP EXPANSION, which is keyed by `(fileIndex, hunkIndex)`. Those
-//     indices exist in the new diff too, and address entirely different hunks, so
-//     the new model opens with somebody else's gaps already unfolded.
-//
-// WHAT IS DELIBERATELY NOT RESET. The `useDiffViewControls` toggle — view mode — is a
-// reading preference over the PANE and not over one model. Resetting it would undo a
-// person's toggle every time the subject moved, which is a different defect in the same
-// place.
-//
-// AND ONE MORE THAT IS, HELD SOMEWHERE ELSE. `DiffFileList`'s filter text is a
-// predicate over the model's own file PATHS, so it is in the first list rather
-// than the second — but it belongs to the list that draws the input and never
-// reaches this module's holder, so it takes the same subject and the same
-// `undefined` key from `useSubjectScopedState` directly, beside its own register.
-//
-// THE IDENTITY IS THE PROP REFERENCE, and there is no other candidate.
-// `DiffModel` carries no id, and a key derived from `baseRef` / `headRef`
-// would both miss a real change — two diffs of the same two refs can hold
-// different content — and claim a member the model does not have. So the model
-// IS the subject, and the key within it is `undefined`: one model is one subject
-// entire, with nothing inside it to name.
-//
-// AND THE RULE IS THE CONSOLE'S ONE COPY OF IT. `hooks/subject-scoped/useSubjectScopedState.ts`
-// holds what a subject-scoped value may do — seeded during the render that first
-// sees a new subject, so no committed frame carries the previous one's; and
-// written only by a publisher captured under the subject still on screen, so a
-// handler a consumer carried across the move writes NOWHERE rather than selecting
-// one diff's path inside another. This module hand-rolled the first half from a
-// state register and left the second open; both are now the substrate's, and this
-// file only says what the diff's subject and seed are.
+// View state owned by one diff and dropped when the diff changes: the selected file path (a
+// path the new diff lacks would show "nothing to review" over real changes) and the gap
+// expansion (keyed by file and hunk index, so it would unfold another diff's gaps). The
+// model reference is the subject: `DiffModel` has no id, and refs can repeat across content.
 
 import { useCallback } from "react";
 
@@ -48,12 +11,8 @@ import type { DiffModel } from "../diff-model.js";
 import { expandGap, type DiffGapExpansion } from "../diff-row-model.js";
 
 /**
- * The subject a pane holding no diff is addressed at.
- *
- * A module-level constant rather than a fresh object per render, so every pass with
- * no diff is one subject and the seed is not re-run under a pane that is simply
- * waiting. It is never compared with a model — a `DiffModel` is a different
- * object — so no diff can be mistaken for the absence of one.
+ * The subject for a pane holding no diff. A module constant so every diff-less pass is one
+ * subject and the seed does not re-run; a `DiffModel` is never equal to it.
  */
 const NO_DIFF_SUBJECT: object = {};
 
@@ -69,12 +28,9 @@ export interface DiffModelViewState {
 }
 
 /**
- * Hold one diff's view state, and drop it when the diff changes.
- *
- * The indices `expandGapAt` is given address `diff.files`, which is what makes
- * it correct beside a renderer that NARROWS rather than filters: a filtered
- * model renumbers its files, and a gap in the second file would arrive as file
- * zero and resolve the first file's context.
+ * Hold one diff's view state, and drop it when the diff changes. The indices `expandGapAt`
+ * receives address `diff.files`, which stays correct beside a renderer that narrows rather
+ * than filters.
  */
 export function useDiffModelViewState(diff: DiffModel | undefined): DiffModelViewState {
   const { value, publish } = useSubjectScopedState<HeldDiffViewState>(
@@ -93,9 +49,8 @@ export function useDiffModelViewState(diff: DiffModel | undefined): DiffModelVie
   const expandGapAt = useCallback(
     (fileIndex: number, hunkIndex: number) => {
       const available = diff?.files[fileIndex]?.hunks[hunkIndex]?.precedingContext.length ?? 0;
-      // The update runs where the held value is, rather than over an expansion read
-      // out of this closure: two presses settling in one tick would otherwise both
-      // grow the map the render produced, and the second would erase the first.
+      // Update against the held value, not an expansion read from this closure: two presses
+      // settling in one tick would otherwise both grow the rendered map and lose the first.
       publish((previous) => ({
         ...previous,
         expansion: expandGap(previous.expansion, fileIndex, hunkIndex, available),
@@ -119,11 +74,8 @@ interface HeldDiffViewState {
 }
 
 /**
- * What a diff opens on: the whole change set, with nothing unfolded.
- *
- * Declared once rather than written at the seed site, because it is also what the
- * pane degrades to when the model moves — the same reading in both places, and one
- * of them cannot drift.
+ * What a diff opens on: the whole change set with nothing unfolded, and what the pane
+ * degrades to when the model moves.
  */
 function unnarrowedDiffViewState(): HeldDiffViewState {
   return { selectedFilePath: undefined, expansion: new Map() };

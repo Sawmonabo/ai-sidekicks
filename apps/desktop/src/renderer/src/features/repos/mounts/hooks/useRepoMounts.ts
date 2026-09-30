@@ -1,13 +1,6 @@
-// How a section gets its reader, and how that reader gets closed.
-//
-// A class that reads is testable without React, and a hook that mounts one is testable
-// without a daemon, which is why the reader (`repo-mounts-reader.ts`) and this binding
-// are two modules.
-//
-// The reader is constructed in a hook and never in a render body, subscribed through
-// `useSyncExternalStore` so a publish is a single transition, and disposed on unmount —
-// the three properties `apps/desktop/AGENTS.md` requires of anything holding state
-// beside a component.
+// Binds a section to its reader. The reader is built in a hook and never in a render body,
+// subscribed through `useSyncExternalStore` so a publish is one transition, and disposed on
+// unmount. Reader and binding are separate modules so each is testable without the other.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
@@ -26,33 +19,17 @@ export interface RepoMountsBinding {
   readonly reading: RepoMountsReading;
   readonly requestModeSelection: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
   /**
-   * Read the section again, because a user's own act changed what it holds.
-   *
-   * `user-request` AND NOT A NEW REASON. The scheduler's vocabulary already has
-   * the member for an act a person performed, and the attach and re-attach controls are
-   * exactly that: the mount they mint is not announced by any lifecycle frame this
-   * reader subscribes to, so without this the section would keep reporting the roster it
-   * read before the act. It coalesces with the reader's other reasons, so an attach that
-   * lands beside a reconnect is one read and not two.
+   * Read the section again because a user's own act changed what it holds. Sent as
+   * `user-request`: an attach or re-attach mints a mount no lifecycle frame announces, and the
+   * request coalesces with the reader's other reasons into one read.
    */
   readonly requestRead: () => void;
 }
 
 /**
- * Bind one section to its reader.
- *
- * The reader is constructed in a hook and never in a render body, subscribed through
- * `useSyncExternalStore` so a publish is a single transition, and disposed on
- * unmount — the three properties `apps/desktop/AGENTS.md` requires of anything that
- * holds state beside a component.
- *
- * THE CLOCK IS THE WINDOW'S: `useBridgeClock` is the one answer to which clock a window
- * runs on, so a reader stamping its reading off a clock of its own would put two time
- * bases on one screen.
- *
- * A NEW `operations` OBJECT RE-MINTS THE READER, because the subject is the bridge together
- * with the calls and the reader reads through the ones it was built with. A caller
- * therefore holds one object for as long as the section should keep its reading.
+ * Bind one section to its reader, on the window's clock (`useBridgeClock`) so two time bases
+ * never share a screen. A new `operations` object re-mints the reader, so a caller holds one
+ * object for as long as the section should keep its reading.
  */
 export function useRepoMounts(
   bridge: PlatformBridge,
@@ -68,13 +45,10 @@ export function useRepoMounts(
     CONTROLLER_DISPOSAL,
   );
   useEffect(() => {
-    // THE STORE AXIS, AND NOT THE DISPOSAL. The seam holds one resource per
-    // `(subject, key)`, which here is `({ bridge, operations }, session id)`: a store
-    // replaced under the same id retires every read taken against the old one, and the key
-    // cannot carry that axis, so the reader is asked instead. The replacement is PUBLISHED
-    // through the seam, so it is closed on the seam's terms. Strict mode running the
-    // seam's cleanup and then this setup again on the same committed reader is
-    // `isClosed`'s, above, and re-deriving it here would dispose that reader twice.
+    // The store axis: the seam keys a resource on `(subject, session id)` and cannot see a
+    // store replaced under the same id, so the reader is asked. The replacement is published
+    // through the seam, which closes it. Strict mode's replayed setup on a closed reader is
+    // the seam's `isClosed`, and re-deriving it here would dispose that reader twice.
     if (!reader.isReadingFor(sessionStore)) {
       settle()(new RepoMountsReader({ operations, sessionStore, clock }));
       return;

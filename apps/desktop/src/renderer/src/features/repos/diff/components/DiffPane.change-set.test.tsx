@@ -1,12 +1,6 @@
-// The diff pane once it holds a change set.
-//
-// APART FROM `DiffPane.test.tsx` ON THE PANE'S OWN SEAM. That file is about a pane
-// holding no model — the chrome it wears and the absence it owes every subject. What
-// follows is the view `DiffPane.tsx` describes once a model exists: the compared
-// states, the changed-file list and the rows, what survives the pane being reused for a
-// different diff, and the toolbar. The two halves mount the same pane and share nothing
-// else, which is why the contexts and the layout discipline they do share live in
-// `diff-pane.test-support.ts` rather than in either of them.
+// The diff pane once it holds a change set: compared states, changed-file list, rows, what
+// survives the pane being reused for another diff, and the toolbar. Split from `DiffPane.test.tsx`;
+// the shared contexts and layout live in `diff-pane.test-support.ts`.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -85,13 +79,8 @@ describe("diff pane — the file list and the rows", () => {
 
 describe("diff pane — expanding a gap in a file that is not the first", () => {
   /**
-   * Two files whose gaps differ in size.
-   *
-   * The generated shape gives every file the same hidden-line count, and a pane
-   * that resolved the wrong file's count would be indistinguishable from one that
-   * resolved the right file's. Trimming the FIRST file's context is what makes the
-   * difference observable, because the first file is the one a renumbered index
-   * would have reached for.
+   * Two files whose gaps differ in size, so a pane that resolved the wrong file's count is
+   * distinguishable. Trimming the first file's context is what makes it observable.
    */
   const UNEVEN_GAP_DIFF: DiffModel = (() => {
     const whole = buildDiffFixture(SMALL_DIFF_SHAPE);
@@ -111,7 +100,6 @@ describe("diff pane — expanding a gap in a file that is not the first", () => 
     };
   })();
 
-  /** How the gap row labels the context it still hides. One writer, one reader. */
   const gapLabelFor = (hiddenLineCount: number): string =>
     `Expand ${String(hiddenLineCount)} hidden lines`;
 
@@ -126,17 +114,15 @@ describe("diff pane — expanding a gap in a file that is not the first", () => 
     });
     expect(gaps).toHaveLength(SMALL_DIFF_SHAPE.hunksPerFile);
     fireEvent.click(gaps[0]!);
-    // One activation reveals a whole four-line gap, so that hunk's gap row is
-    // gone and only the file's other hunk still has one. Had the FIRST file's
-    // single line been used, three would still be hidden and both would remain.
+    // One activation reveals a whole four-line gap; the first file's single line would leave
+    // three hidden and both gap rows in place.
     expect(container.querySelectorAll(".meridian-diff__row--gap")).toHaveLength(
       SMALL_DIFF_SHAPE.hunksPerFile - 1,
     );
   });
 
   it("negative control: the first file's gap really is the smaller one", () => {
-    // Without this the case above would pass over a fixture whose two files were
-    // identical, which is the shape the defect is invisible in.
+    // Negative control: two identical files would pass the case above.
     const { getAllByRole, getByRole } = render(
       <DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} diff={UNEVEN_GAP_DIFF} />,
     );
@@ -158,9 +144,8 @@ describe("diff pane — reused for a different diff", () => {
   })();
 
   it("drops a selection the new diff does not contain, instead of reporting no changes", () => {
-    // The defect this whole block exists for. A path absent from the new model
-    // narrows the index to no file, `rowCount` is zero, and the renderer states
-    // that two states are identical over a change set that has changes.
+    // A path absent from the new model narrows the index to no file, so `rowCount` is zero and
+    // the renderer would state that two states are identical over a change set with changes.
     const { container, getByRole, rerender } = render(
       <DiffPane
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
@@ -171,17 +156,15 @@ describe("diff pane — reused for a different diff", () => {
     rerender(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} diff={OTHER_DIFF} />);
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
     expect(container.querySelectorAll(".meridian-diff__row").length).toBeGreaterThan(0);
-    // And the file list opens on the whole change set again, not on a path that
-    // is no longer in it.
+    // The file list opens on the whole change set again, not on a path the new diff lacks.
     expect(
       container.querySelector('.meridian-diff-files__entry[aria-current="true"]')?.textContent,
     ).toContain("All files");
   });
 
   it("drops the previous diff's gap expansion rather than inheriting it by index", () => {
-    // The expansion is keyed by `(fileIndex, hunkIndex)`. Those indices exist in
-    // the new diff too and address different hunks, so an inherited expansion
-    // opens somebody else's gaps.
+    // The expansion is keyed by file and hunk index; those exist in the new diff too and
+    // address different hunks, so an inherited expansion opens somebody else's gaps.
     const { container, getAllByRole, rerender } = render(
       <DiffPane
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
@@ -199,9 +182,8 @@ describe("diff pane — reused for a different diff", () => {
   });
 
   it("negative control: the SAME model object keeps the selection and the expansion", () => {
-    // Without this, the two cases above would pass over a pane that reset its
-    // view state on every render — which would take the selection away the
-    // instant anything else in the console moved.
+    // Negative control: a pane that reset its view state on every render would pass above and
+    // drop the selection whenever anything else in the console moved.
     const sameDiff = buildDiffFixture(SMALL_DIFF_SHAPE);
     const { container, getAllByRole, getByRole, rerender } = render(
       <DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} diff={sameDiff} />,
@@ -262,8 +244,8 @@ describe("diff pane — the toolbar", () => {
   });
 
   it("negative control: a toggle actually moves the renderer, not just its own state", () => {
-    // Without this, a toolbar whose values nothing read would pass every
-    // `aria-pressed` assertion above while changing nothing on screen.
+    // Negative control: a toolbar whose values nothing read would pass every `aria-pressed`
+    // assertion above.
     const { container, getByRole } = render(
       <DiffPane
         context={diffPaneContextFor(WORKSPACE_ENTITY)}

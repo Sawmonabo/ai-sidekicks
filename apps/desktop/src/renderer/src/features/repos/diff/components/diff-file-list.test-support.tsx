@@ -1,10 +1,6 @@
-// How both file-list suites put the list on screen and reach into what it drew.
-//
-// SPLIT BY SUBJECT, NOT BY SCAFFOLDING. `DiffFileList.test.tsx` is about what one ENTRY
-// is and `DiffFileList.windowing.test.ts` is about which entries are MOUNTED, and that
-// split was made by copying the mount and the two readers into both files rather than
-// hoisting them. Nothing failed when one copy changed, which is the whole reason a
-// helper used twice is declared once.
+// Shared mount and readers for the file-list suites (`DiffFileList.test.tsx` for entries,
+// `DiffFileList.windowing.test.ts` for which entries are mounted), declared once so a change
+// cannot leave one copy behind.
 
 import { fireEvent, render } from "@testing-library/react";
 
@@ -13,11 +9,8 @@ import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
 import { type DiffModel } from "../diff-model.js";
 
 /**
- * A repository-wide patch: five thousand files, one changed line each.
- *
- * Built once for both suites, because a change set this size is the only subject a
- * windowing claim can be made against at all and generating it twice generates it
- * twice — in two files whose shapes could then differ without anything failing.
+ * A repository-wide patch: five thousand files, one changed line each. A windowing claim can
+ * only be made against a change set this size, so it is built once for both suites.
  */
 export const REPOSITORY_WIDE_DIFF: DiffModel = buildDiffFixture({
   fileCount: 5_000,
@@ -40,11 +33,8 @@ export function renderFileList(diff: DiffModel, selectedFilePath?: string): HTML
 }
 
 /**
- * One file of a change set, by index.
- *
- * Thrown for rather than answered as optional, because a fixture shorter than a case
- * assumes is a broken case and not a state to assert about — and a `function`
- * declaration carries no narrowing a guard beside the fixture would have made.
+ * One file of a change set, by index. Throws on a missing file: a fixture shorter than a case
+ * assumes is a broken case, not a state to assert about.
  */
 export function fixtureFileAt(diff: DiffModel, fileIndex: number): DiffModel["files"][number] {
   const file = diff.files[fileIndex];
@@ -63,12 +53,7 @@ export function filterTo(container: HTMLElement, filterText: string): void {
   fireEvent.change(filter, { target: { value: filterText } });
 }
 
-/**
- * The list's first mounted entry.
- *
- * Thrown for rather than answered as optional, on `fixtureFileAt`'s rule: a list that
- * drew no entry is a broken case and not a state to assert about.
- */
+/** The list's first mounted entry; throws when none is drawn, as `fixtureFileAt` does. */
 export function firstEntry(container: HTMLElement): HTMLElement {
   const entry = container.querySelector<HTMLElement>(".meridian-diff-files__entry");
   if (entry === null) {

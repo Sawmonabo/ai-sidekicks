@@ -10,6 +10,7 @@ import { type RepoOperations } from "../../repo-operations.js";
 import { type WorkspaceId, type ExecutionMode } from "@ai-sidekicks/contracts";
 import { REPO_MOUNTS_NOT_READ_TITLE } from "../repo-mounts-copy.js";
 
+/** What the mount list reads and the handlers it passes through to each card. */
 export interface MountListProps {
   readonly reading: RepoMountsReading;
   /** Passed down to each card's controls, which take their clock from it. */
@@ -26,6 +27,7 @@ export interface MountListProps {
   readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }
 
+/** Every mount card for a reading, or the placeholder that says why there are none. */
 export function MountList(props: MountListProps): React.JSX.Element | null {
   const { reading } = props;
   if (reading.mounts.length > 0) {
@@ -54,8 +56,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
     return <Nothing kind="computing" placement="block" title="Reading repo mounts." />;
   }
   if (reading.status === "read") {
-    // The read answered and found none. That is `empty`, never `not-checked`: the
-    // question was put.
+    // An answered read that found none is `empty`, never `not-checked`.
     return (
       <Nothing
         kind="empty"

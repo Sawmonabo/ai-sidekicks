@@ -10,9 +10,8 @@ import {
 } from "@test/helpers/patch-parsing.js";
 
 /**
- * A git-style patch whose header carries both things a reconstruction loses: the
- * section context after the closing `@@`, and a one-line range spelled without its
- * count.
+ * A git-style patch whose header carries what a reconstruction loses: the section context
+ * after the closing `@@`, and a one-line range spelled without its count.
  */
 const SECTION_CONTEXT_PATCH = [
   "diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts",
@@ -26,9 +25,8 @@ const SECTION_CONTEXT_PATCH = [
 
 describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
   it("keeps the section context git appends after the closing marker", () => {
-    // The whole navigational value of a git hunk header: which function the change
-    // is inside. `diff`'s `StructuredPatchHunk` drops it, so it is read off the raw
-    // line rather than composed from the four numbers that survive.
+    // The navigational value of a hunk header is which function the change is in. `diff`
+    // drops it, so it is read off the raw line.
     expect(parsePlainPatch(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header).toBe(
       "@@ -10 +10 @@ function createApplicationWindow(): BrowserWindow {",
     );
@@ -40,9 +38,8 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
   });
 
   it("negative control: the header is not the reconstruction from the four numbers", () => {
-    // Exactly what composing `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`
-    // produces for this hunk. It renders as a plausible header and is not the one the
-    // patch declared, which is why the reconstruction was invisible until read.
+    // What composing `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@` produces: a
+    // plausible header that is not the one the patch declared.
     expect(parsePlainPatch(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header).not.toBe(
       "@@ -10,1 +10,1 @@",
     );
@@ -63,9 +60,8 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
   });
 
   it("negative control: a body line that looks like a header is not read as one", () => {
-    // Every body line carries a prefix, so a deleted line whose text is itself a hunk
-    // header reads as `-@@ …` and never matches. Without that the header list would
-    // gain an entry and every hunk after it would be handed the wrong one.
+    // Every body line carries a prefix, so a deleted line whose text is a hunk header reads as
+    // `-@@ …` and never matches; otherwise every later hunk would get the wrong header.
     const patchText = [
       "--- a/docs/patch-format.md",
       "+++ b/docs/patch-format.md",
@@ -83,8 +79,7 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
 
 describe("parseUnifiedPatch", () => {
   it("carries the caller's compared states rather than reading them", () => {
-    // They are not in the patch text, so a parser that produced them from the body
-    // would be inventing them.
+    // They are not in the patch text, so producing them from the body would invent them.
     const model = parsePlainPatch(PLAIN_PATCH);
     expect(model.baseRef).toBe("main");
     expect(model.headRef).toBe("feat/thing");
@@ -102,9 +97,8 @@ describe("parseUnifiedPatch", () => {
   });
 
   it("numbers the two sides independently", () => {
-    // The claim a hand-built fixture gets wrong by advancing both in lockstep: the
-    // deleted line has no head number and the inserted line has no base number, and
-    // the context line before them has both.
+    // The deleted line has no head number, the inserted line no base number, and the context
+    // line before them has both.
     const [contextLine, deletedLine, insertedLine] = linesOfFirstHunk(PLAIN_PATCH);
     expect(contextLine).toMatchObject({ kind: "context", baseLineNumber: 10, headLineNumber: 10 });
     expect(deletedLine?.kind).toBe("delete");
@@ -124,20 +118,16 @@ describe("parseUnifiedPatch", () => {
   });
 
   it("gives every line one whole-line segment, computing no word diff", () => {
-    // THE BOUND, asserted where it used to be spent. This parser once ran
-    // `diffWordsWithSpace` over every delete/insert pair before it returned, so a
-    // forty-file change set paid for the whole change set before the virtualizer
-    // placed a row. The split is derived per rendered row now — `intraline-segment-cache.ts`
-    // owns it — and a parsed line carries its text and nothing else.
+    // The parser runs no word diff over delete/insert pairs. The split is derived per rendered
+    // row by `intraline-segment-cache.ts`; a parsed line carries its text and nothing else.
     for (const line of linesOfFirstHunk(PLAIN_PATCH)) {
       expect(line.segments).toStrictEqual([{ text: diffLineText(line), changed: false }]);
     }
   });
 
   it("negative control: the same pair through the intraline seam does split", () => {
-    // Without this the claim above would pass over a patch the word diff finds
-    // nothing in. This pair IS one it splits, so the parser's single segment is a
-    // decision rather than an absence.
+    // Without this the claim above would pass over a patch the word diff finds nothing in;
+    // this pair is one it splits.
     const [, deletedLine, insertedLine] = linesOfFirstHunk(PLAIN_PATCH);
     const pair = intralineSegments(
       diffLineText(deletedLine as DiffLine),
@@ -165,8 +155,7 @@ describe("parseUnifiedPatch", () => {
   });
 
   it("negative control: a plain patch keeps a path that genuinely begins with `b/`", () => {
-    // The strip is conditional for exactly this case. A parser that stripped
-    // unconditionally would re-root this file, which `diff-model.ts` forbids.
+    // The strip is conditional: stripping unconditionally would re-root this file.
     const model = parsePlainPatch(
       ["--- b/tool.ts", "+++ b/tool.ts", "@@ -1,1 +1,1 @@", "-a", "+b", ""].join("\n"),
     );
@@ -213,8 +202,7 @@ describe("intralineSegments", () => {
   });
 
   it("keeps a whitespace-only change visible", () => {
-    // `diffWordsWithSpace` rather than `diffWords` for exactly this: an indentation
-    // change is a real change, and a tokenizer that discarded whitespace would
+    // An indentation change is a real change; a tokenizer that discarded whitespace would
     // report the two lines as identical.
     const pair = intralineSegments("  value", "    value");
     expect(pair.deleted.some((segment) => segment.changed)).toBe(true);
@@ -229,11 +217,9 @@ describe("intralineSegments", () => {
 });
 
 /**
- * A hunk carrying a bare empty context line, which is how most producers write one.
- *
- * The blank line sits between the leading context and the changed pair, so every
- * number after it is wrong by exactly one if it is dropped — which is what makes this
- * shape the counterexample rather than a curiosity.
+ * A hunk carrying a bare empty context line, which is how most producers write one. The blank
+ * sits between the leading context and the changed pair, so dropping it puts every number
+ * after it off by one.
  */
 const BLANK_CONTEXT_PATCH = [
   "--- packages/contracts/src/event.ts",
@@ -249,11 +235,9 @@ const BLANK_CONTEXT_PATCH = [
 
 describe("parseUnifiedPatch — an empty context line is a line", () => {
   it("renders the blank and keeps every later number on the line it belongs to", () => {
-    // The defect. `parsePatch` infers a bare empty line mid-hunk as context and pushes
-    // it RAW, so the prefix table answers `undefined` for it and the old `continue`
-    // dropped it — the blank vanished from the rendering AND neither counter advanced,
-    // putting every number after it one too low. Both halves are asserted, because a
-    // fix that rendered the row without advancing the counters would satisfy the first.
+    // `parsePatch` pushes a bare empty mid-hunk line raw, so the prefix table answers
+    // `undefined` for it. Both halves are asserted: the row must render and the counters must
+    // advance, or every later number is one too low.
     const lines = linesOfFirstHunk(BLANK_CONTEXT_PATCH);
 
     expect(lines.map((line) => line.kind)).toStrictEqual([
@@ -269,9 +253,8 @@ describe("parseUnifiedPatch — an empty context line is a line", () => {
   });
 
   it("negative control: a one-space context line still carries no text", () => {
-    // Without this, treating `""` as context could be a fix that also dropped the
-    // prefix character from a real context line — an off-by-one in the other
-    // direction, invisible on a blank and wrong on every line that has one.
+    // Without this, treating `""` as context could also drop the prefix from a real context
+    // line, an off-by-one invisible on a blank.
     const lines = linesOfFirstHunk(
       [
         "--- packages/contracts/src/event.ts",
@@ -292,13 +275,10 @@ describe("parseUnifiedPatch — an empty context line is a line", () => {
 
 describe("parseUnifiedPatch — a body line this parser cannot place", () => {
   it("is refused by the parse rather than reaching the renderer short", () => {
-    // The unrecognized-prefix branch in the line mapper is a backstop and not a path:
-    // `parsePatch` pushes a body line only where its operation is ` `, `+`, `-`, or
-    // `\`, and throws on anything else — measured against `diff` 9.0.0's `parseHunk`,
-    // not assumed. That guarantee is the LIBRARY'S, which is exactly why the mapper
-    // now reports a tripwire instead of a silent `continue`: were a version bump to
-    // start passing such a line through, the drop would be visible rather than a hunk
-    // rendering short with every later line number low and nothing saying why.
+    // The unrecognized-prefix branch in the line mapper is a backstop: `parsePatch` pushes a
+    // body line only for ` `, `+`, `-` or `\` and throws otherwise (checked against `diff`
+    // 9.0.0's `parseHunk`). The mapper reports a tripwire so a version bump that started
+    // passing such a line through would be visible rather than a hunk rendering short.
     expect(() =>
       parsePlainPatch(
         [
@@ -333,13 +313,10 @@ describe("parseUnifiedPatch — a body line this parser cannot place", () => {
 
 describe("parseUnifiedPatch — the header scan splits the way the parser splits", () => {
   it("keeps one hunk on one header when a body line carries a lone carriage return", () => {
-    // The defect, and it is reachable: a file with old-Mac endings is ONE line to git,
-    // so an added line can carry bare carriage returns — and text about patches can
-    // carry an `@@` header inside one. `parsePatch` splits on `\n` and nothing else,
-    // while this module's scanner used to split on `\r`, `\v`, `\f` and `\u0085` too.
-    // The scanner therefore found a header the parser never saw, and the ordinal
-    // pairing put every later hunk on the previous one's header. On that splitter the
-    // counts disagree and this parse refuses.
+    // Reachable: a file with old-Mac endings is one line to git, so an added line can carry
+    // bare carriage returns and an `@@` header. `parsePatch` splits on `\n` only, so a
+    // scanner that also split on `\r`, `\v`, `\f` or `\u0085` would find a header the parser
+    // never saw and misalign every later hunk. The counts disagree and this parse refuses.
     const patch = [
       "--- packages/contracts/src/event.ts",
       "+++ packages/contracts/src/event.ts",
@@ -356,9 +333,8 @@ describe("parseUnifiedPatch — the header scan splits the way the parser splits
   });
 
   it("still renders a Windows patch's header without the carriage return on it", () => {
-    // The property the old splitter was written for, kept: where a line ENDS is the
-    // parser's question and what a header CARRIES is this module's, so the `\r` a CRLF
-    // patch leaves on the end is trimmed from the kept text rather than from the split.
+    // Where a line ends is the parser's question and what a header carries is this module's,
+    // so the `\r` a CRLF patch leaves is trimmed from the kept text, not from the split.
     const model = parseUnifiedPatch(
       [
         "--- packages/contracts/src/event.ts",
@@ -378,10 +354,9 @@ describe("parseUnifiedPatch — the header scan splits the way the parser splits
 
 describe("parseUnifiedPatch — the declared headers and the parsed hunks are one count", () => {
   it("negative control: a patch whose counts agree parses, headers verbatim", () => {
-    // The guard is a backstop on an agreement that belongs to the pinned library
-    // rather than to this module — both walks now split identically, so no patch
-    // `parsePatch` accepts reaches it. What this holds is the other direction: the
-    // guard refuses nothing it should not, and the headers are the patch's own.
+    // A backstop: both walks split identically now, so no patch `parsePatch` accepts reaches
+    // the guard. This holds the other direction: it refuses nothing it should not, and the
+    // headers are the patch's own.
     const model = parsePlainPatch(PLAIN_PATCH);
     expect(model.files.flatMap((file) => file.hunks.map((hunk) => hunk.header))).toStrictEqual([
       "@@ -10,2 +10,2 @@",

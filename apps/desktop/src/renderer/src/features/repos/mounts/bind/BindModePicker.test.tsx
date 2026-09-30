@@ -1,11 +1,7 @@
-// The bind form's mode rows, over the one derivation both pickers now read through.
-//
-// THE ARM THAT MATTERS is a mode the reply names as both available and restricted.
-// Two copies of that derivation could disagree, one blanking the reason and the other
-// keeping it — so the same malformed reply would disclose the restriction in one
-// component and hide it in the other. This drives the real component over the real
-// `executionModeRows`, with the sibling picker's own case in
-// `ExecutionModePicker.test.tsx` making the pair.
+// The bind form's mode rows over the one derivation both pickers read through. The case that
+// matters is a mode named as both available and restricted: two copies of the derivation
+// could disagree, one blanking the reason and the other keeping it. The sibling picker's case
+// is in `ExecutionModePicker.test.tsx`.
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -14,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { executionModeRows } from "../execution-mode-rows.js";
 import { BindModePicker } from "./BindModePicker.js";
 
-/** A reply that names `bound-root` in both halves. Malformed, and reachable. */
+/** A reply that names `bound-root` in both halves: malformed, and reachable. */
 const AVAILABLE_AND_RESTRICTED: WorkspaceExecutionModeCapabilitiesReadResponse = {
   availableModes: ["bound-root", "provisioned-worktree"],
   defaultMode: "bound-root",
@@ -38,7 +34,7 @@ describe("BindModePicker", () => {
   it("shows the mount's reason on a mode it also offers", () => {
     const { getByText, getByDisplayValue } = renderPicker(AVAILABLE_AND_RESTRICTED);
     expect(getByText("This branch is checked out somewhere else.")).toBeTruthy();
-    // And it is still offered: the reply is the authority on what is admitted.
+    // Still offered: the reply is the authority on what is admitted.
     expect((getByDisplayValue("bound-root") as HTMLInputElement).disabled).toBe(false);
   });
 

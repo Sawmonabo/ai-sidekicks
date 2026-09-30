@@ -1,7 +1,5 @@
-// The read: what it asks, and in what order.
-//
-// Every case here drives the real reader over scripted calls on a frozen clock. Nothing
-// stands in for the module under test, and no timer is real.
+// The read: what it asks, and in what order. The real reader runs over scripted calls on a
+// frozen clock.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -19,7 +17,6 @@ import {
   worktreeRecord,
 } from "./repo-mounts.test-support.js";
 
-// Every reader a case opens is tracked, and none of them outlives its case.
 afterEach(disposeTrackedReaders);
 
 describe("RepoMountsReader — the read", () => {
@@ -34,10 +31,8 @@ describe("RepoMountsReader — the read", () => {
     const reading = reader.snapshot;
     expect(reading.status).toBe("read");
     expect(reading.workspaces).toHaveLength(3);
-    // The workspace list is where the mounts come from, and the mount read is the only
-    // call that carries `health`. One read per DISTINCT mount, and each answers about the
-    // mount it named — an answer that gave both the same mount would report a session
-    // holding two as holding one.
+    // The workspace list is where the mounts come from, and the mount read is the only call
+    // that carries `health`. One read per distinct mount, each answering about the mount it named.
     expect(reading.mounts.map((mount) => mount.id)).toStrictEqual(
       reading.workspaces.map((row) => row.repoMountId),
     );
@@ -55,8 +50,7 @@ describe("RepoMountsReader — the read", () => {
     await settle(clock, reader);
 
     const reading = reader.snapshot;
-    // One answer per workspace, keyed by the list's own ids rather than by ids restated
-    // here.
+    // One answer per workspace, keyed by the list's own ids.
     expect(Object.keys(reading.capabilitiesByWorkspaceId).sort()).toStrictEqual(
       reading.workspaces.map((row) => row.id).sort(),
     );
@@ -67,8 +61,7 @@ describe("RepoMountsReader — the read", () => {
   });
 
   it("reads the worktrees of every bound mount, mount by mount", async () => {
-    // The status read is keyed by one project's folder, so a session on three mounts
-    // asks three times; a reader that asked only for the first would drop the others.
+    // The status read is keyed by one project's folder, so three mounts mean three calls.
     const clock = new ManualClock();
     const reader = openReader(
       sessionOperations({
@@ -96,9 +89,8 @@ describe("RepoMountsReader — the read", () => {
   });
 
   it("negative control: nothing is read until the section starts", async () => {
-    // Without this the cases above would pass against a reader that read at
-    // construction, which would put a burst of daemon calls behind every render pass
-    // React discards.
+    // Without this the cases above would pass against a reader that read at construction,
+    // putting a burst of daemon calls behind every render pass React discards.
     const clock = new ManualClock();
     const reader = openReader(sessionOperations(), clock);
     clock.advance(REFRESH_DEBOUNCE_MS);
@@ -108,9 +100,8 @@ describe("RepoMountsReader — the read", () => {
   });
 
   it("starts once however many times it is asked to", async () => {
-    // React mounts an effect twice under development strict mode, and a reader that
-    // armed twice there would double every read in exactly the environment where the
-    // budget is being watched.
+    // React mounts an effect twice under development strict mode; a reader that armed twice
+    // would double every read.
     const clock = new ManualClock();
     const reader = openReader(sessionOperations(), clock);
     reader.start();
