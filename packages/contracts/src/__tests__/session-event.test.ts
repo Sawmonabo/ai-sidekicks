@@ -1002,7 +1002,8 @@ describe("CapabilityDetailsSchema (canonical capability snapshot)", () => {
 });
 
 // The event_maintenance payload variant (`event.compacted`). The daemon emits it itself, so its
-// payload schema is authored in event.ts rather than imported from an emitting contract.
+// payload schema is authored in event-declared-variants.ts rather than imported from an emitting
+// contract.
 // Coverage is at the variant level (through `SessionEventSchema`): a payload-only suite would
 // stay green if an arm were never registered in the union.
 
