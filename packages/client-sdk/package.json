@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "catalog:testing",
