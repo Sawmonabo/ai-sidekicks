@@ -126,11 +126,6 @@ export class RustSidecarPtyHost implements PtyHost {
     });
   }
 
-  /** The live sidecar child, or `null` before the first spawn and between a crash and the respawn. */
-  private get child(): SidecarChildProcess | null {
-    return this.childProcess.currentChild;
-  }
-
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
     await this.childProcess.ensureChild(this.shuttingDown);
     // The session is registered in `resolveOutstanding`, not after this await: frames dispatch
@@ -627,7 +622,7 @@ export class RustSidecarPtyHost implements PtyHost {
     expectedResponseKind: Envelope["kind"],
   ): Promise<Envelope> {
     return new Promise<Envelope>((resolve, reject) => {
-      const child: SidecarChildProcess | null = this.child;
+      const child: SidecarChildProcess | null = this.childProcess.currentChild;
       if (child === null) {
         reject(new Error("RustSidecarPtyHost.sendRequest: no child process"));
         return;
