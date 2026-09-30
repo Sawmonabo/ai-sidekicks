@@ -982,7 +982,7 @@ jobs:
       - name: Install (runtime-daemon and its workspace dependencies only)
         run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/runtime-daemon..."
 
-      - name: Assert prebuild provenance and the Spec-013 pragma readback
+      - name: Assert prebuild provenance and the SQLite pragma readback
         shell: bash
         env:
           EXPECTED_PREBUILD: ${{ matrix.prebuild }}
@@ -1057,13 +1057,13 @@ jobs:
               );
             }
 
-            // `Spec-013 §Pragmas`, on the REOPEN path — the only path that tests
+            // The daemon's pragmas, on the REOPEN path — the only path that tests
             // the override. A freshly created database is in delete mode and
             // reads `synchronous = 2` from `SQLITE_DEFAULT_SYNCHRONOUS`, which
             // says nothing about the WAL default the override exists for. A
             // connection opening an ALREADY-WAL database reads
-            // `SQLITE_DEFAULT_WAL_SYNCHRONOUS`, and Spec-013's durability
-            // posture is that this must be raised, not inherited.
+            // `SQLITE_DEFAULT_WAL_SYNCHRONOUS`, and the daemon's durability
+            // rule is that this must be raised to FULL, not inherited.
             const database = new DatabaseConstructor(databasePath);
             const compileOptions = database.pragma("compile_options").map((row) => row.compile_options);
             const walSynchronousDefault = database.pragma("synchronous", { simple: true });
