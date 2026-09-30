@@ -1,5 +1,6 @@
 // What the operator controls send: the reason as typed, nothing past the byte bound, and a re-pin
-// target only when it is on the chain now on screen.
+// target only when it is on the chain now on screen; and the state a re-parked run answers with
+// never reaches the screen.
 
 import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
 
@@ -7,7 +8,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { OperatorControls } from "./OperatorControls.js";
-import { IDLE_RUN_CONTROL_OUTCOME, type WorkflowVersionChoice } from "../run-controls.js";
+import {
+  IDLE_RUN_CONTROL_OUTCOME,
+  WORKFLOW_RUN_RE_PARKED_STATE,
+  type WorkflowVersionChoice,
+} from "../run-controls.js";
 
 /** The run the controls hold their two fields against. */
 const RUN_A_ADDRESS = { workflowRunId: "run-a" } as const;
@@ -48,6 +53,21 @@ function chooseThenMoveChain(
   fireEvent.change(screen.getByRole("combobox"), { target: { value: "wfv-02" } });
   rendered.rerender(admitted({ versionChain, resume }));
 }
+
+describe("no wire spelling reaches the screen", () => {
+  it("does not render the state a re-parked run answers with", () => {
+    const { container } = render(
+      <OperatorControls
+        {...RUN_A_ADDRESS}
+        cancel={{ cancel: vi.fn(), outcome: IDLE_RUN_CONTROL_OUTCOME }}
+        resume={{ resume: vi.fn(), versionChain: [], outcome: IDLE_RUN_CONTROL_OUTCOME }}
+      />,
+    );
+
+    expect(container.textContent ?? "").toContain("re-parks on its next dispatch");
+    expect(container.textContent ?? "").not.toContain(WORKFLOW_RUN_RE_PARKED_STATE);
+  });
+});
 
 describe("cancel is never gated, queued or disabled", () => {
   it("carries the operator's reason through verbatim", () => {
