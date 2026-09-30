@@ -1195,7 +1195,7 @@ CREATE TABLE agents (
                                                         -- deleted the row itself must still answer what the agent was given
                                                         -- (I-027-12), and an opaque blob cannot be read back by that path
   resolved_from_definition_id TEXT,                     -- the saved agent definition this agent was resolved from, written from
-                                                        -- ResolvedAgentRecord.definitionId; NULL for an agent no definition produced.
+                                                        -- the resolved configuration's resolvedFromDefinitionId; NULL for an agent no definition produced.
                                                         -- No foreign key: the row keeps naming its source after that definition is deleted,
                                                         -- as `instructions` keeps what it was given
   pending_switch  TEXT,                                 -- D-014-26: the JSON AgentBindingSwitchPending shape, status literal

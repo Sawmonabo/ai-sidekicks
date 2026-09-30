@@ -231,7 +231,7 @@ An index, not a second contract: each region of the session screen, what it need
 | Preview | The open pages with each one's address, title, icon, load state, zoom and whether its history has somewhere to go; the discovered dev servers; the machine the page runs on; the live picture on another device; the staged marks | `preview.pageList`, served live; `preview.pageOpen`, `preview.pageClose`, `preview.pageActivate`, `preview.pageReorder`, `preview.navigate` and `preview.zoom`; `preview.devServerList`, served live; `preview.screencastSubscribe` on another device; the staged marks live in the composer store until `preview.marksSend` sends them. The browser's saved-site verbs and the page host's own traffic are in [§Page-Host Method Registry](#page-host-method-registry) |
 | Cloud tasks | The session's tasks sent to a provider's cloud, each one's last reported state and attempts, a ready attempt's diff, and bringing one back | `cloud.taskStart`; `cloud.taskList`, served live; `cloud.taskRead`; `cloud.taskDiffRead`; `cloud.taskApply`; the event `cloud.task_updated` |
 | Voice | Dictation into the draft; a spoken call with the agent; the voices offered; which session voice is on in | `voice.dictationStart`, `voice.dictationWrite`, `voice.dictationStop` and `voice.dictationSubscribe`; `voice.callStart`, `voice.callStop` and `voice.callSubscribe`; `voice.voiceList`; `voice.stateUpdate` and `voice.stateSubscribe` |
-| The working line | What the agent is doing, or Codex's own sentence while it holds a turn for a safety check; the elapsed clock, the tokens received this turn, the turn's state word, its task list, the warnings count and its list, and the connection state | `run.subscribeState` for the state and the activity; `run.safety_buffering_updated` on `session.subscribe` for Codex's sentence; `turn.usage` for the tokens; `turn.tasks` for the list; the `session.notice` records of kind `provider_warning` for the warnings; the `daemon.status` topic on `daemon.subscribe` for the connection state |
+| The working line | What the agent is doing, or Codex's own sentence while it holds a turn for a safety check; the elapsed clock, the tokens received this turn, the turn's state word, its task list, the warnings count and its list, and the connection state | `run.subscribeState` for the state and the activity, and for Codex's sentence (`run.safety_buffering_updated`); `turn.usage` for the tokens; `turn.tasks` for the list; the `session.notice` records of kind `provider_warning` for the warnings; the `daemon.status` topic on `daemon.subscribe` for the connection state |
 | The bell and the notifications list | The count of what is waiting, one line per moment, and the moment a banner speaks for | `attention.projectionRead`, served live: the whole projection, then every change. Main settles each banner it posts with `attention.bannerSettle`; no region calls it |
 | The service | Whether the background service answers, its liveness, and the flush before a quit | `daemon.status.read`; `daemon.ping`, main's liveness check; `daemon.flush` before a quit, which never stops the service; the boot card's `Retry` is the bridge's `daemon.requestStart()` |
 | The preload bridge | How the renderer reaches the daemon, the machine and its own windows | `daemon.call` and `daemon.subscribe`; `native.copyToClipboard`, `native.revealInFileExplorer`, `native.showOpenDialog`, `native.getDroppedFileRef`, `native.savePastedImage`, `native.showSaveDialog`, `native.openExternal`, `native.openInEditor` and `native.openInTerminal`, each file operation taking or returning a `FilePathRef` token that main's relay turns into a path; `window.setAppearance`, `window.subscribeAppearance`, `window.subscribeFullscreen`, `window.setMinimumSize` and `window.subscribeToNavigationRequest` |
@@ -462,9 +462,9 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `presence.read {}` | Read the devices connected to this machine, and whether an app window is in front on each | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phase 5 |
+| `presence.read {}` | Read the devices connected to this machine: each one's `deviceId`, `deviceType`, whether an app window is in front on it (`appVisible`) and its liveness `state` (`PresenceState`). It carries no last-seen time: a device card's `Connected now` and `Last seen` are `device.list`'s alone | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phase 5 |
 | `presence.subscribe {}` | Follow the devices connected to this machine as they come and go | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phase 5 |
-| `presence.heartbeat`, carrying `PresenceHeartbeat` | A device tells the machine whether an app window is in front on it, a locked or sleeping screen counting as not in front, when that changes and otherwise every 15 seconds; the machine keeps the last one per device and admits at most 10 a minute from each | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phases 4 and 5 |
+| `presence.heartbeat`, carrying `PresenceHeartbeat` (`deviceId`, its liveness state, and its `deviceType`, `focusedSessionId`, `lastActivityAt` and `appVisible`) | A device tells the machine whether an app window is in front on it, a locked or sleeping screen counting as not in front, when that changes and otherwise every 15 seconds; the machine keeps the last one per device and admits at most 10 a minute from each | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phases 4 and 5 |
 
 ### `preview.*`
 
@@ -595,7 +595,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `run.queueReorder {sessionId, childHandle?, queueItemIds}` | Reorder the waiting messages: one daemon-held order over the items still waiting, on the lead's queue or a child's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T2.11 |
 | `run.recoveryResolve {runId, choice: keep_provider \| undo_to_agreed \| continue_provider \| hand_over}`, event `run.recovery_resolved` | After a restart, settle a mismatch between the session's record and the provider's: a read-only surplus is added with no question, and any other asks with two named choices | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-013](../../plans/013-persistence-recovery-and-replay.md) T15.5 |
 | `run.resume` | The second press of `Pause`, which continues | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.6, T3.5, T4.1 |
-| event `run.safety_buffering_updated` {sessionId, runId, turnId, active, fasterModel?}, relayed live and never kept | Codex's own sentence in the working line's action words while Codex holds a turn for a safety check; no flow row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
+| event `run.safety_buffering_updated` {sessionId, runId, turnId, active, fasterModel?}, relayed live on `run.subscribeState` and never kept | Codex's own sentence in the working line's action words while Codex holds a turn for a safety check; no flow row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
 | `run.subscribeQueue` | The queue stream | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T4.1 |
 | `run.subscribeState` | The run-state stream: state slot, activity, the row dots | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.3, T4.1 |
 
@@ -814,13 +814,13 @@ interface SessionCreateResponse {
 
 // session.created payload (Spec-005 §Session Lifecycle). A session has exactly one main agent and that
 // agent is born with the session rather than joined to it later, so this event is the creating record of
-// that agent's row in the agents projection (`ResolvedAgentRecord`, §Plan-014) and no attach event exists.
+// that agent's row in the agents projection (`AgentListEntry`, `agent.list` in §Plan-014) and no attach event exists.
 // It is also the one record of the session's shape at birth, of the session it was forked from, and of the
 // definition a scratch session tries, so the session's row is rebuilt from events alone.
 interface SessionCreatedPayload {
   sessionId: SessionId;
   shape: SessionShape;
-  mainAgent: ResolvedAgentRecord;
+  mainAgent: AgentListEntry; // the agent as `agent.list` describes it, one shape for one live agent
   // Present exactly on a forked session: the session it was forked from and the message it was forked
   // at. Parentage is recorded here and nowhere else (`session.fork` below).
   parent?: { sessionId: SessionId; anchorCursor: EventCursor };
@@ -912,8 +912,6 @@ interface SessionSnapshot {
   // snapshot, and a second verb would be a second source for one fact (Spec-014 §Sessions Talking To
   // Each Other).
   address: string;
-  config: Record<string, unknown>;
-  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -2415,9 +2413,9 @@ type CapabilityDetectionSource = "static" | "probed";
 
 ```ts
 // run.safety_buffering_updated — Codex's `model/safetyBuffering/updated`, its `showBufferingUi`
-// carried as `active` (Spec-005 §Run Lifecycle). A LIVE event: the daemon relays it on the
-// session's stream and never appends it, so it has no sequence, is not kept in the session's
-// history and is not replayed; a re-opened session does not show it. While `active` is true the
+// carried as `active` (Spec-005 §Run Lifecycle). A LIVE event on the run's own state stream,
+// `run.subscribeState`, outside the session-event union: the daemon never appends it, so it has no
+// sequence, is not kept in the session's history and is not replayed; a re-opened session does not show it. While `active` is true the
 // working line's action words read Codex's own sentence in place of the verb, and when Codex
 // clears the flag or the reply starts, the verb returns.
 interface RunSafetyBufferingUpdatedPayload {
@@ -3471,7 +3469,7 @@ Plan-003's queue / intervention / pause-resume operations and a child's controls
 
 A refusal of any of the three is `run.child_control_refused`, with `reason` `child_unknown`, `child_ended` or `provider_refused`. Spec-003's V1 control set is the same three controls; these address them at a child.
 
-`run.queueList` is the only `query` (idempotent read); the mutations are state-changing per the tRPC procedure-type convention in §Plan-028 — Remote Control Bootstrap above. The lead's interrupt is `run.intervene {type: "interrupt"}`, and the person's steer is always a queue send, `run.queueCreate`: an edit of a waiting message is one `run.queueCreate` carrying `replacesQueueItemId`, and a new order is one `run.queueReorder`, never a client's cancel and resend. The `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent | RunRolledBackEvent` (the state shape carries the `runVersion` comparand clients pass back as `expectedRunVersion`; the per-type non-state rollback arm — [Spec-005 §Run Lifecycle (run_lifecycle)](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — rides the same stream so subscribers observe position rewinds without a fabricated transition), and `run.subscribeQueue` streams the existing `QueueItemSummary` projection (no separate queue-change event type is introduced). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/run-control.ts` (CP-003-3) per the §Source-of-Truth Policy.
+`run.queueList` is the only `query` (idempotent read); the mutations are state-changing per the tRPC procedure-type convention in §Plan-028 — Remote Control Bootstrap above. The lead's interrupt is `run.intervene {type: "interrupt"}`, and the person's steer is always a queue send, `run.queueCreate`: an edit of a waiting message is one `run.queueCreate` carrying `replacesQueueItemId`, and a new order is one `run.queueReorder`, never a client's cancel and resend. The `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent | RunRolledBackEvent | RunSafetyBufferingUpdatedPayload` (the last is Codex's live safety-check hold, never appended; the state shape carries the `runVersion` comparand clients pass back as `expectedRunVersion`; the per-type non-state rollback arm — [Spec-005 §Run Lifecycle (run_lifecycle)](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — rides the same stream so subscribers observe position rewinds without a fabricated transition), and `run.subscribeQueue` streams the existing `QueueItemSummary` projection (no separate queue-change event type is introduced). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/run-control.ts` (CP-003-3) per the §Source-of-Truth Policy.
 
 ### Plan-028 — Remote Control Relay
 
@@ -6200,95 +6198,76 @@ interface AgentListRequest {
   sessionId: SessionId;
 }
 interface AgentListResponse {
-  agents: Array<{
-    agentId: AgentId;
-    name: string;
-    driverName: string;
-    modelId: string;
-    config: Record<string, unknown>; // driver-scoped persona config; {} when never supplied (agents.config NOT NULL DEFAULT '{}')
-    // Where the agent sits in the session's tree: from the lead down to this agent's parent, read
-    // from the daemon's parent-to-child index (the same source as orchestration.childRunLinkRead's
-    // `ancestry`); empty for the lead.
-    ancestry: AgentTreeMember[];
-    // D-014-26: the agent's EFFECTIVE binding — the one it runs under now, never the pending one.
-    // Absent `providerAccountId` = the agent follows the provider's current account (the one marked
-    // `Default`); absent `effort` = the driver's own default for the model; absent `outputSpeed`
-    // = never set, so the provider's own default stands. Each is
-    // served from that member's own column on the agent row — the columns an applying switch commits
-    // its binding into — so every member a caller can move is also a member a caller can read back.
-    // A run-bound member readable only as a PENDING intent would go dark at the moment it applied.
-    providerAccountId?: ProviderAccountId;
-    effort?: string;
-    outputSpeed?: string;
-    // What the PROVIDER declared, as against `outputSpeed` above, which is what was REQUESTED
-    // (Spec-004 §The output-speed axis). Projected at response-build time from the
-    // binding-held `ProviderOutputSpeedState` — the observation the driver recorded when the
-    // declaring handshake arrived — and stored in no column, so it cannot go stale. LIVE-SCOPED on
-    // the SA-44 park-member precedent.
-    //
-    // ABSENT HAS THESE CAUSES, and none of them is "the mode is off": the
-    // binding's driver declares no `output_speed` and there is nothing to read; the driver declares
-    // it and NO TURN-BEARING EXCHANGE HAS YET CARRIED THE HANDSHAKE, so the observation has not
-    // happened; or no binding for this agent is live. The middle arm is the one a reader right after
-    // a switch will hit — an agent read immediately after a switch applies is expected to show the
-    // requested value with this member absent — so consumers render "not yet observed", never "off"
-    // and never a stand-in for `outputSpeed`. Presence stays the discriminator for "this was read
-    // from the provider"; absence means nothing has been read YET or ever, which is the same
-    // instruction to the reader in every arm.
-    //
-    // An agent runs on one binding at a time, so the projection is that binding's declaration,
-    // and the values in this row pair the current request with the declaration it produced. This member is what makes the prohibited false success
-    // unrenderable — a provider that ACCEPTS the setting and then leaves the mode off shows a
-    // requested value and a differing declared one, with the provider's own reason beside it.
-    // That disagreement is deliberately NOT a switch failure: the switch applied, the provider
-    // then declared something else, and reporting it as a failure would be the same false claim
-    // in the other direction — so `AgentBindingSwitchFailed.reason` stays unwidened for it, and
-    // `output_speed_unavailable` keeps its own narrower meaning (the mode could not be requested
-    // at all: the vocabulary is gone, or the target driver stopped declaring the flag).
-    observedOutputSpeed?: ProviderOutputSpeedState;
-    // Present exactly while a switch is pending on this agent, so the deferred intent is readable
-    // rather than inferable — including after a daemon restart, which re-arms it from the durable
-    // agent row. A live list is how a caller that was not the mutator learns a switch is queued.
-    pendingSwitch?: AgentBindingSwitchPending;
-    // Present iff this agent was resolved from a saved definition — the row a name in a composer
-    // produces. Every field as actually applied, with the resolved binding in place of the folded axes
-    // (§Plan-027). It is a record of what the run started under, never a live view of the definition: the
-    // definition may have moved since, and the agent keeps what it was given. Its
-    // `resolvedFromDefinitionId` is the one home of the definition an agent came from.
-    resolvedConfiguration?: AgentResolvedConfiguration;
-    createdAt: string;
-  }>;
+  agents: AgentListEntry[];
 }
-
-// The CREATING RECORD of an agent's row in the agents projection above, as the durable event carries
-// it. No `agent.*` type creates a row — each of those only moves one — so exactly two events mint one:
-// `session.created` for a session's own lead, and `run.queued` for an agent the daemon resolved from a
-// saved definition at the queue insert (Spec-005 §Session Lifecycle, §Run Lifecycle). Every member is a
-// value the DAEMON resolved: the binding it resolved (driver, model, provider account, effort), the
-// axes it reads for itself (posture mode, tool allowlist, instructions), and the definition where one
-// was named. The event carries the same resolved values the creating reply echoes, so the wire and the
-// durable record serialize identically. A definition's goal is not a member: the
-// agent starts with it as its own goal command, which `session.goal_updated` records.
-interface ResolvedAgentRecord {
+interface AgentListEntry {
   agentId: AgentId;
-  definitionId?: AgentDefinitionId;
   name: string;
   driverName: string;
   modelId: string;
-  providerAccountId: ProviderAccountId;
+  config: Record<string, unknown>; // driver-scoped persona config; {} when never supplied (agents.config NOT NULL DEFAULT '{}')
+  // Where the agent sits in the session's tree: from the lead down to this agent's parent, read
+  // from the daemon's parent-to-child index (the same source as orchestration.childRunLinkRead's
+  // `ancestry`); empty for the lead.
+  ancestry: AgentTreeMember[];
+  // D-014-26: the agent's EFFECTIVE binding — the one it runs under now, never the pending one.
+  // Absent `providerAccountId` = the agent follows the provider's current account (the one marked
+  // `Default`); absent `effort` = the driver's own default for the model; absent `outputSpeed`
+  // = never set, so the provider's own default stands. Each is
+  // served from that member's own column on the agent row — the columns an applying switch commits
+  // its binding into — so every member a caller can move is also a member a caller can read back.
+  // A run-bound member readable only as a PENDING intent would go dark at the moment it applied.
+  providerAccountId?: ProviderAccountId;
   effort?: string;
-  executionPostureMode?: AgentDefinition["executionPostureMode"];
-  toolAllowlist?: string[] | null;
-  instructions?: string;
+  outputSpeed?: string;
+  // What the PROVIDER declared, as against `outputSpeed` above, which is what was REQUESTED
+  // (Spec-004 §The output-speed axis). Projected at response-build time from the
+  // binding-held `ProviderOutputSpeedState` — the observation the driver recorded when the
+  // declaring handshake arrived — and stored in no column, so it cannot go stale. LIVE-SCOPED on
+  // the SA-44 park-member precedent.
+  //
+  // ABSENT HAS THESE CAUSES, and none of them is "the mode is off": the
+  // binding's driver declares no `output_speed` and there is nothing to read; the driver declares
+  // it and NO TURN-BEARING EXCHANGE HAS YET CARRIED THE HANDSHAKE, so the observation has not
+  // happened; or no binding for this agent is live. The middle arm is the one a reader right after
+  // a switch will hit — an agent read immediately after a switch applies is expected to show the
+  // requested value with this member absent — so consumers render "not yet observed", never "off"
+  // and never a stand-in for `outputSpeed`. Presence stays the discriminator for "this was read
+  // from the provider"; absence means nothing has been read YET or ever, which is the same
+  // instruction to the reader in every arm.
+  //
+  // An agent runs on one binding at a time, so the projection is that binding's declaration,
+  // and the values in this row pair the current request with the declaration it produced. This member is what makes the prohibited false success
+  // unrenderable — a provider that ACCEPTS the setting and then leaves the mode off shows a
+  // requested value and a differing declared one, with the provider's own reason beside it.
+  // That disagreement is deliberately NOT a switch failure: the switch applied, the provider
+  // then declared something else, and reporting it as a failure would be the same false claim
+  // in the other direction — so `AgentBindingSwitchFailed.reason` stays unwidened for it, and
+  // `output_speed_unavailable` keeps its own narrower meaning (the mode could not be requested
+  // at all: the vocabulary is gone, or the target driver stopped declaring the flag).
+  observedOutputSpeed?: ProviderOutputSpeedState;
+  // Present exactly while a switch is pending on this agent, so the deferred intent is readable
+  // rather than inferable — including after a daemon restart, which re-arms it from the durable
+  // agent row. A live list is how a caller that was not the mutator learns a switch is queued.
+  pendingSwitch?: AgentBindingSwitchPending;
+  // Present iff this agent was resolved from a saved definition — the row a name in a composer
+  // produces. Every field as actually applied, with the resolved binding in place of the folded axes
+  // (§Plan-027). It is a record of what the run started under, never a live view of the definition: the
+  // definition may have moved since, and the agent keeps what it was given. Its
+  // `resolvedFromDefinitionId` is the one home of the definition an agent came from.
+  resolvedConfiguration?: AgentResolvedConfiguration;
+  createdAt: string;
 }
 
 // run.queued payload, the agent-resolution member (Spec-005 §Run Lifecycle). Present exactly where the
 // request that created the run named a saved definition rather than an agent already in the projection —
-// a peer invocation's own run included — which is why `definitionId` is required on this arm and optional
-// on the record itself. Path-independent, like the admission stamps below: the daemon mints the agent's id
+// a peer invocation's own run included. It is the CREATING RECORD of that agent's row, in the one shape
+// `agent.list` describes an agent: `session.created` mints a session's lead and this member mints an agent
+// resolved from a definition, and no `agent.*` type creates a row. Its `resolvedConfiguration` is present,
+// and that configuration's `resolvedFromDefinitionId` names the definition. Path-independent, like the admission stamps below: the daemon mints the agent's id
 // at the queue insert exactly as it mints the run id, whichever creation path admitted the run.
 interface RunQueuedAgentResolution {
-  resolvedAgent?: ResolvedAgentRecord & { definitionId: AgentDefinitionId };
+  resolvedAgent?: AgentListEntry & { resolvedConfiguration: AgentResolvedConfiguration };
 }
 
 // Orchestration queue-admission carrier (D-014-13) — IN-PROCESS seam type, not a wire shape, declared

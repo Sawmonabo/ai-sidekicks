@@ -120,7 +120,7 @@ Payload shape: `{sessionId, previousState?, newState, actor?}`; the goal events 
 | `session.muted` | The session's notifications were muted, on every device: its `Finished` and `Failed` notices are withheld, while `Waiting on you` is untouched. Per-type payload `{sessionId, at}`; muting a muted session appends nothing. |
 | `session.unmuted` | The session's notifications were unmuted. Per-type payload `{sessionId, at}`; unmuting an unmuted session appends nothing. |
 | `session.converted` | A chat was converted to a project: a repository attached, the chat's files copied in with the paths the repository already has skipped, and the workspace kept. Per-type payload `{sessionId, repoMountId, copiedCount, skippedPaths}`. |
-| `session.side_question_answered` | A side question asked on a throwaway copy of the session (`/btw`) was answered. Per-type payload carries the question and the answer. |
+| `session.side_question_answered` | A side question asked on a throwaway copy of the session (`/btw`) was answered. Per-type payload carries the question and the answer. PII classification (field-by-field, the Plan-020 call-site rule): the plain half is `{sessionId, sideQuestionId}`, identifiers that are non-PII; `question` and `answer` are the person's and the provider's free text, and the emitter routes both through the Plan-020 `splitPii` splitter into `pii_payload`. |
 | `session.restore_finished` | An undo finished. Every outcome is this one event — all applied, part applied, or nothing applied — carrying `requested` (`conversation-and-files`, `conversation` or `files`), `restored` (the same values, or `nothing`), and, for each requested part that did not apply, `failures.conversation` / `failures.files` with its `reason`. `run.rolled_back` records the conversation cut alone. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
@@ -179,7 +179,7 @@ Payload shape: `{sessionId, runId, runVersion, previousState, newState, failureC
 | `run.step_limit_reached` | The run reached the session's `Max steps` bound. A **forward, non-state, non-terminal** event carrying the count the screen draws beside `Continue`; zero interaction with the terminal backstop index. Per-type payload (non-state): `{sessionId, runId, count}`. |
 | `run.recovery_steps_added` | After a restart, a part of the provider's own record that the service never wrote down, and that only read, was added to the transcript as the provider recorded it, and the session continued. A **forward, non-state, non-terminal** event, drawn as one faint row (`Added 2 steps from Claude Code's record after the restart`) so it survives a reload. Per-type payload (non-state): `{sessionId, runId, count, provider}`. |
 | `run.recovery_resolved` | After a restart, a mismatch between the session's record and the provider's that was not read-only was settled by the person's choice through `run.recoveryResolve` ([Spec-013](./013-persistence-recovery-and-replay.md)). A **forward, non-state, non-terminal** event. Per-type payload (non-state): `{sessionId, runId, choice: 'keep_provider' \| 'undo_to_agreed' \| 'continue_provider' \| 'hand_over'}`. |
-| `run.safety_buffering_updated` | Codex started or stopped holding a turn for a safety check (Codex's `model/safetyBuffering/updated`: its `showBufferingUi` becomes `active`, and `fasterModel` is carried as sent). A **live** event: the daemon relays it live and never appends it, so it has no sequence, no row in the session's history and no replay, and a re-opened session does not show it. While `active` is true the working line's action words read Codex's own sentence, `Giving this request a little extra thought`; it draws no flow row ([Spec-011 §Required Behavior](./011-live-timeline-visibility-and-reasoning-surfaces.md#required-behavior)). Per-type payload: `{sessionId, runId, turnId, active, fasterModel?}`. Claude Code sends no such signal. |
+| `run.safety_buffering_updated` | Codex started or stopped holding a turn for a safety check (Codex's `model/safetyBuffering/updated`: its `showBufferingUi` becomes `active`, and `fasterModel` is carried as sent). A **live** event on the run's own state stream, `run.subscribeState`, and not a member of the session-event union: the daemon never appends it, so it has no sequence, no row in the session's history and no replay, and a re-opened session does not show it. While `active` is true the working line's action words read Codex's own sentence, `Giving this request a little extra thought`; it draws no flow row ([Spec-011 §Required Behavior](./011-live-timeline-visibility-and-reasoning-surfaces.md#required-behavior)). Per-type payload: `{sessionId, runId, turnId, active, fasterModel?}`. Claude Code sends no such signal. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -236,7 +236,7 @@ The fifth set of `interactive_request` events: an agent stops mid-turn to ask th
 
 | Type | Description |
 | --- | --- |
-| `question.asked` | An agent asked the person one or more questions mid-turn, and the record the screen renders was created. |
+| `question.asked` | An agent asked the person one or more questions mid-turn, and the record the screen renders was created. PII classification (field-by-field, the Plan-020 call-site rule): the plain half is `{questionId, sessionId, runId?, waitId?, pageCount}`, identifiers and a count that are non-PII; `questions[]` is the agent's free text and the options it offers, and the emitter routes the whole array through the Plan-020 `splitPii` splitter into `pii_payload`. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 
@@ -586,7 +586,7 @@ The table covers session events only. The device and machine list events (§Devi
 | `session_lifecycle` (session) | `session.created` through `session.restore_finished` (incl. the goal events, the provider-reported events, and the pin, mute, convert, side-question and undo records) |
 | `session_lifecycle` (agent) | `agent.provider_binding_changed`, `agent.provider_binding_change_failed` |
 | `orchestration_admission` | `orchestration.rejected` |
-| `run_lifecycle` | `run.queued` through `run.safety_buffering_updated` (incl. the forward rollback event, the forward provider-reported events, the step-limit event, the recovery events, and the safety-buffering event, which is relayed live and never appended) |
+| `run_lifecycle` | `run.queued` through `run.recovery_resolved` (incl. the forward rollback event, the forward provider-reported events, the step-limit event and the recovery events); the safety-buffering event is named here but rides `run.subscribeState`, outside the session-event union |
 | `interactive_request` (queue) | `queue_item.created` through `queue_item.not_delivered` |
 | `interactive_request` (intervention) | `intervention.requested` through `intervention.expired` |
 | `interactive_request` (driver ask) | `driver_ask.requested` through `driver_ask.canceled` |
