@@ -1154,14 +1154,12 @@ CREATE TABLE agents (
   name            TEXT NOT NULL,
   driver_name     TEXT NOT NULL,                        -- provider driver key (Plan-004 capability surface)
   model_id        TEXT NOT NULL,
-  config          TEXT NOT NULL DEFAULT '{}',           -- JSON: agent-scoped driver config (opaque to the schema)
   provider_account_id TEXT,                             -- D-014-26: the binding's own account, the Plan-026 `provider_accounts.account_id`
                                                         -- this agent spawns under; NULL = follow the provider's current account, whichever it
                                                         -- is when a run starts, so this agent follows the mark when it moves. Set only when
                                                         -- the binding itself names an account. The account a run landed on is carried on the
                                                         -- settling agent.provider_binding_changed event, beside the binding, and is never
-                                                        -- written here, so a following agent is never silently pinned. Not inside `config`
-                                                        -- because the Spec-026 spawn gate reads it, and `config` is opaque to everything outside the driver
+                                                        -- written here, so a following agent is never silently pinned. The Spec-026 spawn gate reads it
   effort          TEXT,                                 -- D-014-26: reasoning effort, validated against the target
                                                         -- model's driver-reported `effortLevels` rather than a schema CHECK --
                                                         -- the valid set is per-model and provider-owned, so a CHECK here would
@@ -1171,11 +1169,11 @@ CREATE TABLE agents (
                                                         -- an agent is not born with a speed mode and no surface sets one at birth.
                                                         -- Uncheckable here for the same reason as `effort`: the valid set is the
                                                         -- driver-published `outputSpeedLevels`, so a CHECK would go stale behind a vendor.
-                                                        -- A column rather than a `config` key because the applying coordinator commits
+                                                        -- A durable column because the applying coordinator commits
                                                         -- the effective binding into these columns inside the transaction that clears
                                                         -- `pending_switch` below: a spawn-bound axis with a durable pending column and no
                                                         -- durable effective column would apply once and silently revert at the next
-                                                        -- restart, and `config` is opaque to the spawn path that has to read it
+                                                        -- restart
   execution_posture_mode TEXT
                   CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN
                         ('readonly','ask','reviewed','sandboxed','yolo')),
@@ -1187,13 +1185,11 @@ CREATE TABLE agents (
                                                         -- rather than provider-reported, so it cannot go stale behind a vendor
   tool_allowlist  TEXT,                                 -- CP-027-7: JSON array, THREE-state like its wire axis —
                                                         -- SQL NULL = driver defaults, '[]' = no tools, populated = exactly these.
-                                                        -- Outside `config` because the daemon composes the callback registry from
-                                                        -- it (I-027-10), and `config` is opaque to everything outside the driver
+                                                        -- The daemon composes the callback registry from it (I-027-10)
   instructions    TEXT,                                 -- CP-027-7: the system-prompt content AS APPLIED when the run started
-                                                        -- Read by prompt construction, which is why it is a typed column
-                                                        -- rather than a `config` key: after the source definition is
+                                                        -- Read by prompt construction: after the source definition is
                                                         -- deleted the row itself must still answer what the agent was given
-                                                        -- (I-027-12), and an opaque blob cannot be read back by that path
+                                                        -- (I-027-12)
   resolved_from_definition_id TEXT,                     -- the saved agent definition this agent was resolved from, written from
                                                         -- the resolved configuration's resolvedFromDefinitionId; NULL for an agent no definition produced.
                                                         -- No foreign key: the row keeps naming its source after that definition is deleted,

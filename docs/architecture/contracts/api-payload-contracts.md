@@ -9048,14 +9048,14 @@ type AgentHooks = Record<
 // binding has exactly ONE home on the wire and no surface reconstructs it by merging its own request with
 // a registry row that may already have moved. `instructions` is part of the echo rather than left out of
 // it: without it a caller cannot tell which system prompt the run actually received except by re-reading
-// the registry, which is the live-view read I-027-2 forbids. A definition's goal is not echoed: the agent
-// starts with it as its own goal command, which `session.goal_updated` records. Where the
+// the registry, which is the live-view read I-027-2 forbids. The goal is echoed as the definition set it;
+// the agent also starts with it as its own goal command, which `session.goal_updated` records. Where the
 // definition is bound plural the echo carries the RESOLVED BINDING in place of the folded axes, so a
 // reader is told which side of the per-field merge won rather than which axes existed to merge.
 type AgentResolvedConfiguration = {
   resolvedFromDefinitionId: AgentDefinitionId;
   resolvedBinding: AgentProviderBinding;
-} & Pick<AgentDefinition, "executionPostureMode" | "toolAllowlist" | "instructions">;
+} & Pick<AgentDefinition, "executionPostureMode" | "toolAllowlist" | "instructions" | "goal">;
 
 // agent.definitionList — node-local and unfiltered: every definition from the four origins — ours
 // (`.ai-sidekicks/agents/`, global or in a project), Claude Code's own agent files, Codex's own, and a
