@@ -23,13 +23,12 @@ import { bootstrap } from "../../bootstrap/index.js";
 import { SecureDefaults } from "../../bootstrap/secure-defaults.js";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
+import { FramingError, parseFrame } from "../content-length-framing.js";
 import {
   encodeFrame,
-  FramingError,
   JSON_RPC_ID_MAX_BYTES,
   LocalIpcGateway,
   MAX_MESSAGE_BYTES,
-  parseFrame,
   sanitizeErrorMessage,
   SANITIZED_MESSAGE_MAX_LEN,
   type SupervisionHooks,
@@ -114,7 +113,7 @@ function makeClient(socketPath: string): Promise<ClientHelper> {
 
 // Decodes the first complete frame in `acc`; throws if there is none.
 function decodeOneFrame(acc: Buffer): unknown {
-  const result = parseFrame(acc);
+  const result = parseFrame(acc, MAX_MESSAGE_BYTES);
   if (result.frame === null) {
     throw new Error(
       `decodeOneFrame: buffer did not contain a complete frame (length=${acc.byteLength})`,
@@ -136,7 +135,7 @@ describe("Content-Length framing parser correctness", () => {
   it("decodes a single complete frame and reports byte-correct `consumed`", () => {
     const envelope = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: {} };
     const frame = encodeFrame(envelope);
-    const result = parseFrame(frame);
+    const result = parseFrame(frame, MAX_MESSAGE_BYTES);
     expect(result.frame).not.toBeNull();
     expect(result.consumed).toBe(frame.byteLength);
     if (result.frame === null) {
@@ -149,19 +148,22 @@ describe("Content-Length framing parser correctness", () => {
     const env1 = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: { a: 1 } };
     const env2 = { jsonrpc: JSONRPC_VERSION, id: 2, method: "x.y", params: { b: 2 } };
     const buf = Buffer.concat([encodeFrame(env1), encodeFrame(env2)]);
-    const r1 = parseFrame(buf);
+    const r1 = parseFrame(buf, MAX_MESSAGE_BYTES);
     expect(r1.frame).not.toBeNull();
     if (r1.frame === null) throw new Error("unreachable");
     expect(JSON.parse(r1.frame.toString("utf8"))).toStrictEqual(env1);
     const remainder = buf.subarray(r1.consumed);
-    const r2 = parseFrame(remainder);
+    const r2 = parseFrame(remainder, MAX_MESSAGE_BYTES);
     expect(r2.frame).not.toBeNull();
     if (r2.frame === null) throw new Error("unreachable");
     expect(JSON.parse(r2.frame.toString("utf8"))).toStrictEqual(env2);
   });
 
   it("returns `{ frame: null, consumed: 0 }` for a partial buffer, header only or body short", () => {
-    const headerOnly = parseFrame(Buffer.from("Content-Length: 100\r\n", "ascii"));
+    const headerOnly = parseFrame(
+      Buffer.from("Content-Length: 100\r\n", "ascii"),
+      MAX_MESSAGE_BYTES,
+    );
     expect(headerOnly.frame).toBeNull();
     expect(headerOnly.consumed).toBe(0);
 
@@ -169,7 +171,7 @@ describe("Content-Length framing parser correctness", () => {
     const full = encodeFrame(env);
     // The header is complete but the last 5 body bytes are missing.
     const partial = full.subarray(0, full.byteLength - 5);
-    const result = parseFrame(partial);
+    const result = parseFrame(partial, MAX_MESSAGE_BYTES);
     expect(result.frame).toBeNull();
     expect(result.consumed).toBe(0);
   });
@@ -179,7 +181,7 @@ describe("Content-Length framing parser correctness", () => {
     const buf = Buffer.from("X-Other: 1\nContent-Length: 5\r\n\r\n12345", "ascii");
     let caught: unknown = null;
     try {
-      parseFrame(buf);
+      parseFrame(buf, MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -190,7 +192,7 @@ describe("Content-Length framing parser correctness", () => {
 
     caught = null;
     try {
-      parseFrame(Buffer.from("Content-Length: abc\r\n\r\n", "ascii"));
+      parseFrame(Buffer.from("Content-Length: abc\r\n\r\n", "ascii"), MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -201,7 +203,7 @@ describe("Content-Length framing parser correctness", () => {
 
     caught = null;
     try {
-      parseFrame(Buffer.from("Other-Header: 5\r\n\r\n12345", "ascii"));
+      parseFrame(Buffer.from("Other-Header: 5\r\n\r\n12345", "ascii"), MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -211,11 +213,37 @@ describe("Content-Length framing parser correctness", () => {
     }
   });
 
+  // Digits only, as HTTP/1.1 `Content-Length = 1*DIGIT`: `parseInt` would read `12junk` and
+  // `12.5` as 12, and `Number` would read `""`, `12e1` and `0x12` as 0, 120 and 18, so the two
+  // sides would slice different lengths.
+  it.each([
+    ["empty string", ""],
+    ["embedded letters", "12junk"],
+    ["fractional", "12.5"],
+    ["scientific notation", "12e1"],
+    ["negative sign", "-12"],
+    ["positive sign", "+12"],
+    ["hex literal", "0x12"],
+  ])("refuses a non-decimal Content-Length (%s) and echoes it JSON-encoded", (_label, raw) => {
+    let caught: unknown = null;
+    try {
+      parseFrame(Buffer.from(`Content-Length: ${raw}\r\n\r\n`, "ascii"), MAX_MESSAGE_BYTES);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FramingError);
+    if (caught instanceof FramingError) {
+      expect(caught.code).toBe("malformed_content_length");
+      // JSON-encoded so a peer cannot inject CRLF or control bytes into logs.
+      expect(caught.message).toContain(JSON.stringify(raw.trim()));
+    }
+  });
+
   it("throws FramingError(`malformed_content_length`) for duplicated Content-Length headers (request-smuggling shape)", () => {
     const buf = Buffer.from("Content-Length: 5\r\nContent-Length: 6\r\n\r\n123456", "ascii");
     let caught: unknown = null;
     try {
-      parseFrame(buf);
+      parseFrame(buf, MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -229,7 +257,7 @@ describe("Content-Length framing parser correctness", () => {
     // "héllo" is 6 bytes in UTF-8 but 5 characters.
     const env = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: { msg: "héllo" } };
     const frame = encodeFrame(env);
-    const result = parseFrame(frame);
+    const result = parseFrame(frame, MAX_MESSAGE_BYTES);
     expect(result.frame).not.toBeNull();
     if (result.frame === null) throw new Error("unreachable");
     const decoded = JSON.parse(result.frame.toString("utf8")) as Record<string, unknown>;
@@ -275,7 +303,7 @@ describe("Unix domain socket round-trip", () => {
         const acc = await client.waitForBytes((b) => {
           const r = (() => {
             try {
-              return parseFrame(b);
+              return parseFrame(b, MAX_MESSAGE_BYTES);
             } catch {
               return { frame: null, consumed: 0 };
             }
@@ -332,7 +360,7 @@ describe("Windows named pipe round-trip", () => {
           const acc = await client.waitForBytes((b) => {
             const r = (() => {
               try {
-                return parseFrame(b);
+                return parseFrame(b, MAX_MESSAGE_BYTES);
               } catch {
                 return { frame: null, consumed: 0 };
               }
@@ -382,7 +410,7 @@ describe("1MB max-message-size enforcement", () => {
         });
         const errored = client.waitForBytes((b) => {
           try {
-            return parseFrame(b).frame !== null;
+            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
           } catch {
             return false;
           }
@@ -427,7 +455,7 @@ describe("1MB max-message-size enforcement", () => {
         client2.socket.write(encodeFrame(request));
         const acc = await client2.waitForBytes((b) => {
           try {
-            return parseFrame(b).frame !== null;
+            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
           } catch {
             return false;
           }
@@ -479,7 +507,7 @@ describe("handler-thrown error mapping", () => {
         client.socket.write(encodeFrame(request));
         const acc = await client.waitForBytes((b) => {
           try {
-            return parseFrame(b).frame !== null;
+            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
           } catch {
             return false;
           }
@@ -657,7 +685,7 @@ describe("malformed request id rejected before dispatch", () => {
           client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
           const acc = await client.waitForBytes((b) => {
             try {
-              return parseFrame(b).frame !== null;
+              return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
             } catch {
               return false;
             }
@@ -721,7 +749,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
         client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
         const acc = await client.waitForBytes((b) => {
           try {
-            return parseFrame(b).frame !== null;
+            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
           } catch {
             return false;
           }
@@ -766,7 +794,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
         client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
         const acc = await client.waitForBytes((b) => {
           try {
-            return parseFrame(b).frame !== null;
+            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
           } catch {
             return false;
           }
@@ -814,7 +842,7 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
         client.socket.write(frame);
         const acc = await client.waitForBytes((b) => {
           try {
-            return parseFrame(b).frame !== null;
+            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
           } catch {
             return false;
           }
@@ -841,7 +869,7 @@ describe("parseFrame caps the header section", () => {
     const buf = Buffer.from(`Content-Length: 5\r\nX-Pad: ${padding}\r\n\r\n12345`, "ascii");
     let caught: unknown = null;
     try {
-      parseFrame(buf);
+      parseFrame(buf, MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -853,7 +881,7 @@ describe("parseFrame caps the header section", () => {
     // 2 KB with no separator yet: the stream looks desynchronized.
     caught = null;
     try {
-      parseFrame(Buffer.from("Z".repeat(2000), "ascii"));
+      parseFrame(Buffer.from("Z".repeat(2000), "ascii"), MAX_MESSAGE_BYTES);
     } catch (err) {
       caught = err;
     }
@@ -956,7 +984,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
           client.socket.write(frameWithProtocolVersion("session.create", 11, pvLiteral));
           const acc = await client.waitForBytes((b) => {
             try {
-              return parseFrame(b).frame !== null;
+              return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
             } catch {
               return false;
             }
@@ -997,7 +1025,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
         client.socket.write(frameWithProtocolVersion("daemon.hello", 3, null));
         const acc = await client.waitForBytes((b) => {
           try {
-            return parseFrame(b).frame !== null;
+            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
           } catch {
             return false;
           }
@@ -1027,7 +1055,7 @@ describe("envelope-level protocolVersion substrate gate", () => {
         client.socket.write(frameWithProtocolVersion("session.create", 21, null));
         const firstAcc = await client.waitForBytes((b) => {
           try {
-            return parseFrame(b).frame !== null;
+            return parseFrame(b, MAX_MESSAGE_BYTES).frame !== null;
           } catch {
             return false;
           }
@@ -1040,18 +1068,18 @@ describe("envelope-level protocolVersion substrate gate", () => {
         const secondAcc = await client.waitForBytes((b) => {
           // Wait until two frames have accumulated.
           try {
-            const r1 = parseFrame(b);
+            const r1 = parseFrame(b, MAX_MESSAGE_BYTES);
             if (r1.frame === null) return false;
             const remaining = b.subarray(r1.consumed);
-            return parseFrame(remaining).frame !== null;
+            return parseFrame(remaining, MAX_MESSAGE_BYTES).frame !== null;
           } catch {
             return false;
           }
         });
-        const r1 = parseFrame(secondAcc);
+        const r1 = parseFrame(secondAcc, MAX_MESSAGE_BYTES);
         if (r1.frame === null) throw new Error("expected first frame to decode");
         const remaining = secondAcc.subarray(r1.consumed);
-        const r2 = parseFrame(remaining);
+        const r2 = parseFrame(remaining, MAX_MESSAGE_BYTES);
         if (r2.frame === null) throw new Error("expected second frame to decode");
         const secondResponse = JSON.parse(r2.frame.toString("utf8")) as JsonRpcResponse;
         expect(secondResponse.id).toBe(22);

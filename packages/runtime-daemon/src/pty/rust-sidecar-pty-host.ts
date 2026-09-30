@@ -4,8 +4,8 @@
 // `#887`, `#894`, `openai/codex#13973`). This is the daemon side: it spawns the sidecar, speaks
 // Content-Length framing on its stdio, supervises crashes, and maps `PtyHost` onto wire envelopes.
 //
-// - Framing: a minimal local framer, not `local-ipc-gateway.ts::parseFrame` (built for network
-//   peers). The Rust twin is `framing.rs`; the two are maintained by hand.
+// - Framing: the shared Content-Length `parseFrame` under the sidecar's own body limit. The Rust
+//   twin is `framing.rs`; the two are maintained by hand.
 // - Method shape and lifecycle match `NodePtyHost`, so `PtyHostSelector` can swap the backends.
 // - Effectful primitives are injectable through `RustSidecarPtyHostDeps`.
 

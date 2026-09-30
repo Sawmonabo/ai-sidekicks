@@ -8,7 +8,8 @@
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
 import type { TaskkillResult } from "./taskkill-windows.js";
 import { PtyBackendUnavailableError } from "./sidecar-binary-path.js";
-import { ContentLengthParser, SidecarFrameDecodeError } from "./sidecar-frame-codec.js";
+import { FramingError, parseFrame, type ParseFrameResult } from "../ipc/content-length-framing.js";
+import { MAX_FRAME_BODY_BYTES, SidecarFrameDecodeError } from "./sidecar-frame-codec.js";
 
 /** The subset of `ChildProcess` the supervisor uses, so tests can build a fake. */
 export interface SidecarChildProcess {
@@ -107,10 +108,10 @@ export class SidecarChildSupervisor {
   private child: SidecarChildProcess | null = null;
 
   /**
-   * Replaced on every child exit or error: leftover partial-frame bytes would desync the next child
-   * and burn the crash budget.
+   * The current child's unparsed stdout bytes. Emptied on every child exit or error: leftover
+   * partial-frame bytes would desync the next child and burn the crash budget.
    */
-  private parser: ContentLengthParser = new ContentLengthParser();
+  private stdoutBuffer: Buffer = Buffer.alloc(0);
 
   /**
    * The current child's stdout `data` listener, kept so exit and error can detach it before the
@@ -282,7 +283,8 @@ export class SidecarChildSupervisor {
 
     // Named so handleChildExit and handleChildError can detach it before the parser is replaced.
     const stdoutListener = (chunk: Buffer): void => {
-      this.parser.feed(chunk);
+      this.stdoutBuffer =
+        this.stdoutBuffer.length === 0 ? chunk : Buffer.concat([this.stdoutBuffer, chunk]);
       this.drainParserUntilIncomplete();
     };
     child.stdout.on("data", stdoutListener);
@@ -304,18 +306,20 @@ export class SidecarChildSupervisor {
     });
   }
 
-  /** Pulls every complete frame from the parser, since one stdout chunk can carry several. */
+  /** Pulls every complete frame from the stdout buffer, since one chunk can carry several. */
   private drainParserUntilIncomplete(): void {
     for (;;) {
-      const result = this.parser.nextFrame();
-      if (result.kind === "incomplete") {
-        return;
-      }
-      if (result.kind === "error") {
+      let result: ParseFrameResult;
+      try {
+        result = parseFrame(this.stdoutBuffer, MAX_FRAME_BODY_BYTES);
+      } catch (error) {
+        if (!(error instanceof FramingError)) {
+          throw error;
+        }
         // The stream is desynced and cannot recover. Callers get the generic "sidecar exited"
         // rejection; only JSON-decode failures stash a typed cause (failFatallyOnDecodeError).
         console.warn(
-          `RustSidecarPtyHost: framing error on sidecar stdout (${result.message}); ` +
+          `RustSidecarPtyHost: framing error on sidecar stdout (${error.message}); ` +
             "tearing down child for respawn.",
         );
         // The exit handler then records the crash and respawns, or reports the backend unavailable.
@@ -328,7 +332,12 @@ export class SidecarChildSupervisor {
         }
         return;
       }
-      this.events.onFrame(result.body);
+      if (result.frame === null) {
+        return;
+      }
+      // Copy the remainder: a `subarray` view would keep the whole original allocation alive.
+      this.stdoutBuffer = Buffer.from(this.stdoutBuffer.subarray(result.consumed));
+      this.events.onFrame(result.frame);
     }
   }
 
@@ -357,7 +366,7 @@ export class SidecarChildSupervisor {
     // After the stale-event guard, so a late event cannot mark the live child as exited.
     this.childExitedBeforeDrain = true;
     this.detachChildStdoutListener(child);
-    this.parser = new ContentLengthParser();
+    this.stdoutBuffer = Buffer.alloc(0);
     this.child = null;
     return true;
   }
