@@ -53,6 +53,7 @@ import {
 } from "../event.js";
 import type { EventCategory } from "../event.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
+import { REPO_PATH_MAX_LEN } from "../repo.js";
 import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run-control.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
 
@@ -210,6 +211,22 @@ export const SupersededMarkerSchema: z.ZodType<SupersededMarker> = z
   .strict();
 
 /**
+ * One file whose patch a tool call's row left out, and the patch's size in bytes.
+ * The row draws like one whose patch traveled; `timeline.patchRead` fetches every
+ * left-out patch of the call in one read.
+ */
+export interface TimelineOmittedPatch {
+  path: string;
+  size: number;
+}
+const TimelineOmittedPatchSchema: z.ZodType<TimelineOmittedPatch> = z
+  .object({
+    path: wireFreeFormString(REPO_PATH_MAX_LEN, "TimelineOmittedPatch.path"),
+    size: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/**
  * The members every timeline row carries, whatever its `kind`.
  *
  * `payload` is `Record<string, unknown>` on two of the three arms and the
@@ -234,6 +251,8 @@ export interface TimelineRowBase {
   timestamp: string;
   /** Present when this row is a summarized child-run row. */
   childRunSummary?: ChildRunSummary | undefined;
+  /** Present on a tool call's row that left out one or more patches. */
+  omittedPatches?: TimelineOmittedPatch[] | undefined;
   payload: Record<string, unknown>;
 }
 
@@ -254,6 +273,7 @@ const buildTimelineRowCommonShape = () => ({
   summary: wireFreeFormString(TIMELINE_ROW_SUMMARY_MAX_LEN, "TimelineRow.summary"),
   timestamp: z.iso.datetime({ offset: true }),
   childRunSummary: ChildRunSummarySchema.optional(),
+  omittedPatches: z.array(TimelineOmittedPatchSchema).min(1).optional(),
 });
 
 /**

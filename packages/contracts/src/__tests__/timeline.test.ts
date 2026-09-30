@@ -298,6 +298,14 @@ describe("TimelineRow arm selection", () => {
     expectRoundTrip(TimelineRowSchema, attributedStub);
   });
 
+  it("names the patches a tool call's row left out, and refuses an empty list", () => {
+    const omittedPatches = [{ path: "src/app.ts", size: 1_258_291 }];
+    expectRoundTrip(TimelineRowSchema, { ...runScopedRow, omittedPatches });
+    expect(TimelineRowSchema.safeParse({ ...runScopedRow, omittedPatches: [] }).success).toBe(
+      false,
+    );
+  });
+
   it("P10 — `childRunSummary` rides a general row and a run row alike", () => {
     expectRoundTrip(TimelineRowSchema, { ...generalRow, childRunSummary });
     expectRoundTrip(TimelineRowSchema, { ...runScopedRow, childRunSummary });
