@@ -1,27 +1,11 @@
-// Contract <-> DDL conformance.
+// Pins the provider-account contract to the live DDL. Each check reads `sqlite_master.sql` or
+// `PRAGMA table_info` on a database the real migration runner just built and compares it with the
+// contract symbol consumers parse with; two hand-written lists could agree as the schema drifts.
 //
-// The suite IS the test: one row per pinned pair, and every pin reads the LIVE
-// schema rather than a transcription of it. That distinction is the whole point
-// (documented-pin != enforced-pin): a test that compared two hand-written lists
-// would agree with itself forever while the schema drifted underneath.
-// Every assertion here therefore reads `sqlite_master.sql` or `PRAGMA
-// table_info` on a database the real runner just migrated, and compares it
-// against the exported contract symbol a consumer actually parses with.
-//
-// What is pinned:
-//   * the contract's provider, billing-mode, health-state, auth-mode, and
-//     quota-source unions against the DDL CHECK lists that admit them;
-//   * the wire record's member set against the registry's column set, with an
-//     explicit, reasoned exception list for the deliberate asymmetries;
-//   * the contract's generation floor against the CHECK bound the schema
-//     enforces it with, parsed out of the live DDL rather than transcribed;
-//   * the quota-window key as `(account_id, limit_id)` with `window_mins` an
-//     attribute rather than a key member.
-//
-// The CHECK-list extractor carries its own negative control: a checker that has
-// never been shown to fail proves nothing about a clean result, so it is run
-// against a deliberately-wrong DDL and must report the mismatch.
-//
+// Pinned: the provider, billing-mode, health-state, auth-mode and quota-source unions against their
+// DDL CHECK lists; the wire record's members against the registry's columns, with a reasoned list
+// of exceptions; the generation floor against the DDL CHECK bound; the quota-window key.
+// The CHECK extractor has a negative control: it must flag a deliberately wrong DDL.
 
 import {
   BILLING_MODES,
@@ -54,13 +38,7 @@ interface PragmaColumn {
   readonly pk: number;
 }
 
-/**
- * Strip SQL line comments before matching. The canonical DDL carries a
- * constraint-stating comment on nearly every column, and several of them
- * contain parentheses and quoted values — so matching against the raw text
- * would let a comment masquerade as a constraint. Stripping first makes the
- * extractor read constraints and nothing else.
- */
+/** Strips SQL line comments, so a parenthesized comment cannot masquerade as a constraint. */
 function withoutSqlLineComments(tableSql: string): string {
   return tableSql
     .split("\n")
@@ -72,14 +50,9 @@ function withoutSqlLineComments(tableSql: string): string {
 }
 
 /**
- * The member list of a `CHECK(<column> IN (...))` constraint, in DDL order.
- * Accepts the nullable spelling `CHECK(<column> IS NULL OR <column> IN (...))`
- * as the same constraint — the null arm is a separate fact, asserted on its own
- * below rather than folded into the member list.
- *
- * Returns an empty array when the column carries no such constraint, so an
- * absent CHECK reads as "admits nothing this suite can pin" and fails the
- * comparison loudly instead of passing vacuously.
+ * The member list of a `CHECK(<column> IN (...))` constraint, in DDL order; the nullable spelling
+ * `IS NULL OR <column> IN (...)` counts as the same constraint. Returns `[]` for no constraint, so
+ * an absent CHECK fails the comparison instead of passing vacuously.
  */
 function checkMembersOf(tableSql: string, columnName: string): readonly string[] {
   const constraintPattern = new RegExp(
@@ -97,16 +70,12 @@ function checkMembersOf(tableSql: string, columnName: string): readonly string[]
 }
 
 /**
- * The bound of a `CHECK(<column> >= N)` constraint, or null when the column
- * carries none. Returning null rather than a sentinel number keeps an absent
- * floor from reading as a floor of zero, which is exactly the value the floor
- * exists to exclude.
+ * The bound of a `CHECK(<column> >= N)` constraint, or null when there is none (null, not 0, so an
+ * absent floor never reads as the value the floor exists to exclude).
  */
 function numericFloorOf(tableSql: string, columnName: string): number | null {
-  // The optional prefix is the storage-class conjunct the generation columns
-  // carry: `CHECK(typeof(c) = 'integer' AND c >= 1)`. Spelled EXACTLY rather
-  // than as a wildcard, so the extractor stays discriminating — a column whose
-  // CHECK constrains something else entirely still reports no floor.
+  // The optional prefix is the generation columns' storage-class conjunct, spelled exactly so a
+  // CHECK on something else still reports no floor.
   const constraintPattern = new RegExp(
     String.raw`CHECK\(\s*(?:typeof\(${columnName}\)\s*=\s*'integer'\s+AND\s+)?${columnName}\s*>=\s*(-?\d+)\s*\)`,
   );
@@ -115,12 +84,8 @@ function numericFloorOf(tableSql: string, columnName: string): number | null {
 }
 
 /**
- * Whether the column's CHECK pins its STORAGE CLASS as well as its floor.
- *
- * A SQLite column type is an affinity, not a constraint: INTEGER affinity
- * converts a bound REAL only where the conversion is lossless, so `1.5` is
- * stored as REAL and satisfies `>= 1`. On a monotonic counter that is a
- * counter that divides.
+ * Whether the CHECK pins the STORAGE CLASS too: a column type is only an affinity, so `1.5` stores
+ * as REAL and satisfies `>= 1`, which on a monotonic counter is a counter that divides.
  */
 function checkPinsIntegerStorage(tableSql: string, columnName: string): boolean {
   return new RegExp(String.raw`CHECK\(\s*typeof\(${columnName}\)\s*=\s*'integer'\s+AND\s`).test(
@@ -147,8 +112,7 @@ describe("provider-account contract <-> DDL conformance", () => {
   let usageWindowsSql: string;
 
   beforeEach(() => {
-    // The REAL runner against an in-memory database: what is pinned below is the
-    // schema a daemon would actually boot with, not a copy of the CREATE.
+    // The real runner on an in-memory database: the schema a daemon would boot with, not a copy.
     db = new Database(":memory:");
     applyPragmas(db);
     applyMigrations(db);
@@ -202,17 +166,14 @@ describe("provider-account contract <-> DDL conformance", () => {
     });
 
     it("detects a member-list mismatch (negative control for the extractor)", () => {
-      // Without this, every clean result above would be equally consistent with
-      // a regex that silently matched nothing. Three deliberate defects, each of
-      // a different class the extractor could plausibly miss.
+      // Without this, a clean result above is equally consistent with a regex that matched nothing.
       const wrongMemberSet = `CREATE TABLE t (provider TEXT NOT NULL CHECK(provider IN ('claude', 'gemini')))`;
       expect(checkMembersOf(wrongMemberSet, "provider")).not.toEqual([...PROVIDER_NAMES]);
 
       const noConstraintAtAll = `CREATE TABLE t (provider TEXT NOT NULL)`;
       expect(checkMembersOf(noConstraintAtAll, "provider")).toEqual([]);
 
-      // A CHECK that lives only inside a comment must not be read as a
-      // constraint — the case the comment-stripping step exists for.
+      // A CHECK that lives only inside a comment must not read as a constraint.
       const constraintInACommentOnly = `CREATE TABLE t (
         provider TEXT NOT NULL -- CHECK(provider IN ('claude', 'codex')) was considered
       )`;
@@ -222,28 +183,22 @@ describe("provider-account contract <-> DDL conformance", () => {
 
   describe("null-arm asymmetry", () => {
     it("admits NULL in the stored health columns while the wire union does not", () => {
-      // The registry's health columns are nullable — an account that has never
-      // been validated holds no reading. The WIRE arm is not: a NULL stored
-      // reading projects as `indeterminate`, which is fail-closed and is neither
-      // an error nor an assertion of health. Pinning both halves here is what
-      // keeps a later contributor from "fixing" the asymmetry by making the wire
-      // member nullable, which would put two spellings of "unknown" on one wire.
+      // Health columns are nullable (never validated means no reading) but the wire arm is not: a
+      // NULL reading projects as `indeterminate`. Pinning both keeps the wire member from becoming
+      // nullable, which would put two spellings of "unknown" on one wire.
       expect(checkAdmitsNull(providerAccountsSql, "health_state")).toBe(true);
       expect(checkAdmitsNull(providerAccountsSql, "observed_auth_mode")).toBe(true);
       expect(PROVIDER_ACCOUNT_HEALTH_STATES).toContain("indeterminate");
       expect(ProviderAccountHealthStateSchema.safeParse(null).success).toBe(false);
       expect(ProviderAccountHealthStateSchema.safeParse("indeterminate").success).toBe(true);
 
-      // Negative control: the quota-source CHECK is NOT nullable, so the helper
-      // is discriminating rather than returning true for everything.
+      // Negative control: the quota-source CHECK is not nullable.
       expect(checkAdmitsNull(usageWindowsSql, "source")).toBe(false);
     });
   });
 
   describe("record shape vs column set", () => {
-    // The mapping is deliberately NOT one-to-one, and each exception is listed
-    // with the reason it is one. An unexplained absence would be indistinguishable
-    // from an omission, which is exactly what this suite exists to catch.
+    // Not one-to-one; each exception is listed with its reason, so an omission cannot hide.
     const WIRE_MEMBER_BY_COLUMN: Readonly<Record<string, string>> = {
       account_id: "accountId",
       provider: "provider",
@@ -290,8 +245,6 @@ describe("provider-account contract <-> DDL conformance", () => {
       const columnNames = columnsOf(PROVIDER_ACCOUNTS_TABLE).map((column) => column.name);
       const memberNames = schemaMemberNames(ProviderAccountSchema);
 
-      // Every column is either mapped to a member or listed as an exception —
-      // never both, and never neither.
       for (const columnName of columnNames) {
         const isMapped = columnName in WIRE_MEMBER_BY_COLUMN;
         const isExcepted = columnName in COLUMNS_WITH_NO_ACCOUNT_MEMBER;
@@ -301,7 +254,6 @@ describe("provider-account contract <-> DDL conformance", () => {
         ).toBe(true);
       }
 
-      // And the mapping names no column that has since been renamed away.
       for (const columnName of Object.keys(WIRE_MEMBER_BY_COLUMN)) {
         expect(columnNames).toContain(columnName);
       }
@@ -309,7 +261,6 @@ describe("provider-account contract <-> DDL conformance", () => {
         expect(columnNames).toContain(columnName);
       }
 
-      // Symmetrically for members.
       const mappedMembers = new Set(Object.values(WIRE_MEMBER_BY_COLUMN));
       for (const memberName of memberNames) {
         const isMapped = mappedMembers.has(memberName);
@@ -334,9 +285,7 @@ describe("provider-account contract <-> DDL conformance", () => {
     });
 
     it("maps the quota-window record onto its column set with no exception at all", () => {
-      // The contrast case, and it is load-bearing: the account record's
-      // exceptions are deliberate design, not a tolerance this suite grants
-      // generally. A quota reading is stored and served in full.
+      // Contrast: a quota reading is stored and served in full.
       const expectedMemberByColumn: Readonly<Record<string, string>> = {
         account_id: "accountId",
         limit_id: "limitId",
@@ -360,34 +309,26 @@ describe("provider-account contract <-> DDL conformance", () => {
 
   describe("generation floor", () => {
     it("pins the contract floor against the CHECK bound the schema enforces it with", () => {
-      // The rule has two halves and the schema states both: the DEFAULT is where
-      // a generation STARTS, the CHECK is how far down it may ever go. Pinning
-      // only the DEFAULT would leave the contract's floor and the database's
-      // floor free to diverge — the drift this file exists to catch.
+      // The DEFAULT is where a generation starts and the CHECK is how far down it may go;
+      // pinning only the DEFAULT would let the two floors diverge.
       const generationColumn = columnsOf(PROVIDER_ACCOUNTS_TABLE).find(
         (column) => column.name === "credential_generation",
       );
       expect(generationColumn?.notnull).toBe(1);
       expect(generationColumn?.dflt_value).toBe(String(CREDENTIAL_GENERATION_MIN));
-      // The floor is READ OUT of the live DDL and compared to the exported
-      // constant, so raising one without the other fails here rather than at a
-      // spawn that trusted a fabricated generation.
+      // Read from the live DDL so raising one floor without the other fails here.
       expect(numericFloorOf(providerAccountsSql, "credential_generation")).toBe(
         CREDENTIAL_GENERATION_MIN,
       );
-      // And the floor is pinned to the INTEGER storage class, which the column
-      // declaration alone does not do: `INTEGER` is an affinity, so `1.5` stores
-      // as REAL and passes `>= 1`. Without this conjunct the wire's `.int()` and
-      // the database disagree, and the database is the one that persists.
+      // INTEGER is only an affinity: 1.5 stores as REAL and passes `>= 1`, so the CHECK must
+      // also pin the storage class, or the wire's `.int()` and the database disagree.
       expect(checkPinsIntegerStorage(providerAccountsSql, "credential_generation")).toBe(true);
-      // Negative control: the extractor is discriminating. `window_mins` carries
-      // no floor CHECK, so a helper that matched loosely would report one here.
+      // Negative control: `window_mins` has no floor CHECK, so a loose matcher would find one.
       expect(numericFloorOf(usageWindowsSql, "window_mins")).toBeNull();
       expect(checkPinsIntegerStorage(usageWindowsSql, "window_mins")).toBe(false);
 
-      // The contract parser holds the rest of the floor: a zero or negative
-      // generation would order BEFORE a freshly registered account and let a
-      // fabricated reading read as newer than the account it describes.
+      // A zero or negative generation would order before a fresh account and let a fabricated
+      // reading look newer than the account it describes.
       expect(CredentialGenerationSchema.safeParse(CREDENTIAL_GENERATION_MIN).success).toBe(true);
       expect(CredentialGenerationSchema.safeParse(CREDENTIAL_GENERATION_MIN - 1).success).toBe(
         false,
@@ -400,30 +341,18 @@ describe("provider-account contract <-> DDL conformance", () => {
       const stampColumn = columnsOf(PROVIDER_ACCOUNT_USAGE_WINDOWS_TABLE).find(
         (column) => column.name === "observed_credential_generation",
       );
-      // NOT NULL and undefaulted: a reading whose generation nobody recorded
-      // cannot be told from a current one, which is the staleness signal the
-      // stamp exists to carry.
+      // NOT NULL with no default: a reading with no recorded generation cannot be told from
+      // a current one.
       expect(stampColumn?.notnull).toBe(1);
       expect(stampColumn?.dflt_value).toBeNull();
-      // The stamp carries the SAME floor, read out of the live DDL and compared
-      // to the exported constant the wire parser enforces. Mirroring the parent's
-      // generation is not on its own enough: the FK constrains which account a
-      // reading belongs to and says nothing about the value stamped on it, so a
-      // writer could record a generation below the floor for an account whose own
-      // column could never hold one — a stamp naming a generation that never
-      // existed, matching no account state, rendering its reading permanently
-      // stale rather than refusing at write time.
+      // The FK constrains which account a reading belongs to, not its stamp; a stamp below the
+      // floor would render its reading permanently stale instead of being refused at write time.
       expect(numericFloorOf(usageWindowsSql, "observed_credential_generation")).toBe(
         CREDENTIAL_GENERATION_MIN,
       );
-      // Same storage-class pin, and for a reason the parent's does not cover:
-      // the staleness comparison is BETWEEN this stamp and the parent's
-      // generation, so a fractional stamp admitted by INTEGER affinity would
-      // compare against a whole-numbered generation and place the reading
-      // between two of them — neither current nor cleanly stale.
+      // A fractional stamp would be neither current nor cleanly stale against the parent.
       expect(checkPinsIntegerStorage(usageWindowsSql, "observed_credential_generation")).toBe(true);
-      // The wire parser refuses the same value, so the two agree rather than
-      // one covering for the other.
+      // The wire parser refuses the same value.
       expect(CredentialGenerationSchema.safeParse(1.5).success).toBe(false);
     });
   });
@@ -435,10 +364,9 @@ describe("provider-account contract <-> DDL conformance", () => {
       );
       expect(keyOrdinalByColumn.get("account_id")).toBe(1);
       expect(keyOrdinalByColumn.get("limit_id")).toBe(2);
-      // The assertion that matters: the window length is NOT part of the
-      // identity. The pinned Claude surface publishes three limit identifiers
-      // sharing a 10080-minute window, and a key that included the length would
-      // admit two rows for one limit instead.
+      // The window length is not part of the identity: Claude publishes three limit
+      // identifiers sharing a 10080-minute window, and a key including the length would admit
+      // two rows for one limit.
       expect(keyOrdinalByColumn.get("window_mins")).toBe(0);
       for (const [columnName, keyOrdinal] of keyOrdinalByColumn) {
         if (columnName !== "account_id" && columnName !== "limit_id") {
@@ -450,9 +378,8 @@ describe("provider-account contract <-> DDL conformance", () => {
     });
 
     it("leaves the limit identifier unenumerated, because the vocabulary is open", () => {
-      // The deliberate absence of a CHECK. A closed list would fail a reading
-      // closed the moment a vendor added a window, which is the opposite of the
-      // degrade-honestly posture the rest of this plane takes.
+      // Deliberately no CHECK: a closed list would fail a reading closed as soon as a vendor
+      // added a window.
       expect(checkMembersOf(usageWindowsSql, "limit_id")).toEqual([]);
     });
   });
@@ -494,8 +421,8 @@ describe("provider-account contract <-> DDL conformance", () => {
     });
 
     it("refuses an outcome whose count and time disagree with it", () => {
-      // An import that copied something without its count or time would read back
-      // as an outcome the wire refuses, and one that copied nothing cannot carry them.
+      // An outcome missing its count or time would read back as one the wire refuses, and
+      // an import that copied nothing cannot carry them.
       expect(() => {
         insertAccount({ outcome: "imported", count: null, importedAt: null });
       }).toThrow(/CHECK constraint failed/);
