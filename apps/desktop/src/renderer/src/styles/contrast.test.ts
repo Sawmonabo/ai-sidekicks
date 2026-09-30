@@ -1,20 +1,10 @@
-// Contrast, measured rather than asserted.
+// Contrast, measured rather than asserted: every pair the rules name is computed from the sRGB
+// the browser paints. That is why `color.ts` fits each color into gamut at authoring time; a
+// color the browser had to map would make the measured number differ from the one a person sees.
 //
-// The design language holds the console to WCAG 2.2 AA. A palette can claim that;
-// only a computation can hold it. So this file walks every pair the rules name and
-// computes the real ratio from the sRGB the browser will paint — which is why
-// `tokens/color.ts` fits each color into gamut at AUTHORING time. If the values were
-// left out of gamut, the browser would map them and the number measured here would not
-// be the number a person sees.
-//
-// Two floors, and the distinction is load-bearing:
-//
-//   • 4.5:1 for text, WCAG 1.4.3.
-//   • 3:1 for non-text UI boundaries, WCAG 1.4.11 — which applies to a control
-//     boundary a person must find, and NOT to a decorative hairline. The palette
-//     names `edge` decorative and `edge-strong` a control boundary for exactly this
-//     reason, and this file holds only the second to the floor. Holding a
-//     decorative rule to 3:1 would produce a console that looks like a spreadsheet.
+// Two floors: 4.5:1 for text (WCAG 1.4.3), and 3:1 for non-text control boundaries (WCAG
+// 1.4.11). The palette names `edge` decorative and `edge-strong` a control boundary, and only
+// the second is held to 3:1; holding a decorative rule to it would look like a spreadsheet.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -52,8 +42,8 @@ describe("Meridian palette — every color is inside the sRGB gamut as authored"
         }
       }
     }
-    // A color outside the gamut is painted as something else, so every ratio
-    // measured below would be measuring a value the screen never shows.
+    // A color outside the gamut is painted as something else, so every ratio below would
+    // measure a value the screen never shows.
     expect(outsideGamut).toStrictEqual([]);
   });
 
@@ -85,10 +75,8 @@ describe("Meridian palette — tinted grounds hold the text floor for their own 
   for (const scheme of COLOR_SCHEMES) {
     for (const [textToken, groundToken] of TINTED_GROUND_PAIRS) {
       it(`${scheme}: ${textToken} on ${groundToken}`, () => {
-        // The amber and red grounds are the only tinted grounds in the console,
-        // and they carry the two hues that mean "a person is needed" and "this
-        // failed". Text on them that fell below the floor would be unreadable
-        // exactly where reading matters most.
+        // The amber and red grounds are the only tinted grounds, and they carry the hues for
+        // "a person is needed" and "this failed", where unreadable text costs the most.
         const ratio = contrastRatio(
           schemeColor(textToken, scheme),
           schemeColor(groundToken, scheme),
@@ -103,11 +91,8 @@ describe("Meridian palette — a filled accent control holds the text floor for 
   for (const scheme of COLOR_SCHEMES) {
     for (const [inkToken, fillToken] of ACCENT_FILL_PAIRS) {
       it(`${scheme}: ${inkToken} on ${fillToken}`, () => {
-        // A primary action's whole face is the accent, so its label is text on
-        // that fill and carries 1.4.3's floor like any other text. Measured rather
-        // than asserted, for this file's reason: the pair is the one place in the
-        // console where a foreground sits on a saturated mid-lightness field, which
-        // is where an eyeballed choice is most likely to be wrong.
+        // A primary action's whole face is the accent, so its label is text on that fill. A
+        // saturated mid-lightness field is where an eyeballed choice is most likely to be wrong.
         const ratio = contrastRatio(schemeColor(inkToken, scheme), schemeColor(fillToken, scheme));
         expect(ratio).toBeGreaterThanOrEqual(TEXT_CONTRAST_FLOOR);
       });
@@ -115,10 +100,8 @@ describe("Meridian palette — a filled accent control holds the text floor for 
   }
 
   it("negative control: the accent's own text token fails on the accent fill", () => {
-    // This is the pair the console would otherwise have reached for, and the
-    // reason `accent-ink` exists at all. Without this case, `ACCENT_FILL_PAIRS`
-    // would pass over any ink whatsoever — including the one that is wrong — and
-    // the assertion above would prove only that some number was computed.
+    // The pair the console would otherwise reach for, and the reason `accent-ink` exists;
+    // without this case `ACCENT_FILL_PAIRS` would pass any ink at all.
     for (const scheme of COLOR_SCHEMES) {
       const ratio = contrastRatio(
         schemeColor("accent-text", scheme),
@@ -129,17 +112,10 @@ describe("Meridian palette — a filled accent control holds the text floor for 
   });
 
   it("negative control: darkening the whole control with a filter drops it below", () => {
-    // The treatment the pressed token replaced. A `filter` scales foreground and
-    // background together, and scaling does not preserve a contrast ratio: relative
-    // luminance carries a 0.05 offset that a multiplication does not distribute
-    // over. Measured on the LIGHT scheme, where the resting pair clears the floor by
-    // about 5% and a 6% channel darkening costs it about 10% of its ratio, because
-    // luminance follows the channel through the sRGB transfer function rather than
-    // linearly.
-    //
-    // Without this case, the pressed pair above would prove only that some second
-    // fill token exists — not that the state it replaced was unmeasurable in the
-    // way that let this through.
+    // A `filter` scales foreground and background together, and scaling does not preserve a
+    // ratio because relative luminance carries a 0.05 offset. On the light scheme the resting
+    // pair clears the floor by about 5%, and a 6% channel darkening costs about 10% of its ratio.
+    // Without this case the pressed pair above would not show why the filter was replaced.
     const filtered = srgbContrastRatio(
       oklchToSrgb(schemeColor("accent-ink", "light")),
       scaleBrightness(oklchToSrgb(schemeColor("accent", "light")), PRESS_FILTER_BRIGHTNESS),
@@ -152,11 +128,9 @@ describe("Meridian palette — a filled accent control holds the text floor for 
   });
 
   it("keeps the hover lift, which raises the ratio rather than spending it", () => {
-    // The hover treatment IS still a filter, and this is why that is safe rather
-    // than lucky: the ink is dark in both schemes, so brightening the fill moves
-    // the pair apart. Asserted rather than assumed, because the claim is about the
-    // same mechanism the case above rejects and the difference is only its
-    // direction.
+    // Hover is still a filter, and safe because the ink is dark in both schemes, so brightening
+    // the fill moves the pair apart. Asserted because it is the mechanism the case above rejects,
+    // in the other direction.
     for (const scheme of COLOR_SCHEMES) {
       const ink = oklchToSrgb(schemeColor("accent-ink", scheme));
       const resting = oklchToSrgb(schemeColor("accent", scheme));
@@ -187,9 +161,8 @@ describe("Meridian palette — every user hue is findable on every ground", () =
   for (const scheme of COLOR_SCHEMES) {
     for (const groundToken of GROUND_TOKEN_NAMES) {
       it(`${scheme}: all ${String(HUE_WHEEL_STEPS)} hues on ${groundToken}`, () => {
-        // The attribution edge is a non-text boundary a person must be able to
-        // find, so the whole wheel is held to 3:1 — including the yellow-greens
-        // around step 4, which is the constraint that sets the wheel's lightness.
+        // The attribution edge is a non-text boundary, so the whole wheel is held to 3:1; its
+        // worst steps (5 in light, 11 in dark) set the wheel's lightness.
         const ground = schemeColor(groundToken, scheme);
         const failures: string[] = [];
         for (let step = 0; step < HUE_WHEEL_STEPS; step += 1) {
@@ -205,16 +178,9 @@ describe("Meridian palette — every user hue is findable on every ground", () =
 });
 
 describe("Meridian palette — a code or command-output body clears the text floor on its own well", () => {
-  // The code-token and ANSI vocabularies. They are text — a highlighted token and a colored
-  // run of command output are both read — so they carry 1.4.3's floor like any other
-  // text, and they are measured on `surface-sunken` alone because that is the only
-  // ground the console ever paints them on.
-  //
-  // This census is the reason the values moved out of `features/transcript/transcript.css`. As
-  // literals in a stylesheet they were fitted into no gamut and held to no floor, and
-  // the light scheme's six bright ANSI names sat between 3.8:1 and 4.5:1 — a WCAG
-  // 1.4.3 failure that no test could have caught while the colors lived somewhere
-  // nothing measured.
+  // The code-token and ANSI vocabularies are read text, so they carry the 1.4.3 floor. They are
+  // measured on `surface-sunken` alone, the only ground they are painted on. Values kept as
+  // literals in a stylesheet would be fitted into no gamut and held to no floor.
   for (const scheme of COLOR_SCHEMES) {
     for (const tokenName of SUNKEN_WELL_TEXT_TOKEN_NAMES) {
       it(`${scheme}: ${tokenName} on ${SUNKEN_WELL_GROUND_TOKEN_NAME}`, () => {
@@ -228,14 +194,9 @@ describe("Meridian palette — a code or command-output body clears the text flo
   }
 
   it("negative control: the census is populated, and the same measurement rejects a foreground the well cannot hold", () => {
-    // Without the first half a census derived from an emptied record would make every
-    // case above vacuous — and the derivation is exactly what makes emptying it
-    // possible without editing this file.
+    // An emptied census would make every case above vacuous.
     expect(SUNKEN_WELL_TEXT_TOKEN_NAMES.length).toBeGreaterThan(0);
-    // And the second half drives the same measurement over a token that genuinely
-    // fails on this ground: `edge` is the decorative hairline the palette states
-    // carries no floor at all, so a measurement reporting it as passing would be
-    // reporting a constant.
+    // The same measurement over `edge`, the decorative hairline with no floor, must fail.
     for (const scheme of COLOR_SCHEMES) {
       const ratio = contrastRatio(
         schemeColor("edge", scheme),
@@ -246,10 +207,9 @@ describe("Meridian palette — a code or command-output body clears the text flo
   });
 
   it("keeps every bright ANSI name distinguishable from the normal one it pairs with", () => {
-    // The light scheme's bright values are the deepest the floor admits, which is the
-    // move that could have collapsed eight pairs into eight colors. Asserted over
-    // the resolved values rather than the requests, because chroma fitting is what
-    // would close the last of the gap if it did.
+    // The light scheme's bright values are the deepest the floor admits and could collapse pairs
+    // into one color. Asserted over resolved values, since chroma fitting could close the last of
+    // the gap.
     for (const scheme of COLOR_SCHEMES) {
       const collapsed = SUNKEN_WELL_TEXT_TOKEN_NAMES.filter((tokenName) =>
         tokenName.startsWith("ansi-bright-"),
@@ -264,26 +224,19 @@ describe("Meridian palette — a code or command-output body clears the text flo
 });
 
 /**
- * The `brightness()` amount `accent-fill.css` still spends on hover.
- *
- * Transcribed from that rule rather than imported: a filter amount is a paint
- * instruction with no token, and the two cases that read it are the only things in
- * the console that need to know it. Both fail loudly if the sheet's value moves
- * away from this one — the hover case by measuring a ratio that no longer matches
- * what the sheet paints.
+ * The `brightness()` amount `features/composer/accent-fill.css` spends on hover. Transcribed
+ * rather than imported, because a filter amount is a paint instruction with no token; keep it
+ * equal to that sheet's value.
  */
 const HOVER_FILTER_BRIGHTNESS = 1.06;
 
-/** The amount the pressed state used to spend, before it became a measured token. */
+/** The amount the retired press filter spent; the negative control measures its effect. */
 const PRESS_FILTER_BRIGHTNESS = 0.94;
 
 /**
- * A CSS `brightness()` over a displayed triple.
- *
- * The CSS filter shorthands are defined with `color-interpolation-filters: sRGB`,
- * so the amount multiplies the gamma-encoded channels and the result is clamped
- * into the display range — which is why this models the browser rather than
- * approximating it.
+ * A CSS `brightness()` over a displayed triple. Filter shorthands use
+ * `color-interpolation-filters: sRGB`, so the amount multiplies the gamma-encoded channels,
+ * clamped into the display range.
  */
 function scaleBrightness(color: SrgbColor, amount: number): SrgbColor {
   const scale = (channel: number): number => Math.min(1, Math.max(0, channel * amount));
@@ -292,8 +245,8 @@ function scaleBrightness(color: SrgbColor, amount: number): SrgbColor {
 
 describe("Meridian palette — the measurement itself is not vacuous", () => {
   it("reports a low ratio for a pair that genuinely fails", () => {
-    // Negative control. Without it, a bug in `contrastRatio` that returned a large
-    // constant would make every assertion above pass while proving nothing.
+    // Negative control: a `contrastRatio` that returned a large constant would pass every
+    // assertion above.
     const nearlyIdentical = contrastRatio(
       { lightness: 0.5, chroma: 0.02, hueDegrees: 200 },
       { lightness: 0.52, chroma: 0.02, hueDegrees: 200 },

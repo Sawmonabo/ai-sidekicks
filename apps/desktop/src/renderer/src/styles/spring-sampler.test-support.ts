@@ -1,38 +1,19 @@
-// The spring sampler: the oracle behind `motion.ts`'s emitted settle easing.
+// The spring sampler: the oracle behind `motion.ts`'s emitted settle easing. It is our own
+// sampler emitting `linear()` easings, in place of an animation library on the render path. What
+// ships is its output, `CHROME_SETTLE_EASING`, because the only call passed two module-scope
+// constants and a pure function of constants is a constant.
 //
-// The console's motion rules ask for OUR OWN spring sampler emitting `linear()` easings
-// rather than an animation library on the render path, and this is it. What ships is
-// the string it answers — `CHROME_SETTLE_EASING` in `motion.ts` — because the only call
-// the console ever made passed two module-scope constants, so the closed-form solution,
-// its three damping branches, and the sample loop were riding the initial import graph
-// to recompute the same 106 characters at every mount. A pure function of constants is
-// a constant, and the constant is what the sheet spends.
+// It is `.test-support` as a checked claim: nothing that ships imports it (the
+// `test-support-has-no-shipping-reader` rule in `apps/desktop/.dependency-cruiser.mjs`), and its
+// one reader is `motion.test.ts`, which holds the shipped constant to it and asserts every claim
+// about the curve against this function.
 //
-// SO THIS MODULE IS `.test-support`, WHICH IS A CLAIM RATHER THAN A LABEL. Nothing
-// that ships imports it — `apps/desktop/.dependency-cruiser.mjs`'s
-// `test-support-has-no-shipping-reader` is what makes that a checked property rather
-// than a sentence — and its one reader is `motion.test.ts`, which holds the shipped
-// constant to it. That test is this module's suite as well as the constant's: the two
-// are one subject, because a sampler nobody calls and a string nobody derived are
-// each worthless alone. Every claim the motion rule makes about the curve — zero overshoot,
-// the under-damped negative control that proves the assertion can fail, the
-// over-damped branch, monotonicity, the refusal on a sample count that cannot
-// describe a curve — is still asserted there, against this function.
-//
-// IT CARRIES NO DOM TYPE, for the reason no module in `styles/` carries one: the
-// generated-asset tier reads these modules from Node, and a module here that named
-// `Document` or `Window` would put those types into a program that has neither. Every
-// function below takes numbers and returns strings.
+// It carries no DOM type, since the generated-asset tier reads `styles/` modules from Node.
 
 /**
- * How many points a sampled easing is emitted with.
- *
- * `linear()` is a piecewise-linear approximation, so the count is the error
- * budget: too few and a settle visibly kinks, too many and every animated rule
- * carries a long string the style engine re-parses. Sixteen intervals put the
- * worst-case deviation from the true spring under half a percent of the travel
- * over the durations the motion rule admits, which is well below a pixel on the 2 px rise
- * that is the console's largest chrome displacement.
+ * How many points a sampled easing is emitted with. `linear()` is piecewise-linear, so the count
+ * is the error budget: sixteen intervals keep the worst-case deviation from the true spring under
+ * half a percent of the travel, well below a pixel on the 2 px rise.
  */
 const SPRING_SAMPLE_COUNT = 16;
 
@@ -40,14 +21,9 @@ const SPRING_SAMPLE_COUNT = 16;
 const SPRING_SAMPLE_PRECISION = 4;
 
 /**
- * A spring, in the terms a designer states one in.
- *
- * `damping` at or above the critical value is what makes a settle a settle: rule
- * 5 admits zero overshoot in chrome, and an under-damped spring overshoots by
- * construction. That property is asserted where it can be OBSERVED — on the
- * sampled easing, whose values never exceed 1 for these constants and do exceed
- * it for an under-damped negative control — rather than on a predicate over the
- * constants, which would only restate the arithmetic below it.
+ * A spring, in the terms a designer states one in. A `damping` at or above the critical value is
+ * what makes a settle, since the motion rule admits no overshoot in chrome; that is asserted on
+ * the sampled easing, where it can be observed.
  */
 export interface SpringDescriptor {
   /** Stiffness, in the usual mass-spring-damper sense. Higher arrives sooner. */
@@ -59,15 +35,9 @@ export interface SpringDescriptor {
 }
 
 /**
- * The console's one chrome spring: critically damped, so it settles onto its
- * target rather than passing through it.
- *
- * Critical damping for these constants is `2 * sqrt(stiffness * mass)` = 40, and
- * the value is stated as that number rather than derived at module scope so the
- * descriptor stays a plain readable record. It lives beside the sampler rather than
- * beside the emitted string because it is the sampler's INPUT: `motion.ts` ships
- * what these constants produce, and the only reader that still needs the constants
- * themselves is the test that re-derives the string from them.
+ * The console's one chrome spring: critically damped, so it settles onto its target. Critical
+ * damping here is `2 * sqrt(stiffness * mass)` = 40, stated as a number to keep the descriptor a
+ * plain record. It lives beside the sampler because it is the sampler's input.
  */
 export const CHROME_SETTLE_SPRING: SpringDescriptor = {
   stiffness: 400,
@@ -76,18 +46,10 @@ export const CHROME_SETTLE_SPRING: SpringDescriptor = {
 };
 
 /**
- * Sample a spring into a CSS `linear()` easing.
- *
- * The emitted string is a value for `transition-timing-function` or
- * `animation-timing-function`, so the animation runs on the compositor under the
- * platform's own timing rather than under a frame loop of ours. That is the whole
- * point of the sampler: the spring is computed ONCE — at build time now, and by the
- * test that keeps `CHROME_SETTLE_EASING` honest — and never while anything is on
- * screen.
- *
- * The first and last samples are pinned to exactly 0 and 1. A settle approaches
- * its target asymptotically, so the raw final sample is a hair short, and an
- * easing that ends at 0.9997 leaves the animated property a hair short forever.
+ * Sample a spring into a CSS `linear()` easing that runs on the compositor under the platform's
+ * timing. The first and last samples are pinned to exactly 0 and 1, since a settle approaches its
+ * target asymptotically; throws `RangeError` for a sample count that is not an integer of at
+ * least two.
  */
 export function sampleSpringEasing(
   spring: SpringDescriptor,
@@ -112,19 +74,8 @@ export function sampleSpringEasing(
   return `linear(${samples.join(", ")})`;
 }
 
-/**
- * The spring's normalized displacement at a normalized time.
- *
- * Returns progress from 0 at rest to 1 at target — the shape an easing wants,
- * which is the complement of the classical displacement-from-target solution.
- * Both damping regimes are solved in closed form rather than integrated: an
- * integrator would need a step size, and a step size is a second accuracy knob
- * for a curve that has an exact answer.
- *
- * Private, and `sampleSpringEasing` is the whole public API: the emitted
- * string is what any caller can spend, and a test that reached the closed form
- * directly would be checking the sampler against the very function it samples.
- */
+// The spring's normalized displacement at a normalized time, 0 at rest to 1 at target. Solved in
+// closed form because an integrator would add a step-size knob to a curve with an exact answer.
 function springProgressAt(spring: SpringDescriptor, normalizedTime: number): number {
   const angularFrequency = Math.sqrt(spring.stiffness / spring.mass);
   const dampingRatio = spring.damping / criticalDamping(spring);

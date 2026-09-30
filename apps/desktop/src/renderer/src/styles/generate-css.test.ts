@@ -1,25 +1,8 @@
-// The assets tier: generated artifacts against their sources.
-//
-// This tier holds generated tokens and schema artifacts byte-identical to their
-// sources. The console has no COMMITTED
-// stylesheet to byte-diff — `generate-css.ts` builds the sheet at runtime and
-// `frame/bindings/token-installation.ts` writes it into the document head before
-// first paint, deliberately,
-// so that the palette has exactly one record and no regeneration command can be
-// forgotten. That removes the drift this tier was written to catch and replaces it
-// with one this file holds: the generator is deterministic and complete — every
-// token in the resolved records reaches the sheet, every scheme-varying token
-// reaches all three cascade layers, and no token has its only definition inside a
-// media query. It is vacuity-guarded: a tampered copy has to be caught, or the
-// assertions below are measuring nothing.
-//
-// A SECOND CLAIM USED TO LIVE HERE AND IS NOW A REVIEW RULE, stated in
-// the module-shape rules in `apps/desktop/AGENTS.md` — that every `var(--meridian-*)` a console
-// stylesheet references is defined somewhere the console controls. It is a real
-// drift (a stylesheet naming a property nobody sets does not fail, it paints
-// nothing) and it was checked by READING every console `.css` source, which is the
-// one thing no tier does any more. No tool in this package lints CSS; `stylelint` is
-// the standard-tool home for the claim and is not adopted.
+// The generated token sheet against its sources. The console has no committed stylesheet to
+// byte-diff: `generate-css.ts` builds the sheet at runtime and `app/token-installation.ts` writes
+// it into the document head. So this file holds that the generator is deterministic and complete:
+// every token reaches the sheet, every scheme-varying token reaches all three cascade layers, and
+// none has its only definition inside a media query.
 
 import { describe, expect, it } from "vitest";
 
@@ -49,12 +32,9 @@ function definedTokenVariables(css: string): Set<string> {
 }
 
 /**
- * The declarations inside the TOP-LEVEL rule whose selector is exactly `selector`.
- *
- * Anchored to a line start, because `[data-color-scheme="light"]` also appears
- * inside the `prefers-color-scheme` block — as the indented `:root:not(...)` guard
- * that exists to exclude that very choice — and a substring search would read the
- * system layer while claiming to read the explicit one.
+ * The declarations inside the top-level rule whose selector is exactly `selector`. Anchored to a
+ * line start because `[data-color-scheme="light"]` also appears in the indented `:root:not(...)`
+ * guard inside the `prefers-color-scheme` block, and a substring search would read that layer.
  */
 function topLevelRuleBody(css: string, selector: string): string {
   const opening = `\n${selector} {\n`;
@@ -68,12 +48,8 @@ function topLevelRuleBody(css: string, selector: string): string {
 }
 
 /**
- * The one number a `rem` declaration carries, read out of the emitted sheet.
- *
- * The sheet is the artifact, so a length assertion that reads it is measuring
- * what the browser will paint rather than restating the record it came from.
- * Returns `undefined` when the property is absent, so a caller asserts on a
- * missing declaration instead of comparing against `NaN`.
+ * The one number a `rem` declaration carries, read out of the emitted sheet, so a length
+ * assertion measures what the browser paints. `undefined` when the property is absent.
  */
 function emittedRemValue(css: string, tokenName: string): number | undefined {
   const matched = new RegExp(`${tokenVariableName(tokenName)}: ([\\d.]+)rem;`).exec(css);
@@ -92,9 +68,8 @@ describe("assets — the generated token sheet", () => {
   });
 
   it("defines every scheme-varying token in the unconditional root block", () => {
-    // The root block runs to the first `@media`. A token defined only inside a
-    // media query is the failure the theme rule names: a document with no scheme
-    // signal paints an incomplete palette.
+    // The root block runs to the first `@media`. A token defined only inside a media query leaves
+    // a document with no scheme signal with an incomplete palette.
     const css = generateMeridianCss();
     const rootBlock = css.slice(0, css.indexOf("@media"));
     const definedInRoot = definedTokenVariables(rootBlock);
@@ -106,9 +81,8 @@ describe("assets — the generated token sheet", () => {
   });
 
   it("redefines every scheme-varying token in BOTH dark layers", () => {
-    // The system-preference layer and the explicit-choice layer are separate
-    // rules for a reason (an explicit light choice must beat a dark system), so a
-    // token present in one and absent from the other is a half-applied theme.
+    // The system-preference and explicit-choice layers are separate rules (an explicit light
+    // choice must beat a dark system), so a token in one and not the other is a half-applied theme.
     const css = generateMeridianCss();
     for (const [tokenName] of SCHEME_COLOR_TOKENS) {
       const variableName = tokenVariableName(tokenName);
@@ -134,12 +108,10 @@ describe("assets — the generated token sheet", () => {
   });
 
   it("binds the browser's own UI to the chosen scheme on each explicit arm", () => {
-    // `color-scheme` decides what Chromium paints for scrollbars, form controls,
-    // spinners and the canvas — parts no custom property reaches. Leaving the
-    // root's `light dark` in force under an explicit choice means an operator who
-    // picks light on a dark OS gets a light document inside dark scrollbars, and
-    // the inverse mismatch is reachable the same way. The token guard already
-    // keeps the right palette; this is the other half of the same choice.
+    // `color-scheme` decides what Chromium paints for scrollbars, form controls and the canvas,
+    // which no custom property reaches. Leaving the root's `light dark` under an explicit choice
+    // would put a light document inside dark scrollbars, or the reverse. The token guard keeps the
+    // palette; this keeps the browser's own UI.
     const css = generateMeridianCss();
     const explicitLight = topLevelRuleBody(css, '[data-color-scheme="light"]');
     const explicitDark = topLevelRuleBody(css, '[data-color-scheme="dark"]');
@@ -148,25 +120,21 @@ describe("assets — the generated token sheet", () => {
     expect(explicitDark, "there should be an explicit-dark rule at all").not.toBe("");
     expect(explicitLight).toContain("color-scheme: light;");
     expect(explicitDark).toContain("color-scheme: dark;");
-    // `light dark` says "either, follow the system", which is the one thing an
-    // explicit choice is not.
+    // `light dark` means "follow the system", which an explicit choice is not.
     expect(explicitLight).not.toContain("light dark");
     expect(explicitDark).not.toContain("light dark");
   });
 
   it("keeps both schemes on offer only where the system is the one deciding", () => {
-    // Negative control for the case above: an explicit arm is not made correct by
-    // dropping `light dark` everywhere. With no attribute at all the root has to
-    // keep offering both, or a system-scheme window loses native dark controls.
+    // Negative control: with no attribute the root must keep offering both, or a system-scheme
+    // window loses native dark controls.
     const css = generateMeridianCss();
     expect(css.slice(0, css.indexOf("@media"))).toContain("color-scheme: light dark;");
   });
 
   it("sizes an enumeration row by the line box the sheet actually paints", () => {
-    // The row is one `text-md` line box plus a `space-2` above and below it. All
-    // three inputs are read back out of the emitted sheet rather than restated
-    // here, so a change to the type scale, the spacing scale, or the body line
-    // height moves this assertion with it instead of leaving the rhythm behind.
+    // The row is one `text-md` line box plus a `space-2` above and below. All three inputs are read
+    // from the emitted sheet, so a change to any of them moves this assertion with it.
     const css = generateMeridianCss();
     const bodyLineHeight = emittedLineHeight(css);
     const bodyTextSizeRem = emittedRemValue(css, "text-md");
@@ -183,9 +151,8 @@ describe("assets — the generated token sheet", () => {
       return;
     }
     expect(ENUMERATION_ROW_HEIGHT_REM).toBe(bodyTextSizeRem * bodyLineHeight + 2 * rowPaddingRem);
-    // Negative control: a row height that counted the line box and forgot the
-    // padding would satisfy a looser check, and would then cap six rows at a box
-    // a row and a half too short to hold them.
+    // Negative control: a height that forgot the padding would satisfy a looser check and cap six
+    // rows a row and a half too short.
     expect(ENUMERATION_ROW_HEIGHT_REM).not.toBe(bodyTextSizeRem * bodyLineHeight);
   });
 
@@ -193,39 +160,28 @@ describe("assets — the generated token sheet", () => {
     const css = generateMeridianCss();
 
     expect(emittedRemValue(css, "enumeration-max-height")).toBe(BOUNDED_ENUMERATION_HEIGHT_REM);
-    // The cap is a ROW count — declared in the bounds home — converted to a length
-    // here so no stylesheet multiplies; a length picked directly would not divide
-    // evenly.
+    // The cap is a row count converted to a length here so no stylesheet multiplies; a hand-picked
+    // length would not divide evenly.
     expect(BOUNDED_ENUMERATION_HEIGHT_REM / ENUMERATION_ROW_HEIGHT_REM).toBe(
       BOUNDED_ENUMERATION_MAX_ROWS,
     );
   });
 
   it("emits ONE settle easing, and it is the sampled spring", () => {
-    // Chrome settles and never bounces, implemented by an own spring sampler
-    // emitting `linear()`. Two easings — a hand-written cubic beside the sampled
-    // spring — meant every one of the stylesheets reading
-    // `--meridian-ease-settle` got the cubic while the spring the rule asks for
-    // was emitted under a name no sheet read.
-    //
-    // The sampler runs at BUILD time now — `tokens/motion.ts` carries what it
-    // answered and `tokens/motion.test.ts` re-derives that constant against it — so
-    // this case asserts the emitted SHAPE, which is the property a stylesheet reads,
-    // and the value's provenance is asserted where the two modules meet.
+    // Two easings (a hand-written cubic beside the sampled spring) meant every sheet reading
+    // `--meridian-ease-settle` got the cubic while the spring sat under a name none read. The
+    // sampler runs at build time: `motion.ts` carries its answer and `motion.test.ts` re-derives
+    // it, so this asserts the emitted shape.
     const css = generateMeridianCss();
     expect(css).toContain(`${tokenVariableName("ease-settle")}: linear(`);
     expect(css).not.toContain(tokenVariableName("ease-spring"));
   });
 
   it("declares no font feature anywhere in the sheet", () => {
-    // `font-feature-settings` INHERITS, so a declaration on `body` reaches every
-    // descendant — which would put the slashed zero, reserved as the mark of a wire
-    // figure, onto every user name, repo path, and branch name in the console.
-    // The features ride the mono `@font-face` descriptors in
-    // `typeface.ts` instead, where they are scoped to the face by
-    // construction rather than by a selector this sheet could never narrow again:
-    // CSS Fonts 4 gives the property precedence over the features `font-variant-*`
-    // computes, so once it is on the root no descendant can scope the feature at all.
+    // `font-feature-settings` inherits, so a declaration on `body` would put the slashed zero,
+    // the mark of a wire figure, on every user name, path and branch. The features ride the mono
+    // `@font-face` descriptors in `typeface.ts`, scoped to the face; on the root no descendant
+    // could scope them back, since CSS Fonts 4 gives the property precedence over `font-variant-*`.
     expect(generateMeridianCss()).not.toContain("font-feature-settings");
   });
 

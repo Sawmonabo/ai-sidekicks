@@ -1,72 +1,51 @@
-// The Meridian palette — the single source of truth for every console color.
+// The Meridian palette: the single source of truth for every console color. The user hue wheel,
+// the two attention hues with their WCAG 2.2 AA floors, and the colors type and figures are
+// painted in are realized here and nowhere else. `generate-css.ts` builds the stylesheet from
+// this module, so there is no second copy to drift.
 //
-// The user hue wheel, the two attention hues with their WCAG 2.2 AA contrast floors,
-// and the colors type and figures are painted in are realized here and nowhere else: `meridian.css` is GENERATED from this module by `generate-css.ts` and
-// byte-diffed against it by the console's assets tier, so a color edited in CSS alone
-// fails the build.
+// Authoring rules this file obeys:
 //
-// Authoring rules this file obeys, each of them a design-language rule:
+//   • Hue answers "who" and never "how urgent". The twelve user steps are one scheme-independent
+//     set, because identity does not change when the operator flips the theme. One lightness
+//     (`HUE_WHEEL_LIGHTNESS`) clears 3:1 as an edge or mark against both schemes' grounds, which
+//     is why it sits mid-scale.
+//   • Amber means a person is needed; red means something failed; the accent is one desaturated
+//     cyan on interactive affordances. Each carries a `-text` variant at the 4.5:1 floor and a
+//     `-mark` variant at the 3:1 floor, because one value cannot serve both.
+//   • `edge` is a decorative hairline with no contrast floor; `edge-strong` is the boundary of a
+//     non-text control and carries 3:1. The non-text floor covers controls, their boundaries and
+//     focus rings. A table rule or section divider is none of those, and forcing 3:1 onto every
+//     hairline would make the high-contrast grid the density budget exists to avoid.
 //
-//   • Hue answers "who" and never "how urgent". The twelve user steps
-//     below are one scheme-independent set, because a person's identity does not
-//     change when the operator flips the theme. One lightness (`ACTOR_HUE_
-//     LIGHTNESS`) clears 3:1 as an edge or mark against BOTH schemes'
-//     grounds — which is exactly what the 3:1 floor asks for and why the lightness sits
-//     mid-scale rather than at either extreme.
-//   • Amber means a person is needed; red means something failed; the accent is
-//     one desaturated cyan on interactive affordances. Each carries a `-text`
-//     variant at the 4.5:1 floor and a `-mark` variant at the 3:1 floor, because
-//     one value cannot serve both without failing one of them.
-//   • `edge` is a decorative hairline and carries NO contrast floor; `edgeStrong`
-//     is the boundary of a non-text control and carries the 3:1 floor. The design
-//     language scopes its non-text floor to "non-text controls, their boundaries, and
-//     every focus ring" — a table rule or a section divider is neither, and
-//     forcing 3:1 onto every hairline would produce the high-contrast grid the
-//     density budget exists to avoid. The split is the reading, stated so a
-//     reviewer can disagree with it in one place.
-//
-// The values below are REQUESTS, not emitted values. `tokens.ts` resolves each
-// one through `resolveEmittedColor` — rounded to the precision the CSS carries,
-// then chroma-fitted into sRGB if the request does not fit there — and both
-// `generate-css.ts` and `contrast.test.ts` read that resolved record. So the
-// number measured is the number painted, and a request whose chroma sRGB cannot
-// hold at its lightness is served at the chroma it can (see `color.ts`).
+// The values below are requests, not emitted values. `tokens.ts` resolves each through
+// `resolveEmittedColor` (rounded to the precision the CSS carries, then chroma-fitted into sRGB),
+// and both `generate-css.ts` and `contrast.test.ts` read that record, so the number measured is
+// the number painted.
 
 import type { OklchColor } from "./color.js";
-// The enumeration row height is a product of both scales — the type scale and the
-// line height from the type system, the spacing scale from here — so this edge
-// exists and points one way. `typography.ts` is a leaf that imports nothing local,
-// so there is no cycle to resolve.
+// The enumeration row height is a product of the type scale and line height from `typography.ts`,
+// a leaf that imports nothing local, and the spacing scale here.
 import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
 
 /**
- * Rows a bounded enumeration shows before it scrolls.
- *
- * Six, and the number is a ceiling rather than a preference. The shortest window
- * the console ships is 720 px tall (the Agents pane auxiliary geometry), which is
- * 45 rem at the 16 px root; an enumeration allowed to take more than a third of
- * that would leave the pane holding it with nothing else on screen. Six rows is
- * 13.875 rem and clears that third; seven is 16.1875 rem and does not. The rem
- * height itself belongs to the tokens, because it is this count multiplied by a row
- * height the type and space scales decide.
+ * Rows a bounded enumeration shows before it scrolls. A ceiling, not a preference: the shortest
+ * window the console ships is 720 px tall (the Agents pane auxiliary geometry), 45 rem at the
+ * 16 px root, and an enumeration taking more than a third of it leaves nothing else on screen.
+ * Six rows is 13.875 rem and clears that third; seven is 16.1875 rem and does not.
  */
 export const BOUNDED_ENUMERATION_MAX_ROWS = 6;
 
 /**
- * Maximum nesting depth of a keybinding when-clause. Bounded so a malformed or
- * hostile expression cannot recurse the parser; past the bound the clause is
- * refused and the binding evaluates false, which is the fail-closed arm.
+ * Maximum nesting depth of a keybinding when-clause. Bounded so a malformed or hostile
+ * expression cannot recurse the parser; past it the clause is refused and the binding evaluates
+ * false.
  */
 export const WHEN_CLAUSE_MAX_DEPTH = 8;
 
 /**
- * Distinct context keys a pair of when-clauses may name before
- * `whenClausesCanOverlap` stops enumerating.
- *
- * Twelve keys is 4096 assignments per pair, checked only for bindings that share a
- * chord — microseconds, once, at install. It is set by what a human writes: a
- * console clause names two or three keys, and a pair naming thirteen is a design
- * smell long before it is a performance problem.
+ * Distinct context keys a pair of when-clauses may name before `whenClausesCanOverlap` stops
+ * enumerating. Twelve keys is 4096 assignments per pair, checked once at install and only for
+ * bindings that share a chord; a console clause names two or three keys.
  */
 export const WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS = 12;
 
@@ -103,8 +82,8 @@ export const TEXT_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * The two-hue rule plus the one accent. Nothing else in the console is colored
- * for attention; adding a third attention hue here is the rule's failure mode.
+ * The two attention hues plus the one accent. Nothing else in the console is colored for
+ * attention; a third attention hue here breaks the rule.
  */
 export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   "amber-text": { light: oklch(0.5, 0.13, 65), dark: oklch(0.845, 0.135, 80) },
@@ -115,71 +94,40 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   "red-ground": { light: oklch(0.95, 0.03, 25), dark: oklch(0.25, 0.055, 25) },
   accent: { light: oklch(0.575, 0.09, 215), dark: oklch(0.73, 0.085, 205) },
   "accent-text": { light: oklch(0.475, 0.1, 215), dark: oklch(0.845, 0.075, 205) },
-  // The ink for a control FILLED with `accent` — a primary action's label, and
-  // nothing else. `accent-text` is the ink for accent-colored text on a NEUTRAL
-  // ground and is measured against the four grounds; painted on the accent itself
-  // it reaches 1.53:1 in light and 1.48:1 in dark, which is the 4.5:1 text floor missed
-  // by a factor of three. The pair needs its own token because one value cannot
-  // serve both, exactly as `-text` and `-mark` cannot.
+  // The ink for a control filled with `accent`, and nothing else. `accent-text` is for
+  // accent-colored text on a neutral ground; on the accent itself it reaches 1.53:1 in light and
+  // 1.48:1 in dark, so the pair needs its own token, as `-text` and `-mark` do.
   //
-  // DARK IN BOTH SCHEMES, and that is forced rather than chosen. A light ink cannot
-  // clear 4.5:1 on the LIGHT accent at all: the lightest thing the palette has,
-  // `surface-raised` (pure white there), reaches 4.23:1, and `text` reaches 3.89:1.
-  // So the light leg sits below the whole text scale, at L 0.13 (4.75:1); the dark
-  // leg has room, because its accent is lighter, and sits at L 0.22 (7.41:1) —
-  // which is also where the dark scheme's own `surface` tokens sit, so a filled
-  // control reads as the console's ground punched out of the accent rather than as
-  // a black label stuck on top of it. Both carry a little of the accent's own
-  // chroma for the same reason.
+  // Dark in both schemes, which is forced: a light ink cannot clear 4.5:1 on the light accent
+  // (the lightest thing the palette has, `surface-raised`, reaches 4.23:1, and `text` 3.89:1).
+  // So the light leg sits at L 0.13 (4.75:1). The dark leg, on a lighter accent, sits at L 0.22
+  // (7.41:1), the lightness of the dark scheme's own surfaces, so a filled control reads as the
+  // console's ground punched out of the accent. Both carry a little of the accent's chroma.
   "accent-ink": { light: oklch(0.13, 0.03, 215), dark: oklch(0.22, 0.04, 205) },
-  // The face of a PRESSED accent-filled control. A token rather than a `filter`,
-  // and the arithmetic is why: a `brightness()` scales both rendered colors, and
-  // scaling does not preserve a contrast ratio, because relative luminance carries
-  // a 0.05 offset a multiplication does not distribute over. `brightness(0.94)` on
-  // the light face took the measured `accent-ink` pair from 4.73:1 to 4.27:1 —
-  // through the 4.5:1 text floor, in the state the treatment was meant to keep
-  // legible.
+  // The face of a pressed accent-filled control, a token rather than a `filter`: `brightness()`
+  // scales both rendered colors, and scaling does not preserve a contrast ratio because relative
+  // luminance carries a 0.05 offset. `brightness(0.94)` on the light face takes the `accent-ink`
+  // pair from 4.75:1 to 4.27:1, through the 4.5:1 text floor.
   //
-  // HOW FAR THE LIGHT FACE MAY DARKEN IS SETTLED BY ARITHMETIC, NOT BY TASTE. The
-  // ink is dark in both schemes (see above), so contrast with it is a monotone
-  // function of the FILL's luminance, and 4.5:1 against an ink of luminance L needs
-  // a fill above 4.5 × (L + 0.05) − 0.05. Even a pure-black ink puts that floor at
-  // 0.175, and the light accent's own luminance is 0.187 — about 6% of headroom, so
-  // no ink whatsoever buys the light scheme a visibly darker press. Its leg
-  // therefore takes the deepest face the floor admits, L 0.565 at 4.57:1, with
-  // chroma up against the sRGB edge at this lightness so the state reads as a
-  // deeper face rather than a dimmer one; `accent-fill.css` carries the rest of the
-  // press on the control's boundary, which takes the ink and costs no ratio. The
-  // dark leg starts at 7.41:1 and can afford a real deepening: L 0.68 at 6.17:1.
+  // How far the light face may darken is arithmetic. The ink is dark in both schemes, so
+  // contrast is monotone in the fill's luminance, and 4.5:1 against an ink of luminance L needs a
+  // fill above 4.5 * (L + 0.05) - 0.05. Even a pure-black ink puts that at 0.175 and the light
+  // accent's luminance is 0.198, so no ink buys a visibly darker press. The light leg takes the
+  // deepest face the floor admits, L 0.565 at 4.57:1, with chroma up against the sRGB edge so it
+  // reads deeper rather than dimmer; `features/composer/accent-fill.css` carries the rest of the
+  // press on the control's boundary. The dark leg can afford a real deepening: L 0.68 at 6.18:1.
   //
-  // Both legs also clear the 3:1 non-text floor on all four grounds (3.54 light,
-  // 5.82 dark) and are measured there, because a pressed control's own face is
-  // still the boundary a person has to find.
+  // Both legs clear the 3:1 non-text floor on all four grounds (3.58 light, 5.83 dark) and are
+  // measured there, because a pressed control's face is still the boundary a person must find.
   "accent-pressed": { light: oklch(0.565, 0.099, 215), dark: oklch(0.68, 0.095, 205) },
 };
 
 /**
- * The four code span classes that carry a color of their own; a comment is an alias.
- *
- * HERE RATHER THAN IN THE TRANSCRIPT'S OWN SHEET, and the reason is measurement. These
- * and the twelve ANSI ones below were hand-written `oklch()` literals in
- * `features/transcript/transcript.css`, outside every guarantee this module exists to make — and both
- * consequences were invisible: nothing fitted them into the sRGB gamut, so seven of
- * the thirty-four requests were remapped by the browser to a color no file states,
- * and nothing measured them against their ground, so six sat below the 4.5:1 text
- * floor in the light scheme.
- *
- * WHAT THE SHEET'S OLD ARGUMENT GOT RIGHT AND WHERE IT STOPS. It said a syntax
- * palette is none of the three closed sets above, so folding it in would blur the
- * boundary the two-hue rule depends on. The first half is true, and is why this is its own
- * record rather than more members of `ATTENTION_TOKENS`: the two-hue rule governs
- * what the console colors FOR ATTENTION, and a keyword is not. The second half does
- * not follow — a separate record here keeps the sets distinct while still putting
- * every color through one resolver and one measurement, which a table in a
- * stylesheet cannot.
- *
- * Painted on `surface-sunken` and nothing else, which is the single ground the
- * contrast census measures these against.
+ * The four code span classes that carry a color of their own; a comment is an alias. They live
+ * here rather than in the transcript's sheet so they are fitted into the sRGB gamut and measured
+ * against their ground like every other color. A separate record from `ATTENTION_TOKENS`, since
+ * the two-hue rule governs what the console colors for attention and a keyword is not one.
+ * Painted on `surface-sunken` alone, the ground the contrast census measures them against.
  */
 export const CODE_TOKENS: Readonly<Record<string, SchemePair>> = {
   "code-keyword": { light: oklch(0.45, 0.12, 300), dark: oklch(0.8, 0.11, 300) },
@@ -191,19 +139,12 @@ export const CODE_TOKENS: Readonly<Record<string, SchemePair>> = {
 /**
  * The twelve hued ANSI names, as the console's own colors rather than a terminal's.
  *
- * WHY "BRIGHT" IS NOT A LIGHTNESS RULE. On the DARK scheme a brighter color is a
- * higher-contrast one, so the bright set sits above its normal sibling and gains
- * legibility by doing so. On the LIGHT scheme the same move SPENDS contrast, because
- * the ground is near white and lightness is the ratio — which is how the previous
- * values came to sit between 3.8:1 and 4.5:1 on the well they are painted on,
- * failing WCAG 1.4.3 in the one scheme where looking would not show it. So a light
- * bright name is distinguished by CHROMA first and lightness second, at the deepest
- * lightness the 4.5:1 floor admits with a little margin — still above its own normal
- * sibling, so the sixteen names stay eight pairs rather than collapsing to eight.
- *
- * A run whose BACKGROUND the stream set is deliberately outside the census: which of
- * the sixteen a stream pairs with which is the stream's composition, and no palette
- * of sixteen colors can hold every one of its own pairs to a text floor.
+ * "Bright" is not a lightness rule. On the dark scheme brighter means higher contrast, but on
+ * the light scheme it spends contrast because the ground is near white. So a light bright name
+ * differs by chroma first and lightness second, at the deepest lightness the 4.5:1 floor admits
+ * with a little margin, still above its normal sibling so the names stay pairs. A run whose
+ * background the stream set is outside the census: which pairs a stream composes is its own, and
+ * no palette can hold every one of them to a text floor.
  */
 export const ANSI_TOKENS: Readonly<Record<string, SchemePair>> = {
   "ansi-red": { light: oklch(0.48, 0.16, 25), dark: oklch(0.76, 0.14, 25) },
@@ -221,15 +162,11 @@ export const ANSI_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * Tokens that are a code or terminal NAME for a console token, not a color.
- *
- * A code block's plain text is the console's text; a terminal's black and white are
- * the two ends of the reading scale, and reproducing a tool's literal black on a
- * dark scheme would render its output invisible. Each is emitted as a `var()`
- * reference to the token it defers to rather than a copy of its value, which is what
- * keeps them out of the contrast census without escaping it: the target is measured,
- * and an alias paints what its target paints. Scheme-independent for that same
- * reason, so they are emitted once in the root block and in neither dark layer.
+ * Tokens that are a code or terminal name for a console token, not a color. A code block's plain
+ * text is the console's text, and a terminal's black and white are the two ends of the reading
+ * scale; a literal black on a dark scheme would render output invisible. Each is a `var()`
+ * reference to its target, so it paints what the target paints and stays in the contrast census
+ * through it. Scheme-independent for that reason, so it is emitted once in the root block.
  */
 export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
   "code-plain": "text",
@@ -242,35 +179,29 @@ export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
   "ansi-bright-white": "text",
 };
 
-/** Steps on the user wheel. The design language fixes the actor hues at twelve. */
+/** Steps on the user wheel: twelve. */
 export const HUE_WHEEL_STEPS = 12;
 
 /**
- * Fixed lightness for every user hue — one value for both schemes, because
- * a person's identity color does not change when the operator flips the theme.
- *
- * It is not a taste choice. Holding the whole wheel to 3:1 leaves exactly one
- * feasible band at this chroma, and the band is narrow: the LIGHT scheme's worst
- * step (the yellow-green at step 5, measured against `surface-sunken`) falls
- * through 3:1 just above L 0.600, and the DARK scheme's worst (the same step
- * against `surface-raised`) falls through it just below L 0.545. Anything outside
- * [0.545, 0.600] fails one scheme or the other. This sits near the middle of that
- * band, which is why both schemes clear the floor with comparable headroom
- * (~3.43 light, ~3.37 dark) rather than one of them scraping past.
+ * Fixed lightness for every user hue, one value for both schemes because identity color does not
+ * change with the theme. Holding the whole wheel to 3:1 leaves one narrow feasible band at this
+ * chroma, roughly 0.545 to 0.600: the light scheme's worst step (5, against `surface-sunken`)
+ * falls through 3:1 just above L 0.600, and the dark scheme's worst (step 11, against
+ * `surface-raised`) just below L 0.545. This sits near the middle, with headroom of about 3.43
+ * light and 3.37 dark.
  */
 export const HUE_WHEEL_LIGHTNESS = 0.57;
 
 /**
- * Requested chroma for every user hue. Green and cyan cannot hold it in
- * sRGB at this lightness, so those steps are chroma-fitted down; the wheel stays
- * perceptually even in lightness, which is what carries the "one set" reading.
+ * Requested chroma for every user hue. Green and cyan cannot hold it in sRGB at this lightness,
+ * so those steps are chroma-fitted down; lightness stays even, which carries the "one set"
+ * reading.
  */
 export const HUE_WHEEL_CHROMA = 0.135;
 
 /**
- * Hue angle of step 0. Offset off 0° so no user lands on the pure red
- * that the failed-state token owns, which would make identity read as failure at
- * a glance.
+ * Hue angle of step 0, offset from 0° so no user lands on the pure red that the failed-state
+ * token owns.
  */
 export const HUE_WHEEL_ORIGIN_DEGREES = 20;
 
@@ -282,10 +213,7 @@ export function computeHueWheelAngle(step: number): number {
   return (HUE_WHEEL_ORIGIN_DEGREES + step * HUE_WHEEL_STEP_DEGREES + 360) % 360;
 }
 
-/**
- * Spacing scale, in rem, on a 4 px base at the 16 px root. Named rather than
- * numeric so a density-budget change is one edit here.
- */
+/** Spacing scale, in rem, on a 4 px base at the 16 px root. */
 export const SPACE_SCALE_REM: Readonly<Record<string, number>> = {
   "space-1": 0.25,
   "space-2": 0.5,
@@ -304,21 +232,13 @@ export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
 };
 
 /**
- * The attribution edge's width, in px. The design language fixes it at 2 px: wide enough to
- * carry a hue at a glance, narrow enough that a screen of rows reads as a log
- * rather than as a striped table.
+ * The attribution edge's width, in px: wide enough to carry a hue at a glance, narrow enough
+ * that a screen of rows reads as a log rather than a striped table.
  */
 export const LEADING_EDGE_WIDTH_PX = 2;
 
-/**
- * One step of a rem scale, by name. Throws rather than resolving `undefined`.
- *
- * The scales are open records keyed by token name, so a step read by name is
- * `number | undefined` and a typo would otherwise propagate into an emitted
- * length as `NaNrem` — a declaration the browser discards in silence. Same stance
- * as `tokens.ts`'s `schemeColor`, which throws on an unknown color token for the
- * same reason.
- */
+// Throws on an unknown step so a typo cannot become `NaNrem`, which the browser discards
+// silently. The same stance as `schemeColor`.
 function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): number {
   const sizeRem = scale[stepName];
   if (sizeRem === undefined) {
@@ -328,52 +248,30 @@ function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): n
 }
 
 /**
- * The height one row of an enumeration occupies, in rem.
- *
- * DERIVED, never measured off a screen: one `text-md` line box at the body's line
- * height, plus a `space-2` above and below it — which is exactly the rhythm the
- * console's one shipped enumeration, the palette's result list, already sets on
- * `.console-palette__item`. Stating it here rather than in each list's stylesheet
- * is what lets a bounded list be capped in ROWS, which is the unit the cap is
- * actually about, and it means a change to the type scale, the spacing scale, or
- * the body line height moves every such cap with it.
+ * The height one row of an enumeration occupies, in rem: one `text-md` line box at the body line
+ * height plus a `space-2` above and below. Derived so a bounded list is capped in rows, and a
+ * change to the type or space scale moves every cap.
  */
 export const ENUMERATION_ROW_HEIGHT_REM: number =
   scaleStep(TYPE_SCALE_REM, "text-md") * BODY_LINE_HEIGHT +
   2 * scaleStep(SPACE_SCALE_REM, "space-2");
 
 /**
- * The height a bounded enumeration scrolls past, in rem.
- *
- * The row ceiling is a BOUND, {@link BOUNDED_ENUMERATION_MAX_ROWS}; the row height is a
- * consequence of the type and space scales and lives here. This is their product, computed where the two meet, so a stylesheet
- * writes `max-height: var(--meridian-enumeration-max-height)` and never multiplies.
- * A list that grows past it scrolls inside its own box instead of pushing the rest
- * of its pane off screen.
+ * The height a bounded enumeration scrolls past, in rem: {@link BOUNDED_ENUMERATION_MAX_ROWS}
+ * times the row height, computed where the two meet so a stylesheet writes
+ * `max-height: var(--meridian-enumeration-max-height)` and never multiplies.
  */
 export const BOUNDED_ENUMERATION_HEIGHT_REM: number =
   BOUNDED_ENUMERATION_MAX_ROWS * ENUMERATION_ROW_HEIGHT_REM;
 
 /**
- * The narrowest viewport the console lays out in, in CSS px.
+ * The narrowest viewport the console lays out in, in CSS px. WCAG 2.2 SC 1.4.10 (Reflow) asks
+ * that vertically scrolling content be usable without two-dimensional scrolling at 320 CSS px,
+ * the width a 1280 px window reaches at 400% zoom.
  *
- * WCAG 2.2 SC 1.4.10 (Reflow) asks that vertically scrolling content be usable
- * without scrolling in two dimensions at a width equivalent to 320 CSS px — the
- * width a 1280 px window reaches at 400% zoom, which is how an operator with low
- * vision actually arrives here rather than by narrowing a window to a phone.
- *
- * It is a FLOOR the frame declares, not a breakpoint anything switches on. The
- * console's answer to the criterion is one fluid layout that holds down to this
- * width — `frame.css` spends it as the frame's `min-width`, so a viewport below it
- * scrolls the whole document horizontally instead of squeezing every pane
- * inside an unbounded amount further. Above it every pane and region sizes off its own
- * content; the four width-conditional rules the console has are each written to
- * collapse toward this end of the range, so no view needs a second layout to
- * reach it.
- *
- * A px value rather than a rem one, and that is the criterion's own unit: a CSS px
- * is fixed against the reference pixel, while a rem tracks the root font size the
- * operator may also have raised, so a floor written in rem would move under
- * exactly the person it exists for.
+ * A floor the frame declares, not a breakpoint: one fluid layout holds down to this width,
+ * `layout/AppShell/app-frame.css` spends it as the frame's `min-width`, and below it the document
+ * scrolls horizontally. A px value because that is the criterion's unit; a rem floor would move
+ * under the operator who raised the root font size.
  */
 export const REFLOW_MIN_WIDTH_PX = 320;

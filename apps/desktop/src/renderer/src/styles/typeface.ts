@@ -1,142 +1,85 @@
-// The console's faces, self-hosted.
+// The console's faces, self-hosted: IBM Plex Sans for UI text and IBM Plex Mono for every
+// wire-true figure, as variable builds from the foundry's own packages. Without loaded faces the
+// console renders in whichever face the host carries, which would make the type scale, the
+// transcript's fixed gutter and every screenshot reference a property of the operator's machine.
 //
-// UI text is set in a humanist grotesque and every wire-true figure in mono, and the
-// two families are IBM Plex Sans and IBM Plex Mono, VARIABLE builds, from the foundry's
-// own packages. Until this module existed the two families were named in
-// `styles/typography.ts` and nowhere loaded, so the console rendered in whichever face
-// the host happened to carry — which makes the type scale, the transcript's fixed gutter,
-// and every screenshot reference a property of the operator's machine rather than of
-// the design.
+// This is a module and not a stylesheet: a bare package specifier inside CSS `url()` is a bundler
+// convention no tool reads as a dependency, so the font packages would look unused. Declaring the
+// faces here lets the compiler resolve the specifier, the bundler emit the file and the
+// dead-code check see a used package. The faces install through the same seam as the tokens
+// (`app/token-installation.ts`).
 //
-// WHY THIS IS A MODULE AND NOT A STYLESHEET. It was a `.css` file first, and a
-// `.css` file cannot state this dependency in a way any tool can read: a bare
-// package specifier inside `url()` is a bundler convention, not CSS resolution, so
-// Vite rewrote it correctly and `structure:dead-code` reported both font packages
-// as unused — which under this package's rules means they are deleted, not
-// exempted. Declaring the faces here makes the dependency real to every reader at
-// once: the compiler resolves the specifier, the bundler emits the file, and the
-// dead-code gate sees a used package. It also matches what the console already
-// does one directory over — `token-installation.ts` builds the Meridian sheet at
-// mount rather than committing one — so the faces install through the same seam
-// the tokens do rather than through a second mechanism.
+// Seven decisions are encoded below, each against a plausible alternative.
 //
-// SEVEN DECISIONS ARE ENCODED BELOW, each a choice against a plausible alternative.
+//   1. **One variable file per family and style, Latin-1 split.** The four files are 68 988 B and
+//      80 188 B for the sans and 32 576 B and 38 688 B for the mono, 220 440 B in all, against
+//      complete builds that carry every subset. A variable file serves the weights the
+//      stylesheets ask for (400, 500, 600, and 640 in
+//      `layout/CommandPalette/command-palette.css`) as real instances, not the nearest of three
+//      static cuts. Each family carries its own
+//      `unicode-range`, copied from that package's stylesheets, so a codepoint outside it falls
+//      through to the next family in the stack. The ranges differ (the sans splits cover `U+0000`
+//      and `U+000D`, the mono splits do not), so one shared constant would claim coverage of two
+//      files from the contents of one.
 //
-//   1. **One VARIABLE file per family and style, and the Latin-1 split of each.**
-//      The four files below are 68 988 B and 80 188 B for the sans, 32 576 B and
-//      38 688 B for the mono — 220 440 B for the whole type foundation — against
-//      the complete builds, which carry every subset. A variable file is what
-//      serves the weights: the console's stylesheets ask for 400, 500, 600 and
-//      `layout/CommandPalette/command-palette.css` asks for 640, and each of those is a real instance
-//      rather than the nearest of three static cuts. Each FAMILY carries its own
-//      `unicode-range`, copied from that package's own stylesheets for its splits,
-//      so a codepoint outside it is not rendered wrong — it falls through to the
-//      next family in the stack, which is exactly what the descriptor is for. The
-//      two families' ranges are NOT the same string and are not shared: the sans
-//      splits cover `U+0000` and `U+000D` and the mono splits do not, so one
-//      constant for both would claim coverage of two files from the contents of
-//      one.
+//   2. **Both styles, because a synthesized oblique is not the face.** Seven rules across five
+//      stylesheets set `font-style: italic`. Mono italic is reached once: the ANSI body
+//      (`features/transcript/rows/ansi/ansi.css`, `.meridian-ansi--italic` under a body that sets
+//      the mono token). Everything else is sans: the three diff italics
+//      (`features/repos/diff/components/diff.css`), the tool row's absent name
+//      (`features/transcript/rows/rows.css`), the markdown image's alt text
+//      (`features/transcript/rows/markdown/markdown.css`) and the pane's absent crumb
+//      (`components/PaneFrame/PaneFrame.css`). A family declaring only its upright face would get
+//      a sheared faux italic, not the foundry's. The italic files cost nothing on first paint,
+//      since a browser fetches an `@font-face` file only when a run matches it, but
+//      `renderer-initial-fonts` counts them, because a ceiling bounding only what one session
+//      fetched would bound nothing.
 //
-//   2. **Both styles, because a synthesized oblique is not the face.** Seven
-//      rules across five stylesheets set `font-style: italic`, and both families
-//      are reached — but which family a rule reaches was read out of the CASCADE
-//      rather than off the rule, because some of these rules set no family of
-//      their own. MONO italic is reached once: the ANSI body
-//      (`features/transcript/rows/ansi/ansi.css` — `.meridian-ansi--italic` under a
-//      `.meridian-ansi__body` that sets the mono token). Everything else is SANS:
-//      the three diff italics (`diff.css`) and the tool row's absent name
-//      (`rows.css`) set the sans family explicitly, and the markdown image's alt text
-//      (`markdown.css`) and the pane's absent crumb (`PaneFrame.css`) resolve to the
-//      body's sans stack. A family that declared only its upright
-//      face would not lose those runs: the browser would SLANT the outlines and paint a
-//      faux italic, a shear of the wrong drawing rather than the italic the
-//      foundry cut — whose own letterforms and spacing would then never reach the
-//      page. The design language names the faces, and a transform of a face is not one. The
-//      bytes are the reason this looks expensive and is not: a browser fetches an
-//      `@font-face` file only when a run actually matches that rule, so the two
-//      italic files are on disk and in the budget and are requested by no session
-//      that renders no italic — they are not on the first paint. They are counted by
-//      `renderer-initial-fonts`, because a ceiling that bounded only what a
-//      particular session fetched would bound nothing.
+//   3. **No `local()` in any `src`.** The foundry's stylesheets lead with
+//      `local("IBM Plex Sans Var Regular")`, which hands rendering to whatever Plex the host has
+//      (another version, subset or feature set), so the screenshot tier would compare different
+//      documents. Only the emitted bytes are admitted.
 //
-//   3. **No `local()` in any `src`.** The foundry's own stylesheets lead with
-//      `local("IBM Plex Sans Var Regular")`, which hands the rendering to whatever
-//      Plex the host has installed — a different version, a different subset, a
-//      different set of features. A console whose faces depend on the machine is a
-//      console whose screenshot tier compares two different documents. The emitted
-//      bytes are the only ones admitted.
+//   4. **`font-display: block`, not `swap`.** The files are served from the renderer scheme off
+//      local disk, so the block period is milliseconds and invisible. `swap` would trade it for a
+//      visible reflow of every transcript row, gutter and mono figure, a motion the design does
+//      not sanction.
 //
-//   4. **`font-display: block`, not `swap`.** These files are served from the
-//      renderer scheme off local disk, so the block period is measured in
-//      milliseconds and no operator sees it. `swap` would trade that invisible
-//      wait for a visible reflow — every transcript row, gutter, and mono figure laid
-//      out in a fallback metric and then relaid — which is the one motion the
-//      design language does not sanction, because nobody asked for it.
+//   5. **The declared axis ranges are read from the files, not chosen.** Each `font-weight` is the
+//      file's own `wght` range and each `font-stretch` its own `wdth` range, agreeing between the
+//      package's stylesheet and the `fvar` table in the `woff2`: sans `wght 100–700` plus
+//      `wdth 85–100`, mono `wght 100–700` with no width axis, both styles of a family
+//      publishing the same axes. A descriptor range narrows what the browser synthesizes from
+//      the file, so a guessed range is a face the console asked for and did not get. The mono
+//      faces carry no `font-stretch` descriptor because their files have no axis to bound.
 //
-//   5. **The declared axis ranges are READ from the files, not chosen.** Each
-//      `font-weight` below is the file's own `wght` range and each `font-stretch`
-//      its own `wdth` range, cross-read two ways and agreeing: the package's own
-//      stylesheet for that split, and the `fvar` table inside the `woff2` itself
-//      (measured 2026-09-09 — sans `wght 100–700` plus `wdth 85–100`, mono `wght
-//      100–700` and no width axis at all, and both styles of a family publishing
-//      the same axes). A descriptor range NARROWS what the browser will synthesize
-//      from the file, so a guessed range is a face the console asked for and
-//      silently did not get; the mono faces therefore carry no `font-stretch`
-//      descriptor, because the files carry no axis to bound.
+//   6. **The slashed zero rides the mono face, not the tree.** Mono is the signature that a
+//      number came from the wire, so the `zero` feature belongs to IBM Plex Mono. On `body` it
+//      could not hold the scoping: `font-feature-settings` inherits, so a root declaration would
+//      slash the zero on every user name, repo path and branch name, and CSS Fonts 4 gives the
+//      property precedence over the features `font-variant-*` computes, so no descendant could
+//      narrow it. As an `@font-face` descriptor it sets the face's initial features and applies
+//      wherever the face is selected. Chromium honors the descriptor from 140, and Electron 44
+//      runs Chromium 152. `tnum` is deliberately not declared (see `typography.ts`).
 //
-//   6. **The slashed zero rides the MONO FACE, not the tree.** Mono is
-//      the signature that a number came from the wire, so the `zero` feature is a
-//      property of IBM Plex Mono and reaches nothing a mono rule does not select.
-//      Declared on `body` it could not hold the scoping:
-//      `font-feature-settings` INHERITS, so one root declaration would put a slashed
-//      zero on every user name, repo path, and branch name in the console —
-//      spending the design's own mark for a wire figure on prose — and CSS Fonts 4
-//      gives the property precedence over the features `font-variant-*` computes,
-//      so once it is on the root no descendant can narrow the feature again. As
-//      an `@font-face` DESCRIPTOR it is scoped by construction instead: it sets the
-//      initial features of that face, so it applies wherever the face is selected
-//      and nowhere else. Chromium honors the descriptor from 140 (`@font-face` /
-//      `font-feature-settings` on MDN's compatibility table, the `FontFace`
-//      interface's `featureSettings` property); Electron 44 runs Chromium 152, read
-//      off the pinned binary on 2026-09-09. `tnum` is deliberately NOT declared —
-//      see `styles/typography.ts` for the measurement that settles it.
+//   7. **The Pi split is not shipped, so five glyphs the console draws fall to the host face.**
+//      The console declares Latin-1 only, and the arrows `lib/chord-format.ts` renders on
+//      keybinding rows and palette entries (`U+2190`-`U+2193` and `U+21A9`) sit in the foundry's
+//      Pi split, which both packages publish. A chord row therefore paints its arrows from the
+//      host beside Plex text, the class of thing decision 2 refuses for italics. It is admitted
+//      because the smallest Pi files are 22 488 B (mono Roman) and 23 900 B (sans Roman), and one
+//      takes the four faces from 220 440 B to 242 928 B against a 232 000 B ceiling. A wider
+//      `renderer-initial-fonts` ceiling makes the Pi splits declarable, and this decision says
+//      which files to add. The remaining keycap glyphs (`U+2318` `U+2325` `U+2303` `U+21E7`
+//      `U+232B` `U+2326` `U+238B` `U+21E5`) are covered by no split's `unicode-range` in either
+//      package, so they fall through under any ceiling.
 //
-//   7. **The Pi split is not shipped, so five glyphs the console draws fall to the
-//      host face.** The console declares Latin-1 only, and the arrows
-//      `lib/chord-format.ts` renders on every keybinding row and
-//      palette entry — `U+2190`-`U+2193` and `U+21A9` — sit in the foundry's **Pi**
-//      split, which both packages publish and this module does not declare. So a
-//      chord row paints its arrows from whatever the host supplies, beside Plex
-//      text. That is the same class of thing decision 2 refuses for italics, and it
-//      is admitted here for a reason that decision does not have: the smallest Pi
-//      files are 22 488 B (mono Roman) and 23 900 B (sans Roman), and one of them
-//      alone takes the four faces from 220 440 B to 242 928 B against a 232 000 B
-//      ceiling. The trade is stated rather than discovered from a screenshot, and it
-//      RE-ARMS on one condition: a wider `renderer-initial-fonts` row makes the Pi
-//      splits declarable, and this bullet is what says which files to add. The
-//      remaining keycap glyphs — `U+2318` `U+2325` `U+2303` `U+21E7` `U+232B`
-//      `U+2326` `U+238B` `U+21E5` — were never reachable this way: every split's
-//      `unicode-range` in both packages was read on 2026-09-09 and none of them
-//      covers a single one of those codepoints, so they fall through under any
-//      ceiling.
-//
-// TWO FACTS ABOUT THIS SET, RECORDED BECAUSE THEY ARE EASY TO ASSUME WRONGLY.
-//
-//   The `font-family` DESCRIPTOR is the name the token stack asks for, and it is
-//   not the name inside the file. These builds are called `IBM Plex Sans Var` and
-//   `IBM Plex Mono Var` internally; a `@font-face` descriptor names the face for
-//   CSS lookup and is free to differ, so `styles/typography.ts` keeps asking for
-//   `"IBM Plex Sans"` and `"IBM Plex Mono"` — the design's own statement of what
-//   the console is set in — and these rules are what supplies them.
-//
-//   A family's two Latin-1 splits publish the SAME `unicode-range`, which is read
-//   out of the two packages rather than assumed. Both foundry stylesheets were
-//   compared block for block on 2026-09-09 and the Roman and Italic Latin-1
-//   entries agree character for character within each family — which is why one
-//   constant per family is a single reading of one subset decision and not two
-//   copies of one string. A future split whose italic diverged would be caught by
-//   the same comparison, which is why the ranges are recopied on any version bump
-//   rather than carried forward.
+// Two facts worth recording. The `font-family` descriptor is the name the token stack asks for,
+// not the name inside the file (`IBM Plex Sans Var`, `IBM Plex Mono Var`), so `typography.ts`
+// keeps asking for `"IBM Plex Sans"` and `"IBM Plex Mono"` and these rules supply them. And a
+// family's two Latin-1 splits publish the same `unicode-range` (the Roman and Italic entries
+// agree character for character in both packages), so one constant per family is one reading of
+// one subset decision. Recopy the ranges on any version bump, which would catch a divergence.
 
 import monoItalicLatin1Url from "@ibm/plex-mono-variable/fonts/split/woff2/IBM Plex Mono Var-Italic-Latin1.woff2?url";
 import monoRomanLatin1Url from "@ibm/plex-mono-variable/fonts/split/woff2/IBM Plex Mono Var-Roman-Latin1.woff2?url";
@@ -144,14 +87,9 @@ import sansItalicLatin1Url from "@ibm/plex-sans-variable/fonts/split/woff2/IBM P
 import sansRomanLatin1Url from "@ibm/plex-sans-variable/fonts/split/woff2/IBM Plex Sans Var-Roman-Latin1.woff2?url";
 
 /**
- * The Latin-1 coverage of the SANS splits, verbatim from that package's own
- * stylesheets for them.
- *
- * Copied rather than derived: it is the publisher's description of which
- * codepoints these files actually contain, so re-deriving it would be inventing a
- * claim about bytes we did not subset. One constant serves both styles because the
- * package publishes one range for both, which the header records as read rather
- * than assumed.
+ * The Latin-1 coverage of the sans splits, verbatim from that package's stylesheets. Copied
+ * rather than derived: it is the publisher's description of the codepoints the files contain.
+ * One constant serves both styles because the package publishes one range for both.
  */
 const SANS_LATIN1_UNICODE_RANGE = [
   "U+0000",
@@ -178,15 +116,9 @@ const SANS_LATIN1_UNICODE_RANGE = [
 ].join(", ");
 
 /**
- * The Latin-1 coverage of the MONO splits, verbatim from that package's own
- * stylesheets for them.
- *
- * The same string as the sans range minus its first two entries — the mono splits
- * carry neither `U+0000` nor `U+000D`. Written out rather than derived from its
- * sibling by slicing, because the relationship between two publishers' subset
- * decisions is a coincidence of these two versions and not a rule either package
- * states; a future split that diverges elsewhere would silently inherit the wrong
- * head.
+ * The Latin-1 coverage of the mono splits, verbatim from that package's stylesheets: the sans
+ * range minus `U+0000` and `U+000D`. Written out rather than sliced from its sibling, because
+ * that relationship is a coincidence of these versions and not a rule either package states.
  */
 const MONO_LATIN1_UNICODE_RANGE = [
   "U+0020-007E",
@@ -214,15 +146,10 @@ const MONO_LATIN1_UNICODE_RANGE = [
 type TypefaceStyle = "normal" | "italic";
 
 /**
- * The features the mono faces are declared with: the slashed zero, and nothing
- * else.
- *
- * `zero` is a real substitution here — both variable builds carry it in `GSUB`,
- * read out of the shipped files on 2026-09-09 — and it belongs to mono alone,
- * because mono is the signature that a number came from the wire. `tnum` is deliberately absent: neither family
- * carries `tnum` OR `pnum` in `GSUB` or `GPOS`, and every digit in both measures
- * 600/1000 em, so there are no proportional figures to switch away from and the
- * setting would be a feature declared against a face that offers none.
+ * The features the mono faces are declared with: the slashed zero and nothing else. `zero` is a
+ * real substitution (both variable builds carry it in `GSUB`) and belongs to mono alone. `tnum`
+ * is absent because neither family carries `tnum` or `pnum` in `GSUB` or `GPOS`, and every digit
+ * measures 600/1000 em, so there are no proportional figures to switch away from.
  */
 const MONO_FEATURE_SETTINGS = '"zero" 1';
 
@@ -238,23 +165,15 @@ interface TypefaceFace {
   readonly stretchRange: string | null;
   /** The codepoints this split contains, as the publisher describes them. */
   readonly unicodeRange: string;
-  /**
-   * The face's own initial OpenType features, or `null` where it declares none.
-   *
-   * A DESCRIPTOR rather than a property, so the feature is scoped to the face by
-   * construction — see decision 6 in the header for why the root could not hold
-   * the scoping and what Chromium version honors this.
-   */
+  /** The face's own initial OpenType features, or `null`; a descriptor, so scoped to the face. */
   readonly featureSettings: string | null;
   /** The emitted asset URL, resolved by the bundler from the package path. */
   readonly url: string;
 }
 
 /**
- * Every face the console ships, in the order they are declared to the document.
- *
- * Exported so the console's own tiers can assert the set rather than re-listing
- * it: a fifth face added here is covered without a second roster being edited.
+ * Every face the console ships, in declaration order. Exported so tiers can assert the set
+ * rather than re-list it.
  */
 export const TYPEFACE_FACES: readonly TypefaceFace[] = [
   {
@@ -295,12 +214,7 @@ export const TYPEFACE_FACES: readonly TypefaceFace[] = [
   },
 ];
 
-/**
- * The `@font-face` block, as CSS text.
- *
- * Deterministic — same inputs, same bytes — so a tier can compare it rather than
- * pattern-match it, exactly as the token sheet's generator is.
- */
+/** The `@font-face` block as CSS text. Deterministic, so a tier can compare it. */
 export function generateTypefaceCss(): string {
   return TYPEFACE_FACES.map((face) =>
     [

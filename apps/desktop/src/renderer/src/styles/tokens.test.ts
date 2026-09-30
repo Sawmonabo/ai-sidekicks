@@ -1,16 +1,8 @@
-// The scheme vocabulary, and the derivation that keeps its three readers in step.
-//
-// `SCHEME_PREFERENCES` had three hand-written copies — one in the store, one in the
-// persistence value classes, one here — and the way that fails is silent: a third
-// scheme would be renderable, refused on write, and accepted on read, each by a
-// different list. The list is derived now, and `ColorScheme` is derived from the
-// same tuple rather than written beside it. Neither derivation is visible at a call
-// site, so the cases below are what says the wiring is real: adding a scheme has to
-// widen the preference list and the guard together, and nothing may widen the guard
-// without widening the list.
-//
-// `contrast.test.ts` beside this file measures the colors. This file is about the
-// vocabulary the colors are looked up through.
+// The scheme vocabulary and the derivation that keeps its readers in step. `SCHEME_PREFERENCES`
+// and `ColorScheme` are derived from one tuple, and neither derivation is visible at a call site,
+// so these cases show the wiring is real: adding a scheme widens the preference list and the
+// guard together, and nothing widens the guard without the list. `contrast.test.ts` measures the
+// colors; this file covers the vocabulary they are looked up through.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -32,16 +24,14 @@ describe("the scheme vocabulary — one tuple, three readers", () => {
   });
 
   it("offers every scheme as a preference, plus the one that defers to the system", () => {
-    // Derived, not re-listed: this is the assertion that the derivation is what is
-    // actually shipped rather than a comment on a hand-written copy.
+    // Derived, not re-listed: this shows the derivation is what ships, not a hand-written copy.
     expect(SCHEME_PREFERENCES).toStrictEqual([...COLOR_SCHEMES, SYSTEM_SCHEME_PREFERENCE]);
     expect(SCHEME_PREFERENCES).toHaveLength(COLOR_SCHEMES.length + 1);
   });
 
   it("keeps the system preference out of the set of things that paint", () => {
-    // `ColorScheme` is a resolved answer and always paints something; a
-    // preference may decline to answer. Conflating them is how "system" reaches a
-    // color lookup that has no such column.
+    // `ColorScheme` is a resolved answer and always paints; a preference may decline to answer.
+    // Conflating them is how "system" reaches a color lookup that has no such column.
     expect(COLOR_SCHEMES).not.toContain(SYSTEM_SCHEME_PREFERENCE);
   });
 });
@@ -53,8 +43,7 @@ describe("isSchemePreference — the single guard on the way in and the way back
   });
 
   it("negative control: rejects what a constant-true guard would accept", () => {
-    // Two guards is how a record written by an older build gets accepted on read
-    // after being refused on write, so this one has to actually refuse.
+    // Two guards would accept on read what was refused on write, so this one must refuse.
     expect(isSchemePreference("sepia")).toBe(false);
     expect(isSchemePreference("")).toBe(false);
     expect(isSchemePreference(null)).toBe(false);
@@ -90,8 +79,8 @@ describe("schemeColor — resolving a token for one scheme", () => {
   });
 
   it("gives the two schemes different values for a scheme-varying token", () => {
-    // Negative control for the lookup: one that ignored its scheme argument would
-    // satisfy the case above by returning the same pair member twice.
+    // Negative control: a lookup that ignored its scheme argument would satisfy the case above by
+    // returning the same pair member twice.
     expect(schemeColor("ground", "light")).not.toStrictEqual(schemeColor("ground", "dark"));
   });
 
