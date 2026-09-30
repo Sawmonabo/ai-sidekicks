@@ -192,9 +192,10 @@ export default tseslint.config(
       ],
     },
   },
-  // `Plan-005 §T3.1 — Append-path service writing integrity columns + Plan-020 Path 1 shred callback`
-  // precondition enforcement (PR #272 Codex round 3) — the unsigned-placeholder
-  // append opt-in is TEST-ONLY. The `UnsignedPlaceholderAppendToken` type is
+  // `SessionService.append` is the test-seeding append: it writes a
+  // caller-sequenced row outside the append lock, with no sealing and no size
+  // ceiling, so a test can seed events through it and production code never
+  // may. Its opt-in is TEST-ONLY. The `TestSeedingAppendToken` type is
   // nominal and identity-checked, so the opt-in cannot be manufactured from
   // config or env DATA — but in-package code could still gate a genuine
   // `forTestsOnly()` call behind an environment check. This rule closes that
@@ -212,15 +213,15 @@ export default tseslint.config(
         ENUM_DECLARATION,
         {
           selector:
-            "MemberExpression[object.name='UnsignedPlaceholderAppendToken'][property.name='forTestsOnly']",
+            "MemberExpression[object.name='TestSeedingAppendToken'][property.name='forTestsOnly']",
           message:
-            "UnsignedPlaceholderAppendToken.forTestsOnly() is TEST-ONLY (Plan-005 T3.1 precondition): production code must never enable SessionService.append's zero-filled placeholder writes. Durable writes belong to EventLogService.append.",
+            "TestSeedingAppendToken.forTestsOnly() is TEST-ONLY: it lets a test seed events through SessionService.append, which writes outside the append lock with no sealing, and production code must never enable it. Durable writes belong to EventLogService.append.",
         },
         {
           selector:
-            "MemberExpression[object.name='UnsignedPlaceholderAppendToken'][property.value='forTestsOnly']",
+            "MemberExpression[object.name='TestSeedingAppendToken'][property.value='forTestsOnly']",
           message:
-            "UnsignedPlaceholderAppendToken['forTestsOnly'] is TEST-ONLY (Plan-005 T3.1 precondition): production code must never enable SessionService.append's zero-filled placeholder writes. Durable writes belong to EventLogService.append.",
+            "TestSeedingAppendToken['forTestsOnly'] is TEST-ONLY: it lets a test seed events through SessionService.append, which writes outside the append lock with no sealing, and production code must never enable it. Durable writes belong to EventLogService.append.",
         },
       ],
     },
@@ -238,7 +239,7 @@ export default tseslint.config(
   // `no-restricted-syntax` for this exact scope and flat config REPLACES a
   // rule's options at the last matching config object — adding these selectors
   // in a second `no-restricted-syntax` invocation would silently drop the
-  // unsigned-placeholder append guard. Neither of the two rules used here is
+  // test-seeding append guard. Neither of the two rules used here is
   // configured for `packages/runtime-daemon/**` anywhere else in this file.
   //
   // `no-restricted-properties` with a bare `property` restricts `.randomUUID`
@@ -284,7 +285,7 @@ export default tseslint.config(
   // 123 rather than grown by convenience.
   //
   // Only the two rules from the block above are turned off; the
-  // unsigned-placeholder `no-restricted-syntax` guard is on a different rule
+  // test-seeding append `no-restricted-syntax` guard is on a different rule
   // and is unaffected.
   {
     files: [
