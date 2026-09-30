@@ -812,14 +812,12 @@ export class SessionContentKeyStore
    * should be read as a distributed lock.
    *
    * REENTRANT BY THE LOCK'S OWN CONTRACT: a caller already inside a hold on this
-   * session — the compactor's per-row path is one — reuses it rather than
-   * deadlocking.
+   * session reuses it rather than deadlocking.
    *
-   * Every path in this branch that clears `content_payload` must run this after
-   * clearing. Today there is exactly ONE: `compactor.ts`'s stub UPDATE, which is
-   * the only `content_payload = NULL` writer in the tree (there is no `DELETE
-   * FROM session_events` anywhere, and no purge or shred sweep has shipped yet).
-   * FUTURE CONSUMERS — a session purge, and the erasure sweep if it is ever
+   * Every path that clears `content_payload` must run this after clearing. Today
+   * there is exactly ONE: the stub UPDATE in `session-purge.ts`, the only
+   * `content_payload = NULL` writer in the tree (there is no `DELETE FROM
+   * session_events` anywhere). A future writer — the erasure sweep, if it is ever
    * widened past `pii_payload` to clear content columns — must call this too; it
    * is idempotent and safe to call when nothing was cleared, so the cheap
    * discipline is to call it after any clearing pass rather than to reason about
