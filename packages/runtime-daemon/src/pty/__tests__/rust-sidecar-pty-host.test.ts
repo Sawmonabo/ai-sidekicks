@@ -209,6 +209,50 @@ describe("RustSidecarPtyHost — PtyHost contract surface", () => {
 // ----------------------------------------------------------------------------
 
 describe("RustSidecarPtyHost — sliding-window crash budget", () => {
+  it("respawns the sidecar within budget (4 crashes in 60s does NOT exhaust)", async () => {
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Four crashes inside the 60 s window; the supervisor must respawn after each.
+    for (let i = 0; i < 4; i += 1) {
+      clock.mockReturnValue(i * 1000);
+      const reqPromise = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      // Crash the child before it answers, so the budget is exercised without a SpawnResponse.
+      seq.latest().triggerExit(1, null);
+      // The pending request rejects; catch it to avoid an unhandled rejection.
+      await reqPromise.catch(() => undefined);
+    }
+    expect(seq.spawned().length).toBe(4);
+
+    // Only 4 crashes are in the window, so the fifth request respawns instead of failing.
+    clock.mockReturnValue(4 * 1000);
+    void host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    expect(seq.spawned().length).toBe(5);
+  });
+
   it(`exhausts the budget at exactly ${CRASH_BUDGET_LIMIT} crashes within ${CRASH_BUDGET_WINDOW_MS}ms (surfaces PtyBackendUnavailableError)`, async () => {
     const seq = spawnReturningSequence();
     const clock = vi.fn<() => number>().mockReturnValue(0);
@@ -313,6 +357,13 @@ describe("RustSidecarPtyHost — sliding-window crash budget", () => {
     await flushMicrotasks();
     // (LIMIT - 1) + 1 + 1 spawns: the respawn after eviction is allowed.
     expect(seq.spawned().length).toBe(CRASH_BUDGET_LIMIT + 1);
+  });
+});
+
+describe("RustSidecarPtyHost — framing limits", () => {
+  it("MAX_FRAME_BODY_BYTES equals the sidecar framer's 8 MiB body cap", () => {
+    // Pins the 8 MiB cap so it cannot drift from the Rust framer's `MAX_FRAME_BODY_BYTES`.
+    expect(MAX_FRAME_BODY_BYTES).toBe(8 * 1024 * 1024);
   });
 });
 
@@ -800,6 +851,54 @@ describe("RustSidecarPtyHost — close() lifecycle", () => {
     await expect(closeP).resolves.toBeUndefined();
   });
 
+  it("close() suppresses onExit for an ExitCodeNotification that arrives after close() resolves", async () => {
+    // close() removes the session record synchronously, so the sidecar's late exit notification
+    // for it must not reach onExit. NodePtyHost likewise stops reporting exits after close():
+    // consumers treat close() as terminal.
+    const fake = makeFakeSidecarChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    const closeP = host.close("s-0");
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await expect(closeP).resolves.toBeUndefined();
+
+    // No onExit fired during the close() round-trip; only the late notification is under test.
+    expect(exitFn).not.toHaveBeenCalled();
+
+    // The sidecar's late exit notification arrives now and must be suppressed.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 137,
+        signal_code: 9,
+      }),
+    );
+    await flushMicrotasks();
+
+    expect(exitFn).not.toHaveBeenCalled();
+  });
+
   it("close() suppresses onExit when ExitCodeNotification arrives BEFORE kill_response (inverse wire order)", async () => {
     // The exit notification can arrive before the kill_response. Here it lands while close() is
     // still awaiting the response. close() deletes the session record before dispatching the
@@ -848,6 +947,54 @@ describe("RustSidecarPtyHost — close() lifecycle", () => {
     await expect(closeP).resolves.toBeUndefined();
 
     expect(exitFn).not.toHaveBeenCalled();
+  });
+});
+
+describe("RustSidecarPtyHost — data_frame fan-out gating", () => {
+  it("does NOT call the data listener for a session that has been close()d", async () => {
+    // A DataFrame for a closed session is dropped, not fanned out to a stale listener, as
+    // NodePtyHost does after close().
+    const fake = makeFakeSidecarChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const dataFn = vi.fn();
+    host.setOnData(dataFn);
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP;
+
+    // A late DataFrame can still arrive after close().
+    void host.close("s-0");
+    await flushMicrotasks();
+    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    await flushMicrotasks();
+
+    const payload = Buffer.from("late chunk", "utf8").toString("base64");
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: payload,
+      }),
+    );
+    await flushMicrotasks();
+
+    expect(dataFn).not.toHaveBeenCalled();
   });
 });
 
@@ -993,6 +1140,152 @@ describe("RustSidecarPtyHost — pre-spawn event buffering", () => {
     expect(events[2]).toMatchObject({ tag: "exit", exitCode: 0 });
   });
 
+  it("delivers DataFrame arriving same-chunk BEFORE SpawnResponse, after spawn() resolves", async () => {
+    const fake = makeFakeSidecarChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const events: Array<{ tag: "data" | "spawn-resolved"; text?: string }> = [];
+    host.setOnData((sessionId, bytes) => {
+      if (sessionId === "s-0") {
+        events.push({ tag: "data", text: Buffer.from(bytes).toString("utf8") });
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["hi"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Wire order: DataFrame first, then SpawnResponse.
+    const dataBeforeSpawn = Buffer.concat([
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: Buffer.from("hi\n", "utf8").toString("base64"),
+      }),
+      frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+    ]);
+    fake.writeStdout(dataBeforeSpawn);
+
+    const response = await spawnP;
+    events.push({ tag: "spawn-resolved" });
+    expect(response).toEqual({ kind: "spawn_response", session_id: "s-0" });
+
+    await flushSetImmediate();
+
+    // onData fires after spawn() resolves; the buffered chunk is not lost.
+    expect(events.map((e) => e.tag)).toEqual(["spawn-resolved", "data"]);
+    expect(events[1]).toMatchObject({ tag: "data", text: "hi\n" });
+  });
+
+  it("delivers ExitCodeNotification arriving same-chunk BEFORE SpawnResponse, after spawn() resolves", async () => {
+    const fake = makeFakeSidecarChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const events: Array<{ tag: "exit" | "spawn-resolved"; exitCode?: number }> = [];
+    host.setOnExit((sessionId, exitCode) => {
+      if (sessionId === "s-0") {
+        events.push({ tag: "exit", exitCode });
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/true",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Wire order: ExitCodeNotification first, then SpawnResponse.
+    const exitBeforeSpawn = Buffer.concat([
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+      frameEnvelope({ kind: "spawn_response", session_id: "s-0" }),
+    ]);
+    fake.writeStdout(exitBeforeSpawn);
+
+    const response = await spawnP;
+    events.push({ tag: "spawn-resolved" });
+    expect(response).toEqual({ kind: "spawn_response", session_id: "s-0" });
+
+    await flushSetImmediate();
+
+    expect(events.map((e) => e.tag)).toEqual(["spawn-resolved", "exit"]);
+    expect(events[1]).toMatchObject({ tag: "exit", exitCode: 0 });
+  });
+
+  it("survives drain-cycle boundary: DataFrame in chunk N, SpawnResponse in chunk N+1, replay still fires", async () => {
+    const fake = makeFakeSidecarChild();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: spawnReturning(fake),
+    });
+
+    const events: Array<{ tag: "data" | "spawn-resolved"; text?: string }> = [];
+    host.setOnData((sessionId, bytes) => {
+      if (sessionId === "s-0") {
+        events.push({ tag: "data", text: Buffer.from(bytes).toString("utf8") });
+      }
+    });
+
+    const spawnP = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/echo",
+      args: ["hi"],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+
+    // Chunk 1: the DataFrame alone lands in the pre-spawn buffer.
+    fake.writeStdout(
+      frameEnvelope({
+        kind: "data_frame",
+        session_id: "s-0",
+        stream: "stdout",
+        seq: 0,
+        bytes: Buffer.from("hi\n", "utf8").toString("base64"),
+      }),
+    );
+    // Let the drain loop settle the DataFrame into the buffer before chunk 2.
+    await flushMicrotasks();
+
+    // Chunk 2: the SpawnResponse registers the session and schedules the replay.
+    fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+
+    await spawnP;
+    events.push({ tag: "spawn-resolved" });
+
+    await flushSetImmediate();
+
+    expect(events.map((e) => e.tag)).toEqual(["spawn-resolved", "data"]);
+    expect(events[1]).toMatchObject({ tag: "data", text: "hi\n" });
+  });
+
   it("clears the pre-spawn buffer on sidecar teardown so pre-crash events do not replay into a respawned session", async () => {
     // The sidecar's session ids (`s-{n}`) restart after a respawn. A pre-crash DataFrame for `s-0`
     // that never got its SpawnResponse must not replay against the new child's `s-0`.
@@ -1063,6 +1356,55 @@ describe("RustSidecarPtyHost — pre-spawn event buffering", () => {
 
     // Only the post-respawn DataFrame reaches the consumer.
     expect(observed).toEqual(["FRESH\n"]);
+  });
+});
+
+describe("RustSidecarPtyHost — dual error+exit events do not double-charge the crash budget", () => {
+  it("emits both 'error' and 'exit' for the same child; budget is consumed exactly once", async () => {
+    // Node's `child_process` can emit both `error` and `exit` for one failed child. The
+    // stale-child guard and the per-child dedupe (`crashCountedChildren`) each keep the second
+    // event from charging the budget; without both, one crash would count twice and the budget
+    // would exhaust at half the limit.
+    const seq = spawnReturningSequence();
+    const clock = vi.fn<() => number>().mockReturnValue(0);
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: clock,
+    });
+
+    // Crash CRASH_BUDGET_LIMIT - 1 children, each emitting both events. Counted twice, the budget
+    // would already be exhausted and the next spawn refused.
+    for (let i = 0; i < CRASH_BUDGET_LIMIT - 1; i += 1) {
+      clock.mockReturnValue(i * 1000);
+      const reqP = host.spawn({
+        kind: "spawn_request",
+        command: "/bin/sh",
+        args: [],
+        env: [],
+        cwd: "/",
+        rows: 24,
+        cols: 80,
+      });
+      await flushMicrotasks();
+      seq.latest().triggerError(new Error("spawn-init crash"));
+      seq.latest().triggerExit(1, null);
+      await reqP.catch(() => undefined);
+    }
+
+    // Only CRASH_BUDGET_LIMIT - 1 crashes were counted, so the budget still has room.
+    clock.mockReturnValue(CRASH_BUDGET_LIMIT * 1000);
+    void host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    expect(seq.spawned().length).toBe(CRASH_BUDGET_LIMIT);
   });
 });
 
@@ -1383,6 +1725,66 @@ describe("RustSidecarPtyHost — crash-time per-session onExit", () => {
     expect(seq.latest()).toBe(childA);
   });
 
+  it("late ExitCodeNotification arriving on the respawned sidecar does NOT double-fire onExit", async () => {
+    const seq = spawnReturningSequence();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+    });
+
+    const exitFn = vi.fn();
+    host.setOnExit(exitFn);
+
+    const spawnP1 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childA = seq.latest();
+    childA.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnP1;
+
+    childA.triggerExit(1, null);
+    await flushMicrotasks();
+    expect(exitFn).toHaveBeenCalledTimes(1);
+    expect(exitFn).toHaveBeenCalledWith("s-0", -1);
+
+    const spawnP2 = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    const childB = seq.latest();
+    expect(childB).not.toBe(childA);
+
+    // A stale exit notification for the deleted s-0 arrives on child B. There is no record, so it
+    // goes to the pre-spawn buffer and the listener is not called again.
+    childB.writeStdout(
+      frameEnvelope({
+        kind: "exit_code_notification",
+        session_id: "s-0",
+        exit_code: 0,
+        signal_code: null,
+      }),
+    );
+    await flushMicrotasks();
+    expect(exitFn).toHaveBeenCalledTimes(1);
+
+    // Resolve B's spawn so the pending promise does not leak.
+    childB.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-1" }));
+    await spawnP2;
+  });
+
   it("a listener that throws on one session does NOT strand remaining sessions in the map", async () => {
     const fake = makeFakeSidecarChild();
     const host = new RustSidecarPtyHost({
@@ -1555,6 +1957,25 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
     expect(step2Mock).toHaveBeenCalledTimes(1);
   });
 
+  it("step 1 rejects a relative path (NOT coerced to absolute) and falls through to step 2", () => {
+    // A relative path depends on process.cwd(), so the resolver rejects it instead of making it
+    // absolute, then consults step 2.
+    const step2Mock = vi.fn<(id: string) => string>(() => "/from/step-2/sidecar");
+    // The relative path exists, so only the absolute-path check can reject it.
+    const existsMock = vi.fn<(p: string) => boolean>((p) => p === "./relative/sidecar");
+    const { opts } = makeOpts({
+      env: { AIS_PTY_SIDECAR_BIN: "./relative/sidecar" },
+      nodeRequire: { resolve: step2Mock },
+      existsSync: existsMock,
+    });
+
+    const result: string = resolveSidecarBinaryPath(opts);
+
+    expect(result).toBe("/from/step-2/sidecar");
+    // Step 2 ran, so step 1 did not return the relative path.
+    expect(step2Mock).toHaveBeenCalledTimes(1);
+  });
+
   it("step 2 hits when require.resolve returns a path (steps 3/4 NOT consulted)", () => {
     const requireMock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
     const { opts, existsMock } = makeOpts({
@@ -1590,6 +2011,25 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
     // Only the release path was probed; step 4 was skipped.
     expect(existsMock).toHaveBeenCalledTimes(1);
     expect(existsMock).toHaveBeenCalledWith("/fake/release/sidecar");
+  });
+
+  it("step 4 hits when only the debug binary exists on disk", () => {
+    const requireMock = vi.fn<(id: string) => string>(() => {
+      throw new Error("Cannot find module");
+    });
+    const existsMock = vi.fn<(p: string) => boolean>((p) => p === "/fake/debug/sidecar");
+    const { opts } = makeOpts({
+      nodeRequire: { resolve: requireMock },
+      existsSync: existsMock,
+    });
+
+    const result: string = resolveSidecarBinaryPath(opts);
+
+    expect(result).toBe("/fake/debug/sidecar");
+    // Release was probed first, then debug.
+    expect(existsMock).toHaveBeenCalledTimes(2);
+    expect(existsMock).toHaveBeenNthCalledWith(1, "/fake/release/sidecar");
+    expect(existsMock).toHaveBeenNthCalledWith(2, "/fake/debug/sidecar");
   });
 
   it("all four steps exhausted → throws PtyBackendUnavailableError enumerating every step failure", () => {

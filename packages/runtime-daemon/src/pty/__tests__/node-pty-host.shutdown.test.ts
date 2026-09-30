@@ -149,6 +149,42 @@ describe("NodePtyHost.shutdown — drain", () => {
     expect(result.sessionsForcedKilled).toBe(1);
   });
 
+  it("refuses spawn() once shutdown has started", async () => {
+    // `shutdown()` sets `shuttingDown` before it snapshots the active sessions, so a `spawn()`
+    // racing the drain is refused. Otherwise it would start a PTY child the drain never sees, and
+    // `shutdown()` could resolve while that child still runs.
+
+    await ctx.host.spawn(SAMPLE_SPAWN);
+    expect(ctx.spawnedChildren).toHaveLength(1);
+
+    // Start the drain without awaiting it: the gate must refuse spawns mid-drain, not only after.
+    const drainPromise = ctx.host.shutdown({
+      perSessionTimeoutMs: 2_000,
+      hostTimeoutMs: 2_000,
+    });
+
+    // One yield so the synchronous prefix of `runShutdown` has run (the flag is set before its
+    // first await, so the gate would see it even without the yield).
+    await Promise.resolve();
+
+    // Rejects with `PtyBackendUnavailableError` for `node-pty`, and the message names the
+    // terminal-host condition.
+    const secondSpawnPromise = ctx.host.spawn(SAMPLE_SPAWN);
+    await expect(secondSpawnPromise).rejects.toBeInstanceOf(PtyBackendUnavailableError);
+    await expect(secondSpawnPromise).rejects.toMatchObject({
+      details: { attemptedBackend: "node-pty" },
+    });
+    await expect(secondSpawnPromise).rejects.toThrow(/shutdown\(\)|terminal/);
+
+    // The refused `spawn()` never reached `ptySpawn`; only the pre-shutdown session did.
+    expect(ctx.ptySpawnStub).toHaveBeenCalledTimes(1);
+
+    // Let the first session exit so the drain resolves.
+    await Promise.resolve();
+    ctx.spawnedChildren[0]!.triggerExit(0);
+    await drainPromise;
+  });
+
   it("refuses spawn() if shutdown() starts mid-resolvePtySpawn (post-await re-check)", async () => {
     // `spawn()` passes the entry gate, then yields on `await this.resolvePtySpawn()`. If
     // `shutdown()` starts in that gap, the re-check after the await must refuse the spawn before
@@ -180,6 +216,37 @@ describe("NodePtyHost.shutdown — drain", () => {
     const result: DrainResult = await drainPromise;
     expect(result.sessionsDrained).toBe(0);
     expect(result.sessionsForcedKilled).toBe(0);
+  });
+
+  it("refuses spawn() after shutdown() has resolved", async () => {
+    // Once `shutdown()` resolves the host stays terminal: `shuttingDown` never resets, so a later
+    // `spawn()` gets the same error as during the drain.
+
+    // A real session makes the drain do work before it resolves.
+    await ctx.host.spawn(SAMPLE_SPAWN);
+    expect(ctx.spawnedChildren).toHaveLength(1);
+
+    const drainPromise = ctx.host.shutdown({
+      perSessionTimeoutMs: 2_000,
+      hostTimeoutMs: 2_000,
+    });
+
+    // Let the session exit so the drain resolves.
+    await Promise.resolve();
+    await Promise.resolve();
+    ctx.spawnedChildren[0]!.triggerExit(0);
+
+    await drainPromise;
+
+    // The gate sees `shuttingDown === true` and refuses before `ptySpawn` can run.
+    const postShutdownSpawn = ctx.host.spawn(SAMPLE_SPAWN);
+    await expect(postShutdownSpawn).rejects.toBeInstanceOf(PtyBackendUnavailableError);
+    await expect(postShutdownSpawn).rejects.toMatchObject({
+      details: { attemptedBackend: "node-pty" },
+    });
+
+    // `ptySpawn` ran only for the pre-shutdown session.
+    expect(ctx.ptySpawnStub).toHaveBeenCalledTimes(1);
   });
 });
 

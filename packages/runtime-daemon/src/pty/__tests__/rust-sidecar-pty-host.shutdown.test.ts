@@ -336,6 +336,55 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
     }
   });
 
+  it("suppresses the -1 crash sentinel AND fires synthetic onExit(code=1) on the deliberate sidecar exit when the per-session timeout escalates to SIGKILL", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = makeFakeSidecarChild(SIDECAR_PID);
+      const host = new RustSidecarPtyHost({
+        resolveBinaryPath: () => "/fake/sidecar",
+        spawn: spawnReturning(fake),
+      });
+      const onExit = vi.fn();
+      host.setOnExit(onExit);
+
+      await spawnOneSession(host, fake, "s-0");
+
+      const drainPromise = host.shutdown({
+        perSessionTimeoutMs: 2_000,
+        hostTimeoutMs: 2_000,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      // Ack SIGTERM without an exit notification, as if the child exited before it was reported.
+      fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Past the per-session timeout the drain escalates to SIGKILL.
+      await vi.advanceTimersByTimeAsync(2_001);
+      fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // The sidecar exits: `fireCrashTimeOnExit` skips s-0 because the SIGKILL synthetic already
+      // set its exit code, so no `-1` fires.
+      fake.triggerExit(0, null);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await drainPromise;
+
+      // A forced kill still fires `onExit` once, as `(sessionId, 1)` with no signal code, as
+      // `NodePtyHost` does when it escalates to taskkill. `-1` is reserved for a sidecar crash.
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(onExit).toHaveBeenCalledWith("s-0", 1);
+      const negOneCalls = onExit.mock.calls.filter((call) => call[1] === -1);
+      expect(negOneCalls).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("forced-kills a session when sidecar IPC is wedged and kill_response never arrives within perSessionTimeoutMs", async () => {
     // A wedged sidecar (alive but never answering `kill_request`) must not stall the drain, so the
     // per-session timer is armed before the SIGTERM request is awaited. Otherwise the drain, and
