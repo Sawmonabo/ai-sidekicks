@@ -1,6 +1,6 @@
 // What the context meter puts on screen: the not-checked state before the daemon has reported
-// anything, the share the reading carries once it has, and never a color or a hint however full
-// the window is. Uses the real `SessionStore`.
+// anything, the share the reading carries once it has, and no hint, status line or state
+// attribute on the fill however full the window is. Uses the real `SessionStore`.
 
 import { describe, expect, it } from "vitest";
 
@@ -24,8 +24,8 @@ describe("ComposerToolbar — the context meter", () => {
     expect(meter?.getAttribute("aria-valuenow")).toBe("84");
   });
 
-  it("is never colored and adds no hint at 80% or past the window", () => {
-    // Fullness changes the figure and never the color or the copy beside it.
+  it("adds no hint, status line or fill attribute at 80% or past the window", () => {
+    // Fullness changes the figure only.
     const nearFull = mountToolbar([contextWindowEvent(1)], ADDRESSED);
     const pastTheWindow = mountToolbar(
       [
