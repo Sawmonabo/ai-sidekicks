@@ -3244,20 +3244,8 @@ interface RunStateChangeEvent {
   intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run Lifecycle "Intended-close discriminator")
   executionPosture?: ExecutionPosture; // named type in §Plan-004 above (same shape, shared with the CreateSessionParams/StartRunParams spawn/turn carriers). Stamped only on run.running — the post-setup-gate spawn-success transition, where the resolved workspace root and effective posture are final (Plan-003 gate seam; a run.starting stamp would be premature) — recording the run's effective sandbox/permission posture for audit (Spec-005 §Run Lifecycle run-state payload; shape owned by Spec-004, policy semantics per Spec-010 §Required Behavior). Optionality covers non-running rows only: run.running emitters MUST stamp the complete posture object — including credentialPolicyRef, which every run carries.
   trigger?: "turn_limit" | "budget_exhausted" | "idle_timeout"; // stop-condition provenance (additive per ADR-018): 'turn_limit' rides run.completed at the turn limit (Plan-014 D-014-8 — the value CP-003-10 adds to Plan-003's trigger set); the InterruptReason values ride run.interrupted on system interrupts (D-014-7). Absent on natural completion and user-initiated paths. The console has no runs pane to render it in: a stopped run's cause is told on the working line, which is where a run is paused and interrupted, and in the transcript's own state-changing rows ([Spec-021 §Required Behavior](../../specs/021-desktop-app-and-renderer.md#required-behavior)).
-  // A run's linkage and its admission-resolved limits ride the run.queued row alone (RunQueuedLinkage,
-  // §Plan-014), never this stream.
-  // ── Path-independent admission stamp: run.queued carries it for EVERY provider run, whether admitted via the
-  // ordinary run.queueCreate path or orchestration admission (the orchestration path threads
-  // its value through the OrchestrationRunLinkCarrier; the ordinary path stamps directly at
-  // the queue write — CP-003-10 owns the stamp either way). Never client-suppliable.
-  // As-of-admission model family, frozen here for every admitted provider run: orchestration-
-  // created runs resolve agentId → agent model → pricing-family key; ordinary runs resolve from
-  // the admission-resolved provider model. Derived pricing, family caps, and warnings all key
-  // off it; a later agent.configUpdate model change never re-keys an admitted run, and replay
-  // reads this field, never the current agents projection. Derived pricing resolves per usage
-  // row: a row wire-attributed to another model (e.g. a differently-modeled subagent) keys off
-  // that model's family; this field is the fallback when the wire carries no attribution.
-  admittedModelFamily?: string;
+  // A run's linkage and its admission stamps ride the run.queued row alone (RunQueuedPayload, §Plan-014),
+  // never this stream.
   timestamp: string;
 }
 
@@ -5717,7 +5705,7 @@ type InterruptReason = "budget_exhausted" | "idle_timeout"; // D-014-8: the reas
 // workflow's run-an-agent node) and the SDK.
 // The target is EITHER an agent already in the session's agents projection, or a saved
 // definition with no live agent yet, which the daemon resolves at the queue insert and records as
-// run.queued's `resolvedAgent` (RunQueuedLinkage below).
+// run.queued's `resolvedAgent` (RunQueuedPayload below).
 type OrchestrationRunTarget =
   | { targetAgentId: AgentId } // must resolve in the agents projection (agent.not_found)
   | { targetDefinitionId: AgentDefinitionId }; // resolved at the queue insert (agent.definition_not_found / agent.resolution_refused)
@@ -6238,7 +6226,8 @@ interface AgentListEntry {
   createdAt: string;
 }
 
-// run.queued payload, the linkage members (Spec-005 §Run Lifecycle). They ride a run another run or a
+// run.queued payload (Spec-005 §Run Lifecycle): a run's creation, and the one durable record of how it came
+// to be. The linkage members ride a run another run or a
 // workflow created, on this row only and never on the run's state stream; an orchestration-created child's
 // run_links row and its per-run limits rebuild from this event alone, while a provider's own subagent's row
 // is written by the provider driver from that provider's subagent notifications. `effectiveRunConfig` is
@@ -6250,13 +6239,35 @@ interface AgentListEntry {
 // invocation's own run included. `resolvedAgent` is the CREATING RECORD of that agent's row, in the one shape
 // `agent.list` describes an agent: `session.created` mints a session's lead and this member mints an agent
 // resolved from a definition, and no `agent.*` type creates a row. Its `resolvedConfiguration` is present,
-// and that configuration's `resolvedFromDefinitionId` names the definition. Path-independent, like the admission stamps below: the daemon mints the agent's id
+// and that configuration's `resolvedFromDefinitionId` names the definition. Path-independent, like the admission stamps: the daemon mints the agent's id
 // at the queue insert exactly as it mints the run id, whichever creation path admitted the run.
-type RunQueuedLinkage = {
+type RunQueuedPayload = {
+  sessionId: SessionId;
+  runId: RunId;
+  runVersion: number;
+  newState: "queued";
   parentRunId?: RunId;
   reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
   internalHelper?: boolean;
   effectiveRunConfig?: OrchestrationRunConfig;
+  // ── Path-independent admission stamps: run.queued carries them for EVERY provider run, whether admitted
+  // via the ordinary run.queueCreate path or orchestration admission (the orchestration path threads
+  // their values through the OrchestrationRunLinkCarrier; the ordinary path stamps directly at the queue
+  // write — CP-003-10 owns the stamps either way). Never client-suppliable, and never on the run's state
+  // stream.
+  // The unpriced cap, in micro-dollars, on a native-cap admission only.
+  admittedUnpricedCapUsdMicros?: number;
+  // As-of-admission model family, frozen here for every admitted provider run: orchestration-
+  // created runs resolve agentId → agent model → pricing-family key; ordinary runs resolve from
+  // the admission-resolved provider model. Derived pricing, family caps, and warnings all key
+  // off it; a later agent.configUpdate model change never re-keys an admitted run, and replay
+  // reads this field, never the current agents projection. Derived pricing resolves per usage
+  // row: a row wire-attributed to another model (e.g. a differently-modeled subagent) keys off
+  // that model's family; this field is the fallback when the wire carries no attribution.
+  admittedModelFamily?: string;
+  // The account the run was admitted against. Priced usage rows join to a paying account through the run,
+  // and resume rebinds to this stamp rather than re-resolving the current default.
+  admittedProviderAccountId?: ProviderAccountId;
 } & (
   | { agentId?: AgentId; resolvedAgent?: never }
   | {
