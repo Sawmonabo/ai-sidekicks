@@ -1,76 +1,33 @@
-// One refusal shape for the whole console.
+// The one refusal value the console renders; `RefusalBanner`, `InlineRefusal` and `RefusalCard`
+// read the same fields.
 //
-// A refusal has three RENDERINGS — inline on the control, a card in the transcript, a
-// banner across the session screen — and `RefusalBanner` / `InlineRefusal` /
-// `RefusalCard` all consume the same two fields. This module is the one refusal VALUE
-// they consume: the daemon client, the fixture bridge, the when-clause parser, the
-// key-binding table, and the palette all produce it, so a component rendering refusals
-// from two of them translates nothing.
-//
-// Three fields, and each earns its place:
-//
-//   • `code` — the machine-readable reason, rendered verbatim in mono. Never
-//     prose, never localized, never reworded between the producer and the screen:
-//     it is what a person pastes into a search or an issue.
-//   • `detail` — one sentence a person can act on. Says what was refused and what
-//     would change the answer. Never the refused value itself, which may be
-//     user content.
-//   • `origin` — which subsystem refused, so a refusal that surfaces three layers
-//     from where it was raised still names its author.
-//
-// `code` is deliberately a `string` on the SHAPE rather than a union of every
-// producer's codes. A closed union here would make this module import each producer,
-// inverting the import direction: `lib/` sits below every producer and knows none of
-// them. Each producer keeps its own closed code union and widens into this shape at its
-// boundary.
-//
-// The BUILDER still carries the producer's union through, because it infers it rather
-// than enumerating it: `refuse` is generic in `Code`, so a producer calling it with a
-// value of its own closed union gets that union back on `code` and does not have to
-// re-state the narrowing by spreading the result. Nothing about the paragraph above
-// changes — this module still names no producer, and a caller passing a `string` still
-// gets a plain `Refusal` back.
-//
-// The one import is `wire-errors.ts`, which is not a producer: it imports nothing
-// itself, and what is taken from it is the total property reader. See
-// {@link isRefusal}.
+// `code` is a plain `string`, not a union of every producer's codes: `lib/` sits below every
+// producer and must not import them. Each producer keeps its own closed union and widens into
+// this shape at its boundary.
 
 import { readGuardedProperty } from "./wire-errors.js";
 
+/** A refusal as every renderer consumes it; `code` is never reworded on its way to the screen. */
 export interface Refusal {
   /** Machine-readable, rendered verbatim. */
   readonly code: string;
-  /** One actionable sentence. Never the refused value. */
+  /** One actionable sentence. Never the refused value, which may be user content. */
   readonly detail: string;
   /** The subsystem that refused — `"persistence"`, `"sessions"`, `"keybindings"`. */
   readonly origin: string;
 }
 
 /**
- * A refusal whose `code` is one member of a producer's closed union.
- *
- * The shape a producer that owns a vocabulary actually has: the three fields every
- * renderer reads, with `code` held to the union rather than widened to `string`.
- *
- * AN INTERFACE THAT NARROWS THE INHERITED MEMBER, not an intersection with a second
- * object type. The two describe the same values and differ in what `code` reads as:
- * an intersection leaves it `string & Code`, which every hover, every error message,
- * and every structural comparison then carries, while this leaves it exactly `Code`.
- * It is also the shape a producer that owns a vocabulary already declares —
- * `PersistenceRefusal` is written this way — so the generic result and the
- * hand-written declarations it satisfies have one form between them.
+ * A refusal whose `code` is one member of a producer's closed union. An interface that narrows
+ * `code`, not an intersection, which would leave it `string & Code` in every hover and error.
  */
 export interface NarrowedRefusal<Code extends string> extends Refusal {
   readonly code: Code;
 }
 
 /**
- * An error carrying a refusal.
- *
- * For the seams where a refusal has to travel as an exception — a constructor, a
- * `throw` inside a library callback — rather than as a return value. Returning a
- * refusal is the default and this is the exception: an error costs a stack unwind
- * and forces every caller into a `try`.
+ * An error carrying a refusal, for seams where it must travel as an exception (a constructor, a
+ * throw inside a library callback). Returning a refusal is the default.
  */
 export class RefusalError extends Error {
   public readonly refusal: Refusal;
@@ -83,19 +40,9 @@ export class RefusalError extends Error {
 }
 
 /**
- * Build a refusal.
- *
- * A function rather than an object literal at each site so the field order and the
- * `origin` vocabulary stay uniform, and so a producer that forgets `origin` fails
- * to compile rather than shipping a refusal that names nobody.
- *
- * GENERIC IN `Code`, SO A PRODUCER STOPS RE-STATING ITS OWN NARROWING. Every producer
- * that owns a closed code union used to write `{ ...refuse(origin, code, detail), code }`
- * — a spread whose only job was to put back the type the parameter had widened away,
- * with the value bound once so the two positions could not drift. Inference does that
- * for free and cannot drift at all, because there is only ever one position. A caller
- * that hands over a plain `string` infers `Code` as `string`, and
- * `NarrowedRefusal<string>` is structurally `Refusal`, so no wide caller moves.
+ * Builds a refusal. Generic in `Code`, so a producer passing a member of its closed union gets
+ * that union back on `code`; a plain `string` yields a plain `Refusal`. A forgotten `origin`
+ * fails to compile.
  */
 export function refuse<Code extends string>(
   origin: string,
@@ -106,14 +53,8 @@ export function refuse<Code extends string>(
 }
 
 /**
- * The member paths a parse refused on, for a refusal's own sentence.
- *
- * PATHS AND NEVER THE REFUSED VALUE. A stream delivery's payload may be user
- * content, and `detail` says what was refused rather than repeating it — so what a
- * reader gets is the members that failed, which is also what they search for.
- *
- * Here rather than in either stream because two of them compose this same list into
- * their own sentence, and two copies of one mapping drift while both stay green.
+ * The member paths a parse refused on, for a refusal's sentence. Paths only, never the refused
+ * value: a stream payload may be user content.
  */
 export function refusedMemberPaths(
   issues: readonly { readonly path: readonly PropertyKey[] }[],
@@ -124,23 +65,9 @@ export function refusedMemberPaths(
 }
 
 /**
- * True when a value is a refusal, for a seam that returns a result or a refusal.
- *
- * TOTAL, and that is the point rather than a nicety. Every caller is on a failure
- * path: the value being asked about is a caught rejection or an `unknown` result
- * that crossed a layer boundary, so it is whatever a producer threw. A plain
- * `candidate.code` runs a getter, and a getter that throws — a hostile accessor, a
- * Proxy `get` trap, or merely a broken one — propagates out of the guard, out of the
- * `catch` that has already been left, and takes down the component whose whole job was
- * to say that something failed. The reads therefore go through
- * `readGuardedProperty`, which collapses "absent" and "unreadable" to the same
- * `undefined`; here those mean the same thing, because a refusal whose `code` cannot
- * be read is not one this console can render.
- *
- * The `typeof value !== "object"` pre-check is gone rather than kept beside the
- * guarded reads: the reader already answers `undefined` for every primitive, and a
- * null-prototype FUNCTION carrying the three members is a refusal that the old
- * pre-check rejected outright.
+ * True when a value is a refusal. Total: callers are on a failure path holding whatever was
+ * thrown, so each read goes through `readGuardedProperty` and a throwing getter or Proxy trap
+ * counts as absent instead of escaping the guard.
  */
 export function isRefusal(value: unknown): value is Refusal {
   return (

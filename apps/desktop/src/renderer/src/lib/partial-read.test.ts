@@ -1,11 +1,7 @@
-// The step past the five kinds of nothing, made countable: a state that is not `served`
-// never renders as complete, and a view holding two readings can never show one of them.
-//
-// The set is driven from `READING_STATE_KINDS` rather than from hand-listed arms, so
-// a state that fell through to the "no notice" shape — the one shape that claims the
-// reading is whole — fails here rather than shipping as a silent claim. That is the
-// assertion this file exists for; the sentence and figure checks below are what keep
-// it from being satisfied by a notice that says nothing useful.
+// A state that is not `served` never renders as complete, and a view holding two readings can
+// never show one of them. The set is driven from `READING_STATE_KINDS`, so a state that falls
+// through to the "no notice" shape fails here; the sentence and figure checks keep a notice that
+// says nothing useful from satisfying it.
 
 import { describe, expect, it } from "vitest";
 
@@ -36,8 +32,7 @@ function sentenceOf(state: ReadingState): string {
 
 describe("partial-read — completeness is claimed by exactly one state", () => {
   it("finds every kind to drive", () => {
-    // Without this a truncated tuple would make every assertion below pass over a
-    // set smaller than the union it stands for.
+    // Guards against a truncated tuple making every assertion below pass over a smaller set.
     expect(READING_STATE_KINDS.length).toBe(7);
     expect(Object.keys(STATE_BY_KIND).sort()).toStrictEqual([...READING_STATE_KINDS].sort());
   });
@@ -50,8 +45,8 @@ describe("partial-read — completeness is claimed by exactly one state", () => 
   });
 
   it("negative control: the predicate distinguishes the shapes at all", () => {
-    // A `readingNoticeFor` that answered `"none"` for everything, or for nothing,
-    // would satisfy one half of the assertion above and not this one.
+    // A `readingNoticeFor` answering `"none"` for everything or nothing would satisfy only one half
+    // of the assertion above.
     expect(readingNoticeFor(STATE_BY_KIND.served, READING_SUBJECT).shape).toBe("none");
     expect(readingNoticeFor(STATE_BY_KIND.refused, READING_SUBJECT).shape).toBe("sentence");
     expect(readingNoticeFor(STATE_BY_KIND.partial, READING_SUBJECT).shape).toBe("counted-sentence");
@@ -61,9 +56,8 @@ describe("partial-read — completeness is claimed by exactly one state", () => 
 
 describe("partial-read — a view hands over every reading it holds", () => {
   it("answers a notice per reading that is not the whole of it", () => {
-    // The defect the composition removes: a queue whose snapshot served and whose
-    // tail carried an unreadable delivery used to render one notice or none,
-    // depending on which reading the call site happened to pass.
+    // A served snapshot beside an unreadable tail must render a notice whichever reading the call
+    // site passes.
     const notices = partialReadNotices(
       [{ kind: "served" }, STATE_BY_KIND.partial, STATE_BY_KIND.cut],
       READING_SUBJECT,
@@ -80,9 +74,7 @@ describe("partial-read — a view hands over every reading it holds", () => {
   });
 
   it("negative control: one incomplete reading among served ones still speaks", () => {
-    // Without this the emptiness above would also be satisfied by a composition that
-    // answered nothing whenever ANY member served, which is the silent claim of
-    // completeness this module exists to prevent.
+    // Guards against a composition that answers nothing whenever any member served.
     const notices = partialReadNotices(
       [{ kind: "served" }, STATE_BY_KIND.stale, { kind: "served" }],
       READING_SUBJECT,
@@ -105,8 +97,7 @@ describe("partial-read — the sentence set", () => {
   });
 
   it("gives each arm its own sentence", () => {
-    // Two arms sharing a sentence is the collapse the five kinds of nothing forbid for
-    // absences, applied to the states of an incomplete reading.
+    // Two arms sharing a sentence would collapse distinct states.
     const sentences = READING_STATE_KINDS.map((kind) => sentenceOf(STATE_BY_KIND[kind])).filter(
       (sentence) => sentence !== "",
     );
@@ -114,8 +105,7 @@ describe("partial-read — the sentence set", () => {
   });
 
   it("says something different for a refusal that IS the answer", () => {
-    // The defect in terms: the one sentence said "what is shown here is not the
-    // whole of it", which is false when nothing is shown at all.
+    // The sentence "what is shown here is not the whole of it" is false when nothing is shown.
     const wholeAnswer = sentenceOf({
       kind: "refused",
       scope: "whole-answer",
@@ -150,8 +140,7 @@ describe("partial-read — the sentence set", () => {
   });
 
   it("carries no refusal where the state has none to carry", () => {
-    // A cut enumeration is not a refusal: the producer answered and said the answer
-    // was short. Inventing a refusal here would put a code on screen no producer sent.
+    // A cut enumeration is not a refusal; inventing one would show a code no producer sent.
     const cut = readingNoticeFor(STATE_BY_KIND.cut, READING_SUBJECT);
     expect(cut.shape === "counted-sentence" && cut.refusal).toBeUndefined();
     const partialWithoutRefusal = readingNoticeFor(
@@ -166,9 +155,8 @@ describe("partial-read — the sentence set", () => {
 
 describe("partial-read — a figure and its sentence are one thing", () => {
   it("gives the figure-first arms a figure that cannot be absent", () => {
-    // The shape split in terms: the two arms whose copy is a fragment carry a
-    // required figure, so `{ copy: "deliveries could not be read…" }` with nothing
-    // leading it is unconstructible rather than merely undisciplined.
+    // The two fragment arms carry a required figure, so a copy with nothing leading it is
+    // unconstructible.
     for (const kind of ["partial", "cut"] as const) {
       const notice = readingNoticeFor(STATE_BY_KIND[kind], READING_SUBJECT);
       expect(notice.shape, `${kind} is not a counted sentence`).toBe("counted-sentence");
@@ -185,8 +173,7 @@ describe("partial-read — a figure and its sentence are one thing", () => {
   });
 
   it("agrees with the count on singular and plural", () => {
-    // One hardcoded plural passes one of these and fails the other, which is the
-    // whole point of asserting both.
+    // One hardcoded plural passes one of these and fails the other.
     const one = readingNoticeFor(
       { kind: "partial", unreadableCount: 1, newestRefusal: undefined },
       READING_SUBJECT,
@@ -200,8 +187,7 @@ describe("partial-read — a figure and its sentence are one thing", () => {
   });
 
   it("formats every count through the figures chokepoint", () => {
-    // `String(n)` yields "1234"; the chokepoint groups. Asserted on both arms that
-    // carry a figure, because either could have reached for its own conversion.
+    // `String(n)` yields "1234"; the chokepoint groups. Asserted on both arms that carry a figure.
     const partial = readingNoticeFor(
       { kind: "partial", unreadableCount: 1234, newestRefusal: undefined },
       READING_SUBJECT,
@@ -214,17 +200,15 @@ describe("partial-read — a figure and its sentence are one thing", () => {
 
 describe("partial-read — the producer shapes", () => {
   it("reads a count of zero as nothing to report, never as a partial reading", () => {
-    // The nonsense notice in terms: `{ kind: "partial", unreadableCount: 0 }`
-    // rendered "0 deliveries could not be read", a notice for an absence of anything
-    // to notice. The producer's own call is where that is settled.
+    // `{ kind: "partial", unreadableCount: 0 }` would render "0 deliveries could not be read"; the
+    // producer's own call settles that.
     expect(unreadableDeliveryReading(0, undefined)).toStrictEqual({ kind: "served" });
     expect(unreadableDeliveryReading(-1, PARSE_REFUSAL)).toStrictEqual({ kind: "served" });
     expect(unreadableDeliveryReading(1.5, PARSE_REFUSAL)).toStrictEqual({ kind: "served" });
   });
 
   it("negative control: a real count is a partial reading and keeps its refusal", () => {
-    // Without this the zero rule above would also be satisfied by a constructor that
-    // answered `served` for everything, which is a view that never says it is short.
+    // Guards against a constructor answering `served` for everything.
     expect(unreadableDeliveryReading(2, PARSE_REFUSAL)).toStrictEqual({
       kind: "partial",
       unreadableCount: 2,
@@ -233,9 +217,8 @@ describe("partial-read — the producer shapes", () => {
   });
 
   it("negative control: a stale reading and a counted one are not one shape", () => {
-    // A `stale` reading and a `partial` one say different things, and a rebind that
-    // collapsed a bare flag into a count of one would put a figure on screen the
-    // producer never sent.
+    // A `stale` reading differs from a `partial` one; collapsing a flag into a count of one would
+    // put a figure on screen the producer never sent.
     const stale = sentenceOf({ kind: "stale", refusal: undefined });
     const counted = sentenceOf(unreadableDeliveryReading(1, undefined));
     expect(stale).not.toBe(counted);
@@ -260,9 +243,8 @@ describe("partial-read — a coverage gap is counted, and is its own fact", () =
   });
 
   it("says what no other arm says: the shown answer covers less than was asked", () => {
-    // The gap this arm was minted for. The nearest vocabulary was a `refused` reading
-    // beside an answer, whose sentence carries no figure at all — so a view with
-    // four unanswered sources could say that something was missing and never how much.
+    // The nearest other arm, a `refused` reading beside an answer, carries no figure, so a view
+    // with four unanswered sources could not say how much was missing.
     const coverage = sentenceOf(STATE_BY_KIND.unchecked);
     const besideAnAnswer = sentenceOf(STATE_BY_KIND.refused);
     expect(coverage).toContain("4 ");
@@ -281,9 +263,8 @@ describe("partial-read — a coverage gap is counted, and is its own fact", () =
   });
 
   it("negative control: it is not the delivery counter under another name", () => {
-    // Without this the arm would be satisfied by one that reused `partial`'s
-    // sentence, which says the reading is BEHIND its producer — a different claim
-    // about a different failure, and false of a source that simply never answered.
+    // Guards against reusing `partial`'s sentence, which says the reading is behind its producer, a
+    // different claim and false of a source that never answered.
     const coverage = sentenceOf({ kind: "unchecked", uncheckedCount: 3, newestRefusal: undefined });
     const unreadable = sentenceOf(unreadableDeliveryReading(3, undefined));
     expect(coverage).not.toBe(unreadable);
@@ -293,16 +274,8 @@ describe("partial-read — a coverage gap is counted, and is its own fact", () =
 });
 
 describe("readingNoticeFor — no arm agrees with the subject's number", () => {
-  // The subject is a noun phrase the caller writes and this module never learns
-  // whether it is singular or plural — `partial-read.ts` offers "the queue" and
-  // "these quotas" as equally valid in the same breath. So an arm that put the
-  // subject in front of a verb read correctly for one and ungrammatically for the
-  // other, which is what `cut` did: "read before these quotas was cut".
-  //
-  // Fixing it at the call site would mean a second parameter carrying the verb form,
-  // which is the caller writing grammar again — the drift this module exists to
-  // remove. So the rule is structural: the subject never governs a verb, and these
-  // two tables are how that is checked rather than read.
+  // The subject is a caller-written noun phrase of unknown number ("the queue", "these quotas"),
+  // so it must never govern a verb. These tables check that structurally.
 
   const SINGULAR_SUBJECT = "the queue";
   const PLURAL_SUBJECT = "these quotas";
@@ -314,20 +287,9 @@ describe("readingNoticeFor — no arm agrees with the subject's number", () => {
   const PLURAL_VERBS: readonly string[] = ["were", "are", "have", "do"];
 
   /**
-   * The words that make a following verb somebody else's to agree with.
-   *
-   * `of` and `for` POSTMODIFY the noun in front of them, so in "the read of these
-   * quotas was refused" and "the answer for these quotas was cut short" the verb
-   * agrees with "read" and with "answer" — nouns this module supplies — and the
-   * caller's phrase governs nothing. That is precisely the technique the arms use to
-   * stay number-blind, and a check without the distinction would report both correct
-   * arms as defects and be switched off inside a week.
-   *
-   * `before`, `after` and `while` are deliberately absent, and the difference is the
-   * whole finding: they take a CLAUSE, so "before these quotas was cut" makes the
-   * caller's phrase the clause subject and the verb really does agree with it — which
-   * is what the `cut` arm used to write, and what was ungrammatical for two of the
-   * three subjects this module's own doc offers.
+   * The words after which a verb agrees with an earlier noun this module supplies: in "the read
+   * of these quotas was refused" the verb agrees with "read". `before`, `after` and `while` are
+   * absent on purpose: they take a clause, so the caller's phrase would govern the verb.
    */
   const BINDINGS_TO_AN_EARLIER_NOUN: readonly string[] = ["of ", "for "];
 
@@ -373,9 +335,7 @@ describe("readingNoticeFor — no arm agrees with the subject's number", () => {
   });
 
   it("never puts a plural verb straight after a singular subject", () => {
-    // The other direction, and it is not decoration: the obvious repair for the first
-    // claim is to write the plural verb everywhere, which trades one ungrammatical
-    // pair for the other and would pass a one-sided check.
+    // The other direction: writing the plural verb everywhere would pass a one-sided check.
     const offenders = READING_STATE_KINDS.flatMap((kind) =>
       governedPairsIn(
         wordsOf(STATE_BY_KIND[kind], SINGULAR_SUBJECT),
@@ -387,26 +347,22 @@ describe("readingNoticeFor — no arm agrees with the subject's number", () => {
   });
 
   it("negative control: the check finds the pairing it is looking for", () => {
-    // Both claims above are empty lists, and so is a check whose needle never matches
-    // anything. This drives the same reading over the sentence the `cut` arm used to
-    // produce, so the two claims cannot pass by looking for nothing.
+    // Both claims above are empty-list checks; this drives a sentence that does put the subject
+    // before a verb, so they cannot pass by looking for nothing.
     const superseded = `read before ${PLURAL_SUBJECT} was cut, so what is not shown here may still exist.`;
     expect(governedPairsIn(superseded, PLURAL_SUBJECT, SINGULAR_VERBS)).toStrictEqual(["was"]);
   });
 
   it("negative control: a postmodified subject governs nothing, and is admitted", () => {
-    // The other half of the reading, and the reason this is not a bare search for two
-    // adjacent words. `refused` writes "the read of these quotas was refused", which
-    // is correct for every subject because the verb agrees with "read" — the exact
-    // pair the first claim looks for, in a sentence that has nothing wrong with it.
+    // Not a bare search for two adjacent words: `refused` writes "the read of these quotas was
+    // refused", correct because the verb agrees with "read".
     const postmodified = `The read of ${PLURAL_SUBJECT} was refused, so none of it is shown here.`;
     expect(postmodified).toContain(`${PLURAL_SUBJECT} was`);
     expect(governedPairsIn(postmodified, PLURAL_SUBJECT, SINGULAR_VERBS)).toStrictEqual([]);
   });
 
   it("negative control: every arm still names the subject at all", () => {
-    // A repair that dropped the subject from a sentence would satisfy both claims
-    // above while making the notice say nothing about what was read.
+    // Guards against a repair that drops the subject from the sentence.
     const silent = READING_STATE_KINDS.filter(
       (kind) =>
         kind !== "served" && !wordsOf(STATE_BY_KIND[kind], PLURAL_SUBJECT).includes(PLURAL_SUBJECT),

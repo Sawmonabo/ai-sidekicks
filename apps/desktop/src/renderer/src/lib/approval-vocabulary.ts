@@ -1,8 +1,5 @@
-// What the approval card and the inspector's Rules section call each approval value on
-// screen.
-//
-// The closed sets themselves are the contract's (`@ai-sidekicks/contracts`); each table
-// here is keyed by the contract's type, so a value the contract adds fails to compile
+// What the approval card and the inspector's Rules section call each approval value on screen.
+// Each table is keyed by the contract's type, so a value the contract adds does not compile
 // until it has words.
 
 import type {
@@ -12,13 +9,7 @@ import type {
   RememberedScopeKind,
 } from "@ai-sidekicks/contracts";
 
-/**
- * What a category is called on screen.
- *
- * The token itself is still rendered beside the phrase, in mono, because the token is
- * what the daemon sent and a wire string always renders in mono. The phrase exists so a
- * person reads a sentence rather than an identifier; it never replaces the token.
- */
+/** What a category is called on screen, in words; the wire token is rendered beside it, in mono. */
 export const APPROVAL_CATEGORY_LABELS: Readonly<Record<ApprovalCategory, string>> = {
   tool_execution: "Run a tool",
   file_write: "Write to a file",

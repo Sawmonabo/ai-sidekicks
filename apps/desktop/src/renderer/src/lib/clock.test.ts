@@ -1,27 +1,14 @@
-// The clock seam's shipped arm.
-//
-// `RealClock` is the arm that runs in a shipped window, and its interesting
-// property is the one a reader does not expect: `requestAnimationFrame` and
-// `setTimeout` number their handles in two independent spaces, so a clock that
-// returned the platform's number could not tell them apart afterwards. The frame
-// cases below drive exactly that.
-//
-// The platform's frame scheduler is stood in for; the clock under test never is.
-//
-// `ManualClock`, the seam's other half and the console's timer audit, is driven by
+// `RealClock` mints its own handles because `requestAnimationFrame` and `setTimeout` number
+// theirs in two independent spaces; the frame cases drive that. The platform's frame scheduler
+// is stubbed, the clock under test is not. `ManualClock` is covered by
 // `clock.manual-clock.test.ts`.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RealClock, type ScheduledHandle } from "./clock.js";
 
 /**
- * A stand-in for `requestAnimationFrame` that hands out ONE platform id and reuses
- * it once the frame has run.
- *
- * Not a contrivance: an id is free for reuse the moment its callback fires, and
- * browsers do reuse them. It is the cheapest way to make the two-id-space hazard
- * deterministic rather than dependent on how many timers a test file happened to
- * arm before this one.
+ * A stand-in for `requestAnimationFrame` that hands out one platform id and reuses it once
+ * the frame has run, which makes the two-id-space hazard deterministic.
  */
 class SingleIdFrameScheduler {
   public static readonly PLATFORM_HANDLE = 7;
@@ -80,8 +67,7 @@ function withoutFrameScheduling(): () => void {
   delete scheduling.requestAnimationFrame;
   delete scheduling.cancelAnimationFrame;
   return () => {
-    // Restored only where there was something to restore: a program that never had
-    // the pair is left without it rather than given an `undefined` to call.
+    // A program that never had the pair is left without it.
     if (originalRequest !== undefined) {
       scheduling.requestAnimationFrame = originalRequest;
     }
@@ -103,9 +89,7 @@ describe("RealClock — now", () => {
 });
 
 describe("RealClock — frames", () => {
-  // A fresh stand-in per case: the recorded cancellations are evidence, and evidence
-  // carried over from the previous case is how a passing assertion stops meaning
-  // what it says.
+  // A fresh stand-in per case so recorded cancellations do not carry over.
   let frameScheduler = new SingleIdFrameScheduler();
 
   beforeEach(() => {
@@ -147,9 +131,8 @@ describe("RealClock — frames", () => {
   });
 
   it("issues a distinct handle per piece of work even when the platform reuses one", () => {
-    // The hazard, made deterministic. Passing the platform's number through would
-    // give both frames the same handle here, and the cancellation below — of work
-    // that has ALREADY RUN — would silently take the live one with it.
+    // Passing the platform number through would give both frames one handle, and canceling the
+    // already-run one would take the live one with it.
     const clock = new RealClock();
     let secondPainted = false;
 
@@ -169,8 +152,7 @@ describe("RealClock — frames", () => {
   });
 
   it("negative control: the same cancel DOES stop the frame it names", () => {
-    // Without this, a `cancel` that had become a no-op for every input would pass
-    // the case above while breaking cancellation entirely.
+    // Guards against a `cancel` that is a no-op for every input passing the case above.
     const clock = new RealClock();
     let painted = false;
 
@@ -217,9 +199,7 @@ describe("RealClock — timeouts", () => {
       clock.scheduleTimeout(resolve, 20);
     });
 
-    // The sentinel is the negative control: it was armed at the same delay, so a
-    // clock that never ran anything would fail here rather than passing on the
-    // canceled one's silence.
+    // The sentinel is the negative control: a clock that ran nothing would fail here.
     expect(sentinelRan).toBe(true);
     expect(canceledRan).toBe(false);
   });

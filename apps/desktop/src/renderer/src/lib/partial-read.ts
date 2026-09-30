@@ -1,62 +1,21 @@
-// What a reading is, when it is not the whole of what was asked for — and the one
-// sentence set that says so.
+// What a reading is when it is not the whole of what was asked for, and the one sentence set
+// that says so, so no view says "may be stale" where another says "may be behind".
 //
-// The console renders FIVE kinds of nothing differently, because the next move differs
-// for each: not loaded, empty, error, not checked, and still computing. That set says
-// nothing about the case that is not an absence at all: a reading that arrived, is
-// being shown, and is INCOMPLETE — a queue whose snapshot refused while the tail kept
-// delivering, a quota tail whose deliveries this build could not parse, a provider
-// enumeration the daemon cut, a definitions browser answering per scope. One sentence
-// set for all of them keeps one view from saying "may be stale" where another says
-// "may be behind the registry" and a third renders a list that looks exhaustive.
+// A view never claims a completeness it cannot prove: `served` is the only state with no notice,
+// and `readingNoticeFor` is total over the kind tuple, so a state without a sentence fails to
+// compile. `partialReadNotices` takes every reading a view holds, so a served snapshot beside an
+// unreadable tail cannot render as exhaustive. Notices stay separate because a merged sentence
+// would drop a refusal, which names what to do next.
 //
-// THE CLAIM THIS MODULE MAKES EXTENDS THE KINDS OF NOTHING BY ONE STEP: a view never
-// claims a completeness it cannot prove. `served` is the only state that claims it,
-// and it is the only state that renders no notice. Everything else renders one — which
-// is why `readingNoticeFor` is TOTAL over the kind tuple and why its `"none"` shape
-// is reachable from exactly one arm. A state added to the union without a sentence
-// fails to compile here rather than shipping as a silent claim of completeness —
-// count-free, because the set grows.
-//
-// A VIEW HANDS OVER EVERY READING IT HOLDS, NOT ONE OF THEM. A queue whose snapshot
-// refused AND whose tail carried an unreadable delivery is incomplete twice over, for
-// two reasons a person can act on differently, and asking each view to mount the notice
-// twice would be discipline rather than a mechanism. So `partialReadNotices` takes the
-// SET and answers a notice per member. `"none"` comes back only when every member is
-// `served`, which is what makes a view holding a served snapshot beside an unreadable
-// tail unable to render as exhaustive: there is no call shape that shows one reading
-// and hides the other. Two notices and not a merged one, still — a merged sentence
-// would have to drop one of the two refusals, and the refusal is the half that names
-// what to do next.
-//
-// THE CAUSES ARE ONE CLAIM WITH SEVERAL REASONS. A person reading a notice is
-// deciding whether to trust what is in front of them, so every sentence states the
-// CONSEQUENCE first and leaves the cause to the refusal rendered beneath it. The one
-// thing a caller supplies is the subject — a lowercase noun phrase naming what was
-// read ("the queue", "these quotas", "this run's command list") — and it is the only
-// variable in the set, because the grammar around it is what must not drift.
-//
-// WHICH MEANS NO ARM MAY AGREE WITH THE SUBJECT'S NUMBER. The subject is a noun
-// phrase the caller writes, and this module never learns whether it is singular or
-// plural; "these quotas" is one of the examples above and is plural. So an arm that
-// put the subject in front of a verb — `${subject} was cut` — read correctly for two
-// of the three examples and ungrammatically for the third, and the only way to fix it
-// at the call site would be a second parameter carrying the verb form, which is the
-// caller writing grammar again. Every arm therefore either uses a modal (`may`,
-// number-neutral), makes the subject a modifier of a noun this module supplies (`the
-// read of ${subject} was refused`), or keeps it out of the verb's way entirely. The
-// suite beside this file asserts it against both a singular and a plural subject.
+// Sentences state the consequence first and leave the cause to the refusal beneath. The subject
+// is a caller-written noun phrase of unknown number ("the queue", "these quotas"), so no arm puts
+// it in front of a verb: each uses a modal, makes it a modifier of a noun supplied here, or keeps
+// it clear of the verb.
 
 import type { Refusal } from "./refusal.js";
 import { formatCount } from "./wire-figures.js";
 
-/**
- * Closed. The tuple is the declaration and `ReadingStateKind` follows from it, so a
- * claim about the SET is countable at runtime — the same construction the five kinds
- * of nothing are declared under, and for the same reason: the vacuity guard walks the
- * tuple, so a kind added to a hand-written union alone would be a state nothing
- * checked.
- */
+/** Every reading state kind; tests walk the tuple at runtime. */
 export const READING_STATE_KINDS = [
   "served",
   "reading",
@@ -67,28 +26,22 @@ export const READING_STATE_KINDS = [
   "unchecked",
 ] as const;
 
+/** One of {@link READING_STATE_KINDS}. */
 export type ReadingStateKind = (typeof READING_STATE_KINDS)[number];
 
 /**
- * What a refusal is the answer TO. Closed, and closed at two.
- *
- * A refusal that IS the whole answer and a refusal that arrived BESIDE one are two
- * different facts, and the sentence for one is false of the other: "what is shown
- * here is not the whole of it" says there is something shown, which is not true of a
- * read that returned nothing at all. The scope is decided where the outcomes are
- * counted and never re-derived in a render body — two views would eventually
- * disagree about whether one refusal is the view's result or a note beside one.
+ * Whether a refusal is the whole answer or arrived beside one. The sentence for one is false of
+ * the other ("what is shown here is not the whole of it" is untrue of a read that returned
+ * nothing), so the scope is decided where outcomes are counted, not in a render body.
  */
 export const REFUSAL_SCOPES = ["whole-answer", "beside-an-answer"] as const;
 
+/** One of {@link REFUSAL_SCOPES}. */
 export type RefusalScope = (typeof REFUSAL_SCOPES)[number];
 
 /**
- * How completely a view's reading answered the question it put.
- *
- * `served` is the only member that claims completeness, and it carries nothing:
- * a complete reading has nothing to say about itself. The others each carry
- * exactly what their sentence spends and nothing more.
+ * How completely a view's reading answered the question it put. `served` is the only member
+ * that claims completeness; each other member carries exactly what its sentence spends.
  */
 export type ReadingState =
   /** The whole of it arrived. The only state that claims completeness. */
@@ -96,28 +49,19 @@ export type ReadingState =
   /** The read is in flight. Nothing is claimed yet, in either direction. */
   | { readonly kind: "reading" }
   /**
-   * The read was refused. `scope` says whether anything else answered: on
-   * `whole-answer` the refusal is all there is, and on `beside-an-answer` what is on
-   * screen arrived some other way and is a fragment of unknown size.
+   * The read was refused. On `whole-answer` the refusal is all there is; on `beside-an-answer`
+   * what is on screen arrived another way and is a fragment of unknown size.
    */
   | { readonly kind: "refused"; readonly scope: RefusalScope; readonly refusal: Refusal }
   /**
-   * The reading is behind its producer and by how much is not known.
-   *
-   * The distinct case from `partial`, and the distinction is the wire's: a producer
-   * that counted what it could not read supplies a figure and a producer that only
-   * knows it fell behind supplies none. Rendering the second as the first would need
-   * a count nobody sent, and rendering it as `served` would claim a completeness the
-   * producer has just said it cannot vouch for.
+   * The reading is behind its producer by an unknown amount. Distinct from `partial`: a producer
+   * that counted what it could not read supplies a figure, one that only knows it fell behind
+   * supplies none.
    */
   | { readonly kind: "stale"; readonly refusal: Refusal | undefined }
   /**
-   * Deliveries arrived that this build could not read. They changed no row, which is
-   * exactly why the rows alone cannot show it: a list that did not move looks like a
-   * list that had nothing to move for.
-   *
-   * `unreadableCount` is at least one — a count of zero is nothing to report rather
-   * than a partial reading, and `unreadableDeliveryReading` is what holds that.
+   * Deliveries arrived that this build could not read. They changed no row, so the rows alone
+   * cannot show it. `unreadableCount` is at least one; `unreadableDeliveryReading` holds that.
    */
   | {
       readonly kind: "partial";
@@ -126,27 +70,16 @@ export type ReadingState =
       readonly newestRefusal: Refusal | undefined;
     }
   /**
-   * The producer cut its own enumeration. How many were dropped is not on the wire
-   * and is not invented here — `servedCount` is what did arrive, which is the only
-   * figure the reply supplies.
+   * The producer cut its own enumeration. How many were dropped is not on the wire, so
+   * `servedCount`, what did arrive, is the only figure.
    */
   | { readonly kind: "cut"; readonly servedCount: number }
   /**
-   * A read that asked several sources and did not hear back from all of them.
-   *
-   * The COVERAGE gap, and it is a different fact from every arm above. `partial` is
-   * about deliveries that arrived and could not be read; `cut` is about a producer
-   * that truncated its own answer; this is about parts of the question that were put
-   * and never answered — which is what a fan-out across sessions, mounts, or nodes
-   * produces when some of them refuse. The distinction is the one a person acts on:
-   * an empty result over incomplete coverage is not an all-clear, and before this arm
-   * existed the nearest vocabulary was `refused` `beside-an-answer`, whose sentence
-   * carries no figure and so cannot say HOW MUCH went unasked.
-   *
-   * It is not the `not-checked` kind of nothing either: that one is the whole read, and
-   * this is a counted part of a read that did answer.
-   *
-   * `uncheckedCount` is at least one: zero is complete coverage, which is `served`.
+   * A read that asked several sources and did not hear back from all of them: parts of the
+   * question were put and never answered, as when a fan-out across sessions, mounts or nodes has
+   * refusals. An empty result over incomplete coverage is not an all-clear. This is a counted
+   * part of a read that did answer, not a wholly unchecked read. `uncheckedCount` is at least
+   * one; zero is `served`.
    */
   | {
       readonly kind: "unchecked";
@@ -156,18 +89,9 @@ export type ReadingState =
     };
 
 /**
- * What a notice renders. Fewer shapes than there are states, so the component
- * branches on a closed instruction rather than on the state a second time.
- *
- * `"reading"` is its own shape because a read in flight is the `not-loaded` kind of
- * nothing and renders as that component's skeleton; the prose shapes are prose beside the
- * rows they qualify.
- *
- * The two prose shapes are separate because a figure and the copy that leads with it
- * are one sentence cut in half. A single shape typing the figure as optional admits
- * `{ figure: undefined, copy: "deliveries could not be read, so …" }`, which renders
- * as a headless fragment — so the whole-sentence case and the figure-first case are
- * two shapes and neither can be half-supplied.
+ * What a notice renders: fewer shapes than states, so the component branches on a closed
+ * instruction. `"reading"` renders as the skeleton; the prose shapes sit beside the rows they
+ * qualify. The two prose shapes are separate so a figure-led fragment can never lack its figure.
  */
 export type PartialReadNotice =
   | { readonly shape: "none" }
@@ -191,15 +115,10 @@ export type PartialReadNotice =
 const COMPLETE_NOTICE: PartialReadNotice = { shape: "none" };
 
 /**
- * The reading a count of unreadable deliveries is.
- *
- * The producer's shape across the features that have one: a running count and the
- * newest parse refusal it kept. Zero is `served` and not `partial` — a notice
- * reading "0 deliveries could not be read" is a notice for an absence of anything to
- * notice — and `served` is admissible here precisely because this producer proved
- * it: nothing it received failed to parse. That is a claim about the DELIVERIES and
- * not about the read they arrive after, which is why a view holding both hands
- * both to `partialReadNotices` rather than choosing between them.
+ * The reading a count of unreadable deliveries is: a running count and the newest parse refusal
+ * kept. Zero is `served`, since nothing this producer received failed to parse; that is a claim
+ * about the deliveries, not the read they follow, so a view holding both hands both to
+ * `partialReadNotices`.
  */
 export function unreadableDeliveryReading(
   unreadableCount: number,
@@ -212,16 +131,9 @@ export function unreadableDeliveryReading(
 }
 
 /**
- * The sentence a reading state says of itself, about `subject`.
- *
- * `subject` is a lowercase noun phrase naming what was read — "the queue", "these
- * quotas", "this run's command list". It appears mid-sentence in every arm on
- * purpose: a subject at a sentence's head would have to be capitalized by the caller,
- * and a caller that capitalized it in one place and not another is exactly the drift
- * this module exists to remove.
- *
- * Total over `ReadingState` by construction, so a member added to that union fails
- * to compile here before it can reach a view that renders it as complete.
+ * The sentence a reading state says of itself, about `subject`: a lowercase noun phrase such as
+ * "the queue" or "these quotas", placed mid-sentence in every arm so callers never capitalize it.
+ * Total over `ReadingState`.
  */
 export function readingNoticeFor(state: ReadingState, subject: string): PartialReadNotice {
   switch (state.kind) {
@@ -255,10 +167,7 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
       return {
         shape: "counted-sentence",
         figure: formatCount(state.servedCount),
-        // `the answer for ${subject}` and not `${subject}` alone: the verb agrees with
-        // the head noun this module supplies rather than with a caller's noun phrase
-        // whose number it cannot know. It is also the truer sentence — a producer
-        // truncated its own answer, and the thing that was cut is that answer.
+        // "the answer for ${subject}" so the verb agrees with a noun supplied here.
         copy: `read before the answer for ${subject} was cut short, so what is not shown here may still exist.`,
         refusal: undefined,
       };
@@ -273,12 +182,8 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
 }
 
 /**
- * Every notice a view's readings owe, in the order the view holds them.
- *
- * The call to use, and the reason `readingNoticeFor` is not it: a view takes ONE reading
- * at a time from its producers and owes a person all of them at once, so the shape
- * that composes is the shape callers reach for. An empty answer means every reading
- * served — the only way this module ever says a view is showing the whole of it.
+ * Every notice a view's readings owe, in the order the view holds them. An empty answer means
+ * every reading is served, the only way this module says a view shows the whole of it.
  */
 export function partialReadNotices(
   states: readonly ReadingState[],

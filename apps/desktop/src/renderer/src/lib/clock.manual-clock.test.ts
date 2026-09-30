@@ -1,13 +1,6 @@
-// The clock seam's test instrument.
-//
-// `ManualClock` is the console's timer audit, so a test of it is a test of the
-// instrument every budget claim is measured with: if `pendingCount` could miss an
-// armed timer, "no timer fires except the refresh scheduler's deadline and the
-// presence heartbeat" would be unfalsifiable rather than checked. The two controls
-// it separates — advancing time and releasing a paint — are separable here and
-// nowhere else, which is why they are driven apart and then together.
-//
-// `RealClock`, the arm a shipped window runs on, is driven by `clock.test.ts`.
+// `ManualClock` is the timer audit tests count armed work with, so `pendingCount` must not miss
+// a timer. Advancing time and releasing a paint are separate controls, driven apart and together.
+// `RealClock` is covered by `clock.test.ts`.
 
 import { describe, expect, it } from "vitest";
 import { ManualClock } from "./clock.js";
@@ -54,8 +47,7 @@ describe("ManualClock — nothing moves until it is told to", () => {
   });
 
   it("runs work a callback arms during the advance, when it falls inside the window", () => {
-    // The re-arming scheduler is the shape this matters for: a debounce that
-    // re-arms itself has to be observable, not invisible until the next advance.
+    // A debounce that re-arms itself must be observable within one advance.
     const clock = new ManualClock();
     const ticks: number[] = [];
     const reArm = (): void => {
@@ -122,11 +114,8 @@ describe("ManualClock — frames are separable from timeouts", () => {
   });
 
   it("leaves a frame armed across an advance, and paints it only when asked", () => {
-    // Advancing time is not painting. A frame is armed with `dueAt` equal to NOW,
-    // so an `advance` that selected work on due time alone would run every pending
-    // frame — and a scenario beat, an endurance step, or a frozen-tick screenshot
-    // would then paint an extra frame nobody released, with the two controls the
-    // clock separates silently fused back together.
+    // Advancing time is not painting: a frame is armed due now, so an advance selecting on due
+    // time alone would paint a frame nobody released.
     const clock = new ManualClock();
     let framePainted = false;
     clock.scheduleFrame(() => {
@@ -137,7 +126,7 @@ describe("ManualClock — frames are separable from timeouts", () => {
 
     expect(framePainted).toBe(false);
     expect(clock.pendingFrameCount).toBe(1);
-    // Time still lands where it was told to, with the frame still owed.
+    // Time still lands where told, with the frame still owed.
     expect(clock.now()).toBe(1_000);
 
     clock.runFrame();
@@ -147,9 +136,7 @@ describe("ManualClock — frames are separable from timeouts", () => {
   });
 
   it("negative control: the same advance still runs a timeout that falls due", () => {
-    // Without this, an `advance` that had stopped running anything at all would
-    // pass the case above while breaking every debounce and coalescing window in
-    // the console.
+    // Guards against an advance that runs nothing at all passing the case above.
     const clock = new ManualClock();
     let framePainted = false;
     let timeoutRan = false;
@@ -168,8 +155,7 @@ describe("ManualClock — frames are separable from timeouts", () => {
   });
 
   it("runs a timeout a frame callback arms, once the frame is released", () => {
-    // The two controls compose rather than exclude each other: work a paint arms
-    // is ordinary timeout work, and the next advance owns it.
+    // Work a paint arms is ordinary timeout work, owned by the next advance.
     const clock = new ManualClock();
     let armedByPaint = false;
     clock.scheduleFrame(() => {
@@ -189,8 +175,7 @@ describe("ManualClock — frames are separable from timeouts", () => {
   });
 
   it("negative control: an idle clock has nothing armed, so the counts are not constant", () => {
-    // The idle-CPU budget's precondition is `pendingCount === 0`. If the counter
-    // could not reach zero, every budget assertion built on it would be vacuous.
+    // If the counter could not reach zero, every idle assertion built on it would be vacuous.
     const clock = new ManualClock();
     expect(clock.pendingCount).toBe(0);
     expect(clock.pendingFrameCount).toBe(0);

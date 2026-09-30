@@ -1,11 +1,6 @@
 // Where one read has got to, as a view that renders from the read carries it.
 
-/**
- * Where one read has got to.
- *
- * Two arms because these are two different sentences and collapsing them is wrong: a
- * read is in flight, or a read answered (with however many rows, including none).
- */
+/** Where one read has got to: in flight, or answered with any number of rows, including none. */
 export type ReadPhase<TRow> =
   | { readonly status: "loading" }
   | {

@@ -1,70 +1,31 @@
-// What a reading needs of the console's transport-reconnect signal, and nothing more.
+// What a reading needs of the transport-reconnect signal: only the subscribe view.
 //
-// The refresh policy forbids interval polling: reads happen on subscribe, on window
-// focus, on reconnect, and on the terminal events the owning view names. A session
-// store raises `reconnect` from its own repair edge, but a window-scoped reading (this
-// node's diagnostics, this node's accounts, the machine's settings) has no session and
-// therefore no repair edge, so this signal is how it learns of a reconnect.
+// A window-scoped reading (this node's diagnostics or accounts, the machine's settings) has no
+// session and so no repair edge, and this signal is how it learns of a reconnect. The interface is
+// here and the emitter is not: what "the transport came back" means is the wire's fact, owned by
+// `services/transport/transport-reconnect.ts`, and `store/` sits below `services/` and cannot
+// import it. `lib/` is the layer both reach.
 //
-// WHY THE INTERFACE IS HERE AND THE EMITTER IS NOT
-//
-// The producer belongs to `services/`: what "the transport came back" MEANS is a fact
-// about the wire, and the wire is that layer's. The consumer is `store/`, which sits
-// BELOW `services/` in the import layering precisely so a store cannot reach a wire —
-// so the reading hooks cannot import the emitter, and an emitter declared in `store/`
-// would put the wire's own vocabulary underneath the layer that owns it.
-//
-// `lib/` is the layer both may reach, and what lives here is the half a consumer
-// needs: the subscribe view. It holds no state, decides nothing, and names no
-// transport. `services/transport/transport-reconnect.ts` is the implementation, and it
-// is the only thing in the console allowed to decide that a reconnect happened.
-//
-// ONE FACT, NOT A CONNECTION STATE. Deliberately not `isConnected` or a three-arm
-// reachability enum: a view that could read the current state would render it, and a
-// renderer that painted "connected" would be claiming a fact it observes only
-// indirectly — the tray's three states are the supervisor's, not the renderer's. What
-// crosses this boundary is an EDGE — the wire was away and is back — which is the one
-// thing a reading has to act on.
+// It is one edge (the wire was away and is back), not a connection state: a view that could read
+// state would render "connected", a fact the renderer only observes indirectly.
 
 import type { Unsubscribe } from "./emitter.js";
 
-/**
- * The console's transport-reconnect signal, as a consumer sees it.
- *
- * One method, and the sink takes no payload: a reconnect carries no data a reading
- * could read, and a payload would be an invitation to render one.
- */
+/** The transport-reconnect signal as a consumer sees it. The sink takes no payload. */
 export interface TransportReconnectObservable {
   /**
-   * Called once each time the transport is observed to come back after being away.
-   *
-   * Never called for a FIRST connection, which is not a reconnect: a reading's own
-   * `subscribe` reason already covers the moment it opens, and firing here as well
-   * would put two reads behind every view that mounts.
+   * Called once each time the transport comes back after being away. Never called for a first
+   * connection: a reading's own `subscribe` reason covers that, and firing here too would put two
+   * reads behind every mounting view.
    */
   subscribe(onReconnect: () => void): Unsubscribe;
 }
 
 /**
- * The signal for a reading that touches no wire at all.
- *
- * A NAMED CONSTANT RATHER THAN AN OPTIONAL PARAMETER. Every reading has to say which
- * of the two it is, because the failure the parameter exists to prevent is a
- * wire-backed reading that quietly never re-reads after a reconnect — and a default
- * is exactly how that reading would be written. The one reading in the console that
- * legitimately takes this is the persistence store's own health: it asks the window's
- * storage adapter how it is, so the transport coming back bears on its answer not at
- * all, and subscribing to a signal it would ignore would be the second copy of a
- * decision this constant states once.
- *
- * A UNIT PROBE THAT DRIVES NO OUTAGE ALSO TAKES IT, and that is not a second reading:
- * a probe mounting a hook outside any bridge provider has no transport to lose, so
- * the honest observable to hand it is the one that never fires. What such a probe may
- * not do is stand in for a case ABOUT reconnect — that case drives a real
- * `TransportReconnectSignal`, which is what makes the trigger observable at all.
- *
- * Subscribing returns an unsubscribe that has nothing to undo, so a caller's teardown
- * needs no arm of its own.
+ * The signal for a reading that touches no wire, and for a unit probe that drives no outage. It
+ * is a named constant, not an optional parameter, so a wire-backed reading cannot quietly default
+ * to never re-reading after a reconnect. A case about reconnect drives a real
+ * `TransportReconnectSignal` instead.
  */
 export const NO_TRANSPORT_RECONNECT: TransportReconnectObservable = {
   subscribe: () => () => undefined,

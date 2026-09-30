@@ -1,19 +1,7 @@
-// The route from the tripwire registry into the diagnostic capture.
-//
-// Its own module and not a line in either neighbor, because it is the only thing in
-// `core/` that knows about both. `tripwires.ts` publishes a sink seam and must not
-// learn where reports go; `diagnostic-capture.ts` captures records from anywhere and
-// must not learn that tripwires exist. Joining them inside either would make the
-// other's header false.
-//
-// WHY THE TRIPWIRE REGISTRY IS A CAPTURE SOURCE AT ALL. Its records terminated at
-// in-process subscribers: a bridge-shape drift or an apply-chokepoint bypass on an
-// operator's machine was recorded, counted, and then lost with the window. Every one
-// of those kinds is an invariant breach the console cannot fix and its author cannot
-// see, which is exactly the class the diagnostic band exists for.
-//
-// EVERY RECORD IS AN ERROR. Every tripwire kind is a console invariant breach, so none
-// reaches the band at a lower severity.
+// The route from the tripwire registry into the diagnostic capture. It is its own module because
+// `tripwires.ts` must not learn where reports go and `diagnostic-capture.ts` must not learn that
+// tripwires exist. Tripwire kinds are invariant breaches the console cannot fix and its author
+// cannot see, which the diagnostic band exists for, so every record is an error.
 
 import type { Clock } from "../clock.js";
 import { diagnosticStampAt, windowDiagnosticCapture } from "./diagnostic-capture.js";
@@ -25,12 +13,8 @@ import type { TripwireRegistry, TripwireReport } from "../tripwires.js";
 const TRIPWIRE_SOURCE = "console/core/tripwires";
 
 /**
- * Route one registry's reports into one capture until the returned function is
- * called.
- *
- * `at` is supplied rather than read here so the route carries the caller's clock —
- * the console has one clock seam and a module that reached for `Date` would be a
- * second one, unreadable to a test that freezes the first.
+ * Route one registry's reports into one capture until the returned function is called.
+ * `at` supplies the stamp so the route uses the console's clock, not `Date`.
  */
 export function routeTripwiresToDiagnosticCapture(
   registry: TripwireRegistry,
@@ -49,15 +33,8 @@ export function routeTripwiresToDiagnosticCapture(
 }
 
 /**
- * Arm the route between this renderer process's own registry and its own capture.
- *
- * The composition site names THIS rather than the two singletons, and that is what
- * keeps them where they are: `windowTripwires` is deliberately kept out of any shared
- * entry because its installer is its own module, and exporting the capture beside it
- * would hand every feature above a second way to record. One exported function arms
- * both and hands out neither.
- *
- * Takes the clock the console runs on, through `diagnosticStampAt`.
+ * Arm the route between this renderer process's own registry and its own capture, stamping
+ * with `clock`. Callers name this rather than the two singletons, so neither is handed out.
  */
 export function routeWindowTripwiresToDiagnosticCapture(clock: Clock): () => void {
   return routeTripwiresToDiagnosticCapture(windowTripwires, windowDiagnosticCapture, () =>

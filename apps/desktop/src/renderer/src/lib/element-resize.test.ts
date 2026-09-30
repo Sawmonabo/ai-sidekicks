@@ -1,10 +1,6 @@
-// The console's one size observer, against a platform that can be missing it.
-//
-// Two claims, and the second is why the module exists at all: a resize observer that
-// is never disconnected outlives its subject, and a platform without the constructor
-// has to degrade rather than throw — a seam that threw here would stop the overlay
-// registry registering overlays and stop the terminal re-fitting its grid, on the
-// same host, for the same missing global.
+// An observer that is never disconnected outlives its subject, and a platform without the
+// constructor must degrade rather than throw, or overlay registration and the terminal's grid
+// re-fit would both stop.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -31,8 +27,7 @@ describe("observeElementResize", () => {
   });
 
   it("negative control: a platform with no ResizeObserver arms nothing and reports nothing", () => {
-    // Without the guard this line throws rather than degrading, and the whole
-    // registry stops registering overlays on that platform.
+    // Without the guard this throws instead of degrading.
     vi.stubGlobal("ResizeObserver", undefined);
     const onResize = vi.fn();
 

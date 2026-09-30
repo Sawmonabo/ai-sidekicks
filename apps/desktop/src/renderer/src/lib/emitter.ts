@@ -1,37 +1,28 @@
-// The subscribe / emit / unsubscribe idiom, once.
+// The subscribe / emit / unsubscribe idiom, once. Two behaviors are decisions:
 //
-// The console grew four of these for one job: a zustand-backed readable store, a
-// keyed fan-out in the draft store, a flat sink set in the scenario engine, and a
-// single replaceable sink on the tripwire registry. The zustand one is a different
-// thing and stays — it backs `useSyncExternalStore` and carries state. The other
-// three are this.
-//
-// Two behaviors are decisions rather than mechanics:
-//
-//   • **Emission iterates a snapshot.** A sink that unsubscribes another sink
-//     during emission must not make that other sink miss the event it was still
-//     subscribed for when emission began. Mutating a `Set` while iterating it is
-//     defined in JavaScript, which is exactly why the bug is silent.
-//   • **A throwing sink does not silence the others.** Every sink runs, and the
-//     failures are re-raised together afterwards as an `AggregateError`. Letting
-//     the first throw propagate would make delivery depend on subscription order;
-//     swallowing would hide a defect in a diagnostic path, which is the one place
-//     a hidden defect costs the most.
+//   - Emission iterates a snapshot, so a sink that unsubscribes another during emission does not
+//     make it miss an event it was subscribed for when emission began.
+//   - A throwing sink does not silence the others: every sink runs and the failures are
+//     re-raised together, so delivery does not depend on subscription order and a defect in a
+//     diagnostic path is not hidden.
 
+/** A subscriber to an {@link Emitter}. */
 export type EmitterSink<Event> = (event: Event) => void;
 
 /** Call to stop receiving. Idempotent: calling it twice is not an error. */
 export type Unsubscribe = () => void;
 
+/**
+ * A set of sinks that receive every emitted event.
+ *
+ * `emit` throws when a sink does: the sink's own error if one failed, an `AggregateError` if
+ * several did.
+ */
 export class Emitter<Event> {
   readonly #sinks = new Set<EmitterSink<Event>>();
   readonly #describeWhat: string;
 
-  /**
-   * @param describeWhat what is being emitted, for the aggregate failure message —
-   *   "tripwire report", "scenario frame". A message that names the stream is the
-   *   difference between a debuggable failure and a stack trace in a `Set` loop.
-   */
+  /** `describeWhat` names the stream in the aggregate failure message, e.g. "tripwire report". */
   public constructor(describeWhat: string) {
     this.#describeWhat = describeWhat;
   }
@@ -64,7 +55,7 @@ export class Emitter<Event> {
     }
   }
 
-  /** How many sinks are attached. Read by tests and by the diagnostics view. */
+  /** How many sinks are attached. */
   public get sinkCount(): number {
     return this.#sinks.size;
   }

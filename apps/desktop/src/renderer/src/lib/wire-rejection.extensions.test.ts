@@ -1,17 +1,6 @@
-// What a rejection's registered EXTENSIONS read, off both positions the wire uses.
-//
-// Split from `wire-rejection.test.ts`, which owns two other rules over the same
-// function: that the arms keep the refusing side's own code, and that it is total
-// against a value that fights back. This is the rule that grows: every reader
-// `refusal-extensions.ts` registers is a member that reaches a component BECAUSE it was
-// registered and never because the wire carried it, and every one of them can arrive on
-// either the JSON-RPC `data.fields` payload or the flat envelope.
-//
-// SO EVERY CASE HERE HAS A NEGATIVE CONTROL BESIDE IT, and they are the point rather
-// than the ceremony: a sibling member on the same payload that no reader is registered
-// for must NOT survive, and an envelope naming nothing must leave the member absent
-// rather than present-and-empty — "retry immediately" and "the refusing side said
-// nothing about retrying" are different facts.
+// The registered extensions, read off both wire positions (JSON-RPC `data.fields` and the flat
+// envelope). Each case has a negative control: an unregistered sibling member must not survive,
+// and an envelope naming nothing leaves the member absent, not present-and-empty.
 
 import { describe, expect, it } from "vitest";
 
@@ -45,17 +34,15 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
   });
 
   it("omits the member entirely where the wire named no bound", () => {
-    // "Retry immediately" and "the refusing side said nothing about retrying" are
-    // different facts. A present-but-empty hint would render the second as the first.
+    // A present-but-empty hint would render "said nothing about retrying" as "retry immediately".
     const refusal = normalizeWireRejection("repos", { code: "repo.not_found", message: "gone" });
     expect(refusal.retry).toBeUndefined();
     expect(Object.hasOwn(refusal, "retry")).toBe(false);
   });
 
   it("drops a reset instant it cannot read rather than reporting a wrong one", () => {
-    // The concurrency-cap refusals register no timing pair at all, so a malformed one
-    // is a producer defect; the component renders no countdown rather than a countdown
-    // to a date that does not exist.
+    // A malformed reset is a producer defect; the component shows no countdown rather than one to
+    // a date that does not exist.
     expect(
       normalizeWireRejection("sessions", {
         code: "ratelimit.exceeded",
@@ -92,8 +79,7 @@ describe("normalizeWireRejection — the failed bindings a goal refusal names", 
   });
 
   it("negative control: the sibling `driverCode` is not registered and does not survive", () => {
-    // The point of the registry: a member off `data.fields` reaches a component only
-    // because a reader was registered for it, never because the wire carried it.
+    // A member off `data.fields` reaches a component only because a reader is registered for it.
     const refusal = normalizeWireRejection("approvals", {
       code: -32603,
       message: "…",

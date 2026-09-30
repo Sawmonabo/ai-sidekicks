@@ -1,13 +1,6 @@
-// The tripwire registry, and the one claim its header makes that is easy to break.
-//
-// "It never silently passes: the record exists in both arms." A development build
-// throws on a report, and a throw is exactly the control-flow that can strand the
-// bookkeeping before it happens — record after the throw and the throwing arm keeps
-// no evidence at all, which is the arm an author is most likely to catch and move
-// past. The throwing cases below are therefore about what SURVIVES the throw.
-//
-// The kinds are walked from `TRIPWIRE_KINDS` rather than retyped: a test that named
-// the kinds itself could keep passing over a tuple that had lost one.
+// The tripwire registry records in both arms: a throw in development must not strand the
+// bookkeeping, so the throwing cases are about what survives the throw. Kinds are walked from
+// `TRIPWIRE_KINDS`, not retyped, so a tuple that lost one still fails.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TRIPWIRE_REPORT_CAP } from "./tripwire-caps.js";
@@ -34,8 +27,7 @@ describe("TRIPWIRE_KINDS — the tuple every walk reads", () => {
   });
 
   it("names each kind once", () => {
-    // A repeat would double-count a kind in every guard that walks the tuple while
-    // the derived union stayed identical — the drift is invisible in the type.
+    // A repeat would double-count a kind in every walk while the derived union stayed identical.
     expect(new Set(TRIPWIRE_KINDS).size).toBe(TRIPWIRE_KINDS.length);
   });
 });
@@ -55,8 +47,7 @@ describe("TripwireRegistry — recording", () => {
   });
 
   it("reports zero for a kind that has not fired", () => {
-    // Negative control for the counter: one that returned a constant would satisfy
-    // every count above.
+    // Negative control: a counter returning a constant would satisfy every count above.
     const registry = recordingRegistry();
     registry.report(reportFor("bridge-shape-drift"));
     expect(registry.firingCount("apply-chokepoint-bypass")).toBe(0);
@@ -66,8 +57,8 @@ describe("TripwireRegistry — recording", () => {
     const registry = recordingRegistry();
     registry.report(reportFor("bridge-shape-drift"));
 
-    // Equal contents, different array. A reader holding the registry's own buffer
-    // could trim the record of a defect and leave the count claiming it happened.
+    // Equal contents, different array: a reader holding the registry's buffer could trim the
+    // record while the count still claims the defect happened.
     expect(registry.reports()).not.toBe(registry.reports());
     expect(registry.reports()).toStrictEqual(registry.reports());
   });
@@ -92,9 +83,7 @@ describe("TripwireRegistry — the buffer is bounded and the counter is not", ()
   });
 
   it("counts the firings the buffer no longer holds", () => {
-    // "A tripwire that keeps firing is one defect, not thousands" only works as a
-    // policy if the count survives the trimming; otherwise the buffer's bound would
-    // silently bound the evidence too.
+    // The count must survive trimming, or the buffer's bound would also bound the evidence.
     const registry = recordingRegistry();
     const overflow = TRIPWIRE_REPORT_CAP + 5;
     for (let index = 0; index < overflow; index += 1) {
@@ -114,8 +103,7 @@ describe("TripwireRegistry — loud in development, recorded in production", () 
   });
 
   it("leaves the record behind on the throwing arm too", () => {
-    // The claim the header makes. Recording after the throw would lose the evidence
-    // in exactly the arm where an author is most likely to catch and move on.
+    // Recording after the throw would lose the evidence in the arm an author most likely catches.
     const registry = new TripwireRegistry({ throwOnReport: true });
     try {
       registry.report(reportFor("wire-figure-formatting"));
@@ -151,8 +139,7 @@ describe("TripwireRegistry — the diagnostic sinks", () => {
 
     registry.report(reportFor("persistence-value-class"));
 
-    // Two subscribers rather than one: the registry used to hold a single
-    // replaceable sink, where the second install silently dropped the first.
+    // Two subscribers, so a second install cannot silently drop the first.
     expect(firstSeen).toHaveLength(1);
     expect(secondSeen).toHaveLength(1);
   });
@@ -166,8 +153,8 @@ describe("TripwireRegistry — the diagnostic sinks", () => {
     unsubscribe();
     registry.report(reportFor("persistence-value-class"));
 
-    // The detach is real (one delivery, not two) and the registry is unaffected by
-    // it (two firings) — a sink is a diagnostic tap, never the record itself.
+    // The detach is real (one delivery, not two) and the registry is unaffected (two firings); a
+    // sink is a tap, never the record.
     expect(seen).toHaveLength(1);
     expect(registry.firingCount("persistence-value-class")).toBe(2);
   });

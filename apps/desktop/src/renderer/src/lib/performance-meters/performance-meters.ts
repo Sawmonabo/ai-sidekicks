@@ -1,42 +1,15 @@
-// The dev-tier perf meters.
+// The dev-tier perf meters: frame time per feed, reveal drain per frame, apply latency and store
+// size. Only frame time has a budget row (`tests/budget/budgets.json`, p95 <= 16.7 ms); the other
+// three are ways of spending that p95 which the p95 alone does not show.
 //
-// Four readings an author needs while the console is running and no shipped build
-// should pay for: frame time per feed, reveal drain per frame, apply latency, and
-// store sizes.
-//
-// EXACTLY ONE OF THE FOUR IS A FIGURE A BUDGET IS STATED OVER, and saying so is the point
-// of this paragraph. The budget table has eight rows, and the one row naming a reading
-// this module takes is "Frame time, four lanes streaming | p95 ≤ 16.7 ms on the reference
-// machine". Reveal drain, apply latency, and store size are stated over no budget row in
-// that table and carry no row in `budgets.json` either: they are what THIS module
-// proposes, because the frame budget is the only one of the four whose regressions the
-// others make legible — an overrunning drain, a stalled apply, and a store that grew are
-// each a way of spending the p95 that budget bounds, and none of them is visible in the
-// p95 itself. Naming the split is what lets a later lane re-derive the budget set from
-// `budgets.json` and find it agrees.
-//
-// DEVELOPMENT ONLY, COMPILED OUT OF EVERY BUILT BUNDLE, not gated at runtime. Every
-// recording entry point below is an `if (import.meta.env.DEV)` body, which Vite replaces
-// with a literal — `true` under `electron-vite dev` and in the Vitest projects, `false`
-// in every `electron-vite build` — so Rollup folds the call to nothing and the registry
-// that would have received it is unreachable from a built entry. The call sites check
-// nothing. A runtime flag would leave the measurement code — and its retained samples —
-// in the shipped bundle, which is the cost the meters exist to avoid paying twice.
-//
-// WHY A REGISTRY OF SERIES AND NOT FOUR COUNTERS. All four readings are the same
-// question asked of different producers: what does this thing usually cost, and what
-// does it cost when it is bad. One bounded series type answers it once, so the p95
-// the frame-time budget is written against and the p95 an author reads for apply
-// latency are the same computation rather than two that agree until one is edited.
-//
-// AND THE METERS NEVER SCHEDULE ANYTHING. There is no sampling timer, no animation
-// frame, no interval: a producer records what it already measured, and a reader
-// computes on demand. A meter that woke the process to observe an idle console
-// would be spending exactly the budget it reports on.
+// Compiled out of built bundles rather than gated at runtime: each recording entry point is an
+// `if (import.meta.env.DEV)` body, which Vite replaces with a literal, so the registry is
+// unreachable from a built entry. One bounded series type serves all four readings. The meters
+// never schedule anything: a producer records what it already measured.
 
 import { PERFORMANCE_METER_BOUNDS } from "./performance-meter-bounds.js";
 
-/** The four things the console meters. Closed — the tuple is the declaration. */
+/** The four things the console meters. */
 export const PERFORMANCE_METER_KINDS = [
   // Milliseconds one scheduled frame spent draining its phases.
   "frame-time",
@@ -48,7 +21,7 @@ export const PERFORMANCE_METER_KINDS = [
   "store-size",
 ] as const;
 
-/** One metered kind, derived so the set is declared exactly once. */
+/** One of {@link PERFORMANCE_METER_KINDS}. */
 export type PerformanceMeterKind = (typeof PERFORMANCE_METER_KINDS)[number];
 
 /** What one series says when it is read. */
@@ -68,36 +41,19 @@ export interface PerformanceMeterReading {
   readonly latest: number;
 }
 
-/**
- * The console's perf-meter registry.
- *
- * A class rather than module-level maps so a test constructs one, drives it, and
- * drops it. Module-level state would carry samples between cases and make every
- * percentile assertion depend on what ran before it.
- */
+/** The console's perf-meter registry; a class so each test gets its own samples. */
 export class PerformanceMeterRegistry {
   /**
-   * One map per kind, rather than one map keyed by the two joined.
-   *
-   * A joined key needs a separator no series key can contain, and the only characters
-   * that qualify are control characters — which make the module that holds one a
-   * binary file to every diff tool that reads it. Nesting needs no separator at all,
-   * so a lane named with any character at all is a key here and `readings()` recovers
-   * the kind by standing in its map rather than by parsing it back out of a string.
+   * One map per kind rather than one map keyed by the two joined: a joined key needs a separator
+   * no series key can contain, which would be a control character.
    */
   readonly #seriesByKind = new Map<PerformanceMeterKind, Map<string, BoundedSampleSeries>>();
   #openSeriesCount = 0;
   #refusedSeriesCount = 0;
 
-  /**
-   * Record one sample.
-   *
-   * The series bound is over the registry and not over one kind's map, so four kinds
-   * cannot quietly hold four times what the bound says.
-   */
+  /** Record one sample. The series bound is over the whole registry, not each kind's map. */
   public record(kind: PerformanceMeterKind, seriesKey: string, sample: number): void {
-    // A non-finite sample is a measurement that failed, not a slow frame. Folding one
-    // into the series would move every percentile permanently and silently.
+    // A non-finite sample is a failed measurement; folding it in would skew every percentile.
     if (!Number.isFinite(sample)) {
       return;
     }
@@ -109,10 +65,8 @@ export class PerformanceMeterRegistry {
       return;
     }
     if (this.#openSeriesCount >= PERFORMANCE_METER_BOUNDS.seriesCount) {
-      // Counted rather than dropped in silence: the count IS the finding, and it says
-      // either that a producer is minting a key per event instead of per producer, or
-      // that one which mints a key per producer is not retiring it when that producer
-      // goes away — which reads identically here and is the failure `retire` closes.
+      // Counted, not dropped silently: it means a key is minted per event, or a per-producer key
+      // is never retired.
       this.#refusedSeriesCount += 1;
       return;
     }
@@ -127,25 +81,10 @@ export class PerformanceMeterRegistry {
   }
 
   /**
-   * Retire one series, so the bound above counts LIVE producers and not past ones.
-   *
-   * WITHOUT THIS THE BOUND IS OVER HISTORY, which is the same thing as no bound at
-   * all for any producer whose key names an instance. A transcript feed mints a
-   * coordinator on mount and disposes it on unmount; 64 mounts later every further
-   * series is refused, and the p95 an author reads is the p95 of feeds that closed
-   * hours ago while the feed on screen contributes nothing. That failure is silent —
-   * the refusal count is the only trace, and nothing reads it yet.
-   *
-   * PER KEY AND NEVER BY PREFIX. The composed keys are readable, so a "retire
-   * everything starting with this" would work and would also be the string-parsing
-   * this registry deliberately avoids by nesting its maps: a key is opaque to
-   * everything except the producer that minted it, and that producer is the one
-   * holding the exact string it opened.
-   *
-   * Answers whether it retired anything, so a caller that expected to own a series
-   * can tell "closed it" from "there was nothing there" rather than inferring it from
-   * a count that moved. Truncation runs the same way `record` runs it, so a key past
-   * the character bound retires the series it opened.
+   * Retire one series so the bound counts live producers, not past ones; otherwise a feed that
+   * mounts and unmounts would exhaust the bound and later series would be refused. Retired per
+   * exact key, never by prefix, since a key is opaque except to its producer. Answers whether
+   * anything was retired; truncation matches `record`.
    */
   public retire(kind: PerformanceMeterKind, seriesKey: string): boolean {
     const boundedKey = seriesKey.slice(0, PERFORMANCE_METER_BOUNDS.seriesKeyCharacterCount);
@@ -213,11 +152,8 @@ export class PerformanceMeterRegistry {
 }
 
 /**
- * One bounded sample series.
- *
- * A fixed-length backing array written round-robin rather than an array that is
- * pushed and shifted: `shift` is O(n) per sample at the exact moment the console is
- * already behind, and the meter must not be the reason a slow frame is slower.
+ * One bounded sample series: a fixed-length array written round-robin, since `shift` is O(n) per
+ * sample and the meter must not slow a frame that is already slow.
  */
 class BoundedSampleSeries {
   readonly #samples = new Float64Array(PERFORMANCE_METER_BOUNDS.seriesSampleCount);
@@ -253,26 +189,14 @@ class BoundedSampleSeries {
     return this.#samples[latestIndex] ?? 0;
   }
 
-  /**
-   * The retained samples, ascending.
-   *
-   * Sorted on READ and never on write, because a reader is an author looking at a
-   * panel and a writer is the frame the panel is measuring.
-   */
+  /** The retained samples, ascending; sorted on read so the write path stays cheap. */
   public sortedSamples(): readonly number[] {
     const retained = Array.from(this.#samples.slice(0, this.#retainedCount));
     return retained.sort((left, right) => left - right);
   }
 }
 
-/**
- * Where a percentile falls in an ascending sample list.
- *
- * Nearest-rank, which is the definition that needs no interpolation and therefore
- * always reports a sample the console actually observed. An interpolated p95 is a
- * number no frame ever cost, and the reading is used to decide whether a real frame
- * blew the budget.
- */
+/** The nearest-rank percentile, so the reading is always a sample actually observed. */
 function nearestRankSample(sortedSamples: readonly number[], percentile: number): number {
   if (sortedSamples.length === 0) {
     return 0;
@@ -283,39 +207,25 @@ function nearestRankSample(sortedSamples: readonly number[], percentile: number)
 }
 
 /**
- * The console's registry in development, and `null` in a built bundle.
- *
- * The ternary's condition is a build-time literal, so a release bundle folds this to
- * `null` and the class above becomes unreachable from every release entry — which is
- * what "compiled out" means here, as opposed to constructed and then not consulted.
+ * The console's registry in development, and `null` in a built bundle, where the build-time
+ * literal folds this to `null` and the class becomes unreachable.
  */
 export const developmentPerformanceMeters: PerformanceMeterRegistry | null = import.meta.env.DEV
   ? new PerformanceMeterRegistry()
   : null;
 
 /**
- * The instant a producer measures a duration against.
- *
- * `performance.now()` and not the console's `Clock`, whose `now()` answers
- * `Date.now()`: its resolution is one millisecond, which is the whole of a frame
- * budget, so a frame timed against it reads 0 ms or 17 ms and nothing in between.
- *
- * It is not a second clock seam. Nothing here schedules, a built bundle reads `0` here
- * and records nothing with it, and a value from here is only ever subtracted from
- * another value from here.
- * One home rather than a `performance.now()` at each producer, so the four durations
- * a reader compares are all measured off the same source.
+ * The instant a producer measures a duration against: `performance.now()` in development, `0`
+ * in a built bundle. Not the console's `Clock`, whose one-millisecond resolution would read a
+ * frame as 0 or 17 ms. Values from here are only subtracted from each other.
  */
 export function readPerformanceMeterTime(): number {
   return import.meta.env.DEV ? performance.now() : 0;
 }
 
 /**
- * Record a frame's cost. The call site shape every producer uses.
- *
- * The guard is the build literal and not a null check on `developmentPerformanceMeters`, so the
- * body folds to nothing in a built bundle and the call with it. A null check would
- * leave the producer recording into a registry that is not there.
+ * Record a frame's cost. The guard is the build literal, not a null check on
+ * `developmentPerformanceMeters`, so the body and the call fold away in a built bundle.
  */
 export function recordFrameTime(seriesKey: string, milliseconds: number): void {
   if (import.meta.env.DEV) {
@@ -324,12 +234,8 @@ export function recordFrameTime(seriesKey: string, milliseconds: number): void {
 }
 
 /**
- * Record what one reveal engine's drain revealed in one frame, keyed by its
- * coordinator and its frame task.
- *
- * NOT PER LANE, and the distinction is the reading: an engine drains every lane it
- * holds inside one frame, so the sample is that whole drain and a key naming a lane
- * would promise a per-lane figure the producer never measures.
+ * Record what one reveal engine's drain revealed in one frame, keyed by its coordinator and frame
+ * task. Not per lane: an engine drains every lane in one frame, so the sample is the whole drain.
  */
 export function recordRevealDrain(seriesKey: string, revealedUnitCount: number): void {
   if (import.meta.env.DEV) {
@@ -338,12 +244,8 @@ export function recordRevealDrain(seriesKey: string, revealedUnitCount: number):
 }
 
 /**
- * Retire the frame-time series one coordinator opened. Called from its dispose.
- *
- * The retiring entry points exist for the two kinds whose key names an INSTANCE. The
- * other two key by store scope, which is a fixed vocabulary a session does not mint
- * more of, so neither has a producer with anything to retire and neither is given an
- * exported call it would never make.
+ * Retire the frame-time series one coordinator opened; called from its dispose. Only the two
+ * kinds keyed by instance retire; the other two key by store scope, a fixed vocabulary.
  */
 export function retireFrameTimeSeries(seriesKey: string): void {
   if (import.meta.env.DEV) {

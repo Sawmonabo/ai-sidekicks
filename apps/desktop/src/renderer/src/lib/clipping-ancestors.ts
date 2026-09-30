@@ -1,57 +1,25 @@
-// The console's one clipping-ancestor walk.
+// The one walk over an element's clipping ancestors. The session pane layout intersects their
+// boxes into the rectangle a native view may occupy, and the preview geometry subtracts them;
+// features never import each other, so the walk lives in shared code.
 //
-// Two features ask the same question — which ancestors of this element clip what is
-// inside them — for different reasons: the session pane layout intersects the answers
-// into the rectangle a native view may occupy, and the preview feature's geometry
-// collects their boxes so the sampler can subtract them. One feature never imports
-// another, so the walk lives in shared code: two copies of one normalization drift —
-// in the data structure, in whether the predicate reads the `overflow` shorthand, in
-// which copy is tested — while every check stays green.
-//
-// THE LONGHANDS ARE THE AUTHORITY AND THE SHORTHAND IS A FALLBACK, which is the
-// reconciliation neither copy made. `overflow` is a shorthand for `overflow-x` and
-// `overflow-y` (CSS Overflow 3 section 3), and CSSOM serializes a shorthand's resolved
-// value FROM its longhands — so on a conformant engine the shorthand can carry nothing
-// the axes do not already say, and when the axes differ it serializes as two
-// space-separated keywords that no single-keyword membership test would match. Read as
-// a third co-equal test, which is how the pane layout's copy read it, it is dead code on the
-// engine that ships. It is not dead everywhere: `happy-dom`, the document the
-// `console-unit` tier runs on, expands neither direction — an element with
-// `style.overflow = "auto"` reports the empty string for both axes there, and an
-// `overflow-x`-only element reports the empty string for the shorthand — so the browser
-// copy, which read only the axes, was blind under that tier to exactly the ancestors
-// the pane layout's suite builds. The axes are therefore read first and the shorthand is
-// consulted only when neither axis is readable at all: a branch no conformant engine
-// reaches, and the only reading a shim like that offers.
+// The `overflow-x` and `overflow-y` longhands decide; the `overflow` shorthand is a fallback
+// used only when neither axis is readable. A conformant engine serializes the shorthand from
+// the axes, but `happy-dom` (the `console-unit` tier's document) reports the empty string
+// for both axes of an element styled with the shorthand alone.
 
 /**
  * The computed `overflow` values that clip a descendant.
  *
- * A closed positive set rather than a `!== "visible"` test: the negative form calls an
- * ancestor a clipper on any value it does not recognize, and a stylesheet-free document
- * reports the empty string for every box. Under that reading every pane is clipped to
- * nothing by an unlaid-out ancestor and hides itself, which looks exactly like a pane
- * that never attached.
- *
- * A TUPLE AND NOT A `Set`. `apps/desktop/AGENTS.md` rejects a module-level `Set`
- * singleton, and the rule is right about this one rather than merely applying to it:
- * five frozen literals need no collection to be read, a membership test over five
- * strings is not a lookup worth a hash table, and a container built at module load is
- * mutable for the life of the process while what it holds is a constant. The tuple is
- * the declaration, the union is derived from it, and a sixth value is added in exactly
- * one place.
+ * A closed positive set rather than a `!== "visible"` test: a stylesheet-free document reports
+ * the empty string for every box, which the negative form would treat as clipping and hide
+ * every pane. A tuple rather than a `Set` because a module-level `Set` is mutable.
  */
 export const CLIPPING_OVERFLOW_VALUES = ["hidden", "clip", "scroll", "auto", "overlay"] as const;
 
-/** One computed `overflow` value that clips. Derived from the tuple, never restated. */
+/** One computed `overflow` value that clips. */
 export type ClippingOverflowValue = (typeof CLIPPING_OVERFLOW_VALUES)[number];
 
-/**
- * Whether one computed `overflow` value clips its contents.
- *
- * A comparison over the tuple rather than `includes`, which would need a cast at the
- * call site to widen the parameter that a `===` comparison takes for free.
- */
+/** Whether one computed `overflow` value clips its contents. */
 export function clipsItsContents(overflowValue: string): boolean {
   return CLIPPING_OVERFLOW_VALUES.some((clippingValue) => clippingValue === overflowValue);
 }
@@ -59,25 +27,15 @@ export function clipsItsContents(overflowValue: string): boolean {
 /**
  * Every ancestor of `element` that clips what is inside it, innermost first.
  *
- * A GENERATOR, and the laziness is the point rather than a flourish. One caller
- * intersects the boxes as it goes and stops the moment the running clip is empty, so a
- * pane already scrolled out of the frame pays for the ancestors it reached and not for
- * the ones above them; an array would take one `getComputedStyle` per ancestor to the
- * document root on every pass, and a pass is armed on capture-phase document scroll.
- * The other caller takes the whole run and reverses it, which costs a generator
- * nothing.
- *
- * One `getComputedStyle` per ancestor per pass, and the walk stops at the document: the
- * cost is the read, and the read is the thing that makes the answer true.
- *
- * `?? null` on the parent reads rather than a bare `!== null` test: an element standing
- * in for a host in a test carries no `parentElement` at all, and walking into
- * `undefined` would read a style off nothing.
+ * A generator so a caller that stops once its running clip is empty pays for only the
+ * ancestors it reached: each costs one `getComputedStyle`, and a pass runs on every document
+ * scroll.
  */
 export function* clippingAncestorsOf(element: Element): Generator<HTMLElement> {
   if (typeof window === "undefined") {
     return;
   }
+  // `?? null`: a test double standing in for a host may carry no `parentElement`.
   let ancestor: HTMLElement | null = element.parentElement ?? null;
   while (ancestor !== null) {
     if (styleClipsItsContents(window.getComputedStyle(ancestor))) {
@@ -87,20 +45,9 @@ export function* clippingAncestorsOf(element: Element): Generator<HTMLElement> {
   }
 }
 
-/**
- * Whether one computed style clips what is inside its box.
- *
- * The axes decide whenever either of them is readable, and the shorthand is consulted
- * only when neither is — the module header says why. The shorthand arm splits on
- * whitespace because that is the shorthand's own grammar (`overflow: <x> [<y>]`), so a
- * two-value declaration is read as the two axes it names rather than missed for not
- * being one keyword.
- *
- * `?? ""` on all three reads rather than trusting the declared type: a fake standing in
- * for a computed style supplies the members its case needs and nothing else, so an
- * absent axis arrives as `undefined` and `.trim()` on it would throw inside a walk
- * whose whole job is answering.
- */
+// The shorthand arm splits on whitespace because `overflow` takes `<x> [<y>]`. The `?? ""` reads
+// cover test doubles of a computed style that supply only the members a case needs.
+
 function styleClipsItsContents(style: CSSStyleDeclaration): boolean {
   const horizontalAxis = style.overflowX ?? "";
   const verticalAxis = style.overflowY ?? "";

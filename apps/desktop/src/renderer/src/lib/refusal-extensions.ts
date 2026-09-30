@@ -1,38 +1,13 @@
-// What a refusal may carry BEYOND the three members every refusal has, and how each
-// one is read back off a value nobody validated.
+// The members a refusal may carry beyond `code`, `detail` and `origin`, and the reader for each.
 //
-// `core/refusal.ts` closes the refusal at `code` / `detail` / `origin` and says why:
-// three fields, each earning its place, one shape for the whole console. Producers
-// still widen it — this module's own `retry` for a rate-limited wire reply, and the
-// `failedBindingIds` a fan-out mutation names — and a widening is legitimate exactly
-// while it is REGISTERED. That is what this file is: the registry, and one reader per member.
+// `wire-rejection.ts` rebuilds every refusal onto a fresh object, which drops unknown members, so
+// the rebuild reads exactly this registered set. `REFUSAL_EXTENSION_READERS` is a mapped type over
+// `RefusalExtensions`: a member without a reader, or a reader without a member, fails to compile.
+// An arbitrary key a producer invented reaches no reader and no rebuilt refusal.
 //
-// IT EXISTS BECAUSE THE NORMALIZER REBUILDS. `wire-rejection.ts` recognizes a refusal
-// structurally and then rebuilds it onto a fresh object rather than handing the
-// candidate back, because a candidate's second property read is free to throw into a
-// renderer that has already left every `catch`. A rebuild drops everything it does not
-// know about, so a refusal thrown as a `RefusalError` would reach a component with its
-// extensions gone — and handing the value back verbatim is the thing the rebuild exists
-// to prevent. So the rebuild learns the set instead, and there is no arm anywhere that returns a
-// candidate by reference.
-//
-// THE SET IS CLOSED AND IT IS CLOSED HERE, not at each producer, and the two halves
-// are held together by {@link REFUSAL_EXTENSION_READERS}: its type is a mapped type
-// over {@link RefusalExtensions}, so a member added to the interface without a
-// reader fails to compile and a reader for a member the interface does not declare
-// fails the same way. An arbitrary key a producer invented reaches no reader and so
-// reaches no rebuilt refusal — which is the property that makes carrying members
-// through a rebuild safe at all.
-//
-// EACH MEMBER IS READ ONCE, GUARDEDLY, AND TYPE-CHECKED. Every reader goes through
-// `readGuardedProperty`, so a getter that throws is an absent member rather than a
-// throw on the failure path; and every reader answers `undefined` for a value that is
-// not what the member is registered as, so a hostile `{ failedBindingIds: { …a Proxy… } }`
-// contributes nothing rather than traveling to a renderer that will format it.
-//
-// `code`, `detail` and `origin` are NOT here. They are the refusal, not an extension
-// of one, and `wire-rejection.ts` classifies on them — a member in both places would
-// be read twice and could be classified one way and rebuilt another.
+// Each member is read once through `readGuardedProperty` and type-checked, so a throwing getter is
+// an absent member and a hostile value contributes nothing. `code`, `detail` and `origin` are not
+// here: they are the refusal itself, and `wire-rejection.ts` classifies on them.
 
 import { readGuardedProperty } from "./wire-errors.js";
 
@@ -41,18 +16,10 @@ import type { Refusal } from "./refusal.js";
 import { readWireString } from "./wire-strings.js";
 
 /**
- * When the refusing side said the caller may try again.
- *
- * Both members are registered: `error-contracts.md` puts `retryAfter` (seconds) and
- * `resetAt` (an RFC 3339 instant) on the rate-limit envelope, and the JSON-RPC mapping
- * carries them through `data.fields`. Nothing is invented here — an envelope that names
- * neither produces no hint at all rather than a zero, because "retry immediately" and
- * "the refusing side said nothing about retrying" are different facts and a component must
- * not render the second as the first.
- *
- * `resetAt` is READ rather than carried: a hint that names an instant this console
- * cannot parse is not a hint, so it is dropped by {@link parseInstant} the same way
- * every other unreadable stamp is, and what survives is a number a countdown can use.
+ * When the refusing side said the caller may try again. An envelope naming neither bound yields
+ * no hint rather than a zero, since "retry immediately" and "said nothing" are different facts.
+ * The wire's `resetAt` (an RFC 3339 instant) is parsed by {@link parseInstant} and dropped when
+ * unreadable, so what survives is a number a countdown can use.
  */
 export interface WireRetryHint {
   /** Seconds until a retry is allowed, where the wire named a relative bound. */
@@ -61,24 +28,14 @@ export interface WireRetryHint {
   readonly atEpochMilliseconds?: number;
 }
 
-/**
- * Every member a console producer may carry on a refusal beyond the core three.
- *
- * Each is optional because each belongs to one producer, and a refusal from any other
- * producer carries none of them.
- */
+/** Every member a producer may carry on a refusal beyond the core three; each is optional. */
 export interface RefusalExtensions {
-  /** Registered by `core/wire-rejection.ts`: when a retry is allowed. */
+  /** Registered by `wire-rejection.ts`: when a retry is allowed. */
   readonly retry?: WireRetryHint;
   /**
-   * Registered by `core/wire-rejection.ts`: the bindings a fan-out mutation failed on.
-   *
-   * `error-contracts.md` puts `failedBindingIds` on `data.fields` for
-   * `session.goal_delivery_failed`, and a component that says "no goal change" without
-   * naming which legs refused leaves a person with nothing to check. These are
-   * IDENTIFIERS rather than prose, which is what makes reading them off `data.fields`
-   * different from reading a sentence out of it: the envelope's `message` is the
-   * sentence and this is a list a component renders as wire figures.
+   * Registered by `wire-rejection.ts`: the bindings a fan-out mutation failed on, carried on
+   * `data.fields` for `session.goal_delivery_failed`. Identifiers, not prose; a component
+   * renders them as wire figures.
    */
   readonly failedBindingIds?: readonly string[];
 }
@@ -87,13 +44,9 @@ export interface RefusalExtensions {
 export type ExtendedRefusal = Refusal & RefusalExtensions;
 
 /**
- * The two positions a retry bound is registered at on the WIRE, as an extension.
- *
- * Not an extension READER: it takes the wire's own spelling off an envelope that is
- * not a refusal at all, which is why the registry below does not hold it and the two
- * wire arms call it directly. It answers the same `RefusalExtensions` shape
- * they do, so a bound the wire did not send is an ABSENT member rather than a present
- * `undefined` one — the distinction a renderer asking "does it carry a retry" reads.
+ * The retry bound as the wire spells it (`retryAfter` seconds, `resetAt` instant), as an
+ * extension. Not held by the reader registry, since it reads an envelope that is not a refusal.
+ * A bound the wire did not send is an absent member, not a present `undefined`.
  */
 export function wireRetryExtension(source: unknown): RefusalExtensions {
   const resetAt = readGuardedProperty(source, "resetAt");
@@ -105,26 +58,13 @@ export function wireRetryExtension(source: unknown): RefusalExtensions {
   return retry === undefined ? {} : { retry };
 }
 
-/**
- * The failed bindings a WIRE envelope named, as an extension.
- *
- * The `data.fields` sibling of {@link wireRetryExtension}, and separate from the
- * registry reader beside it for the same reason: this takes the wire's own position
- * on an envelope that is not a refusal, while the reader takes a member off a
- * candidate that already is one.
- */
+/** The failed bindings a wire envelope named, as an extension; see {@link wireRetryExtension}. */
 export function wireFailedBindingsExtension(source: unknown): RefusalExtensions {
   const failedBindingIds = identifierListOf(readGuardedProperty(source, "failedBindingIds"));
   return failedBindingIds === undefined ? {} : { failedBindingIds };
 }
 
-/**
- * Assemble a hint from two candidate numbers, or answer none.
- *
- * The one assembler both hint readers share. They differ in WHERE the two numbers are
- * read from — the wire's spelling versus this console's own — and agree on what counts
- * as a bound, which is the half that would drift if it were written twice.
- */
+/** Assembles a hint from two candidate numbers, or none. Shared by both hint readers. */
 function retryHintOf(
   afterSeconds: unknown,
   atEpochMilliseconds: unknown,
@@ -143,8 +83,7 @@ function retryHintOf(
 
 /** A hint a refusal already carries, in this console's own spelling, read guardedly. */
 function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
-  // One read of `retry`, then two of the hint it produced: a getter that answers
-  // differently the second time would otherwise assemble a hint from two objects.
+  // One read of `retry`, so a getter answering differently the second time cannot mix two objects.
   const carried = readGuardedProperty(candidate, "retry");
   return retryHintOf(
     readGuardedProperty(carried, "afterSeconds"),
@@ -153,14 +92,8 @@ function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
 }
 
 /**
- * A list of identifiers, or nothing.
- *
- * Every element must be a non-empty string, `readWireString`'s rule, imported rather
- * than restated; an element that fails it is dropped rather than rendered as a row
- * naming nobody. A source that is not an array, or whose elements are all
- * unreadable, answers `undefined` — an EMPTY list would tell a component the daemon
- * named no failing binding, which is a different fact from its having named none
- * this console could read.
+ * A list of non-empty strings, or nothing. Unreadable elements are dropped; a non-array or an
+ * all-unreadable list answers `undefined`, since an empty list would claim the daemon named none.
  */
 function identifierListOf(source: unknown): readonly string[] | undefined {
   if (!Array.isArray(source)) {
@@ -173,14 +106,7 @@ function identifierListOf(source: unknown): readonly string[] | undefined {
   return identifiers.length === 0 ? undefined : identifiers;
 }
 
-/**
- * One reader per registered member, and the reason the set cannot drift.
- *
- * The mapped type over `Required<RefusalExtensions>` is the mechanism: the
- * compiler demands an entry for every member the interface declares and refuses one
- * for a member it does not, so the registry and the type it registers are the same
- * set by construction rather than by review.
- */
+/** One reader per registered member; the mapped type keeps registry and interface identical. */
 const REFUSAL_EXTENSION_READERS: {
   readonly [Member in keyof Required<RefusalExtensions>]: (
     candidate: unknown,
@@ -191,23 +117,15 @@ const REFUSAL_EXTENSION_READERS: {
     identifierListOf(readGuardedProperty(candidate, "failedBindingIds")),
 };
 
-/** Every registered extension member, as a set a test can walk. */
+/** Every registered extension member, for a test to walk. */
 export const REFUSAL_EXTENSION_MEMBERS: readonly (keyof RefusalExtensions)[] = Object.keys(
   REFUSAL_EXTENSION_READERS,
 ) as (keyof RefusalExtensions)[];
 
 /**
- * Read every registered extension a candidate carries, and nothing else.
- *
- * TOTAL, for the same reason `isRefusal` is: every caller is on a failure path
- * and the value is whatever a producer threw. A member that is absent, unreadable, or
- * not the type it is registered as is simply not on the answer — and a member NOT on
- * the registry is not on the answer whatever the candidate carries, which is the whole
- * of "a closed set, never arbitrary keys".
- *
- * The one cast is on the accumulator's index: `Object.entries` erases the pairing
- * between a key and its reader's return type, and the table above is where that
- * pairing is actually checked.
+ * Reads every registered extension a candidate carries, and nothing else. Total, like
+ * `isRefusal`: an absent, unreadable or mistyped member is left off the answer. The cast is on the
+ * accumulator because `Object.entries` erases the key-to-reader pairing the table above checks.
  */
 export function readRefusalExtensions(candidate: unknown): RefusalExtensions {
   const extensions: Record<string, unknown> = {};
@@ -220,14 +138,7 @@ export function readRefusalExtensions(candidate: unknown): RefusalExtensions {
   return extensions as RefusalExtensions;
 }
 
-/**
- * Attach only the extensions that were actually read.
- *
- * Written once rather than at each arm so no arm can ship a `retry: undefined`
- * member: the refusal shape is compared structurally in tests and rendered by
- * components that ask whether the member is PRESENT, and a present-but-undefined
- * member answers that question wrongly.
- */
+/** Attaches only the extensions actually read, so no arm ships a present-but-undefined member. */
 export function withRefusalExtensions(
   refusal: Refusal,
   extensions: RefusalExtensions,

@@ -1,30 +1,5 @@
-// The values a wire-error reader has to survive, built once for both readers.
-//
-// ONE HOME FOR THE ROLES BOTH SUITES PLAY. These four were written four times under
-// three names across `src/shared/wire-errors.test.ts` and
-// `console/core/wire-rejection.test.ts`: `readableOnce` twice with different member
-// sets, `revokedProxy` once as a named helper and once inline, and a third read-once
-// variant beside the second copy of the first. A fixture written twice drifts, and
-// these already had — one copy threw on the second reading and the other answered
-// something different, which are two shapes of the same defect and are now one
-// parameter.
-//
-// It holds nothing a single suite uses; a fixture with one reader stays beside its
-// reader.
-//
-// WHY `src/shared/` AND NOT `test/helpers/`, where a cross-tier role would otherwise
-// go. `src/renderer/tsconfig.json` is a composite project rooted at `src/`, and it
-// pulls `../shared/**/*` into its program — so the leaf's own suite, which lives
-// there, is inside that program too, and an import from it to `test/**` is TS6059 and
-// TS6307 (measured: both, on `tsc -b`). The two readers sit in different tiers — the
-// leaf's suite is `main-unit`, the console normalizer's is `console-unit` — and this
-// is the only directory both can reach.
-//
-// It imports nothing, which is what `src/shared/` is for: the one cross-process leaf,
-// compiled into both processes, whose rule is that it reaches for neither. Its only
-// dependents are the two suites, which `.dependency-cruiser.mjs` removes from the
-// graph before the orphan rule runs — so that rule names `.test-support.*` beside the
-// declarations and stylesheets it already admits as roots.
+// Hostile and scripted values shared by the wire-error and wire-rejection suites. It holds only
+// fixtures two suites use; a fixture with one reader stays beside that reader.
 
 /** A Proxy with no target left. Every prototype and property question throws. */
 export function revokedProxy(): unknown {
@@ -34,11 +9,8 @@ export function revokedProxy(): unknown {
 }
 
 /**
- * A Proxy whose every trap throws, prototype included.
- *
- * Strictly worse than a value whose reads throw: `instanceof` asks
- * `[[GetPrototypeOf]]`, `in` asks `has`, and a spread asks `ownKeys`, so this is the
- * value that finds a guard which moved its unsafe question rather than guarding it.
+ * A Proxy whose every trap throws, prototype included. Worse than a throwing read: `instanceof`,
+ * `in` and spread each hit a different trap, so it finds a guard that only moved the question.
  */
 export function everyTrapThrows(): unknown {
   return new Proxy(
@@ -66,17 +38,9 @@ export function nullPrototypeValue(): unknown {
 }
 
 /**
- * A value whose members answer a scripted sequence of readings, and no more.
- *
- * THE SHAPE THAT MAKES A SECOND READ VISIBLE, parameterized on the members because
- * the suites read different ones — an envelope's `code` and `message`, a refusal's
- * `code`, `detail` and `origin`, a refusal's list of failed bindings — and on the
- * answers because a second read is caught two ways. One answer means the member is
- * readable exactly once and a second reading throws, which is what a returned
- * candidate turns into: a guard reads the members and says yes, and the renderer's own
- * read, one layer later and outside every `catch`, is the throw. Several answers mean
- * the member answers something different each time, which is what catches a
- * classifier that decided on a reading it took twice.
+ * A value whose members answer a scripted sequence of readings, and no more, so a second read is
+ * visible. One answer means the member throws on a second read (what a returned candidate turns
+ * into); several make it answer differently each time, catching a classifier that read twice.
  */
 export function readableOnce(
   answersByMember: Readonly<Record<string, readonly unknown[]>>,

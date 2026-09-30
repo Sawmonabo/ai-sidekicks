@@ -1,86 +1,38 @@
-// How a keyboard chord is printed and how it is spoken.
+// How a keyboard chord is printed and spoken. It lives in `lib/` because `ChordHint` is a shared
+// component below the registries; `registries/keybindings/keybinding-chord.ts` imports
+// `decodeChordKeyToken` so its conflict comparator and the printer agree that `k`, `K` and `KeyK`
+// are one keystroke.
 //
-// WHY THIS LIVES IN `lib/` AND NOT BESIDE THE KEYBINDING TABLE
-//
-// The two concerns are genuinely separate — the keybinding table decides which command
-// a keystroke runs, this module decides what a chord looks like on a keycap — and only
-// the second is what a renderer needs. `ChordHint` is a shared component, which sits
-// below the registries in the import layering, so the vocabulary it prints has to sit
-// below them too.
-//
-// `registries/keybindings/keybinding-chord.ts` imports one symbol from here,
-// `decodeChordKeyToken`, because its conflict comparator and this file's printer
-// have to agree that `k`, `K`, and `KeyK` are one keystroke. That is the import
-// direction working as intended, and it is deliberate that the SHARED half is
-// the decoder rather than a copy in each place: the two spellings diverging is
-// exactly the defect the single table below exists to prevent.
-//
-// GLYPHS ARE SHOWN, WORDS ARE SPOKEN
-//
-// Every entry carries both forms. A screen reader pronounces ⌘ as "place of
-// interest sign" and ⇧ as "upwards white arrow", so a keycap glyph read aloud is
-// worse than no hint at all — and two parallel tables, one for print and one for
-// speech, is how they drift apart. One table, two fields.
-//
-// NO MODULE READS THE HOST EXCEPT ONCE
-//
-// Every renderer here takes `platform` as a PARAMETER. `HOST_CHORD_PLATFORM` is
-// the single reading of the real host, taken once at module load, so a fixture can
-// pin a platform and the screenshot tier gets the same pixels on every runner.
+// Each entry carries a glyph to show and words to speak in one table, since a screen reader
+// mispronounces glyphs such as ⌘. Every renderer takes `platform` as a parameter, and
+// `HOST_CHORD_PLATFORM` is the only reading of the host, so a fixture can pin one.
 
-/**
- * Every display convention a chord can be printed in, and the source of the union.
- *
- * A tuple rather than a bare union so a test can drive all three without repeating
- * them — and repeating them is how the second list stops matching the first.
- */
+/** Every display convention a chord can be printed in; the source of {@link ChordPlatform}. */
 export const CHORD_PLATFORMS = ["darwin", "win32", "linux"] as const;
 
 /**
  * The chord that opens the command palette.
  *
- * `KeyP` rather than `p` so the binding is keyboard-layout independent: on an
- * AZERTY or Dvorak layout the physical key a person reaches for is the same one,
- * and matching by `KeyboardEvent.code` is what preserves that.
- *
- * HERE RATHER THAN BESIDE THE PALETTE, for the reason the header gives: three views
- * PRINT it — the palette overlay itself, the keyboard settings page, and the
- * whole-view absence, which is a shared component that cannot reach up into a
- * feature for a string. The binding still belongs to the overlay — it is
- * the only reader that hands this to `parseChord` — but the LITERAL is console-wide
- * vocabulary, and one home for it is what keeps three hints spelling one chord.
+ * `KeyP` rather than `p` so the binding follows the physical key on any keyboard layout. It
+ * lives here because the palette, the keyboard settings page and a shared notice component all
+ * print it, and one literal keeps their hints identical.
  */
 export const COMMAND_PALETTE_OPEN_CHORD = "$mod+Shift+KeyP";
 
-/**
- * Which display convention to render a chord in.
- *
- * Every renderer takes it as a PARAMETER rather than reading it, so a fixture can
- * pin it and the screenshot tier gets the same pixels on every runner.
- * `HOST_CHORD_PLATFORM` below is the one reading of the real host, taken once.
- */
+/** Which display convention to render a chord in. */
 export type ChordPlatform = (typeof CHORD_PLATFORMS)[number];
 
 /**
- * The platform the console is actually running on, read once at module load.
- *
- * ONE detection, in the module that owns the vocabulary it feeds. The renderer is
- * untrusted and has no `process`, so this is the user agent — and getting it wrong
- * costs a wrong glyph in a hint, never a wrong binding, because `tinykeys` resolves
- * `$mod` against the host itself at listen time. The platform cannot change while a
- * window is open, so re-reading it per row of a virtualized list would be
- * measurable work for a constant.
+ * The platform the console is running on, read once at module load from the user agent (the
+ * renderer has no `process`). A wrong guess costs a wrong glyph in a hint, never a wrong
+ * binding, because `tinykeys` resolves `$mod` against the host itself.
  */
 export const HOST_CHORD_PLATFORM: ChordPlatform = detectHostChordPlatform();
 
 /**
- * One key of a chord, in both of the forms a person can receive it.
+ * One key of a chord in both forms a person can receive it: printed and spoken.
  *
- * The two are NOT interchangeable and the split is the point: a screen reader
- * pronounces ⌘ as "place of interest sign" and ⇧ as "upwards white arrow", so a
- * keycap glyph read aloud is worse than no hint at all. Every table below fills in
- * both, so the printed form and the spoken form are decided in one place and cannot
- * drift apart the way two parallel tables would.
+ * The two are not interchangeable: a screen reader pronounces ⌘ as "place of interest sign".
  */
 export interface ChordKeyRendering {
   /** What is printed on the keycap. May be a glyph. */
@@ -98,17 +50,9 @@ export interface ChordPressRendering {
 /**
  * Split a chord into its modifier tokens and its key token, preserving `$mod`.
  *
- * Mirrors tinykeys' own press grammar (`<mod>+<mod>+<key>`, `[mod]` optional),
- * and the lookbehind matches its splitter so `$mod++` splits the way the parser
- * splits it. It exists beside `parseKeybinding` rather than instead of it because
- * `parseKeybinding` resolves `$mod` against the HOST at import time, while
- * `formatChordForPlatform` must render a chord for a platform that is not the
- * host — that is what makes a fixture screenshot reproducible on any runner.
- *
- * Exported for `decodeChordKeyToken`'s reason: a caller that only wants to know
- * WHICH modifiers a chord names still has to split it the way the parser will, and
- * a `chord.split("+")` written beside this one answers differently on exactly the
- * chords the grammar exists for.
+ * Follows tinykeys' press grammar (`<mod>+<mod>+<key>`, `[mod]` optional; the lookbehind makes
+ * `$mod++` split as the parser does). It exists beside `parseKeybinding` because that resolves
+ * `$mod` against the host, while rendering must work for any platform.
  */
 export function splitChordTokens(chord: string): { modifiers: readonly string[]; key: string } {
   const parts = chord.trim().split(/(?<=\w|\])\+/);
@@ -128,14 +72,9 @@ function detectHostChordPlatform(): ChordPlatform {
 }
 
 /**
- * Every token an authored chord may name as a modifier. Closed, and the tuple is the
- * declaration: the two rendering tables below are typed as totals over it, so a token
- * added here does not compile until both platforms say how it is printed and spoken.
- *
- * Exported because it is the vocabulary and not merely this printer's input. A caller
- * asking whether a chord holds a modifier at all — the preview feature's page handback,
- * which may claim only a chord that does — reads this set rather than restating it,
- * because a second union mirroring a closed set drifts from it unseen.
+ * Every token an authored chord may name as a modifier. The two rendering tables below are
+ * checked total over it, so a new token does not compile until both platforms print and speak it.
+ * The preview handback also reads it to decide whether a chord holds a modifier.
  */
 export const CHORD_MODIFIER_TOKENS = [
   "$mod",
@@ -147,19 +86,14 @@ export const CHORD_MODIFIER_TOKENS = [
   "Shift",
 ] as const;
 
-/** One modifier token an authored chord names. Derived from the tuple, never restated. */
+/** One modifier token an authored chord names. */
 export type ChordModifierToken = (typeof CHORD_MODIFIER_TOKENS)[number];
 
 /**
- * Which modifier `$mod` stands for on each platform — meta on macOS, control
- * elsewhere.
+ * Which modifier `$mod` stands for on each platform: meta on macOS, control elsewhere.
  *
- * THE ONE RESOLUTION, and both readers take it from here. `modifierRendering` below
- * substitutes through it before either table is consulted, which is why neither table
- * carries a `$mod` row of its own any more; and the page handback asks which of a
- * keystroke's two modifiers `$mod` names. tinykeys performs the same resolution
- * against the HOST at import time, so a view rendering or deciding for a platform
- * that is not the host cannot borrow it and has to read this.
+ * The one resolution for the printer and the preview handback; tinykeys resolves against the
+ * host only, so code working for another platform reads this.
  */
 export const PLATFORM_MODIFIER_TOKEN: Readonly<Record<ChordPlatform, "Meta" | "Control">> = {
   darwin: "Meta",
@@ -167,16 +101,14 @@ export const PLATFORM_MODIFIER_TOKEN: Readonly<Record<ChordPlatform, "Meta" | "C
   linux: "Control",
 };
 
-/** The token an authored chord names for "this platform's own application modifier". */
+/** The token an authored chord uses for the platform's own application modifier. */
 export const PLATFORM_MODIFIER_CHORD_TOKEN = "$mod";
 
 /** Every token but `$mod`, which is resolved into one of these before a lookup. */
 type ResolvedModifierToken = Exclude<ChordModifierToken, "$mod">;
 
-// The two tables below are annotated open (a token reaching `modifierRendering` is
-// whatever the author typed, so an unknown key must read `undefined` rather than be
-// typed as present) and CHECKED total by `satisfies`: a token added to the tuple
-// above does not compile until both platforms say how it is printed and spoken.
+// Typed open because an authored token may be unknown (it must read `undefined`), and checked
+// total by `satisfies`.
 const DARWIN_MODIFIERS: Readonly<Record<string, ChordKeyRendering>> = {
   Meta: { glyph: "⌘", spoken: "Command" },
   Control: { glyph: "⌃", spoken: "Control" },
@@ -186,9 +118,7 @@ const DARWIN_MODIFIERS: Readonly<Record<string, ChordKeyRendering>> = {
   Shift: { glyph: "⇧", spoken: "Shift" },
 } satisfies Readonly<Record<ResolvedModifierToken, ChordKeyRendering>>;
 
-// `Meta` is deliberately absent: off macOS the key is branded per platform and
-// `modifierRendering` answers for it below rather than the table carrying two rows
-// that would have to agree.
+// `Meta` is absent: off macOS the key is branded per platform and `modifierRendering` answers.
 const NON_DARWIN_MODIFIERS: Readonly<Record<string, ChordKeyRendering>> = {
   Control: { glyph: "Ctrl", spoken: "Control" },
   Ctrl: { glyph: "Ctrl", spoken: "Control" },
@@ -227,12 +157,8 @@ const NON_DARWIN_KEYS: Readonly<Record<string, ChordKeyRendering>> = {
 /**
  * `KeyboardEvent.code` spellings for keys whose printed form is punctuation.
  *
- * The console authors chords in the `code` form wherever it can — `KeyK` rather
- * than `k` — because `code` is layout-independent, so a binding stays on the same
- * physical key on AZERTY and Dvorak. That correctness costs a decoding step here,
- * and it is a step the printed form cannot skip: `Slash` on a keycap is the word,
- * not the key. The spoken form deliberately keeps the WORD, because "slash" read
- * aloud is clearer than the character.
+ * Chords are authored in the layout-independent `code` form, so the printed form must decode
+ * `Slash` to `/`. The spoken form keeps the word.
  */
 const PUNCTUATION_CODES: Readonly<Record<string, ChordKeyRendering>> = {
   Comma: { glyph: ",", spoken: "Comma" },
@@ -251,15 +177,9 @@ const PUNCTUATION_CODES: Readonly<Record<string, ChordKeyRendering>> = {
 /**
  * Reduce a key token to the character or name it stands for.
  *
- * tinykeys accepts either `KeyboardEvent.key` or `KeyboardEvent.code`, so `k`,
- * `K`, and `KeyK` are three spellings of one keystroke. Both the printer and the
- * conflict comparator have to agree about that, and for different reasons: the
- * printer would otherwise put `KeyK` on a keycap, and the comparator would
- * otherwise let `$mod+k` and `$mod+KeyK` be installed as two separate bindings on
- * one chord — the exact collision the conflict check exists to refuse.
- *
- * The exact-length tests matter: `Keyboard` starts with `Key` and is a name, not a
- * code, so shaving the prefix off it would be a silent corruption.
+ * tinykeys accepts `KeyboardEvent.key` or `.code`, so `k`, `K` and `KeyK` are one keystroke; the
+ * printer and the conflict comparator both decode through this. The exact-length tests keep a
+ * name such as `Keyboard` from losing its `Key` prefix.
  */
 export function decodeChordKeyToken(key: string): string {
   const withoutKeyPrefix = key.startsWith("Key") && key.length === 4 ? key.slice(3) : key;
@@ -269,20 +189,11 @@ export function decodeChordKeyToken(key: string): string {
 }
 
 /**
- * A chord decomposed into the keys a person presses, printed and spoken.
+ * A chord decomposed into the keys a person presses, printed and spoken; the source `ChordHint`
+ * draws its keycaps from.
  *
- * This is the shared source the `ChordHint` primitive draws its keycaps from, so a
- * chord printed in a palette row and the same chord printed anywhere else cannot
- * disagree — the earlier arrangement, two parallel tables with a comment claiming
- * they were one, printed `KeyK` on a keycap for a year's worth of `code`-form
- * bindings before a screenshot caught it.
- *
- * `platform` is a PARAMETER and never read from `navigator` here, so a fixture can
- * pin it and the screenshot tier gets the same pixels on every runner.
- *
- * Multi-press sequences render as several entries even though `parseChord` refuses
- * to bind one, because this is also asked about chords the table never installed —
- * a platform accelerator, say, that main owns.
+ * A multi-press sequence renders as several entries, because this also renders chords that
+ * `parseChord` never binds.
  */
 export function renderChordForPlatform(
   chord: string,
@@ -300,8 +211,7 @@ export function formatChordForPlatform(chord: string, platform: ChordPlatform): 
   return renderChordForPlatform(chord, platform)
     .map((press) => {
       const modifiers = press.modifiers.map((modifier) => modifier.glyph);
-      // macOS keycaps read as one run of glyphs with no separator, which is the
-      // convention every menu bar on the platform already uses.
+      // macOS prints glyphs as one run with no separator, as its menu bars do.
       return platform === "darwin"
         ? `${modifiers.join("")}${press.key.glyph}`
         : [...modifiers, press.key.glyph].join("+");
@@ -310,16 +220,14 @@ export function formatChordForPlatform(chord: string, platform: ChordPlatform): 
 }
 
 function modifierRendering(token: string, platform: ChordPlatform): ChordKeyRendering | undefined {
-  // `$mod` is resolved into a real token first, through the one map, so neither table
-  // needs a row for it and the printer cannot come to disagree with the predicate.
+  // `$mod` is resolved first, so neither table needs a row for it.
   const resolved: string =
     token === PLATFORM_MODIFIER_CHORD_TOKEN ? PLATFORM_MODIFIER_TOKEN[platform] : token;
   if (platform === "darwin") {
     return DARWIN_MODIFIERS[resolved];
   }
   if (resolved === "Meta") {
-    // No glyph off macOS: the key is branded differently per platform, and
-    // printing "⌘" on Windows would name a key that is not on the keyboard.
+    // The key is branded per platform; "⌘" on Windows would name a key that is not there.
     return platform === "win32"
       ? { glyph: "Win", spoken: "Windows" }
       : { glyph: "Super", spoken: "Super" };
@@ -337,9 +245,7 @@ function keyRendering(key: string, platform: ChordPlatform): ChordKeyRendering {
   if (named !== undefined) {
     return named;
   }
-  // A single character is a letter, a digit, or a punctuation key authored
-  // literally; upper-case it so `k` and `K` — which tinykeys treats as the same
-  // binding — print the same way.
+  // Upper-case a single character so `k` and `K`, one binding in tinykeys, print alike.
   const printed = decoded.length === 1 ? decoded.toUpperCase() : decoded;
   return { glyph: printed, spoken: printed };
 }
@@ -348,9 +254,7 @@ function renderSinglePress(press: string, platform: ChordPlatform): ChordPressRe
   const { modifiers, key } = splitChordTokens(press);
   const renderedModifiers: ChordKeyRendering[] = [];
   for (const token of modifiers) {
-    // `[Shift]` — an OPTIONAL modifier — is what the chord TOLERATES, not what a
-    // person must press, so it is omitted rather than printed as an instruction
-    // to hold a key they do not need.
+    // An optional modifier (`[Shift]`) is tolerated, not required, so it is not printed.
     if (token.startsWith("[") && token.endsWith("]")) {
       continue;
     }

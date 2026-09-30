@@ -1,10 +1,6 @@
-// One identity, current readings, and a cancel that finds the clock it armed on.
-//
-// The three claims are separable and the third is the one a naive forwarder gets
-// wrong: `ScheduledHandle` is a number each clock mints for itself, so forwarding a
-// cancel to whichever clock is current cancels a stranger's work. `ManualClock` is
-// the instrument here because it counts what is armed — `pendingCount` is what makes
-// "the right one was canceled" a reading rather than an inference.
+// One identity, current readings, and a cancel that finds the clock it armed on. A naive
+// forwarder gets the third wrong: handles are per clock, so a cancel sent to the current clock
+// cancels a stranger's work. `ManualClock.pendingCount` shows which one was canceled.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,8 +16,7 @@ describe("ForwardingClock — the reading is the window's, the identity is the m
     expect(forwarding.now()).toBe(1_000);
     forwarding.holdClock(second);
 
-    // Backwards, and deliberately: two frozen fixture engines are two time bases, and
-    // reporting the retired one's would be the conflation this seam exists to end.
+    // Backwards on purpose: two frozen fixture engines are two time bases.
     expect(forwarding.now()).toBe(50);
   });
 
@@ -30,9 +25,7 @@ describe("ForwardingClock — the reading is the window's, the identity is the m
     const before = forwarding;
     forwarding.holdClock(new ManualClock());
 
-    // The property `LiveAnnouncerProvider` pins on: it re-mints its announcer when the
-    // clock identity moves, so an identity that changed per replacement would rebuild
-    // the announcer and drop whatever it was holding.
+    // `LiveAnnouncerProvider` rebuilds its announcer when the clock identity moves.
     expect(forwarding).toBe(before);
   });
 });
@@ -56,9 +49,7 @@ describe("ForwardingClock — armed work stays with the clock that armed it", ()
   });
 
   it("negative control: routing the cancel to the current clock strands the work", () => {
-    // The defect this seam's handle map prevents, driven through the real clocks. The
-    // handle a clock mints is its own number, so the current clock happily accepts it
-    // and cancels whatever it happens to name — here, nothing at all.
+    // The defect the handle map prevents: another clock accepts the number and cancels nothing.
     const arming = new ManualClock();
     const current = new ManualClock();
     let fired = false;
@@ -90,9 +81,7 @@ describe("ForwardingClock — armed work stays with the clock that armed it", ()
   });
 
   it("forgets a handle once it has fired, and cancels an unknown one harmlessly", () => {
-    // Both halves of the seam's idempotence claim: a fired handle leaves nothing behind
-    // to grow the map, and a handle this never minted cancels nothing rather than
-    // throwing — which is what makes a double cancel and a late cancel both safe.
+    // A fired handle leaves nothing behind, and an unknown handle cancels nothing.
     const clock = new ManualClock();
     const forwarding = new ForwardingClock(clock);
     const handle = forwarding.scheduleTimeout(() => undefined, 10);

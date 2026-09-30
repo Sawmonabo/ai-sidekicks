@@ -1,19 +1,11 @@
-// The holder's rule, with no renderer involved.
+// The holder's rule, with no renderer: when a value is discarded, which publisher may write, and
+// what a late settlement does. Which frames a re-address paints is in
+// `useSubjectScopedState.test.tsx`.
 //
-// Every rule this object carries — when a value is discarded, which publisher may
-// write, what a late settlement does — is a property of the SUBJECT moving and not
-// of a render happening, which is what makes it drivable with no React at all. The
-// React half lives in `useSubjectScopedState.test.tsx`, needs a tree, and asserts a
-// different thing: which frames a re-address paints.
-//
-// A VISIT IS ADDRESSED AND CONFIRMED, because a render is not a commit. `visit(…)` is
-// both calls in the order React makes them, and it is what every case about the
-// component ON SCREEN drives; the cases about a proposal that never reached the screen
-// call `address` alone, which is exactly what an abandoned render leaves behind.
-//
-// Every clean assertion here is paired with a NEGATIVE CONTROL, because "the late
-// settlement was dropped" is also satisfied by a publisher that never writes
-// anything at all.
+// A render is not a commit: `visit(...)` addresses and confirms, as React does, and drives the
+// cases about the component on screen; cases about a proposal that never reached the screen call
+// `address` alone. Each clean assertion has a negative control, since "the late settlement was
+// dropped" is also satisfied by a publisher that never writes.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -22,9 +14,8 @@ import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
 import { visit } from "./subject-scoped-holder.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
 
-// Tripwires throw in a development build, which would turn the two backstops below
-// into the very escaping throws they exist to prevent. The recording arm is the one
-// under test, the same arm the error boundary around each region reports through.
+// Tripwires throw in a development build, which would turn the backstops below into the escaping
+// throws they exist to prevent; the recording arm is the one under test.
 let restoreThrowOnReport = false;
 
 beforeEach(() => {
@@ -74,10 +65,8 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
   });
 
   it("drops a settlement from a visit the subject left and came back to", () => {
-    // A route round-trip: s1 -> s2 -> s1. The pair is equal on the first and third
-    // visits, so a guard that compared only the pair admitted the FIRST visit's
-    // reply into the third visit's state — the older read landing last and
-    // overwriting the answer the component on screen had already been given.
+    // A route round trip s1 -> s2 -> s1: the pair is equal on the first and third visits, so a
+    // pair-only guard would admit the first visit's reply and overwrite the answer already given.
     const holder = new SubjectScopedHolder<string>();
     visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     const settlementFromTheFirstVisit = holder.publisherFor(SUBJECT_ONE, "alpha");
@@ -89,8 +78,7 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
   });
 
   it("drops a capture from a visit the subject left and came back to", () => {
-    // The same round-trip through the other capture moment, because `settle` reads
-    // the live pair and would otherwise re-derive the same too-weak comparison.
+    // The same round trip through `settle`, which must not re-derive a pair-only comparison.
     const holder = new SubjectScopedHolder<string>();
     visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     const capturedOnTheFirstVisit = holder.settle();
@@ -101,9 +89,8 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
   });
 
   it("negative control: a re-address to the pair already held admits its publisher", () => {
-    // The addressing advances on a MOVE and not on a re-render, so the two cases
-    // above are about a subject that actually left. A holder that minted a new
-    // addressing per call would refuse this and pass both of them.
+    // The addressing advances on a move, not a re-render. A holder minting a new addressing per
+    // call would refuse this and still pass the two cases above.
     const holder = new SubjectScopedHolder<string>();
     visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     const publisher = holder.publisherFor(SUBJECT_ONE, "alpha");
@@ -113,8 +100,7 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
   });
 
   it("negative control: the same settlement lands while the subject stands", () => {
-    // Without this, "dropped" above would also be satisfied by a publisher that
-    // never writes anything at all.
+    // Without this, "dropped" above would also be satisfied by a publisher that never writes.
     const holder = new SubjectScopedHolder<string>();
     visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     const settlement = holder.publisherFor(SUBJECT_ONE, "alpha");
@@ -176,10 +162,8 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
 
 describe("SubjectScopedHolder — an addressing is a proposal until a render commits", () => {
   it("keeps the visit on screen publishable while a proposal stands", () => {
-    // The defect this split closes: a pass that addressed a new subject and was then
-    // thrown away used to retire the committed addressing as it was minted, which
-    // left the tree on screen holding a publisher that refused every settlement and
-    // reading a seed for a subject nothing had painted.
+    // A thrown-away pass must not retire the committed addressing, or the tree on screen would
+    // hold a publisher refusing every settlement and read a seed for a subject nothing painted.
     const holder = new SubjectScopedHolder<string>();
     visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     const settlementFromTheVisitOnScreen = holder.publisherFor(SUBJECT_ONE, "alpha");
@@ -187,17 +171,14 @@ describe("SubjectScopedHolder — an addressing is a proposal until a render com
     holder.address(SUBJECT_TWO, "alpha", () => "the seed a pass proposed");
     settlementFromTheVisitOnScreen("what the visit on screen read");
 
-    // The pass reads its own proposal, which is the whole point of addressing during
-    // a render; the visit on screen goes on holding what it was just given.
+    // The pass reads its own proposal; the visit on screen keeps what it was just given.
     expect(holder.value).toBe("the seed a pass proposed");
     holder.address(SUBJECT_ONE, "alpha", () => "a seed nothing asked for");
     expect(holder.value).toBe("what the visit on screen read");
   });
 
   it("negative control: the same publisher is refused once a proposal commits", () => {
-    // Without this, "still publishable" above would also be satisfied by a holder
-    // that never retired anything at all — which is the defect the addressing exists
-    // to close, running in the other direction.
+    // Without this, "still publishable" above would pass for a holder that never retires anything.
     const holder = new SubjectScopedHolder<string>();
     visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
@@ -209,9 +190,8 @@ describe("SubjectScopedHolder — an addressing is a proposal until a render com
   });
 
   it("refuses a settlement captured under a pass that never committed", () => {
-    // The other half, and the one an A -> B -> A round-trip reaches: the abandoned
-    // pass really ran and really handed its caller a publisher, and that publisher
-    // names an addressing no frame ever carried.
+    // An A -> B -> A round trip reaches this: the abandoned pass handed out a publisher naming an
+    // addressing no frame carried.
     const holder = new SubjectScopedHolder<string>();
     visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     holder.address(SUBJECT_TWO, "alpha", () => "the seed a pass proposed");
@@ -224,9 +204,8 @@ describe("SubjectScopedHolder — an addressing is a proposal until a render com
   });
 
   it("discards the value a proposal left behind, once and only once", () => {
-    // For the caller whose value owns a connection, this is the whole difference
-    // between a close and a leak: no commit reached the proposal, so no effect closed
-    // over it, and the pass that supersedes it is its last reachable moment.
+    // For a value that owns a connection this is the difference between a close and a leak: no
+    // commit reached the proposal, so the superseding pass is its last reachable moment.
     const closed: string[] = [];
     const holder = new SubjectScopedHolder<string>({
       disposeUnheldValue: (unheld) => {
@@ -240,15 +219,12 @@ describe("SubjectScopedHolder — an addressing is a proposal until a render com
     holder.discardProvisional();
 
     expect(closed).toStrictEqual(["the connection a dropped pass opened"]);
-    // And the one on screen is untouched: it is what a live effect is holding, and
-    // closing it here would tear down what the frame is reading through.
+    // The one on screen is untouched: a live effect holds it.
     expect(holder.value).toBe("the connection on screen");
   });
 
   it("commits nothing for a pair no proposal carries, and ends the proposal there is", () => {
-    // A commit names the pair the render that committed was about. One naming a pair
-    // no proposal carries confirms nothing — and says the pass that would have
-    // committed the proposal is over, which is the same fact from the other side.
+    // A commit naming a pair no proposal carries confirms nothing and ends the proposal.
     const closed: string[] = [];
     const holder = new SubjectScopedHolder<string>({
       disposeUnheldValue: (unheld) => {
@@ -265,9 +241,7 @@ describe("SubjectScopedHolder — an addressing is a proposal until a render com
   });
 
   it("settle names the visit on screen, never a proposal a pass left behind", () => {
-    // `settle` is called from a handler, a ref, or an effect with no dependencies —
-    // outside a render, where the only visit anything is reading through is the one
-    // that committed.
+    // `settle` runs outside a render, where only the committed visit is being read.
     const holder = new SubjectScopedHolder<string>();
     visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     holder.address(SUBJECT_TWO, "alpha", () => "the seed a pass proposed");

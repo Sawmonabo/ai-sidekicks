@@ -1,17 +1,7 @@
-// Two claims, and the second is the one that recurred: the arms keep the refusing
-// side's own code, and the function is total against a value that fights back.
-//
-// A THIRD RULE HAS ITS OWN FILE. What the envelope's registered EXTENSIONS read — the
-// retry bound, the failed bindings, the manifests a blocked delete names — is
-// `wire-rejection.extensions.test.ts`: a different claim (a member reaches a component
-// only through a registered reader, off either of the two wire positions) over the same
-// function, and one that grows a case every time the registry does.
-//
-// The totality cases are not hypothetical. A hostile value reaches this function on
-// the ordinary path — a rejection is whatever a producer threw, and `String(...)` on
-// a null-prototype object throws inside the expression that exists to say something
-// failed, leaving a control busy forever because the `catch` that would have cleared
-// it had already been left.
+// The arms keep the refusing side's own code, and the function is total against hostile values.
+// Extensions are in `wire-rejection.extensions.test.ts` and detail sentences in
+// `wire-rejection.detail.test.ts`. Totality matters because `String(...)` on a null-prototype
+// rejection would throw inside the `catch` that clears a busy control, leaving it busy forever.
 
 import { describe, expect, it } from "vitest";
 
@@ -25,12 +15,8 @@ import { RefusalError, isRefusal, refuse } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
 
 /**
- * A value whose every property access throws, and nothing else does.
- *
- * Stays here rather than joining the shared fixtures: it has one reader, and the
- * shared home holds the roles more than one suite plays. It is deliberately weaker
- * than `everyTrapThrows` below — the claim it drives is totality against a READ, and
- * a value that also breaks `instanceof` would prove that arm and hide this one.
+ * A value whose every property access throws, and nothing else does. Weaker than
+ * `everyTrapThrows` on purpose: a value that also broke `instanceof` would hide the read arm.
  */
 function throwingGetProxy(): unknown {
   return new Proxy(
@@ -48,9 +34,7 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
     const original = refuse("sessions", "session.not_found", "No session answers to this id.");
     const normalized = normalizeWireRejection("repos", original);
     expect(normalized).toStrictEqual(original);
-    // REBUILT, not returned. The identity is what used to be asserted here, and it is
-    // exactly what let a hostile candidate reach the renderer — see the totality
-    // cases below, where the same rebuild is what keeps `refusal.code` readable.
+    // Rebuilt, not returned: handing the candidate back would let a hostile one reach the renderer.
     expect(normalized).not.toBe(original);
   });
 
@@ -68,18 +52,14 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
   it("unwraps a carried refusal structurally, not by prototype", () => {
     const carried = refuse("persistence", "quota-exceeded", "The store is full.");
     expect(normalizeWireRejection("repos", new RefusalError(carried))).toStrictEqual(carried);
-    // The control that makes "structurally" mean something: a plain object carrying
-    // the same member is unwrapped identically. A value that crossed a realm or a
-    // structured clone has no prototype chain left, and an `instanceof` check would
-    // silently drop its author's code and invent one.
+    // Control: a plain object carrying the member unwraps identically. A value from another
+    // realm or a structured clone has no prototype chain, so `instanceof` would drop its code.
     expect(normalizeWireRejection("repos", { refusal: carried })).toStrictEqual(carried);
   });
 
   it("takes the dotted project code off a JSON-RPC error envelope", () => {
-    // `JsonRpcRemoteError` carries the JSON-RPC NUMERIC as `code` and the project's
-    // dotted code at `data.type`; `packages/contracts` states callers must
-    // discriminate on the latter. The negative control below is what every
-    // hand-written normalizer did instead.
+    // `JsonRpcRemoteError` carries the JSON-RPC numeric as `code` and the dotted code at
+    // `data.type`, which callers must discriminate on. The negative control below reads `code`.
     const remote = Object.assign(new Error("That session is not on this node."), {
       code: -32603,
       data: { type: "session.not_found" },
@@ -122,8 +102,7 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
     expect(normalizeWireRejection("runs", new Error("socket closed"), fallback).code).toBe(
       "stream-never-opened",
     );
-    // And never displaces a code the other side sent — the whole reason the typed
-    // arms run first.
+    // The fallback never displaces a code the other side sent.
     expect(
       normalizeWireRejection("runs", { code: "run.not_found", message: "gone" }, fallback).code,
     ).toBe("run.not_found");
@@ -196,10 +175,8 @@ describe("normalizeWireRejection — total against a value that fights back", ()
   });
 
   it("answers a refusal for a revoked Proxy, which `instanceof` throws on", () => {
-    // The value `instanceof` cannot be asked about: `[[GetPrototypeOf]]` on a revoked
-    // Proxy throws, and the terminal arm's prototype question sits OUTSIDE the
-    // backstop `try`. The first assertion is the negative control — it is the exact
-    // expression this module used to evaluate on this exact value.
+    // `[[GetPrototypeOf]]` on a revoked Proxy throws, and the terminal arm's prototype question
+    // sits outside the backstop `try`. The first assertion is the negative control.
     const revoked = revokedProxy();
     expect(() => revoked instanceof Error).toThrow();
     const refusal = normalizeWireRejection("browser", revoked);
@@ -220,11 +197,8 @@ describe("normalizeWireRejection — total against a value that fights back", ()
 
 describe("normalizeWireRejection — nothing of the rejection survives onto the answer", () => {
   /**
-   * A refusal-shaped value whose three members are each readable exactly once.
-   *
-   * The shape that made returning the candidate a deferred throw: the guard reads
-   * three strings and says yes, and the renderer's own `refusal.code` — one layer
-   * later, outside every `catch` — is the second read.
+   * A refusal-shaped value whose three members are each readable once, so returning the candidate
+   * would defer the throw to the renderer's own second read.
    */
   function readableOnceRefusal(): unknown {
     return readableOnce({
@@ -239,8 +213,7 @@ describe("normalizeWireRejection — nothing of the rejection survives onto the 
     expect(refusal).toStrictEqual(
       refuse("persistence", "persistence.quota_exceeded", "The store is full."),
     );
-    // The claim, spelled as the renderer makes it: three reads, three answers, no
-    // throw. Against a returned candidate the second one throws.
+    // Read as a renderer does; against a returned candidate the second read throws.
     for (let render = 0; render < 3; render += 1) {
       expect(refusal.code).toBe("persistence.quota_exceeded");
       expect(refusal.detail).toBe("The store is full.");
@@ -255,9 +228,8 @@ describe("normalizeWireRejection — nothing of the rejection survives onto the 
   });
 
   it("rebuilds a CARRIED refusal too, not only one the rejection is", () => {
-    // The `RefusalError` arm. Reading the answer twice is the identity claim
-    // spelled the only way it can be here: the candidate is unreadable a second time,
-    // so an answer that reads twice is provably not the candidate.
+    // The `RefusalError` arm. The candidate is unreadable a second time, so an answer that reads
+    // twice is not the candidate.
     const refusal = normalizeWireRejection("repos", { refusal: readableOnceRefusal() });
     expect(refusal.code).toBe("persistence.quota_exceeded");
     expect(refusal.code).toBe("persistence.quota_exceeded");
@@ -275,10 +247,8 @@ describe("normalizeWireRejection — each member is read once", () => {
   }
 
   it("classifies a flat envelope on its first reading of the code", () => {
-    // The first arm reads `code` to ask whether the value IS a refusal; the flat
-    // envelope arm used to read it again. A code that changes between the two
-    // readings was classified on the second and rendered as a refusal the wire never
-    // sent.
+    // The refusal arm and the flat-envelope arm both want `code`; a second read could classify on
+    // a code the wire never sent.
     const refusal = normalizeWireRejection("transcript", envelopeAnsweringOnce());
     expect(refusal.code).toBe("session.not_found");
     expect(refusal.detail).toBe("No such session.");

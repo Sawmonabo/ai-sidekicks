@@ -1,13 +1,6 @@
-// The emitter, driven at the two points where the naive version is wrong.
-//
-// Anyone can write subscribe / emit / unsubscribe over a `Set` in four lines. The
-// reason this one is a module rather than four lines in each feature is the two
-// behaviors its header calls decisions, and both are invisible until the day they
-// matter: mutating a `Set` while iterating it is DEFINED in JavaScript, so an
-// unsubscribe during emission silently skips a sink that was still subscribed; and
-// a throwing sink swallowed or propagated early makes delivery depend on
-// subscription order. Those two are the cases below, and they are why the rest of
-// the file exists at all.
+// The two points where a naive emitter is wrong: mutating a `Set` while iterating it is defined
+// in JavaScript, so an unsubscribe during emission silently skips a sink, and a throwing sink
+// swallowed or propagated early makes delivery depend on subscription order.
 
 import { describe, expect, it } from "vitest";
 import { Emitter } from "./emitter.js";
@@ -64,23 +57,19 @@ describe("Emitter — emission iterates a snapshot", () => {
     const received: string[] = [];
     let unsubscribeSecond = (): void => undefined;
     emitter.subscribe(() => {
-      // A real shape, not a contrivance: a first sink that tears down a pane
-      // detaches the second sink that pane owned, and it does so during delivery.
+      // A first sink that tears down a pane detaches the second sink that pane owned.
       unsubscribeSecond();
     });
     unsubscribeSecond = emitter.subscribe((event) => received.push(event));
 
     emitter.emit("first");
 
-    // Subscribed when this emission began, so it receives this one. Iterating the
-    // live `Set` would have skipped it — quietly, and only for sinks that happened
-    // to sit after the unsubscriber.
+    // Subscribed when this emission began, so it receives this one; a live `Set` would skip it.
     expect(received).toStrictEqual(["first"]);
   });
 
   it("negative control: the same sink misses the NEXT event, so the unsubscribe was real", () => {
-    // Without this, a `subscribe` that returned a function doing nothing would pass
-    // the case above, and the snapshot claim would be untested.
+    // Guards against an unsubscribe that does nothing passing the case above.
     const emitter = new Emitter<string>("scenario frame");
     const received: string[] = [];
     let unsubscribeSecond = (): void => undefined;
@@ -116,8 +105,7 @@ describe("Emitter — a throwing sink does not silence the others", () => {
       raised = emitFailure;
     }
 
-    // The middle sink ran even though the one before it threw: letting the first
-    // throw propagate would make delivery depend on subscription order.
+    // The middle sink ran although the one before it threw.
     expect(received).toStrictEqual(["bridge-shape-drift"]);
     expect(raised).toBeInstanceOf(AggregateError);
     expect((raised as AggregateError).errors).toHaveLength(2);
@@ -138,9 +126,7 @@ describe("Emitter — a throwing sink does not silence the others", () => {
   });
 
   it("re-raises a single failure as itself rather than wrapping it", () => {
-    // A lone failure wrapped in an `AggregateError` would make every existing
-    // `catch (error) { if (error instanceof TypeError) }` at a subscriber's own
-    // boundary stop matching.
+    // Wrapping a lone failure would break `instanceof` checks at a subscriber's own boundary.
     const emitter = new Emitter<string>("scenario frame");
     const only = new TypeError("the sink is broken");
     emitter.subscribe(() => {
@@ -153,8 +139,7 @@ describe("Emitter — a throwing sink does not silence the others", () => {
   });
 
   it("negative control: an emission whose sinks all succeed throws nothing", () => {
-    // Without this, an `emit` that threw unconditionally would satisfy all three
-    // cases above.
+    // Guards against an `emit` that always throws satisfying the cases above.
     const emitter = new Emitter<string>("scenario frame");
     emitter.subscribe(() => undefined);
 

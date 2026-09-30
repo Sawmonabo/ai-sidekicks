@@ -1,9 +1,6 @@
-// The read line's two endings, and the combinator that races them.
-//
-// Every case here drives the real `ReadScope` and the real `settleUnlessAbandoned`.
-// The negative controls are the point rather than a formality: a scope that never
-// aborted would pass a "the signal is live" assertion just as well as one that
-// works, so each abort case is paired with the reading taken before it.
+// The read line's two endings, and the combinator that races them, driven against the real
+// `ReadScope` and `settleUnlessAbandoned`. Each abort case is paired with the reading taken before
+// it, since a scope that never aborted would pass a bare "signal is live" assertion.
 
 import { describe, expect, it } from "vitest";
 
@@ -36,9 +33,8 @@ describe("ReadScope — one read line, two endings", () => {
   it("supersedes the previous round when a newer read opens", () => {
     const scope = new ReadScope();
     const superseded = scope.openRound();
-    // The negative control: before the second round exists, the first is live on
-    // both readings, so the assertions below are about the supersede and not about
-    // a scope that was born aborted.
+    // Control: before the second round exists the first is live on both readings, so the assertions
+    // below are about the supersede and not a scope born aborted.
     expect(superseded.signal.aborted).toBe(false);
     expect(superseded.isCurrent).toBe(true);
 
@@ -105,8 +101,7 @@ describe("settleUnlessAbandoned — the race that makes abandonment cost nothing
   });
 
   it("settles with the value where no signal was supplied at all", async () => {
-    // The mutation shape: no owner who may leave, so the call is awaited exactly as
-    // it was before this module existed.
+    // The mutation shape: no owner who may leave, so the call is awaited as is.
     const settlement = await settleUnlessAbandoned(Promise.resolve(7), undefined);
     expect(settlement).toStrictEqual({ status: "settled", value: 7 });
   });
@@ -119,8 +114,7 @@ describe("settleUnlessAbandoned — the race that makes abandonment cost nothing
     const settling = settleUnlessAbandoned(held.promise, round.signal);
     scope.abandon();
 
-    // The held promise is still outstanding here, which is the whole claim: the
-    // caller is released by the abandonment rather than by the read.
+    // The held promise is still outstanding: the abandonment releases the caller, not the read.
     await expect(settling).resolves.toStrictEqual({ status: "abandoned" });
   });
 
@@ -152,9 +146,8 @@ describe("settleUnlessAbandoned — the race that makes abandonment cost nothing
     scope.abandon();
     await expect(settling).resolves.toStrictEqual({ status: "abandoned" });
 
-    // The late rejection is handled by the race rather than reaching the host as an
-    // unhandled rejection. Awaiting it here proves it was a rejection at all; the
-    // absence of an unhandled-rejection failure in this run is the other half.
+    // The late rejection is handled by the race, not reaching the host as unhandled. Awaiting it
+    // proves it rejected; the run not failing on an unhandled rejection is the other half.
     held.rejectWith(new Error("late"));
     await expect(held.promise).rejects.toThrow("late");
   });
@@ -166,8 +159,7 @@ describe("settleUnlessAbandoned — the race that makes abandonment cost nothing
     const { signal } = round;
     const originalAdd = signal.addEventListener.bind(signal);
     const originalRemove = signal.removeEventListener.bind(signal);
-    // Counting through the signal's own methods rather than a stand-in, so the
-    // assertion is about what the module really attached.
+    // Counting through the signal's own methods shows what the module really attached.
     Object.assign(signal, {
       addEventListener: (...listenerArguments: Parameters<typeof originalAdd>) => {
         listenerCount += 1;

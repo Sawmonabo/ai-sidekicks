@@ -1,31 +1,17 @@
-// Whose keystroke is it — the widget's, or the console's?
+// Whose keystroke is it, the widget's or the console's? Two callers ask different versions:
 //
-// Two callers ask that question and they ask two different versions of it, so both
-// live here rather than one being reimplemented beside the other:
+//   - The keybinding table asks the narrow one, per binding: is text being typed? "Open the
+//     palette" must work while composing a message and "delete the selected row" must not
+//     (`isTextEntryTarget`).
+//   - The pane layout asks the wide one: does the focused widget own its arrow keys? On macOS
+//     Option+Arrow moves the caret by word, so a pane chord firing inside a find field would
+//     rearrange the pane. Comboboxes and listboxes own their arrows too (`isEditableTarget`).
 //
-//   • The keybinding table asks the NARROW one, per binding: is text being typed?
-//     "Open the palette" must work while a person is composing a message, and
-//     "delete the selected row" must not. That is `isTextEntryTarget`.
-//   • The pane layout asks the WIDE one: does the focused widget own its arrow keys? On
-//     macOS Option+Arrow is word-wise caret movement and Option+Backspace deletes a
-//     word, so a pane layout chord that fired from inside a find field would rearrange or
-//     close the pane a person was typing in. A combobox and a listbox own their
-//     arrows too, and neither is a text field. That is `isEditableTarget`.
-//
-// The wide answer is the narrow one plus an ANCESTOR walk, because the element the
-// event fires on is not always the widget: a `role="textbox"` composed from a
-// contentEditable div, an option inside a listbox, and the input inside a combobox
-// all deliver their events from a descendant. `isContentEditable` already inherits
-// down a contentEditable subtree; an ARIA role does not, so the role arm walks.
-//
-// It lives in `lib/` rather than in either caller because both callers sit above it in
-// the import layering, and a helper two consumers share lives below both of them. It
-// renders nothing and imports nothing.
+// The wide answer is the narrow one plus an ancestor walk, because events from a
+// `role="textbox"` div, a listbox option or a combobox input fire on a descendant;
+// `isContentEditable` inherits down a subtree but an ARIA role does not.
 
-/**
- * `<input>` types that are controls rather than text entry. A checkbox or a
- * radio should still receive a chord; a search field should not.
- */
+/** `<input>` types that are controls rather than text entry; a chord still reaches them. */
 const NON_TEXT_INPUT_TYPES = new Set([
   "button",
   "checkbox",
@@ -39,12 +25,9 @@ const NON_TEXT_INPUT_TYPES = new Set([
 ]);
 
 /**
- * The ARIA roles whose widget owns the keys a console chord would otherwise take.
- *
- * `textbox` and `searchbox` are text entry by declaration; `combobox` is a text
- * field with a popup; `listbox` navigates its own options with the arrow keys. Held
- * as a selector string rather than as a list walked by hand so the ancestor test is
- * one `closest` call — the browser's own matcher, and no second traversal.
+ * The ARIA roles whose widget owns keys a console chord would otherwise take: text entry, a
+ * combobox, and a listbox that navigates by arrow keys. A selector so the ancestor test is one
+ * `closest` call.
  */
 const EDITABLE_ROLE_SELECTOR =
   '[role="textbox"],[role="searchbox"],[role="combobox"],[role="listbox"]';
@@ -52,9 +35,8 @@ const EDITABLE_ROLE_SELECTOR =
 /**
  * Is this event coming out of a text field?
  *
- * `isContentEditable` covers the composer and any rich editor; the tag check
- * covers native fields. `type` is consulted so a chord still reaches a checkbox,
- * which is a control rather than a place text is being typed.
+ * `isContentEditable` covers the composer and rich editors, the tag check native fields; `type`
+ * keeps a checkbox out, since no text is typed there.
  */
 export function isTextEntryTarget(target: EventTarget | null): boolean {
   if (target === null || !(target instanceof HTMLElement)) {
@@ -77,10 +59,8 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
 /**
  * Does the widget this event came from own its own keys?
  *
- * True for every text-entry target, and additionally for anything inside a widget
- * whose ARIA role declares it takes the arrow keys. A view that binds a bare
- * modifier chord asks this before acting, so a person typing never has the view
- * rearranged underneath them.
+ * True for every text-entry target and for anything inside a widget whose ARIA role takes the
+ * arrow keys. A view that binds a bare modifier chord asks this before acting.
  */
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (isTextEntryTarget(target)) {

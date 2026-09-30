@@ -1,39 +1,19 @@
-// Wire figures: the console's whole formatting policy, in one module.
+// Wire figures: the console's whole formatting policy. A figure the wire supplies renders
+// verbatim, a quantity the console derives renders through `Intl`, and the console does no
+// arithmetic on a wire figure outside `Intl`.
 //
-// The eight rules: a figure the wire supplies renders verbatim, a quantity the console
-// derives renders through `Intl`, and the console performs no arithmetic on a wire
-// figure outside `Intl`.
+// The one exception is byte quantities. `Intl` has no kibibyte unit (`unit: "byte"` with compact
+// notation scales by 1000, which disagrees with every other tool), so only `formatByteQuantity`
+// scales by powers of 1024, renders the scaled number through `Intl.NumberFormat`, and appends a
+// label from `B / KiB / MiB / GiB / TiB`. Durations, counts, rates and relative times stay
+// Intl-only. Byte-for-byte wire strings (ids, digests, versions, state names) are never
+// transformed, not even trimmed: a truncated id is a wrong id.
 //
-// That rule has one amendment, and it is stated here because this module is the
-// only place it applies: **byte quantities may be scaled.** `Intl` has no kibibyte
-// unit — `Intl.NumberFormat` with `unit: "byte"` and `notation: "compact"` gives
-// powers of a thousand, which is the wrong scale for a file size and produces
-// figures that disagree with every other tool a developer has open. So exactly one
-// function below performs power-of-1024 scaling, renders the scaled NUMBER through
-// `Intl.NumberFormat`, and appends a unit label from the closed set
-// `B / KiB / MiB / GiB / TiB`.
-//
-// Everything else stays Intl-only: durations, counts, rates, relative times. And
-// byte-for-byte strings from the wire — ids, digests, versions, state names — are
-// never transformed at all, not even trimmed, because a truncated id is a wrong id
-// and a "prettified" state name is a state the daemon never reported.
-//
-// The `wire-figure-formatting` tripwire's test asserts by grep that this file is
-// the only site in `console/**` doing the scaling. If a component needs a byte
-// figure, it calls `formatByteQuantity`.
-//
-// WHAT IS NOT HERE: the `Intl` instances. Which formatter object is kept alive, on
-// which key, and how many there may be is `intl-formatter-cache.ts` beside this file
-// — a different question with a different failure mode, and the module that answers
-// it holds the two caches this one reads through.
-//
-// The two time readings below take their instant from `core/instant.ts` rather than
-// from `Date.parse`, so DISPLAY and ORDERING read a wire stamp the same way. They did
-// not before, and the two disagreements were both invisible: `Date.parse` normalizes
-// `2026-02-30T10:00:00Z` into March and reads a timezone-less stamp in the host's
-// zone, so a figure rendered here could name an instant no sort would ever agree
-// with and no daemon ever sent. An unreadable stamp now renders the same em dash the
-// rest of this module uses for a figure it cannot stand behind.
+// The `Intl` instances and their caches live in `intl-formatter-cache.ts`. Time readings take
+// their instant from `instant.ts`, not `Date.parse`, so display and ordering read a stamp the same
+// way: `Date.parse` normalizes `2026-02-30T10:00:00Z` into March and reads a zone-less stamp
+// in the host's zone. An unreadable stamp renders the em dash used for any figure this module
+// cannot stand behind.
 
 import { parseInstant } from "./instant.js";
 import {
@@ -42,19 +22,13 @@ import {
   relativeTimeFormatFor,
 } from "./intl-formatter-cache.js";
 
-/**
- * The closed unit set, ascending; the index IS the power of 1024.
- *
- * One declaration, with the union derived from it. A hand-written union beside a
- * hand-repeated array is two closed sets that agree until someone widens one, and
- * nothing in the compiler notices.
- */
+/** The closed byte-unit set, ascending; the index is the power of 1024. */
 export const BYTE_UNIT_LABELS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
 
-/** Binary prefixes, because that is what the scaling is. */
+/** One byte-unit label, in binary prefixes because the scaling is by 1024. */
 export type ByteUnitLabel = (typeof BYTE_UNIT_LABELS)[number];
 
-/** The scaling step. Named so the one arithmetic site reads as a decision. */
+/** The byte scaling step. */
 export const BYTE_UNIT_STEP = 1024;
 
 /** A formatted byte quantity, kept decomposed so a caller can style the unit. */
@@ -74,11 +48,9 @@ export interface WireDescriptorEntry {
 }
 
 /**
- * The one place in the console that scales a byte figure.
- *
- * Whole bytes render with no fraction (`512 B`, never `512.0 B`); scaled units get
- * one fraction digit up to `99.9`, then none, which keeps the column width stable
- * in a ledger without lying about precision.
+ * The one place in the console that scales a byte figure. Whole bytes render with no fraction
+ * (`512 B`); scaled units get one fraction digit up to `99.9`, then none, which keeps column width
+ * stable without lying about precision. A negative or non-finite input renders an em dash.
  */
 export function formatByteQuantity(byteCount: number, locale?: string): FormattedByteQuantity {
   if (!Number.isFinite(byteCount) || byteCount < 0) {
@@ -91,55 +63,32 @@ export function formatByteQuantity(byteCount: number, locale?: string): Formatte
     unitIndex += 1;
   }
   const unit = BYTE_UNIT_LABELS[unitIndex] ?? "B";
-  // The threshold is tested against the number as it will READ, not as it was
-  // computed. 102350 B scales to 99.951 — under 100, so the unrounded test picks
-  // one fraction digit, and `Intl` then renders it "100.0": a five-character
-  // figure in the column this rule exists to hold at four. Rounding first is what
-  // makes "one fraction digit up to 99.9, then none" true rather than nearly true.
+  // Test the threshold on the rounded number: 102350 B scales to 99.951, which would pick one
+  // fraction digit and render "100.0", a five-character figure in a four-character column.
   const roundedToOneDigit = Math.round(scaled * 10) / 10;
   const fractionDigits = unitIndex === 0 || roundedToOneDigit >= 100 ? 0 : 1;
   const value = new Intl.NumberFormat(locale, {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
   }).format(scaled);
-  // A no-break space, written as an escape rather than as the character itself:
-  // the literal is indistinguishable from an ordinary space in every editor and
-  // every diff, which is why `no-irregular-whitespace` bans it. The character is
-  // still wanted: a figure must never wrap away from its unit mid-line.
+  // A no-break space as an escape (the literal is invisible in diffs and banned by
+  // `no-irregular-whitespace`) so a figure never wraps away from its unit.
   return { value, unit, text: `${value}\u00A0${unit}` };
 }
 
 /**
- * A string the wire supplied — an id, a digest, a version, a state name.
- *
- * The identity function, and it exists precisely because it is one: a call site
- * that reads `formatWireString(event.kind)` states that no transformation is
- * intended, where a bare `event.kind` invites the next author to add one.
+ * A string the wire supplied (an id, digest, version or state name). The identity function, so a
+ * call site states that no transformation is intended.
  */
 export function formatWireString(value: string): string {
   return value;
 }
 
 /**
- * A structured wire value — an approval's `resourceDescriptor`, and anything else
- * the wire types `Record<string, unknown>` — decomposed into renderable pairs.
- *
- * Here rather than in the component that first needed one, because deciding how a
- * non-string member READS is formatting, and a component that made that decision for
- * itself would be the second implementation this module exists to prevent. Two
- * rules, and both are about not lying:
- *
- *   • A string member renders verbatim, with no quotes added around it. Quoting it
- *     would put two characters on screen that the daemon never sent, which is
- *     exactly what a mono wire figure promises it will not do.
- *   • Every other member renders as its JSON form — the one serialization that is
- *     total over `unknown`, stable across runs, and reversible by eye. `undefined`
- *     has no JSON form, so the member is named as one the reply left unset rather
- *     than dropped, because a member that vanishes is a member nobody can ask about.
- *
- * Insertion order is kept. The daemon composed this descriptor and the order it
- * composed it in is the order it meant; sorting would be the console re-deciding
- * what the most important part of a request is.
+ * A structured wire value (such as an approval's `resourceDescriptor`) decomposed into renderable
+ * pairs. A string member renders verbatim with no added quotes; every other member renders as
+ * JSON, and `undefined` as a named unset text rather than being dropped. Insertion order is kept,
+ * since it is the order the daemon meant.
  */
 export function formatWireDescriptor(
   descriptor: Readonly<Record<string, unknown>>,
@@ -150,10 +99,10 @@ export function formatWireDescriptor(
   }));
 }
 
-/** What an `undefined` member reads as. Named, because it is copy and not a value. */
+/** What an `undefined` member reads as; copy, not a value. */
 const UNSET_DESCRIPTOR_MEMBER_TEXT = "(no value)";
 
-/** A count the console derived. Grouped per locale; never abbreviated. */
+/** A count the console derived, grouped per locale, never abbreviated. Non-finite is an em dash. */
 export function formatCount(value: number, locale?: string): string {
   if (!Number.isFinite(value)) {
     return "—";
@@ -162,15 +111,9 @@ export function formatCount(value: number, locale?: string): string {
 }
 
 /**
- * A duration in milliseconds, as the console's own reading.
- *
- * The eight rules fix two shapes: digital at one minute and above, `1.2 s`-style below
- * it. Sub-second durations render in milliseconds because a run that took 340 ms is not
- * "0.3 s" to anyone debugging it.
- *
- * Digital is composed from `NumberFormat`. Every numeral passes through `Intl`; only
- * the `:` separators are ours, and the padding is `minimumIntegerDigits`, so a locale
- * with its own digits pads in its own digits.
+ * A duration in milliseconds: digital (`1:05`, `1:02:03`) at one minute and above, `1.2 s` below
+ * it, and milliseconds under a second, since 340 ms is not "0.3 s" to anyone debugging. Every
+ * numeral passes through `Intl`; only the `:` separators are ours.
  */
 export function formatDuration(milliseconds: number, locale?: string): string {
   if (!Number.isFinite(milliseconds) || milliseconds < 0) {
@@ -183,8 +126,7 @@ export function formatDuration(milliseconds: number, locale?: string): string {
   if (totalSeconds < 60) {
     return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(totalSeconds)} s`;
   }
-  // Truncated, not rounded: a digital reading of 1:00 for 59.6 s claims a boundary
-  // the run did not cross.
+  // Truncated, not rounded: 1:00 for 59.6 s would claim a boundary the run did not cross.
   const wholeSeconds = Math.floor(totalSeconds);
   const hours = Math.floor(wholeSeconds / 3600);
   const minutes = Math.floor((wholeSeconds % 3600) / 60);
@@ -200,24 +142,10 @@ export function formatDuration(milliseconds: number, locale?: string): string {
 }
 
 /**
- * A duration the wire states in whole days — a retention window, a re-login horizon.
- *
- * ITS OWN FUNCTION BECAUSE THE UNIT IS PART OF THE FIGURE, and two call sites were
- * composing it themselves: `${formatCount(days)} days` renders `1 days` at one day
- * and the English word `days` in every locale, which are two different lies about a
- * figure the daemon did send. `Intl.NumberFormat` with `style: "unit"` knows both —
- * it declines the plural at one and names the unit in the locale's own words — so
- * the whole figure comes out of `Intl` and nothing is appended to it.
- *
- * NOT `formatDuration` WITH A CONVERSION. That reading is milliseconds and renders
- * digital above a minute, which is right for how long a run took and wrong for how
- * long a bucket is kept: 7 days would read `168:00:00`. The two are different
- * questions about different quantities, and a day figure scaled into the other's
- * input would answer the wrong one.
- *
- * A fractional input renders whole, because the wire states these in whole days and
- * a fraction here would be arithmetic the console performed on a figure it was
- * handed. Non-finite and negative inputs answer the same em dash as every sibling.
+ * A duration the wire states in whole days (a retention window). The unit is part of the figure,
+ * so the whole text comes from `Intl` with `style: "unit"`, which handles the plural and the
+ * locale's own word; `formatDuration` would render 7 days as `168:00:00`. A fractional input
+ * renders whole. Non-finite and negative inputs render an em dash.
  */
 export function formatDayDuration(days: number, locale?: string): string {
   if (!Number.isFinite(days) || days < 0) {
@@ -227,10 +155,8 @@ export function formatDayDuration(days: number, locale?: string): string {
 }
 
 /**
- * A relative time, through `Intl.RelativeTimeFormat`.
- *
- * The unit is chosen by magnitude, not by arithmetic on a wire figure: the input is
- * two instants the console holds, and the output is a phrase the platform composes.
+ * A relative time through `Intl.RelativeTimeFormat`. The unit is chosen by magnitude from two
+ * instants the console holds; an unreadable stamp renders an em dash.
  */
 export function formatRelativeTime(
   fromIso: string,
@@ -281,20 +207,11 @@ const CALENDAR_DAY_FIELDS: Intl.DateTimeFormatOptions = {
 };
 
 /**
- * An instant a person acts on: the calendar day AND the wall-clock time.
- *
- * `formatClockTime` beside it is deliberately date-free, and the reason is stated
- * there — a transcript row aligns under a day divider that carries the date once. A
- * view with no divider has no such carrier, and rendering a bare clock reading there
- * makes two instants days apart identical on screen. That is the whole distinction
- * between the two: not precision, but whether anything else in the view says which
- * day it is.
- *
- * The field list is explicit rather than a `dateStyle` preset, so the reading stays
- * scannable at one width while the ORDER and the separators remain the locale's
- * own. Seconds are absent because the instants this answers for — an expiry, a
- * deadline — are not read to the second, and the same 24-hour clock as its
- * neighbor so two figures in one view do not disagree about the format.
+ * An instant a person acts on: the calendar day and the wall-clock time. Unlike the date-free
+ * `formatClockTime`, it is for views with no day divider, where a bare clock would make instants
+ * days apart look identical. The field list is explicit, not a `dateStyle` preset, so the width
+ * stays scannable while order and separators stay the locale's; there are no seconds, on the same
+ * 24-hour clock as its neighbor.
  */
 export function formatDateTime(iso: string, locale?: string): string {
   const instant = parseInstant(iso);
@@ -309,11 +226,7 @@ export function formatDateTime(iso: string, locale?: string): string {
   }).format(instant.epochMilliseconds);
 }
 
-/**
- * A calendar day with no time: an instant read as the day it fell on, such as a
- * release date. The same day fields as {@link formatDateTime}, so the two agree
- * wherever they sit together.
- */
+/** A calendar day with no time, using the same day fields as {@link formatDateTime}. */
 export function formatDate(iso: string, locale?: string): string {
   const instant = parseInstant(iso);
   if (instant.kind === "malformed") {
@@ -323,16 +236,9 @@ export function formatDate(iso: string, locale?: string): string {
 }
 
 /**
- * A ratio as a percentage, through `Intl`.
- *
- * The input is a FRACTION and not a percentage, because that is what
- * `Intl.NumberFormat`'s percent style takes — a caller holding a 0-to-100 wire
- * figure divides at the call site, which is one visible division rather than a
- * hidden convention this function would have to be read to discover.
- *
- * It lives here for the reason every other formatter does: the `%` sign is a unit
- * label, and a unit composed at a call site is a second formatter. Out-of-range and non-finite inputs answer the same em
- * dash as its siblings rather than rendering a percentage nobody can act on.
+ * A ratio as a percentage through `Intl`. The input is a fraction, as `Intl`'s percent style
+ * takes, so a caller holding a 0-to-100 figure divides at the call site. Negative and non-finite
+ * inputs render an em dash.
  */
 export function formatPercent(fraction: number, locale?: string): string {
   if (!Number.isFinite(fraction) || fraction < 0) {
@@ -345,21 +251,10 @@ export function formatPercent(fraction: number, locale?: string): string {
 }
 
 /**
- * A money figure the accountant supplied, in its own currency.
- *
- * Two fractional digits is a FLOOR, not the precision. A currency whose minor
- * unit is finer than a hundredth — KWD, BHD and TND among the thousandths —
- * keeps its own three, because forcing two there drops a digit the daemon sent;
- * a sub-unit amount keeps four, because a token price is not the cent it
- * rounds to. The
- * floor only ever raises: a zero-minor-unit currency renders two digits, which is
- * the console's column rule applied where it costs no precision.
- *
- * Sub-unit is a question about MAGNITUDE, so the test is on the absolute value. A
- * bare `amount < 1` is true of every negative amount, which would render a refund
- * of -123.4567 with four fractional digits beside a charge of 123.4567 with two —
- * two different column widths for one column, and sub-cent precision claimed for a
- * figure whose magnitude is nowhere near a sub-unit one.
+ * A money figure in its own currency. Two fractional digits is a floor, not the precision: a
+ * currency with a finer minor unit (KWD, BHD, TND) keeps its own three, and a sub-unit amount
+ * keeps four since a token price is not the cent it rounds to. The sub-unit test is on the
+ * absolute value, so a refund and a charge of the same size share a column width.
  */
 export function formatMoney(amount: number, currency: string, locale?: string): string {
   if (!Number.isFinite(amount)) {
@@ -378,14 +273,10 @@ export function formatMoney(amount: number, currency: string, locale?: string): 
       ),
     }).format(amount);
   } catch {
-    // `Intl.NumberFormat` throws `RangeError` for any currency that is not three
-    // ASCII letters, and the currency is a wire string this module does not get to
-    // validate. Throwing would take the component down through its error boundary and
-    // hide a figure the daemon did send. So the two rules are applied separately
-    // when they cannot be applied at once: the amount keeps its `Intl` formatting,
-    // and the code the daemon sent renders verbatim beside it. There is no minor
-    // unit to honor on this arm — the code `Intl` rejected names no currency — so
-    // the floor is the whole precision here.
+    // `Intl.NumberFormat` throws `RangeError` for a currency that is not three ASCII letters, and
+    // the currency is an unvalidated wire string. Throwing would hide a figure the daemon sent, so
+    // the amount keeps its `Intl` formatting and the code renders verbatim beside it. The rejected
+    // code names no currency, so the floor is the whole precision here.
     return `${new Intl.NumberFormat(locale, { minimumFractionDigits, maximumFractionDigits: floorFractionDigits }).format(amount)}\u00A0${currency}`;
   }
 }
@@ -397,32 +288,15 @@ function formatDescriptorMember(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-/**
- * The currency a cents figure the console's accountant supplied counts in.
- *
- * Not a guess and not a house default: the budget state a session's cost receipt IS
- * counts its caps in US-dollar cents, so the fold's own unit is a US-dollar cent. It is
- * half of what a cents figure MEANS, and the other half is the divisor below.
- */
+/** The currency the accountant's cents figures count in; budget caps are in US-dollar cents. */
 const ACCOUNTANT_CURRENCY_CODE = "USD";
 
-/** Cents to the currency unit. The whole of what the adapter below adds. */
+/** Cents to the currency unit. */
 const CENTS_PER_CURRENCY_UNIT = 100;
 
 /**
- * Render a cents figure the accountant supplied as money.
- *
- * HERE RATHER THAN BESIDE EITHER READER. The cost-receipt settings page and the
- * session header both render the same committed-spend figure from the same
- * accountant, and they sit in two features that may not import each other. It
- * belongs in this module on its own terms too: the precision is `formatMoney`'s and
- * none of it is re-decided — including its sub-unit arm, which keeps four fractional
- * digits below a whole unit so a figure of a few cents is not rounded to a number the
- * daemon never sent — and what is added is one unit conversion, which is exactly the
- * kind of thing the console's one figure chokepoint is for.
- *
- * @param cents The exact wire value. Never a figure a renderer computed.
- * @param locale Passed through, so a test can pin the formatting it asserts on.
+ * Renders a cents figure the accountant supplied as money. Precision is `formatMoney`'s; this adds
+ * only the unit conversion. `cents` is the exact wire value, never a figure a renderer computed.
  */
 export function formatCentsAsCurrency(cents: number, locale?: string): string {
   return formatMoney(cents / CENTS_PER_CURRENCY_UNIT, ACCOUNTANT_CURRENCY_CODE, locale);

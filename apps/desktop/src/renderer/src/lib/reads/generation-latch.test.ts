@@ -1,15 +1,9 @@
-// One act at a time, and what a superseded reply is allowed to do.
+// One act at a time, and what a superseded reply is allowed to do. The register is driven
+// directly, since a test that reproduced the predicate would agree with a drifted copy. What a
+// joiner may do is in `generation-latch.joined-round.test.ts`.
 //
-// The register is driven directly rather than through a stand-in, because the whole
-// value of hoisting it is that the PREDICATE is written once — a test that reproduced
-// the predicate would agree with a drifted copy as readily as with a correct one.
-//
-// What a JOINER may do with a round it did not start is a subject of its own and
-// lives in `generation-latch.joined-round.test.ts`, which needs no renderer.
-//
-// The bound is asserted, not argued. A latch that never removed a settled key would
-// pass every correctness case here and grow one entry per dispatch for the life of a
-// bridge, which on a long session is the leak the endurance tier exists to catch.
+// The bound is asserted: a latch that never removed a settled key would pass every correctness
+// case and grow one entry per dispatch, the leak the endurance tier exists to catch.
 
 import { describe, expect, it } from "vitest";
 
@@ -74,7 +68,7 @@ describe("GenerationLatch — single flight, per subject and per key", () => {
   });
 
   it("negative control: those same claims settle when nothing supersedes them", () => {
-    // Without this, "dropped" above would be satisfied by a claim that never settles.
+    // Guards against "dropped" being satisfied by a claim that never settles.
     const latch = new GenerationLatch();
     const onSubjectOne = latch.claim(SUBJECT_ONE, "compact");
     const onSubjectTwo = latch.claim(SUBJECT_TWO, "detach");
@@ -83,9 +77,8 @@ describe("GenerationLatch — single flight, per subject and per key", () => {
   });
 
   it("never lets an abandoned claim release the key a later one holds", () => {
-    // The defect the serial exists for: an earlier press's cleanup ran an
-    // unconditional delete and freed a call that was still in flight, so a second
-    // press dispatched a duplicate.
+    // The serial exists because an earlier press's cleanup once deleted unconditionally and freed a
+    // call still in flight, so a second press dispatched a duplicate.
     const latch = new GenerationLatch();
     const abandoned = latch.claim(SUBJECT_ONE, "compact");
     latch.supersede(SUBJECT_ONE, "compact");
@@ -104,9 +97,8 @@ describe("GenerationLatch — single flight, per subject and per key", () => {
   });
 
   it("is not terminal: the register works again after a teardown superseded it", () => {
-    // React invokes an effect's cleanup between the two invocations strict mode makes
-    // of one effect. A latch killed by its own teardown would be dead for the rest of
-    // the mount's life.
+    // React runs an effect's cleanup between strict mode's two invocations; a latch killed by its
+    // teardown would stay dead for the mount.
     const latch = new GenerationLatch();
     latch.supersedeAll();
     latch.supersedeAll();
@@ -142,16 +134,15 @@ describe("GenerationLatch — supersedeAndClaim, for the write whose newest inte
   });
 
   it("negative control: the refusing form still refuses that same held key", () => {
-    // Without this, "admits every caller" would be satisfied by a register that had
-    // stopped holding anything at all.
+    // Guards against "admits every caller" being satisfied by a register that holds nothing.
     const latch = new GenerationLatch();
     latch.supersedeAndClaim(SUBJECT_ONE, "goal");
     expect(latch.claim(SUBJECT_ONE, "goal")).toBeUndefined();
   });
 
   it("drops the settlement of the act it displaced", () => {
-    // The whole point of superseding rather than queueing: the older write installs
-    // nothing, so a reply that overtakes the newer one cannot be shown as the answer.
+    // Superseding rather than queueing: the older write installs nothing, so an overtaking reply
+    // cannot be shown as the answer.
     const latch = new GenerationLatch();
     const displaced = latch.claim(SUBJECT_ONE, "goal");
     const admitted = latch.supersedeAndClaim(SUBJECT_ONE, "goal");
@@ -204,17 +195,15 @@ describe("GenerationLatch — asking whether a key is held, without taking it", 
   });
 
   it("takes nothing, so the act it was asking about is still admitted", () => {
-    // The whole of it: a caller that must refuse BECAUSE the key is held has to be
-    // able to ask when it is free without that question consuming the answer.
+    // A caller that must refuse because the key is held has to ask without consuming the answer.
     const latch = new GenerationLatch();
     expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
     expect(latch.claim(SUBJECT_ONE, "retry")).toBeDefined();
   });
 
   it("negative control: claiming as the predicate refuses the very act it admitted", () => {
-    // The shape a caller was left with before this predicate existed. `claim` answers
-    // by TAKING, so asking with it holds the key — and the dispatch the caller then
-    // makes finds the key held by its own question.
+    // `claim` answers by taking, so asking with it holds the key and the caller's own dispatch then
+    // finds it held.
     const latch = new GenerationLatch();
     const askedWithAClaim = latch.claim(SUBJECT_ONE, "retry") === undefined;
     expect(askedWithAClaim).toBe(false);
@@ -245,9 +234,8 @@ describe("GenerationLatch — asking whether a key is held, without taking it", 
   });
 
   it("reports a round a joiner minted, which is a key somebody now holds", () => {
-    // `currentClaim` mints a round on a free key, so the honest answer afterwards is
-    // that the key is held: a caller refusing on held would otherwise offer an act
-    // against a round already running.
+    // `currentClaim` mints a round on a free key, so the key is held afterwards; otherwise a caller
+    // refusing on held would offer an act against a running round.
     const latch = new GenerationLatch();
     latch.currentClaim(SUBJECT_ONE, "retry");
     expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(true);

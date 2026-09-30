@@ -1,25 +1,12 @@
-// A registry with exactly one entry, owner-scoped.
-//
-// Three registries hold one body rather than a keyed table: the composer (one message
-// input per session view), the transcript row renderer (one renderer for every row), and
-// the row footer beneath it. Each wants the same three properties the pane and screen
-// registries want: the same owner may re-register (a hot reload re-runs the owning
-// feature's module), a different owner may not (which body renders would otherwise
-// depend on module import order), and a refusal names both owners.
-//
-// So this is `KeyedRegistry` with the key held constant, hoisted on its second use
-// rather than written twice. It is deliberately NOT a second registry primitive:
-// the policy, the refusal shape, and the owner comparison all still come from
-// `core/keyed-registry.ts`, and this class only fixes the key.
+// A `KeyedRegistry` with its key held constant, for the composer, the transcript row renderer and
+// the row footer. The same owner may re-register (a hot reload), a different owner may not (which
+// body renders would depend on import order), and a refusal names both owners.
 
 import { KeyedRegistry } from "./keyed-registry.js";
 
 /**
- * What a single-entry registry holds: who registered it, and what they render.
- *
- * `TRenderer` rather than a fixed function type because each registry's renderer takes
- * its own props — the point of the registry is that those props are the contract, and
- * a shared renderer type would erase exactly the part that matters.
+ * What a single-entry registry holds: who registered it, and what they render. `TRenderer` is
+ * generic because each registry's renderer props are its contract.
  */
 export interface SingleEntryDescriptor<TRenderer> {
   /** The feature that owns the body, so an empty registry names someone. */
@@ -27,6 +14,7 @@ export interface SingleEntryDescriptor<TRenderer> {
   readonly render: TRenderer;
 }
 
+/** A registry with exactly one owner-scoped entry; a second owner claiming it is an error. */
 export class SingleEntryRegistry<TRenderer> {
   readonly #registryName: string;
   readonly #descriptorsByName: KeyedRegistry<string, SingleEntryDescriptor<TRenderer>>;
@@ -51,10 +39,12 @@ export class SingleEntryRegistry<TRenderer> {
     this.#descriptorsByName.register(this.#registryName, descriptor);
   }
 
+  /** Releases the entry. */
   public unregister(): void {
     this.#descriptorsByName.unregister(this.#registryName);
   }
 
+  /** The registered descriptor, or `undefined` while the registry is empty. */
   public descriptor(): SingleEntryDescriptor<TRenderer> | undefined {
     return this.#descriptorsByName.get(this.#registryName);
   }

@@ -1,13 +1,6 @@
-// The cross-process leaf, against the values it exists to survive.
-//
-// Every function here is on a failure path by construction — the argument is a
-// rejected promise's value or an `unknown` prop, which is to say whatever a producer
-// threw. So the interesting cases are not the well-formed envelopes; they are the
-// values that fight back, and each one below carries its own negative control: the
-// raw operation the guarded reading replaced, asserted to throw on the same value.
-//
-// This suite belongs to the `main-unit` project, which is what reaches
-// `src/shared/**` — the subtree both processes compile.
+// The wire-error readers against values that fight back. Every function here runs on a failure
+// path, so each case carries a negative control: the raw operation the guarded read replaced,
+// asserted to throw on the same value.
 
 import { describe, expect, it } from "vitest";
 
@@ -58,8 +51,7 @@ describe("isPropertyContainer — what can carry a member at all", () => {
   it("accepts objects and functions, and rejects null and every primitive", () => {
     expect(isPropertyContainer({})).toBe(true);
     expect(isPropertyContainer([])).toBe(true);
-    // A function is a property container too — the clause a second copy of this
-    // predicate loses, and the one that admits a null-prototype function envelope.
+    // A function is a property container too, which admits a null-prototype function envelope.
     expect(isPropertyContainer(() => undefined)).toBe(true);
     expect(isPropertyContainer(nullPrototypeValue())).toBe(true);
     expect(isPropertyContainer(null)).toBe(false);
@@ -70,8 +62,7 @@ describe("isPropertyContainer — what can carry a member at all", () => {
   });
 
   it("asks nothing OF the value, so a hostile one answers as any object does", () => {
-    // `typeof` runs no trap and no getter, which is what lets the guarded reader
-    // pre-check a revoked Proxy before touching it.
+    // `typeof` runs no trap or getter, so the reader can pre-check a revoked Proxy safely.
     expect(isPropertyContainer(revokedProxy())).toBe(true);
     expect(isPropertyContainer(everyTrapThrows())).toBe(true);
   });
@@ -139,9 +130,8 @@ describe("readWireErrorEnvelopeWithCode — the discriminant costs no second rea
   });
 
   it("hands back an object of its own, so the candidate is never read again", () => {
-    // The claim that makes this a reader rather than a predicate: a narrowing would
-    // have handed the caller the candidate, and the caller's own `.code` would be a
-    // second access on a value nobody validated.
+    // Why this is a reader, not a predicate: a narrowing would hand the caller the candidate, and
+    // the caller's own `.code` would be a second access on an unvalidated value.
     const candidate = { code: "repo.not_found", message: "gone" };
     const matched = readWireErrorEnvelopeWithCode(candidate, "repo.not_found");
     expect(matched).toStrictEqual(candidate);
@@ -149,9 +139,8 @@ describe("readWireErrorEnvelopeWithCode — the discriminant costs no second rea
   });
 
   it("answers a value whose members are readable once, and stays readable itself", () => {
-    // The negative control is the shape itself: this candidate answers each member
-    // exactly once, so any second read — the discriminant's, or a caller's — throws.
-    // The snapshot answers as many times as a render asks.
+    // Negative control: the candidate answers each member once, so any second read throws, while
+    // the snapshot answers as often as a render asks.
     const matched = readWireErrorEnvelopeWithCode(readableOnceEnvelope(), "repo.not_found");
     expect(matched?.code).toBe("repo.not_found");
     expect(matched?.code).toBe("repo.not_found");
@@ -199,8 +188,7 @@ describe("wireRejectionToError — renders the value it is handed, and never thr
     const value = nullPrototypeValue();
     expect(() => String(value)).toThrow();
     expect(wireRejectionToError(value, { total: true }).message).toBe("[unrepresentable value]");
-    // The backstop, not the mechanism: `total: false` still ATTEMPTS the bare wrap —
-    // which is what the option chooses — and no longer makes the failure a throw.
+    // Backstop: `total: false` still attempts the bare wrap but does not let the failure throw.
     expect(wireRejectionToError(value).message).toBe("[unrepresentable value]");
   });
 

@@ -1,26 +1,11 @@
-// The four time readings: the unit changes rather than the number growing.
+// The time readings choose which unit a figure is read in: `formatDuration` switches at fixed
+// boundaries, `formatRelativeTime` by magnitude, `formatClockTime` drops the date, and
+// `formatDayDuration` asks `Intl` for the word. The cases are the boundaries, asserted either side.
 //
-// The eight rules put every quantity through `Intl`, and these four are where that rule
-// has a second half — WHICH unit the figure is read in is itself a decision, and each
-// of them makes it differently: `formatDuration` switches at fixed boundaries and pads
-// the borrowed fields once it is digital, `formatRelativeTime` picks by magnitude and
-// lets the platform compose the words, `formatClockTime` fixes its fields and drops the
-// date entirely because the day divider carries it, and `formatDayDuration` takes its
-// unit from the wire and asks `Intl` for the WORD — the one of the four whose failure
-// was never a boundary but a plural. So the interesting cases are the boundaries, and
-// each one is asserted a millisecond either side of itself.
-//
-// `formatClockTime` is asserted by SHAPE rather than by literal, deliberately.
-// `Intl.DateTimeFormat` with no `timeZone` renders in the runner's zone, so a
-// literal expectation would pin the test to whoever ran it first and fail in CI for
-// a reason that has nothing to do with the console.
-//
-// Both readers take their instant from `core/instant.ts`, so both refuse what that
-// module refuses. The `Date.parse` leniency cases are asserted here as well as in
-// that module's own test, because "the parser refuses it" and "the FIGURE refuses
-// it" are two claims and only the second is what a person sees. The instants these
-// tests need are built with `Date.UTC` rather than parsed, so the test never asks a
-// second parser what the module under test is for.
+// `formatClockTime` is asserted by shape, since `Intl.DateTimeFormat` without a `timeZone` renders
+// in the runner's zone. The readers take their instant from `instant.ts` and refuse what it
+// refuses; the `Date.parse` leniency cases are repeated here because the figure refusing is what a
+// person sees. Instants are built with `Date.UTC` so no second parser is involved.
 
 import { describe, expect, it } from "vitest";
 
@@ -33,8 +18,7 @@ import {
 
 describe("formatDuration — the unit changes rather than the number growing", () => {
   it("keeps sub-second durations in milliseconds", () => {
-    // "340 ms" and not "0.3 s": a run that took 340 ms is not "0.3 s" to anyone
-    // debugging it.
+    // "340 ms", not "0.3 s".
     expect(formatDuration(340, "en-US")).toBe("340 ms");
     expect(formatDuration(999, "en-US")).toBe("999 ms");
     expect(formatDuration(0, "en-US")).toBe("0 ms");
@@ -46,8 +30,7 @@ describe("formatDuration — the unit changes rather than the number growing", (
     expect(formatDuration(59_000, "en-US")).toBe("59 s");
   });
 
-  // The eight rules fix a digital reading at one minute and above. The boundary is the
-  // interesting part — one millisecond below it the shape is still `59 s`.
+  // The digital reading starts at one minute; one millisecond below, the shape is still seconds.
   it("switches to a digital reading at exactly one minute", () => {
     expect(formatDuration(59_999, "en-US")).toBe("60 s");
     expect(formatDuration(60_000, "en-US")).toBe("1:00");
@@ -65,9 +48,9 @@ describe("formatDuration — the unit changes rather than the number growing", (
   });
 
   it("truncates the digital reading rather than rounding it", () => {
-    // 59.6 s of a minute has not become the next minute.
+    // 119.6 s has not become the next minute.
     expect(formatDuration(119_600, "en-US")).toBe("1:59");
-    // The negative control for the same rule: rounding would read "2:00".
+    // Negative control: rounding would read "2:00".
     expect(formatDuration(119_600, "en-US")).not.toBe("2:00");
   });
 
@@ -92,9 +75,8 @@ describe("formatRelativeTime — the platform composes the phrase", () => {
   it("switches unit exactly at each magnitude boundary", () => {
     expect(formatRelativeTime("2026-09-01T11:01:00Z", now, "en-US")).toBe("59 minutes ago");
     expect(formatRelativeTime("2026-09-01T11:00:00Z", now, "en-US")).toBe("1 hour ago");
-    // `numeric: "auto"` is what turns the day boundary into a word rather than a
-    // count — the control for it is that the hour on the other side of the same
-    // boundary is still counted.
+    // `numeric: "auto"` turns the day boundary into a word; the hour on the other side is still
+    // counted.
     expect(formatRelativeTime("2026-08-31T12:00:00Z", now, "en-US")).toBe("yesterday");
   });
 
@@ -104,16 +86,13 @@ describe("formatRelativeTime — the platform composes the phrase", () => {
   });
 
   it("reads a numeric offset as the instant it names", () => {
-    // 10:00+02:00 is 08:00Z, four hours before `now`. Rendering the digits rather
-    // than the instant would read "2 hours ago".
+    // 10:00+02:00 is 08:00Z, four hours before `now`; reading the digits would give "2 hours ago".
     expect(formatRelativeTime("2026-09-01T10:00:00+02:00", now, "en-US")).toBe("4 hours ago");
   });
 
   it("refuses the stamps Date.parse would have rendered a figure for", () => {
-    // The negative control for the whole repoint: each of these produced a rendered
-    // figure before, and the second assertion is why — `Date.parse` answers a number
-    // for all three, normalizing a day that does not exist and reading a
-    // timezone-less stamp in whatever zone the runner happens to be in.
+    // Negative control: `Date.parse` answers a number for all three, normalizing a day that does
+    // not exist and reading a zone-less stamp in the runner's zone.
     for (const text of ["2026-02-30T10:00:00Z", "2026-01-01T24:00:00Z", "2026-09-01T10:00:00"]) {
       expect(formatRelativeTime(text, now, "en-US")).toBe("—");
       expect(Number.isNaN(Date.parse(text))).toBe(false);
@@ -131,9 +110,8 @@ describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
   it("is 24-hour, in a locale whose default is not", () => {
     const rendered = formatClockTime(instant, "en-US");
     expect(rendered).not.toMatch(/AM|PM/u);
-    // The control: en-US with the same fields and no `hour12: false` DOES carry a
-    // day period, so the assertion above is testing the option rather than the
-    // locale.
+    // Control: en-US with the same fields and no `hour12: false` does carry a day period, so the
+    // assertion above tests the option, not the locale.
     expect(
       new Intl.DateTimeFormat("en-US", {
         hour: "2-digit",
@@ -151,8 +129,7 @@ describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
   });
 
   it("is a reading of the instant rather than a constant", () => {
-    // One second apart differs; one hour and one second apart differs in more than
-    // the seconds field. A stubbed formatter passes neither.
+    // A stubbed formatter passes neither: one second apart differs, and so does the seconds field.
     const oneSecondLater = formatClockTime("2026-09-01T13:04:06Z", "en-US");
     expect(oneSecondLater).not.toBe(formatClockTime(instant, "en-US"));
     expect(oneSecondLater.slice(0, 5)).toBe(formatClockTime(instant, "en-US").slice(0, 5));
@@ -173,24 +150,17 @@ describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
 
 describe("formatDayDuration — the locale decides the word, never the call site", () => {
   it("declines the plural at one day and takes it at three", () => {
-    // The defect this function was written for: two call sites composed
-    // `${formatCount(days)} days`, which renders the ungrammatical `1 days` for
-    // every retention bucket kept for a single day. `Intl` knows the locale's own
-    // plural rule, so the singular is the platform's answer rather than a branch
-    // here.
+    // `${formatCount(days)} days` would render the ungrammatical `1 days`; `Intl` knows the
+    // locale's plural rule.
     expect(formatDayDuration(1, "en-US")).toBe("1 day");
     expect(formatDayDuration(3, "en-US")).toBe("3 days");
-    // The control: the concatenation this replaced would have answered `1 days`,
-    // and no locale-aware formatter can.
+    // Control: concatenation would answer `1 days`, which no locale-aware formatter can.
     expect(formatDayDuration(1, "en-US")).not.toBe("1 days");
   });
 
   it("names the unit in the locale's own words rather than in English", () => {
-    // The second half of the same defect. The appended literal `days` was English
-    // in every locale, so a German window read `3 days` beside figures `Intl` had
-    // already localized. Asserted against the platform's own composition rather
-    // than against a hand-written German string, so the case pins the ROUTE
-    // through `Intl` and not a translation this test invented.
+    // A literal `days` would be English in every locale. Asserted against the platform's own
+    // composition, not a hand-written German string, so the case pins the route through `Intl`.
     expect(formatDayDuration(3, "de-DE")).toBe(
       new Intl.NumberFormat("de-DE", {
         style: "unit",
@@ -208,8 +178,7 @@ describe("formatDayDuration — the locale decides the word, never the call site
   });
 
   it("renders whole days, because that is what the wire states", () => {
-    // A fraction here would be arithmetic the console performed on a figure it was
-    // handed, so the reading is whole and the rounding is `Intl`'s.
+    // A fraction would be arithmetic on a wire figure, so the reading is whole and `Intl` rounds.
     expect(formatDayDuration(7.4, "en-US")).toBe("7 days");
   });
 

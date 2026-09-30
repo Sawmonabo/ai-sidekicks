@@ -1,46 +1,20 @@
 // One clock identity for a mount, over a clock the window replaces underneath it.
+// `LiveAnnouncerProvider` pins the clock it is given, but `PlatformBridgeProvider` replaces its
+// resolution in place with a different frozen clock, so the identity is this object and every
+// method forwards to the window's clock as it is when the method runs.
 //
-// THE TWO REQUIREMENTS ARE IN TENSION, WHICH IS WHY THIS IS AN OBJECT RATHER THAN A
-// CALL. A component that hands a clock to something it renders needs one IDENTITY for
-// its whole life: `LiveAnnouncerProvider` pins the clock it is given in `useState` and
-// re-mints its announcer when that pin moves, so a clock with a fresh identity per
-// render would rebuild the announcer once a render. But the window's clock is not a
-// constant either — `PlatformBridgeProvider` replaces its resolution IN PLACE, with
-// no remount of the tree below it, and the replacement carries a different scenario
-// engine and therefore a different frozen clock. A pinned reading is then a retired
-// engine's time, which is the exact conflation the fixture rule forbids: "the fixture
-// clock is the only clock the renderer reads in fixture mode" names the CURRENT
-// fixture, not whichever one happened to be live at mount.
-//
-// So the identity is this object and the readings are the window's. Every method
-// forwards to whatever the window's clock is when the method RUNS.
-//
-// AND `cancel` ROUTES TO THE CLOCK THAT ARMED THE WORK, NEVER TO THE CURRENT ONE.
-// `ScheduledHandle` is a number each clock mints for itself, so two clocks hand out
-// the same numbers for unrelated work; forwarding a cancel to whichever clock is
-// current would cancel a stranger's timer and leave the caller's armed. So this mints
-// its own handle sequence and remembers which clock is behind each one. The announcer
-// arms a hold deadline and cancels it, across exactly the replacement this exists for,
-// and that pairing has to survive it.
-//
-// WORK STAYS WITH THE CLOCK THAT ARMED IT, and is deliberately not re-armed on the
-// replacement. Re-arming would fire twice on the real clock, where the original
-// timeout is still coming; it would also invent a deadline the caller never asked
-// for. A fixture engine that is disposed while work is armed on its frozen clock
-// strands that work — which is the retired engine's own end, and a fact about
-// disposing an engine rather than about this seam.
+// `cancel` routes to the clock that armed the work: a `ScheduledHandle` is a number each clock
+// mints for itself, so a cancel sent elsewhere would cancel a stranger's timer. Work is not
+// re-armed on the replacement, which would fire twice on the real clock.
 
 import type { Clock, ScheduledHandle } from "./clock.js";
 
 /**
  * A stable `Clock` over a clock the caller may replace.
  *
- * Constructed once per mount and handed the window's CURRENT clock through
- * {@link holdClock} whenever that changes, rather than closing over a resolver: the
- * caller is a React hook, and a hook writes what it has from the layout phase for the
- * reason `hooks/subject-scoped/useSubjectScopedResource.ts` states — every layout
- * effect for a commit runs before any passive effect for it, so the clock this holds
- * when a consumer's effect reads it is the one that commit resolved.
+ * Constructed once per mount and given the window's current clock through {@link holdClock}.
+ * The caller writes it from a layout effect, which runs before any passive effect of the same
+ * commit, so a consumer's effect reads the clock that commit resolved.
  */
 export class ForwardingClock implements Clock {
   #clock: Clock;
@@ -51,17 +25,12 @@ export class ForwardingClock implements Clock {
     this.#clock = clock;
   }
 
-  /**
-   * Take the window's clock as it is now, and disturb nothing already armed.
-   *
-   * Work armed on the previous clock keeps its route home, because the map holds the
-   * clock rather than a lookup performed at cancel time.
-   */
+  /** Take the window's clock as it is now; work already armed keeps its own clock. */
   public holdClock(clock: Clock): void {
     this.#clock = clock;
   }
 
-  /** The current clock's reading. Monotonic within one clock, and this is two. */
+  /** The current clock's reading; it can go backwards across a replacement (two time bases). */
   public now(): number {
     return this.#clock.now();
   }
@@ -79,11 +48,8 @@ export class ForwardingClock implements Clock {
   }
 
   /**
-   * Cancel through the clock that armed the work. Idempotent, as the seam requires.
-   *
-   * A handle this never minted — a stale one, or one a caller read off a clock
-   * directly — is not an error and cancels nothing, which is what makes double
-   * cancellation and cancellation after firing both harmless.
+   * Cancel through the clock that armed the work. Idempotent: a handle this never minted, or
+   * one already fired or canceled, cancels nothing.
    */
   public cancel(handle: ScheduledHandle): void {
     const armed = this.#armed.get(handle);
@@ -94,13 +60,8 @@ export class ForwardingClock implements Clock {
     armed.clock.cancel(armed.handle);
   }
 
-  /**
-   * Mint this seam's own handle for work the underlying clock arms.
-   *
-   * The entry is dropped BEFORE the caller's callback runs, so a callback that arms
-   * more work cannot be canceled through the handle of the work that scheduled it,
-   * and a fired handle leaves nothing behind to grow the map.
-   */
+  // The entry is dropped before the callback runs, so a fired handle leaves nothing behind.
+
   #arm(
     clock: Clock,
     armOn: (settle: () => void) => ScheduledHandle,
