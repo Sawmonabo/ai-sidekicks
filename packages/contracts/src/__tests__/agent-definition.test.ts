@@ -1,12 +1,17 @@
 // The definition registry is written by the editor, the importer and the daemon's file watch,
 // and read by the library, the composer and the workflow chooser. These cases hold the refusals
 // every one of them relies on: one binding per provider, a project scope that names its project,
-// and a plugin agent that says so.
+// a plugin agent that says so, requests that carry only their own members, and the closed
+// refusal reasons of import and resolution.
 import { describe, expect, it } from "vitest";
 
 import {
   AgentDefinitionCreateRequestSchema,
+  AgentDefinitionExportRequestSchema,
   AgentDefinitionListEntrySchema,
+  AgentDefinitionUpdateRequestSchema,
+  AgentImportRefusedDetailsSchema,
+  AgentResolutionRefusedDetailsSchema,
 } from "../agent-definition.js";
 
 const DEFINITION_ID = "11111111-1111-4111-8111-111111111111";
@@ -93,6 +98,39 @@ describe("agent.definitionCreate", () => {
       AgentDefinitionCreateRequestSchema.safeParse({ ...DESIGN_CREATE, scope: "global" }).success,
     ).toBe(false);
   });
+
+  it("refuses a permission level outside the five", () => {
+    expect(
+      AgentDefinitionCreateRequestSchema.safeParse({
+        ...DESIGN_CREATE,
+        executionPostureMode: "trusted",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses a member the request does not carry", () => {
+    expect(
+      AgentDefinitionCreateRequestSchema.safeParse({ ...DESIGN_CREATE, origin: "claude" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("agent.definitionUpdate", () => {
+  it("accepts a null that clears a pinned member, bindings with no overrides, and a reattach path", () => {
+    const request = {
+      definitionId: DEFINITION_ID,
+      bindings: { default: { ...CLAUDE_BINDING, effort: null } },
+      executionPostureMode: null,
+      hooks: null,
+      reattachFilePath: "/Users/person/.claude/agents/reviewer.md",
+    };
+    expect(AgentDefinitionUpdateRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("refuses a scope, which only a create sets", () => {
+    const request = { definitionId: DEFINITION_ID, scope: "project" };
+    expect(AgentDefinitionUpdateRequestSchema.safeParse(request).success).toBe(false);
+  });
 });
 
 describe("agent.definitionList entries", () => {
@@ -110,5 +148,36 @@ describe("agent.definitionList entries", () => {
     expect(
       AgentDefinitionListEntrySchema.safeParse({ ...STORED_ENTRY, pluginName: "reviews" }).success,
     ).toBe(false);
+  });
+});
+
+describe("agent.definitionExport", () => {
+  it("refuses an export that names no definition", () => {
+    const request = { definitionIds: [], filePath: "/Users/person/agents.json" };
+    expect(AgentDefinitionExportRequestSchema.safeParse(request).success).toBe(false);
+  });
+});
+
+describe("the definition refusals", () => {
+  it("closes the import refusal's reasons", () => {
+    expect(AgentImportRefusedDetailsSchema.safeParse({ reason: "unknown_format" }).success).toBe(
+      true,
+    );
+    expect(AgentImportRefusedDetailsSchema.safeParse({ reason: "name_taken" }).success).toBe(false);
+  });
+
+  it("carries a null model where the definition binds none for the driver", () => {
+    const details = {
+      definitionId: DEFINITION_ID,
+      reason: "model_unavailable",
+      driverName: "codex",
+      modelId: null,
+    };
+    expect(AgentResolutionRefusedDetailsSchema.safeParse(details).success).toBe(true);
+  });
+
+  it("refuses a resolution refusal missing what its reason names", () => {
+    const details = { definitionId: DEFINITION_ID, reason: "effort_unsupported", effort: "max" };
+    expect(AgentResolutionRefusedDetailsSchema.safeParse(details).success).toBe(false);
   });
 });

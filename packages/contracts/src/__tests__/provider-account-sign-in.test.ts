@@ -1,8 +1,12 @@
 // `providerAccount.register`: the request's `accountId` is only the token re-supply selector,
-// never an identity assertion, so it is refused without a token to supply.
+// never an identity assertion, so it is refused without a token to supply; and a keychain that
+// refuses to seal the token names its cause.
 import { describe, expect, it } from "vitest";
 
-import { ProviderAccountRegisterRequestSchema } from "../provider-account-sign-in.js";
+import {
+  ProviderAccountCredentialSealRefusedDetailsSchema,
+  ProviderAccountRegisterRequestSchema,
+} from "../provider-account-sign-in.js";
 
 const ACCOUNT_ID = "acct_01J8XYZ";
 /** The one credential value this plane accepts. */
@@ -71,5 +75,19 @@ describe("the register request's re-supply selector", () => {
         issue.message.includes("must also carry nonInteractiveToken"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("the keychain refusal", () => {
+  it("names a keychain refusal's cause from the closed pair", () => {
+    expect(
+      ProviderAccountCredentialSealRefusedDetailsSchema.safeParse({ cause: "locked" }).success,
+    ).toBe(true);
+    expect(
+      ProviderAccountCredentialSealRefusedDetailsSchema.safeParse({ cause: "unavailable" }).success,
+    ).toBe(true);
+    expect(
+      ProviderAccountCredentialSealRefusedDetailsSchema.safeParse({ cause: "missing" }).success,
+    ).toBe(false);
   });
 });
