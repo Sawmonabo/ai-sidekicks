@@ -2426,7 +2426,8 @@ interface RunSafetyBufferingUpdatedPayload {
 // session.notice of kind `provider_warning` (Spec-005 §Session Lifecycle): Codex's `warning`, whose
 // `message` becomes `text`, or its `deprecationNotice`, whose `summary` becomes `text` and whose
 // `details` are kept beside it. Recorded so the working line's warnings count and its list survive
-// a reload; it draws no flow row. `configWarning` and `guardianWarning` are not this kind.
+// a reload; it draws no flow row. `configWarning` and `guardianWarning` are not this kind, nor is
+// the `warning` right after `model/rerouted` in the same turn, which is that switch's `sentence`.
 interface SessionNoticeProviderWarning {
   sessionId: SessionId;
   kind: "provider_warning";
@@ -2685,10 +2686,10 @@ interface EventEnvelope {
 // pre-rollback-epoch rows (the pair from the straggler's per-event operation
 // association — (epoch, turn) recorded at operation open — falling back to the closed
 // delivery generation's always-superseding retained pair; Spec-003 §Required Behavior
-// owns the fence and generation-rotation mechanics) of the five late-append families
+// owns the fence and generation-rotation mechanics) of the four late-append families
 // — assistant_output,
-// tool_activity, usage_telemetry, artifact_publication, and the interactive_request
-// pair (driver_ask.requested + driver_ask.canceled): sourceEpoch names the
+// tool_activity, usage_telemetry and artifact_publication (a provider permission ask from
+// before a cut is absorbed, never appended): sourceEpoch names the
 // pre-rollback execution epoch, sourcePosition the normalized session position (the
 // Spec-003 targetPosition turn-boundary vocabulary) the row occupies within it —
 // registered because no run-scoped family payload carries a native position key, and
@@ -3264,61 +3265,6 @@ interface RunRolledBackEvent {
   targetPosition: number; // the turn-boundary anchor the run landed at (normalized session position)
 }
 
-// Provider-initiated mid-run asks (Spec-005 §Driver Ask Events): an
-// `interactive_request` subfamily. `state` is the closed DriverAskState enum and MUST equal the emitting
-// event type's suffix (requested / responded / canceled — a mismatch is an emitter bug, fail
-// loud). `kind` discriminates permission-approval asks (routed into the approval pipeline) from
-// structured-input asks (routed to the run's interactive surface). For kind 'permission', `input` MUST be
-// set — the normalized requested resource (command / path / tool arguments) the approval decision is about
-// (Spec-005 §Driver Ask Events shape line). `response` appears only on driver_ask.responded rows — the
-// delivered answer (permission decision or structured input) — and post-B1 responded emitters MUST set
-// it (a responded row with no delivered answer is an emitter bug); the refinement refuses it elsewhere.
-// AN ASK CARRIES NO DEADLINE. The daemon holds a provider's ask open with no timer, rebuilds its card on
-// a reload and on every linked device of the user, and lets the first answer settle it everywhere
-// (Spec-010 §Required Behavior). Moving the session's permission level to one that never asks ANSWERS an
-// open ask — the blocked call runs — so that path settles as `responded`, never as a cancellation. Only
-// two things cancel one: an interrupt or any other end of the run that raised it, and the provider
-// process ending. No expiry state, no deadline member and no sweep exists on this payload, and silence
-// can never be read as either an approval or a denial.
-// Variant-required fields are enforced at the EMISSION seam via the exported per-type refinement
-// (the normalizer bundle: `driverAskPayloadRefinementFor(eventType)`, sibling of Plan-010
-// T1.1's `approvalFlowPayloadRefinementFor`): kind 'permission' ⇒ `input` on
-// every state; responded ⇒ `response` — refused on the other two — so a malformed event fails at the
-// emission parse, never at peer/restart projection.
-// `options` is ADDITIVE-OPTIONAL and carries the closed choice set an input-kind ask
-// offers, where the provider's own ask declares one — the Codex item/tool/requestUserInput and MCP
-// elicitation surfaces can, the Claude control round-trip does not. Reported at the DRIVER's
-// normalize boundary and never synthesized by a consumer, so its absence means the provider offered
-// no choice set the driver could represent — never that a represented one was lost in transit. It
-// carries NO refinement on either kind or any state, deliberately: requiring it anywhere would
-// refuse a legitimate ask from the one mechanism that cannot supply it. Its reader is the Spec-011
-// input-ask card, whose free-text answer arm is unconditional for exactly that reason. Answers
-// travel on the already-registered `driver.respondToRequest`, whose `response` is unknown-typed —
-// no wire member is minted for them.
-// BOUNDED BEFORE APPEND. The choice set is provider- or MCP-authored and this payload is a durable
-// canonical event, so the array's CARDINALITY and both `value` and `label` are bounded in the
-// payload schema itself (`wireFreeFormString`: length + non-whitespace + NUL-rejection). Without
-// those bounds the event log's 32 KiB canonical ceiling would be the first guard, and an oversized
-// but schema-valid ask would fail only at append — leaving the run waiting on an input card that was
-// never recorded, which is the one outcome an interactive-request family must not produce. With
-// them the over-large set is refused at the driver's own boundary while the ask itself still
-// arrives: the driver reports the ask WITHOUT `options` and records a driver-band diagnostic naming
-// the drop, and the card's unconditional free-text arm carries the answer. That is why the absence
-// clause above is scoped to representability rather than to the provider's intent — a dropped set
-// is legible in the driver diagnostics, and no path both drops a set and reports nothing.
-interface DriverAskEvent {
-  sessionId: SessionId;
-  runId: RunId;
-  askId: string;
-  kind: "permission" | "input";
-  toolName?: string;
-  prompt?: string;
-  options?: ReadonlyArray<{ value: string; label?: string }>;
-  input?: unknown;
-  state: "requested" | "responded" | "canceled";
-  response?: unknown;
-}
-
 // Run-control mutations (Spec-003 §Required Behavior). `pause` interrupts the active run + persists conversation/run
 // state + queues a resume (orchestration-layer, never driver-gated per I-003-10); `resume` returns the
 // `paused` run to active execution with the SAME run id. Both carry a MANDATORY `expectedRunVersion`
@@ -3515,15 +3461,15 @@ These are **control-plane tRPC procedures on the control plane's tRPC router** (
 
 | Operation | Procedure type | Authentication | Request schema | Response schema |
 | --- | --- | --- | --- | --- |
-| `WebAuthnRegistrationOptionsIssue` | `mutation` | required | `WebAuthnRegistrationOptionsIssueRequest` | `WebAuthnRegistrationOptionsIssueResponse` |
-| `WebAuthnRegistrationVerify` | `mutation` | required | `WebAuthnRegistrationVerifyRequest` | `WebAuthnRegistrationVerifyResponse` |
+| `WebAuthnRegistrationOptionsIssue` | `mutation` | required; **none** for account creation on the device-code page, which sends `{userCode, displayName}` in place of a session and receives the creation options with a `transactionId` (below) | `WebAuthnRegistrationOptionsIssueRequest` | `WebAuthnRegistrationOptionsIssueResponse` |
+| `WebAuthnRegistrationVerify` | `mutation` | required: it adds a passkey to an account that exists; account creation's registration is verified by the device-code Approval row's creation arm (below) | `WebAuthnRegistrationVerifyRequest` | `WebAuthnRegistrationVerifyResponse` |
 | `WebAuthnAuthenticationOptionsIssue` | `mutation` | **none** | `WebAuthnAuthenticationOptionsIssueRequest` | `WebAuthnAuthenticationOptionsIssueResponse` |
 | `WebAuthnAuthenticationVerify` | `mutation` | **none** | `WebAuthnAuthenticationVerifyRequest` | `WebAuthnAuthenticationVerifyResponse` |
 | `WebAuthnCredentialRevoke` | `mutation` | required | `WebAuthnCredentialRevokeRequest` | `WebAuthnCredentialRevokeResponse` |
 
 Both issue legs are `mutation` rather than `query` because each one **writes** — it records a challenge row, which is the fence the whole ceremony rests on.
 
-**The authentication pair is deliberately unauthenticated.** Sign-in is pre-authentication by construction: the ceremony is what produces the credential, so a new phone or browser holds nothing to present, and gating it would make the flow unreachable exactly when it is needed ([Spec-016 §Required Behavior](../../specs/016-identity-and-user-state.md#required-behavior)). What bounds that caller instead is the **ceremony transaction id** — server-minted on the options reply, quoted back on the verify request, single-use, and expiring on the challenge's own clock, so the caller is bound to one transaction rather than to a session. Throttling is the existing [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) `auth.endpoint` row (anonymous tier, per source address); **no registry row is minted**, because a per-token budget beside the per-source one would have nothing to bound here, single-use consumption already capping attempts per transaction at exactly one. The registration pair stays authenticated: enrollment binds an authenticator to an existing user, and an unauthenticated enrollment would let anyone bind a key to someone else's account. **`WebAuthnCredentialRevoke` is authenticated for the same reason and one more:** it resolves the credential row under the **caller's own** user id, which there is no way to know without a session. That resolution is also what makes the operation safe to expose — a request naming another user's credential id deletes nothing and returns success, exactly as a request naming an id that does not exist does, so the reply enumerates no one's authenticators. Revocation is a hard `DELETE` rather than a `revoked_at` tombstone: a tombstone would let the verify leg tell _revoked_ from _unknown_, the one distinction every refusal arm of this registry is written to withhold, and it would mint a column to obtain it. Removing the user's **last** credential is permitted — a new device still links through a link from a device already in use, and refusing would keep a compromised authenticator enrolled precisely when the user is trying to retire it.
+**The authentication pair is deliberately unauthenticated.** Sign-in is pre-authentication by construction: the ceremony is what produces the credential, so a new phone or browser holds nothing to present, and gating it would make the flow unreachable exactly when it is needed ([Spec-016 §Required Behavior](../../specs/016-identity-and-user-state.md#required-behavior)). What bounds that caller instead is the **ceremony transaction id** — server-minted on the options reply, quoted back on the verify request, single-use, and expiring on the challenge's own clock, so the caller is bound to one transaction rather than to a session. Throttling is the existing [Spec-019 §Canonical Endpoint Group Registry](../../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) `auth.endpoint` row (anonymous tier, per source address); **no registry row is minted**, because a per-token budget beside the per-source one would have nothing to bound here, single-use consumption already capping attempts per transaction at exactly one. The registration pair stays authenticated: enrollment binds an authenticator to an existing user, and an unauthenticated enrollment would let anyone bind a key to someone else's account. **Account creation is the one exception.** `Create an account` on the device-code page makes a new account and adds nothing to one that exists, so it needs no sign-in: its registration is bound to the device-code transaction the page was opened with, good once, and limited per source address under the same `auth.endpoint` row as the passkey sign-in. Adding a passkey to an account that exists stays signed in. **`WebAuthnCredentialRevoke` is authenticated for the same reason and one more:** it resolves the credential row under the **caller's own** user id, which there is no way to know without a session. That resolution is also what makes the operation safe to expose — a request naming another user's credential id deletes nothing and returns success, exactly as a request naming an id that does not exist does, so the reply enumerates no one's authenticators. Revocation is a hard `DELETE` rather than a `revoked_at` tombstone: a tombstone would let the verify leg tell _revoked_ from _unknown_, the one distinction every refusal arm of this registry is written to withhold, and it would mint a column to obtain it. Removing the user's **last** credential is permitted — a new device still links through a link from a device already in use, and refusing would keep a compromised authenticator enrolled precisely when the user is trying to retire it.
 
 **What the replies carry, and why the split is where it is.** The authentication-**options** reply carries the `rpId`, the origin, the challenge, and the transaction id. The authentication-**verify** reply carries the verdict and a **freshly issued PASETO access/refresh pair**. The token pair rides the verdict because that is the moment the user is known, and it is issued rather than merely unlocked because a new device holds no refresh token to unwrap — a sign-in that only unlocks a stored one is unreachable exactly on the device that needs it. It is sender-constrained per [ADR-010](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) to the DPoP key the caller proves possession of on the verify request; that proof binds a key and establishes no identity, so it does not make this pair a credentialed one and the `Authentication` column above stays **none**.
 
@@ -3538,7 +3484,7 @@ The control plane's account routes that `sidekicks sign-in`, `sidekicks sign-out
 | Route | Caller | Authentication | Request | Reply |
 | --- | --- | --- | --- | --- |
 | Device authorization | `sidekicks sign-in` | none | the RFC 8628 device authorization request | a device code, a user code and the verification address; the command line prints the code and the address, opens the address where a browser exists, and polls the token route (T5.9) |
-| Approval | the device-code page at the verification address | a passkey assertion | `{userCode, transactionId, assertion}`, the assertion answering `WebAuthnAuthenticationOptionsIssue` | approves the code for the account the passkey belongs to and carries no token, so the page keeps nothing in the browser; refuses with `user.webauthn_challenge_invalid` or `user.webauthn_verification_failed` as the verify leg does, and an unknown or expired user code with the unit's own code (T5.9) |
+| Approval | the device-code page at the verification address | a passkey assertion; for `Create an account`, none: the new account's first passkey registration, bound to this device-code transaction, good once, and limited per source address under `auth.endpoint` like the passkey sign-in | `{userCode, transactionId, assertion}`, the assertion answering `WebAuthnAuthenticationOptionsIssue`; for `Create an account`, `{userCode, transactionId, attestation}`, the attestation answering `WebAuthnRegistrationOptionsIssue`'s creation options, and the user record, its first passkey and the approval commit in one transaction | approves the code for the account the passkey belongs to, or for the account `Create an account` made, and carries no token, so the page keeps nothing in the browser; refuses with `user.webauthn_challenge_invalid` or `user.webauthn_verification_failed` as the verify leg does, and an unknown or expired user code with the unit's own code (T5.9) |
 | Token | `sidekicks sign-in`, polling | the device code, with a DPoP proof under this machine's key | the device code | a refresh token bound to the proved key (`cnf.jkt`, that key's JWK SHA-256 thumbprint); `authorization_pending` until the code is approved or expires (T5.9) |
 | Enrollment | `sidekicks sign-in` once the refresh token is issued, and `sidekicks rotate-keys` or a removed machine linked again once the new key's statement is on the chain | an access token with a DPoP proof | the machine's id, the identity key's public half, its name, its platform and the installed service's version | writes the machine's `runtime_nodes` row under the account; refuses a different key for a machine already enrolled unless a `runtimenode.key_rotated` or a later `runtimenode.added` for that id is on the chain (T5.9) |
 | Trade | the service, through its credential provider | the refresh token, with a DPoP proof under the same key | the refresh token | a short-lived PASETO v4.public access token and a new refresh token of the same family, the presented one marked spent; a spent refresh token presented again revokes the whole family (T5.9) |
@@ -3853,18 +3799,19 @@ type InvalidationTrigger =
 // remembered ⇒ approvalRequestId / approver / rememberedScope / ruleId / madeAtLevel;
 // rule_revoked ⇒ ruleId / invalidationTrigger —
 // a malformed event fails at the emission parse, never at restart projection (I-010-9).
-// Driver-ask-originated requested rows additionally carry `askId` — its PRESENCE is required at
-// the CP-010-6 normalizer seam (T2.8, the sole such emitter): the origin-blind refinement cannot
-// know whether a requested payload is driver-ask-originated, so it enforces nothing about it.
+// Requested rows a provider permission ask originates additionally carry `askId` — its PRESENCE is
+// required at the CP-010-6 normalizer seam (T2.8, the sole such emitter): the origin-blind
+// refinement cannot know whether a requested payload came from a provider ask, so it enforces
+// nothing about it.
 interface ApprovalFlowEventPayload {
   sessionId: SessionId;
   runId?: RunId; // absent on rule_revoked (no in-flight request)
   approvalRequestId?: ApprovalRequestId; // ditto
-  askId?: string; // present on approval.requested when the request originates from a provider permission ask: the originating DriverAskEvent.askId, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome must answer when several asks are in flight on one run; required at the CP-010-6 normalizer emission seam (T2.8 — the sole driver-ask-originated requester), set only by the daemon's in-process create from a provider ask, and never supplied by a client; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
+  askId?: string; // present on approval.requested when the request originates from a provider permission ask (Claude Code's can_use_tool for any tool but its question tool, or a Codex approval request), which it records once: the daemon's own id for the ask, a ULID (the provider's request id is delivery routing state, never this id), persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome must answer when several asks are in flight on one run, so the answer reaches the provider across a restart; required at the CP-010-6 normalizer emission seam (T2.8 — the sole requester a provider ask originates), set only by the daemon's in-process create from a provider ask, and never supplied by a client; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
   category: ApprovalCategory;
   scope: string;
   requestedBy?: string; // present on approval.requested — recorded requester actor (user or agent actor id, Spec-010 §Required Behavior)
-  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-010 §Interfaces And Contracts)
+  resourceDescriptor?: Record<string, unknown>; // present on approval.requested — audit-grade target (Spec-010 §Interfaces And Contracts); on a provider permission ask it also holds the ask's tool name and the provider's own prompt text, where sent
   approver?: UserId; // present on approval.approved / approval.rejected — the recorded resolver (D-010-12); on approval.remembered it is the rule's GRANTOR (rules mint only via resolve-with-remember)
   effectiveScope?: string; // present on approval.approved / approval.rejected — recorded effective scope (≤ requested, I-010-6)
   clientResolutionId?: string; // present on approval.approved / approval.rejected — the resolving request's own `clientResolutionId`, echoed so the device whose answer landed knows it did

@@ -21,7 +21,7 @@ These invariants hold for every table in this schema: no table's name or meaning
 
 ## Users Identity Anchor (Plan-001)
 
-**Order within the one schema:** the `users` table below is created before every table that references it, because `runtime_nodes.user_id`, `devices.user_id` and the other user-bearing tables `REFERENCES users(id)`. Plan-016's identity columns and side tables are part of the same schema — see [Users and Identity (Plan-016)](#users-and-identity-plan-016) below.
+**Order within the one schema:** the `users` table below is created before every table that references it, because `runtime_nodes.user_id`, `devices.user_id` and the other user-bearing tables `REFERENCES users(id)`. Plan-016's identity columns are part of the same schema — see [Users and Identity (Plan-016)](#users-and-identity-plan-016) below.
 
 ```sql
 -- Owner: Plan-001 (minimal identity anchor for FK resolution)
@@ -30,38 +30,26 @@ CREATE TABLE users (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   display_name    TEXT NOT NULL,                 -- Owner: Plan-016
-  identity_ref    TEXT NOT NULL UNIQUE,          -- Owner: Plan-016; synthetic primary ref (PASETO kid / minted handle), NOT a {provider}:{external_id} projection — Plan-016 D-016-2
+  identity_ref    TEXT NOT NULL UNIQUE,          -- Owner: Plan-016; the account's random WebAuthn user handle as unpadded base64url, carried by every passkey it holds — Plan-016 D-016-2
   metadata        JSONB NOT NULL DEFAULT '{}'    -- Owner: Plan-016
 );
 ```
 
-Plan-001 owns `id` and `created_at`, the fields every referencing table needs; Plan-016 owns the identity columns (`display_name`, `identity_ref`, `metadata`), declared in the same `CREATE TABLE users`, and the `identity_mappings` side table. No user rows exist before Plan-016's registration flow writes them.
+Plan-001 owns `id` and `created_at`, the fields every referencing table needs; Plan-016 owns the identity columns (`display_name`, `identity_ref`, `metadata`), declared in the same `CREATE TABLE users`. No user rows exist before `Create an account` on Plan-016's device-code page writes the account's one row.
 
 ---
 
 ## Users and Identity (Plan-016)
 
-Plan-016 owns the identity columns of the [Plan-001 Users Identity Anchor](#users-identity-anchor-plan-001), declared in `CREATE TABLE users` above, and the `identity_mappings` side table. The person's devices are [Plan-028's](#devices-machines-and-the-statement-chain-plan-028).
+Plan-016 owns the identity columns of the [Plan-001 Users Identity Anchor](#users-identity-anchor-plan-001), declared in `CREATE TABLE users` above. The person's devices are [Plan-028's](#devices-machines-and-the-statement-chain-plan-028).
 
 ```sql
--- Owner: Plan-016 (the index on the users anchor's identity column, and the side table)
+-- Owner: Plan-016 (the index on the users anchor's identity column)
 
 CREATE INDEX idx_users_identity ON users(identity_ref);
-
--- Owner: Plan-016
-CREATE TABLE identity_mappings (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id  UUID NOT NULL REFERENCES users(id),
-  provider        TEXT NOT NULL,                 -- e.g. 'github', 'google', 'email'
-  external_id     TEXT NOT NULL,                 -- provider-specific ID
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(provider, external_id)
-);
-
-CREATE INDEX idx_identity_mappings_user ON identity_mappings(user_id);
 ```
 
-**`identity_ref` is a synthetic primary ref, not a provider projection (Plan-016 D-016-2).** It is a stable identifier decoupled from any single external provider — a PASETO `kid` or an internally minted synthetic handle — so a user who links a second provider keeps one `identity_ref` and gains a second `identity_mappings` row, rather than colliding on the `identity_ref UNIQUE` constraint that a denormalized `{provider}:{external_id}` value would force. The per-provider `{provider, external_id}` tuples live in `identity_mappings`; `identity_ref` is the join-stable user anchor those mappings resolve to.
+**`identity_ref` is the account's WebAuthn user handle (Plan-016 D-016-2).** The account is keyed by its own id: `identity_ref` is random bytes minted when the account is created, at most 64 of them and carrying no personal data ([WebAuthn Level 3 §5.4.3](https://www.w3.org/TR/webauthn-3/#dictionary-user-credential-params)), and every passkey the account holds carries it as its user handle. The column holds the handle's bytes as unpadded base64url, WebAuthn's own JSON form for the user id; `users.id` stays the key. A passkey resolves to its one user through its [`webauthn_credentials`](#webauthn-ceremony-plan-016) row, whose `credential_id UNIQUE` keeps one passkey from naming two users; no outside sign-in makes or finds the account.
 
 ---
 

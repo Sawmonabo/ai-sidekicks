@@ -18,7 +18,7 @@ Run this procedure when **all** of the following hold:
 Establish **scope** before changing anything — separate identification from remediation:
 
 1. **Resolve the `user_id`.** Confirm the UUID against the control-plane `users` row: `SELECT id, display_name, identity_ref FROM users WHERE id = :pid;`.
-2. **Enumerate the closure** from [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md), not from memory. The closure is every table carrying a `REFERENCES users(id)` column, counted once per table however many such columns it bears: `identity_mappings`, `devices`, `runtime_nodes`, `trust_statements`, `webauthn_credentials`, `webauthn_challenges`, `account_audit`, `revoked_token_families`, and the anonymize-class `revoked_jtis`. The control plane keeps no session record. **Deployment scope:** before each statement, guard existence (`SELECT to_regclass('<table>') IS NOT NULL;`) and skip an absent table: a table that does not exist holds no rows to delete.
+2. **Enumerate the closure** from [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md), not from memory. The closure is every table carrying a `REFERENCES users(id)` column, counted once per table however many such columns it bears: `devices`, `runtime_nodes`, `trust_statements`, `webauthn_credentials`, `webauthn_challenges`, `account_audit`, `revoked_token_families`, and the anonymize-class `revoked_jtis`. The control plane keeps no session record. **Deployment scope:** before each statement, guard existence (`SELECT to_regclass('<table>') IS NOT NULL;`) and skip an absent table: a table that does not exist holds no rows to delete.
 3. **Read the account's device list**, as `account.export` returns it, so the request's owner can be told which devices lose their sign-in.
 
 ## Preconditions
@@ -45,7 +45,7 @@ Run as a **single Postgres transaction**: the whole step succeeds, or it rolls b
 1. Append an `account_audit` row for the deletion request (act `deletion requested`), as `account.delete` does.
 2. Hard-DELETE the account's rows from the no-retention-basis tables present in your deployment:
    - **`devices`, `runtime_nodes` and `trust_statements`** — the account's linked devices and its machines' registrations, each with its public key, and its chain of signed trust statements ([shared-postgres-schema.md §Devices, Machines And The Statement Chain](../architecture/schemas/shared-postgres-schema.md#devices-machines-and-the-statement-chain-plan-028)); `DELETE FROM <table> WHERE user_id = :pid;` (safe at live-verification semantics: every machine verifies the chain it keeps itself).
-   - **Plain `user_id` tables** — `identity_mappings`, `webauthn_credentials` and `webauthn_challenges` (enrolled passkeys and in-flight ceremony challenges, likewise safe), `account_audit`, `refresh_token_families` (the account's live sign-ins; step 1's revocations have already removed them, so this finds none), `revoked_token_families` (the account's revoked families, kept for the account's life): `DELETE FROM <table> WHERE user_id = :pid;`.
+   - **Plain `user_id` tables** — `webauthn_credentials` and `webauthn_challenges` (enrolled passkeys and in-flight ceremony challenges, likewise safe), `account_audit`, `refresh_token_families` (the account's live sign-ins; step 1's revocations have already removed them, so this finds none), `revoked_token_families` (the account's revoked families, kept for the account's life): `DELETE FROM <table> WHERE user_id = :pid;`.
 3. Hard-DELETE the anchor: `DELETE FROM users WHERE id = :pid;`. This fires `ON DELETE SET NULL` on the one anonymize-class FK, `revoked_jtis.user_id` ([Spec-020 §Erasure Paths](../specs/020-data-retention-and-gdpr.md#erasure-paths) FK-safety; Plan-020 D-020-7).
 4. If any statement fails (FK constraint, row lock, connection loss), roll back and do not retry piecemeal. An FK violation on the `users` DELETE means a `NOT NULL NO ACTION` reference survived step 2 — a table in the closure was skipped or its predicate missed a row. Re-check Detection step 2 against the schema, then re-run this step.
 
@@ -56,7 +56,7 @@ _Idempotency:_ a DELETE of an already-deleted row affects zero rows.
 The deletion is complete when **all** of the following hold:
 
 - `SELECT count(*) FROM users WHERE id = :pid;` returns `0`.
-- Each hard-DELETE table from Recovery Steps returns `0` rows for `:pid` (`identity_mappings`, `devices`, `runtime_nodes`, `trust_statements`, `webauthn_credentials`, `webauthn_challenges`, `account_audit`, `refresh_token_families`, `revoked_token_families`).
+- Each hard-DELETE table from Recovery Steps returns `0` rows for `:pid` (`devices`, `runtime_nodes`, `trust_statements`, `webauthn_credentials`, `webauthn_challenges`, `account_audit`, `refresh_token_families`, `revoked_token_families`).
 - Every `revoked_jtis` row of the account not yet reaped is present with `user_id IS NULL` and its key intact.
 - A refresh presented with any of the account's former refresh tokens is refused.
 
