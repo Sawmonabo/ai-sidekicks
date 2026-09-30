@@ -41,7 +41,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { RustSidecarPtyHost, resolveSidecarBinaryPath } from "../rust-sidecar-pty-host.js";
+import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
+import { resolveSidecarBinaryPath } from "../sidecar-binary-path.js";
 import { translateSpawnCwd } from "../../session/spawn-cwd-translator.js";
 
 import type { SpawnRequest, SpawnResponse } from "@ai-sidekicks/contracts";

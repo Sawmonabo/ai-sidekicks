@@ -20,8 +20,8 @@ import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 import {
-  PtyBackendUnavailableError,
   RustSidecarPtyHost,
   type SidecarChildProcess,
   type SidecarSpawnFn,

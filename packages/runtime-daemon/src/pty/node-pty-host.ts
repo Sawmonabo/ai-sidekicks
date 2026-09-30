@@ -25,7 +25,7 @@ import type {
   SpawnResponse,
 } from "@ai-sidekicks/contracts";
 
-import { PtyBackendUnavailableError } from "./rust-sidecar-pty-host.js";
+import { PtyBackendUnavailableError } from "./sidecar-binary-path.js";
 import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js";
 
 // Local types instead of `node-pty`'s own: the file never imports `node-pty` at the type layer

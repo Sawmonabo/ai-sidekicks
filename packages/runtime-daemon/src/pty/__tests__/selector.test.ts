@@ -7,7 +7,7 @@ import type { Mock } from "vitest";
 
 import { selectPtyHost } from "../pty-host-selector.js";
 import type { PtyHostSelectorDeps } from "../pty-host-selector.js";
-import { PtyBackendUnavailableError } from "../rust-sidecar-pty-host.js";
+import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 
 import type { PtyHost } from "@ai-sidekicks/contracts";
 import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";

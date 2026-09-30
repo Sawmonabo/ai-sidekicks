@@ -15,18 +15,22 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CRASH_BUDGET_LIMIT,
   CRASH_BUDGET_WINDOW_MS,
-  ContentLengthParser,
-  MAX_FRAME_BODY_BYTES,
-  MAX_HEADER_BYTES,
-  PtyBackendUnavailableError,
   RustSidecarPtyHost,
-  SidecarFrameDecodeError,
   createRustSidecarPtyHost,
-  resolveSidecarBinaryPath,
-  type ResolveSidecarBinaryPathOptions,
   type SidecarChildProcess,
   type SidecarSpawnFn,
 } from "../rust-sidecar-pty-host.js";
+import {
+  ContentLengthParser,
+  MAX_FRAME_BODY_BYTES,
+  MAX_HEADER_BYTES,
+  SidecarFrameDecodeError,
+} from "../sidecar-frame-codec.js";
+import {
+  PtyBackendUnavailableError,
+  resolveSidecarBinaryPath,
+  type ResolveSidecarBinaryPathOptions,
+} from "../sidecar-binary-path.js";
 
 import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
 import type { Envelope } from "@ai-sidekicks/contracts";

@@ -18,7 +18,8 @@
 import type { PtyHost } from "@ai-sidekicks/contracts";
 
 import { NodePtyHost } from "./node-pty-host.js";
-import { createRustSidecarPtyHost, PtyBackendUnavailableError } from "./rust-sidecar-pty-host.js";
+import { createRustSidecarPtyHost } from "./rust-sidecar-pty-host.js";
+import { PtyBackendUnavailableError } from "./sidecar-binary-path.js";
 
 // --------------------------------------------------------------------------
 // Public types

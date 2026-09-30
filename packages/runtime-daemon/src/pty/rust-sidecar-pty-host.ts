@@ -14,62 +14,23 @@
 
 import { Buffer } from "node:buffer";
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
-import { existsSync as fsExistsSync } from "node:fs";
-import { createRequire } from "node:module";
-import { isAbsolute as pathIsAbsolute } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import {
-  PTY_BACKEND_UNAVAILABLE_CODE,
   type DrainResult,
   type Envelope,
   type ExitCodeNotification,
-  type PtyBackendUnavailableDetails,
   type PtyHost,
   type PtySignal,
   type SpawnRequest,
   type SpawnResponse,
 } from "@ai-sidekicks/contracts";
-
 import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js";
-
-/**
- * Thrown when no PTY backend is usable (binary missing, crash budget exhausted). `details` is the
- * wire payload from `@ai-sidekicks/contracts`.
- */
-export class PtyBackendUnavailableError extends Error {
-  public readonly code: typeof PTY_BACKEND_UNAVAILABLE_CODE = PTY_BACKEND_UNAVAILABLE_CODE;
-
-  public readonly details: PtyBackendUnavailableDetails;
-
-  public constructor(details: PtyBackendUnavailableDetails, message: string) {
-    super(message);
-    this.name = "PtyBackendUnavailableError";
-    this.details = details;
-  }
-}
-
-/**
- * A sidecar frame the daemon cannot decode: bad JSON, a non-object, an unknown `kind` (ignoring it
- * would hang its request) or non-canonical base64. Always fatal; `decodeCause` avoids shadowing
- * `Error.cause`.
- */
-export class SidecarFrameDecodeError extends Error {
-  public readonly decodeCause:
-    | "json-parse"
-    | "non-object-envelope"
-    | "unknown-kind"
-    | "invalid-base64";
-
-  public constructor(
-    decodeCause: "json-parse" | "non-object-envelope" | "unknown-kind" | "invalid-base64",
-    message: string,
-  ) {
-    super(message);
-    this.name = "SidecarFrameDecodeError";
-    this.decodeCause = decodeCause;
-  }
-}
+import { PtyBackendUnavailableError, resolveSidecarBinaryPath } from "./sidecar-binary-path.js";
+import {
+  ContentLengthParser,
+  isStrictBase64,
+  serializeFrame,
+  SidecarFrameDecodeError,
+} from "./sidecar-frame-codec.js";
 
 /** The subset of `ChildProcess` the supervisor uses, so tests can build a fake. */
 export interface SidecarChildProcess {
@@ -107,6 +68,7 @@ export interface RustSidecarPtyHostDeps {
 
 /** Width of the sliding crash-budget window. */
 export const CRASH_BUDGET_WINDOW_MS = 60_000;
+
 /** Number of crashes inside `CRASH_BUDGET_WINDOW_MS` that exhaust the crash budget. */
 export const CRASH_BUDGET_LIMIT = 5;
 
@@ -114,6 +76,7 @@ export const CRASH_BUDGET_LIMIT = 5;
 // (unbiased `select!` in `merge_to_writer`); they are held and replayed. The caps bound memory if
 // events arrive for an id no response resolves.
 const MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION = 64;
+
 const MAX_PRE_SPAWN_BUFFERED_SESSIONS = 64;
 
 /**
@@ -121,143 +84,6 @@ const MAX_PRE_SPAWN_BUFFERED_SESSIONS = 64;
  * closed id is dropped instead of buffered.
  */
 const MAX_CLOSED_SESSION_IDS = 10_000;
-
-/** Injection slots for `resolveSidecarBinaryPath`; production passes none of them. */
-export interface ResolveSidecarBinaryPathOptions {
-  readonly env?: NodeJS.ProcessEnv;
-  readonly nodeRequire?: { resolve: (id: string) => string };
-  readonly existsSync?: (path: string) => boolean;
-  /** Path probed by step 3 instead of the workspace release build. */
-  readonly releasePath?: string;
-  /** Path probed by step 4 instead of the workspace debug build. */
-  readonly debugPath?: string;
-  readonly platform?: NodeJS.Platform;
-}
-
-/** One step's outcome, listed in the error message when every step fails. */
-interface ResolutionAttempt {
-  readonly step: 1 | 2 | 3 | 4;
-  readonly description: string;
-  readonly outcome: string;
-}
-
-/** Module id of the published platform package's binary (step 2); `binaryName` has any `.exe`. */
-function publishedPackageIdFor(
-  platform: NodeJS.Platform,
-  arch: string,
-  binaryName: string,
-): string {
-  return `@ai-sidekicks/pty-sidecar-${platform}-${arch}/bin/${binaryName}`;
-}
-
-function platformBinaryName(base: string, platform: NodeJS.Platform): string {
-  return platform === "win32" ? `${base}.exe` : base;
-}
-
-/** Workspace build path for step 3 or 4, resolved from this file's URL. */
-function workspaceTargetPath(profile: "release" | "debug", binaryName: string): string {
-  // Three levels up from `{src,dist}/pty/` is `packages/`; located from this file's URL, never cwd.
-  const url: URL = new URL(
-    `../../../sidecar-rust-pty/target/${profile}/${binaryName}`,
-    import.meta.url,
-  );
-  return fileURLToPath(url);
-}
-
-/**
- * Finds the sidecar binary: `AIS_PTY_SIDECAR_BIN` (an absolute path), the published platform
- * package, then the workspace release and debug builds. Throws `PtyBackendUnavailableError`
- * listing each step's outcome when all miss; `details.cause` is the step 2 error.
- */
-export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions): string {
-  const env: NodeJS.ProcessEnv = opts?.env ?? process.env;
-  const nodeRequire: { resolve: (id: string) => string } =
-    opts?.nodeRequire ?? createRequire(import.meta.url);
-  const existsSync: (path: string) => boolean = opts?.existsSync ?? fsExistsSync;
-  const platform: NodeJS.Platform = opts?.platform ?? process.platform;
-  const binaryName: string = platformBinaryName("sidecar", platform);
-
-  const attempts: ResolutionAttempt[] = [];
-
-  const fromEnv: string | undefined = env["AIS_PTY_SIDECAR_BIN"];
-  if (fromEnv === undefined || fromEnv.length === 0) {
-    attempts.push({
-      step: 1,
-      description: "env-var AIS_PTY_SIDECAR_BIN",
-      outcome: "unset",
-    });
-  } else if (!pathIsAbsolute(fromEnv)) {
-    // A relative path would depend on `process.cwd()`.
-    attempts.push({
-      step: 1,
-      description: "env-var AIS_PTY_SIDECAR_BIN",
-      outcome: `rejected (relative path; absolute required): ${JSON.stringify(fromEnv)}`,
-    });
-  } else if (!existsSync(fromEnv)) {
-    // A missing file would spend crash budget on a doomed spawn, and five typos would disable the
-    // host for good.
-    attempts.push({
-      step: 1,
-      description: "env-var AIS_PTY_SIDECAR_BIN",
-      outcome: `rejected (path does not exist): ${JSON.stringify(fromEnv)}`,
-    });
-  } else {
-    return fromEnv;
-  }
-
-  const arch: string = process.arch;
-  const publishedId: string = publishedPackageIdFor(platform, arch, binaryName);
-  // Kept for `details.cause` on the final throw.
-  let step2Cause: unknown;
-  try {
-    const resolved: string = nodeRequire.resolve(publishedId);
-    return resolved;
-  } catch (err: unknown) {
-    step2Cause = err;
-    attempts.push({
-      step: 2,
-      description: `require.resolve(${JSON.stringify(publishedId)})`,
-      outcome: `threw: ${err instanceof Error ? err.message : String(err)}`,
-    });
-  }
-
-  const releasePath: string = opts?.releasePath ?? workspaceTargetPath("release", binaryName);
-  if (existsSync(releasePath)) {
-    return releasePath;
-  }
-  attempts.push({
-    step: 3,
-    description: `packages/sidecar-rust-pty/target/release/${binaryName}`,
-    outcome: `not found at ${releasePath}`,
-  });
-
-  const debugPath: string = opts?.debugPath ?? workspaceTargetPath("debug", binaryName);
-  if (existsSync(debugPath)) {
-    return debugPath;
-  }
-  attempts.push({
-    step: 4,
-    description: `packages/sidecar-rust-pty/target/debug/${binaryName}`,
-    outcome: `not found at ${debugPath}`,
-  });
-
-  // `details.cause` is the step 2 error, the closest miss to a production install.
-  const enumerated: string = attempts
-    .map((a) => `  step ${a.step} (${a.description}): ${a.outcome}`)
-    .join("\n");
-  const details: PtyBackendUnavailableDetails =
-    step2Cause !== undefined
-      ? { attemptedBackend: "rust-sidecar", cause: step2Cause }
-      : { attemptedBackend: "rust-sidecar" };
-  throw new PtyBackendUnavailableError(
-    details,
-    `RustSidecarPtyHost: sidecar binary not found on any of the four resolution steps ` +
-      `. Attempts:\n${enumerated}\n` +
-      `Set AIS_PTY_SIDECAR_BIN=<absolute path> to override, or install the ` +
-      `published @ai-sidekicks/pty-sidecar package, or run \`cargo build --release\` ` +
-      `inside packages/sidecar-rust-pty/.`,
-  );
-}
 
 /** Monotonic clock: `Date.now()` can jump backward, which would trip or release the budget. */
 function defaultNowMs(): number {
@@ -287,130 +113,6 @@ function resolveDefaultDeps(partial: Partial<RustSidecarPtyHostDeps>): ResolvedD
     platform: partial.platform ?? process.platform,
     spawnTaskkill: partial.spawnTaskkill ?? defaultSpawnTaskkill,
   };
-}
-
-/** Largest accepted frame body (8 MiB); matches `MAX_FRAME_BODY_BYTES` in `framing.rs`. */
-export const MAX_FRAME_BODY_BYTES: number = 8 * 1024 * 1024;
-
-/**
- * Largest accepted header section (bytes before `\r\n\r\n`); without it a peer that never sends
- * the delimiter would grow the buffer without bound. `framing.rs` caps each header line at 1 KiB.
- */
-export const MAX_HEADER_BYTES: number = 1024;
-
-/**
- * Canonical RFC 4648 section 4 base64. `Buffer.from(s, "base64")` silently skips bad characters
- * and padding, which would corrupt `DataFrame.bytes`, so input is validated first.
- */
-const BASE64_PATTERN: RegExp = /^[A-Za-z0-9+/]*={0,2}$/;
-
-function isStrictBase64(s: string): boolean {
-  return s.length % 4 === 0 && BASE64_PATTERN.test(s);
-}
-
-/**
- * Incremental Content-Length frame parser: `feed` chunks, then call `nextFrame` until it returns
- * `incomplete`. Malformed input is returned as an `error` result and is fatal to the supervisor
- * (no resync).
- */
-export class ContentLengthParser {
-  private buffer: Buffer = Buffer.alloc(0);
-
-  public feed(chunk: Buffer): void {
-    this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
-  }
-
-  /** Returns the next `frame`, `incomplete` (feed more bytes), or an unrecoverable `error`. */
-  public nextFrame():
-    | { kind: "frame"; body: Buffer }
-    | { kind: "incomplete" }
-    | { kind: "error"; message: string } {
-    // Without a terminator, wait for more bytes unless the buffer is already over the header cap.
-    const headerEnd: number = this.buffer.indexOf("\r\n\r\n");
-    if (headerEnd === -1) {
-      if (this.buffer.length > MAX_HEADER_BYTES) {
-        return {
-          kind: "error",
-          message:
-            `header section exceeded ${MAX_HEADER_BYTES} bytes without ` +
-            `"\\r\\n\\r\\n" terminator (likely framing desync)`,
-        };
-      }
-      return { kind: "incomplete" };
-    }
-    if (headerEnd > MAX_HEADER_BYTES) {
-      return {
-        kind: "error",
-        message:
-          `header section is ${headerEnd} bytes (with delimiter present); ` +
-          `exceeds ${MAX_HEADER_BYTES} byte cap`,
-      };
-    }
-
-    const headerBytes: Buffer = this.buffer.subarray(0, headerEnd);
-    const bodyStart: number = headerEnd + 4;
-
-    // Header names are case-insensitive.
-    const headerText: string = headerBytes.toString("utf8");
-    const lines: string[] = headerText.split("\r\n");
-    let contentLength: number | null = null;
-    for (const line of lines) {
-      const colonIdx: number = line.indexOf(":");
-      if (colonIdx === -1) {
-        return {
-          kind: "error",
-          message: `header line missing ':' separator: ${JSON.stringify(line)}`,
-        };
-      }
-      const name: string = line.slice(0, colonIdx).trim().toLowerCase();
-      const value: string = line.slice(colonIdx + 1).trim();
-      if (name === "content-length") {
-        if (contentLength !== null) {
-          // A duplicate Content-Length is a request-smuggling shape; `framing.rs` rejects it too.
-          return {
-            kind: "error",
-            message: "duplicate Content-Length header (request-smuggling shape)",
-          };
-        }
-        // Digits only: `parseInt` would read "12junk" as 12 and let the two sides slice different
-        // lengths. Stricter than `framing.rs`, whose `parse::<usize>()` also accepts a leading `+`.
-        if (!/^\d+$/.test(value)) {
-          return {
-            kind: "error",
-            message: `Content-Length value is not a strict non-negative integer: ${JSON.stringify(value)}`,
-          };
-        }
-        contentLength = Number(value);
-      }
-      // Other headers (e.g., Content-Type) are accepted and ignored.
-    }
-
-    if (contentLength === null) {
-      return { kind: "error", message: "missing Content-Length header" };
-    }
-    if (contentLength > MAX_FRAME_BODY_BYTES) {
-      return {
-        kind: "error",
-        message: `frame body ${contentLength} bytes exceeds MAX_FRAME_BODY_BYTES (${MAX_FRAME_BODY_BYTES})`,
-      };
-    }
-
-    if (this.buffer.length < bodyStart + contentLength) {
-      return { kind: "incomplete" };
-    }
-
-    const body: Buffer = this.buffer.subarray(bodyStart, bodyStart + contentLength);
-    // Copy the remainder: a `subarray` view would keep the whole original allocation alive.
-    this.buffer = Buffer.from(this.buffer.subarray(bodyStart + contentLength));
-    return { kind: "frame", body };
-  }
-}
-
-/** Encodes an envelope as `Content-Length: <bytes>\r\n\r\n<json>`; the write side is uncapped. */
-function serializeFrame(envelope: Envelope): Buffer {
-  const payload: Buffer = Buffer.from(JSON.stringify(envelope), "utf8");
-  const header: Buffer = Buffer.from(`Content-Length: ${payload.length}\r\n\r\n`, "utf8");
-  return Buffer.concat([header, payload]);
 }
 
 /** Per-session state, keyed by the sidecar-minted `s-{n}` session id. */

@@ -17,7 +17,7 @@ import type {
   NodePtySpawnFn,
   TaskkillResult,
 } from "../node-pty-host.js";
-import { PtyBackendUnavailableError } from "../rust-sidecar-pty-host.js";
+import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 import { makeFakeChild } from "./_fakes.js";
 
 import type { DrainResult, SpawnRequest } from "@ai-sidekicks/contracts";
