@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   WorkflowGateResolveRequestSchema,
+  WorkflowGateResolveResponseSchema,
   WorkflowGateResolvedPayloadSchema,
   WorkflowHumanFormReadResponseSchema,
   WorkflowHumanFormSubmitRequestSchema,
@@ -42,6 +43,16 @@ describe("workflow.gateResolve", () => {
     expect(
       WorkflowGateResolvedPayloadSchema.safeParse({ ...event, scope: "workflow-phase" }).success,
     ).toBe(false);
+  });
+});
+
+describe("workflow.gateResolve's answer", () => {
+  it("answers with the approval record's entry: its id and when it was decided", () => {
+    const answer = { gateResolutionId: "gr-1", decidedAt: "2026-09-29T20:00:00.000-04:00" };
+    expect(WorkflowGateResolveResponseSchema.safeParse(answer).success).toBe(true);
+    expect(WorkflowGateResolveResponseSchema.safeParse({ gateResolutionId: "gr-1" }).success).toBe(
+      false,
+    );
   });
 });
 

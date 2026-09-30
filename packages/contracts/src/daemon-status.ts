@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { ReleaseVersionSchema } from "./release-manifest.js";
 
 /** Where the service is in its own life. */
 export type DaemonProcessState = "running" | "starting" | "stopping" | "degraded";
@@ -122,7 +123,7 @@ export interface DaemonStatusReadResponse {
 export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse> = z
   .object({
     processState: z.enum(DAEMON_PROCESS_STATES),
-    version: StatusTextSchema,
+    version: ReleaseVersionSchema,
     protocolVersion: StatusTextSchema,
     transportEndpoint: StatusTextSchema,
     startedAt: TimestampSchema,

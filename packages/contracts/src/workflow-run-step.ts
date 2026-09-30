@@ -213,7 +213,6 @@ export interface WorkflowGateResolveResponse {
 export const WorkflowGateResolveResponseSchema: z.ZodType<WorkflowGateResolveResponse> = z
   .object({
     gateResolutionId: z.string().min(1),
-    deviceId: DeviceIdSchema,
     decidedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
