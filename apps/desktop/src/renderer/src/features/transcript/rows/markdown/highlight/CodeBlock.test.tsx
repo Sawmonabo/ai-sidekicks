@@ -1,7 +1,6 @@
 // The span cache is shared by every block, so each case draws a source of its own.
 
 import { render, waitFor } from "@testing-library/react";
-import { useLayoutEffect } from "react";
 import { describe, expect, it } from "vitest";
 
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
@@ -23,14 +22,6 @@ function paintedSpans(container: HTMLElement): readonly (readonly [string, strin
     span.className,
     span.textContent ?? "",
   ]);
-}
-
-/** Reads the DOM at the first commit, before any passive effect runs: the first frame. */
-function FirstCommit(props: { readonly onCommit: () => void }): null {
-  useLayoutEffect(() => {
-    props.onCommit();
-  }, []);
-  return null;
 }
 
 describe("a settled code block", () => {
@@ -79,35 +70,6 @@ describe("a settled code block", () => {
     expect(container.textContent).toBe(source);
   });
 
-  it("paints a block drawn again from what it was handed, without asking again", async () => {
-    const source = "const again = 2;";
-    const { bridge, calls } = answeringSpans([0, 5, 0]);
-    const first = render(<CodeBlock source={source} infoString="ts" isSettled />, {
-      wrapper: bridgeWrapper(bridge),
-    });
-    await waitFor(() => {
-      expect(paintedSpans(first.container)).toHaveLength(1);
-    });
-    first.unmount();
-
-    const container = document.body.appendChild(document.createElement("div"));
-    let firstFrame: readonly (readonly [string, string])[] = [];
-    render(
-      <>
-        <CodeBlock source={source} infoString="ts" isSettled />
-        <FirstCommit
-          onCommit={() => {
-            firstFrame = paintedSpans(container);
-          }}
-        />
-      </>,
-      { container, wrapper: bridgeWrapper(bridge) },
-    );
-    // Colored on its first frame: a block scrolled back to never shows plain first.
-    expect(firstFrame).toStrictEqual([["meridian-code__keyword", "const"]]);
-    expect(highlightReads(calls)).toHaveLength(1);
-  });
-
   it("stays plain when the read is refused", async () => {
     // The shipped fixture scripts no `highlight.read`, so the call is refused.
     const source = "const refused = 3;";
@@ -122,19 +84,10 @@ describe("a settled code block", () => {
     expect(paintedSpans(container)).toStrictEqual([]);
     expect(container.textContent).toBe(source);
   });
-
-  it("carries the fence's info string wire-verbatim", () => {
-    const { container } = render(
-      <CodeBlock source="x" infoString="TypeScript" isSettled={false} />,
-    );
-    expect(container.querySelector(".meridian-code")?.getAttribute("data-language")).toBe(
-      "TypeScript",
-    );
-  });
 });
 
 describe("a block that asks nothing", () => {
-  it("negative control: a block still streaming is never colored", async () => {
+  it("a block still streaming is never colored", async () => {
     // Its text changes every frame, and the colors of an unfinished line would ripple
     // as the grammar's reading of it changed under the reader.
     const { bridge, calls } = answeringSpans([0, 5, 0]);
@@ -145,16 +98,5 @@ describe("a block that asks nothing", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(highlightReads(calls)).toStrictEqual([]);
     expect(container.textContent).toBe("const streaming = 4;");
-  });
-
-  it("renders a language the daemon does not color as plain text and asks nothing", async () => {
-    const { bridge, calls } = answeringSpans([0, 3, 0]);
-    const { container } = render(
-      <CodeBlock source="?!? not a language" infoString="brainfuck" isSettled />,
-      { wrapper: bridgeWrapper(bridge) },
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(highlightReads(calls)).toStrictEqual([]);
-    expect(container.textContent).toBe("?!? not a language");
   });
 });

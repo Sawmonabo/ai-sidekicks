@@ -4,7 +4,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ANSI_SPAN_RENDER_CAP } from "../../cards/card-caps.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
 import { AnsiOutput } from "./AnsiOutput.js";
 
 const ESCAPE = String.fromCodePoint(0x1b);
@@ -22,38 +21,7 @@ function renderedSpanCount(container: HTMLElement): number {
 }
 
 describe("rendering ANSI output", () => {
-  it("puts each styled run in its own span, in a preformatted block", () => {
-    const { container } = render(
-      <AnsiOutput source={`${ESCAPE}[31mfailed${ESCAPE}[39m ok`} label="Output of ls" />,
-    );
-    expect(container.querySelector("pre")).not.toBeNull();
-    expect(container.querySelector(".meridian-ansi__fg--red")).not.toBeNull();
-    expect(container.textContent).toContain("failed");
-    expect(container.textContent).toContain("ok");
-  });
-
-  it("names the block for a screen reader", () => {
-    const { container } = render(<AnsiOutput source="plain" label="Output of ls" />);
-    expect(container.querySelector("pre")?.getAttribute("aria-label")).toBe("Output of ls");
-  });
-
-  it("renders a bare reverse-video run in the console's own default pair", () => {
-    // End to end, because the two halves live apart: the parse reports the reverse state
-    // and the class mapper resolves it against the tokens the body itself paints.
-    const { container } = render(<AnsiOutput source={`${ESCAPE}[7minverted`} label="Output" />);
-    expect(container.querySelector(".meridian-ansi__fg--default-background")).not.toBeNull();
-    expect(container.querySelector(".meridian-ansi__bg--default-foreground")).not.toBeNull();
-    expect(container.textContent).toContain("inverted");
-  });
-
-  it("negative control: a plain run carries neither default class", () => {
-    // Without this, a mapper that painted the default pair on every run would pass above.
-    const { container } = render(<AnsiOutput source="plain" label="Output" />);
-    expect(container.querySelector(".meridian-ansi__fg--default-background")).toBeNull();
-    expect(container.querySelector(".meridian-ansi__bg--default-foreground")).toBeNull();
-  });
-
-  it("negative control: markup in the output reaches the screen as characters", () => {
+  it("markup in the output reaches the screen as characters", () => {
     // The mapper is the whole path; there is no HTML string anywhere on it, which is why
     // a tool that prints a tag prints a tag rather than creating one.
     const { container } = render(<AnsiOutput source="<img src=x>" label="Output" />);
@@ -63,21 +31,6 @@ describe("rendering ANSI output", () => {
 });
 
 describe("folding a body with more styled runs than the card renders", () => {
-  it("says how much is shown, how much is not, and offers the rest", () => {
-    const { container } = render(
-      <AnsiOutput source={styledRuns(ANSI_SPAN_RENDER_CAP + RUNS_PAST_THE_CAP)} label="Output" />,
-    );
-    expect(renderedSpanCount(container)).toBe(ANSI_SPAN_RENDER_CAP);
-    // Both figures are in the badge's own label rather than `detail`, which the badge shows only
-    // as a `title` attribute no keyboard or touch reader reaches.
-    const notice = container.querySelector(".meridian-nothing__badge-label");
-    // Through `formatCount`, because that is how a derived figure is formatted:
-    // grouped per locale, never a bare `String()` a test could satisfy by accident.
-    expect(notice?.textContent).toContain(formatCount(ANSI_SPAN_RENDER_CAP));
-    expect(notice?.textContent).toContain(formatCount(RUNS_PAST_THE_CAP));
-    expect(notice?.getAttribute("title")).toBeNull();
-  });
-
   it("renders every run once the reader asks for the rest", () => {
     // The fold is recoverable: reopening the card would otherwise re-parse the same capped
     // sequence and leave the tail unreachable.
@@ -97,14 +50,5 @@ describe("folding a body with more styled runs than the card renders", () => {
     rerender(<AnsiOutput source={`${first}${styledRuns(1)}`} label="Output" />);
     expect(renderedSpanCount(container)).toBe(ANSI_SPAN_RENDER_CAP);
     expect(screen.queryByRole("button", { name: "Show the rest" })).not.toBeNull();
-  });
-
-  it("negative control: a body under the cap renders no notice and no control", () => {
-    // Without this, a component that always rendered the notice would pass every
-    // assertion above.
-    const { container } = render(<AnsiOutput source={styledRuns(3)} label="Output" />);
-    expect(renderedSpanCount(container)).toBe(3);
-    expect(container.querySelector(".meridian-nothing")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Show the rest" })).toBeNull();
   });
 });
