@@ -2,7 +2,7 @@
 //
 // The session core:
 //   • session.ts — branded ID schemas, shared enums + projection types,
-//     SessionCreate / SessionRead / SessionSubscribe payloads
+//     SessionRead / SessionSubscribe payloads
 //   • event.ts   — the SessionEvent discriminated union, seeded with the
 //                 session creation event; the live roster is
 //                 whatever `SESSION_EVENT_TYPES` enumerates, grown additively

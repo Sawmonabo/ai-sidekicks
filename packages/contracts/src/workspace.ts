@@ -233,8 +233,7 @@ export interface WorkspaceExecutionModeCapabilitiesReadRequest {
 //
 // Bridge-free double-T: both members are double-T branded ids, `.optional()`
 // preserves both slots, and Zod 4's `.refine()` with a non-predicate callback
-// returns the same schema type (the `SessionCreateRequestSchema` precedent in
-// session.ts covers the optional-member half).
+// returns the same schema type.
 export const WorkspaceExecutionModeCapabilitiesReadRequestSchema: z.ZodType<
   WorkspaceExecutionModeCapabilitiesReadRequest,
   WorkspaceExecutionModeCapabilitiesReadRequest

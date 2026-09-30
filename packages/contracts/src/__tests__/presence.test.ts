@@ -243,8 +243,7 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
   // ----------------------------------------------------------------------
   //
   // Pin both the inclusive accept (= MAX_LEN) and the strict reject
-  // (= MAX_LEN + 1) for each cap. Mirrors the convention in
-  // session-create.test.ts:207-216. Guards
+  // (= MAX_LEN + 1) for each cap. Guards
   // against silent widening — a future PR that bumps either constant
   // without intent will fail these tests.
 

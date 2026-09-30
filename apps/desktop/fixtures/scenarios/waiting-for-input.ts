@@ -242,10 +242,9 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
   },
   {
     // The first half of the driver catalog the target chip's axis popover renders.
-    // Armed by the chip rail on every composer mount, so it is scripted whether or
-    // not anybody opens the popover — an unscripted call is the fixture's authoring
-    // error, and a refusal pinned into every composer reference would be a statement
-    // about a read this scenario never meant to refuse.
+    // Scripted whether or not anybody opens the popover: an unscripted call is the
+    // fixture's authoring error, and a refusal pinned into every composer reference
+    // would be a statement about a read this scenario never meant to refuse.
     //
     // TWO DRIVERS, BECAUSE THE CAST RUNS TWO. `COMPOSER_AGENTS` mixes `claude` and
     // `codex` so the chip has a real target choice, and a catalog carrying only one

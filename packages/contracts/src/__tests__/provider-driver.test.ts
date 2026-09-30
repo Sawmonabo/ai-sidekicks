@@ -63,8 +63,7 @@
 //
 // Idiom: matches the sibling unit tests in this directory — typed-variable
 // assignment as the compile-time proof (session-id.test.ts), `.parse()` /
-// `.safeParse(...).success` for schema units (session-create.test.ts /
-// session-event.test.ts), relative `../provider-driver.js` import. The package
+// `.safeParse(...).success` for schema units (session-event.test.ts), relative `../provider-driver.js` import. The package
 // uses no `expectTypeOf` / `assertType` helper, so the compile-time assertions
 // here are typed-binding + `@ts-expect-error`, exactly as the siblings do.
 //
