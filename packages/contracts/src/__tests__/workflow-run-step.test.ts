@@ -29,10 +29,12 @@ describe("workflow.gateResolve", () => {
     expect(WorkflowGateResolveRequestSchema.safeParse(passed).success).toBe(false);
   });
 
-  it("names the answering device, and refuses a resolved event carrying a scope", () => {
+  it("names the answering device and the pinned version, and refuses a resolved event carrying a scope", () => {
     const event = {
       sessionId: SESSION_ID,
       workflowRunId: RUN_ID,
+      definitionId: "wfd-1",
+      workflowVersionId: "wfv-3",
       outcome: "approved",
       gateResolutionId: "gr-1",
       deviceId: "desktop-1",
@@ -40,6 +42,8 @@ describe("workflow.gateResolve", () => {
     expect(WorkflowGateResolvedPayloadSchema.safeParse(event).success).toBe(true);
     const { deviceId: _deviceId, ...withoutDevice } = event;
     expect(WorkflowGateResolvedPayloadSchema.safeParse(withoutDevice).success).toBe(false);
+    const { workflowVersionId: _workflowVersionId, ...withoutVersion } = event;
+    expect(WorkflowGateResolvedPayloadSchema.safeParse(withoutVersion).success).toBe(false);
     expect(
       WorkflowGateResolvedPayloadSchema.safeParse({ ...event, scope: "workflow-phase" }).success,
     ).toBe(false);

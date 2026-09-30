@@ -89,13 +89,8 @@ describe("the fold ranks readings rather than arrivals", () => {
     // The envelope's own identifier is the order below the instant, and it is the
     // same on every node — so the two arrival orders answer alike. Local sequence
     // would have answered "arrived second" once and "arrived first" once.
-    const earlierId = event(
-      7,
-      "session.goal_updated",
-      { goal: { text: "lower id" } },
-      TIED_INSTANT,
-    );
-    const laterId = event(8, "session.goal_updated", { goal: { text: "higher id" } }, TIED_INSTANT);
+    const earlierId = goalUpdate(7, "lower id", TIED_INSTANT);
+    const laterId = goalUpdate(8, "higher id", TIED_INSTANT);
     expect(foldSessionGoal([earlierId, laterId])).toStrictEqual({
       status: "set",
       text: "higher id",

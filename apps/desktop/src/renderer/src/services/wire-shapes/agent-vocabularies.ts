@@ -4,7 +4,7 @@
 //
 // WHERE THE REPLY SHAPES ARE, AND WHY THEY ARE NOT HERE
 //
-// `packages/contracts` registers the `agent.config_updated` event type and every
+// `packages/contracts` registers the provider-binding event types and every
 // driver shape the two catalog reads answer with — `ListModelsResult`,
 // `ListCapabilitiesResult`, `ProviderModel`, `DriverCapabilityFlag`,
 // `ProviderOutputSpeedState`, `DeclaredLossKind`. What it does NOT register is the
@@ -33,15 +33,16 @@ export const DRIVER_LIST_MODELS_METHOD = "driver.listModels";
 export const DRIVER_LIST_CAPABILITIES_METHOD = "driver.listCapabilities";
 
 /**
- * The registered lifecycle event that changes a roster.
+ * The registered events a roster refreshes on: the two that settle an agent's
+ * provider switch, one when it lands and one when it fails after it was accepted.
  *
  * Typed as `SessionEventType` so a kind this workspace does not register is a
- * compile error rather than a signal that never fires. The provider-binding events
- * (`agent.provider_binding_changed`, `agent.provider_binding_change_failed`) are
- * absent: `SessionEventType` does not register them, so no store admits them and no
- * signal can carry them.
+ * compile error rather than a signal that never fires.
  */
-export const AGENT_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = ["agent.config_updated"];
+export const AGENT_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = [
+  "agent.provider_binding_changed",
+  "agent.provider_binding_change_failed",
+];
 
 /**
  * The two registered kinds that move one parent run's child links.

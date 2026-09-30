@@ -1,4 +1,4 @@
-// The session goal: where the current one comes from and what a valid one is.
+// The session goal: where the current one comes from.
 //
 // The session goal is a PROJECTION of the event log — an accepted update emits
 // `session.goal_updated` carrying the canonical goal, there is no separate goal store,
@@ -12,13 +12,14 @@
 // the prior goal until the event lands.
 //
 // IT LIVES IN `services/` BECAUSE MORE THAN ONE FEATURE READS THE GOAL, and features
-// may not import one another. Every input this module has sits below that: the two
-// payload readers beside it, `lib/`'s instant comparison, and the store's event type.
-// So callers take the fold from this module rather than each folding the timeline
-// their own way, which would be a second projection of one log.
+// may not import one another. Every input this module has sits below that: the goal
+// payload schema `@ai-sidekicks/contracts` registers, `lib/`'s instant comparison, and
+// the store's event type. So callers take the fold from this module rather than each
+// folding the timeline their own way, which would be a second projection of one log.
+
+import { SessionGoalUpdatedPayloadSchema } from "@ai-sidekicks/contracts";
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
-import { readGoalOriginKeys, readGoalPayloadText } from "./wire-shapes/session-goal-payloads.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** The two projection sources, wire-verbatim. */
@@ -37,26 +38,16 @@ const [, SESSION_GOAL_CLEARED_EVENT_KIND] = SESSION_GOAL_EVENT_KINDS;
  * every run transition — and a consumer that watched the projection OBJECT would see
  * a change on each of them. So the reading carries the identity of the entry it was
  * read from, and a consumer keys on that: it moves when, and only when, a different
- * goal event wins the fold.
- *
- * The identity is the winner's own durable one, on the same two-source rule the
- * ranking uses: the `(originNodeId, originSeq)` pair the accepting daemon stamped,
- * or the envelope `id` for an event appended before those keys existed. Both are
- * global, so two nodes handed the same events answer with the same revision — the
- * property the fold already has, carried onto its identity. The two forms are
- * prefixed so neither can be read as the other, and the sequence precedes the node
- * id so the boundary between them is unambiguous however a node id is spelled.
+ * goal event wins the fold. The identity is the winner's envelope `id`, which is the
+ * same on every node the event reaches.
  *
  * It is deliberately NOT the goal's text: a goal re-set to the text it already had
  * is still a new act by a user, and a consumer told otherwise would treat it
  * as though nothing had happened.
  */
-type GoalRevisionPrefix = "o:" | "e:";
+const EVENT_REVISION_PREFIX = "e:";
 
-const ORIGIN_KEYED_REVISION_PREFIX: GoalRevisionPrefix = "o:";
-const ENVELOPE_KEYED_REVISION_PREFIX: GoalRevisionPrefix = "e:";
-
-/** The revision of a session no goal event has ever named. Neither prefix's shape. */
+/** The revision of a session no goal event has ever named. Not the prefix's shape. */
 const UNSET_GOAL_REVISION = "unset";
 
 /** The current goal, as the log says it is, and which entry says it. */
@@ -73,22 +64,10 @@ export type SessionGoalProjection =
  * order. A relayed event is appended to this timeline when it reaches this node, so
  * its local `sequence` records when it arrived here and not when it was written —
  * and a fold that ranked on local position would answer with whichever event
- * happened to arrive last, and would answer differently on every node.
- *
- * THE RANKING IS THE CORPUS'S TWO-STAGE GOAL FOLD, IN ITS TWO STAGES. Within one
- * origin daemon that daemon's own append order is authoritative, so the greatest
- * `originSeq` wins and a delayed same-origin event never displaces a newer one —
- * wall-clock plays no part there, because a clock step between two serial local
- * mutations must not invert them. Only BETWEEN different origins' winners does the
- * cross-origin comparator apply: envelope `occurredAt`, tie-broken by envelope
- * `id`. BOTH kinds compete in the one ranking, so a clear newer than an update wins
- * and an update newer than a clear wins.
- *
- * A goal event whose payload carries no origin keys — one appended before they
- * existed — cannot join an origin's register, so every such event competes in one
- * envelope-ordered ranking of its own, and that ranking's winner enters the
- * cross-origin comparison as one more candidate. That is the same disposition the channel
- * directory gives a pre-extension publication, rather than a second ranking rule.
+ * happened to arrive last, and would answer differently on every node. So the
+ * ranking is the envelope's: `occurredAt`, tie-broken by envelope `id`. BOTH kinds
+ * compete in the one ranking, so a clear newer than an update wins and an update
+ * newer than a clear wins.
  *
  * Local `sequence` is read NOWHERE in the ranking. Two nodes handed the same goal
  * events in different arrival orders therefore settle on the same goal, which is
@@ -100,93 +79,31 @@ export type SessionGoalProjection =
  * unreadable stamps still settle on `id` rather than on who arrived first.
  */
 export function foldSessionGoal(timeline: readonly ProjectedSessionEvent[]): SessionGoalProjection {
-  const winner = selectLatestGoalEvent(timeline);
-  const revision = goalRevisionOf(winner);
-  if (winner === undefined || winner.kind === SESSION_GOAL_CLEARED_EVENT_KIND) {
-    return { status: "none", revision };
-  }
-  const text = readGoalPayloadText(winner.payload);
-  return text === undefined
-    ? { status: "unreadable", revision }
-    : { status: "set", text, revision };
-}
-
-/** One origin's latest goal event, with the position that made it latest. */
-interface OriginGoalCandidate {
-  readonly event: ProjectedSessionEvent;
-  readonly originSeq: number;
-}
-
-/**
- * The identity of the entry this projection was read from.
- *
- * Reads the origin keys through the same schema the ranking reads them through, so
- * a payload the fold could not rank by is not one this can key by either — the two
- * cannot come apart, which is what would happen if this read the members by hand.
- */
-function goalRevisionOf(winner: ProjectedSessionEvent | undefined): string {
-  if (winner === undefined) {
-    return UNSET_GOAL_REVISION;
-  }
-  const originKeys = readGoalOriginKeys(winner.payload);
-  return originKeys === undefined
-    ? `${ENVELOPE_KEYED_REVISION_PREFIX}${winner.id}`
-    : `${ORIGIN_KEYED_REVISION_PREFIX}${String(originKeys.originSeq)}:${originKeys.originNodeId}`;
-}
-
-/** Stage one per origin, then stage two across the origins' winners. */
-function selectLatestGoalEvent(
-  timeline: readonly ProjectedSessionEvent[],
-): ProjectedSessionEvent | undefined {
-  const latestPerOrigin = new Map<string, OriginGoalCandidate>();
-  let unkeyedCandidate: ProjectedSessionEvent | undefined;
+  let winner: ProjectedSessionEvent | undefined;
   for (const entry of timeline) {
     if (!GOAL_EVENT_KINDS.has(entry.kind)) {
       continue;
     }
-    const originKeys = readGoalOriginKeys(entry.payload);
-    if (originKeys === undefined) {
-      if (unkeyedCandidate === undefined || compareByEnvelope(entry, unkeyedCandidate) > 0) {
-        unkeyedCandidate = entry;
-      }
-      continue;
-    }
-    const { originNodeId, originSeq } = originKeys;
-    const held = latestPerOrigin.get(originNodeId);
-    if (held === undefined || outranksWithinOrigin(entry, originSeq, held)) {
-      latestPerOrigin.set(originNodeId, { event: entry, originSeq });
+    if (winner === undefined || compareByEnvelope(entry, winner) > 0) {
+      winner = entry;
     }
   }
-  let winner = unkeyedCandidate;
-  for (const candidate of latestPerOrigin.values()) {
-    if (winner === undefined || compareByEnvelope(candidate.event, winner) > 0) {
-      winner = candidate.event;
-    }
+  if (winner === undefined) {
+    return { status: "none", revision: UNSET_GOAL_REVISION };
   }
-  return winner;
+  const revision = `${EVENT_REVISION_PREFIX}${winner.id}`;
+  if (winner.kind === SESSION_GOAL_CLEARED_EVENT_KIND) {
+    return { status: "none", revision };
+  }
+  const payload = SessionGoalUpdatedPayloadSchema.safeParse(winner.payload);
+  return payload.success
+    ? { status: "set", text: payload.data.goal.text, revision }
+    : { status: "unreadable", revision };
 }
 
 /**
- * Stage one: whether a candidate is a later append by the origin that stamped it.
- *
- * The origin's own sequence decides. An equal sequence is a redelivery of one
- * append rather than a second one, and the two copies are separated on the envelope
- * so the answer does not depend on which copy arrived first.
- */
-function outranksWithinOrigin(
-  candidate: ProjectedSessionEvent,
-  candidateOriginSeq: number,
-  held: OriginGoalCandidate,
-): boolean {
-  if (candidateOriginSeq !== held.originSeq) {
-    return candidateOriginSeq > held.originSeq;
-  }
-  return compareByEnvelope(candidate, held.event) > 0;
-}
-
-/**
- * Stage two: the cross-origin comparator — envelope `occurredAt`, then envelope
- * `id`. Total and order-independent, which is what makes two nodes agree.
+ * The comparator — envelope `occurredAt`, then envelope `id`. Total and
+ * order-independent, which is what makes two nodes agree.
  *
  * Both `occurredAt` values are ISO-8601 on the wire, so both ordinarily parse; one
  * that does not ranks below one that does, and two that do not fall through to `id`

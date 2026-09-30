@@ -6,19 +6,15 @@
 // ones has more than one card to be a barrier across, and one already approved to show
 // it does not count a settled request as waiting.
 //
-// The approval beats carry the REGISTERED payload — the approval-flow event kinds shape it
-// `{sessionId, runId?, approvalRequestId?, askId?, category, scope, requestedBy?,
-// resourceDescriptor?, expiryAt?, approver?, effectiveScope?, …}` — because a
-// payload no view reads is still a payload a daemon emits, and a beat
+// The approval beats carry the REGISTERED payload each approval variant declares,
+// because a payload no view reads is still a payload a daemon emits, and a beat
 // carrying a thinner one would be teaching the wire a shape it does not have.
 //
 // `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
-// (`SessionEventSchema`), both in `packages/contracts/src/event.ts`. The `approval.*`
-// beats reach the census leg alone, since nothing has registered their variants
-// yet; `session.created` and `agent.attached` reach both, which is why the first
-// carries `{sessionId, config, metadata}` and the second carries `name` rather than
-// the `displayName` that is on no wire in this corpus.
+// (`SessionEventSchema`), both in `packages/contracts/src/event.ts`, which is why
+// `session.created` carries `{sessionId, config, metadata}` and `agent.attached`
+// carries `name` rather than the `displayName` that is on no wire in this corpus.
 //
 // IDENTIFIERS ARE UUIDS. `SessionId`, `UserId`, `AgentId`, `RunId`, and
 // `ApprovalRequestId` are branded ids the contracts declare over UUID values, and a
@@ -156,7 +152,6 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
           scope: "run",
           requestedBy: AGENT_IMPLEMENTER,
           resourceDescriptor: { command: "pnpm --filter @ai-sidekicks/desktop run build" },
-          expiryAt: "2026-01-01T17:30:00.200Z",
         },
       },
     },
@@ -169,8 +164,9 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
         kind: "approval.approved",
         occurredAt: "2026-01-01T13:30:00.420Z",
         actorId: USER_YOU,
-        // The resolution events carry the approver and the scope that took effect.
-        // `effectiveScope` is never broader than what was requested.
+        // The resolution events carry the approver, the scope that took effect, and
+        // the id the answering client minted for its answer. `effectiveScope` is never
+        // broader than what was requested.
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -179,6 +175,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
           scope: "run",
           approver: USER_YOU,
           effectiveScope: "run",
+          clientResolutionId: "019b7a33-3300-7c01-8110-d1a4c1150531",
         },
       },
     },
@@ -222,7 +219,6 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
             path: "packages/runtime-daemon/src/store/migrations/0012.sql",
             bytes: 4096,
           },
-          expiryAt: "2026-01-01T17:30:00.900Z",
         },
       },
     },
@@ -237,10 +233,6 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
         // reaches the console HERE and on no read. The pane learns the origin by
         // joining its projection row to the `approval` entity this beat folds into,
         // so the framing it renders comes from the event and never from the reply.
-        // `expiryAt` rides beside it because the wire requires the pair — an
-        // `askId`-bearing request without its shared deadline refuses at the
-        // emission parse, so a fixture carrying one alone would teach a shape no
-        // daemon can send.
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:01.100Z",
         actorId: AGENT_IMPLEMENTER,
@@ -256,7 +248,6 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
             command: "git push --force origin feature/rebased",
             branch: "feature/rebased",
           },
-          expiryAt: "2026-01-01T17:30:01.100Z",
         },
       },
     },

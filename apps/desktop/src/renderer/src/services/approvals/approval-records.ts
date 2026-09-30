@@ -108,7 +108,6 @@ export interface ApprovalRecord {
   readonly createdAt: string;
   /** The last state-transition instant. Expired and canceled rows settle here. */
   readonly updatedAt: string;
-  readonly expiryAt?: string | undefined;
   readonly resolvedAt?: string | undefined;
   readonly decision?: string | undefined;
   readonly approverId?: string | undefined;
@@ -136,7 +135,6 @@ export const APPROVAL_RECORD_MEMBERS: readonly (keyof ApprovalRecord)[] = [
   "resourceDescriptor",
   "createdAt",
   "updatedAt",
-  "expiryAt",
   "resolvedAt",
   "decision",
   "approverId",
@@ -178,8 +176,6 @@ const approvalRecordSchema: z.ZodType<ApprovalRecord> = z
     state: z.string().min(1),
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1),
-    /** Verbatim. The console performs no expiry arithmetic of its own. */
-    expiryAt: z.string().optional(),
     resolvedAt: z.string().optional(),
     decision: z.string().optional(),
     approverId: z.string().optional(),
@@ -198,7 +194,6 @@ const approvalRecordSchema: z.ZodType<ApprovalRecord> = z
       resourceDescriptor: row.resourceDescriptor,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
-      expiryAt: row.expiryAt,
       resolvedAt: row.resolvedAt,
       decision: row.decision,
       approverId: row.approverId,

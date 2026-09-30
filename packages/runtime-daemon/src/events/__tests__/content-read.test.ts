@@ -2,7 +2,7 @@
 // partition: a stored row paired with the body its content column holds.
 //
 // A body that does not come back can mean different things — the key is
-// unreachable, the wrapped key row is gone, the row was compacted, the sealed
+// unreachable, the wrapped key row is gone, the session was purged, the sealed
 // bytes will not open, or the body was never there — and each gets its own
 // named reason. None of them gets a fabricated empty body.
 //
@@ -47,7 +47,7 @@ const MASTER_KEY = new Uint8Array(SESSION_CONTENT_KEY_BYTES).fill(3);
  */
 const DECLARED_UNAVAILABLE_REASONS: readonly HydratedContentUnavailableReason[] = [
   "absent",
-  "compacted",
+  "purged",
   "master_key_unavailable",
   "wrapped_key_missing",
   "decrypt_failed",
@@ -191,13 +191,13 @@ describe("hydrating machine-authored prose", () => {
     });
     if (absent.content.status === "unavailable") produced.add(absent.content.reason);
 
-    // compacted
-    const compacted = await reader.hydrate({
+    // purged
+    const purged = await reader.hydrate({
       envelope: makeEnvelope({ runId: "run-1" }),
       contentPayload: null,
       retentionClass: "audit_stub",
     });
-    if (compacted.content.status === "unavailable") produced.add(compacted.content.reason);
+    if (purged.content.status === "unavailable") produced.add(purged.content.reason);
 
     // decrypt_failed — the wrapped key row will not open under this master, and
     // the reader reports that as sealed-material-refused rather than guessing.
@@ -262,9 +262,9 @@ describe("hydrating machine-authored prose", () => {
     }
   });
 
-  it("names compaction rather than reporting a destroyed body as one that never was", async () => {
+  it("names the purge rather than reporting a deleted body as one that never was", async () => {
     const { reader } = buildReader();
-    // A compacted row: the column is NULL, so without the retention class it
+    // A purged row: the column is NULL, so without the retention class it
     // could not be told from a row that never had a body.
     expectUnavailable(
       await reader.hydrate({
@@ -272,17 +272,17 @@ describe("hydrating machine-authored prose", () => {
         contentPayload: null,
         retentionClass: "audit_stub",
       }),
-      "compacted",
+      "purged",
     );
   });
 
-  it("names compaction even if the column somehow survived it", async () => {
+  it("names the purge even if the column somehow survived it", async () => {
     const { reader, store } = buildReader();
     const { row } = await sealedRow(store, "the original prose");
-    // A compacted row that still holds bytes is a compaction defect, and
-    // compaction is the fact this daemon recorded — so it is reported rather
-    // than the body the leftover bytes would open to.
-    expectUnavailable(await reader.hydrate({ ...row, retentionClass: "audit_stub" }), "compacted");
+    // A purged row that still holds bytes is a purge defect, and the purge is
+    // the fact this daemon recorded — so it is reported rather than the body
+    // the leftover bytes would open to.
+    expectUnavailable(await reader.hydrate({ ...row, retentionClass: "audit_stub" }), "purged");
   });
 
   it("carries the truncation marker through from the stored payload", async () => {

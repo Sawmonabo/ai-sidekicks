@@ -575,24 +575,18 @@ export const SessionRenameOriginSchema: z.ZodType<SessionRenameOrigin> = z.enum(
 ]);
 
 /**
- * The `session.renamed` payload. `name` is `null` when the rename cleared it. `name` and
- * `previousName` are text a person or a provider wrote, so the event contract routes both
- * through its personal-data indirection.
+ * The stored `session.renamed` payload: the half the personal-data split leaves in the
+ * event. The new name and the previous one are text a person or a provider wrote, so the
+ * emitter moves both into the row's personal-data partition, and neither is a member here.
  */
 export interface SessionRenamedPayload {
   sessionId: SessionId;
-  name: string | null;
-  previousName?: string | null | undefined;
   origin: SessionRenameOrigin;
   actor?: UserId | undefined;
 }
 export const SessionRenamedPayloadSchema: z.ZodType<SessionRenamedPayload> = z
   .object({
     sessionId: SessionIdSchema,
-    name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRenamedPayload.name").nullable(),
-    previousName: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRenamedPayload.previousName")
-      .nullable()
-      .optional(),
     origin: SessionRenameOriginSchema,
     actor: UserIdSchema.optional(),
   })

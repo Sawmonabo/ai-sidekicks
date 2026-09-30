@@ -202,19 +202,10 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
         normalizedKind: "notification",
       },
     ],
-    // Guardian + autoApprovalReview (delta row: `approval_flow`
-    // observability, "never a Cedar-pipeline bypass").
+    // Codex's own reviewer: a warning or a required review is the flag, and a
+    // completed review is the reviewer's block.
     [
       "guardianWarning",
-      {
-        transport: "server-notification",
-        family: "approval_flow",
-        eventType: "moderation.review_flagged",
-        normalizedKind: null,
-      },
-    ],
-    [
-      "item/autoApprovalReview/started",
       {
         transport: "server-notification",
         family: "approval_flow",
@@ -227,21 +218,12 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       {
         transport: "server-notification",
         family: "approval_flow",
-        eventType: "moderation.review_flagged",
+        eventType: "approval.reviewer_denied",
         normalizedKind: null,
       },
     ],
     [
       "autoApprovalReview/strictReviewRequired",
-      {
-        transport: "server-notification",
-        family: "approval_flow",
-        eventType: "moderation.review_flagged",
-        normalizedKind: null,
-      },
-    ],
-    [
-      "turn/moderationMetadata",
       {
         transport: "server-notification",
         family: "approval_flow",
@@ -291,9 +273,9 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       "model/safetyBuffering/updated",
       {
         transport: "server-notification",
-        family: "session_lifecycle",
-        eventType: "session.notice",
-        normalizedKind: "notification",
+        family: "run_lifecycle",
+        eventType: "run.safety_buffering_updated",
+        normalizedKind: null,
       },
     ],
     // `process/*` (delta row: `tool_activity`).
@@ -354,6 +336,9 @@ const EXPECTED_NOT_EVENTED_METHODS: readonly CodexInboundFrameMethod[] = [
   // discarded so the next read is a full re-read), so it carries no session
   // observation a timeline row could hold.
   "skills/changed",
+  // The review's start and the moderation hint go to the daemon's log only.
+  "item/autoApprovalReview/started",
+  "turn/moderationMetadata",
 ];
 
 /**
@@ -770,12 +755,11 @@ describe("Codex event normalizer — purity and determinism", () => {
 //
 // The one case these tests could not originally distinguish: hard-coding, at
 // the derivation site and behind an explicit `as` cast, the value that was then
-// correct for every row. That produced byte-identical output while all 11 Codex
-// targets were pending. THAT WINDOW IS NOW CLOSED — the census is MIXED: six
-// targets carry registered payload variants and five do not, so a single
+// correct for every row. That produced byte-identical output while every Codex
+// target was pending. THAT WINDOW IS NOW CLOSED — the census is MIXED: some
+// targets carry registered payload variants and some do not, so a single
 // hard-coded value disagrees with the resolver on one side or the other and the
-// row-level assertion fails. The ratchet test at the end of this block pins the
-// exact partition, so the next registration is loud rather than silent.
+// row-level assertion fails.
 
 describe("Codex event normalizer — emission readiness is derived, not stated", () => {
   it("resolves a registered payload-variant target as envelope-constructible", () => {
@@ -835,54 +819,6 @@ describe("Codex event normalizer — emission readiness is derived, not stated",
         `${nativeMethod} is not-evented and must carry no readiness stamp`,
       ).toBe(false);
     }
-  });
-
-  it("pins which Codex targets are envelope-constructible at this tree state", () => {
-    // A ratchet, not an aspiration, and RE-DERIVED rather than relaxed.
-    // Payload variants are registered independently of this driver, so when
-    // the next one lands this fails and whoever landed it re-derives the
-    // partition here. Failure is GOOD NEWS.
-    //
-    // WHAT THIS DOES NOT MEAN. A constructible target is not a live emission.
-    // `resolveCodexFrameEmissionRoute` — the only thing that turns readiness
-    // into an `emit` route — has no production caller in this tree: the driver
-    // core does not consume it yet, and no payload builder for these types
-    // exists anywhere. So these moved from "forbidden" to "permitted", and
-    // nothing began emitting.
-    const normalized = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.values()].filter(
-      (normalization) => normalization.disposition === "normalized",
-    );
-    const distinctTargets = (readiness: string): readonly string[] =>
-      [
-        ...new Set(
-          normalized
-            .filter((normalization) => normalization.emissionReadiness === readiness)
-            .map((normalization) => normalization.eventType),
-        ),
-      ].sort();
-
-    expect(distinctTargets("envelope-constructible")).toEqual([
-      "assistant.message",
-      "moderation.review_flagged",
-      "session.goal_cleared",
-      "session.notice",
-      "tool.invoked",
-      "tool.result",
-    ]);
-    expect(distinctTargets("payload-variant-pending")).toEqual([
-      "driver_ask.requested",
-      "run.failed",
-      "session.goal_updated",
-      "usage.context_compacted",
-      "usage.rate_limit_update",
-    ]);
-    // The two partitions together are the whole census — so a target cannot
-    // leave the table unnoticed by being dropped from one list and never added
-    // to the other.
-    expect(
-      [...distinctTargets("envelope-constructible"), ...distinctTargets("payload-variant-pending")]
-        .length,
-    ).toBe(new Set(normalized.map((normalization) => normalization.eventType)).size);
   });
 
   it("keeps the stamp identity-stable across repeated resolution", () => {
@@ -1195,7 +1131,6 @@ describe("classifyCodexFrameFamilyForRouting", () => {
       "error",
       "account/rateLimits/updated",
       "account/chatgptAuthTokens/refresh",
-      "model/safetyBuffering/updated",
       "project/changed",
       // Connection-scoped by its own pinned shape — its payload is the empty
       // object, so it names no thread. Asserted explicitly because the
@@ -1221,11 +1156,16 @@ describe("classifyCodexFrameFamilyForRouting", () => {
     });
   });
 
-  it("classifies thread/started lifecycle and the approval asks interactive-request", () => {
-    expect(classifyCodexFrameFamilyForRouting(CODEX_THREAD_STARTED_METHOD)).toEqual({
-      scope: "thread",
-      capability: "lifecycle",
-    });
+  it("classifies thread/started and the safety hold lifecycle and the approval asks interactive-request", () => {
+    // The safety hold names its thread and turn, so it routes with that thread:
+    // a child's hold stays with the child instead of reaching the lead's
+    // working line.
+    for (const lifecycleMethod of [CODEX_THREAD_STARTED_METHOD, "model/safetyBuffering/updated"]) {
+      expect(classifyCodexFrameFamilyForRouting(lifecycleMethod)).toEqual({
+        scope: "thread",
+        capability: "lifecycle",
+      });
+    }
     for (const interactiveMethod of [
       "item/commandExecution/requestApproval",
       "item/tool/requestUserInput",

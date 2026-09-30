@@ -26,7 +26,14 @@ describe("the kinds the composer feature claims", () => {
     // category under some other namespace fails here rather than being dropped by a
     // prefix filter nobody re-read.
     expect(categoryKinds.filter((kind) => !APPROVAL_FLOW_EVENT_KINDS.includes(kind))).toStrictEqual(
-      ["moderation.review_flagged", "plan.proposed", "plan.accepted", "plan.handed_off"],
+      [
+        "approval.reviewer_denied",
+        "approval.denial_overridden",
+        "moderation.review_flagged",
+        "plan.proposed",
+        "plan.accepted",
+        "plan.handed_off",
+      ],
     );
     expect(APPROVAL_FLOW_EVENT_KINDS).toHaveLength(6);
     expect(Object.keys(APPROVAL_FLOW_PROJECTORS).toSorted()).toStrictEqual(
@@ -106,7 +113,6 @@ describe("one event, folded", () => {
           scope: "run",
           requestedBy: "agent-implementer",
           resourceDescriptor: { command: "git push --force" },
-          expiryAt: "2026-01-01T17:30:00.000Z",
         },
       }),
     );
@@ -126,7 +132,6 @@ describe("one event, folded", () => {
           requestedBy: "agent-implementer",
           resourceDescriptor: { command: "git push --force" },
           askId: "ask-1",
-          expiryAt: "2026-01-01T17:30:00.000Z",
         },
       },
     });
@@ -167,7 +172,7 @@ describe("one event, folded", () => {
           // A number where a string belongs, and an empty string, both of which look
           // exactly as confident as the real thing once rendered.
           askId: 7,
-          expiryAt: "",
+          requestedBy: "",
         },
       }),
     );

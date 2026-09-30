@@ -43,7 +43,7 @@ describe("the scenario's approval beats, folded through the shipped store", () =
     // Exactly one of the scenario's requests arrived as a provider permission ask,
     // and the member reaches the console on that event and on no read.
     expect(withAsk).toHaveLength(1);
-    expect(withAsk[0]?.body?.["expiryAt"]).toBe("2026-01-01T17:30:01.100Z");
+    expect(withAsk[0]?.body?.["askId"]).toBe("ask-permission-force-push");
   });
 
   it("negative control: a store opened without the approval-flow projectors folds none of it", () => {

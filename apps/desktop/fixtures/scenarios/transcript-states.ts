@@ -436,12 +436,10 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   }),
   {
     atMs: 2_860,
-    // THE COMPACTION INSIDE THE CHILD, which makes its summary a FLOOR rather than a
-    // total: rows before this one left the child's own transcript, so the count the
-    // summary carries is a lower bound over a history that lost entries — the one
-    // incompleteness cause a log can state on its own. The implementer's lane carries
-    // the session's other compaction seam and says nothing about a child, which is
-    // how a reader sees the marker is scoped to the run it landed in.
+    // THE COMPACTION INSIDE THE CHILD. It folds the provider's context and not the
+    // session's log, so the child's summary stays whole across it. The implementer's
+    // lane carries the session's other compaction seam and says nothing about a child,
+    // which is how a reader sees the seam is scoped to the run it landed in.
     kind: "usage.context_compacted",
     payload: { sessionId: SESSION_ID, runId: RUN_ARCHITECT_CHILD },
   },

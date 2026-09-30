@@ -179,22 +179,12 @@ describe("the session verbs' event payloads", () => {
     ).toBe(false);
   });
 
-  it("a rename names where it came from, and may clear the name", () => {
+  it("a rename names where it came from", () => {
     expect(
-      SessionRenamedPayloadSchema.safeParse({ sessionId: SESSION_ID, name: null, origin: "user" })
-        .success,
+      SessionRenamedPayloadSchema.safeParse({ sessionId: SESSION_ID, origin: "auto" }).success,
     ).toBe(true);
     expect(
-      SessionRenamedPayloadSchema.safeParse({
-        sessionId: SESSION_ID,
-        name: "Fix the login redirect",
-        previousName: null,
-        origin: "auto",
-      }).success,
-    ).toBe(true);
-    expect(
-      SessionRenamedPayloadSchema.safeParse({ sessionId: SESSION_ID, name: "x", origin: "system" })
-        .success,
+      SessionRenamedPayloadSchema.safeParse({ sessionId: SESSION_ID, origin: "system" }).success,
     ).toBe(false);
   });
 

@@ -31,49 +31,28 @@ export function event(
   };
 }
 
+/** The session and the agent every goal event below names. */
+const GOAL_SESSION_ID = "019b7a11-1100-75e5-8510-ada11a5a0001";
+const GOAL_AGENT_ID = "019b7a11-1100-7a6e-8110-d1a4c1150001";
+
 export function goalUpdate(
   sequence: number,
   text: string,
   occurredAt?: string,
 ): ProjectedSessionEvent {
-  return event(sequence, "session.goal_updated", { goal: { text } }, occurredAt);
-}
-
-export function goalClear(sequence: number, occurredAt?: string): ProjectedSessionEvent {
-  return event(sequence, "session.goal_cleared", undefined, occurredAt);
-}
-
-/**
- * A goal update carrying the origin keys the accepting daemon stamps on it.
- *
- * `localSequence` is where the event landed on THIS node and `originSeq` is where
- * the origin appended it — the two are independent, which is the entire subject of
- * the cross-node cases below.
- */
-export function originGoalUpdate(
-  localSequence: number,
-  text: string,
-  origin: { readonly nodeId: string; readonly originSeq: number },
-  occurredAt?: string,
-): ProjectedSessionEvent {
   return event(
-    localSequence,
+    sequence,
     "session.goal_updated",
-    { goal: { text }, originNodeId: origin.nodeId, originSeq: origin.originSeq },
+    { sessionId: GOAL_SESSION_ID, agentId: GOAL_AGENT_ID, goal: { text }, status: "active" },
     occurredAt,
   );
 }
 
-/** The clearing arm with its own origin keys — the taxonomy stamps both kinds. */
-export function originGoalClear(
-  localSequence: number,
-  origin: { readonly nodeId: string; readonly originSeq: number },
-  occurredAt?: string,
-): ProjectedSessionEvent {
+export function goalClear(sequence: number, occurredAt?: string): ProjectedSessionEvent {
   return event(
-    localSequence,
+    sequence,
     "session.goal_cleared",
-    { originNodeId: origin.nodeId, originSeq: origin.originSeq },
+    { sessionId: GOAL_SESSION_ID, agentId: GOAL_AGENT_ID },
     occurredAt,
   );
 }
@@ -83,6 +62,6 @@ export function originGoalClear(
  *
  * A relayed event takes its local sequence when it lands here, so a delayed one can
  * sit at a higher position than the event it preceded; with the instant tied, the
- * order falls to the origin keys and the envelope id under test rather than to time.
+ * order falls to the envelope id under test rather than to time.
  */
 export const TIED_INSTANT: string = "2026-01-01T00:00:05.000Z";

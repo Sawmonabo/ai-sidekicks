@@ -453,17 +453,9 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
   .strict();
 
 /**
- * The closed four-state reasoning-availability reply.
- *
- * The prior shape was `available: boolean` with two free optionals, which
- * serialized the available / unavailable / compacted / policy-redacted cases
- * IDENTICALLY and left the distinguish-the-cases requirement unrepresentable.
- * It was replaced in place rather than
- * compatibility-extending it: the shape predated that PR as canonical-doc text
- * only, with no shipped emitter or parser, so the deployed-skew rules — which
- * guard from the first shipped parser onward — impose no legacy boolean arm.
- * This module is that first shipped parser, and it ships with NO tolerant
- * fallback arm: the legacy boolean shape fails parse.
+ * The closed three-state reasoning-availability reply. Each state is its own
+ * arm, so the available, unavailable and policy-redacted cases never
+ * serialize alike, and a bare `available: boolean` fails parse.
  *
  * Per-state field rules, each enforced by `.strict()` on its own arm rather
  * than narrated:
@@ -472,10 +464,11 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
  *     on the continuing arm, the `nextCursor` to continue from.
  *   * `policy_redacted` REQUIRES `policyReason` and admits no entries — the
  *     redaction renders as an explicit surface, never as absence.
- *   * `unavailable` and `compacted` carry NEITHER; the client renders the
- *     placeholder from the state itself. `compacted` names WHY expansion is
- *     empty, and neither state erases the durable summary or the policy marker
- *     that remain canonical on the summary-first surface.
+ *   * `unavailable` carries NEITHER; the client renders the placeholder from
+ *     the state itself, and the state does not erase the durable summary or
+ *     the policy marker that remain canonical on the summary-first surface.
+ *     Reasoning that was captured is kept whole for as long as the session's
+ *     events are kept, so no state says it was captured and then discarded.
  *
  * No two states serialize identically, so a state-inconsistent field set is a
  * parse failure rather than a rendering ambiguity.
@@ -484,7 +477,7 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
  * for the same reason: a bounded surface that cannot say where it stopped has
  * no continuation. The union nests — outer on `availability`, inner on
  * `hasMore` — rather than flattening, so `availability` keeps selecting one
- * option and the four states stay four.
+ * option and the three states stay three.
  */
 export type ReasoningSurfaceReadResponse =
   | {
@@ -500,7 +493,6 @@ export type ReasoningSurfaceReadResponse =
       nextCursor?: EventCursor | undefined;
     }
   | { availability: "unavailable" }
-  | { availability: "compacted" }
   | { availability: "policy_redacted"; policyReason: string };
 
 // NON-EMPTY ON THE CONTINUING ARM, and there alone.
@@ -509,15 +501,14 @@ export type ReasoningSurfaceReadResponse =
 // exists and then shows nothing, which renders identically to `unavailable`
 // while asserting the opposite — the collapse the distinguish-the-cases
 // requirement forbids, and which forbids in the redaction direction. A
-// producer with no entries to serve at all has three honest arms to choose
+// producer with no entries to serve at all has two honest arms to choose
 // from and must pick one.
 //
 // A CONTINUATION is a different question with a different honest answer. A
 // caller re-asking from an `afterCursor` that already sat at the end of the
 // surface has reached the end of something that does exist, and every other
 // arm misstates that: `unavailable` says no reasoning was captured,
-// `compacted` says it was captured and discarded, `policy_redacted` says it
-// was withheld. The true statement is `available`, `hasMore: false`, nothing
+// `policy_redacted` says it was withheld. The true statement is `available`, `hasMore: false`, nothing
 // further — so the terminal arm carries no floor.
 //
 // The two rules split cleanly by arm only because `hasMore: true` is the one
@@ -569,7 +560,6 @@ export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadR
   z.discriminatedUnion("availability", [
     reasoningAvailableArmSchema,
     z.object({ availability: z.literal("unavailable") }).strict(),
-    z.object({ availability: z.literal("compacted") }).strict(),
     z
       .object({
         availability: z.literal("policy_redacted"),
@@ -587,12 +577,11 @@ export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadR
  * contract — the mechanism behind the "every non-`available` state produces a
  * visible explanation surface".
  *
- * FOUR VALUES, FIVE TYPE ARMS: `available` splits on `hasMore` for its
- * continuation, which is a paging distinction and not a fifth state, so it
- * contributes one entry here.
+ * `available` splits on `hasMore` for its continuation, which is a paging
+ * distinction and not another state, so it contributes one entry here.
  */
 export const REASONING_AVAILABILITY_STATES: readonly ReasoningSurfaceReadResponse["availability"][] =
-  Object.freeze(["available", "unavailable", "compacted", "policy_redacted"] as const);
+  Object.freeze(["available", "unavailable", "policy_redacted"] as const);
 
 // ---------------------------------------------------------------------------
 // ChildRunExpand

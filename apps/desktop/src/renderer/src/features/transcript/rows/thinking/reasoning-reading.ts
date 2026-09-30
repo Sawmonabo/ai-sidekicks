@@ -1,21 +1,19 @@
-// The reasoning row's model: what the four arms say, and how the tail is cut.
+// The reasoning row's model: what the three arms say, and how the tail is cut.
 //
 // WHY A MODEL MODULE BESIDE THE COMPONENT. The reasoning read answers a CLOSED
-// four-state discriminant, and three of the four states carry no payload at all —
+// three-state discriminant, and two of the three states carry no entries at all —
 // the client renders the placeholder from the state itself. So the sentences ARE
-// the whole view for those three, and a component that spelled them inline would put
-// the one thing this feature is about (that `unavailable`, `compacted`, and
-// `policy_redacted` are three different facts and never one empty body) inside a
-// render body where nothing can hold it total over the union. Here the table is
-// total over the contract's own `availability` union by annotation, so a fifth
-// state added to `@ai-sidekicks/contracts` fails to compile in this file rather
-// than reaching a reader as blank space.
+// the whole view for those two, and a component that spelled them inline would put
+// the one thing this feature is about (that `unavailable` and `policy_redacted` are
+// different facts and never one empty body) inside a render body where nothing can
+// hold it total over the union. Here the table is total over the contract's own
+// `availability` union by annotation, so a state added to
+// `@ai-sidekicks/contracts` fails to compile in this file rather than reaching a
+// reader as blank space.
 //
-// THE THREE DISTINCTIONS THE SENTENCES MUST KEEP, which is the whole of the rule:
+// THE DISTINCTIONS THE SENTENCES MUST KEEP, which is the whole of the rule:
 //
 //   • `unavailable` — the reasoning was not captured. Nothing was withheld.
-//   • `compacted`   — it WAS captured and then discarded at a compaction boundary;
-//                     the durable summary beside it is what survives.
 //   • `policy_redacted` — it exists and is being withheld, and the reason travels
 //                     on the wire. A redaction rendered as absence is the failure
 //                     this arm exists to prevent, so the copy names the withholding
@@ -93,7 +91,7 @@ export function reasoningTailOf(text: string): readonly string[] {
  *
  * Total over the contract's union by construction. `available` carries an entry
  * of its own because a read that succeeded and served an EMPTY page is still a
- * distinct fact from the three that carry no entries at all — the schema admits it
+ * distinct fact from the two that carry no entries at all — the schema admits it
  * only on the terminal arm, and a reader meeting one is owed the same sentence
  * treatment as the others rather than a blank region.
  */
@@ -107,10 +105,6 @@ export const REASONING_AVAILABILITY_COPY: Readonly<
   unavailable: {
     title: "No reasoning was captured for this turn.",
     detail: "The provider recorded none. Nothing is being withheld here.",
-  },
-  compacted: {
-    title: "This turn's reasoning was summarized when the context was compacted.",
-    detail: "The entries were discarded at the boundary; the durable summary is what remains.",
   },
   policy_redacted: {
     title: "This turn's reasoning is withheld by policy.",

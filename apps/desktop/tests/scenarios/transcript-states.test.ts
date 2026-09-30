@@ -126,14 +126,14 @@ describe("the three lanes", () => {
 });
 
 describe("the folded bodies", () => {
-  it("summarizes the architect's child run, and marks it incomplete", () => {
+  it("summarizes the architect's child run as whole across its compaction", () => {
     const entries = new ChildRunIndex(transcriptStatesRows()).childRunEntries();
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.summary.runId).toBe(RUN_ARCHITECT_CHILD);
-    // The compaction inside the child is what makes the count a floor, and it is the
-    // one incompleteness cause a log can state on its own.
-    expect(entries[0]?.summary.completeness.state).toBe("incomplete");
+    // The compaction inside the child folds the provider's context, not the log, so
+    // the child's rows are all still there to count.
+    expect(entries[0]?.summary.completeness.state).toBe("complete");
     // Anchored at the birth row and re-summarized nowhere: the child's later rows say
     // nothing about a parent, so filing them as re-summarizations would be a claim the
     // wire did not make.

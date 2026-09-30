@@ -3,8 +3,8 @@
 // servers and their resources, the live `/` list, the side question, the review,
 // the definitions reload, the step bound, and the Codex sessions typed in a
 // terminal. It also holds the payloads of the flow rows these controls write: the
-// session notice, the reviewer's flag, the answered side question and the reached
-// step bound.
+// session notice, the reviewer's flag, the answered side question, the reached
+// step bound and Codex's safety hold on a turn.
 //
 // The session's directory and lifecycle live in `session.ts`; these per-session
 // controls sit beside it in their own module because one file would hold two
@@ -29,7 +29,9 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
+  DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
+  DRIVER_WIRE_TOKEN_MAX_LEN,
   ProviderCommandEntrySchema,
   RunIdSchema,
   type McpServerStatus,
@@ -453,6 +455,36 @@ export const RunStepLimitReachedPayloadSchema: z.ZodType<RunStepLimitReachedPayl
   .object({ sessionId: SessionIdSchema, runId: RunIdSchema, count: z.number().int().positive() })
   .strict();
 
+/**
+ * The `run.safety_buffering_updated` payload: Codex is holding a turn for a safety
+ * check (`active`), or has released it. `fasterModel` is the model Codex names, as
+ * it sent it. It is relayed live and never kept in the session's history, so a
+ * re-opened session does not replay it.
+ */
+export type RunSafetyBufferingUpdatedPayload = {
+  sessionId: SessionId;
+  runId: RunId;
+  turnId: string;
+  active: boolean;
+  fasterModel?: string | undefined;
+};
+/** Parses a {@link RunSafetyBufferingUpdatedPayload}. */
+export const RunSafetyBufferingUpdatedPayloadSchema: z.ZodType<RunSafetyBufferingUpdatedPayload> = z
+  .object({
+    sessionId: SessionIdSchema,
+    runId: RunIdSchema,
+    turnId: wireFreeFormString(
+      DRIVER_WIRE_HANDLE_MAX_LEN,
+      "RunSafetyBufferingUpdatedPayload.turnId",
+    ),
+    active: z.boolean(),
+    fasterModel: wireFreeFormString(
+      DRIVER_WIRE_TOKEN_MAX_LEN,
+      "RunSafetyBufferingUpdatedPayload.fasterModel",
+    ).optional(),
+  })
+  .strict();
+
 // --------------------------------------------------------------------------
 // Codex sessions typed in a terminal
 // --------------------------------------------------------------------------
@@ -512,6 +544,9 @@ export const SessionTerminalCodexListResponseSchema: z.ZodType<SessionTerminalCo
  * - `review_started` and `review_finished`: the two ends of a review.
  * - `goal_not_met` and `goal_check_unfinished`: Claude Code ended the turn at its
  *   cap on unmet checks, or a goal check ran past its limit; the goal stays active.
+ * - `provider_warning`: a warning or a deprecation notice from Codex, in Codex's own
+ *   words. It draws no flow row: the working line counts the session's warnings and
+ *   lists them from that count.
  */
 export type SessionNoticePayload =
   | {
@@ -538,7 +573,19 @@ export type SessionNoticePayload =
   | { sessionId: SessionId; kind: "review_started"; target: SessionReviewTarget }
   | { sessionId: SessionId; kind: "review_finished" }
   | { sessionId: SessionId; kind: "goal_not_met"; agentId: string }
-  | { sessionId: SessionId; kind: "goal_check_unfinished"; agentId: string };
+  | { sessionId: SessionId; kind: "goal_check_unfinished"; agentId: string }
+  | {
+      sessionId: SessionId;
+      kind: "provider_warning";
+      source: ProviderWarningSource;
+      text: string;
+      details?: string | undefined;
+    };
+
+const PROVIDER_WARNING_SOURCE_VALUES = ["warning", "deprecation"] as const;
+
+/** Which Codex notice a provider warning came from: `warning` or `deprecationNotice`. */
+export type ProviderWarningSource = (typeof PROVIDER_WARNING_SOURCE_VALUES)[number];
 
 /** Every `session.notice` kind. */
 export type SessionNoticeKind = SessionNoticePayload["kind"];
@@ -603,6 +650,18 @@ export const SessionNoticePayloadSchema: z.ZodType<SessionNoticePayload> = z
         sessionId: SessionIdSchema,
         kind: z.literal("goal_check_unfinished"),
         agentId: agentIdSchema,
+      })
+      .strict(),
+    z
+      .object({
+        sessionId: SessionIdSchema,
+        kind: z.literal("provider_warning"),
+        source: z.enum(PROVIDER_WARNING_SOURCE_VALUES),
+        text: wireFreeFormString(DRIVER_FAILURE_DETAIL_MAX_LEN, "SessionNoticePayload.text"),
+        details: wireFreeFormString(
+          DRIVER_FAILURE_DETAIL_MAX_LEN,
+          "SessionNoticePayload.details",
+        ).optional(),
       })
       .strict(),
   ])

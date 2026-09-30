@@ -1,13 +1,13 @@
-// The reasoning row's body: the four arms, the streaming tail, and the one control.
+// The reasoning row's body: the three arms, the streaming tail, and the one control.
 //
 // A mount may supply `body` to replace it. `reasoning-reading.ts` carries the reading this
 // component renders.
 //
-// WHAT IT RENDERS, and why it is a real view rather than a placeholder. Three of the
-// four availability arms carry no entries at all, which means the whole of what a reader
-// sees for them is the sentence the state itself supplies. Showing nothing for those three
-// would be the exact defect the four-arm discriminant exists to prevent — `unavailable`,
-// `compacted`, and `policy_redacted` rendering as one empty body — so it renders the arms.
+// WHAT IT RENDERS, and why it is a real view rather than a placeholder. Two of the three
+// availability arms carry no entries at all, which means the whole of what a reader sees
+// for them is the sentence the state itself supplies. Showing nothing for those two would
+// be the exact defect the discriminant exists to prevent — `unavailable` and
+// `policy_redacted` rendering as one empty body — so it renders the arms.
 //
 // THE TAIL AND THE READ ARE TWO DIFFERENT THINGS AND ARE NOT RANKED AGAINST EACH
 // OTHER. The tail is text the reveal engine is publishing right now, cut to the

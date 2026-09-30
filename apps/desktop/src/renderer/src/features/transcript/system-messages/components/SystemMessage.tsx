@@ -73,7 +73,6 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
         {seamContinuity(seam)}
         {seamReason(seam)}
       </p>
-      {seamWireAbsence(seam)}
     </TranscriptRowLayout>
   );
 }
@@ -135,27 +134,4 @@ function seamReason(seam: SystemMessageReading): React.JSX.Element | null {
     return null;
   }
   return <span className="meridian-system-message__figure">{seam.reason}</span>;
-}
-
-/**
- * The seam whose wire type the registered census does not carry.
- *
- * `not-checked` rather than `empty`: nobody asked the daemon for this and the daemon
- * could not answer if they had, which is a different fact from a served empty
- * reading. A row of this kind can still ARRIVE — `TimelineRow.type` is free-form by
- * contract — and when one does the console draws it and says, on the same line, that
- * its type is not one the contract package registers.
- */
-function seamWireAbsence(seam: SystemMessageReading): React.JSX.Element | null {
-  if (seam.wireRegistration === "registered") {
-    return null;
-  }
-  return (
-    <Nothing
-      kind="not-checked"
-      placement="inline"
-      title="This build does not register that event type."
-      detail={`${seam.wireType} arrived, and the contract package carries no registration for it, so nothing here was read from a shape this build knows.`}
-    />
-  );
 }

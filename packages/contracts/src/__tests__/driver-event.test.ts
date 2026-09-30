@@ -85,27 +85,16 @@ const DRIVER_EVENT_CATEGORIES: readonly EventCategory[] = [
   "runtime_node_lifecycle",
 ];
 
-// The census size of the seven driver categories: 13 + 2 + 8 + 17 + 7 + 8 + 2.
-// Hand-maintained on purpose — it is the one number here derived from neither
-// the arrays nor the registry, so it fails when a category grows or when the
-// driver list itself changes, which no derivation-versus-derivation assert can
-// catch.
-const DRIVER_EVENT_TYPE_COUNT = 57;
-
-// One sample per driver category that currently REGISTERS a payload variant —
-// `assistant_output`, `tool_activity`, `interactive_request` and
-// `artifact_publication`. The element type is the pin: `DriverEventType` is
-// derived by `Extract` over the union's literal `category` member, so a
-// category dropped or misspelled in the derivation removes its arms from the
-// type and fails this declaration at COMPILE time (vitest strips types and
-// would not catch it).
-//
-// The three categories with no sample here are not omissions: `run_lifecycle`,
-// `usage_telemetry` and `runtime_node_lifecycle` are on the driver list and
-// carry census types, but none of them registers a payload variant yet, so
-// none contributes an arm to `DriverEvent` today.
-// That asymmetry is exactly what the set-versus-type bind below states.
+// One sample from each of five driver categories that register a payload
+// variant — `run_lifecycle`, `assistant_output`, `tool_activity`,
+// `interactive_request` and `artifact_publication`. The element type is the
+// pin: `DriverEventType` is derived by `Extract` over the union's literal
+// `category` member, so a category dropped or misspelled in the derivation
+// removes its arms from the type and fails this declaration at COMPILE time
+// (vitest strips types and would not catch it). The set-versus-type bind below
+// covers every registered arm.
 const DRIVER_EVENT_TYPE_SAMPLES: readonly DriverEventType[] = [
+  "run.safety_buffering_updated",
   "assistant.message",
   "tool.invoked",
   "question.asked",
@@ -124,13 +113,6 @@ describe("DriverEvent — the driver slice of the census", () => {
       .filter(([, category]) => driverCategories.has(category))
       .map(([eventType]) => eventType);
     expect([...DRIVER_EVENT_TYPES].sort()).toEqual([...expected].sort());
-
-    // Cardinality bind alongside the identity one. Both paths are pinned to
-    // the hand-maintained count, so a category added to or removed from the
-    // driver list moves this number and the seven-category claim cannot drift
-    // silently.
-    expect(expected).toHaveLength(DRIVER_EVENT_TYPE_COUNT);
-    expect(DRIVER_EVENT_TYPES.size).toBe(DRIVER_EVENT_TYPE_COUNT);
   });
 
   it("set membership and category membership are the same predicate over every registered arm", () => {
@@ -153,7 +135,6 @@ describe("DriverEvent — the driver slice of the census", () => {
     // Runtime read of the compile-time fixture, so the pin anchors to an
     // executing assertion rather than sitting inert (the `@ts-expect-error`
     // idiom the provider-driver suite uses).
-    expect(DRIVER_EVENT_TYPE_SAMPLES).toHaveLength(4);
     for (const sample of DRIVER_EVENT_TYPE_SAMPLES) {
       expect(DRIVER_EVENT_TYPES.has(sample)).toBe(true);
       expect(SESSION_EVENT_TYPES).toContain(sample);

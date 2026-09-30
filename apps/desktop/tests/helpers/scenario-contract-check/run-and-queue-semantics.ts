@@ -59,7 +59,12 @@
 // than about a beat. The beat-scoped half of the queue rule is the
 // queue leg here; the row-read half belongs where a scenario is actually played.
 
-import { RunIdSchema, SessionIdSchema } from "@ai-sidekicks/contracts";
+import {
+  RunIdSchema,
+  RunSafetyBufferingUpdatedPayloadSchema,
+  RunStepLimitReachedPayloadSchema,
+  SessionIdSchema,
+} from "@ai-sidekicks/contracts";
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 import { z } from "zod";
 import type { ZodType } from "zod";
@@ -138,9 +143,9 @@ const runIdentityShape = {
 /**
  * The registered payload of each run kind no stream projects.
  *
- * READ OFF the run lifecycle, whose per-type rows are the
- * only place these four shapes exist: the contracts package registers a Zod variant
- * for none of them, and `RunStateChangeEventSchema` is deliberately the `run.subscribeState`
+ * The first four are READ OFF the run lifecycle, whose per-type rows are the only
+ * place those shapes exist: the contracts package registers a Zod variant for none of
+ * them, and `RunStateChangeEventSchema` is deliberately the `run.subscribeState`
  * WIRE projection rather than the durable payload — that module says so in as many
  * words, and it requires a `previousState` the creation row has no value for.
  *
@@ -151,7 +156,8 @@ const runIdentityShape = {
  * written. A strict schema would refuse beats the daemon does emit, which is the
  * opposite of this file's job. Refusing an INVENTED member is `beat-shape.ts`'s
  * strict-layer leg, and that leg reaches exactly the kinds the contracts package
- * registers a variant for — which is none of these four.
+ * registers a variant for — which is none of those four. The step bound and the
+ * safety hold are registered, so their rows are the contract's own payload schemas.
  */
 const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecycleKind, ZodType>> =
   Object.freeze({
@@ -176,6 +182,8 @@ const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecyc
     // `{sessionId, runId, runVersion, reason?}` — the sanitized provider-supplied
     // shutdown reason.
     "run.worker_shutdown": z.object({ ...runIdentityShape, reason: z.string().optional() }),
+    "run.step_limit_reached": RunStepLimitReachedPayloadSchema,
+    "run.safety_buffering_updated": RunSafetyBufferingUpdatedPayloadSchema,
   } satisfies Record<UnprojectedRunLifecycleKind, ZodType>);
 
 /**

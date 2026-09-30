@@ -27,13 +27,10 @@
 //   • `eventCount` — how many of this window's rows are attributed to the child, by
 //     the projection's OWN attribution reader. A count of what is held, which is what
 //     the contract says the member is on the incomplete arm.
-//   • `completeness` — `incomplete` with cause `compacted` from the child's first
-//     `usage.context_compacted`, and `complete` otherwise. A compaction inside the
-//     child folded rows out of its transcript, so the count above is a floor over a
-//     history that lost entries — which is exactly what that cause names, and it is
-//     terminal, so nothing retries it. No other cause is reachable from a log: this
-//     console performs no child-run detail fetch to fail and holds no per-child
-//     backfill state.
+//   • `completeness` — `complete`. The session's log keeps every row a child wrote,
+//     a context compaction inside the child included, so the count above is the
+//     child's whole history. The one incomplete cause is a failed child-run detail
+//     fetch, and this console performs no such fetch here.
 //
 // THE SUMMARY IS COMPOSED HERE AND NOT PARSED HERE. A view never runs a contracts
 // schema over a value — the wire's own shapes are narrowed where the daemon call
@@ -71,15 +68,6 @@ const RUN_CREATED_TYPE = "run.queued";
 const RUN_CREATED_STATE: RunState = "queued";
 
 /**
- * The event type whose arrival inside a child run makes its summary a floor.
- *
- * A compaction is a boundary in that run's own transcript: rows before it were folded
- * away, so the count of what this window holds is a lower bound over a history that
- * lost entries.
- */
-const CONTEXT_COMPACTED_TYPE = "usage.context_compacted";
-
-/**
  * Every child run this log names, keyed by the EVENT ID of the row it is stamped on.
  *
  * Keyed by the row rather than by the run because that is the question the projection
@@ -113,11 +101,6 @@ export function deriveChildRunSummaries(
     if (announcedState !== undefined) {
       reading.state = announcedState;
     }
-    if (event.kind === CONTEXT_COMPACTED_TYPE && reading.compactedAt === undefined) {
-      // The FIRST compaction, because that is when the transcript stopped being whole.
-      // A later one changes nothing about the claim.
-      reading.compactedAt = event.occurredAt;
-    }
   }
   return composedSummaries(readingsByRunId);
 }
@@ -129,7 +112,6 @@ interface ChildRunReading {
   readonly parentRunId: string;
   state: RunState;
   eventCount: number;
-  compactedAt: string | undefined;
 }
 
 /**
@@ -155,7 +137,6 @@ function admitChildRun(
     parentRunId,
     state: RUN_CREATED_STATE,
     eventCount: 0,
-    compactedAt: undefined,
   });
 }
 
@@ -182,10 +163,7 @@ function composedSummaries(
       parentRunId: reading.parentRunId as RunId,
       state: reading.state,
       eventCount: reading.eventCount,
-      completeness:
-        reading.compactedAt === undefined
-          ? { state: "complete" }
-          : { state: "incomplete", cause: "compacted", observedAt: reading.compactedAt },
+      completeness: { state: "complete" },
     });
   }
   return summariesByEventId;

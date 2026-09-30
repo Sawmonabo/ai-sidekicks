@@ -42,8 +42,8 @@ describe("REASONING_ARM_COPY", () => {
     }
   });
 
-  // THE NEGATIVE CONTROL for the one defect the four-arm discriminant exists to
-  // prevent: three of these arms carry no entries, so if any two said the same thing
+  // THE NEGATIVE CONTROL for the one defect the discriminant exists to prevent:
+  // two of these arms carry no entries, so if any two said the same thing
   // a reader could not tell "nothing was captured" from "it was captured and is being
   // withheld". Comparing the whole set by size is what makes that checkable rather
   // than eyeballed — two arms sharing a sentence collapses the set and fails here.
@@ -58,9 +58,6 @@ describe("REASONING_ARM_COPY", () => {
 
   it("never says withheld reasoning is absent reasoning", () => {
     expect(REASONING_AVAILABILITY_COPY.policy_redacted.title).not.toBe(
-      REASONING_AVAILABILITY_COPY.unavailable.title,
-    );
-    expect(REASONING_AVAILABILITY_COPY.compacted.title).not.toBe(
       REASONING_AVAILABILITY_COPY.unavailable.title,
     );
   });

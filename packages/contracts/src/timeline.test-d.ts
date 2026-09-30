@@ -190,13 +190,16 @@ type _ContinuingReasoningRequiresCursor = AssertExtends<
 >;
 
 /**
- * The three non-`available` reasoning states carry no continuation at all —
+ * The non-`available` reasoning states carry no continuation at all —
  * `hasMore` on a state that returns no entries would be a promise of more of
  * nothing. Structurally absent rather than optional-and-always-missing.
  */
 type _UnpagedReasoningStatesHaveNoContinuation = AssertNever<
   Extract<
-    keyof Extract<ReasoningSurfaceReadResponse, { availability: "unavailable" | "compacted" }>,
+    keyof Extract<
+      ReasoningSurfaceReadResponse,
+      { availability: "unavailable" | "policy_redacted" }
+    >,
     "hasMore" | "nextCursor" | "reasoningEntries"
   >
 >;
@@ -234,18 +237,15 @@ type _CompleteArmHasNoCause = AssertNever<Extract<keyof CompleteArm, "cause" | "
  * A consumer reaches the cause only after narrowing, so there is no arm on
  * which `cause` is `undefined` to guard against.
  */
-export function retryabilityOf(summary: ChildRunSummary): "n/a" | "retryable" | "terminal" {
+export function retryabilityOf(summary: ChildRunSummary): "n/a" | "retryable" {
   if (summary.completeness.state === "complete") {
     return "n/a";
   }
   switch (summary.completeness.cause) {
     case "detail_fetch_failed":
       return "retryable";
-    case "compacted":
-      // Terminal: no retry recovers a compacted row.
-      return "terminal";
     default: {
-      // Exhaustiveness: a third cause added without a case here fails to compile.
+      // Exhaustiveness: a cause added without a case here fails to compile.
       const unreachable: never = summary.completeness.cause;
       return unreachable;
     }

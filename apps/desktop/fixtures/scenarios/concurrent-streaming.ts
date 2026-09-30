@@ -427,7 +427,6 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     members: {
       requestedBy: AGENT_IMPLEMENTER,
       resourceDescriptor: { path: "packages/runtime-daemon/src/session/lifecycle.ts" },
-      expiryAt: "2026-01-01T14:35:00.000Z",
     },
   }),
   lane.transition(RUN_IMPLEMENTER, {
@@ -464,7 +463,11 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     atMs: 1_840,
     kind: "approval.approved",
     actorId: USER_YOU,
-    members: { approver: USER_YOU, effectiveScope: APPROVAL_SCOPE },
+    members: {
+      approver: USER_YOU,
+      effectiveScope: APPROVAL_SCOPE,
+      clientResolutionId: "019b79ee-0280-7c01-8110-d1a4c1150031",
+    },
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 1_850,

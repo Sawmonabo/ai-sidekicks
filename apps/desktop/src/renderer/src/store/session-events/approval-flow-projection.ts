@@ -34,8 +34,8 @@
 // words — so there is no registered shape to derive a member union from. The list
 // comes from the approval-flow event category, which fixes the payload at
 // `{sessionId, runId?, approvalRequestId?, askId?, category, scope, requestedBy?,
-// resourceDescriptor?, expiryAt?, approver?, effectiveScope?, nodeId?,
-// rememberedScope?, ruleId?, invalidationTrigger?}`, and from the approval payload
+// resourceDescriptor?, approver?, effectiveScope?, nodeId?, rememberedScope?,
+// ruleId?, invalidationTrigger?}`, and from the approval payload
 // contracts, which say which of them each variant carries. So
 // the tables below are PER TYPE, on `run-lifecycle-projector.ts`'s precedent and for
 // its reason: `approver` is a member of a resolution and of nothing else, and
@@ -81,17 +81,33 @@ import { type ApprovalState } from "@renderer/lib/approval-vocabulary.js";
  * The category's events that are not an approval request's, named rather than quietly
  * filtered.
  *
- * `moderation.review_flagged` and the three `plan.*` kinds are registered under
- * `approval_flow` and carry no `approvalRequestId`. Claiming one here would take the
+ * `moderation.review_flagged`, the three `plan.*` kinds, and the reviewer's block and
+ * its one-time allowance (`approval.reviewer_denied`, `approval.denial_overridden`,
+ * keyed on the denial) are registered under `approval_flow` and carry no
+ * `approvalRequestId`. Claiming one here would take the
  * kind off the board for the feature that renders it, and this fold would answer
  * nothing for it anyway, since it names no approval to key on. `Extract`ed from the
  * census rather than typed `string`, so a rename upstream fails to compile here
  * instead of silently widening the claim.
  */
-const NON_REQUEST_APPROVAL_CATEGORY_KINDS: readonly Extract<
+type NonRequestApprovalCategoryKind = Extract<
   SessionEventType,
-  "moderation.review_flagged" | "plan.proposed" | "plan.accepted" | "plan.handed_off"
->[] = ["moderation.review_flagged", "plan.proposed", "plan.accepted", "plan.handed_off"];
+  | "moderation.review_flagged"
+  | "plan.proposed"
+  | "plan.accepted"
+  | "plan.handed_off"
+  | "approval.reviewer_denied"
+  | "approval.denial_overridden"
+>;
+
+const NON_REQUEST_APPROVAL_CATEGORY_KINDS: readonly NonRequestApprovalCategoryKind[] = [
+  "moderation.review_flagged",
+  "plan.proposed",
+  "plan.accepted",
+  "plan.handed_off",
+  "approval.reviewer_denied",
+  "approval.denial_overridden",
+];
 
 /**
  * The event kinds this projector claims, derived from the shipped taxonomy.
@@ -118,7 +134,10 @@ export const APPROVAL_FLOW_EVENT_KINDS: readonly string[] = [...SESSION_EVENT_CA
  * kind added to the taxonomy lands in this union and fails the `satisfies` on both
  * tables below until someone classifies it.
  */
-type ApprovalEventKind = Extract<SessionEventType, `approval.${string}`>;
+type ApprovalEventKind = Exclude<
+  Extract<SessionEventType, `approval.${string}`>,
+  NonRequestApprovalCategoryKind
+>;
 
 /**
  * The state each kind announces, or `undefined` for a kind that announces none.
@@ -191,16 +210,13 @@ const SHARED_APPROVAL_BODY_MEMBERS: Readonly<Record<string, WireMemberSchema>> =
  * co-located test refuses outright rather than leaving to review.
  */
 const APPROVAL_BODY_MEMBERS_BY_EVENT_KIND = {
-  // The request quad, plus the two members that make a provider permission ask
-  // legible as one. `askId` is the originating `driver_ask` identifier and reaches
-  // the console on this payload and on no read; `expiryAt` is required beside it by
-  // the emission-seam pairing, so a body carrying the first without the second is a
-  // contract violation rather than a terser request.
+  // The request pair, plus the member that makes a provider permission ask legible
+  // as one: `askId` is the originating ask's identifier and reaches the console on
+  // this payload and on no read.
   "approval.requested": {
     requestedBy: wireStringMember,
     resourceDescriptor: wireObjectMember,
     askId: wireStringMember,
-    expiryAt: wireStringMember,
   },
   // The resolution pair: who answered, and the scope that took effect — never
   // broader than what was requested.

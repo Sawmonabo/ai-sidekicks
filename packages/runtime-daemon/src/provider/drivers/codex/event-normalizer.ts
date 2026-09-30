@@ -736,7 +736,9 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
   },
   // Row 17 names `notification` the Codex-fed census kind for exactly this: a
   // provider notice that belongs on the timeline but drives no state
-  // transition.
+  // transition. `warning` is the notice kind `provider_warning` with source
+  // `warning`, `deprecationNotice` the same kind with source `deprecation`, and
+  // `configWarning` the kind `settings_ignored`.
   warning: {
     disposition: "normalized",
     nativeMethod: "warning",
@@ -761,17 +763,13 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "session.notice",
     normalizedKind: "notification",
   },
-  // Delta row "guardian + `autoApprovalReview`" fixes the family as
-  // `approval_flow` OBSERVABILITY, adding verbatim that guardian
-  // auto-adjudication is "normalized as observability, never a
-  // Cedar-pipeline bypass". Inside that family the target is forced by
-  // elimination: every other approval_flow literal (`approval.approved` /
-  // `.rejected` / `.expired` / `.canceled` / `.remembered` /
-  // `.rule_revoked`) records a DAEMON adjudication, so emitting one from a
-  // provider auto-review would be the bypass the row forbids and would
-  // contradict codex.md's own rationale for pinning `approvalsReviewer:
-  // "user"`. `moderation.review_flagged` is the family's only
-  // non-adjudicating observability row. No census kind covers it.
+  // Codex's own reviewer. Only `guardianWarning` and
+  // `autoApprovalReview/strictReviewRequired` are `moderation.review_flagged`:
+  // a warning or a required review, one system message in Codex's words. A
+  // review that blocked an action is `approval.reviewer_denied`, and the
+  // moderation hint goes to the daemon's log only. None of these records a
+  // daemon adjudication, so none bypasses the approval pipeline. No census kind
+  // covers them.
   guardianWarning: {
     disposition: "normalized",
     nativeMethod: "guardianWarning",
@@ -842,37 +840,35 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     reason:
       "empty-payload invalidation signal for the provider's local skill-file watch; it carries no session observation to lose, and its only consequence — discarding the driver-held command enumeration so the next read re-reads in full — is daemon-side state the provider is telling the client to refresh",
   },
-  // Auto-approval review lifecycle — same delta row, same anti-bypass
-  // reasoning, as `guardianWarning` above.
+  // The auto-approval review's start draws nothing: only its completion feeds
+  // the reviewer's block.
   "item/autoApprovalReview/started": {
-    disposition: "normalized",
+    disposition: "not-evented",
     nativeMethod: "item/autoApprovalReview/started",
     transport: "server-notification",
-    family: "approval_flow",
-    eventType: "moderation.review_flagged",
-    normalizedKind: null,
+    reason:
+      "the start of Codex's own auto-approval review; only the review's completion records anything (a denied or timed-out review is the reviewer's block), so the start goes to the daemon's log only",
   },
+  // The completed review, when its status is denied or timed out, is the
+  // reviewer's block; the daemon keeps Codex's review sealed with the row so
+  // `Allow once` can send it back.
   "item/autoApprovalReview/completed": {
     disposition: "normalized",
     nativeMethod: "item/autoApprovalReview/completed",
     transport: "server-notification",
     family: "approval_flow",
-    eventType: "moderation.review_flagged",
+    eventType: "approval.reviewer_denied",
     normalizedKind: null,
   },
-  // codex.md records this name under "New at the pin and worth knowing about"
-  // with no shape and no semantics. no-silent-capability- loss default,
-  // adopt-or-rename is the DEFAULT and a discard is what needs justifying —
-  // so an undocumented provider notice lands on the census's own
-  // generic-notice kind rather than being dropped on the grounds that the pin
-  // did not describe it.
+  // Codex holding a running turn for a safety check. The frame names its
+  // thread and turn, so the event belongs to that turn's run.
   "model/safetyBuffering/updated": {
     disposition: "normalized",
     nativeMethod: "model/safetyBuffering/updated",
     transport: "server-notification",
-    family: "session_lifecycle",
-    eventType: "session.notice",
-    normalizedKind: "notification",
+    family: "run_lifecycle",
+    eventType: "run.safety_buffering_updated",
+    normalizedKind: null,
   },
 
   // ------------------------------------------------------------------
@@ -902,17 +898,14 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "tool.result",
     normalizedKind: "codex_exec_result",
   },
-  // Delta row names this one's target explicitly: "`moderationMetadata` ->
-  // `approval_flow` (`moderation.review_flagged`)".
   "turn/moderationMetadata": {
-    disposition: "normalized",
+    disposition: "not-evented",
     nativeMethod: "turn/moderationMetadata",
     transport: "server-notification",
-    family: "approval_flow",
-    eventType: "moderation.review_flagged",
-    normalizedKind: null,
+    reason:
+      "a moderation display hint with no words, which Codex's own app does not draw; it goes to the daemon's log only",
   },
-  // The gated member of the guardian + autoApprovalReview delta row.
+  // The gated member of the reviewer's frames.
   "autoApprovalReview/strictReviewRequired": {
     disposition: "normalized",
     nativeMethod: "autoApprovalReview/strictReviewRequired",
@@ -1281,9 +1274,9 @@ export function deriveCodexChildThreadAnnouncement(threadStarted: {
 export function classifyCodexFrameFamilyForRouting(nativeMethod: string): ThreadFrameFamilyClass {
   switch (nativeMethod) {
     // Connection- and account-scoped: notices, account-plane quota, auth
-    // brokering, attestation, model-level capability signals — and the
-    // skill-file watch cue, whose pinned payload is the empty object — frames
-    // whose own shape carries no thread identity.
+    // brokering, attestation — and the skill-file watch cue, whose pinned
+    // payload is the empty object — frames whose own shape carries no thread
+    // identity.
     //
     // Listing `skills/changed` here rather than leaving it `unknown` is
     // load-bearing: an unlisted method quarantines, and quarantining would emit
@@ -1297,7 +1290,6 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
     case "account/rateLimits/updated":
     case "account/chatgptAuthTokens/refresh":
     case "attestation/generate":
-    case "model/safetyBuffering/updated":
     case CODEX_SKILLS_CHANGED_METHOD:
       return { scope: "connection" };
     // Thread-scoped usage: the cumulative token reading the accountant
@@ -1306,13 +1298,15 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
     case CODEX_THREAD_COMPACTED_METHOD:
       return { scope: "thread", capability: "usage" };
     // Thread-scoped lifecycle: the thread-start announcement (the router's
-    // registration input) and the turn-boundary pair. `turn/completed` MUST be
+    // registration input), the turn-boundary pair, and the safety hold on a
+    // running turn, which names its thread and turn. `turn/completed` MUST be
     // classified here — it is the session's own terminal, and an unclassified
     // terminal would quarantine instead of reaching emission gate, which
     // admits only a `project` route.
     case CODEX_THREAD_STARTED_METHOD:
     case CODEX_TURN_STARTED_METHOD:
     case CODEX_TURN_COMPLETED_METHOD:
+    case "model/safetyBuffering/updated":
       return { scope: "thread", capability: "lifecycle" };
     // Thread-scoped interactive requests: the approval / input / tool asks.
     case "item/tool/call":
