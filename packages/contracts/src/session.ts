@@ -491,7 +491,7 @@ export interface SessionFileSearchResponse {
 }
 export const SessionFileSearchResponseSchema: z.ZodType<SessionFileSearchResponse> = z
   .object({
-    paths: z.array(z.string().min(1)),
+    paths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
     searchedFileCount: z.number().int().nonnegative(),
   })
   .strict()
