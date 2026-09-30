@@ -183,21 +183,3 @@ export class KeyedRegistry<Key, Value> {
     return this.#ownerOf === undefined ? "" : this.#ownerOf(value);
   }
 }
-
-/**
- * Read a key that must be present, or throw a `RangeError` naming what was missing.
- *
- * Not a `Refusal`: a key missing from a table the caller itself populated is a defect with
- * nowhere to render.
- */
-export function lookupOrThrow<Key, Value>(
-  valuesByKey: ReadonlyMap<Key, Value>,
-  key: Key,
-  describeWhat: string,
-): Value {
-  const value = valuesByKey.get(key);
-  if (value === undefined) {
-    throw new RangeError(`no ${describeWhat} named "${String(key)}"`);
-  }
-  return value;
-}

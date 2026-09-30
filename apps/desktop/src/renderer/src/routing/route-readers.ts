@@ -76,14 +76,6 @@ export function routeSessionId(route: AppRoute): string | undefined {
   }
 }
 
-/**
- * The phase a route is focused on, or `undefined` where it names none. Total over the union,
- * like `routeSessionId`: every other arm answers `undefined`.
- */
-export function routeWorkflowPhase(route: AppRoute): WorkflowPhaseFocus | undefined {
-  return route.kind === "session" ? route.workflowPhase : undefined;
-}
-
 /** Structural route comparison, so an unchanged hash costs no transition. */
 export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
   if (left.kind !== right.kind) {

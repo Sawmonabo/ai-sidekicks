@@ -41,12 +41,9 @@ export const GLYPH_STROKE_WIDTH = 1.5;
 export const GLYPH_DEFAULT_SIZE = 16;
 
 // The icon scale is a token so that tightening the icons by a pixel moves every glyph together.
-// The three steps are named for the density they belong to, and each is strictly below
+// The two steps are named for the density they belong to, and each is strictly below
 // `GLYPH_DEFAULT_SIZE`, the standalone size, because a glyph inside a row, chip or chrome is
 // subordinate to the text beside it.
-
-/** Inside a dense gutter or a numeric column — the smallest step the set reads at. */
-export const GLYPH_SIZE_DENSE = 10;
 
 /** Inside a row, a chip, a toolbar toggle, or a card's leading mark. */
 export const GLYPH_SIZE_ROW = 12;

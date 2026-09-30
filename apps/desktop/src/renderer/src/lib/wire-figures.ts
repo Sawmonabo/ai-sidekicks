@@ -289,17 +289,3 @@ function formatDescriptorMember(value: unknown): string {
   }
   return typeof value === "string" ? value : JSON.stringify(value);
 }
-
-/** The currency the accountant's cents figures count in; budget caps are in US-dollar cents. */
-const ACCOUNTANT_CURRENCY_CODE = "USD";
-
-/** Cents to the currency unit. */
-const CENTS_PER_CURRENCY_UNIT = 100;
-
-/**
- * Renders a cents figure the accountant supplied as money. Precision is `formatMoney`'s; this adds
- * only the unit conversion. `cents` is the exact wire value, never a figure a renderer computed.
- */
-export function formatCentsAsCurrency(cents: number, locale?: string): string {
-  return formatMoney(cents / CENTS_PER_CURRENCY_UNIT, ACCOUNTANT_CURRENCY_CODE, locale);
-}

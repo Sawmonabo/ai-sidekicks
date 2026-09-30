@@ -50,11 +50,6 @@ class LocaleKeyedFormatters<TFormatter extends LocaleResolvingFormatter> {
     this.#mint = mint;
   }
 
-  /** How many named locales are held. The host formatter is one more and never evicted. */
-  public get namedLocaleCount(): number {
-    return this.#byResolvedLocale.size;
-  }
-
   /** The formatter for `locale`, minted on first ask and kept. */
   public formatterFor(locale: string | undefined): TFormatter {
     if (locale === undefined) {
@@ -89,20 +84,6 @@ const relativeTimeFormatters = new LocaleKeyedFormatters(
 /** The one `Intl.RelativeTimeFormat` held for `locale`; two asks answer with the same object. */
 export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat {
   return relativeTimeFormatters.formatterFor(locale);
-}
-
-/**
- * How many named locales the relative-time cache holds, and its ceiling; the host formatter is
- * not counted. It reports this cache alone, since the day-duration cache holds disjoint keys.
- */
-export function countRelativeTimeFormatters(): {
-  readonly namedLocales: number;
-  readonly cap: number;
-} {
-  return {
-    namedLocales: relativeTimeFormatters.namedLocaleCount,
-    cap: LOCALE_FORMATTER_CAP,
-  };
 }
 
 /**
