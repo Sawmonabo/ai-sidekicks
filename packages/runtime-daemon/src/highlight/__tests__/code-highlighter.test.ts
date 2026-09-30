@@ -1,5 +1,5 @@
-// The colorer's two promises a surface relies on: a file colored in slices is
-// colored as if in one piece, and code asked for twice is colored once.
+// The colorer's two promises: a file colored in slices is colored as if in one piece, and code
+// asked for twice is colored once.
 
 import { describe, expect, it } from "vitest";
 

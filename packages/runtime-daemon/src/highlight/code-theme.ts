@@ -1,10 +1,9 @@
 // The colorer's theme: which TextMate scopes paint as which span class.
 //
-// A shiki theme maps scopes to a foreground, and the highlighter hands each
-// token the foreground its scopes resolve to. Here a foreground is not a color
-// but the name of a span class, so the class falls out of the theme's own scope
-// resolution and the colors stay with the surface that paints them. A token
-// that resolves to the theme's own foreground is plain and carries no span.
+// A shiki theme maps scopes to a foreground, and the highlighter hands each token the foreground
+// its scopes resolve to. Here a foreground is the name of a span class, not a color, so the
+// class falls out of the theme's own scope resolution and the colors stay with the surface that
+// paints them. A token that resolves to the theme's own foreground is plain and carries no span.
 import { HIGHLIGHT_SPAN_CLASSES, type HighlightSpanClass } from "@ai-sidekicks/contracts";
 import type { ThemeRegistrationRaw } from "shiki/types";
 
@@ -15,9 +14,8 @@ export const CODE_THEME_NAME = "span-classes";
 const PLAIN_FOREGROUND = "plain";
 
 /**
- * Which scopes each span class claims. Types and classes read as names. The
- * quotes around a string and the marks that open a comment paint with what
- * they enclose.
+ * Which scopes each span class claims. Types and classes read as names. The quotes around a
+ * string and the marks that open a comment paint with what they enclose.
  */
 const SCOPES_BY_SPAN_CLASS: Readonly<Record<HighlightSpanClass, readonly string[]>> = {
   keyword: ["keyword", "storage", "storage.type", "storage.modifier", "keyword.control"],
@@ -43,16 +41,12 @@ const SCOPES_BY_SPAN_CLASS: Readonly<Record<HighlightSpanClass, readonly string[
 };
 
 /**
- * Scopes a broader class rule would otherwise claim that stay plain: an
- * operator is not a keyword, and punctuation and braces read as the text
- * around them.
+ * Scopes a broader class rule would otherwise claim that stay plain: an operator is not a
+ * keyword, and punctuation and braces read as the text around them.
  */
 const PLAIN_SCOPES: readonly string[] = ["keyword.operator", "punctuation", "meta.brace"];
 
-/**
- * The theme, built fresh per highlighter: a highlighter normalizes the theme it
- * is given in place.
- */
+/** The theme, built fresh per highlighter because a highlighter normalizes its theme in place. */
 export function buildCodeTheme(): ThemeRegistrationRaw {
   return {
     name: CODE_THEME_NAME,
