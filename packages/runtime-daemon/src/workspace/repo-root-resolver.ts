@@ -13,7 +13,6 @@
 //     with `root_mismatch`, so a dotfiles-style layout whose config points elsewhere is refused.
 
 import { execFile } from "node:child_process";
-import { realpath as realpathFromFilesystem } from "node:fs/promises";
 import * as nodePath from "node:path";
 
 import type { VcsType } from "@ai-sidekicks/contracts";
@@ -22,9 +21,14 @@ import { RepoRootResolutionError } from "./repo-errors.js";
 import {
   componentsEqual,
   DEFAULT_DIRECTORY_READABILITY_PROBE,
+  DEFAULT_REALPATH,
   isContainedWithin,
+  namesCompleteLocation,
   toComparableComponents,
+  WINDOWS_PATH_SEPARATOR,
   type DirectoryReadabilityProbe,
+  type PathRealpathResolver,
+  type PlatformPathModule,
 } from "./trust-envelope.js";
 
 /** The only value attach may persist: an absolute, symlink-resolved root that was readable. */
@@ -65,16 +69,6 @@ export type GitFileExecutor = (
   args: readonly string[],
   options: GitCommandOptions,
 ) => Promise<GitCommandResult>;
-
-/** `fs.promises.realpath` seam. Rejects with a Node `ErrnoException`. */
-export type PathRealpathResolver = (path: string) => Promise<string>;
-
-/** The slice of `node:path` the step-1 gate reads; `path.win32` satisfies it on POSIX CI. */
-export interface PlatformPathModule {
-  readonly sep: string;
-  isAbsolute(path: string): boolean;
-  parse(path: string): { readonly root: string };
-}
 
 /** Constructor-injectable primitives; every member defaults to the real one. */
 export interface RepoRootResolverDeps {
@@ -208,9 +202,6 @@ function defaultExecuteFile(
   });
 }
 
-/** The default realpath; exported so tests pin it by identity (casing shows only on APFS). */
-export const DEFAULT_REALPATH: PathRealpathResolver = realpathFromFilesystem;
-
 function resolveDeps(partial: Partial<RepoRootResolverDeps>): RepoRootResolverDeps {
   return {
     executeFile: partial.executeFile ?? defaultExecuteFile,
@@ -220,24 +211,6 @@ function resolveDeps(partial: Partial<RepoRootResolverDeps>): RepoRootResolverDe
     gitCommandTimeoutMs: partial.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     platformPath: partial.platformPath ?? nodePath,
   };
-}
-
-const WINDOWS_PATH_SEPARATOR = "\\";
-
-/**
- * Does the path name one complete location? Win32 `isAbsolute` also accepts a driveless
- * `\repos\foo`, which `realpath` would complete from the daemon's current drive, so a complete
- * win32 root must parse longer than one character. `joinCandidatePath` in `trust-envelope.ts`
- * repeats this rule inline.
- */
-function namesCompleteLocation(candidatePath: string, platformPath: PlatformPathModule): boolean {
-  if (!platformPath.isAbsolute(candidatePath)) {
-    return false;
-  }
-  if (platformPath.sep !== WINDOWS_PATH_SEPARATOR) {
-    return true;
-  }
-  return platformPath.parse(candidatePath).root.length > 1;
 }
 
 function readProperty(thrown: unknown, key: string): unknown {

@@ -39,9 +39,8 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
 export type DirectoryReadabilityProbe = (path: string) => Promise<void>;
 
 /**
- * The slice of `node:path` this module reads; `path.win32` satisfies it, so POSIX CI drives the
- * Windows branch. Twinned in `./repo-root-resolver.ts` (importing it would cycle): keep that copy,
- * `PathRealpathResolver`, `WINDOWS_PATH_SEPARATOR` and the win32 driveless-root rule identical.
+ * The slice of `node:path` this module and the repo-root resolver read; `path.win32` satisfies it,
+ * so POSIX CI drives the Windows branch.
  */
 export interface PlatformPathModule {
   readonly sep: string;
@@ -70,8 +69,8 @@ export interface TrustEnvelopeValidatorDeps {
   readonly platformPath: PlatformPathModule;
 }
 
-/** `path.win32.sep`. The discriminator for case-folded comparison. */
-const WINDOWS_PATH_SEPARATOR = "\\";
+/** `path.win32.sep`. The discriminator for case-folded comparison and win32 path rules. */
+export const WINDOWS_PATH_SEPARATOR = "\\";
 
 /** The realpath used when no seam is injected; exported so a test can pin it by identity. */
 export const DEFAULT_REALPATH: PathRealpathResolver = realpathFromFilesystem;
@@ -93,6 +92,24 @@ function resolveDeps(partial: Partial<TrustEnvelopeValidatorDeps>): TrustEnvelop
     probeDirectoryReadable: partial.probeDirectoryReadable ?? DEFAULT_DIRECTORY_READABILITY_PROBE,
     platformPath: partial.platformPath ?? nodePath,
   };
+}
+
+/**
+ * Does the path name one complete location? Win32 `isAbsolute` also accepts a driveless
+ * `\repos\foo`, which Windows completes against the daemon's current drive, so the verdict would
+ * depend on ambient host state; a complete win32 root must parse longer than one character.
+ */
+export function namesCompleteLocation(
+  candidatePath: string,
+  platformPath: PlatformPathModule,
+): boolean {
+  if (!platformPath.isAbsolute(candidatePath)) {
+    return false;
+  }
+  if (platformPath.sep !== WINDOWS_PATH_SEPARATOR) {
+    return true;
+  }
+  return platformPath.parse(candidatePath).root.length > 1;
 }
 
 /** Drops trailing separators; the filesystem root collapses to the empty string. */
@@ -226,12 +243,7 @@ export class TrustEnvelopeValidator {
     }
     const { platformPath } = this.deps;
     if (platformPath.isAbsolute(directory)) {
-      // win32 `isAbsolute` accepts `\evil`, which Windows completes against the daemon's current
-      // drive, so the verdict would depend on ambient host state. The resolver refuses it too.
-      if (
-        platformPath.sep === WINDOWS_PATH_SEPARATOR &&
-        platformPath.parse(directory).root.length <= 1
-      ) {
+      if (!namesCompleteLocation(directory, platformPath)) {
         throw new TrustEnvelopeViolationError();
       }
       return directory;

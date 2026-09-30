@@ -18,7 +18,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import { RepoRootResolutionError, type RepoRootResolutionReason } from "../repo-errors.js";
 import {
-  DEFAULT_REALPATH,
   GIT_FATAL_EXIT_CODE,
   RepoRootResolver,
   type GitCommandFailure,
@@ -1039,18 +1038,5 @@ describe("no unresolved or guessed root ever escapes", () => {
       expect(settled.resolved, `${failingCase.label} must reject`).toBe(false);
       expect(settled.value).toBeInstanceOf(RepoRootResolutionError);
     }
-  });
-});
-
-describe("the default realpath implementation is pinned", () => {
-  it("is `node:fs/promises.realpath`, never the JS-walk implementation", () => {
-    // Structural on purpose. The casing behavior this protects shows only on a case-insensitive
-    // filesystem, which CI's ubuntu-only daemon leg is not, so the probe-gated tests cannot catch
-    // a quiet swap there; this assertion fails on every platform.
-    //
-    // The hazard: Node documents `node:fs`'s callback `realpath` as doing no case conversion on
-    // case-insensitive file systems. Defaulting to it would leave every other test green on CI
-    // while a mis-cased attach broke on macOS.
-    expect(DEFAULT_REALPATH).toBe(realpath);
   });
 });
