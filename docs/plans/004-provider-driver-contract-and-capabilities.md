@@ -600,6 +600,15 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 - Tests: an `expectedTurnId` that is not the run's latest turn answers `rejected` with a `rejectionReason` and sends no Codex request; a turn whose reply has started answers the same; an accepted retry sends `turn/interrupt`, then the fork ending before that turn, then the same message on `model`, in that order, and the session keeps its id while bound to the new thread; the person's message appears once in the session's log; a resend that Codex refuses returns the message to the composer and appends one failed row reading `Failed to retry with a faster model: <reason>`; a replay under the same `clientIdempotencyKey` sends nothing again.
 - Estimate: 1 PR
 
+- **T3.43 — Claude Code's retry-or-edit choice on a refused turn.**
+- Files: `packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts` (EXTEND T3.6 — `supportedDialogKinds` at `initialize`, the held `request_user_dialog` and its answer); `packages/runtime-daemon/src/provider/drivers/claude/event-normalizer.ts` (EXTEND T3.10 — the dialog to `run.refusal_choice_requested`, the answer to `run.refusal_choice_resolved`); `packages/contracts/src/run-control.ts` (EXTEND — `run.refusalChoiceResolve`); `packages/runtime-daemon/src/ipc/handlers/driver-handlers.ts` (EXTEND T4.1 — its handler)
+- **Spec coverage:** Spec-004 §Required Behavior (the Claude driver carries Claude Code's retry-or-edit choice); Spec-005 §Run Lifecycle (`run.refusal_choice_requested`, `run.refusal_choice_resolved`)
+- **Verifies invariant:** none
+- Consumes: T3.6's Claude Code process and its `initialize`; T3.10's Claude normalizer; the two events ([Spec-005 §Run Lifecycle](../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle)); [Plan-003](./003-queue-steer-pause-resume.md)'s `run.intervene {type: "interrupt"}` and its queue, whose interrupt and whose message sent while the choice waits each answer `cancelled`; Claude Code 2.1.282's `refusal_fallback_prompt` ([Claude wire reference](../reference/provider-wire/claude.md#a-refused-turn-that-names-a-fallback-model-asks-the-host))
+- Provides: the driver declares `supportedDialogKinds: ["refusal_fallback_prompt"]` at every `initialize`, and no other kind, so `auto_mode_server_fallback` and `auto_mode_outside_reads` stay undeclared. A `request_user_dialog` of that kind is held open and becomes `run.refusal_choice_requested` {sessionId, runId, refusedModel, fallbackModel, sentence?, safetyCategory?, retractedMessageIds?}, from its `originalModel`, `fallbackModel`, `guidanceText`, `apiRefusalCategory` and `retractedMessageUuids`, and the run moves to `waiting_for_input`. `run.refusalChoiceResolve` {runId, choice: `retry_fallback` | `edit_prompt`} answers the held request `{behavior: "completed", result: <choice>}`; an interrupt answers it `cancelled`, and a message sent while the choice waits reaches Claude Code, which settles the choice `cancelled` itself and retires the request with `control_cancel_request`, which the driver reads as that answer. The first answer settles it and is recorded as `run.refusal_choice_resolved` {sessionId, runId, choice, deviceId?}, and the rows the request named in `retractedMessageIds` leave the flow then. With `retry_fallback` the turn goes on on the fallback model and the switch lands as `usage.model_rerouted` from what Claude Code sends; with `edit_prompt` the turn ends refused and [Plan-011](./011-live-timeline-visibility-and-reasoning-surfaces.md) T4.21 puts the message back in the composer. Codex has no such choice.
+- Tests: the `initialize` the driver sends declares exactly `refusal_fallback_prompt`; a `refusal_fallback_prompt` dialog appends one `run.refusal_choice_requested` carrying the dialog's members as mapped above and moves the run to `waiting_for_input`; `retry_fallback` and `edit_prompt` each send that result on the held request; an interrupt sends `cancelled`; a `control_cancel_request` for the held request, as Claude Code sends when a message reaches it while the choice waits, records `cancelled` and sends nothing; a second answer sends nothing and appends nothing; the rows named in `retractedMessageIds` stay in the flow when the dialog arrives and leave it when it is answered, for each of the three answers; a session opened while the choice waits rebuilds it from the log.
+- Estimate: 1 PR
+
 - **Where each console operation is built.** Each operation below is built in the task named, by its class: DB crosses the daemon's client boundary and draws on screen, B stays between the daemon and a provider.
 
 | Operation | Class | Task |
@@ -634,6 +643,7 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 | `model/safetyBuffering/updated` → the live `run.safety_buffering_updated` | DB | T3.40 |
 | `warning` and `deprecationNotice` → `session.notice` of kind `provider_warning`, except the `warning` right after `model/rerouted`, which is that switch's `sentence` | DB | T3.41 |
 | `run.intervene {type: "faster_model_retry"}` (`turn/interrupt`, the fork, the resend on `model`) | DB | T3.42 |
+| `run.refusalChoiceResolve`, `run.refusal_choice_requested`, `run.refusal_choice_resolved` (Claude Code's `refusal_fallback_prompt`, declared at `initialize`) | DB | T3.43 |
 
 - **Dispatch (T3.23–T3.26).** T3.23–T3.25 dispatch **with Phase 3** and open no phase of their own. They consume the widened flag union and `cliVersion` on the capability contract (T1.7 / T1.8) and the version columns plus the `spawn_config` store seam (T2.6), which Phases 1–2 build. T3.23 precedes T3.24 and T3.25 within the phase, because both consume its resolved spawn.
 
@@ -813,7 +823,7 @@ Two rules govern every driver, normalizer and parser task in this plan.
 
 1. Land Phase 1 contracts (T1.1-T1.6; + T1.7-T1.8) — blocks all downstream.
 2. Land Phase 2 persistence + registry (T2.1-T2.5; + T2.6) — blocks Phase 3.
-3. Land Phase 3 Codex driver (T3.1-T3.5), Phase 3 Claude driver (T3.6-T3.10), the driver enrichment (T3.11-T3.15), the provider-bound text neutralization (T3.18), the canonical transcript export and replay (T3.19-T3.22), the provider-CLI version tolerance (T3.23-T3.25), and the console and bridge tasks (T3.26-T3.27, T3.29-T3.42) in parallel, T3.23 first within its own trio.
+3. Land Phase 3 Codex driver (T3.1-T3.5), Phase 3 Claude driver (T3.6-T3.10), the driver enrichment (T3.11-T3.15), the provider-bound text neutralization (T3.18), the canonical transcript export and replay (T3.19-T3.22), the provider-CLI version tolerance (T3.23-T3.25), and the console and bridge tasks (T3.26-T3.27, T3.29-T3.43) in parallel, T3.23 first within its own trio.
 
 - Phase 3B (T3.16-T3.17) lands after step 3 merges.
 
@@ -961,7 +971,7 @@ This plan publishes three spawn-bound legs [Plan-014](./014-multi-agent-orchestr
 
 - Phase 1 — Driver contract + capability schema + idempotency_class (T1.1-T1.8)
 - Phase 2 — Provider registry + runtime-binding store + SQLite (T2.1-T2.6)
-- Phase 3 — Codex driver (T3.1-T3.5) + Claude driver (T3.6-T3.10) + driver enrichment (T3.11-T3.15) + provider-bound text neutralization (T3.18) + canonical transcript export and replay (T3.19-T3.22) + provider-CLI version tolerance (T3.23-T3.25) + console and bridge tasks (T3.26-T3.27, T3.29-T3.42)
+- Phase 3 — Codex driver (T3.1-T3.5) + Claude driver (T3.6-T3.10) + driver enrichment (T3.11-T3.15) + provider-bound text neutralization (T3.18) + canonical transcript export and replay (T3.19-T3.22) + provider-CLI version tolerance (T3.23-T3.25) + console and bridge tasks (T3.26-T3.27, T3.29-T3.43)
 - Phase 3B — Provider-account seam + typed usage-limit signal (T3.16-T3.17; after this plan's Phase 3)
 - Phase 4 — SDK exposure + degraded-fallback (T4.1-T4.7; + T4.8; + T4.9, `driver.compactContext` and the live `/` list)
 - Phase 5 — MCP task-handle durability and the background move of a long tool call (T5.1, T5.2; waits on Plan-003 Phase 1 and this plan's Phase 3)
