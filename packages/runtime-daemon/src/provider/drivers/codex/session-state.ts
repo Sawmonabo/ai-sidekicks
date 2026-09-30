@@ -103,7 +103,7 @@ export interface CodexSessionRecord {
   /**
    * The config this process was launched with. A resume reuses its `cwd` and `env` but
    * re-derives `credentialEnvPolicy` from its own posture, inheriting this one only when it
-   * states none (see `#composeResumeSpawnConfig`).
+   * states none (see `CodexSpawnPosture.composeResumeSpawnConfig`).
    */
   readonly spawnConfig: CodexSessionConfig;
   /**

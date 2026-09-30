@@ -6,14 +6,10 @@
 //
 // - Framing: a minimal local framer, not `local-ipc-gateway.ts::parseFrame` (built for network
 //   peers). The Rust twin is `framing.rs`; the two are maintained by hand.
-// - Crash budget: 5 crashes in a sliding 60 s window make the host permanently unavailable; every
-//   call then rejects with `PtyBackendUnavailableError`. A fixed window would let a steady rate
-//   through.
 // - Method shape and lifecycle match `NodePtyHost`, so `PtyHostSelector` can swap the backends.
 // - Effectful primitives are injectable through `RustSidecarPtyHostDeps`.
 
 import { Buffer } from "node:buffer";
-import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
 import {
   type DrainResult,
   type Envelope,
@@ -25,31 +21,14 @@ import {
 } from "@ai-sidekicks/contracts";
 import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js";
 import { PtyBackendUnavailableError, resolveSidecarBinaryPath } from "./sidecar-binary-path.js";
+import { isStrictBase64, serializeFrame, SidecarFrameDecodeError } from "./sidecar-frame-codec.js";
 import {
-  ContentLengthParser,
-  isStrictBase64,
-  serializeFrame,
-  SidecarFrameDecodeError,
-} from "./sidecar-frame-codec.js";
-
-/** The subset of `ChildProcess` the supervisor uses, so tests can build a fake. */
-export interface SidecarChildProcess {
-  /** OS pid; `undefined` if spawn failed first. Only the Windows hard-kill escalation reads it. */
-  readonly pid?: number | undefined;
-  readonly stdin: NodeJS.WritableStream;
-  readonly stdout: NodeJS.ReadableStream;
-  readonly stderr: NodeJS.ReadableStream;
-  on(event: "exit", listener: (code: number | null, signal: string | null) => void): this;
-  on(event: "error", listener: (err: Error) => void): this;
-  kill(signal?: NodeJS.Signals | number): boolean;
-}
-
-/** The `child_process.spawn` overload the supervisor calls; it always pipes all three streams. */
-export type SidecarSpawnFn = (
-  command: string,
-  args: ReadonlyArray<string>,
-  options: SpawnOptions,
-) => ChildProcessWithoutNullStreams;
+  SidecarChildSupervisor,
+  type SidecarChildProcess,
+  type SidecarChildSupervisorDependencies,
+  type SidecarSpawnFn,
+} from "./sidecar-child-supervisor.js";
+import { SidecarPreSpawnBuffer } from "./sidecar-pre-spawn-buffer.js";
 
 /** Effectful primitives `RustSidecarPtyHost` reaches through; tests inject a double for each. */
 export interface RustSidecarPtyHostDeps {
@@ -66,46 +45,15 @@ export interface RustSidecarPtyHostDeps {
   readonly spawnTaskkill?: (pid: number) => Promise<TaskkillResult>;
 }
 
-/** Width of the sliding crash-budget window. */
-export const CRASH_BUDGET_WINDOW_MS = 60_000;
-
-/** Number of crashes inside `CRASH_BUDGET_WINDOW_MS` that exhaust the crash budget. */
-export const CRASH_BUDGET_LIMIT = 5;
-
-// The sidecar can deliver a `DataFrame` or `ExitCodeNotification` ahead of its `SpawnResponse`
-// (unbiased `select!` in `merge_to_writer`); they are held and replayed. The caps bound memory if
-// events arrive for an id no response resolves.
-const MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION = 64;
-
-const MAX_PRE_SPAWN_BUFFERED_SESSIONS = 64;
-
-/**
- * Cap on remembered closed session ids, oldest evicted first, so a late exit or data frame for a
- * closed id is dropped instead of buffered.
- */
-const MAX_CLOSED_SESSION_IDS = 10_000;
-
 /** Monotonic clock: `Date.now()` can jump backward, which would trip or release the budget. */
 function defaultNowMs(): number {
   return Number(process.hrtime.bigint() / 1_000_000n);
 }
 
-/** Loads `spawn` lazily so a test that injects its own never pays for the import. */
-async function loadDefaultSpawn(): Promise<SidecarSpawnFn> {
-  const cp: typeof import("node:child_process") = await import("node:child_process");
-  return cp.spawn as SidecarSpawnFn;
-}
-
-/** Deps with defaults filled in; `spawn` stays `null` until first use (`loadDefaultSpawn`). */
-interface ResolvedDeps {
-  readonly resolveBinaryPath: () => string;
-  readonly spawn: SidecarSpawnFn | null;
-  readonly nowMs: () => number;
-  readonly platform: NodeJS.Platform;
-  readonly spawnTaskkill: (pid: number) => Promise<TaskkillResult>;
-}
-
-function resolveDefaultDeps(partial: Partial<RustSidecarPtyHostDeps>): ResolvedDeps {
+/** Fills in the production primitives the caller did not inject. */
+function resolveDefaultDeps(
+  partial: Partial<RustSidecarPtyHostDeps>,
+): SidecarChildSupervisorDependencies {
   return {
     resolveBinaryPath: partial.resolveBinaryPath ?? resolveSidecarBinaryPath,
     spawn: partial.spawn ?? null,
@@ -133,71 +81,15 @@ interface OutstandingRequest {
   readonly responseKind: Envelope["kind"];
 }
 
-/** Sliding window of recent sidecar crash timestamps; exhausting it disables the host. */
-class CrashBudget {
-  private readonly timestamps: number[] = [];
-
-  public constructor(
-    private readonly nowMs: () => number,
-    private readonly windowMs: number = CRASH_BUDGET_WINDOW_MS,
-    private readonly limit: number = CRASH_BUDGET_LIMIT,
-  ) {}
-
-  /** Records a crash and returns whether the budget is now exhausted. */
-  public recordAndIsExhausted(): boolean {
-    const now: number = this.nowMs();
-    const cutoff: number = now - this.windowMs;
-    // Timestamps are pushed in ascending order, so the stale entries are a prefix.
-    let staleCount = 0;
-    for (const ts of this.timestamps) {
-      if (ts <= cutoff) {
-        staleCount += 1;
-      } else {
-        break;
-      }
-    }
-    if (staleCount > 0) {
-      this.timestamps.splice(0, staleCount);
-    }
-    this.timestamps.push(now);
-    return this.timestamps.length >= this.limit;
-  }
-
-  public currentWindowSize(): number {
-    return this.timestamps.length;
-  }
-}
-
 /**
  * `PtyHost` backed by a supervised Rust sidecar child process (all three stdio streams piped)
  * speaking Content-Length framing. A child exit triggers a respawn through `ensureChild`; an
  * exhausted crash budget surfaces `PtyBackendUnavailableError`.
  */
 export class RustSidecarPtyHost implements PtyHost {
-  private readonly deps: ResolvedDeps;
-
-  private cachedSpawn: SidecarSpawnFn | null = null;
-
-  private child: SidecarChildProcess | null = null;
-
-  /**
-   * Replaced on every child exit or error: leftover partial-frame bytes would desync the next child
-   * and burn the crash budget.
-   */
-  private parser: ContentLengthParser = new ContentLengthParser();
-
-  /**
-   * The current child's stdout `data` listener, kept so exit and error can detach it before the
-   * parser swap; late bytes from a dead child would corrupt the new parser.
-   */
-  private childStdoutListener: ((chunk: Buffer) => void) | null = null;
+  private readonly childProcess: SidecarChildSupervisor;
 
   private readonly sessions: Map<string, SessionRecord> = new Map();
-
-  private readonly crashBudget: CrashBudget;
-
-  /** Set when the crash budget is exhausted; every later call rejects instead of spawning. */
-  private permanentlyUnavailable = false;
 
   /**
    * Set at `shutdown()` entry: suppresses respawn and crash accounting for the deliberate exit and
@@ -211,73 +103,37 @@ export class RustSidecarPtyHost implements PtyHost {
   /** Per-session drain resolvers made at `shutdown()` entry; settled by `notifyShutdownWaiter`. */
   private readonly shutdownWaiters: Map<string, () => void> = new Map();
 
-  /**
-   * Resolves the wait for the sidecar process to exit inside `shutdown()`; settled by
-   * `handleChildExit`.
-   */
-  private hostExitWaiter: (() => void) | null = null;
-
-  /**
-   * Whether the active child exited or errored before `drainSidecarHost` ran, to tell "never
-   * spawned" (clean) from "died before the drain" (not clean). Set after the exit and error
-   * handlers' stale-event guard; cleared by `attachChildListeners`.
-   */
-  private childExitedBeforeDrain: boolean = false;
-
-  /**
-   * The in-flight cold-start spawn shared by concurrent callers; without it two callers could both
-   * pass the `child === null` check and the second spawn would orphan the first child.
-   */
-  private inflightSpawn: Promise<void> | null = null;
-
   /** Pending requests by response kind, oldest first; normally at most one per kind. */
   private readonly outstanding: Map<Envelope["kind"], OutstandingRequest[]> = new Map();
-
-  /**
-   * Children whose crash was already counted: Node can emit both `error` and `exit` for one failed
-   * child, and the second must not spend the budget again. A `WeakSet` lets the GC reclaim them.
-   */
-  private readonly crashCountedChildren: WeakSet<SidecarChildProcess> = new WeakSet();
-
-  /**
-   * Error stashed before a fatal `child.kill("SIGKILL")` (framing or decode failure) so the exit or
-   * error handler rejects outstanding requests with it. Taken once through
-   * `consumePendingTeardownCause`.
-   */
-  private pendingTeardownCause: Error | null = null;
 
   private dataListener: (sessionId: string, chunk: Uint8Array) => void = () => undefined;
 
   private exitListener: (sessionId: string, exitCode: number, signalCode?: number) => void = () =>
     undefined;
 
-  /**
-   * `DataFrame` chunks for a session whose `SpawnResponse` has not arrived, replayed by
-   * `replayPreSpawnEvents`. Cleared on child teardown: the sidecar's session counter restarts on
-   * respawn, so old ids would replay against a new session.
-   */
-  private readonly pendingDataFrames: Map<string, Uint8Array[]> = new Map();
-
-  /**
-   * The `ExitCodeNotification` (at most one per session) awaiting its `SpawnResponse`; replayed and
-   * cleared like `pendingDataFrames`.
-   */
-  private readonly pendingExits: Map<string, ExitCodeNotification> = new Map();
-
-  /**
-   * Ids removed by `close()`: a late exit or data frame for one is dropped, so `onExit` never fires
-   * after `close()` resolves. Cleared on child teardown because the counter restarts on respawn and
-   * a stale entry would suppress a new session that mints the same id (`s-0`).
-   */
-  private readonly closedSessionIds: Set<string> = new Set();
+  private readonly preSpawnBuffer: SidecarPreSpawnBuffer = new SidecarPreSpawnBuffer();
 
   public constructor(deps?: Partial<RustSidecarPtyHostDeps>) {
-    this.deps = resolveDefaultDeps(deps ?? {});
-    this.crashBudget = new CrashBudget(this.deps.nowMs);
+    this.childProcess = new SidecarChildSupervisor(resolveDefaultDeps(deps ?? {}), {
+      onFrame: (body: Buffer): void => {
+        this.handleInbound(body);
+      },
+      onChildExit: (child: SidecarChildProcess, code: number | null, signal: string | null) => {
+        this.handleChildExit(child, code, signal);
+      },
+      onChildError: (child: SidecarChildProcess, err: Error) => {
+        this.handleChildError(child, err);
+      },
+    });
+  }
+
+  /** The live sidecar child, or `null` before the first spawn and between a crash and the respawn. */
+  private get child(): SidecarChildProcess | null {
+    return this.childProcess.currentChild;
   }
 
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
-    await this.ensureChild();
+    await this.childProcess.ensureChild(this.shuttingDown);
     // The session is registered in `resolveOutstanding`, not after this await: frames dispatch
     // synchronously, so a `DataFrame` following the response in the same chunk would find no
     // session. Frames arriving before the response are held and replayed by `replayPreSpawnEvents`.
@@ -294,7 +150,7 @@ export class RustSidecarPtyHost implements PtyHost {
     if (!this.sessions.has(sessionId)) {
       throw new Error(`RustSidecarPtyHost.resize: unknown sessionId '${sessionId}'`);
     }
-    await this.ensureChild();
+    await this.childProcess.ensureChild(this.shuttingDown);
     await this.sendRequest(
       { kind: "resize_request", session_id: sessionId, rows, cols },
       "resize_response",
@@ -306,7 +162,7 @@ export class RustSidecarPtyHost implements PtyHost {
     if (!this.sessions.has(sessionId)) {
       throw new Error(`RustSidecarPtyHost.write: unknown sessionId '${sessionId}'`);
     }
-    await this.ensureChild();
+    await this.childProcess.ensureChild(this.shuttingDown);
     const base64: string = Buffer.from(bytes).toString("base64");
     await this.sendRequest(
       { kind: "write_request", session_id: sessionId, bytes: base64 },
@@ -324,7 +180,7 @@ export class RustSidecarPtyHost implements PtyHost {
       this.fireExit(sessionId, record.exitCode, record.signalCode);
       return;
     }
-    await this.ensureChild();
+    await this.childProcess.ensureChild(this.shuttingDown);
     await this.sendRequest(
       { kind: "kill_request", session_id: sessionId, signal },
       "kill_response",
@@ -341,7 +197,7 @@ export class RustSidecarPtyHost implements PtyHost {
       return;
     }
     this.sessions.delete(sessionId);
-    this.recordClosedSessionId(sessionId);
+    this.preSpawnBuffer.recordClosedSessionId(sessionId);
     if (record.exitCode === null) {
       try {
         await this.sendRequest(
@@ -400,7 +256,7 @@ export class RustSidecarPtyHost implements PtyHost {
     }
 
     const hostResult: { sidecarExitedCleanly: boolean; taskkillEscalated: boolean } =
-      await this.drainSidecarHost(options.hostTimeoutMs);
+      await this.childProcess.drainSidecarHost(options.hostTimeoutMs);
 
     return {
       sessionsDrained,
@@ -489,124 +345,10 @@ export class RustSidecarPtyHost implements PtyHost {
     }
   }
 
-  /**
-   * Closes the sidecar's stdin, waits up to `timeoutMs` for it to exit, and hard-kills it on
-   * timeout. With no active child it reports clean unless the child exited before the drain.
-   */
-  private async drainSidecarHost(
-    timeoutMs: number,
-  ): Promise<{ sidecarExitedCleanly: boolean; taskkillEscalated: boolean }> {
-    const child: SidecarChildProcess | null = this.child;
-    if (child === null) {
-      // Never spawned (clean) or exited before the drain (not clean); desktop quit telemetry reads
-      // this field.
-      return {
-        sidecarExitedCleanly: !this.childExitedBeforeDrain,
-        taskkillEscalated: false,
-      };
-    }
-
-    const hostWaiter: Promise<void> = new Promise<void>((resolve) => {
-      this.hostExitWaiter = resolve;
-    });
-
-    // Closing stdin ends the sidecar's read loop so it drains and exits. If the pipe is already
-    // broken, the sidecar died and the exit event reaches handleChildExit on its own.
-    try {
-      child.stdin.end();
-    } catch {
-      // Best-effort.
-    }
-
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-    const timeoutPromise: Promise<"timeout"> = new Promise<"timeout">((resolve) => {
-      timeoutHandle = setTimeout(() => {
-        resolve("timeout");
-      }, timeoutMs);
-    });
-
-    const outcome: "clean" | "timeout" = await Promise.race([
-      hostWaiter.then((): "clean" => "clean"),
-      timeoutPromise,
-    ]);
-
-    if (timeoutHandle !== null) {
-      clearTimeout(timeoutHandle);
-    }
-    this.hostExitWaiter = null;
-
-    if (outcome === "clean") {
-      return { sidecarExitedCleanly: true, taskkillEscalated: false };
-    }
-
-    // Timeout: the wedged sidecar cannot translate kills itself, so the daemon kills the tree.
-    await this.escalateHardKillTree(child);
-    return { sidecarExitedCleanly: false, taskkillEscalated: true };
-  }
-
-  /**
-   * Hard-kills the sidecar and its PTY children; errors are swallowed. Windows needs
-   * `taskkill /T /F` (`child.kill` ends one process); on POSIX the closed PTY masters SIGHUP the
-   * `setsid` children, which a group kill would miss.
-   */
-  private async escalateHardKillTree(child: SidecarChildProcess): Promise<void> {
-    if (this.deps.platform === "win32" && child.pid !== undefined) {
-      const pid: number = child.pid;
-      const spawnTaskkill = this.deps.spawnTaskkill;
-      // Bounded so a stuck taskkill cannot hang the drain; a healthy one takes under a second.
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const fallbackHandle = setTimeout(() => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          resolve();
-        }, 5000);
-        const finish = (): void => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          clearTimeout(fallbackHandle);
-          resolve();
-        };
-        void (async (): Promise<void> => {
-          try {
-            await spawnTaskkill(pid);
-          } catch (err: unknown) {
-            // A failed taskkill must not hang the drain; the warn surfaces a recurring failure (bad
-            // PATH, blocked taskkill.exe).
-            console.warn(
-              `RustSidecarPtyHost: escalateHardKillTree: spawnTaskkill rejected for ` +
-                `sidecar pid=${pid}; drain will continue.`,
-              { cause: err },
-            );
-          }
-          finish();
-        })();
-      });
-      return;
-    }
-
-    // POSIX, or a Windows child without a pid: a single-process kill is all that is available.
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // The `exit` event may already have fired and cleared `this.child`.
-    }
-  }
-
   private notifyShutdownWaiter(sessionId: string): void {
     const resolver: (() => void) | undefined = this.shutdownWaiters.get(sessionId);
     if (resolver !== undefined) {
       resolver();
-    }
-  }
-
-  private notifyHostExitWaiter(): void {
-    if (this.hostExitWaiter !== null) {
-      this.hostExitWaiter();
     }
   }
 
@@ -633,169 +375,6 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   /**
-   * Ensures a sidecar child is alive, spawning on first use and after a crash. Throws
-   * `PtyBackendUnavailableError` when the crash budget is spent, after shutdown, or when the binary
-   * cannot be resolved or spawned. A failed spawn charges the crash budget; a failed resolution
-   * not.
-   */
-  private async ensureChild(): Promise<void> {
-    if (this.permanentlyUnavailable) {
-      throw new PtyBackendUnavailableError(
-        { attemptedBackend: "rust-sidecar" },
-        "RustSidecarPtyHost: crash-respawn budget exhausted " +
-          `(${CRASH_BUDGET_LIMIT} crashes within ${CRASH_BUDGET_WINDOW_MS}ms); ` +
-          "refusing to respawn.",
-      );
-    }
-    if (this.shuttingDown) {
-      // Terminal once shutdown() starts, so a concurrent spawn() cannot restart the sidecar
-      // mid-drain.
-      throw new PtyBackendUnavailableError(
-        { attemptedBackend: "rust-sidecar" },
-        "RustSidecarPtyHost: shutdown() in progress or complete; " +
-          "the host is terminal — re-create a fresh instance for new sessions.",
-      );
-    }
-    if (this.child !== null) {
-      return;
-    }
-    // Concurrent cold-start callers share one spawn attempt.
-    if (this.inflightSpawn !== null) {
-      return this.inflightSpawn;
-    }
-
-    this.inflightSpawn = (async (): Promise<void> => {
-      try {
-        const spawnFn: SidecarSpawnFn = await this.resolveSpawn();
-
-        // Re-checked: the budget may have been exhausted while spawn resolution yielded.
-        if (this.permanentlyUnavailable) {
-          throw new PtyBackendUnavailableError(
-            { attemptedBackend: "rust-sidecar" },
-            "RustSidecarPtyHost: crash-respawn budget exhausted " +
-              `(${CRASH_BUDGET_LIMIT} crashes within ${CRASH_BUDGET_WINDOW_MS}ms); ` +
-              "refusing to respawn.",
-          );
-        }
-
-        let binaryPath: string;
-        try {
-          binaryPath = this.deps.resolveBinaryPath();
-        } catch (err: unknown) {
-          // A missing binary fails the same way on every retry, so it does not charge the crash
-          // budget. The resolver's `PtyBackendUnavailableError` is rethrown unchanged; others wrap.
-          if (err instanceof PtyBackendUnavailableError) {
-            throw err;
-          }
-          throw new PtyBackendUnavailableError(
-            { attemptedBackend: "rust-sidecar", cause: err },
-            "RustSidecarPtyHost: failed to resolve sidecar binary path",
-          );
-        }
-
-        let child: ChildProcessWithoutNullStreams;
-        try {
-          child = spawnFn(binaryPath, [], {
-            // stdin and stdout carry frames; stderr carries sidecar diagnostics.
-            stdio: ["pipe", "pipe", "pipe"],
-          });
-        } catch (err: unknown) {
-          // A synchronous spawn failure (ENOENT, EACCES) counts as a crash.
-          if (this.crashBudget.recordAndIsExhausted()) {
-            this.permanentlyUnavailable = true;
-          }
-          throw new PtyBackendUnavailableError(
-            { attemptedBackend: "rust-sidecar", cause: err },
-            `RustSidecarPtyHost: spawn(${binaryPath}) failed`,
-          );
-        }
-        this.child = child;
-        this.attachChildListeners(child);
-      } finally {
-        // Cleared on success and failure: success short-circuits on `this.child`; failure retries.
-        this.inflightSpawn = null;
-      }
-    })();
-
-    return this.inflightSpawn;
-  }
-
-  private attachChildListeners(child: SidecarChildProcess): void {
-    // A fresh child has not exited, so drop any `true` left by the crashed one.
-    this.childExitedBeforeDrain = false;
-
-    // Pipe failures (EPIPE, ERR_STREAM_DESTROYED, EIO) arrive as async `error` events, not throws,
-    // and would crash the daemon as `uncaughtException`. SIGTERM (not SIGKILL: the protocol is not
-    // corrupt) makes the child exit so the normal teardown runs.
-    const pipeErrorHandler =
-      (which: "stdin" | "stdout" | "stderr") =>
-      (err: Error): void => {
-        console.warn(
-          `RustSidecarPtyHost (${which}): ${err.message}; terminating child for respawn.`,
-        );
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          // Best-effort — child may have already exited (ESRCH).
-        }
-      };
-    child.stdin.on("error", pipeErrorHandler("stdin"));
-    child.stdout.on("error", pipeErrorHandler("stdout"));
-    child.stderr.on("error", pipeErrorHandler("stderr"));
-
-    // Named so handleChildExit and handleChildError can detach it before the parser is replaced.
-    const stdoutListener = (chunk: Buffer): void => {
-      this.parser.feed(chunk);
-      this.drainParserUntilIncomplete();
-    };
-    child.stdout.on("data", stdoutListener);
-    this.childStdoutListener = stdoutListener;
-
-    // Stderr: the sidecar's `eprintln!` output, forwarded to the daemon's log.
-    child.stderr.on("data", (chunk: Buffer) => {
-      console.warn(`RustSidecarPtyHost (stderr): ${chunk.toString("utf8").trimEnd()}`);
-    });
-
-    // The child is passed so the handlers can ignore events for a replaced child.
-    child.on("exit", (code: number | null, signal: string | null) => {
-      this.handleChildExit(child, code, signal);
-    });
-
-    // Error: async spawn failure, accounted like a crash.
-    child.on("error", (err: Error) => {
-      this.handleChildError(child, err);
-    });
-  }
-
-  /** Pulls every complete frame from the parser, since one stdout chunk can carry several. */
-  private drainParserUntilIncomplete(): void {
-    for (;;) {
-      const result = this.parser.nextFrame();
-      if (result.kind === "incomplete") {
-        return;
-      }
-      if (result.kind === "error") {
-        // The stream is desynced and cannot recover. Callers get the generic "sidecar exited"
-        // rejection; only JSON-decode failures stash a typed cause (failFatallyOnDecodeError).
-        console.warn(
-          `RustSidecarPtyHost: framing error on sidecar stdout (${result.message}); ` +
-            "tearing down child for respawn.",
-        );
-        // The exit handler then records the crash and respawns, or reports the backend unavailable.
-        if (this.child !== null) {
-          try {
-            this.child.kill("SIGKILL");
-          } catch {
-            // The child may already have exited.
-          }
-        }
-        return;
-      }
-      this.handleInbound(result.body);
-    }
-  }
-
-  /**
    * Decodes a frame body as an `Envelope` and routes it to a pending request or to the data and
    * exit handlers.
    */
@@ -811,7 +390,7 @@ export class RustSidecarPtyHost implements PtyHost {
         `RustSidecarPtyHost: failed to parse inbound JSON envelope ` +
           `(${(err as Error).message}); tearing down child for respawn.`,
       );
-      this.failFatallyOnDecodeError(cause);
+      this.childProcess.failFatallyOnDecodeError(cause);
       return;
     }
 
@@ -825,7 +404,7 @@ export class RustSidecarPtyHost implements PtyHost {
         `RustSidecarPtyHost: decoded payload is not an object envelope ` +
           `(observedKind=${observedKind}); tearing down child for respawn.`,
       );
-      this.failFatallyOnDecodeError(cause);
+      this.childProcess.failFatallyOnDecodeError(cause);
       return;
     }
 
@@ -842,7 +421,7 @@ export class RustSidecarPtyHost implements PtyHost {
               `(session=${envelope.session_id}, length=${envelope.bytes.length}); ` +
               `tearing down child for respawn.`,
           );
-          this.failFatallyOnDecodeError(cause);
+          this.childProcess.failFatallyOnDecodeError(cause);
           break;
         }
         const bytes: Uint8Array = Buffer.from(envelope.bytes, "base64");
@@ -853,10 +432,10 @@ export class RustSidecarPtyHost implements PtyHost {
           this.dataListener(envelope.session_id, bytes);
           break;
         }
-        if (this.closedSessionIds.has(envelope.session_id)) {
+        if (this.preSpawnBuffer.isClosed(envelope.session_id)) {
           break;
         }
-        this.bufferPreSpawnData(envelope.session_id, bytes);
+        this.preSpawnBuffer.bufferPreSpawnData(envelope.session_id, bytes);
         break;
       }
       case "exit_code_notification": {
@@ -895,7 +474,7 @@ export class RustSidecarPtyHost implements PtyHost {
           `RustSidecarPtyHost: unknown inbound envelope kind ${unknownKind} ` +
             `(version skew or sidecar bug); tearing down child for respawn.`,
         );
-        this.failFatallyOnDecodeError(cause);
+        this.childProcess.failFatallyOnDecodeError(cause);
         // Compiles only while the switch above covers every `Envelope` variant.
         const _exhaustive: never = envelope;
         return _exhaustive;
@@ -923,7 +502,7 @@ export class RustSidecarPtyHost implements PtyHost {
       this.notifyShutdownWaiter(notification.session_id);
       return;
     }
-    if (this.closedSessionIds.has(notification.session_id)) {
+    if (this.preSpawnBuffer.isClosed(notification.session_id)) {
       // This warn is the one most likely to fire in a normal close(): SIGTERM, then a late exit.
       console.warn(
         `RustSidecarPtyHost: late ExitCodeNotification for closed ` +
@@ -934,7 +513,7 @@ export class RustSidecarPtyHost implements PtyHost {
       this.notifyShutdownWaiter(notification.session_id);
       return;
     }
-    this.bufferPreSpawnExit(notification);
+    this.preSpawnBuffer.bufferPreSpawnExit(notification);
   }
 
   /**
@@ -1005,83 +584,19 @@ export class RustSidecarPtyHost implements PtyHost {
   }
 
   /**
-   * Buffers a data frame that arrived before its SpawnResponse, bounded by
-   * `MAX_PRE_SPAWN_BUFFERED_SESSIONS` sessions and `MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION` chunks
-   * each; frames over either cap are logged and dropped.
-   */
-  private bufferPreSpawnData(sessionId: string, bytes: Uint8Array): void {
-    const existing: Uint8Array[] | undefined = this.pendingDataFrames.get(sessionId);
-    if (existing === undefined) {
-      if (this.pendingDataFrames.size >= MAX_PRE_SPAWN_BUFFERED_SESSIONS) {
-        console.warn(
-          `RustSidecarPtyHost: pre-spawn buffer at capacity ` +
-            `(${MAX_PRE_SPAWN_BUFFERED_SESSIONS} stale sessions); ` +
-            `dropping DataFrame for session_id ${sessionId}.`,
-        );
-        return;
-      }
-      this.pendingDataFrames.set(sessionId, [bytes]);
-      return;
-    }
-    if (existing.length >= MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION) {
-      console.warn(
-        `RustSidecarPtyHost: pre-spawn DataFrame buffer for session_id ` +
-          `${sessionId} at capacity ` +
-          `(${MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION} chunks); ` +
-          `dropping further chunks until SpawnResponse arrives.`,
-      );
-      return;
-    }
-    existing.push(bytes);
-  }
-
-  /**
-   * Stores the pre-spawn `ExitCodeNotification`; the sidecar sends one per session, so a duplicate
-   * is dropped with a warn. Bounded by `MAX_PRE_SPAWN_BUFFERED_SESSIONS`, like
-   * `bufferPreSpawnData`.
-   */
-  private bufferPreSpawnExit(notification: ExitCodeNotification): void {
-    if (this.pendingExits.has(notification.session_id)) {
-      console.warn(
-        `RustSidecarPtyHost: duplicate pre-spawn ExitCodeNotification ` +
-          `for session_id ${notification.session_id} (exit_code=` +
-          `${notification.exit_code}); dropping (sidecar contract is ` +
-          `exactly-once-per-session).`,
-      );
-      return;
-    }
-    if (
-      !this.pendingDataFrames.has(notification.session_id) &&
-      this.pendingExits.size >= MAX_PRE_SPAWN_BUFFERED_SESSIONS
-    ) {
-      console.warn(
-        `RustSidecarPtyHost: pre-spawn exit buffer at capacity ` +
-          `(${MAX_PRE_SPAWN_BUFFERED_SESSIONS} stale sessions); ` +
-          `dropping ExitCodeNotification for session_id ` +
-          `${notification.session_id}.`,
-      );
-      return;
-    }
-    this.pendingExits.set(notification.session_id, notification);
-  }
-
-  /**
    * Replays the buffered pre-spawn data, then the exit, for `sessionId` in `setImmediate`, so the
    * `spawn()` caller's continuation records the id first. `unref()` keeps the timer from holding
    * the daemon open.
    */
   private replayPreSpawnEvents(sessionId: string): void {
-    const dataFrames: Uint8Array[] | undefined = this.pendingDataFrames.get(sessionId);
-    const exit: ExitCodeNotification | undefined = this.pendingExits.get(sessionId);
-    this.pendingDataFrames.delete(sessionId);
-    this.pendingExits.delete(sessionId);
+    const { dataFrames, exit } = this.preSpawnBuffer.takePreSpawnEvents(sessionId);
     if (dataFrames === undefined && exit === undefined) {
       return;
     }
     const handle: NodeJS.Immediate = setImmediate(() => {
       // Re-check at fire time: a close() since scheduling removed the record and must suppress
       // the fan-out.
-      if (this.closedSessionIds.has(sessionId)) {
+      if (this.preSpawnBuffer.isClosed(sessionId)) {
         return;
       }
       if (dataFrames !== undefined && this.sessions.has(sessionId)) {
@@ -1101,35 +616,6 @@ export class RustSidecarPtyHost implements PtyHost {
       }
     });
     handle.unref();
-  }
-
-  /**
-   * Remembers a closed session id, evicting the oldest beyond `MAX_CLOSED_SESSION_IDS`. An evicted
-   * id falls back to pre-spawn buffering, harmless because ids are not reused within one lifetime.
-   */
-  private recordClosedSessionId(sessionId: string): void {
-    if (this.closedSessionIds.has(sessionId)) {
-      // Already recorded; re-adding would not refresh a Set's insertion order.
-      return;
-    }
-    if (this.closedSessionIds.size >= MAX_CLOSED_SESSION_IDS) {
-      const oldest: string | undefined = this.closedSessionIds.values().next().value;
-      if (oldest !== undefined) {
-        this.closedSessionIds.delete(oldest);
-      }
-    }
-    this.closedSessionIds.add(sessionId);
-  }
-
-  /**
-   * Clears the pre-spawn buffers and closed-id memory when the sidecar goes away. A respawned
-   * sidecar restarts its ids at `s-0`, so stale entries would replay into or suppress a new
-   * session.
-   */
-  private clearPreSpawnState(): void {
-    this.pendingDataFrames.clear();
-    this.pendingExits.clear();
-    this.closedSessionIds.clear();
   }
 
   /**
@@ -1168,19 +654,6 @@ export class RustSidecarPtyHost implements PtyHost {
         }
       }
     });
-  }
-
-  /** Resolves the spawn function: an injected one, else `node:child_process` loaded on demand. */
-  private async resolveSpawn(): Promise<SidecarSpawnFn> {
-    if (this.cachedSpawn !== null) {
-      return this.cachedSpawn;
-    }
-    if (this.deps.spawn !== null) {
-      this.cachedSpawn = this.deps.spawn;
-      return this.cachedSpawn;
-    }
-    this.cachedSpawn = await loadDefaultSpawn();
-    return this.cachedSpawn;
   }
 
   /**
@@ -1225,19 +698,14 @@ export class RustSidecarPtyHost implements PtyHost {
     code: number | null,
     signal: string | null,
   ): void {
-    if (this.child !== child) {
-      // Ignore events for a replaced child: teardown would clear the new child and reject its
-      // pending requests with the old child's failure.
+    // Ignore events for a replaced child: teardown would clear the new child and reject its
+    // pending requests with the old child's failure.
+    if (!this.childProcess.releaseExitedChild(child)) {
       return;
     }
-    // After the stale-event guard, so a late event cannot mark the live child as exited.
-    this.childExitedBeforeDrain = true;
-    this.detachChildStdoutListener(child);
-    this.parser = new ContentLengthParser();
-    this.child = null;
-    this.clearPreSpawnState();
+    this.preSpawnBuffer.clearPreSpawnState();
     this.fireCrashTimeOnExit();
-    const stashed: Error | null = this.consumePendingTeardownCause();
+    const stashed: Error | null = this.childProcess.consumePendingTeardownCause();
     this.rejectAllOutstanding(
       stashed ??
         new Error(
@@ -1245,24 +713,20 @@ export class RustSidecarPtyHost implements PtyHost {
             "before response was received",
         ),
     );
-    this.recordCrashOncePerChild(child);
+    this.childProcess.recordCrashOncePerChild(child, this.shuttingDown);
     // Wakes drainSidecarHost's wait for the sidecar's exit (a no-op outside shutdown).
-    this.notifyHostExitWaiter();
+    this.childProcess.notifyHostExitWaiter();
   }
 
   /** Same teardown as `handleChildExit`, for an async `error` event. */
   private handleChildError(child: SidecarChildProcess, err: Error): void {
-    if (this.child !== child) {
-      // Stale event for a replaced child; see handleChildExit.
+    // Stale event for a replaced child; see handleChildExit.
+    if (!this.childProcess.releaseExitedChild(child)) {
       return;
     }
-    this.childExitedBeforeDrain = true;
-    this.detachChildStdoutListener(child);
-    this.parser = new ContentLengthParser();
-    this.child = null;
-    this.clearPreSpawnState();
+    this.preSpawnBuffer.clearPreSpawnState();
     this.fireCrashTimeOnExit();
-    const stashed: Error | null = this.consumePendingTeardownCause();
+    const stashed: Error | null = this.childProcess.consumePendingTeardownCause();
     this.rejectAllOutstanding(
       stashed ??
         new Error(
@@ -1270,65 +734,8 @@ export class RustSidecarPtyHost implements PtyHost {
             "rejecting outstanding requests",
         ),
     );
-    this.recordCrashOncePerChild(child);
-    this.notifyHostExitWaiter();
-  }
-
-  /**
-   * Fatal teardown for a payload decode failure: stashes `cause` for the exit handler to reject
-   * outstanding requests with, then SIGKILLs the child. Only the first failure in a drain pass
-   * acts, and the stash is set only when a child exists so it cannot leak into the next one.
-   */
-  private failFatallyOnDecodeError(cause: SidecarFrameDecodeError): void {
-    console.warn(cause.message);
-    if (this.pendingTeardownCause !== null) {
-      return;
-    }
-    if (this.child !== null) {
-      this.pendingTeardownCause = cause;
-      try {
-        this.child.kill("SIGKILL");
-      } catch {
-        // The child may already have exited.
-      }
-    }
-  }
-
-  /** Returns and clears the stashed teardown cause, so the next child does not inherit it. */
-  private consumePendingTeardownCause(): Error | null {
-    const cause: Error | null = this.pendingTeardownCause;
-    this.pendingTeardownCause = null;
-    return cause;
-  }
-
-  /**
-   * Detaches the stdout listener before the parser is replaced, so late bytes from the dying child
-   * cannot feed the fresh parser.
-   */
-  private detachChildStdoutListener(child: SidecarChildProcess): void {
-    if (this.childStdoutListener !== null) {
-      child.stdout.off("data", this.childStdoutListener);
-      this.childStdoutListener = null;
-    }
-  }
-
-  /**
-   * Charges one crash-budget slot for `child`, once. Marks `permanentlyUnavailable` when the budget
-   * is exhausted, so the next `ensureChild` throws.
-   */
-  private recordCrashOncePerChild(child: SidecarChildProcess): void {
-    if (this.crashCountedChildren.has(child)) {
-      return;
-    }
-    // Recorded even during shutdown so a stale second event for this child stays a no-op. The
-    // deliberate exit during shutdown is not a crash and must not charge the budget.
-    this.crashCountedChildren.add(child);
-    if (this.shuttingDown) {
-      return;
-    }
-    if (this.crashBudget.recordAndIsExhausted()) {
-      this.permanentlyUnavailable = true;
-    }
+    this.childProcess.recordCrashOncePerChild(child, this.shuttingDown);
+    this.childProcess.notifyHostExitWaiter();
   }
 
   private rejectAllOutstanding(err: Error): void {

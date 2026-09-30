@@ -21,11 +21,8 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
 import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
-import {
-  RustSidecarPtyHost,
-  type SidecarChildProcess,
-  type SidecarSpawnFn,
-} from "../rust-sidecar-pty-host.js";
+import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
+import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar-child-supervisor.js";
 import type { TaskkillResult } from "../taskkill-windows.js";
 
 import type { DrainResult, Envelope } from "@ai-sidekicks/contracts";

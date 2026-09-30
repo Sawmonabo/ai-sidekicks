@@ -7,9 +7,9 @@ import { type ExecutionPosture } from "@ai-sidekicks/contracts";
 import { createHash } from "node:crypto";
 
 // The `ExecutionPosture` axes a spawn realizes, in mismatch-report order; `startRun` refuses a run
-// differing on any (see `#assertSpawnBoundRealization`). Enumerated from the contract type, not
-// sampled: a skipped axis would admit a run into a process whose sandbox differs from its posture.
-// Set axes compare order-insensitively, scalars strictly.
+// differing on any (see `assertClaudeSpawnBoundRealization`). Enumerated from the contract type,
+// not sampled: a skipped axis would admit a run into a process whose sandbox differs from its
+// posture. Set axes compare order-insensitively, scalars strictly.
 const CLAUDE_POSTURE_SCALAR_AXES = [
   "mode",
   "networkAccess",

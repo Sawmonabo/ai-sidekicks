@@ -12,14 +12,13 @@ import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { RustSidecarPtyHost, createRustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
 import {
   CRASH_BUDGET_LIMIT,
   CRASH_BUDGET_WINDOW_MS,
-  RustSidecarPtyHost,
-  createRustSidecarPtyHost,
   type SidecarChildProcess,
   type SidecarSpawnFn,
-} from "../rust-sidecar-pty-host.js";
+} from "../sidecar-child-supervisor.js";
 import {
   ContentLengthParser,
   MAX_FRAME_BODY_BYTES,

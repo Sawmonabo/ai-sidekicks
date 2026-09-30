@@ -39,7 +39,8 @@ export const SNAPSHOT_IDENTITY_NAME = "AI Sidekicks";
 export const SNAPSHOT_IDENTITY_EMAIL = "snapshots@ai-sidekicks.invalid";
 
 // Hex length per `rev-parse --show-object-format` name. A valid id can be un-insertable in a
-// repository of the other width (see `#normalizeEmbeddedRepositories`); an unknown name throws.
+// repository of the other width (see `TurnSnapshotCaptureSteps.normalizeEmbeddedRepositories`);
+// an unknown name throws.
 const OBJECT_ID_HEX_LENGTHS: ReadonlyMap<string, number> = new Map<string, number>([
   ["sha1", 40],
   ["sha256", 64],
