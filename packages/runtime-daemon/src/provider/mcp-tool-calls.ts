@@ -10,7 +10,7 @@
 import type { IdempotencyClass } from "@ai-sidekicks/contracts";
 
 /** The class of every MCP-discovered tool: equal to a driver's default in value but not in rule. */
-export const MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
+const MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
 /**
  * MCP `ToolAnnotations` self-claims, modeled only so {@link classifyMcpDiscoveredTool} can name

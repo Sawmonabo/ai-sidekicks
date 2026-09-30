@@ -26,7 +26,7 @@ import {
 import type { McpServerStatusEmission } from "../../provider-driver.js";
 
 /** The class an unannotated tool takes: it halts recovery for operator reconciliation. */
-export const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
+const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
 /** The closed `idempotency_class` vocabulary, for runtime recognition. */
 const RECOGNIZED_IDEMPOTENCY_CLASSES: readonly IdempotencyClass[] = [
@@ -65,7 +65,7 @@ export function closeToolIdempotencyClass(
 }
 
 /** Closes a whole declaration table. See {@link closeToolIdempotencyClass}. */
-export function closeToolIdempotencyClasses(
+function closeToolIdempotencyClasses(
   declarations: readonly ProviderToolMetadata[],
 ): NormalizedProviderToolMetadata[] {
   return declarations.map((declaration) => closeToolIdempotencyClass(declaration));

@@ -106,7 +106,7 @@ export interface RepoRootResolverDeps {
 export const DEFAULT_GIT_EXECUTABLE: string = "git";
 
 /** Milliseconds allowed for one `rev-parse` (a network mount can hang); a kill is `vcs_error`. */
-export const DEFAULT_GIT_COMMAND_TIMEOUT_MS: number = 10_000;
+const DEFAULT_GIT_COMMAND_TIMEOUT_MS: number = 10_000;
 
 /**
  * Cap on captured stdio for every daemon git invocation, sized for the largest one: a `-z` path

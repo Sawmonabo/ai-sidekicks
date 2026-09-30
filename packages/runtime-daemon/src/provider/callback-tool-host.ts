@@ -706,15 +706,3 @@ export function bindCallbackToolsForSpawn(
     },
   };
 }
-
-/**
- * Translates a provider-facing tool name back to the registry name, or returns it unchanged when
- * unknown. The Claude driver hosts the registry as an MCP server, so each tool surfaces as
- * `mcp__<server>__<tool>`; an unknown name passes through so the refusal names the exact string.
- */
-export function resolveRegisteredCallbackToolName(
-  registryNamesByProviderName: ReadonlyMap<string, string>,
-  providerFacingToolName: string,
-): string {
-  return registryNamesByProviderName.get(providerFacingToolName) ?? providerFacingToolName;
-}

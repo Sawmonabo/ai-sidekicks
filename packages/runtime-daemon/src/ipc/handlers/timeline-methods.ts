@@ -256,7 +256,11 @@ export function registerTimelineMethod<MethodName extends TimelineMethodName>(
   );
 }
 
-/** What `timeline.bodyRead` reads through: the stored event row and the body opener. */
+/**
+ * What `timeline.bodyRead` reads through: the stored event row and the body opener.
+ *
+ * @consumedBy the daemon's method wiring for the timeline's full-body read
+ */
 export interface TimelineBodyReadDependencies {
   /**
    * The stored row of one event in one session, or `undefined` when the session holds no event
@@ -275,6 +279,8 @@ export interface TimelineBodyReadDependencies {
  * Binds `timeline.bodyRead`, which returns a row's large body or full output. The row id is the
  * stored event's id; the answer is the body or the closed reason it cannot be opened. An id the
  * session does not hold is refused on the `rowId` path, so it differs from an unreadable body.
+ *
+ * @consumedBy the daemon's method wiring for the timeline's full-body read
  */
 export function registerTimelineBodyRead(
   registry: MethodRegistry,

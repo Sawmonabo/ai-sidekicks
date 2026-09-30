@@ -14,7 +14,7 @@ export const HEADER_BODY_SEPARATOR = "\r\n\r\n";
  * Largest accepted header section, in bytes before the separator. Without it a peer that never
  * sends the separator would grow the accumulator without bound; real headers are tens of bytes.
  */
-export const MAX_HEADER_BYTES: number = 1024;
+const MAX_HEADER_BYTES: number = 1024;
 
 /**
  * Result of one `parseFrame` call against a connection's accumulating buffer. `frame !== null`

@@ -19,21 +19,12 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
  * The five canonical `repo.*` dotted identifiers. Subclasses do not redeclare `code` (under
  * `useDefineForClassFields` that would clobber the base value), so discriminate by `instanceof`.
  */
-export type RepoErrorCode =
+type RepoErrorCode =
   | "repo.not_found"
   | "repo.root_resolution_failed"
   | "repo.outside_trust_envelope"
   | "repo.already_attached"
   | "repo.detach_conflict";
-
-/** Runtime list of every `RepoErrorCode`, in the same order. */
-export const REPO_ERROR_CODES: readonly RepoErrorCode[] = [
-  "repo.not_found",
-  "repo.root_resolution_failed",
-  "repo.outside_trust_envelope",
-  "repo.already_attached",
-  "repo.detach_conflict",
-];
 
 /** Why canonical-root resolution failed; closed and non-path-bearing, so safe on the wire. */
 export type RepoRootResolutionReason =

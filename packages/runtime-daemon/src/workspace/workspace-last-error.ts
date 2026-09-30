@@ -41,7 +41,7 @@ export function scrubCredentials(rawDetail: string): string {
  * Cut a detail to `WORKSPACE_LAST_ERROR_MAX_LEN` with a marker. The cap counts UTF-16 code units,
  * as Zod's `.max()` does; the cut backs off one unit rather than split a surrogate pair.
  */
-export function truncateWorkspaceLastError(detail: string): string {
+function truncateWorkspaceLastError(detail: string): string {
   if (detail.length <= WORKSPACE_LAST_ERROR_MAX_LEN) {
     return detail;
   }

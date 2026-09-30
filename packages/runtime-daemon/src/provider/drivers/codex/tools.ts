@@ -23,7 +23,7 @@ import {
 import type { McpServerStatusEmission } from "../../provider-driver.js";
 
 /** The class an unannotated Codex tool closes to. */
-export const DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
+const DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
 /** Codex's own tools in the names a person picks for an agent's allowlist. */
 export const CODEX_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
@@ -33,7 +33,7 @@ export const CODEX_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
 ]);
 
 /** `ThreadItem.type` arms for an invocation whose crash-recovery disposition matters. */
-export const CODEX_TOOL_NAMES = [
+const CODEX_TOOL_NAMES = [
   "commandExecution",
   "fileChange",
   "collabAgentToolCall",
@@ -139,6 +139,8 @@ const CODEX_STARTUP_STATE_MAP: Readonly<Record<string, McpServerStatus>> = {
 /**
  * Normalizes `mcpServerStatus/list` rows; a non-array yields one rejection. A null `runtimeStatus`
  * is `needs-auth` only for `authStatus` `notLoggedIn`, else `unknown` (other modes say nothing).
+ *
+ * @consumedBy the Codex driver's MCP server status reads
  */
 export function normalizeCodexMcpServerStatusList(rawRows: unknown): McpServerStatusIngestResult {
   if (!Array.isArray(rawRows)) {
@@ -178,6 +180,8 @@ export function normalizeCodexMcpServerStatusList(rawRows: unknown): McpServerSt
 /**
  * Normalizes one `mcpServer/startupStatus/updated` notification; a `failed` startup for
  * `reauthenticationRequired` becomes `needs-auth`, the one state a person can fix.
+ *
+ * @consumedBy the Codex driver's MCP server status reads
  */
 export function normalizeCodexMcpServerStatusNotification(
   rawNotification: unknown,

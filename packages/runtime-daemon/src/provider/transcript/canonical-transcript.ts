@@ -81,7 +81,7 @@ export interface TranscriptContentSource {
  * scope: it is the only row that separates two consecutive assistant turns, which would otherwise
  * coalesce.
  */
-export const TRANSCRIPT_BEARING_EVENT_TYPES: readonly string[] = [
+const TRANSCRIPT_BEARING_EVENT_TYPES: readonly string[] = [
   "run.turn_started",
   "user.message",
   "assistant.message",
@@ -100,7 +100,7 @@ const TRANSCRIPT_BEARING_EVENT_TYPE_SET: ReadonlySet<string> = new Set(
  * payload names the run: a row naming no run cannot be proven to belong to this one, and admitting
  * it could export another run's conversation into this run's replay target.
  */
-export function isEventInRunScope(event: StoredEvent, runId: RunId): boolean {
+function isEventInRunScope(event: StoredEvent, runId: RunId): boolean {
   if (!TRANSCRIPT_BEARING_EVENT_TYPE_SET.has(event.type)) {
     return false;
   }

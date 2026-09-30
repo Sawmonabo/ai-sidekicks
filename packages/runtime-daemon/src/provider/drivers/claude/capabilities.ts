@@ -283,7 +283,7 @@ const CLAUDE_PINNED_EFFORT_LEVELS: readonly string[] = Object.freeze([
  * Ids, names and effort levels are what Claude Code 2.1.251 answered, alias rows collapsed as
  * {@link normalizeClaudeModelCatalog} does; effort levels are per model (Haiku has none).
  */
-export const CLAUDE_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
+const CLAUDE_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
   declaredClaudeModel("claude-opus-5[1m]", "Opus (1M context)", true, CLAUDE_PINNED_EFFORT_LEVELS),
   declaredClaudeModel("claude-fable-5", "Fable", false, CLAUDE_PINNED_EFFORT_LEVELS),
   declaredClaudeModel("claude-sonnet-5", "Sonnet", false, CLAUDE_PINNED_EFFORT_LEVELS),

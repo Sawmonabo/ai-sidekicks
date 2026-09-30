@@ -165,15 +165,6 @@ export interface TranscriptPipelineState {
 /** One pipeline step: reads the state and returns the next one. */
 export type TranscriptPipelineStep = (state: TranscriptPipelineState) => TranscriptPipelineState;
 
-/** The step names, in canonical order. */
-export const CANONICAL_TRANSCRIPT_PIPELINE_STEP_NAMES: readonly string[] = [
-  "fold",
-  "map-identity",
-  "strip-non-portable",
-  "repair-pairing",
-  "render",
-];
-
 /**
  * The text a repaired tool result carries where the call was never answered. Fixed, so a target
  * cannot infer a difference between two such results and a test can assert the repair by value.

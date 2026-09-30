@@ -19,20 +19,19 @@ import {
 } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
-import type { CodexToolName } from "./tools.js";
 import { resolveAdoptedEventTarget, type NormalizedEventKind } from "../../event-disposition.js";
 
 /**
  * Which server-originated JSON-RPC root a frame arrives on: a `server-request` must be answered, a
  * `server-notification` is fire-and-forget.
  */
-export type CodexInboundFrameTransport = "server-request" | "server-notification";
+type CodexInboundFrameTransport = "server-request" | "server-notification";
 
 /**
  * Every server-originated method of the pinned Codex protocol that has a normalized disposition;
  * the backing record's `satisfies` check makes a missing or extra row a build error.
  */
-export type CodexInboundFrameMethod =
+type CodexInboundFrameMethod =
   | "item/tool/call"
   | "item/tool/requestUserInput"
   | "mcpServer/elicitation/request"
@@ -78,6 +77,8 @@ export type CodexInboundFrameMethod =
  * Mapped methods that cannot arrive at `experimentalApi: false`: the provider's transport silently
  * drops the eleven notifications, and `item/tool/requestUserInput` is the one experimental request
  * arm. Declared, not derived, since the schema carries no notification-side marker at the pin.
+ *
+ * @consumedBy the Codex driver's experimental-API negotiation
  */
 export const CODEX_NEGOTIATION_GATED_METHODS: readonly CodexInboundFrameMethod[] = Object.freeze([
   "item/tool/requestUserInput",
@@ -94,25 +95,11 @@ export const CODEX_NEGOTIATION_GATED_METHODS: readonly CodexInboundFrameMethod[]
   "thread/settings/updated",
 ]);
 
-/** The wire shape `item/<toolName>/requestApproval`, the segment taken from `CodexToolName`. */
-type CodexToolApprovalMethod<TToolName extends CodexToolName> = `item/${TToolName}/requestApproval`;
-
-/**
- * The approval methods whose middle segment is a `CodexToolName`; renaming a tool in
- * `CODEX_TOOL_NAMES` or dropping a method from the union is a compile error. Only the two
- * mutating tools gate on approval.
- */
-export const CODEX_TOOL_KEYED_APPROVAL_METHODS: readonly (CodexToolApprovalMethod<CodexToolName> &
-  CodexInboundFrameMethod)[] = Object.freeze([
-  "item/commandExecution/requestApproval",
-  "item/fileChange/requestApproval",
-]);
-
 /**
  * Whether a row's target event type has a payload variant registered in `SessionEventSchema`;
  * `payload-variant-pending` rows go to diagnostics, never to an envelope builder.
  */
-export type CodexEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
+type CodexEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
 
 // Derived from the contracts roster, so it widens by itself when a variant lands.
 const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set(
@@ -120,7 +107,7 @@ const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = ne
 );
 
 /** Says whether `eventType` may be built into a `SessionEvent` envelope today. */
-export function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissionReadiness {
+function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissionReadiness {
   return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)
     ? "envelope-constructible"
     : "payload-variant-pending";
@@ -132,7 +119,7 @@ export function resolveCodexEmissionReadiness(eventType: SessionEventType): Code
  * own target; a row naming a kind takes its target from the disposition table. Both, and
  * `emissionReadiness`, are put on the row when the map is built.
  */
-export interface CodexNormalizedFamilyEmission {
+interface CodexNormalizedFamilyEmission {
   readonly disposition: "normalized";
   readonly nativeMethod: CodexInboundFrameMethod;
   readonly transport: CodexInboundFrameTransport;
@@ -479,16 +466,11 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
   },
 } as const satisfies Record<CodexInboundFrameMethod, CodexFrameNormalizationTableRow>;
 
-/** The census as an iterable list, derived from the record's keys. */
-export const CODEX_INBOUND_FRAME_METHODS: readonly CodexInboundFrameMethod[] = Object.freeze(
-  Object.keys(CODEX_FRAME_NORMALIZATION_RECORD) as CodexInboundFrameMethod[],
-);
-
 /**
  * The mapping from native method to normalized family. A `Map` because the key is an untrusted
  * string and an object lookup would resolve `__proto__`; entries are frozen singletons.
  */
-export const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
+const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
   CodexInboundFrameMethod,
   CodexFrameNormalization
 > = new Map(
@@ -596,7 +578,7 @@ export const CODEX_SKILLS_CHANGED_METHOD = "skills/changed" as const;
  * attributed by (`runId`, `provider`, `subagentId`). The other arm, `subAgentCompact`, is a
  * compaction thread whose spend attributes to the parent run.
  */
-export const CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS: readonly string[] = Object.freeze([
+const CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS: readonly string[] = Object.freeze([
   "subAgent",
   "subAgentReview",
   "subAgentThreadSpawn",

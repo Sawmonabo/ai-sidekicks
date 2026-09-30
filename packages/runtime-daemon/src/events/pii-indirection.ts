@@ -70,7 +70,7 @@ const CODEC_OWNED_CONTENT_PAYLOAD_KEYS: readonly string[] = [
 ];
 
 /** Thrown when a producer pre-seeds a codec-owned payload member; carries the key only. */
-export class CodecOwnedContentKeyError extends Error {
+class CodecOwnedContentKeyError extends Error {
   readonly seededKey: string;
 
   constructor(refuser: string, seededKey: string) {

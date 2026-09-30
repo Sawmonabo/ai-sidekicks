@@ -25,37 +25,21 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
 // `instanceof`, never by narrowing `code`.
 
 /** The `worktree.*` error codes, in registry order. */
-export type WorktreeErrorCode =
+type WorktreeErrorCode =
   | "worktree.not_found"
   | "worktree.create_failed"
   | "worktree.branch_collision"
   | "worktree.reuse_conflict"
   | WorktreeRetireConflictCode;
 
-/** Runtime companion to {@link WorktreeErrorCode}, in the same order. */
-export const WORKTREE_ERROR_CODES: readonly WorktreeErrorCode[] = [
-  "worktree.not_found",
-  "worktree.create_failed",
-  "worktree.branch_collision",
-  "worktree.reuse_conflict",
-  WORKTREE_RETIRE_CONFLICT_CODE,
-];
-
 /**
  * The `workspace.*` codes this module carries; the others have carriers in
  * `../workspace/workspace-service.js`.
  */
-export type WorkspaceErrorCode =
+type WorkspaceErrorCode =
   | "workspace.branch_mismatch"
   | "workspace.execution_root_unresolved"
   | "workspace.branch_name_required";
-
-/** Runtime companion to {@link WorkspaceErrorCode}, in the same order. */
-export const WORKSPACE_ERROR_CODES: readonly WorkspaceErrorCode[] = [
-  "workspace.branch_mismatch",
-  "workspace.execution_root_unresolved",
-  "workspace.branch_name_required",
-];
 
 /**
  * Why worktree creation failed; closed and path-free, so it is safe on the wire. The last reason,

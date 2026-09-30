@@ -98,7 +98,7 @@ export class CapabilityProbeNegativeControlError extends CapabilityProbeError {
 }
 
 /** The transport rejected: no reading exists, so nothing is declared. */
-export class CapabilityProbeTransportError extends CapabilityProbeError {
+class CapabilityProbeTransportError extends CapabilityProbeError {
   readonly driverName: ProviderName;
   readonly probeName: string;
 
@@ -147,7 +147,7 @@ export function isCapabilityProbeError(value: unknown): value is CapabilityProbe
 export type ProbeAnswer = "accepted" | "unknown-name" | "unrecognized";
 
 /** One reason a detection table is not admissible. */
-export interface CapabilityDetectionTableViolation {
+interface CapabilityDetectionTableViolation {
   readonly driverName: ProviderName;
   readonly flag: DriverCapabilityFlag;
   readonly reason: string;
@@ -157,7 +157,7 @@ export interface CapabilityDetectionTableViolation {
  * Report every entry that is not admissible: the runtime half of what the tuple types enforce at
  * compile time, for a table that may arrive from elsewhere.
  */
-export function findCapabilityDetectionTableViolations(
+function findCapabilityDetectionTableViolations(
   driverName: ProviderName,
   table: DriverCapabilityDetectionTable,
 ): readonly CapabilityDetectionTableViolation[] {

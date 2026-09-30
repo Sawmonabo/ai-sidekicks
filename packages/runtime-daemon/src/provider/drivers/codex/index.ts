@@ -72,19 +72,16 @@ export {
   CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
   composeCodexTransportArgv,
-  resolveCodexTransportSelection,
   type CodexTransportSelection,
   type CodexWebsocketBearerCredential,
 } from "./transport-selection.js";
 export {
   CODEX_MAX_LINE_LENGTH,
-  CODEX_ROUTED_SERVER_REQUEST_METHODS,
   type CodexServerRequestDecision,
   type CodexSessionServerRequestResponder,
 } from "./server-requests.js";
 export {
   describeCodexPostureDivergence,
-  parseCodexRunConfig,
   parseCodexSessionConfig,
   type CodexSessionConfig,
 } from "./session-config.js";

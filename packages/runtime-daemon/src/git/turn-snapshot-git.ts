@@ -44,9 +44,8 @@ const RESERVED_REF_LOCK_SUFFIX = ".lock";
 /**
  * Stripped from the git environment besides {@link DISCOVERY_REDIRECTING_GIT_ENV_KEYS}.
  * `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` stay: `-c` pins outrank every config source.
- * Exported for the tests.
  */
-export const SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS: readonly string[] = [
+const SNAPSHOT_NEUTRALIZED_GIT_ENV_KEYS: readonly string[] = [
   ...DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
   // The snapshot objects must resolve from the execution root's own object store.
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",

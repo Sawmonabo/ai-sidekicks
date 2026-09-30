@@ -70,47 +70,6 @@ export type NormalizedEventKind =
   | "thinking"
   | "proposed_plan";
 
-/** Every {@link NormalizedEventKind} as an iterable tuple. */
-export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
-  "init",
-  "text_delta",
-  "tool_start",
-  "tool_complete",
-  "turn_start",
-  "turn_complete",
-  "approval_request",
-  "approval_resolved",
-  "user_input_request",
-  "user_input_resolved",
-  "refusal_choice_request",
-  "usage_credits_choice_request",
-  "session_status",
-  "token_usage",
-  "error",
-  "todo_update",
-  "task_create",
-  "task_update",
-  "notification",
-  "api_retry",
-  "compact_boundary",
-  "rate_limits",
-  "model_rerouted",
-  "thread_renamed",
-  "content_block_start",
-  "content_block_stop",
-  "background_task_terminal",
-  "background_task_notification",
-  "subagent_notification",
-  "subagent_status",
-  "command_exit",
-  "terminal_interaction",
-  "user_text",
-  "diff",
-  "command_output",
-  "thinking",
-  "proposed_plan",
-] as const;
-
 /**
  * What a normalized kind becomes. `adopt` names a category and an `eventType` (a registered
  * {@link SessionEventType}). `correlate` and `discard` carry only a non-empty
@@ -124,7 +83,7 @@ export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
  * entries: `ReadonlyMap` blocks `.set()` but not property writes on an entry it returned, so a
  * consumer's `entry.category = ...` would otherwise corrupt the table process-wide.
  */
-export type EventKindDisposition =
+type EventKindDisposition =
   | {
       readonly disposition: "adopt";
       readonly category: EventCategory;
@@ -341,14 +300,13 @@ const EVENT_DISPOSITION_RECORD = {
  * a plain object, so `.get()` is safe on untrusted input: a wire kind such as
  * `__proto__` or `constructor` resolves to `undefined`, never a truthy non-disposition value.
  */
-export const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKindDisposition> =
-  new Map(
-    // Sound by the `satisfies` check above: the record's keys are exactly the
-    // `NormalizedEventKind` literals.
-    Object.entries(EVENT_DISPOSITION_RECORD) as ReadonlyArray<
-      [NormalizedEventKind, EventKindDisposition]
-    >,
-  );
+const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKindDisposition> = new Map(
+  // Sound by the `satisfies` check above: the record's keys are exactly the
+  // `NormalizedEventKind` literals.
+  Object.entries(EVENT_DISPOSITION_RECORD) as ReadonlyArray<
+    [NormalizedEventKind, EventKindDisposition]
+  >,
+);
 
 /** The session event a normalizer row emits: its category and its registered type. */
 export interface AdoptedEventTarget {

@@ -34,7 +34,7 @@ import {
 export const CODEX_INTERVENTION_FALLBACK_ACTION: string = "queue_and_interrupt";
 
 /** Capability flag governing each intervention type; `null` means no flag gates it. */
-export const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
+const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
   Record<ApplyInterventionParams["type"], DriverCapabilityFlag | null>
 > = {
   steer: "steer",

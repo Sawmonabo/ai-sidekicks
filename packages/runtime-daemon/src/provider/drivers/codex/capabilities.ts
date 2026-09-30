@@ -39,7 +39,7 @@ export const CODEX_DRIVER_NAME = "codex" as const;
  * Capability-contract semver the writer compares to detect change; it moves whenever the shape of
  * what this driver advertises changes.
  */
-export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
+const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
 
 /** A flag is `true` only where the driver delivers the capability at its own boundary. */
 export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
