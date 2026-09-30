@@ -14,7 +14,7 @@ import { useEffect } from "react";
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { type DaemonConnection } from "@renderer/store/window/main-process-state.js";
+import type { DaemonConnection } from "@shared/daemon-status-topic.js";
 
 /** What the daemon says about itself, once it has been asked. */
 export interface DaemonStatus {

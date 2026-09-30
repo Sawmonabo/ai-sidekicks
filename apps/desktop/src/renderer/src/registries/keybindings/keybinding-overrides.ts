@@ -19,6 +19,7 @@
 // kept, and what a window does while one is being recorded is
 // `keybinding-override-store.ts`.
 
+import type { KeyboardMap } from "@shared/preload-api.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { Keybinding } from "../commands/command-types.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
@@ -29,12 +30,9 @@ import { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
  *
  * `null` says "this command has no chord and I meant that"; an ABSENT entry says "I
  * never touched this one", which is what a reset restores and what leaves the
- * shipped chord in place. The `keybinding` value class admits exactly this pair.
+ * shipped chord in place. The keyboard map main keeps holds exactly this pair.
  */
-export type KeybindingOverride = string | null;
-
-/** Every override one window holds, keyed by command id. */
-export type KeybindingOverrideMap = Readonly<Record<string, KeybindingOverride>>;
+export type KeybindingOverride = KeyboardMap[string];
 
 /** Why a candidate chord was refused. Rendered verbatim; never swallowed. */
 export const KEYBINDING_OVERRIDE_REFUSAL_CODES = [
@@ -65,7 +63,7 @@ export interface CandidateChordInput {
   /** The chords the console ships. Overrides are composed onto this table. */
   readonly defaults: readonly Keybinding[];
   /** The overrides already held. The candidate is judged against them. */
-  readonly overrides: KeybindingOverrideMap;
+  readonly overrides: KeyboardMap;
   readonly commandId: string;
   readonly chord: string;
   /** Whose reserved chords to refuse. Defaults to the host being run on. */
@@ -83,7 +81,7 @@ export interface CandidateChordInput {
  */
 export function composeEffectiveBindings(
   defaults: readonly Keybinding[],
-  overrides: KeybindingOverrideMap,
+  overrides: KeyboardMap,
 ): readonly Keybinding[] {
   const effective: Keybinding[] = [];
   const boundByDefault = new Set<string>();
@@ -103,27 +101,6 @@ export function composeEffectiveBindings(
     }
   }
   return effective;
-}
-
-/**
- * Read a stored record back as an override map.
- *
- * Anything that is not the shape this seam writes answers the empty map: the
- * persistence chokepoint validated what it stored, so a record failing here is a
- * hand-edited database or a defect, and either way the honest recovery is the
- * shipped keyboard rather than half of somebody's.
- */
-export function readOverrideMap(value: unknown): KeybindingOverrideMap {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
-  }
-  const map: Record<string, KeybindingOverride> = {};
-  for (const [commandId, override] of Object.entries(value)) {
-    if (override === null || typeof override === "string") {
-      map[commandId] = override;
-    }
-  }
-  return map;
 }
 
 /**

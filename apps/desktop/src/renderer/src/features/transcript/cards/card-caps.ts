@@ -16,18 +16,30 @@
  * what the cache is keyed by and the only figure it can measure without walking.
  */
 export const MARKDOWN_BLOCK_CACHE_BYTE_CAP = 2_097_152;
+/** The share of physical memory the color spans take: one part in this many. */
+const CODE_SPAN_MEMORY_SHARE = 2048;
+/** The least the color spans are given, 4 MiB, whatever the machine. */
+const CODE_SPAN_CACHE_FLOOR_BYTES = 4 * 1024 * 1024;
+/** The most the color spans are given, 16 MiB, whatever the machine. */
+const CODE_SPAN_CACHE_CEILING_BYTES = 16 * 1024 * 1024;
+
 /**
  * Bytes of color spans the code blocks keep, across every code block, counting each
- * block's source beside its packed spans.
+ * block's source beside its packed spans: 1/2048 of the machine's physical memory, held
+ * between 4 and 16 MiB, which is the screen's budget for color spans.
  *
- * The screen's budget for color spans is a share of the machine's physical memory, 1/2048
- * of it, held between 4 and 16 MiB. The renderer is not told the machine's memory, so
- * the cache holds the floor of that range. The source is charged as well as the spans
- * because the cache keeps it as the key, so what the cache holds stays inside the
- * floor. At a transcript's usual blocks, about 0.3 bytes of spans per byte of source,
- * that is a little over three mebibytes of code colored without asking again.
+ * The source is charged as well as the spans because the cache keeps it as the key, so
+ * what the cache holds stays inside the budget. At a transcript's usual blocks, about 0.3
+ * bytes of spans per byte of source, the 4 MiB floor colors a little over three mebibytes
+ * of code without asking again.
  */
-export const CODE_SPAN_CACHE_BYTE_CAP = 4_194_304;
+export function codeSpanCacheByteCap(physicalMemoryBytes: number): number {
+  return Math.min(
+    CODE_SPAN_CACHE_CEILING_BYTES,
+    Math.max(CODE_SPAN_CACHE_FLOOR_BYTES, Math.floor(physicalMemoryBytes / CODE_SPAN_MEMORY_SHARE)),
+  );
+}
+
 /**
  * Footnote definitions a single transcript's registry retains.
  *

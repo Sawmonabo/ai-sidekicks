@@ -13,8 +13,9 @@
 // console ships, read by the frame's key dispatch through the same accessor this
 // page reads. So a chord recorded here IS the chord installed — no second table, no
 // second listener, no window in which the page and the keyboard disagree. The
-// override is kept through the console's own persistence chokepoint under its
-// `keybinding` value class, in this window's profile; it reaches no wire.
+// override is kept in main's keyboard map, one file on this machine; it reaches no wire.
+// A map main could not use is read as the shipped chords and written out again, and
+// this page says both happened.
 //
 // The recorder captures the next press on the control itself, and the console
 // keyboard is SUSPENDED while it does — which is what makes `$mod+1` recordable at
@@ -147,8 +148,8 @@ export function KeyboardPage(): ReactNode {
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
         Every chord this window installs, the command it runs, and the scope it runs in. Chords you
-        change are kept for this window's profile in the console's own store — the map travels
-        nowhere, and no machine and no other person is told which keys you press.
+        change are kept on this machine in a file of their own — the map travels nowhere, and no
+        other machine and no other person is told which keys you press.
       </p>
 
       <section className="meridian-settings-page__block" aria-label="Chords">
@@ -256,6 +257,19 @@ export function KeyboardPage(): ReactNode {
             ))}
           </ul>
         )}
+        {keybindingOverrides.repair === undefined ? null : (
+          <p className="meridian-settings-page__state" role="alert">
+            The keyboard map on this machine could not be read, so the chords the app ships with
+            were used and the file was written out again. Any chord changed before now is back at
+            the one the app ships with.
+          </p>
+        )}
+        {keybindingOverrides.readRefusal === undefined ? null : (
+          <InlineRefusal
+            code={keybindingOverrides.readRefusal.code}
+            detail={keybindingOverrides.readRefusal.detail}
+          />
+        )}
         {keybindingOverrides.hydrationRefusals.length === 0 ? null : (
           <ul className="meridian-settings-page__list">
             {keybindingOverrides.hydrationRefusals.map((declined) => (
@@ -305,6 +319,6 @@ function describeBinding(
       ? `${title} now has no chord`
       : `${title} now runs on ${formatChordForPlatform(chord, HOST_CHORD_PLATFORM)}`;
   return unsaved === undefined
-    ? `${act}, and the change is kept for this window.`
+    ? `${act}, and the change is kept on this machine.`
     : `${act} for as long as this window is open, and will not come back after a reload. ${unsaved.detail}`;
 }

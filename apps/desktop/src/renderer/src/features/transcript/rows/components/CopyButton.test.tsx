@@ -69,11 +69,4 @@ describe("a message's Copy control", () => {
 
     expect(screen.getByRole("button").textContent).toBe("Could not copy");
   });
-
-  it("reads Could not copy when the host throws before answering", async () => {
-    // The shipped stub bridge throws synchronously rather than rejecting.
-    await pressCopy(createLiveBridge(createStubBridge({ ...FIXTURE_APP_META })));
-
-    expect(screen.getByRole("button").textContent).toBe("Could not copy");
-  });
 });

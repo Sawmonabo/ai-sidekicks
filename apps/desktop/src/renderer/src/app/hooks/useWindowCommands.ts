@@ -9,9 +9,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { PreloadApi } from "@shared/preload-api.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { AppRoute } from "@renderer/routing/routes.js";
-import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import type { WindowStore } from "@renderer/store/window/window-store.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
 import { subscribeToCommandContributions } from "@renderer/registries/commands/command-contributions.js";
@@ -41,10 +41,10 @@ export interface WindowCommandsInput {
   readonly lastOpenedSessionId: string | undefined;
   readonly windowStore: WindowStore;
   /**
-   * This window's durable store, for the keybinding overrides: a rebound chord is
+   * This machine's keyboard map, for the keybinding overrides: a rebound chord is
    * installed whether or not anybody opens the Keyboard page.
    */
-  readonly uiStateStore: UiStateStore;
+  readonly keyboardMap: PreloadApi["keyboardMap"];
   /** This window's act for choosing a color scheme, which the `Color scheme` row cycles. */
   readonly chooseScheme: (preference: SchemePreference) => void;
   /** The screen registry this window mounts through, for the destinations' own warm-up. */
@@ -59,7 +59,7 @@ export interface WindowCommandsInput {
 export function useWindowCommands(
   input: WindowCommandsInput,
 ): Pick<CommandPaletteProps, "context" | "bindings" | "revision" | "open" | "onOpenChange"> {
-  const { route, lastOpenedSessionId, windowStore, uiStateStore, chooseScheme, screenRegistry } =
+  const { route, lastOpenedSessionId, windowStore, keyboardMap, chooseScheme, screenRegistry } =
     input;
 
   // Derived from the route rather than stored, so the palette cannot disagree with the
@@ -137,10 +137,11 @@ export function useWindowCommands(
   }, [bridgeCommands, windowStore, raiseRefusalBanner, screenRegistry, chooseScheme]);
 
   // The overrides a person authored, read back once per window. Not awaited:
-  // `hydrateFrom` absorbs a failed read, so a rejection escaping here is a defect.
+  // `hydrateFrom` turns a failed read into its read refusal, so a rejection escaping
+  // here is a defect.
   useEffect(() => {
-    void keybindingOverrides.hydrateFrom(uiStateStore);
-  }, [uiStateStore]);
+    void keybindingOverrides.hydrateFrom(keyboardMap);
+  }, [keyboardMap]);
 
   // Swapped in place, so a rebinding never detaches and re-attaches the listener.
   useEffect(() => {

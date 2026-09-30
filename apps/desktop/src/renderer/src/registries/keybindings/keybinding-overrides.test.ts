@@ -8,7 +8,6 @@ import {
   KEYBINDING_OVERRIDE_REFUSAL_CODES,
   KEYBINDING_OVERRIDE_REFUSAL_ORIGIN,
   composeEffectiveBindings,
-  readOverrideMap,
   refuseCandidateChord,
 } from "./keybinding-overrides.js";
 
@@ -50,22 +49,6 @@ describe("composing the effective table", () => {
     expect(composeEffectiveBindings(DEFAULTS, { "app.checkForUpdates": null })).toStrictEqual(
       DEFAULTS,
     );
-  });
-});
-
-describe("reading a stored record", () => {
-  it("keeps chords and explicit unbindings, and nothing else", () => {
-    expect(
-      readOverrideMap({ "frame.goToSessions": "$mod+9", "frame.goToWorkflows": null, bad: 7 }),
-    ).toStrictEqual({ "frame.goToSessions": "$mod+9", "frame.goToWorkflows": null });
-  });
-
-  it("negative control: a record of the wrong shape answers the empty map", () => {
-    // A reader that trusted whatever it found would hand `setBindings` a chord that
-    // is a number, and the frame's own effect would raise.
-    expect(readOverrideMap(["$mod+9"])).toStrictEqual({});
-    expect(readOverrideMap("$mod+9")).toStrictEqual({});
-    expect(readOverrideMap(undefined)).toStrictEqual({});
   });
 });
 

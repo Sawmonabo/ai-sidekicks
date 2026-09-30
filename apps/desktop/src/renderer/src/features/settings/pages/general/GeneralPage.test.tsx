@@ -26,7 +26,7 @@ function contextFor(): SettingsPageContext {
   return {
     bridge: {
       ...bridge,
-      app: { version: "1.4.0", platform: "darwin", arch: "arm64", locale: "en-GB" },
+      app: { ...bridge.app, version: "1.4.0", platform: "darwin", arch: "arm64", locale: "en-GB" },
     },
     openPage: () => undefined,
     retainedSessionId: undefined,

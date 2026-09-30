@@ -8,10 +8,8 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import {
-  UNREPORTED_MAIN_PROCESS_STATE,
-  type MainProcessState,
-} from "@renderer/store/window/main-process-state.js";
+import type { MainProcessState } from "@shared/daemon-status-topic.js";
+import { UNREPORTED_MAIN_PROCESS_STATE } from "@renderer/store/window/main-process-state.js";
 import type { SettingsPageContext } from "@renderer/features/settings/types.js";
 
 /**

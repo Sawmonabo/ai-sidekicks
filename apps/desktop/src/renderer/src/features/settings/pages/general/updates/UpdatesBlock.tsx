@@ -14,7 +14,7 @@
 // A call that throws or rejects is not caught here; it propagates to the caller.
 //
 // Under the read-out sits the switch for checking on its own, on by default. Its value is
-// the machine setting `updates.automatic`.
+// the machine setting `updatesAutomatic`.
 
 import type { UpdateState } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
@@ -50,7 +50,7 @@ const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>>
 export interface UpdatesBlockProps {
   readonly updater: UpdaterCalls;
   /** The machine settings the automatic-check switch reads and writes. */
-  readonly preferences: Pick<MachineSettingsBinding, "isEnabled" | "isPending" | "choose">;
+  readonly preferences: Pick<MachineSettingsBinding, "settings" | "isPending" | "choose">;
 }
 
 /**
@@ -96,10 +96,10 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
 
       <PreferenceToggleRow
         label="Check for updates automatically"
-        checked={preferences.isEnabled("updates.automatic")}
-        isPending={preferences.isPending("updates.automatic")}
+        checked={preferences.settings.updatesAutomatic}
+        isPending={preferences.isPending("updatesAutomatic")}
         onCheckedChange={(checked) => {
-          preferences.choose("updates.automatic", checked);
+          preferences.choose("updatesAutomatic", checked);
         }}
       />
     </section>

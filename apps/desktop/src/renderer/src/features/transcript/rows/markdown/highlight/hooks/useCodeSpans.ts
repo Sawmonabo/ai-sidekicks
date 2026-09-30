@@ -17,7 +17,8 @@ import type { HighlightLanguage } from "@ai-sidekicks/contracts";
 import { useReadScope } from "@renderer/hooks/useReadScope.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { CODE_SPAN_CACHE_BYTE_CAP } from "../../../../cards/card-caps.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { codeSpanCacheByteCap } from "../../../../cards/card-caps.js";
 import { ByteBoundedCache } from "../../parse/byte-bounded-cache.js";
 
 /**
@@ -28,6 +29,7 @@ export function useCodeSpans(source: string, language: HighlightLanguage): Uint3
   const bridge = usePlatformBridge();
   const blockKey = `${language}\u0000${source}`;
   const readScope = useReadScope(bridge, blockKey);
+  const codeSpanCache = codeSpanCaches.cacheFor(bridge);
   // Seeded from the cache once, at mount, so a block drawn again paints its colors on
   // its first frame, and held in state after that, so a block the cache later lets go
   // of keeps the colors it is showing.
@@ -57,7 +59,7 @@ export function useCodeSpans(source: string, language: HighlightLanguage): Uint3
         });
       },
     );
-  }, [bridge, readScope, blockKey, language, source]);
+  }, [bridge, codeSpanCache, readScope, blockKey, language, source]);
 
   return painted?.blockKey === blockKey ? painted.spans : undefined;
 }
@@ -74,9 +76,26 @@ interface PaintedSpans {
 
 /**
  * Every code block's spans, keyed by language and source, charged the source and the
- * packed spans it holds.
+ * packed spans it holds: one cache per bridge, sized from the physical memory that
+ * bridge reports, so a window's code blocks share one budget.
+ *
+ * Held weakly by bridge, so looking a cache up is a memo a render may repeat or abandon
+ * freely, and a retired bridge's cache goes with it.
  */
-const codeSpanCache: ByteBoundedCache<Uint32Array> = new ByteBoundedCache<Uint32Array>(
-  CODE_SPAN_CACHE_BYTE_CAP,
-  (spans) => spans.byteLength,
-);
+class CodeSpanCaches {
+  readonly #cachesByBridge = new WeakMap<PlatformBridge, ByteBoundedCache<Uint32Array>>();
+
+  public cacheFor(bridge: PlatformBridge): ByteBoundedCache<Uint32Array> {
+    let cache = this.#cachesByBridge.get(bridge);
+    if (cache === undefined) {
+      cache = new ByteBoundedCache<Uint32Array>(
+        codeSpanCacheByteCap(bridge.app.physicalMemoryBytes),
+        (spans) => spans.byteLength,
+      );
+      this.#cachesByBridge.set(bridge, cache);
+    }
+    return cache;
+  }
+}
+
+const codeSpanCaches = new CodeSpanCaches();

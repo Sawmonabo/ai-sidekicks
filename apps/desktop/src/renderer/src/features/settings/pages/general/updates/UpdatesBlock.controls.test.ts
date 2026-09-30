@@ -58,6 +58,6 @@ describe("the updates block — checking on its own", () => {
       control?.click();
     });
 
-    expect(choose).toHaveBeenCalledWith("updates.automatic", false);
+    expect(choose).toHaveBeenCalledWith("updatesAutomatic", false);
   });
 });

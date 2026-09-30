@@ -7,19 +7,29 @@
 //     open a dialog, so it rejects with a fixture-scoped error. A fixture that returned a
 //     plausible path would let a view ship with a code path nobody has run against the
 //     real dialog.
-//   • **`app` meta is fixed.** Version, platform, arch and locale are constants, so a
-//     screenshot does not shift when the developer's machine does.
+//   • **`app` meta is fixed.** Version, platform, arch, locale and the machine's memory are
+//     constants, so a screenshot does not shift when the developer's machine does.
+//   • **The keyboard map is held in memory.** It is the one file main keeps for the page, so
+//     the fixture keeps it for the life of the scenario: the first read is the empty map and a
+//     write is read back, which is the Keyboard page's whole contract with main.
 
+import type { DaemonEvent } from "@ai-sidekicks/contracts";
+import { DAEMON_STATUS_TOPIC } from "@shared/daemon-status-topic.js";
 import type {
   CpInput,
   CpOutput,
   CpProcedure,
+  KeyboardMap,
+  KeyboardMapReading,
   Unsubscribe,
   UpdateState,
 } from "@shared/preload-api.js";
 import type { PlatformBridge } from "./platform-bridge.js";
 import { resolveScriptedReply } from "@renderer/services/daemon/scripted-reply.fixture.js";
-import { refuseAbsentCapability } from "@renderer/services/daemon/refusal.fixture.js";
+import {
+  FixtureBridgeError,
+  refuseAbsentCapability,
+} from "@renderer/services/daemon/refusal.fixture.js";
 import { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
 import { subscribeToScenarioRelay } from "@renderer/services/daemon/scenario-subscriptions.fixture.js";
 import { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
@@ -32,6 +42,8 @@ export const FIXTURE_APP_META: PlatformBridge["app"] = {
   platform: "darwin",
   arch: "arm64",
   locale: "en-US",
+  // 16 GiB, the machine the screen's memory budgets were measured on.
+  physicalMemoryBytes: 17_179_869_184,
 };
 
 export interface FixtureBridgeOptions {
@@ -52,8 +64,27 @@ export interface FixtureBridge {
 export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridge {
   const scenarioEngine = new ScenarioEngine({ scenario: options.scenario });
   const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
+  const fixtureDaemon = createFixtureDaemon(scenarioEngine);
+  let keyboardMap: KeyboardMap = {};
   const bridge: PlatformBridge = {
-    daemon: createFixtureDaemon(scenarioEngine),
+    daemon: {
+      call: fixtureDaemon.call,
+      // The supervisor's topic is main's, and the fixture has no main to publish it.
+      subscribe: ((event: DaemonEvent | typeof DAEMON_STATUS_TOPIC, handler: () => void) =>
+        event === DAEMON_STATUS_TOPIC
+          ? refuseAbsentSubscription("daemon.subscribe(daemon.status)")
+          : fixtureDaemon.subscribe(event, handler)) as PlatformBridge["daemon"]["subscribe"],
+      requestStart: () => refuseAbsentCapability("daemon.requestStart"),
+      requestUpdate: () => refuseAbsentCapability("daemon.requestUpdate"),
+      cancelUpdate: () => refuseAbsentCapability("daemon.cancelUpdate"),
+      subscribeUpdate: () => refuseAbsentSubscription("daemon.subscribeUpdate"),
+      requestRestore: () => refuseAbsentCapability("daemon.requestRestore"),
+      listPlaces: () => refuseAbsentCapability("daemon.listPlaces"),
+      subscribePlaces: () => refuseAbsentSubscription("daemon.subscribePlaces"),
+      requestMove: () => refuseAbsentCapability("daemon.requestMove"),
+      cancelMove: () => refuseAbsentCapability("daemon.cancelMove"),
+      subscribeMove: () => refuseAbsentSubscription("daemon.subscribeMove"),
+    },
     controlPlane: {
       call: async <ProcedureName extends CpProcedure>(
         procedure: ProcedureName,
@@ -66,6 +97,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
     native: {
       showOpenDialog: () => refuseAbsentCapability("native.showOpenDialog"),
       showSaveDialog: () => refuseAbsentCapability("native.showSaveDialog"),
+      getDroppedFileRef: () => refuseAbsentCapability("native.getDroppedFileRef"),
+      savePastedImage: () => refuseAbsentCapability("native.savePastedImage"),
       showMessageBox: () => refuseAbsentCapability("native.showMessageBox"),
       showNotification: () => {
         // Notifications are fire-and-forget on the live bridge too, so the fixture matches its
@@ -78,7 +111,10 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         // Clipboard writes are safe to no-op: nothing reads the result back, and a refusal here
         // would make every "copy id" affordance untestable.
       },
+      openInEditor: () => refuseAbsentCapability("native.openInEditor"),
+      openInTerminal: () => refuseAbsentCapability("native.openInTerminal"),
       revealInFileExplorer: () => refuseAbsentCapability("native.revealInFileExplorer"),
+      listEditors: () => refuseAbsentCapability("native.listEditors"),
     },
     update: {
       // The scenario's own declaration, or a bare `idle`. The default carries no
@@ -91,11 +127,53 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         return () => undefined;
       },
       requestCheck: () => refuseAbsentCapability("update.requestCheck"),
+      requestDownload: () => refuseAbsentCapability("update.requestDownload"),
       requestRestart: () => refuseAbsentCapability("update.requestRestart"),
+    },
+    machineSettings: {
+      read: () => refuseAbsentCapability("machineSettings.read"),
+      write: () => refuseAbsentCapability("machineSettings.write"),
+      subscribe: () => refuseAbsentSubscription("machineSettings.subscribe"),
+    },
+    keyboardMap: {
+      read: async (): Promise<KeyboardMapReading> => ({ map: keyboardMap }),
+      write: async (map): Promise<KeyboardMap> => {
+        keyboardMap = map;
+        return map;
+      },
+    },
+    window: {
+      subscribeToNavigationRequest: () =>
+        refuseAbsentSubscription("window.subscribeToNavigationRequest"),
+      setAppearance: () => refuseAbsentCapability("window.setAppearance"),
+      subscribeAppearance: () => refuseAbsentSubscription("window.subscribeAppearance"),
+      subscribeFullscreen: () => refuseAbsentSubscription("window.subscribeFullscreen"),
+      setMinimumSize: () => refuseAbsentCapability("window.setMinimumSize"),
+    },
+    browser: {
+      publishPaneRect: () => refuseAbsentSubscription("browser.publishPaneRect"),
+      act: () => refuseAbsentCapability("browser.act"),
+      capturePage: () => refuseAbsentCapability("browser.capturePage"),
+      subscribe: () => refuseAbsentSubscription("browser.subscribe"),
+      publishPageChords: () => refuseAbsentSubscription("browser.publishPageChords"),
+      subscribePageChords: () => refuseAbsentSubscription("browser.subscribePageChords"),
     },
     app: FIXTURE_APP_META,
     transportReconnect: new TransportReconnectSignal(),
     source: "fixture",
   };
   return { bridge, scenarioEngine };
+}
+
+/**
+ * Refuse, by throwing, a member main answers synchronously and the fixture cannot stand in
+ * for: a subscription main pushes, or a publication main receives. It throws where a call
+ * would reject, because its signature returns before anything could settle.
+ */
+function refuseAbsentSubscription(call: string): never {
+  throw new FixtureBridgeError(
+    call,
+    "capability-absent",
+    "this capability needs the real main process and has no fixture stand-in",
+  );
 }

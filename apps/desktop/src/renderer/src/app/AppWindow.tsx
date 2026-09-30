@@ -93,7 +93,7 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
     route,
     lastOpenedSessionId,
     windowStore: frameStore,
-    uiStateStore,
+    keyboardMap: props.bridge.keyboardMap,
     chooseScheme,
     screenRegistry,
   });

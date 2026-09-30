@@ -1,16 +1,18 @@
 // Electron main-process entrypoint.
 //
 // Today this is the single-instance lock, the renderer scheme registration, the
-// bundle handler, and the main window. Later work layers Sentry init, the
-// daemon supervisor (`utilityProcess.fork`), the `sidekicks://` DEEP-LINK
-// handler (a different scheme from the renderer's), the auto-updater, the crash
-// reporter, and second-instance focus handling in this same module.
+// bundle handler, the bridge members main answers, and the main window. Later
+// work layers Sentry init, the daemon supervisor (`utilityProcess.fork`), the
+// `sidekicks://` DEEP-LINK handler (a different scheme from the renderer's), the
+// auto-updater, the crash reporter, and second-instance focus handling in this
+// same module.
 //
 // Startup order is load-bearing and is asserted by `startup-order.test.ts`:
 //
 //   module top level ......... registerRendererScheme()      (before app.ready)
 //   inside whenReady() ....... installRendererProtocol(...)  (before any window)
 //                              installApplicationMenu()
+//                              installBridgeHandlers(...)    (before any window)
 //                              createMainWindow()
 //
 // A scheme registered after ready is refused by Electron, and a window created
@@ -24,10 +26,13 @@
 // `BrowserWindow`) and deliberately does NOT assert that this module imports
 // `protocol.ts` first, which the crash reporter would break.
 
+import { totalmem } from "node:os";
 import path from "node:path";
 
 import { app } from "electron";
+import { appFactsSwitches, supportedArch, supportedPlatform } from "@shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "@shared/fixture-launch.js";
+import { installBridgeHandlers } from "./bridge/install-bridge-handlers.js";
 import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 import { createMainDiagnosticLog, reportUnwrittenDiagnostics } from "./services/diagnostic-log.js";
 import { installApplicationMenu } from "./menu.js";
@@ -144,6 +149,18 @@ if (!gotTheLock) {
       // could begin a load against an unhandled scheme.
       installRendererProtocol(RENDERER_ROOT);
       installApplicationMenu();
+      installBridgeHandlers({ userData: app.getPath("userData") });
+
+      // Read once, after ready (the locale is not known before it), and handed to every
+      // window. An unsupported platform or architecture stops the launch here, before any
+      // window, rather than reaching a page as a value nothing checked.
+      const appSwitches = appFactsSwitches({
+        version: app.getVersion(),
+        platform: supportedPlatform(process.platform),
+        arch: supportedArch(process.arch),
+        locale: app.getLocale(),
+        physicalMemoryBytes: totalmem(),
+      });
 
       // Production-safety: the OUTER condition is the compile-time-static
       // gate (Vite substitutes `false` in release bundles → Rollup
@@ -164,10 +181,12 @@ if (!gotTheLock) {
       // a later tick — a property of the runtime, not of this code. See
       // `WindowLoadOptions`.
       createMainWindow({
-        // Empty for a normal launch. A fixture launch reaches the window as renderer
-        // switches, which the preload reads once, before the page's first render.
+        // The app's facts, and a fixture launch where there is one, reach the window as
+        // renderer switches, which the preload reads once, before the page's first render.
         additionalArguments:
-          fixtureLaunch === undefined ? [] : fixtureLaunchSwitches(fixtureLaunch),
+          fixtureLaunch === undefined
+            ? appSwitches
+            : [...appSwitches, ...fixtureLaunchSwitches(fixtureLaunch)],
         beforeLoad: (window) => {
           if (smokeProbeRequested) {
             // Registered here, ahead of the load, so a boot that never reaches

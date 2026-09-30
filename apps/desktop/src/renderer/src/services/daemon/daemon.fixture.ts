@@ -11,14 +11,13 @@ import type {
   DaemonParams,
   DaemonResult,
 } from "@ai-sidekicks/contracts";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { DaemonWire, Unsubscribe } from "@shared/preload-api.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
 import { assertScriptedReplyOnContract, resolveScriptedReply } from "./scripted-reply.fixture.js";
 import { subscribeToScenario } from "./scenario-subscriptions.fixture.js";
 
 /** The daemon namespace answered from one scenario's engine. */
-export function createFixtureDaemon(scenarioEngine: ScenarioEngine): PlatformBridge["daemon"] {
+export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire {
   return {
     // A scenario scripts its replies as untyped data, so the reply is cast to the method's
     // `DaemonResult<M>` here, the one place the fixture claims a type for it. The check it

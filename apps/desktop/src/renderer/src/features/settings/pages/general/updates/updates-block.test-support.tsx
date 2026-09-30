@@ -13,10 +13,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { politeText } from "@test/helpers/live-region.js";
-import {
-  NOTHING_CHOSEN,
-  effectivePreference,
-} from "../../../machine-settings/machine-settings-snapshot.js";
+import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts";
 import { UpdatesBlock, type UpdatesBlockProps } from "./UpdatesBlock.js";
 import type { UpdaterCalls } from "./updater-reading.js";
 
@@ -35,6 +32,7 @@ export function updaterReporting(
     getState: () => Promise.resolve(state),
     subscribe: () => () => undefined,
     requestCheck: controls.requestCheck ?? (() => Promise.resolve()),
+    requestDownload: () => Promise.resolve(),
     requestRestart: controls.requestRestart ?? (() => Promise.resolve()),
   };
 }
@@ -58,6 +56,7 @@ export function updaterPushing(initial: UpdateState): {
       return () => undefined;
     },
     requestCheck: () => Promise.resolve(),
+    requestDownload: () => Promise.resolve(),
     requestRestart: () => Promise.resolve(),
   };
   return {
@@ -93,6 +92,7 @@ export function updaterHoldingItsRead(): {
       return () => undefined;
     },
     requestCheck: () => Promise.resolve(),
+    requestDownload: () => Promise.resolve(),
     requestRestart: () => Promise.resolve(),
   };
   return {
@@ -114,7 +114,7 @@ export function preferencesAtDefaults(
   choose: UpdatesBlockProps["preferences"]["choose"] = () => undefined,
 ): UpdatesBlockProps["preferences"] {
   return {
-    isEnabled: (key) => effectivePreference(NOTHING_CHOSEN, key),
+    settings: MACHINE_SETTINGS_DEFAULTS,
     isPending: () => false,
     choose,
   };

@@ -12,6 +12,12 @@
 // records exist so a TEST can measure what the cascade will resolve to, and so
 // the actor-hue allocator can hand a caller a wheel step by number.
 
+import {
+  COLOR_SCHEMES,
+  SYSTEM_SCHEME_PREFERENCE,
+  type ColorScheme,
+  type SchemePreference,
+} from "@shared/appearance.js";
 import type { OklchColor } from "./color.js";
 import { resolveEmittedColor } from "./color.js";
 import type { SchemePair } from "./palette.js";
@@ -27,36 +33,14 @@ import {
   computeHueWheelAngle,
 } from "./palette.js";
 
-/**
- * Every console scheme, in the order the gallery and the screenshot tier walk them.
- *
- * The tuple is the declaration and `ColorScheme` follows from it, for the reason
- * `SCHEME_PREFERENCES` states below at one remove: a scheme list and a scheme union
- * written separately agree until one is widened, and every walk in the console
- * iterates the list while every switch checks the union.
- */
-export const COLOR_SCHEMES = ["light", "dark"] as const;
-
-/** The color schemes the console renders in, derived from the tuple above. */
-export type ColorScheme = (typeof COLOR_SCHEMES)[number];
-
-/**
- * The preference value that names no scheme and defers to the operating system.
- *
- * A constant rather than the literal at each site because it is the one member of
- * the preference vocabulary that is NOT a scheme, and every place that has to tell
- * the two apart reads better naming it than testing a string.
- */
-export const SYSTEM_SCHEME_PREFERENCE = "system";
-
-/**
- * What a person can CHOOSE, as opposed to what the console renders in.
- *
- * The distinction is load-bearing: `ColorScheme` is a resolved answer and always
- * paints something, while a preference may decline to answer and hand the question
- * to the OS. Nothing renders a `SchemePreference`; the frame resolves it first.
- */
-export type SchemePreference = ColorScheme | typeof SYSTEM_SCHEME_PREFERENCE;
+// The scheme vocabulary is the appearance record's, which main and the renderer both read,
+// so it is declared in `@shared/appearance.ts` and every console reader takes it from here.
+export {
+  COLOR_SCHEMES,
+  SYSTEM_SCHEME_PREFERENCE,
+  type ColorScheme,
+  type SchemePreference,
+} from "@shared/appearance.js";
 
 /**
  * Every preference value, DERIVED from the scheme list rather than re-listed.

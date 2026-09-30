@@ -264,6 +264,9 @@ class ElectronMockImpl implements ElectronMock {
           }
           return `${MOCK_APP_PATH_ROOT}/${pathName}`;
         }),
+        // The build facts main reads after ready and hands every window.
+        getVersion: vi.fn(() => "0.0.0"),
+        getLocale: vi.fn(() => "en-US"),
         on: vi.fn(),
         quit: vi.fn(() => {
           this.record("app.quit");

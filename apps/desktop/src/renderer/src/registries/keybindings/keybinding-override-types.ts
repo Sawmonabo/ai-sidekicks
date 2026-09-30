@@ -1,25 +1,18 @@
-// What the override store answers in, and where its record is kept.
+// What the override store answers in.
 //
 // The shapes and the state machine over them fail differently, and they are read by
 // different callers. `keybinding-override-store.ts` beside this file owns the state —
 // what supersedes what, when a snapshot is dropped, which write settles — while what
 // is here is the vocabulary that state is expressed in: what a rebinding answered,
 // what a stored override this window declined looks like, what the frame installs and
-// the Keyboard page draws, and what the store is built over.
-//
-// The record key is declared here rather than beside `SCHEME_PREFERENCE_KEY` because
-// this record has exactly one addresser — the store beside this module — and every other reader
-// goes through it. The scheme's key is shared because a second reader, the end-to-end
-// tier opening its own connection, addresses that record directly.
+// the Keyboard page draws, and what the store is built over. The map itself is main's,
+// kept in its own file on this machine and reached through the bridge's `keyboardMap`.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import type { ChordPlatform } from "@renderer/lib/chord-format.js";
 import type { Keybinding } from "../commands/command-types.js";
 import type { KeybindingOverride, KeybindingOverrideRefusal } from "./keybinding-overrides.js";
-
-/** The key the override map occupies inside the window-wide partition. */
-export const KEYBINDING_OVERRIDES_KEY = "keybindings";
 
 /**
  * What a rebinding did.

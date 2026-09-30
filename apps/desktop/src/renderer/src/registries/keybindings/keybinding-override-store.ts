@@ -1,8 +1,10 @@
 // Who holds this window's keybinding overrides, where they are kept, and what the
-// frame installs because of them.
+// frame installs because of them. They are kept in main's keyboard map, one file on
+// this machine that no wire carries, read once per window and written whole on every
+// change through the bridge's `keyboardMap`.
 //
 // `keybinding-overrides.ts` beside this module decides what an override MEANS and whether one
-// is admissible. This module is the state around that model, and three decisions
+// is admissible. This module is the state around that model, and four decisions
 // carry it:
 //
 //   • **One accessor, never the raw table.** The frame's key dispatch and the
@@ -40,30 +42,28 @@
 // nothing while a chord is being recorded, and the recorder reads the focused
 // control's own press.
 
+import type { KeyboardMap, KeyboardMapReading, PreloadApi } from "@shared/preload-api.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
   contributedKeybindings,
   subscribeToCommandContributions,
 } from "../commands/command-contributions.js";
 import { commandRegistry } from "../commands/window-command-registry.js";
 import { type Keybinding } from "../commands/command-types.js";
-import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
 import {
-  KEYBINDING_OVERRIDES_KEY,
   type KeybindingBindResult,
   type KeybindingHydrationRefusal,
   type KeybindingOverrideStoreOptions,
   type KeybindingSnapshot,
 } from "./keybinding-override-types.js";
 import {
+  KEYBINDING_OVERRIDE_REFUSAL_ORIGIN,
   composeEffectiveBindings,
-  readOverrideMap,
   refuseCandidateChord,
   type KeybindingOverride,
-  type KeybindingOverrideMap,
   type KeybindingOverrideRefusal,
 } from "./keybinding-overrides.js";
 
@@ -90,11 +90,13 @@ export class KeybindingOverrideStore {
   readonly #isCommandRegistered: (commandId: string) => boolean;
   readonly #platform: ChordPlatform;
   readonly #changes = new Emitter<void>("keybinding override change");
-  #overrides: KeybindingOverrideMap = {};
-  #uiStateStore: UiStateStore | undefined;
+  #overrides: KeyboardMap = {};
+  #keyboardMap: PreloadApi["keyboardMap"] | undefined;
   #recording = false;
   #snapshot: KeybindingSnapshot | undefined;
   #hydrationRefusals: readonly KeybindingHydrationRefusal[] = [];
+  #readRefusal: Refusal | undefined;
+  #repair: KeyboardMapReading["repair"];
   /**
    * The rounds this store's overrides have moved through.
    *
@@ -138,7 +140,7 @@ export class KeybindingOverrideStore {
   }
 
   /** The overrides themselves, for a page that draws which rows were changed. */
-  public get overrides(): KeybindingOverrideMap {
+  public get overrides(): KeyboardMap {
     return this.#overrides;
   }
 
@@ -147,33 +149,61 @@ export class KeybindingOverrideStore {
     return this.#hydrationRefusals;
   }
 
+  /** Why the stored map could not be read, while this window runs on the shipped chords. */
+  public get readRefusal(): Refusal | undefined {
+    return this.#readRefusal;
+  }
+
   /**
-   * Attach this window's durable store and read the overrides back.
-   *
-   * The store is attached BEFORE the await, so a rebinding made a millisecond later
-   * is persisted rather than dropped for want of somewhere to put it. An entry whose
-   * command is not registered is skipped, so it installs nothing and the next write,
-   * which writes the admitted map, leaves it out. Each other stored entry is admitted
-   * against the table built from the entries admitted before it, so the composed
-   * result is installable by construction.
-   *
-   * TWO GUARDS, AND NEITHER IS THE OTHER'S SPARE. The round orders this read against
-   * a REBINDING, which replaces no store; the identity orders it against a STORE
-   * REPLACEMENT — the frame swapping the durable store under a window on a bridge or
-   * scenario change — and states the invariant the record has to satisfy directly:
-   * it is installed only into the store it was read from, and only while that store
-   * is the one this window will persist the next rebinding into. Resting the second
-   * fact on the first would work today, because this method is the only writer of
-   * the field, and would go quiet the day anything else attaches a store.
+   * The repair main made when the stored map could not be used: the shipped chords were
+   * read and the file was written out again. Held until the next change is written.
    */
-  public async hydrateFrom(uiStateStore: UiStateStore): Promise<void> {
+  public get repair(): KeyboardMapReading["repair"] {
+    return this.#repair;
+  }
+
+  /**
+   * Attach this machine's keyboard map and read the overrides back.
+   *
+   * The map is attached BEFORE the await, so a rebinding made a millisecond later is
+   * written rather than dropped for want of somewhere to put it. An entry whose command
+   * is not registered is skipped, so it installs nothing and the next write, which
+   * writes the admitted map, leaves it out. Each other stored entry is admitted against
+   * the table built from the entries admitted before it, so the composed result is
+   * installable by construction. A read that fails leaves the shipped chords installed
+   * and says why on {@link readRefusal}.
+   *
+   * TWO GUARDS, AND NEITHER IS THE OTHER'S SPARE. The round orders this read against a
+   * REBINDING, which replaces no map; the identity orders it against a BRIDGE
+   * REPLACEMENT — the frame swapping the bridge under a window on a scenario change —
+   * and states the invariant the reading has to satisfy directly: it is installed only
+   * from the map it was read from, and only while that map is the one this window will
+   * write the next rebinding into. Resting the second fact on the first would work
+   * today, because this method is the only writer of the field, and would go quiet the
+   * day anything else attaches a map.
+   */
+  public async hydrateFrom(keyboardMap: PreloadApi["keyboardMap"]): Promise<void> {
     const round = this.#overrideRounds.supersedeAndClaim(this, HYDRATION_KEY);
-    this.#uiStateStore = uiStateStore;
-    const record = await uiStateStore.readGlobal(KEYBINDING_OVERRIDES_KEY);
-    if (!round.isCurrent || this.#uiStateStore !== uiStateStore) {
+    this.#keyboardMap = keyboardMap;
+    let reading: KeyboardMapReading;
+    try {
+      reading = await keyboardMap.read();
+    } catch {
+      // The refusal is what the page shows; main's message can name a path on this
+      // machine, which a refusal's detail never carries.
+      if (round.isCurrent && this.#keyboardMap === keyboardMap) {
+        this.#readRefusal = refuseKeyboardMap(
+          "keyboard-map-unread",
+          "The keyboard map on this machine could not be read, so this window uses the chords the app ships with until it is opened again.",
+        );
+        this.#publish();
+      }
       return;
     }
-    const stored = readOverrideMap(record?.value);
+    if (!round.isCurrent || this.#keyboardMap !== keyboardMap) {
+      return;
+    }
+    const stored = reading.map;
     const admitted: Record<string, KeybindingOverride> = {};
     const refusals: KeybindingHydrationRefusal[] = [];
     for (const commandId of Object.keys(stored).sort()) {
@@ -194,6 +224,8 @@ export class KeybindingOverrideStore {
     }
     this.#overrides = admitted;
     this.#hydrationRefusals = refusals;
+    this.#readRefusal = undefined;
+    this.#repair = reading.repair;
     this.#publish();
   }
 
@@ -273,10 +305,12 @@ export class KeybindingOverrideStore {
    */
   async #apply(
     commandId: string | undefined,
-    overrides: KeybindingOverrideMap,
+    overrides: KeyboardMap,
   ): Promise<Refusal | undefined> {
     this.#overrides = overrides;
     this.#overrideRounds.supersedeAll();
+    // The write replaces the repaired file, so the repair is no longer news.
+    this.#repair = undefined;
     // A hydration refusal names a row this window declined. The row it named has
     // just been rewritten by hand, so the refusal is stale rather than answered.
     this.#hydrationRefusals =
@@ -288,29 +322,32 @@ export class KeybindingOverrideStore {
   }
 
   /**
-   * Write the map, and answer with the refusal if the store would not keep it.
+   * Write the map, and answer with the refusal if main would not keep it.
    *
-   * A window with no store attached answers `undefined` rather than a refusal it
-   * cannot name: the frame attaches before it renders a page that can rebind, so
-   * the only callers reaching that arm drive the model directly.
+   * A window with no map attached answers `undefined` rather than a refusal it cannot
+   * name: the frame attaches before it renders a page that can rebind, so the only
+   * callers reaching that arm drive the model directly.
    */
   async #persist(): Promise<Refusal | undefined> {
-    const uiStateStore = this.#uiStateStore;
-    if (uiStateStore === undefined) {
+    const keyboardMap = this.#keyboardMap;
+    if (keyboardMap === undefined) {
       return undefined;
     }
-    const result = await uiStateStore.writeGlobal(
-      KEYBINDING_OVERRIDES_KEY,
-      "keybinding",
-      this.#overrides,
-    );
-    return result.outcome === "refused" ? result.refusal : undefined;
+    try {
+      await keyboardMap.write(this.#overrides);
+      return undefined;
+    } catch {
+      return refuseKeyboardMap(
+        "keyboard-map-unsaved",
+        "The keyboard map on this machine could not be written.",
+      );
+    }
   }
 
   #refuse(
     commandId: string,
     chord: string,
-    overrides: KeybindingOverrideMap,
+    overrides: KeyboardMap,
   ): KeybindingOverrideRefusal | undefined {
     return refuseCandidateChord({
       defaults: this.#readDefaults(),
@@ -340,3 +377,10 @@ export const keybindingOverrides: KeybindingOverrideStore = new KeybindingOverri
   subscribeToDefaults: subscribeToCommandContributions,
   isCommandRegistered: (commandId) => commandRegistry.has(commandId),
 });
+
+/** Why the keyboard map itself, rather than one chord, was refused. */
+type KeyboardMapRefusalCode = "keyboard-map-unread" | "keyboard-map-unsaved";
+
+function refuseKeyboardMap(code: KeyboardMapRefusalCode, detail: string): Refusal {
+  return refuse(KEYBINDING_OVERRIDE_REFUSAL_ORIGIN, code, detail);
+}
