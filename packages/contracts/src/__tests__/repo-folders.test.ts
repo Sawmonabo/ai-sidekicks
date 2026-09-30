@@ -1,10 +1,9 @@
 // `repo-folders.ts`: browsing the machine's folders by token, and one folder's attach, read and
-// detach. A listing carries at most its entry limit; attach takes exactly one of a path or a
+// detach. A listing carries at most 500 entries; attach takes exactly one of a path or a
 // token and answers the resolved root or nothing.
 import { describe, expect, it } from "vitest";
 
 import {
-  FOLDER_LIST_ENTRY_LIMIT,
   RepoAttachRequestSchema,
   RepoAttachResponseSchema,
   RepoDetachResponseSchema,
@@ -34,13 +33,9 @@ describe("repo.folderList (another device's Open folder…)", () => {
     more: false,
   });
 
-  it("carries at most the entry limit and the folder in view", () => {
-    expect(RepoFolderListResponseSchema.safeParse(listing(FOLDER_LIST_ENTRY_LIMIT)).success).toBe(
-      true,
-    );
-    expect(
-      RepoFolderListResponseSchema.safeParse(listing(FOLDER_LIST_ENTRY_LIMIT + 1)).success,
-    ).toBe(false);
+  it("carries at most 500 entries and the folder in view", () => {
+    expect(RepoFolderListResponseSchema.safeParse(listing(500)).success).toBe(true);
+    expect(RepoFolderListResponseSchema.safeParse(listing(501)).success).toBe(false);
     expect(RepoFolderListResponseSchema.safeParse({ ...listing(1), segments: [] }).success).toBe(
       false,
     );
