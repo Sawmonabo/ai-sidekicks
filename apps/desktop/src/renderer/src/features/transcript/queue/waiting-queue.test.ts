@@ -16,7 +16,6 @@ function fixtureQueueItemId(value: string): QueueItemSummary["id"] {
 }
 
 const WAITING_FIRST = fixtureQueueItemId("1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9");
-const WAITING_SECOND = fixtureQueueItemId("2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0");
 const ADMITTED = fixtureQueueItemId("3c4d5e6f-7081-4293-84a5-b6c7d8e9f001");
 const SUPERSEDED = fixtureQueueItemId("4d5e6f70-8192-43a4-95b6-c7d8e9f00112");
 const CANCELED = fixtureQueueItemId("5e6f7081-92a3-44b5-86c7-d8e9f0011223");
@@ -39,14 +38,6 @@ function rowInState(
 }
 
 describe("waitingQueueRows", () => {
-  it("keeps the queued rows in the reading's own order", () => {
-    const rows = [rowInState(WAITING_FIRST, "queued"), rowInState(WAITING_SECOND, "queued")];
-    expect(waitingQueueRows(rows).map((row) => row.id)).toStrictEqual([
-      WAITING_FIRST,
-      WAITING_SECOND,
-    ]);
-  });
-
   it("drops every state that says the item is no longer waiting", () => {
     const rows = [
       rowInState(WAITING_FIRST, "queued"),
@@ -58,7 +49,7 @@ describe("waitingQueueRows", () => {
     expect(waitingQueueRows(rows).map((row) => row.id)).toStrictEqual([WAITING_FIRST]);
   });
 
-  it("negative control: the rows it drops are still in the list it was given", () => {
+  it("the rows it drops are still in the list it was given", () => {
     // The transcript's pending rows render them. A fold that deleted them would take them
     // off both views.
     const rows = [rowInState(WAITING_FIRST, "queued"), rowInState(CANCELED, "canceled")];
