@@ -17,10 +17,10 @@
 //     smoke test.
 //   • Every parse refusal the contract claims is exercised WITH its positive
 //     control.
-//   • The two `RunStateChangeEvent` members this module cannot yet type
-//     (`agentId`, `effectiveRunConfig`) are pinned as REJECTED, so their
-//     absence is a recorded decision rather than a silent gap a producer could
-//     stumble into.
+//   • The creation row's own members (`agentId`, `effectiveRunConfig`) are
+//     pinned as REJECTED on the state stream: `run.queued`'s payload carries
+//     them, and a producer that put them on a transition must fail rather than
+//     have them silently dropped.
 //   • The three arms of the `run.subscribeState` stream are pinned AGAINST
 //     EACH OTHER: the stream carries no wire tag, so each schema is shown to
 //     reject the others' well-formed payloads — the property that makes one
@@ -468,17 +468,15 @@ describe("RunStateChangeEvent", () => {
     ).toThrow();
   });
 
-  it("refuses the two orchestration-linkage members this module cannot type", () => {
-    // `agentId` and `effectiveRunConfig` are typed symbols no
-    // TypeScript in this workspace declares. Their absence is a recorded
-    // decision, so a producer that emits one must FAIL rather than have it
-    // silently dropped — and the fix is to add them here, never to relax
-    // the strict shape at a consumer.
-    //
-    // DELETE THIS CASE in the same diff that adds the two members. It asserts
-    // a temporary gap, not designed behavior: left standing, it is a passing
-    // test that says the opposite of what the adding task needs.
-    for (const smuggled of [{ agentId: "agent-1" }, { effectiveRunConfig: { turnLimit: 8 } }]) {
+  it("refuses the creation row's own members on a state transition", () => {
+    // `agentId` and `effectiveRunConfig` are `run.queued`'s, recorded once on the
+    // run's creation. A transition that carried them would be a second record of
+    // one fact, so a producer that emits one must FAIL rather than have it
+    // silently dropped.
+    for (const smuggled of [
+      { agentId: "agent-1" },
+      { effectiveRunConfig: { tokenLimit: 200_000 } },
+    ]) {
       expect(() =>
         RunStateChangeEventSchema.parse({ ...minimalRunStateChange, ...smuggled }),
       ).toThrow();

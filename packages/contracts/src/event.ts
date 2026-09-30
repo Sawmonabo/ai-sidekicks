@@ -147,6 +147,7 @@ import {
   type SessionRestoreFinishedPayload,
 } from "./session-restore.js";
 import { SessionConvertedPayloadSchema, type SessionConvertedPayload } from "./session-convert.js";
+import { RunQueuedPayloadSchema, type RunQueuedPayload } from "./run-queued.js";
 import { SessionCreatedPayloadSchema, type SessionCreatedPayload } from "./session-created.js";
 import {
   SessionIdSchema,
@@ -1824,6 +1825,7 @@ export type ApprovalDenialOverriddenEvent = SessionEventVariant<
   "approval_flow",
   ApprovalDenialOverriddenPayload
 >;
+export type RunQueuedEvent = SessionEventVariant<"run.queued", "run_lifecycle", RunQueuedPayload>;
 export type RunStepLimitReachedEvent = SessionEventVariant<
   "run.step_limit_reached",
   "run_lifecycle",
@@ -2155,6 +2157,11 @@ const approvalDenialOverriddenVariantSchema = buildSessionEventVariantSchema(
   "approval_flow",
   ApprovalDenialOverriddenPayloadSchema,
 );
+const runQueuedVariantSchema = buildSessionEventVariantSchema(
+  "run.queued",
+  "run_lifecycle",
+  RunQueuedPayloadSchema,
+);
 const runStepLimitReachedVariantSchema = buildSessionEventVariantSchema(
   "run.step_limit_reached",
   "run_lifecycle",
@@ -2386,6 +2393,7 @@ export type SessionEvent =
   | ApprovalApprovedEvent
   | ApprovalReviewerDeniedEvent
   | ApprovalDenialOverriddenEvent
+  | RunQueuedEvent
   | RunStepLimitReachedEvent
   | RunRecoveryResolvedEvent
   | SessionGoalUpdatedEvent
@@ -2609,6 +2617,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   approvalApprovedVariantSchema,
   approvalReviewerDeniedVariantSchema,
   approvalDenialOverriddenVariantSchema,
+  runQueuedVariantSchema,
   runStepLimitReachedVariantSchema,
   runRecoveryResolvedVariantSchema,
   sessionGoalUpdatedVariantSchema,
@@ -2912,6 +2921,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "approval.approved",
   "approval.reviewer_denied",
   "approval.denial_overridden",
+  "run.queued",
   "run.step_limit_reached",
   "run.recovery_resolved",
   "session.goal_updated",
