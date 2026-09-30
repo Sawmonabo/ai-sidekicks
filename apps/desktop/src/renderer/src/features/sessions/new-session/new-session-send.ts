@@ -1,8 +1,8 @@
 // The first send: two calls, in order, reported as one act.
 //
 // SPLIT FROM THE DRAFT THAT COMPOSES ONE. `new-session-draft.ts` owns what a person has
-// CHOSEN — the mount, the posture, the first turn — and the coalescing that keeps one
-// draft to one session. This module owns what those choices become on the wire, in what
+// CHOSEN — the mount, the lead, the posture, the first turn — and the coalescing that
+// keeps one draft to one session. This module owns what those choices become on the wire, in what
 // order, and which answer ends the send; the WORDS it settles in are
 // `new-session-settlement.ts`'s. It holds no state at all, so every rule in it can be
 // checked without constructing a draft.
@@ -19,6 +19,12 @@
 // — the alternative leaves a Send that answers a press by doing nothing while the fault
 // reaches only an unhandled rejection a shipped window does not report.
 
+import type {
+  AgentProviderBinding,
+  ExecutionMode,
+  RepoMountId,
+  SessionBinding,
+} from "@ai-sidekicks/contracts";
 import { callDaemon, type DaemonReplyRefusalCode } from "@renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
@@ -33,6 +39,12 @@ import {
   type NewSessionSendResult,
 } from "./new-session-settlement.js";
 
+/** The project a new session works in, and whether in a worktree of its own or the checkout. */
+export interface DraftRepoMount {
+  readonly repoMountId: RepoMountId;
+  readonly executionMode: ExecutionMode;
+}
+
 /**
  * Everything the send needs from the draft, and what it already did.
  *
@@ -46,6 +58,15 @@ export interface NewSessionSendRequest {
   readonly queueFirstTurn: FirstTurnQueueCall;
   readonly sessionId: string | undefined;
   readonly firstTurnAlreadyQueued: boolean;
+  /** The project the session works in; absent, the session is a chat. */
+  readonly repoMount: DraftRepoMount | undefined;
+  /** The lead's provider, model, account and effort the session starts on. */
+  readonly lead: AgentProviderBinding;
+  /**
+   * The draft's one key for its create, the same on every press, so a create that
+   * reached the daemon and is sent again names the session already made.
+   */
+  readonly clientIdempotencyKey: string;
   readonly firstTurn: string;
   /**
    * Which revision of the draft the caller read this request out of.
@@ -153,7 +174,11 @@ async function resolveSession(
   }
   // Through `callDaemon`, the bridge's one daemon call, which parses the request before sending and
   // the reply after and never throws.
-  const reply = await callDaemon(request.bridge, SESSION_CREATE_METHOD, {});
+  const reply = await callDaemon(request.bridge, SESSION_CREATE_METHOD, {
+    clientIdempotencyKey: request.clientIdempotencyKey,
+    binding: sessionBinding(request.repoMount),
+    lead: request.lead,
+  });
   if (reply.status === "refused") {
     if (reply.refusal.code === ("reply-unreadable" satisfies DaemonReplyRefusalCode)) {
       // THE ONE REFUSAL THAT IS NOT EVIDENCE OF NOTHING HAPPENING. `callDaemon` answers
@@ -184,6 +209,17 @@ async function resolveSession(
   }
   completedCalls.push(SESSION_CREATE_METHOD);
   return { settlement: "resolved", sessionId: reply.value.sessionId };
+}
+
+/** Where the session works: the chosen project, or a chat when none was chosen. */
+function sessionBinding(repoMount: DraftRepoMount | undefined): SessionBinding {
+  return repoMount === undefined
+    ? { kind: "chat" }
+    : {
+        kind: "project",
+        repoMountId: repoMount.repoMountId,
+        executionMode: repoMount.executionMode,
+      };
 }
 
 /** The first-turn leg, which is the only one whose absence is the person's choice. */

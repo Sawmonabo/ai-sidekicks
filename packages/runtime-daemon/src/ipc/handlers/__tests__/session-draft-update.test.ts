@@ -1,6 +1,6 @@
 // `session.draftUpdate` through the daemon's method registry, over a real database:
 // a draft is held, replaced, cleared by an empty draft, and refused for a session the
-// daemon has no record of.
+// daemon has no record of; `session.read` answers the draft that is held.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,10 +15,24 @@ import { SessionService, TestSeedingAppendToken } from "../../../session/session
 import { MethodRegistryImpl } from "../../registry.js";
 import { SessionNotFoundError } from "../../session-errors.js";
 import { registerSessionDraftUpdate } from "../session-draft-update.js";
+import { registerSessionRead, type SessionLogRead } from "../session-read.js";
 
 const SESSION_ID = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 const UNKNOWN_SESSION_ID = "0190f5a2-7c1e-7a3b-8d4e-000000000000";
 const STORED_AT = "2026-09-29T18:00:00.000Z";
+
+/** The session log's side of the read, which this suite does not exercise. */
+const LOG_READ = {
+  session: {
+    id: SESSION_ID,
+    state: "active",
+    config: {},
+    metadata: {},
+    createdAt: "2026-09-29T17:00:00.000Z",
+    updatedAt: "2026-09-29T17:00:00.000Z",
+  },
+  timelineCursors: { latest: "0" },
+} as SessionLogRead;
 
 let temporaryFolder: string;
 let database: Database;
@@ -50,7 +64,9 @@ beforeEach(() => {
     version: "1.0",
   });
   registry = new MethodRegistryImpl();
-  registerSessionDraftUpdate(registry, new SessionDraftStore(database, () => new Date(STORED_AT)));
+  const draftStore = new SessionDraftStore(database, () => new Date(STORED_AT));
+  registerSessionDraftUpdate(registry, draftStore);
+  registerSessionRead(registry, { readSession: async () => LOG_READ, draftStore });
 });
 
 afterEach(() => {
@@ -97,5 +113,26 @@ describe("session.draftUpdate", () => {
       .prepare("SELECT 1 FROM session_drafts WHERE session_id = ?")
       .get(UNKNOWN_SESSION_ID);
     expect(heldForUnknown).toBeUndefined();
+  });
+});
+
+describe("the held draft on session.read", () => {
+  async function readDraft(): Promise<unknown> {
+    const answer = (await registry.dispatch("session.read", { sessionId: SESSION_ID }, {})) as {
+      session: { draft: unknown };
+    };
+    return answer.session.draft;
+  }
+
+  it("answers the draft the daemon holds, and the empty string once Send clears it", async () => {
+    await registry.dispatch(
+      "session.draftUpdate",
+      { sessionId: SESSION_ID, text: "Fix the flaky login test" },
+      {},
+    );
+    expect(await readDraft()).toBe("Fix the flaky login test");
+
+    await registry.dispatch("session.draftUpdate", { sessionId: SESSION_ID, text: "" }, {});
+    expect(await readDraft()).toBe("");
   });
 });

@@ -1,10 +1,4 @@
-// File-row errata PR (2026-08-10) — direct schema coverage for the SessionRead payload family. the
-// Files row promised a `session.test.ts` covering all five payload schema families; the shipped
-// split (session-id / session-create / session-join) left SessionRead exercised only transitively
-// through consumer suites
-// (`packages/runtime-daemon/src/ipc/handlers/__tests__/session-handlers.test.ts#SessionReadResponseSchema`,
-// control-plane router). This file completes the SessionRead leg of the direct coverage — errata
-// entry, same date.
+// The `session.read` request and answer: what the daemon may send, and what it must never.
 //
 // Coverage shape:
 //   • Request:
@@ -13,6 +7,7 @@
 //       - extra unknown keys are rejected (`.strict()` enforcement)
 //   • Response:
 //       - well-formed payload parses, preserves snapshot + cursor values
+//       - the snapshot carries the held draft; one without it rejects
 //       - `timelineCursors.acknowledged` is optional (absent AND present ok)
 //       - missing `session` / `timelineCursors` rejects
 //       - `.strict()` holds at every nesting level (top, cursors, snapshot)
@@ -31,7 +26,7 @@ const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 
 // Fixture returns a wire-shaped object with no per-field brand casts —
 // `safeParse` accepts plain UUID strings and brands them on the way out
-// (same rationale as session-create.test.ts's buildValidResponse).
+// (the schema, not the type system, is the unit under test).
 const buildValidResponse = () => ({
   session: {
     id: SESSION_ID,
@@ -40,6 +35,7 @@ const buildValidResponse = () => ({
     metadata: { source: "cli" },
     createdAt: "2026-08-10T12:00:00.000Z",
     updatedAt: "2026-08-10T12:05:00.000Z",
+    draft: "Half a thought about the retry loop",
   },
   timelineCursors: {
     latest: "42_1723291500000000000",
@@ -130,6 +126,17 @@ describe("SessionReadResponseSchema (response shape)", () => {
     };
     const result = SessionReadResponseSchema.safeParse(broken);
     expect(result.success).toBe(false);
+  });
+
+  it("carries the held draft, and refuses a snapshot without one", () => {
+    expect(SessionReadResponseSchema.parse(buildValidResponse()).session.draft).toBe(
+      "Half a thought about the retry loop",
+    );
+    const valid = buildValidResponse();
+    const { draft: _draft, ...withoutDraft } = valid.session;
+    expect(SessionReadResponseSchema.safeParse({ ...valid, session: withoutDraft }).success).toBe(
+      false,
+    );
   });
 
   it("rejects unknown extra fields inside `session` (SessionSnapshot .strict())", () => {

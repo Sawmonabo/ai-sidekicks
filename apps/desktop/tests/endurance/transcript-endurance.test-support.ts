@@ -236,6 +236,7 @@ export function createTranscriptEnduranceFixture(
             updatedAt: new Date(
               startedAtMs + entries.length * ENDURANCE_BEAT_INTERVAL_MS,
             ).toISOString(),
+            draft: "",
           },
           timelineCursors: { latest: `transcript-endurance-cursor-${String(entries.length)}` },
         },

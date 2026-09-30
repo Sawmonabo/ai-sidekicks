@@ -633,6 +633,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           metadata: { title: "Ship the transcript" },
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T14:20:02.450Z",
+          draft: "",
         },
         timelineCursors: { latest: "concurrent-streaming-cursor-45" },
       },

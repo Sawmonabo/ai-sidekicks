@@ -8,8 +8,8 @@ import {
   SessionListChangeSchema,
   SessionListEntrySchema,
   SessionSetWorkingFolderRequestSchema,
-  SessionStartRequestSchema,
-  SessionStartResponseSchema,
+  SessionCreateRequestSchema,
+  SessionCreateResponseSchema,
   sessionActivityAsOf,
 } from "../session-directory.js";
 
@@ -116,7 +116,7 @@ describe("reading a row's activity", () => {
   });
 });
 
-describe("what a new session starts from", () => {
+describe("session.create", () => {
   const lead = {
     driverName: "claude",
     modelId: "claude-opus-4-5",
@@ -126,14 +126,14 @@ describe("what a new session starts from", () => {
 
   it("accepts a chat or a project with its lead's binding", () => {
     expect(
-      SessionStartRequestSchema.safeParse({
+      SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "chat" },
         lead,
       }).success,
     ).toBe(true);
     expect(
-      SessionStartRequestSchema.safeParse({
+      SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "bound-root" },
         lead,
@@ -143,7 +143,7 @@ describe("what a new session starts from", () => {
 
   it("refuses a session with no lead", () => {
     expect(
-      SessionStartRequestSchema.safeParse({
+      SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "chat" },
       }).success,
@@ -152,7 +152,7 @@ describe("what a new session starts from", () => {
 
   it("refuses a project binding with an execution mode outside the two", () => {
     expect(
-      SessionStartRequestSchema.safeParse({
+      SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "read-only" },
         lead,
@@ -162,7 +162,7 @@ describe("what a new session starts from", () => {
 
   it("accepts a scratch session led by a definition in a chat", () => {
     expect(
-      SessionStartRequestSchema.safeParse({
+      SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "chat" },
         leadDefinitionId: DEFINITION_ID,
@@ -173,7 +173,7 @@ describe("what a new session starts from", () => {
 
   it("refuses a scratch session with no definition, or with a repo", () => {
     expect(
-      SessionStartRequestSchema.safeParse({
+      SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "chat" },
         lead,
@@ -181,7 +181,7 @@ describe("what a new session starts from", () => {
       }).success,
     ).toBe(false);
     expect(
-      SessionStartRequestSchema.safeParse({
+      SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "provisioned-worktree" },
         leadDefinitionId: DEFINITION_ID,
@@ -191,14 +191,14 @@ describe("what a new session starts from", () => {
   });
 
   it("refuses a request without an idempotency key", () => {
-    expect(SessionStartRequestSchema.safeParse({ binding: { kind: "chat" }, lead }).success).toBe(
+    expect(SessionCreateRequestSchema.safeParse({ binding: { kind: "chat" }, lead }).success).toBe(
       false,
     );
   });
 
   it("answers with the session's shape, and the resolved configuration when a definition led", () => {
     expect(
-      SessionStartResponseSchema.safeParse({
+      SessionCreateResponseSchema.safeParse({
         sessionId: SESSION_ID,
         shape: "chat",
         state: "provisioning",
@@ -213,7 +213,7 @@ describe("what a new session starts from", () => {
       }).success,
     ).toBe(true);
     expect(
-      SessionStartResponseSchema.safeParse({ sessionId: SESSION_ID, state: "provisioning" })
+      SessionCreateResponseSchema.safeParse({ sessionId: SESSION_ID, state: "provisioning" })
         .success,
     ).toBe(false);
   });

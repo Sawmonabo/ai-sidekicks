@@ -27,7 +27,6 @@ import type {
   SessionEvent,
   SessionId,
   SessionReadRequest,
-  SessionReadResponse,
   SessionStreamChange,
   SessionStreamFrame,
   SessionSubscribeRequest,
@@ -58,7 +57,7 @@ import { SessionNotFoundError } from "../../session-errors.js";
 import { StreamingPrimitive } from "../../streaming-primitive.js";
 
 import { registerSessionCreate, type SessionCreateDeps } from "../session-create.js";
-import { registerSessionRead, type SessionReadDeps } from "../session-read.js";
+import { registerSessionRead, type SessionLogRead, type SessionReadDeps } from "../session-read.js";
 import {
   registerSessionSubscribe,
   SESSION_STREAM_WINDOW_MS,
@@ -85,6 +84,9 @@ const TEST_USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 // literal chosen for human-readable test failure output; its byte values
 // are otherwise meaningless beyond passing the schema's branded-UUID parse.
 const UNKNOWN_SESSION_ID = "aabbccdd-eeff-4011-8022-334455667788" as SessionId;
+const HELD_DRAFT = "Half a thought about the retry loop";
+/** A draft store holding no draft for any session. */
+const NO_DRAFTS: SessionReadDeps["draftStore"] = { read: () => "" };
 
 /**
  * Build a canonical-shape `SessionCreateResponse` matching every required
@@ -95,9 +97,22 @@ const UNKNOWN_SESSION_ID = "aabbccdd-eeff-4011-8022-334455667788" as SessionId;
 function buildSessionCreateResponse(): SessionCreateResponse {
   return {
     sessionId: TEST_SESSION_ID,
+    shape: "chat",
     state: "provisioning",
   };
 }
+
+/** A well-formed `session.create` request: a chat led by a provider binding. */
+const SESSION_CREATE_REQUEST: SessionCreateRequest = {
+  clientIdempotencyKey: "0f2b4d5e-9999-4999-8999-999999999999",
+  binding: { kind: "chat" },
+  lead: {
+    driverName: "claude",
+    modelId: "claude-opus-4-5",
+    providerAccountId: null,
+    effort: "high",
+  },
+};
 
 /**
  * Build a canonical-shape `session.created` `SessionEvent` matching every
@@ -131,16 +146,14 @@ function buildSessionCreatedEvent(): SessionEvent {
 }
 
 /**
- * Build a canonical-shape `SessionReadResponse` for happy- path test.
- * Mirrors the `buildSessionCreateResponse` pattern: every field matches
- * `SessionReadResponseSchema` so the registry's step-4 `safeParse`
- * succeeds and the dispatched value reaches the test assertion intact.
+ * Build the session log's side of a `session.read` answer: every snapshot member but the
+ * draft, which the handler adds from the draft store.
  *
  * `timelineCursors.acknowledged` is intentionally omitted — it is optional per the
  * canonical interface and exercising the absent-key shape catches a regression where a
  * default of `undefined` would slip through and fail `.strict()` parsing.
  */
-function buildSessionReadResponse(): SessionReadResponse {
+function buildSessionLogRead(): SessionLogRead {
   return {
     session: {
       id: TEST_SESSION_ID,
@@ -151,7 +164,7 @@ function buildSessionReadResponse(): SessionReadResponse {
       updatedAt: "2026-01-22T19:14:35.000Z",
     },
     timelineCursors: {
-      latest: "evt-0042" as SessionReadResponse["timelineCursors"]["latest"],
+      latest: "evt-0042" as SessionLogRead["timelineCursors"]["latest"],
     },
   };
 }
@@ -171,19 +184,13 @@ describe("session.create round-trip through MethodRegistry dispatch", () => {
     const deps: SessionCreateDeps = { createSession: mockCreateSession };
     registerSessionCreate(registry, deps);
 
-    // Act — dispatch with an empty `{}` body. `SessionCreateRequestSchema`
-    // is `.strict()` with both fields optional, so `{}` is the canonical
-    // minimal request.
+    // Act — dispatch a chat led by a provider binding.
     const directCtx: HandlerContext = {};
-    const result = await registry.dispatch("session.create", {}, directCtx);
+    const result = await registry.dispatch("session.create", SESSION_CREATE_REQUEST, directCtx);
 
     // Assert — the deps callback ran exactly once with the parsed params.
-    // `SessionCreateRequestSchema.safeParse({})` returns `{ success: true,
-    // data: {} }` — Zod does NOT synthesize `undefined` values for absent
-    // optionals on a `.strict()` object, so the parsed data is the bare
-    // empty object; the spy is called with `{}`.
     expect(mockCreateSession).toHaveBeenCalledTimes(1);
-    expect(mockCreateSession).toHaveBeenCalledWith({});
+    expect(mockCreateSession).toHaveBeenCalledWith(SESSION_CREATE_REQUEST);
 
     // Assert — the dispatched result equals the deps' return value
     // (verbatim; the registry's step-4 `safeParse(result)` against
@@ -212,8 +219,8 @@ describe("malformed session.create payload (verifies handler NEVER runs maps to 
   it("malformed payload rejects with `RegistryDispatchError(invalid_params)`; handler is NEVER invoked", async () => {
     // Arrange — a mock `createSession` whose call count we WILL assert is
     // zero after dispatch. The handler closure registered by
-    // `registerSessionCreate` is `async (params) => deps.createSession(params)`
-    // (per session-create.ts:127-129); a zero call count on `mockCreateSession`
+    // `registerSessionCreate` passes the parsed request to `deps.createSession`;
+    // a zero call count on `mockCreateSession`
     // proves the registry short-circuited at step 2 (params validation)
     // before reaching step 3 (handler invocation).
     const registry = new MethodRegistryImpl();
@@ -718,14 +725,17 @@ describe("duplicate registerSessionCreate rejected at register-time", () => {
 // is the load-bearing AC-N2 contract.
 
 describe("session.read round-trip (AC-N2 +)", () => {
-  it("dispatches a known sessionId to the readSession deps and returns SessionRead-shape", async () => {
-    // Arrange — bind a mock `readSession` against a fresh registry.
+  it("dispatches a known sessionId to the readSession deps and answers it with the held draft", async () => {
+    // Arrange — bind a mock `readSession` and a draft store holding one draft.
     const registry = new MethodRegistryImpl();
-    const expectedResponse = buildSessionReadResponse();
-    const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionReadResponse>>(
-      async () => expectedResponse,
+    const logRead = buildSessionLogRead();
+    const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
+      async () => logRead,
     );
-    const deps: SessionReadDeps = { readSession: mockReadSession };
+    const deps: SessionReadDeps = {
+      readSession: mockReadSession,
+      draftStore: { read: (sessionId) => (sessionId === TEST_SESSION_ID ? HELD_DRAFT : "") },
+    };
     registerSessionRead(registry, deps);
 
     // Act — dispatch with the canonical request body.
@@ -740,10 +750,11 @@ describe("session.read round-trip (AC-N2 +)", () => {
     expect(mockReadSession).toHaveBeenCalledTimes(1);
     expect(mockReadSession).toHaveBeenCalledWith({ sessionId: TEST_SESSION_ID });
 
-    // Assert — the dispatched result equals the deps' return value
-    // (the registry's step-4 `safeParse(result)` re-parses against
-    // `SessionReadResponseSchema` but does not mutate fields).
-    expect(result).toStrictEqual(expectedResponse);
+    // Assert — the log's read, with the draft the store holds for that session.
+    expect(result).toStrictEqual({
+      ...logRead,
+      session: { ...logRead.session, draft: HELD_DRAFT },
+    });
 
     // Assert — the response shape matches `SessionReadResponseSchema`
     // (Standard-Schema-V1 round-trip check; catches a regression where a
@@ -761,14 +772,14 @@ describe("session.read round-trip (AC-N2 +)", () => {
     // canonical envelope rather than collapsing to the `-32603
     // InternalError` catch-all.
     const registry = new MethodRegistryImpl();
-    const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionReadResponse>>(
+    const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
       async () => {
         throw new SessionNotFoundError("session not found", {
           sessionId: UNKNOWN_SESSION_ID,
         });
       },
     );
-    const deps: SessionReadDeps = { readSession: mockReadSession };
+    const deps: SessionReadDeps = { readSession: mockReadSession, draftStore: NO_DRAFTS };
     registerSessionRead(registry, deps);
 
     // Act — dispatch. The registry's `dispatch()` does NOT wrap handler
@@ -825,7 +836,8 @@ describe("session.read round-trip (AC-N2 +)", () => {
     // read-only-fallback contract.
     const registry = new MethodRegistryImpl();
     const deps: SessionReadDeps = {
-      readSession: async () => buildSessionReadResponse(),
+      readSession: async () => buildSessionLogRead(),
+      draftStore: NO_DRAFTS,
     };
     registerSessionRead(registry, deps);
     expect(registry.isMutating("session.read")).toBe(false);

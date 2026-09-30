@@ -41,13 +41,16 @@
 // scoped to the object, so closing the draft — which drops it — is what makes the next
 // "+ New" a genuinely new session.
 //
+// EVERY CREATE THIS DRAFT SENDS CARRIES ITS ONE IDEMPOTENCY KEY, minted with the draft.
+// A create that reached the daemon and is sent again, after a failure that hid the
+// answer, names the session already made rather than a second one.
+//
 // AND ONE SETTLEMENT ENDS THE DRAFT RATHER THAN RESUMING IT. A create the daemon
 // answered with a reply this build cannot read may have made a session, and named
-// none — so there is nothing to resume against and nothing safe to repeat, because
-// `session.create` carries no idempotency member anywhere on the wire.
-// The draft remembers that reading and answers every later send from memory, putting
-// nothing on the wire; the sentence a person is left with says to go and look at the
-// sessions list rather than to press again.
+// none — so there is nothing to resume against, and a repeat would come back in the
+// same reply this build cannot read. The draft remembers that reading and answers
+// every later send from memory, putting nothing on the wire; the sentence a person is
+// left with says to go and look at the sessions list rather than to press again.
 //
 // THE FIRST TURN IS THE DRAFT'S, because the draft is what sends it. `run.queueCreate`
 // takes the turn's own body, so a draft holding a mount and a posture and no words could
@@ -60,11 +63,11 @@
 // wire that cannot: it fires on a first SUCCESSFUL send, whose five conjuncts include
 // facts about how the session was opened that no reply here carries.
 
-import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
+import type { AgentProviderBinding, ExecutionPosture } from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import type { FirstTurnQueueCall } from "./new-session-control-contract.js";
-import { sendNewSessionDraft } from "./new-session-send.js";
+import { sendNewSessionDraft, type DraftRepoMount } from "./new-session-send.js";
 import {
   refuseAmbiguousCreate,
   refuseNewSessionDraft,
@@ -82,12 +85,6 @@ import {
  */
 export type DraftPostureMode = ExecutionPosture["mode"];
 
-/** The repo this session works in, and how. */
-export interface DraftRepoMount {
-  readonly repoId: string;
-  readonly executionMode: ExecutionMode;
-}
-
 /** What the draft control renders. A fresh object per mutation, so `Object.is` decides. */
 export interface NewSessionDraftState {
   readonly repoMount: DraftRepoMount | undefined;
@@ -102,6 +99,9 @@ export interface NewSessionDraftState {
 export class NewSessionDraft {
   readonly #bridge: PlatformBridge;
   readonly #queueFirstTurn: FirstTurnQueueCall;
+  readonly #lead: AgentProviderBinding;
+  /** The key every create this draft sends carries, so a repeat names the session made. */
+  readonly #clientIdempotencyKey: string = crypto.randomUUID();
   readonly #changes = new Emitter<NewSessionDraftState>("new session draft change");
   /**
    * The send that is running, while one is.
@@ -141,9 +141,12 @@ export class NewSessionDraft {
   public constructor(options: {
     readonly bridge: PlatformBridge;
     readonly queueFirstTurn: FirstTurnQueueCall;
+    /** The lead the session starts on, as the composition that mounts the draft chose it. */
+    readonly lead: AgentProviderBinding;
   }) {
     this.#bridge = options.bridge;
     this.#queueFirstTurn = options.queueFirstTurn;
+    this.#lead = options.lead;
   }
 
   public snapshot(): NewSessionDraftState {
@@ -197,11 +200,10 @@ export class NewSessionDraft {
    * Coalesced in TWO senses, and both are load-bearing. Across the two calls, it is
    * ordered rather than parallel: the turn needs the session `session.create` returns,
    * so issuing them together would mean inventing the id before the daemon minted it.
-   * Across repeated presses, it is idempotent in the only way a renderer can make a
-   * create idempotent — by remembering. A concurrent call joins the running send; a
-   * later call resumes at the first call that has not been made. Neither refuses,
-   * because a refusal here would put a code in front of a person whose press did
-   * exactly what they meant it to.
+   * Across repeated presses, it remembers what landed: a concurrent call joins the
+   * running send, and a later call resumes at the first call that has not been made.
+   * Neither refuses, because a refusal here would put a code in front of a person whose
+   * press did exactly what they meant it to.
    */
   public send(): Promise<NewSessionSendResult> {
     // `??=` short-circuits, so the send is started only when none is running, and
@@ -217,10 +219,9 @@ export class NewSessionDraft {
     if (this.#landed.hasUnreadableCreate) {
       // THE STRUCTURAL HALF OF THE AMBIGUOUS ARM, and the reason it is here rather
       // than only on the control. A create this build could not read may have made a
-      // session, and `session.create` carries no idempotency member the console could
-      // use to ask for the same one twice — so a second dispatch does not retry, it
-      // creates. The affordance is disabled from the same fact; this is what makes a
-      // press that arrived anyway — a keyboard path, a later caller, a test — put
+      // session, and a second dispatch would come back in the same unreadable reply,
+      // naming nothing. The affordance is disabled from the same fact; this is what
+      // makes a press that arrived anyway — a keyboard path, a later caller, a test — put
       // nothing on the wire. The same settlement is answered again, so the sentence a
       // person is reading does not change under them.
       //
@@ -249,6 +250,9 @@ export class NewSessionDraft {
       // the create leg is skipped rather than repeated.
       sessionId: this.#landed.hasCreatedSession ? this.#landed.sessionId : undefined,
       firstTurnAlreadyQueued: this.#landed.hasQueuedFirstTurn,
+      repoMount: this.#state.repoMount,
+      lead: this.#lead,
+      clientIdempotencyKey: this.#clientIdempotencyKey,
       firstTurn: this.#state.firstTurn,
       // CAPTURED IN THE SAME BREATH AS THE WORDS IT DESCRIBES. Every member above is
       // read out of `#state` in this one expression, so the revision beside them names

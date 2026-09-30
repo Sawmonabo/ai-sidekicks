@@ -11,16 +11,20 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { RepoMountId } from "@ai-sidekicks/contracts";
 import {
   countedDraftFor,
   draftFor,
   sentMethod,
   CREATED_SESSION_ID,
+  NEW_SESSION_LEAD,
 } from "./new-session-draft.test-support.js";
 import {
   NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
   refuseSendThatRejected,
 } from "./new-session-settlement.js";
+
+const PROJECT_MOUNT_ID = "770e8400-e29b-41d4-a716-446655440002" as RepoMountId;
 
 describe("NewSessionDraft — the send", () => {
   it("refuses an empty draft without touching the wire", async () => {
@@ -46,6 +50,31 @@ describe("NewSessionDraft — the send", () => {
     expect(counted.firstTurns).toStrictEqual([
       { sessionId: CREATED_SESSION_ID, content: "Start on the parser." },
     ]);
+  });
+
+  it("creates a chat led by the named lead, or a session in the chosen project", async () => {
+    const chat = countedDraftFor({ scriptsCreate: true });
+    chat.draft.setFirstTurn("Start on the parser.");
+    await chat.draft.send();
+    expect(chat.calls[0]?.params).toMatchObject({
+      binding: { kind: "chat" },
+      lead: NEW_SESSION_LEAD,
+    });
+
+    const project = countedDraftFor({ scriptsCreate: true });
+    project.draft.setRepoMount({
+      repoMountId: PROJECT_MOUNT_ID,
+      executionMode: "provisioned-worktree",
+    });
+    await project.draft.send();
+    expect(project.calls[0]?.params).toMatchObject({
+      binding: {
+        kind: "project",
+        repoMountId: PROJECT_MOUNT_ID,
+        executionMode: "provisioned-worktree",
+      },
+      lead: NEW_SESSION_LEAD,
+    });
   });
 
   it("names the missing first turn when the person typed none", async () => {

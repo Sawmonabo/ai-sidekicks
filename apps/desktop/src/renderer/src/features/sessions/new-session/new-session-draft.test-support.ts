@@ -6,6 +6,7 @@
 // suites split on what they assert (one send's ladder, and what repeated sends do);
 // the scaffolding does not split with them, and a second copy is how two files come to
 // script slightly different replies for one wire.
+import type { AgentProviderBinding } from "@ai-sidekicks/contracts";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { withDaemonCall, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import type { Scenario } from "../../../../../../fixtures/scenario.js";
@@ -18,6 +19,14 @@ import { SESSION_CREATE_METHOD } from "./new-session-settlement.js";
 
 export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
+/** The lead every new session in these suites starts on. */
+export const NEW_SESSION_LEAD: AgentProviderBinding = {
+  driverName: "claude",
+  modelId: "claude-opus-4-5",
+  providerAccountId: null,
+  effort: "high",
+};
+
 /**
  * The WHOLE registered create response.
  *
@@ -28,6 +37,7 @@ export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
  */
 const CREATE_REPLY = {
   sessionId: CREATED_SESSION_ID,
+  shape: "chat",
   state: "active",
 } as const;
 
@@ -61,6 +71,7 @@ export function draftFor(options: ScriptedLegs): NewSessionDraft {
   return new NewSessionDraft({
     bridge: createFixtureBridge({ scenario: scenario(options) }).bridge,
     queueFirstTurn: firstTurnCall(options, []),
+    lead: NEW_SESSION_LEAD,
   });
 }
 
@@ -95,6 +106,7 @@ export function countedDraftFor(options: ScriptedLegs): CountedDraft {
     draft: new NewSessionDraft({
       bridge: under.bridge,
       queueFirstTurn: firstTurnCall(options, firstTurns),
+      lead: NEW_SESSION_LEAD,
     }),
     calls: under.calls,
     firstTurns,
@@ -132,7 +144,7 @@ function scenario(options: ScriptedLegs): Scenario {
 /**
  * A reply to `session.create` the registered response schema refuses.
  *
- * Short of `state`, which `SessionCreateResponseSchema` requires — so the call FULFILLS and
+ * Short of `shape` and `state`, which the create reply requires — so the call FULFILLS and
  * `callDaemon` answers `reply-unreadable`. That distinction is the whole subject of the
  * ambiguous arm: the daemon was reached, ran, and answered, and only this build's reading
  * of what it said failed.
@@ -156,6 +168,7 @@ export function countedDraftOverUnreadableCreate(): CountedDraft {
     draft: new NewSessionDraft({
       bridge: under.bridge,
       queueFirstTurn: firstTurnCall({ scriptsCreate: true }, firstTurns),
+      lead: NEW_SESSION_LEAD,
     }),
     calls: under.calls,
     firstTurns,

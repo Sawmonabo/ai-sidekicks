@@ -1,5 +1,5 @@
 // Session contracts — request/response payloads and shared projection types
-// for the session core (SessionCreate / SessionRead / SessionSubscribe), the
+// for the session core (SessionRead / SessionSubscribe), the
 // frame a session's stream sends, the session verbs the console calls on one
 // session (rename, archive, reactivate, close, pin, mute, restart), the two
 // searches, and the payloads of the events those verbs append.
@@ -142,8 +142,8 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
 // Shared projection types
 // --------------------------------------------------------------------------
 //
-// These are the read-side projections referenced from `SessionCreateResponse`
-// and `SessionReadResponse`. Per the canonical spec they are strict shapes
+// These are the read-side projections referenced from `SessionReadResponse`.
+// Per the canonical spec they are strict shapes
 // (the `.strict()` modifier rejects unknown keys at parse time, surfacing
 // schema drift early).
 
@@ -154,6 +154,11 @@ const RecordOfUnknownSchema: z.ZodType<Record<string, unknown>, Record<string, u
   z.unknown(),
 );
 
+/**
+ * One session as `session.read` answers it. `draft` is the unsent composer draft the daemon
+ * holds for the session, the whole text, and the empty string when none is held: Send clears
+ * it, and a half-typed message reaches the person's other devices through this read.
+ */
 export interface SessionSnapshot {
   id: SessionId;
   state: SessionState;
@@ -161,6 +166,7 @@ export interface SessionSnapshot {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  draft: string;
 }
 export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
   .object({
@@ -175,42 +181,7 @@ export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
     // normalization step, NOT by the wire schema here.
     createdAt: z.iso.datetime({ offset: true }),
     updatedAt: z.iso.datetime({ offset: true }),
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// SessionCreate
-// --------------------------------------------------------------------------
-//
-// Both request fields are optional; an empty `{}` body is valid (the daemon
-// fills defaults from session config).
-
-export interface SessionCreateRequest {
-  config?: Record<string, unknown> | undefined;
-  metadata?: Record<string, unknown> | undefined;
-}
-// `z.ZodType<T, T>` (instead of `z.ZodType<T>`, where the second slot defaults
-// to `unknown`) is required so tRPC v11's Standard-Schema-V1 input inference
-// resolves to T and not `unknown`. The schema is non-transforming (no
-// `.transform()` / `.coerce()` / `.preprocess()` anywhere in this module), so
-// pre-validation Input ≡ post-validation Output ≡ T. Explicit double-T
-// preserves that equivalence on the type surface.
-export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, SessionCreateRequest> = z
-  .object({
-    config: RecordOfUnknownSchema.optional(),
-    metadata: RecordOfUnknownSchema.optional(),
-  })
-  .strict();
-
-/** The `session.create` result: the new session's id and its starting state. */
-export interface SessionCreateResponse {
-  sessionId: SessionId;
-  state: SessionState;
-}
-export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
-  .object({
-    sessionId: SessionIdSchema,
-    state: SessionStateSchema,
+    draft: z.string(),
   })
   .strict();
 
@@ -221,8 +192,12 @@ export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
 export interface SessionReadRequest {
   sessionId: SessionId;
 }
-// `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
-// Standard-Schema-V1 input inference for tRPC v11 consumers).
+// `z.ZodType<T, T>` (instead of `z.ZodType<T>`, where the second slot defaults
+// to `unknown`) is required so tRPC v11's Standard-Schema-V1 input inference
+// resolves to T and not `unknown`. The schema is non-transforming (no
+// `.transform()` / `.coerce()` / `.preprocess()` anywhere in this module), so
+// pre-validation Input ≡ post-validation Output ≡ T. Explicit double-T
+// preserves that equivalence on the type surface.
 export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionReadRequest> = z
   .object({
     sessionId: SessionIdSchema,
@@ -282,7 +257,7 @@ export interface SessionSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor | undefined;
 }
-// `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
+// `z.ZodType<T, T>` — see SessionReadRequestSchema for rationale (preserves
 // Standard-Schema-V1 input inference for tRPC v11 consumers).
 export const SessionSubscribeRequestSchema: z.ZodType<
   SessionSubscribeRequest,
@@ -615,11 +590,6 @@ export const SessionMarkChangePayloadSchema: z.ZodType<SessionMarkChangePayload>
  * emission is a frame over that union.
  */
 export interface SessionMethodDescriptors {
-  readonly "session.create": MethodDescriptor<
-    "session.create",
-    SessionCreateRequest,
-    SessionCreateResponse
-  >;
   readonly "session.read": MethodDescriptor<
     "session.read",
     SessionReadRequest,
@@ -695,13 +665,6 @@ function sessionVerb<MethodName extends string>(
 }
 
 export const SESSION_METHOD_DESCRIPTORS: SessionMethodDescriptors = defineMethodDescriptors({
-  "session.create": {
-    method: "session.create",
-    procedureType: "mutation",
-    mutating: true,
-    requestSchema: SessionCreateRequestSchema,
-    responseSchema: SessionCreateResponseSchema,
-  },
   "session.read": {
     method: "session.read",
     procedureType: "query",

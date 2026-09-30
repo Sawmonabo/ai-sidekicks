@@ -43,6 +43,7 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
           metadata: {},
           createdAt: STARTED_AT_ISO,
           updatedAt: STARTED_AT_ISO,
+          draft: "",
         },
         timelineCursors: { latest: "empty-session-cursor-0" },
       },

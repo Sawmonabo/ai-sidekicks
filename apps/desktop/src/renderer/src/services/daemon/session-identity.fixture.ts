@@ -11,7 +11,7 @@
 //
 // WHERE THE TITLE COMES FROM, AND WHY IT IS `metadata`. No first-class name field
 // exists on any registered session shape: `SessionSnapshot` carries `id`, `state`,
-// `config`, `metadata`, and two timestamps, and `session.created`'s payload is
+// `config`, `metadata`, two timestamps and the draft, and `session.created`'s payload is
 // `.strict()` with no title member at all. So a display title is metadata a session
 // carries, read from the scenario's own scripted reply rather than folded out of a
 // beat.

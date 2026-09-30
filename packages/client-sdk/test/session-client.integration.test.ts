@@ -242,6 +242,7 @@ describe("SessionCreate then SessionRead returns identical session id (round-tri
         method: "session.create",
         buildResult: (): unknown => ({
           sessionId: SESSION_ID,
+          shape: "chat",
           state: "provisioning",
         }),
       },
@@ -263,6 +264,7 @@ describe("SessionCreate then SessionRead returns identical session id (round-tri
               metadata: {},
               createdAt: "2026-04-30T12:00:00.000Z",
               updatedAt: "2026-04-30T12:00:00.000Z",
+              draft: "",
             },
             timelineCursors: {
               latest: CURSOR_1,
@@ -273,7 +275,16 @@ describe("SessionCreate then SessionRead returns identical session id (round-tri
     ]);
     const sdk = createDaemonSessionClient(harness.client);
 
-    const createResponse = await sdk.create({});
+    const createResponse = await sdk.create({
+      clientIdempotencyKey: "0f2b4d5e-9999-4999-8999-999999999999",
+      binding: { kind: "chat" },
+      lead: {
+        driverName: "claude",
+        modelId: "claude-opus-4-5",
+        providerAccountId: null,
+        effort: "high",
+      },
+    });
     expect(createResponse.sessionId).toBe(SESSION_ID);
     expect(createResponse.state).toBe("provisioning");
 

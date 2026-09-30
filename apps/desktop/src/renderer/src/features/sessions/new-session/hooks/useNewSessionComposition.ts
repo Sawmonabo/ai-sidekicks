@@ -139,7 +139,7 @@ const DRAFT_DISPOSAL: SubjectScopedDisposal<NewSessionDraft | undefined> = {
  * clears one of them.
  */
 export function useNewSessionComposition(props: NewSessionControlProps): NewSessionComposition {
-  const { bridge, queueFirstTurn, onSessionCreated } = props;
+  const { bridge, queueFirstTurn, lead, onSessionCreated } = props;
   const heldDraft = useSubjectScopedResource<NewSessionDraft | undefined>(
     bridge,
     undefined,
@@ -172,8 +172,8 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
   );
 
   const open = useCallback(() => {
-    publishDraft(new NewSessionDraft({ bridge, queueFirstTurn }));
-  }, [bridge, queueFirstTurn, publishDraft]);
+    publishDraft(new NewSessionDraft({ bridge, queueFirstTurn, lead }));
+  }, [bridge, queueFirstTurn, lead, publishDraft]);
 
   const close = useCallback(() => {
     // Published rather than discarded here: the holder disposes what it replaced,

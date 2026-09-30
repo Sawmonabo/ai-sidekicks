@@ -13,6 +13,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { RepoMountId } from "@ai-sidekicks/contracts";
+
 import {
   countedDraftFor,
   countedDraftOverUnreadableCreate,
@@ -45,7 +47,10 @@ describe("NewSessionDraft — what it holds", () => {
     const unsubscribe = draft.subscribe((state) => {
       revisions.push(state.revision);
     });
-    draft.setRepoMount({ repoId: "repo-1", executionMode: "provisioned-worktree" });
+    draft.setRepoMount({
+      repoMountId: "770e8400-e29b-41d4-a716-446655440002" as RepoMountId,
+      executionMode: "provisioned-worktree",
+    });
     draft.setPosture("trusted");
     unsubscribe();
     expect(revisions).toStrictEqual([1, 2]);
@@ -156,6 +161,12 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     expect(first.refusal?.code).toBe("session-create-failed");
     expect(retried.refusal?.code).toBe("session-create-failed");
     expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD, SESSION_CREATE_METHOD]);
+    // The retry is the same create, so it carries the same key: a first attempt that
+    // reached the daemon and lost only its answer is named again, not made twice.
+    const [firstKey, retriedKey] = calls.map(
+      (call) => (call.params as { clientIdempotencyKey: string }).clientIdempotencyKey,
+    );
+    expect(retriedKey).toBe(firstKey);
   });
 });
 

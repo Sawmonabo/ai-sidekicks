@@ -18,7 +18,11 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 // The created session's id, from the module that DECLARES it. Both new-session
 // scaffolding modules script the same `session.create`, so a second copy of the id
 // here would be two spellings of one reply that no gate compares.
-import { CREATED_SESSION_ID, type QueuedFirstTurn } from "../new-session-draft.test-support.js";
+import {
+  CREATED_SESSION_ID,
+  NEW_SESSION_LEAD,
+  type QueuedFirstTurn,
+} from "../new-session-draft.test-support.js";
 
 /** The one call the suspended-bridge helpers below hold, and no other. */
 const SESSION_CREATE_CALL = "session.create";
@@ -33,9 +37,11 @@ const SESSION_CREATE_CALL = "session.create";
  */
 export const CREATE_REPLY: {
   readonly sessionId: string;
+  readonly shape: string;
   readonly state: string;
 } = {
   sessionId: CREATED_SESSION_ID,
+  shape: "chat",
   state: "active",
 };
 
@@ -123,6 +129,7 @@ export function renderControlOn(
       <NewSessionControl
         bridge={bridge}
         queueFirstTurn={options.queueFirstTurn ?? REJECTING_FIRST_TURN}
+        lead={NEW_SESSION_LEAD}
         onSessionCreated={options.onSessionCreated ?? (() => undefined)}
         onSessionDirectoryRecheck={options.onSessionDirectoryRecheck ?? (() => undefined)}
       />

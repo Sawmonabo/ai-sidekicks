@@ -6,7 +6,7 @@
 //
 // WHY THE TITLE IS LABELED AS METADATA. No registered session shape carries a
 // first-class name field — `SessionSnapshot` is `id`, `state`, `config`, `metadata`,
-// and two timestamps, and `session.created`'s payload is `.strict()` with no title
+// two timestamps and the draft, and `session.created`'s payload is `.strict()` with no title
 // member at all. A display title is therefore metadata a session happens to carry,
 // and saying so on the element is the difference between rendering a fact and
 // asserting a field that does not exist.

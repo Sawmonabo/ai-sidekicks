@@ -579,6 +579,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
           metadata: {},
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T11:05:03.060Z",
+          draft: "",
         },
         // An ACKNOWLEDGED position beside the latest one, which is what makes the
         // resume cycle reachable at all: the store submits whatever a read
