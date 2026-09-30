@@ -2,7 +2,7 @@
 //
 // One predicate over every scenario in `fixtures/scenarios/`, so a scenario added with a defect
 // fails here without its author knowing this module exists. Every beat meets the three schemas in
-// `packages/contracts/src/event.ts` (`beat-shape.ts`), then the rules those schemas do not carry,
+// `@ai-sidekicks/contracts` (`beat-shape.ts`), then the rules those schemas do not carry,
 // each read off the module that owns it: run and queue semantics, beat order, replies and the
 // caller identity, one module per axis.
 //

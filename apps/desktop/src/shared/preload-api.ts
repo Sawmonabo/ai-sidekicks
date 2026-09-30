@@ -75,7 +75,10 @@ export interface OpenDialogOptions<Purpose extends OpenDialogPurpose = OpenDialo
   readonly purpose: Purpose;
 }
 
-/** One file a person picked: its token, and the name and size a chip draws before it is read. */
+/**
+ * One file a person picked: its token, and the name and size a chip draws before it is read. The
+ * name is the file's own name, never a folder.
+ */
 export interface PickedFile {
   readonly ref: FilePathRef;
   readonly name: string;

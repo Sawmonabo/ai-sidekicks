@@ -1,7 +1,7 @@
 // One authored beat composed into the wire envelope the daemon would have sent, and a run of them
 // into the `session.subscribe` frames that carry them. A scenario is authored in
 // `ProjectedSessionEvent`s, but `session.subscribe` carries the canonical `EventEnvelope`
-// (`packages/contracts/src/event.ts`), whose event type is `type` and whose attribution is `actor`.
+// (`packages/contracts/src/event-envelope.ts`), whose event type is `type` and whose attribution is `actor`.
 // A fixture that delivered the authoring shape would agree with the console's decode boundary and
 // with nothing the daemon sends, so this is the one place the first becomes the second.
 //

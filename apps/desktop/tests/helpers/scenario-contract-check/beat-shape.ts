@@ -1,6 +1,6 @@
 // Is this beat a wire event at all, and does the shape registered for it accept its payload?
 //
-// `packages/contracts/src/event.ts` ships three schemas and every beat meets all three:
+// `@ai-sidekicks/contracts` ships three schemas and every beat meets all three:
 //
 // - `SESSION_EVENT_CATEGORY_BY_TYPE`, the census. A `kind` that is not a key is a type no daemon
 //   emits. This catches an invented name: `run.started` reads like a real event and is not one

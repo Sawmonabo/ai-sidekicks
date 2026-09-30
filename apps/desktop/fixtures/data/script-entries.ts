@@ -12,7 +12,7 @@
 //     goes back in time would be delivered late or never. The builder throws instead.
 //
 // The payload builders carry the registered shapes and nothing else. `run.queued`,
-// `assistant.*` and `tool.*` have `.strict()` variants in `packages/contracts/src/event.ts`,
+// `assistant.*` and `tool.*` have `.strict()` variants in `@ai-sidekicks/contracts`,
 // so an extra member is rejected on the wire; the other run transitions and `subagent.*` have
 // none.
 
