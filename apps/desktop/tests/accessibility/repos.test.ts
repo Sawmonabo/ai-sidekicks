@@ -1,20 +1,11 @@
-// The accessibility tier over the repos feature's two views.
+// The accessibility tier over the repos feature's two views, each scoped to itself so a
+// violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s reason.
+// The palette tests cannot reach a mount card tinted by its health verdict or a diff row whose
+// intraline highlight is a tint inside text.
 //
-// `app-frame.test.tsx` runs the frame; this file runs what the feature mounts INTO
-// it, and it runs each view scoped to itself rather than scanning the document,
-// so a violation names the view that owns it.
-//
-// Both schemes, for `app-frame.test.tsx`'s reason: contrast is the rule most likely
-// to pass in one and fail in the other, and this feature has two views the
-// palette tests cannot reach at all — a mount card tinted by its own health verdict,
-// and a diff row whose intraline highlight is a tint inside a line of text.
-//
-// THE DIFF PANE IS THE CASE WORTH HAVING. Its rows are a virtualized grid: the
-// scroller carries the row count and each drawn row carries its index, so what a
-// person using a screen reader is told about a five-thousand-line change set is a
-// claim this tier is exactly the instrument for — and the pane is mounted over a
-// parsed model rather than over its absence, so the nodes axe walks are the real
-// rows and not an empty-state box.
+// The diff pane's rows are a virtualized grid (the scroller carries the row count, each drawn
+// row its index), so what a screen reader announces for a large change set is checked here. It
+// is mounted over a parsed model so axe walks real rows, not an empty state.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -62,8 +53,7 @@ describe("accessibility — the repos section and diff pane", () => {
   }
 
   it("finds a planted violation, so a clean result means something", async () => {
-    // Negative control for this file's own runs: the walks above expect an
-    // empty list, and a misconfigured run returns exactly the same empty list.
+    // Negative control: a misconfigured run returns the same empty list the cases above expect.
     const planted = plantAxeViolation();
     try {
       const violations = await runTierAxe(planted);

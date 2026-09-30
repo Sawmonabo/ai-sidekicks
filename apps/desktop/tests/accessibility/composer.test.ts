@@ -1,17 +1,8 @@
-// The accessibility tier over every view the composer feature mounts.
-//
-// `app-frame.test.tsx` runs the frame; this file runs what the feature mounts INTO
-// it, and it runs each view scoped to itself rather than scanning the document,
-// so a violation names the view that owns it.
-//
-// Both schemes, for `app-frame.test.tsx`'s reason: contrast is the rule most likely
-// to pass in one and fail in the other, and this feature renders something the
-// palette's own contrast test cannot reach.
-//
-// THE COMPOSER IS THE CASE WORTH HAVING. It is the one view in the console that
-// is always on screen while a person is typing, and it carries the most controls per
-// pixel of anything the feature ships. Its addresses differ in which of those are
-// offered, so a name or a label lost on one address is invisible on the others.
+// The accessibility tier over every view the composer feature mounts, each scoped to itself
+// so a violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s
+// reason. The composer is always on screen while a person types and carries the most controls
+// per pixel, and its addresses offer different ones, so a name or label lost on one address is
+// invisible on the others.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -64,8 +55,7 @@ describe("accessibility — the composer views", () => {
   }
 
   it("finds a planted violation, so a clean result means something", async () => {
-    // Negative control for this file's own runs: every case above expects an
-    // empty list, and a misconfigured run returns exactly the same empty list.
+    // Negative control: a misconfigured run returns the same empty list the cases above expect.
     const planted = plantAxeViolation();
     try {
       const violations = await runTierAxe(planted);

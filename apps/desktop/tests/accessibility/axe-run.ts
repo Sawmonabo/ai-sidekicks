@@ -1,38 +1,25 @@
-// How this tier runs axe, and how it reports what axe found.
+// How this tier runs axe and reports what it found. The rule set and the failure message live
+// here once so every file in the tier agrees on them: a narrower set would report clean over
+// violations its neighbor catches, and a red run must name the rule and the node.
 //
-// Not a test file — no `include` glob reaches it. Two things every file in the tier
-// has to agree on: the RULE SET, because a file running a narrower set would report
-// clean over violations its neighbor would have caught, and the FAILURE MESSAGE,
-// because the tier's whole claim is that a red run names the rule and the node
-// rather than saying a number went up. Both live here once.
+// axe runs inside the browser-mode page rather than through `@axe-core/playwright`, which needs
+// a `Page` handle Vitest browser mode gives only to server-side commands, and which is the
+// orchestrator page, not the tester iframe.
 //
-// It runs INSIDE the browser-mode page rather than through `@axe-core/playwright`,
-// which wants a `@playwright/test` `Page` handle Vitest browser mode hands only to
-// server-side custom commands, never to test code, and which is the orchestrator
-// page rather than the tester iframe — same engine, same rule set, one less
-// indirection.
-//
-// (`axe-core` is MPL-2.0 and is admitted as a never-distributed test dependency;
-// it must not reach a shipped bundle, which is why it is imported under `test/`
-// and nowhere under `src/`.)
+// `axe-core` is MPL-2.0, admitted as a never-distributed test dependency: it is imported under
+// `tests/` and nowhere under `src/`, so it cannot reach a shipped bundle.
 
 import axe, { type Result } from "axe-core";
 
 /**
- * WCAG 2.2 A + AA, which is the level every console view is held to.
+ * WCAG 2.2 A + AA, the level every console view is held to.
  *
- * Both levels of every version, because axe's tags select the criteria a version
- * INTRODUCED rather than everything that version's conformance requires: `wcag2a` and
- * `wcag21a` do not reach the Level A criteria new in 2.2, so a set carrying `wcag22aa`
- * alone claimed 2.2 at both levels and selected only one of them.
- *
- * What that costs TODAY is measured rather than assumed, and it is nothing: at the
- * pinned `axe-core`, `wcag22a` selects no rule at all — 2.2's Level A additions are
- * Consistent Help and Redundant Entry, and axe automates neither — while `wcag22aa`
- * selects `target-size`. The tag is carried anyway because the set is the tier's claim
- * about what it runs, and the day axe ships a rule under it the tier picks it up
- * without a second edit. `axe-tags.test.ts` beside this file holds both halves, so a
- * rule landing there is a red run and a re-read rather than a silent change.
+ * Both levels of every version, because axe's tags select the criteria a version introduced,
+ * not everything its conformance requires: `wcag22aa` alone would claim 2.2 at both levels and
+ * select only one. At the pinned `axe-core`, `wcag22a` selects no rule (2.2's Level A
+ * additions are Consistent Help and Redundant Entry, which axe does not automate) and
+ * `wcag22aa` selects `target-size`; `axe-run.test.ts` holds both halves, so a rule landing
+ * under `wcag22a` turns the run red.
  */
 export const AXE_TAGS: readonly string[] = [
   "wcag2a",
@@ -44,23 +31,15 @@ export const AXE_TAGS: readonly string[] = [
 ];
 
 /**
- * Run the tier's rule set over one element and hand back what it found.
- *
- * Takes the element rather than the whole document so a view-scoped case reports
- * its own view: a document-scoped run over a page holding three mounted views
- * would attribute every violation to whichever one a reader looked at first.
+ * Run the tier's rule set over one element and hand back what it found. Scoped to an element
+ * so a page holding several mounted views does not blame one view for another's violation.
  */
 export async function runTierAxe(element: Element): Promise<readonly Result[]> {
   const results = await axe.run(element, { runOnly: { type: "tag", values: [...AXE_TAGS] } });
   return results.violations;
 }
 
-/**
- * One line per violation: the rule, its impact, and the nodes it landed on.
- *
- * The tier asserts on this LIST rather than on a count, so a failure names what to
- * fix instead of reporting that a number moved.
- */
+/** One line per violation: the rule, its impact, and the nodes it landed on. */
 export function describeViolations(violations: readonly Result[]): string[] {
   return violations.map(
     (violation) =>
@@ -71,12 +50,9 @@ export function describeViolations(violations: readonly Result[]): string[] {
 }
 
 /**
- * The tier's negative control: a node that is known to violate one of these rules.
- *
- * axe returning nothing is the expected result of every clean case, and a
- * misconfigured run — wrong root, wrong tags, an exception swallowed — returns
- * exactly the same nothing. Planting a violation and finding it is what makes a
- * clean result evidence. The caller removes the node it is handed.
+ * The tier's negative control: a node known to violate one of these rules. A misconfigured run
+ * returns the same empty list as a clean one, so finding a planted violation is what makes a
+ * clean result evidence. The caller removes the node.
  */
 export function plantAxeViolation(): HTMLElement {
   const planted = document.createElement("div");

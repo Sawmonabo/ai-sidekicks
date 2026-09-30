@@ -1,20 +1,15 @@
-// The terminal pane's own box, measured against the space the chrome gives it.
+// The terminal pane's own box, measured against the space the chrome gives it. happy-dom
+// returns zeroes from every `getBoundingClientRect` and resolves no custom property, so "the
+// pane body is exactly as tall as its cell" would pass there against a body of any height.
 //
-// This belongs to the browser tier and can belong nowhere else: happy-dom returns
-// zeroes from every `getBoundingClientRect` and resolves no custom property through
-// the cascade, so a case asserting "the pane body is exactly as tall as its cell"
-// would pass under the unit tier against a body of any height at all.
+// The rule is one line of CSS: with the content box sized to its cell and the padding added
+// outside it, the body would overhang the cell by twice the pane padding and the emulator's
+// last rows would fall off the bottom, invisible in a screenshot of the pane's top.
 //
-// The rule it pins is one line of CSS and the failure it replaces is invisible in a
-// screenshot of the top of the pane: with the content box sized to its cell and the
-// padding added outside it, the body overhung the cell by twice the pane padding, and
-// what fell off the bottom was the emulator's last rows.
-//
-// THE CELL IS TWO BOXES DEEP, because the frame is `PaneFrame`'s.
-// The pane layout sizes the chrome's `<section>`; the chrome gives its body a flex region
-// under the head; the terminal pane's box grows into that. So the measurement is the same
-// one against a taller stack: the section fits the pane layout cell, and the body's own box
-// spends its padding inside whatever the section left it rather than beyond it.
+// The cell is two boxes deep because the frame is `PaneFrame`'s: the pane layout sizes the
+// chrome's `<section>`, the chrome gives its body a flex region under the head, and the terminal
+// pane's box grows into that. The body's box must spend its padding inside what the section
+// left it.
 
 import { describe, expect, it } from "vitest";
 
@@ -22,12 +17,9 @@ import { renderSettled } from "../helpers/app-harness.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
-// The context builder beside the pane, for the reason it is exported: the `terminal`
-// arm's members are answered in one place, and a tier that spelled its own copy would
-// be the second answer.
+// The context builder beside the pane answers the `terminal` arm's members in one place.
 import { terminalPaneContext } from "@renderer/features/terminal/pane/components/TerminalPane.test-support.js";
-// The pane body, imported for its stylesheets: it is the one module that carries the
-// terminal's rules, and this tier is about what those rules compute to.
+// The pane body, imported for the terminal's stylesheets, which this tier measures.
 import "@renderer/features/terminal/pane/terminal-pane-body.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease.js";
@@ -47,10 +39,9 @@ async function mountPaneInFixedCell(): Promise<MountedPaneBoxes> {
   installMeridianTokens(document);
   const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
-    // `display: grid` rather than a bare block, because that is what makes the cell
-    // SIZE the pane: a grid item stretches to its area in both axes, so the chrome's
-    // section takes the 400 px the pane layout allotted it. A block parent would leave the
-    // section at its content height and the case below would measure nothing.
+    // `display: grid` so the cell sizes the pane: a grid item stretches to its area, so the
+    // chrome's section takes the 400 px allotted. A block parent would leave it at its content
+    // height and the cases would measure nothing.
     <div style={{ display: "grid", height: `${String(LAYOUT_CELL_HEIGHT_PX)}px` }}>
       <TerminalPane {...terminalPaneContext(undefined, bridge)} />
     </div>,
@@ -80,8 +71,8 @@ describe("browser — the terminal pane's padding is inside its height", () => {
   });
 
   it("still spends the padding, so the fit is not bought by dropping it", async () => {
-    // The negative control. A pane that had simply lost its padding would satisfy the
-    // case above and would put the emulator hard against the pane's edge.
+    // Negative control: a pane that simply lost its padding would satisfy the case above and put
+    // the emulator hard against the pane's edge.
     const { body } = await mountPaneInFixedCell();
     const padding = Number.parseFloat(getComputedStyle(body).paddingBlockStart);
 
@@ -90,10 +81,9 @@ describe("browser — the terminal pane's padding is inside its height", () => {
   });
 
   it("leaves the head its own height rather than covering it", async () => {
-    // The second negative control, and the one the two-box stack made necessary: a
-    // body that filled the whole section — `block-size: 100%` against the frame
-    // rather than a flex grow against the region under the head — would satisfy both
-    // cases above while drawing over the breadcrumb the pane is named by.
+    // A body that filled the whole section (`block-size: 100%` against the frame rather than a
+    // flex grow against the region under the head) would satisfy both cases above while drawing
+    // over the breadcrumb the pane is named by.
     const { frame, bodyRegion } = await mountPaneInFixedCell();
 
     expect(bodyRegion.getBoundingClientRect().height).toBeLessThan(

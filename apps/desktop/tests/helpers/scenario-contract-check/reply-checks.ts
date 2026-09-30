@@ -1,58 +1,35 @@
-// One scripted answer per call, one call the corpus registers, and one spendable
-// latency on that answer.
+// One scripted answer per call, one call the corpus registers, and one spendable latency.
 //
-// All three claims are about a `ScenarioReply` and nothing else, which is why they
-// share a walk: the first says the entry can be REACHED, the second says the call it
-// answers EXISTS, and the third says the delay it scripts can be SPENT. A scenario
-// failing any of them has a reply the fixture answers with in a way no transport
-// does, and none shows up as anything but a view that never leaves its loading
-// state.
+// All three claims are about a `ScenarioReply`: the entry can be reached, the call it answers
+// exists, and the delay it scripts can be spent. A scenario failing any of them has a reply no
+// transport would give, and it shows up only as a view that never leaves its loading state.
 //
-// THE CALL CLAIM IS THE ONE THAT CATCHES AN INVENTED WIRE. A scripted reply is
-// keyed on a method STRING, and a string is exactly as easy to make up as to
-// transcribe: a scenario answering `workflow.runList` renders a view that looks
-// served, ships a reference image of it, and reaches the daemon on the day the
-// fixture define flips to find that nothing by that name was ever registered. The
-// registry is the corpus's own — the daemon call set the console binds — so nothing
-// here is a second list.
+// The call claim catches an invented wire. A reply is keyed on a method string, which is as easy
+// to make up as to transcribe: a scenario answering `workflow.runList` renders a view that looks
+// served and ships a reference image of it. The registry is the daemon call set the console
+// binds, so nothing here is a second list.
 
 import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-method-contract.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import type { Scenario } from "../../../fixtures/scenario.js";
 
-// Wire names the CORPUS registers that this console binds no DAEMON shape for.
-//
-// One hand-written list, which is what everything else in this tier exists to avoid,
-// and it is written by hand here because there is nothing at run time to derive it
-// from: `packages/contracts` publishes the daemon's method map as a type and each
-// namespace's descriptor table as a value, but no one runtime list of every method.
-// It is a transcription, kept honest by being tiny. What it
-// does not admit is an invented name, and that is the whole of the claim it serves. It
-// is assertable — it is empty, and a case in the test beside this file says so, which
-// is what turns "no unbound daemon method is scripted today" from prose into a check.
-
 /**
  * A daemon method the corpus registers that no console view calls yet.
  *
- * That is exactly the state which keeps a method out of `REGISTERED_DAEMON_METHODS`,
- * whose admission rule is a view that calls it — so a scenario may script such a
- * call ahead of its view. An entry moves to a binding row on the day a view calls
- * it, because a bound method is validated in both directions and one listed here is
- * served unchecked.
- *
- * Empty today, and empty is the state to return it to: every entry is a scripted call
- * that nothing type-checks.
+ * `REGISTERED_DAEMON_METHODS` admits a method only when a view calls it, so a scenario may script
+ * such a call ahead of its view; the entry moves to a binding row once a view calls it, because a
+ * bound method is validated in both directions and one listed here is served unchecked. It is
+ * written by hand because no runtime list of every daemon method exists to derive it from, and
+ * empty is the state to return it to.
  */
 export const CORPUS_DAEMON_METHODS_NOT_YET_BOUND: readonly string[] = [];
 
 /**
- * Every reply defect in one scenario: unreachable entries, unregistered calls,
- * unspendable latencies.
+ * Every reply defect in one scenario: unreachable entries, unregistered calls, unspendable
+ * latencies.
  *
- * A duplicate entry is reported and then skipped rather than also measured for its
- * latency: `replyFor` answers with the first match, so a second entry for one call
- * is never reached at all and its `afterMs` is a property of a reply that cannot be
- * served. One defect per entry, naming the thing that has to change.
+ * A duplicate entry is reported and skipped rather than also measured, since `replyFor` answers
+ * with the first match and a second entry's `afterMs` belongs to a reply that cannot be served.
  */
 export function findReplyDefects(scenario: Scenario): readonly ScenarioContractDefect[] {
   const seenCalls = new Set<string>();
@@ -85,32 +62,20 @@ export function findReplyDefects(scenario: Scenario): readonly ScenarioContractD
 /**
  * A scripted latency the frozen clock cannot spend, or `undefined` when it can.
  *
- * ADMITTED: absent, and every finite value at or above zero. Zero is not a defect —
- * it is the honest way to script no latency at all, and it settles exactly as an
- * absent `afterMs` does.
- *
- * REFUSED: the three shapes that reach the engine and come back out as something no
- * transport produces. What each one does is read off the two modules that handle it
- * rather than guessed: `scripted-reply.ts` spends a latency only when
- * `afterMs !== undefined && afterMs > 0`, and `scenario-engine.ts`'s held-reply queue
- * parks the reply at `elapsedMs + afterMs` and releases it when an advance reaches
- * `dueAtMs <= elapsedMs`.
- *
- * So the split is exactly the engine's own test. `Infinity` passes `afterMs > 0` and
- * parks at a tick no finite advance reaches, so the reply is released only by
- * teardown — as an abandoned one — and the view awaiting it renders its loading
- * state for the life of the window. `NaN`, a negative number, and `-Infinity` all
- * FAIL `afterMs > 0`, so the reply is never parked: it settles on the calling turn,
- * and the loading state the latency exists to make reachable is never observable.
- * Neither is reported by any other leg, because a reply carries no event and meets
- * no schema.
+ * Admitted: absent, and every finite value at or above zero (zero settles as an absent `afterMs`
+ * does). The split follows the engine's own test: `scripted-reply.fixture.ts` spends a latency
+ * only when `afterMs !== undefined && afterMs > 0`, and `held-reply-queue.fixture.ts` releases a
+ * reply parked at `elapsedMs + afterMs` when an advance reaches its due time. `Infinity` passes
+ * the test and parks at a tick no finite advance reaches, so the view awaiting it loads until
+ * teardown. `NaN`, negatives and `-Infinity` fail `afterMs > 0`, so the reply is never parked and
+ * the loading state is never observable. No other leg reports either, since a reply carries no
+ * event and meets no schema.
  */
 function describeLatencyDefect(afterMs: number | undefined): string | undefined {
   if (afterMs === undefined || (Number.isFinite(afterMs) && afterMs >= 0)) {
     return undefined;
   }
-  // True for `Infinity` and for nothing else that reaches here: `NaN`, a negative
-  // number, and `-Infinity` are the values the engine's own `> 0` test rejects.
+  // Only `Infinity` reaches here with `afterMs > 0`; the rest fail the engine's own test.
   if (afterMs > 0) {
     return (
       "it scripts a latency of Infinity ms. The engine parks a delayed reply until the " +
@@ -131,10 +96,8 @@ function describeLatencyDefect(afterMs: number | undefined): string | undefined 
 /**
  * A call the corpus registers nowhere, or `undefined` when it registers one.
  *
- * The registry is read rather than restated. `REGISTERED_DAEMON_METHODS` is the list
- * the binding table is built from, so a method added to the console's call set is
- * scriptable the same day. Only the corpus-registered-but-unbound list above is written by hand,
- * for the reason stated there, and it is unioned into the same admission.
+ * The registry is read, so a method added to the console's call set is scriptable the same day;
+ * only the hand-written unbound list above is unioned into the same admission.
  */
 function describeCallDefect(call: string): string | undefined {
   if (

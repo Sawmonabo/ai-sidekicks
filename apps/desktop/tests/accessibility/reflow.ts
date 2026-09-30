@@ -1,38 +1,19 @@
-// How this tier narrows the page, and how it reports what would still need a
-// sideways scroll.
+// How this tier narrows the page and reports what would still need a sideways scroll: the
+// sibling of `axe-run.ts` for WCAG 2.2 SC 1.4.10 (Reflow), which axe cannot answer because
+// reflow is a property of a layout at a width.
 //
-// Not a test file — no `include` glob reaches it. It is `axe-run.ts`'s sibling for
-// the one criterion axe cannot answer: WCAG 2.2 SC 1.4.10 (Reflow). `axe-run.
-// test.ts` records what the 2.2 tags select at this pin — nothing at Level A, and
-// `target-size` alone at AA — so a view that needed two-dimensional scrolling at
-// 320 CSS px would pass every axe case in this directory. Reflow is a property of a
-// LAYOUT AT A WIDTH rather than of a node's attributes, so it is measured by
-// narrowing the page to the floor and reading what still overflows.
+// The tester iframe is resized rather than the browser viewport: measured at this pin,
+// `Emulation.setDeviceMetricsOverride` over `cdp()` leaves `window.innerWidth` inside the
+// tester at 1440, because that handle drives the orchestrator page, which sizes the same-origin
+// iframe with its own CSS. Resizing the frame element changes the CSS pixel width the tests'
+// document lays out in, and `matchMedia` inside the frame answers against it.
 //
-// WHY THE TESTER FRAME AND NOT THE BROWSER VIEWPORT. `Emulation.setDeviceMetrics
-// Override` over the tier's `cdp()` handle is the obvious instrument and it does not
-// work here: measured at this pin, an override to 320 leaves `window.innerWidth`
-// inside the tester at the configured 1440. That handle drives the ORCHESTRATOR
-// page's target, and the tests run in a same-origin iframe which that page sizes
-// with CSS of its own — so the override moves a viewport the console is not laid
-// out in. A test built on it would have measured every view at the tier's default
-// width and reported reflow clean at all of them. Resizing the frame element changes
-// the CSS pixel width the tests' own document lays out in, which is the unit the
-// criterion is written in, and `matchMedia` inside the frame answers against it.
-//
-// The narrowing throws rather than degrading when the frame is out of reach, which
-// is this module's vacuity guard at the source: a silent no-op would leave every
-// case measuring the console at 1440, where nothing overflows and every assertion
-// below is true for the wrong reason.
+// The narrowing throws when the frame is out of reach: a silent no-op would measure the console
+// at 1440, where nothing overflows and every assertion is true for the wrong reason.
 
 /**
- * How much overflow is read as none, in px.
- *
- * `scrollWidth` and `clientWidth` are integers rounded from fractional layout, so a
- * box whose content is a third of a pixel wider than its padding box can report one
- * px of overflow that no person can scroll to. The criterion is about content that
- * REQUIRES scrolling, and one rounded pixel does not, so a single px is read as
- * none. Anything wider is reported.
+ * How much overflow is read as none, in px. `scrollWidth` and `clientWidth` are rounded from
+ * fractional layout, so one reported pixel may be one no person can scroll to.
  */
 export const REFLOW_OVERFLOW_TOLERANCE_PX = 1;
 
@@ -40,13 +21,9 @@ export const REFLOW_OVERFLOW_TOLERANCE_PX = 1;
 const TESTER_FRAME_WIDTH_PROPERTIES: readonly string[] = ["width", "min-width", "max-width"];
 
 /**
- * The inline style of the iframe this tier's tests run inside.
- *
- * Reached through a type that makes `style` optional rather than through a cast:
- * `window.frameElement` belongs to the PARENT document, so it is an object from
- * another realm and `instanceof HTMLIFrameElement` is false there however
- * well-formed the element is. Asking whether the member is present is the check
- * that survives the realm boundary.
+ * The inline style of the iframe this tier's tests run inside. `window.frameElement` comes
+ * from the parent document's realm, so `instanceof HTMLIFrameElement` is false for it; checking
+ * that `style` is present survives the realm boundary.
  */
 function testerFrameStyle(): CSSStyleDeclaration {
   const frameElement: (Element & Partial<ElementCSSInlineStyle>) | null = window.frameElement;
@@ -59,12 +36,9 @@ function testerFrameStyle(): CSSStyleDeclaration {
 }
 
 /**
- * Lay the tester document out at `cssPixels` wide, and prove it took.
- *
- * `!important`, because the width is the host page's declaration and this one has to
- * beat it. The readback is not defensive noise: it is the difference between this
- * tier measuring the console at the floor and measuring it at the tier's own 1440
- * viewport, and the second reports clean.
+ * Lay the tester document out at `cssPixels` wide, and throw if it did not take. `!important`
+ * beats the host page's own width declaration; the readback keeps the tier from silently
+ * measuring at its 1440 default.
  */
 export function narrowTesterViewportTo(cssPixels: number): void {
   const style = testerFrameStyle();
@@ -87,30 +61,18 @@ export function restoreTesterViewport(): void {
 }
 
 /**
- * One line per element at or under `root` that would need a horizontal scroll.
+ * One line per element at or under `root` that would need a horizontal scroll, so a failure
+ * names the box to fix. Ancestors of an overflowing element report it too, because a box with
+ * `overflow: visible` measures its scrolling area over its children, so a failure reads as a
+ * path from the frame down to the culprit.
  *
- * The LIST rather than a count, on `describeViolations`' reasoning: a failure has to
- * name the box to fix. Ancestors of an overflowing element report the overflow too,
- * because a box with `overflow: visible` measures its scrolling area over its
- * children — so a failure reads as a path from the frame down to the culprit, which
- * is more useful than the innermost line alone.
- *
- * Elements with no width are skipped. An inline box and a `display: contents`
- * wrapper both report zero for `clientWidth`, and an inline box reports its content
- * for `scrollWidth`, so every `<span>` of prose on the page would otherwise be
- * reported as overflowing its own zero-width box — which is a property of how the
- * two members are defined rather than of the layout.
- *
- * Boxes the author has CLIPPED are skipped too, and that is a reading of the
- * criterion rather than a convenience. 1.4.10 is about content a person has to
- * scroll sideways to reach; a box whose `overflow-x` is `hidden` or `clip` offers
- * no scrollbar and no scroll gesture, so nothing in it is reachable that way. The
- * console's own `.meridian-visually-hidden` is exactly this shape — a 1 px box
- * around text that exists for assistive technology — and it appears on every
- * view, so a walk that reported it would report every page and mean nothing.
- * What this skip gives up is the criterion's OTHER half: content clipped away is a
- * loss of information, and this walk cannot tell deliberate screen-reader text from
- * a truncated label. That half is the axe runs' and a reader's, not this one's.
+ * Elements with no width are skipped: an inline box and a `display: contents` wrapper report zero
+ * `clientWidth`, and an inline box reports its content for `scrollWidth`, so every prose `<span>`
+ * would otherwise overflow its own zero-width box. Clipped boxes are skipped too, as a reading of
+ * 1.4.10 (content a person must scroll sideways to reach): a box with `overflow-x` `hidden` or
+ * `clip` offers no scroll gesture, and `.meridian-visually-hidden` is exactly that shape on every
+ * view. The skip gives up the criterion's other half, content clipped away, which this walk
+ * cannot tell from deliberate screen-reader text; that half is the axe runs' and a reader's.
  */
 export function describeHorizontalOverflow(root: Element): string[] {
   const overflowing: string[] = [];
@@ -143,13 +105,9 @@ function describeElement(element: Element): string {
 }
 
 /**
- * The tier's negative control: a box wider than the floor, inside the console.
- *
- * It guards BOTH halves at once, which is why it is one node and not two. At the
- * narrowed width it overflows and the walk has to name it; at the tier's default
- * 1440 viewport it fits, so a narrowing that silently did nothing turns this control
- * red rather than leaving every clean case above true for the wrong reason. The
- * caller removes the node it is handed.
+ * The tier's negative control: a box wider than the floor, inside the console. At the narrowed
+ * width it overflows and the walk must name it; at the default 1440 viewport it fits, so a
+ * narrowing that silently did nothing turns this control red. The caller removes the node.
  */
 export function plantHorizontalOverflow(parent: Element, floorCssPixels: number): HTMLElement {
   const planted = document.createElement("div");

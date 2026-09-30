@@ -1,10 +1,7 @@
-// What every artifact-pane case is driven against: one session, one served row, the calls
-// a case scripts, the readers that hold a call open until a case releases it, and the two
-// waits a mounted case settles through.
-//
-// Cases drive a real reader and never a hand-written host, so the acts are asserted against
-// the half they are meant to be correct against. `crossMacrotaskBoundary` is the console's
-// one let-the-promises-run helper and is imported rather than re-written.
+// What every artifact-pane case is driven against: one session, one served row, the calls a case
+// scripts, the readers that hold a call open until a case releases it, and the two waits a
+// mounted case settles through. Cases drive a real reader, never a hand-written host, so the acts
+// are asserted against the half they should be correct against.
 
 import { act } from "@testing-library/react";
 import { type Mock, vi } from "vitest";
@@ -37,9 +34,8 @@ export const SESSION_ID = "019b7b30-0280-7c11-8420-b1a5c0de2200";
 /** A second artifact, so a case can press for bytes the pane is not already fetching. */
 export const OTHER_ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2299" as ArtifactId;
 
-// The ids below are spelled out rather than shared through a binding: `isolatedDeclarations`
-// cannot write the type of an exported `as const` object whose property reads another
-// binding.
+// The ids below are spelled out because `isolatedDeclarations` cannot write the type of an
+// exported `as const` object whose property reads another binding.
 
 /**
  * One manifest row as the daemon serves it, with every member populated.
@@ -123,16 +119,13 @@ export function artifactOperations(script: Partial<ArtifactOperations> = {}): Ar
 }
 
 /**
- * Let the scheduler's coalescing window elapse, then let the read's awaits run.
+ * Lets the scheduler's coalescing window elapse, then lets the read's awaits run.
  *
- * One wait for two clocks. A reader a case constructs is handed a `ManualClock`, so the
- * window is advanced on that; a reader the pane composes runs on the window's clock, which
- * for a bridge handed to the provider without one is a real clock over the host timers the
- * mounted suites fake.
- *
- * `crossMacrotaskBoundary` never resolves while the host timers are faked, and `act`
- * needs a rendering environment a reader-only case does not have; `vi.isFakeTimers()`
- * tells them apart.
+ * One wait for two clocks. A reader a case constructs gets a `ManualClock`, advanced here; a
+ * reader the pane composes runs on the window's clock, a real one over the host timers the
+ * mounted suites fake. `crossMacrotaskBoundary` never resolves while host timers are faked, and
+ * `act` needs a rendering environment a reader-only case lacks; `vi.isFakeTimers()` tells them
+ * apart.
  */
 export async function readThrough(clock?: ManualClock): Promise<void> {
   if (clock !== undefined && !vi.isFakeTimers()) {

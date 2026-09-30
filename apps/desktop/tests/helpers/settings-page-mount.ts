@@ -1,8 +1,5 @@
-// How every settings-page suite builds the context its page reads.
-//
-// `SettingsPageContext` is the shape every settings page is handed, so a member added
-// to it has to reach every harness that builds one: the builder is here, and a new member is
-// one compile error in one file.
+// Builds the context every settings-page suite hands its page, so a member added to
+// `SettingsPageContext` is one compile error in one file.
 
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
@@ -15,11 +12,9 @@ import type { SettingsPageContext } from "@renderer/features/settings/types.js";
 /**
  * What a case says about the window its page is mounted in, where it says anything.
  *
- * NAMED RATHER THAN POSITIONAL, and that is the shape rather than a preference. Every
- * member here is a context axis some page reads and most pages do not, so a positional
- * tail would make a case naming the last of them write placeholders for the ones
- * before it — and two of these are defaulted values, which is exactly the position a
- * reader cannot tell apart from "this case meant `undefined`".
+ * Named rather than positional: each member is a context axis most pages do not read, and a
+ * positional tail would force placeholders for the earlier ones, two of which are defaulted
+ * values a reader could not tell from "this case meant `undefined`".
  */
 export interface SettingsPageContextOverrides {
   readonly retainedSessionStore?: SessionStore | undefined;
@@ -31,22 +26,12 @@ export interface SettingsPageContextOverrides {
 /**
  * The context a settings page is handed, over a bridge and a retained session.
  *
- * `retainedSessionId` is a required parameter and not an override: `undefined` is the
- * window that has opened no session, which several cases exist to drive, and a default
- * would silently answer those with a session id instead.
- *
- * `mainProcessState` defaults to the seeded unreported value rather than to a healthy one: a
- * page mounted by a case that says nothing about the main process is a page in a window nobody
- * has told anything.
- * A case that renders a degraded arm names its own.
- *
- * `selection` is absent for the same reason and to the same effect: a page reached from
- * the settings rail was opened for nothing in particular, which is how most of it is
- * reached. A case driving the deep link names its own subject.
- *
- * `uiStateStore` defaults to a fresh memory-backed store — see
- * {@link testUiStateStore} for why the real one and not a double, and why one
- * per call.
+ * `retainedSessionId` is required, not an override, because `undefined` is the window that has
+ * opened no session and a default would answer those cases with a session id. `mainProcessState`
+ * defaults to the seeded unreported value, not a healthy one; a case rendering a degraded arm
+ * names its own. `selection` defaults to absent, as when a page is reached from the settings
+ * rail; a deep-link case names its own. `uiStateStore` defaults to a fresh
+ * {@link testUiStateStore}.
  */
 export function settingsPageContextWith(
   bridge: PlatformBridge,
@@ -68,15 +53,10 @@ export function settingsPageContextWith(
 /**
  * A store every settings-page case can be handed, on the adapter that says so.
  *
- * The memory adapter and not a stub: it is the one the console itself falls back to,
- * it reports `durable: false` with a reason from the same table the durable path
- * reads, and it is exported for exactly this — a case driving a failure a real disk
- * would take a real disk to reproduce. A hand-written double would be a second
- * answer to what a store does, and the page reporting the store's state would then
- * be tested against a fiction.
- *
- * A fresh one per call, because the health ledger's counts are cumulative for the
- * store's lifetime: two cases sharing one store would read each other's refusals.
+ * The memory adapter and not a stub: it is the console's own fallback, reports `durable: false`
+ * with a reason from the same table the durable path reads, and reproduces failures a real disk
+ * would take a real disk to produce. A fresh store per call, because the health ledger's counts
+ * are cumulative and two cases sharing one would read each other's refusals.
  */
 export function testUiStateStore(
   adapter: MemoryPersistenceAdapter = new MemoryPersistenceAdapter(),

@@ -1,5 +1,5 @@
-// A planted renderer out-dir: a chunk manifest and the files it names, written to disk
-// for the cases that drive the bundle measurer over a tree that is wrong in one way.
+// A planted renderer out-dir, for cases that drive the bundle measurer over a tree that is wrong in
+// one way.
 
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";

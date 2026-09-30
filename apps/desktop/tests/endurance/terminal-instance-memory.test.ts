@@ -1,77 +1,40 @@
 // @vitest-environment happy-dom
 //
-// The terminal-instance memory budget, measured.
+// The terminal-instance memory budget: one `terminal` pane instance at the default scrollback is
+// bounded at 20 MiB in `budgets.json`, and this file is that row's `measuredBy`.
 //
-// One `terminal` pane instance at the default scrollback is bounded at 20 MiB, and `budgets.json` carries the
-// ceiling. This file is that row's `measuredBy`.
+// The reading is taken in a real window, not beside the adapter: the row's subject is the
+// `@xterm/xterm` instance, its WebGL renderer and the pane's own state, and a Node process
+// driving `XtermTerminalAdapter` under a DOM shim reaches only the first (no WebGL2, so every
+// instance settles on the fallback renderer, and the React tree, lease fold and store state
+// cannot move the number). A measurement narrower than the budget can report green over a pane
+// well past the ceiling. So the pane is held whole: the built console in Electron, a `terminal`
+// pane resolved from the pane layout's registry through a real React commit, its emulator on a
+// live WebGL2 context, bound to a session the scenario engine has delivered into. The renderer
+// mode each instance reports, the canvas the WebGL renderer draws into and the session store's
+// admitted event count are asserted, and each fails the run rather than degrading it.
+// `terminal-pane-harness.ts` is the window-side instrument; the heap reading is
+// `heap-instrument.ts`'s.
 //
-// WHY THE READING IS TAKEN HERE AND NOT BESIDE THE ADAPTER
+// The figure is a sum priced once by `evaluateBudget`. Pricing the pane and the scrollback
+// separately against the same ceiling is not a gate: each half would receive the whole 20 MiB,
+// and a 19.5 MiB buffer beside a 1 MiB pane would pass two checks while the instance sat 500 kB
+// over. The halves, at one width and scrollback depth:
+//   - the pane's standing cost (emulator, addons, WebGL renderer, React tree, lease fold, store
+//     state), as the difference one mounted pane makes to the window's settled heap;
+//   - what a full scrollback retains, driven through the real parser by
+//     `measureFullScrollbackRetainedBytes` in this process, because the byte stream, scrollback
+//     and resize report have no wire yet to put a line into a mounted pane. The sum is
+//     conservative for one terminal (two allocators, so the halves share no page).
 //
-// The row's own subject names three things — "the `@xterm/xterm` instance, its
-// WebGL renderer, and the pane's own state" — and only one of them is reachable
-// from a Node process driving `XtermTerminalAdapter` under a DOM shim. That
-// arrangement was this row's gate for one day, 2026-09-02, and was withdrawn: the
-// shim has no WebGL2, so every instance settled on the fallback renderer, and the
-// pane's React tree, its lease fold, and its store state could not move the number
-// the gate read. A measurement narrower than the budget it claims to enforce can
-// report green over a pane well past the ceiling, which is the one failure a budget
-// exists to catch.
+// The baseline follows a warm-up cycle: `@xterm/xterm`, its five addons and its stylesheet
+// arrive across an `import()` on the first mount, paid once for the page, and a cold baseline
+// would make the first delta carry the library and the slope check compare a library against a
+// terminal. The scrollback half takes a warm-up fill for the same reason.
 //
-// So the pane is held WHOLE here: the built console in a real Electron window, a
-// `terminal` pane resolved out of the pane layout's own registry and mounted through a
-// real React commit, its emulator on a live WebGL2 context, bound to a session the
-// scenario engine has delivered into. The three claims that make that true are
-// asserted rather than assumed — the renderer mode each instance REPORTS, the
-// canvas the WebGL renderer draws into, and the session store's admitted event
-// count — and each of them fails the run rather than degrading it. The window-side
-// instrument that opens and proves the panes is `terminal-pane-harness.ts`; the heap
-// reading itself is the tier's, from `heap-instrument.ts`.
-//
-// ONE SUBJECT, ONE VERDICT — AND WHY THE FIGURE IS A SUM
-//
-// The row bounds a populated terminal, so the gate has to price one. Its two
-// components are not measurable in the same process in this revision, and pricing
-// them SEPARATELY against the same ceiling is not a gate at all: each half would
-// receive the whole 20 MiB, and a 19.5 MiB buffer beside a 1 MiB pane would pass
-// two green checks while the instance the row names sat 500 kB over its ceiling.
-// So both halves are measured here, at one width and one scrollback depth, and
-// `evaluateBudget` is called ONCE, on their sum:
-//
-//   • the pane's standing cost — the emulator, its addons, its WebGL renderer, the
-//     React tree, the lease fold, and the store state it reads — as the difference
-//     one mounted pane makes to the real window's settled heap;
-//   • what a FULL scrollback retains, driven through the real parser at the same
-//     width by `measureFullScrollbackRetainedBytes`.
-//
-// The second half is measured in THIS process rather than in the window, and not by
-// choice: the byte stream, the scrollback, and the resize report have no wire in this
-// revision, so nothing can put a line into a mounted pane. The sum is therefore a
-// conservative reading of one terminal — two allocators, so the halves do not share
-// a page — and it is the reading the ceiling is compared against. The day that wire
-// lands, the second half moves into the window and the sum becomes one delta.
-//
-// WHY THE BASELINE IS TAKEN AFTER A WARM-UP CYCLE
-//
-// `@xterm/xterm`, its five addons, and its stylesheet arrive across an `import()`
-// the first time any terminal mounts, and that chunk is paid ONCE for the page.
-// Measured from a cold baseline, the first instance's delta would carry the whole
-// library and the run's own slope check — the control that keeps a fixed cost from
-// being reported as the instance — would be comparing a library against a terminal.
-// So one instance is opened and closed before the baseline is read; the scrollback
-// half takes a warm-up fill before ITS baseline for the same reason.
-//
-// WHAT THIS FILE DOES NOT OWN. The adapter-level claims — that the scrollback
-// evicts rather than grows, that a disposal gives the bytes back, and that a
-// working day of open-and-close cycles leaves the page where it started — are
-// `xterm-adapter.test.ts`'s and are not restated here. That file makes no
-// ceiling claim of its own: this row has one gate, and it is below.
-//
-// Nor does it own the pane-count sweep. Opening the instances, reading the heap
-// around each one, and deciding whether those readings agree well enough to be
-// evidence about a pane is `terminal-instance-series.ts`'s, with its own cases beside
-// it driving the rule over hand-written readings rather than over a window. What
-// stays here is what the budget row says: which subject is priced, why the figure is
-// a sum, and what fails the run.
+// Not owned here: adapter-level claims (eviction, disposal giving bytes back, a working day of
+// churn) are `xterm-adapter.test.ts`'s, and the pane-count sweep and its admissibility rule are
+// `terminal-instance-series.ts`'s.
 
 import process from "node:process";
 
@@ -111,7 +74,7 @@ import { type Budget } from "../../scripts/budget/budget-document.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();
 
-/** The row this file measures. Named once; every figure below comes off it. */
+/** The budget row this file measures. */
 const TERMINAL_INSTANCE_BUDGET_ID = "terminal-instance-memory";
 
 const registry = BudgetRegistry.load();
@@ -123,11 +86,9 @@ const heapSampler = new HeapSampler();
 /**
  * The split this gate exists to catch, priced in bytes.
  *
- * Not a plausible reading and not measured from anything: it is the arithmetic
- * Codex's own counterexample names, held here so the combining is asserted rather
- * than merely performed. Each half passes the row's ceiling on its own and the sum
- * does not — which is exactly the state two separately gated halves would have
- * reported green.
+ * Not measured: each half passes the row's ceiling alone and the sum does not, the state two
+ * separately gated halves would have reported green. It keeps the combining asserted, not just
+ * performed.
  */
 const PLANTED_SPLIT_PANE_BYTES = 1024 * 1024;
 const PLANTED_SPLIT_SCROLLBACK_BYTES = Math.round(19.5 * 1024 * 1024);
@@ -135,10 +96,8 @@ const PLANTED_SPLIT_SCROLLBACK_BYTES = Math.round(19.5 * 1024 * 1024);
 /**
  * The row rewritten with a ceiling one byte under whatever was measured.
  *
- * The negative control, and it drives the REAL comparison rather than a
- * re-implementation of `<=`: without it, an `evaluateBudget` that returned
- * `withinBudget: true` unconditionally would satisfy the assertion above it and
- * this gate would report green over any pane at all.
+ * The negative control drives the real comparison, so an `evaluateBudget` that always returned
+ * `withinBudget: true` cannot leave this gate green over any pane.
  */
 function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
   return {
@@ -148,20 +107,16 @@ function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
 }
 
 describe("the terminal-instance memory budget row", () => {
-  // The ceiling, the unit, and the row's `n/a`-versus-`enforced` consistency are the
-  // budget tier's to hold (`scripts/budget/budget-registry.test.ts`) and are deliberately
-  // not restated here. What only THIS file can say is that it is the harness the row
-  // names — so a reading that moves away, or a row flipped back to ungated while this
-  // gate keeps running and passing, fails here.
+  // The ceiling, the unit and the row's `n/a`-versus-`enforced` consistency belong to the budget
+  // tier (`scripts/budget/budget-registry.test.ts`). This checks only that the row names this
+  // file as its measurer and is still enforced.
   it("is the harness the row names as its measurer", () => {
     expect(budget.status).toBe("enforced");
     expect(budget.measuredBy).toBe("apps/desktop/tests/endurance/terminal-instance-memory.test.ts");
   });
 
-  // The combining, asserted on figures rather than on a reading: two halves that each
-  // pass the ceiling and together do not. This is the negative control for the sum —
-  // without it, a gate that quietly went back to comparing one half would keep passing
-  // every assertion in this file.
+  // The combining, on figures rather than a reading: two halves that each pass the ceiling and
+  // together do not. Without it a gate that went back to comparing one half would keep passing.
   it("fails a split that passes each half and exceeds the ceiling together", () => {
     expect(evaluateBudget(budget, PLANTED_SPLIT_PANE_BYTES).withinBudget).toBe(true);
     expect(evaluateBudget(budget, PLANTED_SPLIT_SCROLLBACK_BYTES).withinBudget).toBe(true);
@@ -176,9 +131,8 @@ describe("the terminal-instance memory budget row", () => {
 
 describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held whole", () => {
   it("holds one populated pane instance under the budget's ceiling, and gives it back", async () => {
-    // The scrollback half first, and given back before the window opens: the figure
-    // is what a filled buffer retains, not what this process happens to be holding
-    // while it drives another one.
+    // The scrollback half first, and given back before the window opens: the figure is what a
+    // filled buffer retains, not what this process holds while it drives another one.
     requireHeapCollector(heapSampler);
     const adapterWorkload = new TerminalAdapterWorkload();
     let fullScrollbackBytes: number;
@@ -198,26 +152,22 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
         const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
         try {
           await openHarnessOnDeliveredSession(consoleApplication);
-          // Every figure this case gates is a DIFFERENCE of two heap readings — the
-          // pane's standing cost, the slope across instances, the teardown residue.
-          // A launch reading Blink's default quantized, cached MemoryInfo reports
-          // those as rounding, and the slope band swallows them, so the instrument
-          // is proved before the arithmetic rather than assumed from a launch flag.
+          // Every figure gated here is a difference of two heap readings, and a launch reading
+          // Blink's default quantized, cached MemoryInfo reports those as rounding that the slope
+          // band swallows, so the instrument is proved before the arithmetic.
           await expectPreciseHeapInstrument(consoleApplication, heapProbe);
 
-          // The warm-up cycle. Its whole purpose is to move the emulator chunk and every
-          // other one-time page cost to the LEFT of the baseline, so the first instance's
-          // delta below is an instance and not a library. It is paid here rather than
-          // inside the sweep because a second sweep must not pay it again.
+          // The warm-up cycle moves the emulator chunk and every other one-time page cost left of
+          // the baseline, so the first instance's delta is an instance and not a library. It is
+          // paid here rather than in the sweep because a second sweep must not pay it again.
           await openPaneAndAwaitWebglReadiness(consoleApplication, 1);
           await closeEveryPane(consoleApplication, 1);
 
-          // ONE RE-MEASURE, AND ONLY ONE. Every figure below is a difference of two
-          // ~13 MB heap readings, and the slope is a ratio of two of those, so a single
-          // stochastic sweep cannot carry a hard gate: a loaded machine has produced a
-          // 0.15 ratio on a tree whose idle ratio is 0.87. A sweep the rule rejects is
-          // therefore taken again — once, so a genuine regression still fails rather
-          // than retrying until the run gives the answer the gate wants.
+          // One re-measure, and only one. Every figure is a difference of two ~13 MB heap
+          // readings and the slope a ratio of two of those, so one stochastic sweep cannot carry
+          // a hard gate: a loaded machine produced a 0.15 ratio where idle reads 0.87. A rejected
+          // sweep is taken again once, so a genuine regression still fails rather than retrying
+          // until the gate gets the answer it wants.
           let series: TerminalInstanceSeries = await measureTerminalInstanceSeries(
             consoleApplication,
             heapProbe,
@@ -235,12 +185,9 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
           const populatedInstanceBytes = series.paneStandingBytes + fullScrollbackBytes;
           const verdict = evaluateBudget(budget, populatedInstanceBytes);
 
-          // Reported before the assertions, on the reason the two readings beside it in
-          // this tier print theirs: a gate that speaks only when it fails gives a
-          // reviewer no way to watch a margin shrink over months until the day it
-          // crosses. Both halves are named, because a sum that moved is a question about
-          // which half moved — and the per-instance intervals with them, because the
-          // slope is now a claim about readings a reader can check against each other.
+          // Reported before the assertions so a shrinking margin is visible. Both halves are
+          // named because a sum that moved raises which half moved, and the per-instance
+          // intervals so the slope's readings can be checked against each other.
           process.stdout.write(
             `[console-endurance] populated terminal pane ` +
               `${String(Math.round(populatedInstanceBytes / 1024))} kB ` +
@@ -258,10 +205,9 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
               `${String(MEASURED_INSTANCE_COUNT)}\n`,
           );
 
-          // The slope control, and the first thing asserted: every figure under it is
-          // arithmetic on the same readings, so a sweep that is not evidence about a
-          // pane is not evidence about a budget either. The sentence names which of the
-          // rule's three tests failed and what it read.
+          // The slope control comes first: every figure below is arithmetic on the same
+          // readings, so a sweep that is not evidence about a pane is not evidence about a
+          // budget. The sentence names which of the rule's three tests failed and what it read.
           expect(
             admissibility.admissible,
             admissibility.admissible
@@ -269,9 +215,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
               : `the terminal pane sweep was inadmissible twice: ${admissibility.reason}`,
           ).toBe(true);
 
-          // The verdict is taken on the SUM, and this is the assertion that keeps it
-          // there: a gate quietly returned to pricing one half would still satisfy every
-          // other expectation in this case.
+          // The verdict is taken on the sum; a gate that returned to pricing one half would
+          // still satisfy every other expectation here.
           expect(
             verdict.measuredCanonicalValue,
             "this row's verdict must be taken on the populated pane, not on either half of it",
@@ -284,11 +229,10 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
               `${String(budget.limit.canonicalValue)} B ceiling`,
           ).toBe(true);
 
-          // Each half has to be a figure. A pane delta at or below zero means the reading
-          // moved the wrong way, and a scrollback half at zero means the sum above was
-          // the pane alone — the exact state this gate was rebuilt to end. The pane half
-          // is already past the noise floor by the time this runs; the floor is the
-          // instrument's claim and this is the subject's.
+          // Each half has to be a figure. A pane delta at or below zero means the reading moved
+          // the wrong way, and a scrollback half at zero means the sum was the pane alone. The
+          // pane half is already past the noise floor by now; the floor is the instrument's
+          // claim and this is the subject's.
           expect(
             series.paneStandingBytes,
             "mounting a terminal pane did not raise the renderer's heap at all, so the comparison above measured nothing",
@@ -298,29 +242,24 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
             "a full scrollback retained nothing, so the gated sum is the empty pane again",
           ).toBeGreaterThan(0);
 
-          // The leak half, pane-shaped: three whole panes came and went and the page is
-          // back within one pane of where it started. Scaled by the sweep's per-instance
-          // figure over all three observations, never by the first delta alone — both
-          // bounds hung off that one difference, so a single under-read tightened this
-          // one in the same run that made the slope fail, and one wobble failed two
-          // controls as if they were two findings.
+          // The leak half, pane-shaped: three whole panes came and went and the page is back
+          // within one pane of where it started. Scaled by the sweep's per-instance figure over
+          // all three observations, never the first delta alone, so one under-read cannot
+          // tighten this bound in the same run that fails the slope.
           expect(
             series.teardownResidueBytes,
             `${String(MEASURED_INSTANCE_COUNT)} panes were closed and ${String(Math.round(series.teardownResidueBytes / 1024))} kB is still held, ` +
               `against a per-instance cost of ${String(Math.round(series.perInstanceBytes / 1024))} kB`,
           ).toBeLessThan(series.perInstanceBytes * TEARDOWN_RESIDUE_FACTOR);
 
-          // A ceiling planted one byte under the reading must fail the same comparison
-          // this gate just passed.
+          // A ceiling planted one byte under the reading must fail the comparison just passed.
           expect(
             evaluateBudget(budgetWithCeilingBelow(populatedInstanceBytes), populatedInstanceBytes)
               .withinBudget,
           ).toBe(false);
         } finally {
-          // Detached before the wrapper closes the window: detaching a DevTools
-          // session from a closed application raises, and the raise would replace
-          // whatever the body was failing on with a teardown error. The window
-          // itself is `withLaunchedApp`'s to close.
+          // Detached before the window closes: detaching from a closed application raises and
+          // would replace whatever the body was failing on. `withLaunchedApp` closes the window.
           await heapProbe.detach();
         }
       },

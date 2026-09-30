@@ -3,11 +3,8 @@
 import type { DaemonConnection } from "@shared/daemon-status-topic.js";
 
 /**
- * Every arm a supervisor actually reports, `unreported` excluded.
- *
- * The absence is the point: `unreported` is what a window holds before anything has
- * said, and a suite quantifying over it beside the reported arms would be asserting
- * that silence means something.
+ * Every arm a supervisor actually reports, `unreported` excluded: that is what a window holds
+ * before anything has said, so quantifying over it would assert that silence means something.
  */
 export const REPORTED_CONNECTIONS: readonly DaemonConnection[] = [
   { kind: "probing" },

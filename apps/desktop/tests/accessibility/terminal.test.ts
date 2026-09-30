@@ -2,9 +2,8 @@
 //
 // Both schemes: contrast is the rule most likely to pass in one and fail in the other.
 //
-// The terminal is the case worth having: the host names the region and lets xterm.js own
-// the live region inside it, and the pane is audited with the emulator's chunk landed, so
-// the nodes axe walks are the library's real ones and not a skeleton.
+// The host names the region and lets xterm.js own the live region inside it. The pane is
+// audited with the emulator's chunk landed, so axe walks the library's real nodes.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -40,7 +39,7 @@ describe("accessibility — the terminal pane", () => {
   }
 
   it("finds a planted violation, so a clean result means something", async () => {
-    // A misconfigured run returns the same empty list the cases above expect.
+    // Negative control: a misconfigured run returns the same empty list the cases above expect.
     const planted = plantAxeViolation();
     try {
       const violations = await runTierAxe(planted);

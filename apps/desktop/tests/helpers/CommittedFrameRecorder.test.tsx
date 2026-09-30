@@ -1,10 +1,7 @@
-// The instrument's own claim: it sees a frame the DOM no longer holds.
-//
-// A recorder that reported the final text once per render would pass every case a
-// suite writes with it and prove nothing, because the thing those cases are looking
-// for is a frame that has already been replaced by the time anyone can look. So the
-// control here is the DOM itself: the same component, the same interaction, asserted
-// after `act` — which is exactly the reading that cannot see the defect.
+// The instrument's own claim: it sees a frame the DOM no longer holds. A recorder that reported
+// the final text once per render would pass every case written with it and prove nothing, since
+// the frames those cases look for are replaced by the time anyone can look. The control is the
+// DOM itself, asserted after `act`, which cannot see the defect.
 
 import { act, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
@@ -15,9 +12,9 @@ import { CommittedFrameRecorder } from "./CommittedFrameRecorder.js";
 /**
  * A component with the defect the recorder exists for, written out.
  *
- * It holds an answer for the subject it was given and clears it inside an effect, so
- * the commit that renames the subject paints the PREVIOUS subject's answer under the
- * new name. One committed frame long, and gone before `act` returns.
+ * It holds an answer for the subject it was given and clears it inside an effect, so the commit
+ * that renames the subject paints the previous subject's answer under the new name: one
+ * committed frame long, gone before `act` returns.
  */
 function StaleAnswerReadout(props: { readonly subject: string }): React.JSX.Element {
   const [answer, setAnswer] = useState("one's answer");
@@ -51,16 +48,15 @@ describe("the committed-frame recorder", () => {
       );
     });
 
-    // The stale frame is the middle entry, and it is the whole point: the subject was
-    // renamed one commit before the effect that cleared the answer under it.
+    // The stale frame is the middle entry: the subject was renamed one commit before the effect
+    // that cleared the answer under it.
     expect(frames).toStrictEqual(["one: one's answer", "two: one's answer", "two: two's answer"]);
   });
 
   it("negative control: the reading that cannot see the stale frame", () => {
-    // The DOM after `act`, which is what a case would assert on without this
-    // instrument. It holds the settled text alone, so the frame above is invisible to
-    // it — and a recorder that merely echoed the final render would be indistinguishable
-    // from this.
+    // The DOM after `act`, which is what a case would assert on without this instrument. It
+    // holds the settled text alone, so the stale frame is invisible to it, and a recorder that
+    // echoed the final render would be indistinguishable.
     const view = render(<StaleAnswerReadout subject="one" />);
     act(() => {
       view.rerender(<StaleAnswerReadout subject="two" />);

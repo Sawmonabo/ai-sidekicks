@@ -1,28 +1,23 @@
-// What the SYNCHRONOUS half of a refused termination costs, and who pays for it.
+// What the synchronous half of a refused termination costs, and who pays for it.
 //
-// `bounded-cleanup-retry.test.ts` beside this owns the attempt COUNT and the
-// pause between attempts. This owns the cost neither of them measures: every
-// attempt makes two blocking host queries — `terminate` reads the root's start
-// stamp before it signals anything, `isRunning` reads the whole process table —
-// and each is bounded only by `HOST_QUERY_TIMEOUT_MS`, which is half the whole
-// registered cleanup budget.
+// `bounded-cleanup-retry.test.ts` owns the attempt count and the pause between attempts. This
+// owns the cost neither measures: every attempt makes two blocking host queries (`terminate`
+// reads the root's start stamp before it signals, `isRunning` reads the whole process table),
+// each bounded only by `HOST_QUERY_TIMEOUT_MS`, five seconds.
 //
-// SO A ZERO REMAINING BUDGET USED TO BUY THREE MORE ATTEMPTS. On the path this
-// loop exists for — `application.close()` spends its ceiling, then Windows
-// refuses `taskkill` — the retry could add roughly thirty seconds that nothing
-// was charged for, and `tierTimeoutFor` reserves the ceiling and a settlement
-// residual. Vitest's generic timeout therefore fired first and took the
-// `unterminable` verdict and the profile removal with it, which is the one
-// settlement a LATER launch can feel.
+// On the path this loop exists for, `application.close()` spends its ceiling and then Windows
+// refuses `taskkill`. Charging the probes nothing would let the retry add roughly thirty seconds
+// that `tierTimeoutFor` does not reserve (it reserves the ceiling and a settlement residual).
+// Vitest's generic timeout would then fire first and take the `unterminable` verdict and the
+// profile removal with it, the one settlement a later launch can feel.
 //
-// The clock is injected because the case cannot be produced any other way: a
-// real probe that spends its ceiling costs five real seconds, and three of them
-// would put fifteen seconds of waiting into a tier that exists to de-flake. The
-// SIGKILL stays on a real `setTimeout`, so the loop still yields a macrotask
-// between attempts rather than asking the same instant twice.
+// The clock is injected because a real probe that spends its ceiling costs five real seconds, and
+// three of them would put fifteen seconds of waiting into a tier that exists to de-flake. The
+// SIGKILL stays on a real `setTimeout`, so the loop still yields a macrotask between attempts
+// rather than asking the same instant twice.
 //
-// The other stand-ins are `bounded-cleanup.test-support.ts`'s, for that module's
-// reason: no platform can be asked to refuse a kill on demand.
+// The other stand-ins are `bounded-cleanup.test-support.ts`'s: no platform can be asked to
+// refuse a kill on demand.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,9 +36,8 @@ import {
 /**
  * A terminator that refuses every kill and charges each probe its full ceiling.
  *
- * The state the finding is about, and one no real platform produces on demand:
- * the queries answer, slowly, and the tree survives. Both readings advance the
- * clock, because both are `spawnSync` calls held to the same bound.
+ * No real platform produces this on demand: the queries answer, slowly, and the tree survives.
+ * Both readings advance the clock because both are `spawnSync` calls held to the same bound.
  */
 function terminatorSpendingItsProbeCeiling(
   clock: SteppedClock,
@@ -65,11 +59,10 @@ function terminatorSpendingItsProbeCeiling(
 
 describe("bounded cleanup — the synchronous probes are charged to the deadline", () => {
   it("stops attempting once the probes have spent the budget, and still removes the profile", async () => {
-    // THE FINDING. The first attempt's two queries alone spend twice the bound
-    // this cleanup was given, so every later attempt is refused where it stands
-    // rather than adding another pair. The verdict is still the one a reader
-    // came for, and the removal still runs — giving up an ask never gives up the
-    // directory.
+    // The first attempt's two queries alone spend twice the bound this cleanup was given, so
+    // every later attempt is refused where it stands rather than adding another pair. The
+    // verdict is still the one a reader came for, and the removal still runs: giving up an ask
+    // never gives up the directory.
     const clock = new SteppedClock();
     const terminator = terminatorSpendingItsProbeCeiling(clock);
     const profile = profileSpy();
@@ -94,10 +87,10 @@ describe("bounded cleanup — the synchronous probes are charged to the deadline
   });
 
   it("negative control: probes that cost nothing still spend the whole attempt bound", async () => {
-    // Without this the case above is ambiguous between "an exhausted deadline
-    // stops the loop" and "the loop stopped asking", and the second would retire
-    // the retry on every refusal — the defect `bounded-cleanup-retry.test.ts` exists to
-    // keep closed. Same terminator, same budget, a clock that does not move.
+    // Without this the case above is ambiguous between "an exhausted deadline stops the loop"
+    // and "the loop stopped asking", and the second would retire the retry on every refusal,
+    // the defect `bounded-cleanup-retry.test.ts` keeps closed. Same terminator, same budget, a
+    // clock that does not move.
     const frozenClock = new SteppedClock();
     const terminator: ProcessTerminator & { readonly killed: number[] } = {
       killed: [],

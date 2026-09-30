@@ -1,24 +1,13 @@
-// The browser tier: the bind dialog, on the two claims happy-dom cannot make.
+// The browser tier: the bind dialog, on two claims happy-dom cannot make. The dialog is mounted
+// directly, not through the section, because the claims are about the popup and the picker.
 //
-// WHY THIS CANNOT LIVE IN THE UNIT TIER, which is the whole reason the file exists.
-// Both claims are about what a real engine REFUSES.
-//
-//   1. A PORTALLED POPUP LEAVES ITS PARENT. Base UI mounts `Dialog.Popup` into a
-//      portal, so the popup is not a descendant of the container the card rendered
-//      into. Under happy-dom a case can query the popup off either root and pass, so a
-//      dialog that had quietly stopped portalling — rendered inline, clipped by the
-//      card's own overflow, painted under the content beside it — would still be found.
-//      Here the two roots are asserted apart.
-//   2. A DISABLED CONTROL CANNOT BE FOCUSED. `BindModePicker` renders an excluded mode
-//      as a disabled radio carrying the mount's own reason, because the gap must be
-//      explicit rather than the row dropped. happy-dom's `focus()` sets
-//      `document.activeElement` on any element it is called on, so a picker that had
-//      shipped those rows ENABLED would pass a unit case that asserted the ring stayed
-//      put. Chromium refuses, and that refusal is the guarantee: a person cannot reach,
-//      tab to, or activate a mode the daemon has already excluded.
-//
-// THE DIALOG IS MOUNTED DIRECTLY rather than through the section, because the claim is
-// about the popup and the picker and not about how a card composes them.
+// 1. A portalled popup leaves its parent. Base UI mounts `Dialog.Popup` into a portal, so it is
+//    not a descendant of the container the card rendered into. Under happy-dom the popup is
+//    found from either root, so a dialog that stopped portalling would still pass.
+// 2. A disabled control cannot be focused. `BindModePicker` renders an excluded mode as a
+//    disabled radio carrying the mount's reason. happy-dom's `focus()` succeeds on any element,
+//    so a picker that shipped those rows enabled would pass; Chromium refuses, which is the
+//    guarantee that a person cannot reach a mode the daemon has excluded.
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -82,8 +71,7 @@ async function openBindDialog(): Promise<{
   );
   const trigger = container.querySelector<HTMLButtonElement>(".meridian-bind__trigger");
   expect(trigger).not.toBeNull();
-  // Focus and Enter rather than a synthetic click: a `<button>` activated from the
-  // keyboard is the same act a person performs, and it needs no helper of its own.
+  // Focus and Enter rather than a synthetic click: the same act a person performs.
   trigger?.focus();
   await pressKeys("{Enter}");
   return { container, scenarioEngine };
@@ -94,9 +82,8 @@ describe("browser — the bind dialog's popup leaves the card it was opened from
     const { container } = await openBindDialog();
     const portalled = document.querySelector(".meridian-bind__dialog");
     expect(portalled).not.toBeNull();
-    // The claim, and the half a unit engine cannot make: the popup is in the document
-    // and is NOT under the card. A dialog rendered inline would satisfy the first and
-    // fail here, which is the regression this case exists for.
+    // The popup is in the document and not under the card; a dialog rendered inline would
+    // satisfy the first and fail here.
     expect(container.querySelector(".meridian-bind__dialog")).toBeNull();
   });
 
@@ -120,14 +107,12 @@ describe("browser — an excluded execution mode cannot be reached", () => {
     });
     const row: HTMLInputElement = excluded as unknown as HTMLInputElement;
     expect(row.disabled).toBe(true);
-    // The row is still on screen with the mount's own sentence beside it: the gap is
-    // explicit rather than a mode that silently went missing.
+    // The row stays on screen with the mount's reason beside it, not silently dropped.
     expect(row.closest(".meridian-bind__mode")?.textContent).toContain(EXCLUSION_REASON);
 
     const before = document.activeElement;
     row.focus();
-    // Chromium refuses to focus a disabled control. This is the assertion happy-dom
-    // would pass against a picker that shipped these rows enabled.
+    // Chromium refuses to focus a disabled control; happy-dom would let it through.
     expect(document.activeElement).toBe(before);
     expect(row.checked).toBe(false);
   });
@@ -143,8 +128,7 @@ describe("browser — an excluded execution mode cannot be reached", () => {
     });
     const row: HTMLInputElement = admitted as unknown as HTMLInputElement;
     row.focus();
-    // Without this the case above would pass against a picker whose radios were all
-    // unreachable — including the one the mount does admit.
+    // Without this the case above would pass against a picker whose radios were all unreachable.
     expect(document.activeElement).toBe(row);
   });
 });

@@ -1,25 +1,21 @@
 // A render pass React really runs and really never commits, left standing.
 //
-// The claim every latest-ref case makes is about the WINDOW after a discarded pass:
-// the tree on screen is still the committed one, the discarded pass has run every
-// component body in it, and what a long-lived callback invokes must still be what the
-// committed render supplied. So a case has to be able to assert while the tree is in
-// exactly that state.
+// Every latest-ref case claims something about the window after a discarded pass: the tree on
+// screen is still the committed one, the discarded pass ran every component body in it, and what
+// a long-lived callback invokes must still be what the committed render supplied. A case has to
+// assert while the tree is in exactly that state.
 //
-// WHY THIS IS NOT `hooks/subject-scoped/subject-scoped-hooks.test-support.ts`'s `driveAbandonedPass`.
-// That driver answers a different question and ends in a different place: it renders a
-// third pass back at the committed subject before it returns, because the holder claims
-// it serves are about what the RECOVERED tree reads. A ref written in a render body is
-// corrected by that third pass, so every case driven through it would pass on the shape
-// this one is written against. Two claims, two drivers.
+// This is not `hooks/subject-scoped/subject-scoped-hooks.test-support.ts`'s `driveAbandonedPass`,
+// which renders a third pass back at the committed subject before returning because its claims
+// are about the recovered tree. A ref written in a render body is corrected by that third pass,
+// so cases driven through it would pass on the shape this one is written against.
 //
-// THE SUSPENSION IS A TRANSITION THAT NEVER RESOLVES. A render-phase state update is
-// the wrong driver: React answers that one by re-invoking the component and reusing the
-// hook cells the pass built, so nothing is thrown away except its output. A transition
-// that suspends is a work-in-progress fiber React parks — the committed tree keeps its
-// own frame and no fallback is shown — which is the concurrent discard the latest-ref
-// shape exists for. Leaving the promise unsettled is what makes it deterministic rather
-// than a race against React's retry.
+// The suspension is a transition that never resolves. A render-phase state update is the wrong
+// driver: React re-invokes the component and reuses the hook cells the pass built, discarding
+// only its output. A suspended transition is a work-in-progress fiber React parks: the committed
+// tree keeps its frame and no fallback shows, which is the concurrent discard the latest-ref
+// shape exists for. Leaving the promise unsettled makes it deterministic rather than a race
+// against React's retry.
 
 import { act } from "@testing-library/react";
 import { startTransition } from "react";
@@ -28,10 +24,10 @@ import { startTransition } from "react";
 export const NEVER_SETTLES: Promise<never> = new Promise<never>(() => undefined);
 
 /**
- * Suspend the tree the moment `suspend` turns true, and render nothing otherwise.
+ * Suspends the tree the moment `suspend` turns true, and renders nothing otherwise.
  *
- * A component rather than a bare `throw` in the caller's own body, so the suspension
- * is a sibling of whatever the case is measuring rather than a branch inside it.
+ * A component rather than a bare `throw` in the caller's body, so the suspension is a sibling of
+ * whatever the case measures rather than a branch inside it.
  */
 export function SuspendsWhenAsked(props: { readonly suspend: boolean }): React.JSX.Element | null {
   if (props.suspend) {
@@ -41,12 +37,11 @@ export function SuspendsWhenAsked(props: { readonly suspend: boolean }): React.J
 }
 
 /**
- * Run `beginAbandonedPass` as a transition, and return with that pass discarded.
+ * Runs `beginAbandonedPass` as a transition and returns with that pass discarded.
  *
- * The caller's callback moves the tree to whatever state it wants abandoned — and
- * must also flip a {@link SuspendsWhenAsked} it renders, or React will commit the pass
- * like any other. Deliberately renders nothing afterwards: the window this leaves the
- * tree in is the subject.
+ * The callback moves the tree to the state to abandon and must also flip a
+ * {@link SuspendsWhenAsked} it renders, or React commits the pass like any other. Nothing is
+ * rendered afterwards: the window this leaves the tree in is the subject.
  */
 export async function abandonOneRenderPass(beginAbandonedPass: () => void): Promise<void> {
   await act(async () => {

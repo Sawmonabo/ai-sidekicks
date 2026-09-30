@@ -1,21 +1,10 @@
-// What a caller is TOLD when a close did not go cleanly, and whose failure wins.
+// What a caller is told when a close did not go cleanly, and whose failure wins.
 //
-// `bounded-cleanup.ts` owns the race — which settlement a close reaches and
-// whether the profile came off disk. This owns the disposition of that verdict:
-// which outcomes a caller must be shown, how they are worded, and what happens
-// when the test body failed too. The two were one module until the race grew the
-// profile removal and the second subject became its own, which is the split
-// `test/helpers/bounded-cleanup.test.ts` and `test/helpers/cleanup-disposition.test.ts`
-// had already made for the same reason.
+// `bounded-cleanup.ts` owns the race; this owns the disposition of its verdict: which outcomes a
+// caller must be shown, how they are worded, and what happens when the test body failed too.
 //
-// WHAT RAISES AND WHAT ONLY BREADCRUMBS
-//
-// Cleanup that went wrong used to be reported with `console.error` while the
-// harness resolved anyway, and a log line is not a failure to vitest: a tier
-// whose assertions passed reported success while leaving an Electron alive for
-// every launch after it. So the outcomes a LATER launch can feel raise, and the
-// one that cannot — a tree that was SIGKILLed and is therefore gone — is a
-// breadcrumb. `cleanupFailure` is where that line is drawn, once.
+// Outcomes a later launch can feel raise; a tree that was SIGKILLed and is therefore gone is only
+// a breadcrumb. `cleanupFailure` draws that line once.
 
 import {
   type CleanupOutcome,
@@ -27,9 +16,7 @@ import { type ProfileRemovalFailure } from "./launch-profile.js";
 /**
  * The clause about a profile that outlived its launch, or nothing.
  *
- * One wording for both readers below, because they describe the same fact and a
- * second copy would drift. It says what a reader can act on — the path, and that
- * the next launch adds another — rather than only that a removal failed.
+ * One wording for both readers below; it gives the path and says the next launch adds another.
  */
 function profileRemovalClause(failure: ProfileRemovalFailure | undefined): string | undefined {
   return failure === undefined
@@ -44,11 +31,9 @@ function clausesOf(...clauses: readonly (string | undefined)[]): readonly string
 }
 
 /**
- * Put `clauses` above the failure that explains the run, or hand it back whole.
+ * Puts `clauses` above the failure that explains the run, or hands it back whole.
  *
- * One construction for both folds below, and the trailer is the point: whatever
- * cleanup adds, the error a reader came for is still the `cause` and is
- * announced as such.
+ * The original error stays the `cause` and is announced as such.
  */
 function withClauses(error: unknown, clauses: readonly string[]): unknown {
   return clauses.length === 0
@@ -59,18 +44,13 @@ function withClauses(error: unknown, clauses: readonly string[]): unknown {
 }
 
 /**
- * Re-word a failure whose cleanup ALSO went wrong, without losing either.
+ * Re-words a failure whose cleanup also went wrong, without losing either.
  *
- * Cleanup is never the interesting failure — something else went wrong first to
- * reach it — so the original stays as `cause` and this only adds what the reader
- * could not otherwise know: that a process may still be running, or that a
- * profile is still on disk. Silent on a clean close that removed its profile,
- * because a sentence about cleanup on every failure would train a reader to skip
- * the one that matters.
- *
- * The sentence names no phase, deliberately: it is reached from the launch's own
- * failure path AND from `closeAfterBody`, where the failure kept is a test
- * body's assertion, and "a launch failed" would misdescribe that run.
+ * The original stays as `cause`; this adds only what the reader could not otherwise know: a
+ * process may still be running, or a profile is still on disk. It is silent on a clean close so
+ * the one sentence that matters is not lost among routine ones. It names no phase because it is
+ * reached from the launch's failure path and from `closeAfterBody`, where the failure kept is a
+ * test body's assertion.
  */
 export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | undefined): unknown {
   if (outcome === undefined) {
@@ -83,13 +63,11 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
 }
 
 /**
- * Fold a profile that outlived its launch into the failure that explains the run.
+ * Folds a profile that outlived its launch into the failure that explains the run.
  *
- * The pre-launch arm's counterpart to `withCleanupOutcome`, and it exists because
- * that arm has no verdict to carry the removal on: a launch that threw before it
- * produced an application never reached the cleanup. Raising the removal there
- * instead would REPLACE a readiness failure with a sentence about a directory,
- * which is the inversion this module stops everywhere else.
+ * The pre-launch counterpart to `withCleanupOutcome`: a launch that threw before producing an
+ * application has no verdict to carry the removal, and raising it instead would replace a
+ * readiness failure with a sentence about a directory.
  */
 export function withProfileRemoval(
   error: unknown,
@@ -101,9 +79,8 @@ export function withProfileRemoval(
 /**
  * Why the close rejected, in a reader's words, or `undefined` if it did not.
  *
- * The presence of a rejection is what separates the two ways a close can fail,
- * so it is asked once here and every wording below branches on the answer rather
- * than appending the same parenthetical to both.
+ * Asked once so every wording branches on the answer instead of appending the same parenthetical
+ * to both.
  */
 function closeRejectionReason(closeRejection: unknown): string | undefined {
   if (closeRejection === undefined) {
@@ -130,13 +107,9 @@ function closeClause(outcome: CleanupOutcome): string | undefined {
       ? "so its process tree was SIGKILLed; later launches are unaffected"
       : "and could not be terminated either, so it may still be running and holding its profile — " +
         "a later launch in the same job losing `requestSingleInstanceLock()` starts here";
-  // TWO WAYS TO REACH A KILL, AND ONLY ONE OF THEM WAITED. `application.close()`
-  // can reject at once while the process is still alive, and `BoundedCleanup`
-  // then terminates without waiting the budget out — so the sentence below used
-  // to report a few milliseconds of `waitedMs` beside a claim that ten seconds
-  // had expired, which is the one thing a reader needs distinguished here: a
-  // cleanup that timed out and a cleanup that failed outright have different
-  // causes and different fixes.
+  // A close that rejects at once while the process is still alive is terminated without waiting
+  // out the budget, so the wording must not claim the budget expired: a timeout and an outright
+  // failure have different causes and fixes.
   return rejectionReason === undefined
     ? `the launched Electron did not close within the ${String(outcome.budgetMs)} ms it was given ` +
         `(waited ${String(outcome.waitedMs)} ms) ${consequence}`
@@ -148,30 +121,22 @@ function closeClause(outcome: CleanupOutcome): string | undefined {
 /**
  * Raised when cleanup may have left something behind, or failed outright.
  *
- * Thrown rather than logged, which is the whole point. A `console.error` is not a
- * failure to vitest, so a tier whose assertions passed reported success while
- * leaving an Electron alive — consuming the runner and, because every Playwright
- * tier shares one harness, interfering with the launches after it. The one
- * outcome a test cannot be allowed to ignore is the one it cannot see.
- *
- * Names the settlement AND the process id, and the profile directory when that is
- * what went wrong: an operator told only that cleanup failed has nothing to look
- * for.
+ * Thrown rather than logged: a `console.error` is not a failure to vitest, so a passing tier would
+ * leave an Electron alive for the launches after it. Names the settlement and the process id, and
+ * the profile directory when that is what went wrong.
  */
 export class CleanupFailedError extends Error {
   /**
-   * The verdict this error was built from, carried whole.
+   * The verdict this error was built from.
    *
-   * A caller folding this cleanup into a failure of its own needs the outcome,
-   * not a re-derivation of it from the message — and two copied fields used to
-   * be the only way through. `closeAfterBody` reads it and hands it straight to
-   * `withCleanupOutcome`.
+   * Carried whole so a caller folding it into its own failure (`closeAfterBody`) passes it to
+   * `withCleanupOutcome` instead of re-deriving it from the message.
    */
   readonly outcome: CleanupOutcome;
 
   constructor(outcome: CleanupOutcome) {
-    // The removal's error only becomes the cause where the close produced none:
-    // a rejected close is the earlier and more explanatory of the two.
+    // The removal's error becomes the cause only where the close produced none: a rejected close
+    // is the earlier and more explanatory of the two.
     const cause =
       outcome.closeRejection === undefined
         ? outcome.profileRemovalFailure?.failure
@@ -218,23 +183,11 @@ function closeFailureClause(outcome: CleanupOutcome): string | undefined {
 /**
  * The error a caller must be shown, or `undefined` when nothing was left behind.
  *
- * A function rather than a conditional at the call site so the rule is stated
- * once and can be tested without launching Electron, which is the only way to
- * reach these outcomes for real. Three raise, and they are the three a later
- * launch can feel: `unterminable`, where a process nothing could kill may still
- * be holding its profile; `closed-after-rejection`, where the close failed
- * outright and the caller would otherwise never hear the rejection; and a
- * profile that could not be removed, whatever the close settled — a per-launch
- * directory left on disk is what turns the NEXT run's disk-space failure into
- * something that looks like a console defect, and it used to be a `console.error`
- * a green tier printed and nobody read.
- *
- * `terminated` is deliberately NOT one of them. It says the tree was SIGKILLed,
- * which `withCleanupOutcome` reports in the same breath as "later launches are
- * unaffected" — and a verdict cannot both say that and fail a tier over it. What
- * failing it would catch is a healthy shutdown that ran long: an Electron
- * flushing a session store on a loaded two-core runner can lose a ten-second
- * race with nothing leaked. It is a breadcrumb, not a red check.
+ * Three outcomes raise, the three a later launch can feel: `unterminable` (a process nothing could
+ * kill may still hold its profile), `closed-after-rejection` (the caller would otherwise never
+ * hear the rejection), and a profile that could not be removed, whatever the close settled.
+ * `terminated` does not raise: the tree is gone and `withCleanupOutcome` reports later launches as
+ * unaffected, so failing a tier over it would only catch a healthy shutdown that ran long.
  */
 export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | undefined {
   return outcome.settlement === "unterminable" ||
@@ -245,23 +198,13 @@ export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | un
 }
 
 /**
- * Run `body`, then close — and when both fail, keep the body's failure.
+ * Runs `body`, then closes, and when both fail keeps the body's failure.
  *
- * `close()` is not total: it rejects when cleanup may have left something
- * behind. A caller that awaited it in a bare `finally` therefore DESTROYED
- * whatever the body had thrown, because JavaScript discards the in-flight
- * completion when a `finally` block throws — and the two co-occur by
- * construction rather than by coincidence, since a wedged renderer is exactly
- * the state in which an assertion fails AND the close then loses its race.
- *
- * The disposition is `withCleanupOutcome`'s, applied rather than restated: the
- * failure that explains the run stays as the cause, and cleanup adds only what
- * the reader could not otherwise know. A cleanup failure surfaces on its own
- * exactly when the body SUCCEEDED, which is where it IS that failure.
- *
- * Takes the close alone rather than a whole launched application, which is what
- * makes the interesting case reachable: a body that fails while the close also
- * fails is one object literal, and unproducible with a real Electron.
+ * `close()` rejects when cleanup may have left something behind, and awaiting it in a bare
+ * `finally` would discard whatever the body threw. The two co-occur by construction: a wedged
+ * renderer fails an assertion and then loses the close race. The body's failure stays as the cause
+ * with `withCleanupOutcome`'s additions; a cleanup failure surfaces alone only when the body
+ * succeeded. Takes the close alone so a test can make both fail with one object literal.
  */
 export async function closeAfterBody<TResult>(
   application: Pick<ClosableApplication, "close">,
@@ -281,12 +224,9 @@ export async function closeAfterBody<TResult>(
     if (bodyOutcome.succeeded) {
       throw cleanupError;
     }
-    // A close that rejected with something other than the verdict has no
-    // settlement to fold, and `withCleanupOutcome` hands the body's failure back
-    // untouched there rather than inventing a sentence about a cleanup it cannot
-    // describe. The launcher's own close does not produce that arm — it raises
-    // the verdict and breadcrumbs everything else — so this is the guard for a
-    // caller that closes some other way, not a path in the tiers.
+    // A close that rejected with something other than the verdict has no settlement to fold, so
+    // `withCleanupOutcome` hands the body's failure back untouched. The launcher's own close raises
+    // only the verdict, so this guards a caller that closes some other way.
     throw withCleanupOutcome(
       bodyOutcome.failure,
       cleanupError instanceof CleanupFailedError ? cleanupError.outcome : undefined,

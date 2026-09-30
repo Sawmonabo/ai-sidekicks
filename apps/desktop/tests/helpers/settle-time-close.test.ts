@@ -1,33 +1,19 @@
-// The one registration that can refuse AFTER a real Electron is already up.
+// The registration that can refuse after a real Electron is already up.
 //
-// `withLaunchedApp` binds its close to the end of the current test, and that
-// binding is what covers the outcome nothing else does: vitest's own per-test
-// timeout never runs the body's settlement, so without it a tier that overran its
-// budget left a browser and a private profile directory behind. The registration
-// is therefore not optional — and it is also not total. `onTestFinished` throws
-// outside a running test, which is exactly what a launch from a `beforeAll`
-// reaches, and it throws AFTER the launch has spawned Electron.
+// `withLaunchedApp` binds its close to the end of the test, which covers a vitest timeout (that
+// never runs the body's settlement). `onTestFinished` throws outside a running test, as in a
+// launch from `beforeAll`, and it throws after Electron has spawned. The refusal alone would
+// leave a browser and a private profile directory behind, so the launch is closed as well; this
+// is the judgment `spawnManagedElectronChild` makes one layer down.
 //
-// The shape that leak wore: the refusal propagated out of the launcher, the
-// caller never received the handle, and the close that would have taken the
-// process and its directory off the machine was reached from nowhere. The
-// misuse is the right failure and it is not the whole response, which is the same
-// judgment `spawnManagedElectronChild` already makes one layer down — so these
-// cases are that judgment applied to the launched console.
+// The registered close's own failure also matters. `disposeWhenTestFinishes` swallows a disposal
+// failure by default so the test's outcome stays the one that explains the run, and this is the
+// one caller that asks it not to. On a timeout nothing else closes the launch, the close is
+// idempotent, and its bounded retries are spent, so an `unterminable` verdict means a browser
+// nothing could kill is still running, which a green tier must not report over.
 //
-// AND WHAT THAT REGISTERED CLOSE'S OWN FAILURE DOES TO THE RUN is the second
-// subject here, because it is the same registration. The shared settle-time
-// registration, `disposeWhenTestFinishes`, swallows a disposal failure by default — the
-// test has already settled and its outcome is what explains the run — and this is the
-// one caller that asks it not to. On a vitest timeout nothing else closes the launch, the close is idempotent
-// so nobody can ask again, and its bounded retries against the tree are already
-// spent: a verdict of `unterminable` reaching here means a browser nothing could
-// kill is still running, which a green tier must not report over.
-//
-// NO ELECTRON IS LAUNCHED HERE. `registerSettleTimeClose` takes the close alone,
-// for `cleanup-disposition.ts`'s reason: a close that itself fails is one object
-// literal and is unproducible with a real browser, and the refusal is a registrar
-// this suite injects rather than a hook it can provoke from inside a test.
+// No Electron is launched: `registerSettleTimeClose` takes the close alone, since a failing close
+// is one object literal and the refusal is a registrar this suite injects.
 
 import { describe, expect, it } from "vitest";
 
@@ -43,9 +29,8 @@ import {
 /**
  * The verdict a close that may have left something running rejects with.
  *
- * `unterminable` rather than any other settlement because it is the one a later
- * launch can feel, so a reader losing it to the refusal above would lose the
- * actionable half of the run.
+ * `unterminable` because it is the settlement a later launch can feel, so losing it to the
+ * refusal would lose the actionable half of the run.
  */
 const UNTERMINABLE_OUTCOME: CleanupOutcome = {
   settlement: "unterminable",
@@ -55,18 +40,13 @@ const UNTERMINABLE_OUTCOME: CleanupOutcome = {
 };
 
 /**
- * A launched console that counts its closes and can fail the FIRST one.
+ * A launched console that counts its closes and can fail the first one.
  *
- * Counting is the claim, not a convenience: "the handle was closed" and "the
- * handle was closed exactly once" are different properties, and only the second
- * one says the recovery did not run beside a registration that had already taken.
- *
- * The failure is one-shot because the real close is: `withLaunchedApp`'s
- * `close` sets its `closed` guard BEFORE the cleanup runs and returns on it
- * afterwards, so a second call resolves without repeating the verdict — which is
- * exactly why the retry against a tree that refused the kill had to move inside
- * `BoundedCleanup` rather than be asked of a later close. A stand-in that threw
- * every time would model a handle this package does not have.
+ * Counting matters because "closed" and "closed exactly once" differ, and only the second shows
+ * the recovery did not run beside a registration that had already taken. The failure is one-shot
+ * like the real close: `withLaunchedApp`'s `close` sets its `closed` guard before cleanup and
+ * returns on it afterwards, so a stand-in that threw every time would model a handle this package
+ * does not have.
  */
 class RecordingLaunch {
   #closeCount = 0;
@@ -106,10 +86,8 @@ describe("a launch binds its close to the end of the test, or closes now", () =>
   });
 
   it("closes the launch exactly once when the registration refuses", async () => {
-    // THE MISUSE WITH AN ELECTRON IN IT: a launch from `beforeAll`, where the
-    // registrar throws and the process is already running. Without the recovery
-    // the refusal reaches the caller alone and the browser and its profile are
-    // left with no close path anywhere.
+    // A launch from `beforeAll`: the registrar throws with the process already running, and
+    // without the recovery the browser and its profile have no close path.
     const refusing = new RefusingSettleRegistrar();
     const launch = new RecordingLaunch();
 
@@ -126,13 +104,9 @@ describe("a launch binds its close to the end of the test, or closes now", () =>
   });
 
   it("fails the test when the settled close could not terminate the tree", async () => {
-    // THE FINDING. This registration is the ONLY close on a vitest timeout — the
-    // body's settlement never runs — and its rejection used to be swallowed by
-    // `disposeWhenTestFinishes`, whose default is to keep the test's own
-    // outcome the one a reader sees. Here there is no other outcome to protect:
-    // `BoundedCleanup` has already spent its bounded retries by the time it
-    // raises, so the verdict means an Electron nothing could kill is still
-    // running and every launch after it inherits the machine it is holding.
+    // On a vitest timeout this registration is the only close, and `BoundedCleanup` has spent its
+    // retries by the time it raises, so the verdict means a browser is still running and must not
+    // be swallowed.
     const registrar = new RecordingSettleRegistrar();
     const launch = new RecordingLaunch(new CleanupFailedError(UNTERMINABLE_OUTCOME));
 
@@ -146,9 +120,8 @@ describe("a launch binds its close to the end of the test, or closes now", () =>
   });
 
   it("negative control: a close that settles cleanly fails nothing", async () => {
-    // Without this the case above is ambiguous between "the disposition surfaces
-    // a failure" and "the registration now rejects whatever happens", and the
-    // second would turn every passing launching tier red at teardown.
+    // Without this the case above cannot tell "the disposition surfaces a failure" from "the
+    // registration rejects whatever happens", which would turn every passing tier red at teardown.
     const registrar = new RecordingSettleRegistrar();
     const launch = new RecordingLaunch();
 
@@ -159,10 +132,8 @@ describe("a launch binds its close to the end of the test, or closes now", () =>
   });
 
   it("keeps the refusal as the failure that explains the run when the close fails too", async () => {
-    // The disposition is `closeAfterBody`'s and is applied rather than restated:
-    // cleanup adds what a reader could not otherwise know and never replaces the
-    // failure they came for. Both co-occur by construction here — a misuse that
-    // leaves a browser running is exactly the state a close then loses.
+    // `closeAfterBody`'s disposition: cleanup adds what a reader could not otherwise know and never
+    // replaces the failure they came for.
     const refusing = new RefusingSettleRegistrar();
     const launch = new RecordingLaunch(new CleanupFailedError(UNTERMINABLE_OUTCOME));
 

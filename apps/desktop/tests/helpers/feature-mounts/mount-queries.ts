@@ -1,7 +1,5 @@
-// The harness the mount module uses: what a mounted view IS, and how a tier finds it.
-//
-// SPLIT OUT SO THE MOUNT DOES NOT SHARE A FILE WITH THE MACHINERY. `repos.tsx` holds
-// mounts and nothing else, and reaches into this module's exports.
+// The harness the mount module uses: what a mounted view is, and how a tier finds it. Split from
+// `repos.tsx`, which holds mounts and nothing else.
 
 import { within } from "@testing-library/react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -13,20 +11,13 @@ export interface MountedView {
 }
 
 /**
- * Find the one region a view renders itself as, by the name it announces.
+ * Finds the one region a view renders itself as, by the name it announces.
  *
- * By accessible name rather than by class, because that is what a person using
- * assistive technology navigates by — a view that lost its accessible name would
- * still match a class selector and would still be captured as if nothing had
- * changed. `getByRole` rather than a selector for the same reason: it resolves the
- * name the way the accessibility tree does, through `aria-labelledby` and the
- * heading it points at.
- *
- * A PATTERN AS WELL AS A STRING, because a pane's name is its whole address trail:
- * `PaneFrame` names a pane "session-1 workspace-01 Diff" so two panes of
- * one kind are told apart by what they are views of. A caller that wants to say "the diff
- * pane, whichever subject it is over" anchors a pattern at the kind; a caller naming a
- * view whose name is fixed still passes the string.
+ * By accessible name, not class, because that is what assistive technology navigates by: a view
+ * that lost its name would still match a class selector. `getByRole` resolves the name through
+ * `aria-labelledby` and its heading as the accessibility tree does. A pattern is accepted because
+ * a pane's name is its whole address trail (`PaneFrame` names a pane "session-1 workspace-01
+ * Diff"); a caller wanting "the diff pane, whichever subject" anchors a pattern at the kind.
  */
 export function requireLabeledRegion(
   container: HTMLElement,
@@ -36,13 +27,11 @@ export function requireLabeledRegion(
 }
 
 /**
- * Find a view that announces no name of its own, by the class it renders under.
+ * Finds a view that announces no name of its own, by the class it renders under.
  *
- * The sidebar section is the one such view the repos feature has, and deliberately: the
- * sidebar chrome owns the section's heading and its disclosure state, so a body that
- * announced a second name would put two regions in the tree for one section. The
- * selector is what is left, and a throw rather than a null keeps a tier from
- * comparing an empty box against a baseline.
+ * The sidebar section is the one such view: the chrome owns its heading and disclosure state, so
+ * a second announced name would put two regions in the tree. Throws instead of returning null so
+ * a tier never compares an empty box against a baseline.
  */
 export function requireElement(container: HTMLElement, selector: string): HTMLElement {
   const element = container.querySelector(selector);
@@ -55,8 +44,7 @@ export function requireElement(container: HTMLElement, selector: string): HTMLEl
 /**
  * What the pane chrome calls a pane of one kind mounted over `sessionId`.
  *
- * The chrome names a pane by every scope its address carries and then by what the pane
- * is, so two terminals in one layout are told apart by the session each holds.
+ * Every scope the address carries, then what the pane is.
  */
 export function paneTrailName(sessionId: string | undefined, paneWord: string): string {
   return `${sessionId ?? "No session"} ${paneWord}`;

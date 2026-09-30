@@ -1,21 +1,12 @@
-// Reveal monotonicity, in the engine that actually paints.
+// Reveal monotonicity, in the engine that actually paints. The claim is that a reader's eye
+// keeps its place while a lane streams, which is about what a layout engine put on screen
+// between two frames; a DOM shim delivers only the mutation records it was asked for, so it is
+// driven through real Chromium against a real `MutationObserver`.
 //
-// Reveal monotonicity belongs in the BROWSER tier, and
-// the reason is the reason the tier exists: a DOM shim delivers the mutation records
-// the shim was asked for, so a green run there says the shim agreed with itself. The
-// claim under test is that a reader's eye keeps its place while a lane streams — a
-// claim about what a layout engine put on screen between two frames — so it is
-// driven here, through real Chromium, against a real `MutationObserver`.
-//
-// WHAT IS UNDER TEST IS THE SHIPPED PATH, END TO END: `useReveal` mints the
-// real `RevealEngine`, `RowRevealProvider` publishes its channel, and the row
-// body reads its own lane through `useRowReveal` — the same three modules a
-// transcript row streams through. The only thing this file supplies is the probe body
-// and the deltas, which is what a producer supplies in production too.
-//
-// AND THE RECORDER IS NOT THIS FILE'S. `visible-text-monotonicity.ts`
-// owns the watcher, because any view that reveals text incrementally wants the
-// same one; a copy here would be the second implementation of a role.
+// The shipped path runs end to end: `useReveal` mints the `RevealEngine`, `RowRevealProvider`
+// publishes its channel, and the row body reads its lane through `useRowReveal`. This file
+// supplies only the probe body and the deltas, as a producer does. The recorder lives in
+// `visible-text-monotonicity.ts` because any view that reveals text incrementally wants it.
 
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -36,12 +27,7 @@ const STREAMING_LANE_ID = "browser-tier-lane";
 /** Enough frames that the budget cannot deliver the source in one of them. */
 const REVEAL_FRAME_COUNT = 6;
 
-/**
- * Somewhere a case can reach the binding the tree minted.
- *
- * The deltas are ingested from outside the tree, exactly as a driver's frames reach
- * a feed from outside React, so the case needs the same handle the feed holds.
- */
+/** Where a case reaches the binding the tree minted; deltas are ingested from outside React. */
 interface RevealHandle {
   ingest?: (laneId: string, text: string) => void;
 }
@@ -54,20 +40,13 @@ interface StreamingProbeProps {
 }
 
 /**
- * One row body over one lane, and nothing else.
- *
- * Deliberately not a `TranscriptFeed`: the feed's window, cap and run groups are
- * asserted at the unit tier over structural stand-ins, and mounting them here would
- * make a regression in any of them look like a reveal regression. What this file
- * needs from the tree is a text node a layout engine paints and an engine that
- * writes to it.
+ * One row body over one lane, and nothing else. It is not a `TranscriptFeed`, whose window, cap
+ * and run groups are asserted at the unit tier and would make their regressions look like
+ * reveal regressions here.
  */
 function StreamingProbe(props: StreamingProbeProps): React.JSX.Element {
-  // The coordinator is what orders every drain, and the feed mints one per mount from
-  // its clock. This probe does the same rather than handing the hook a clock: the hook
-  // stopped taking one when the frame coordinator landed, and a probe composing the
-  // engine differently from its only production caller would be exercising a shape
-  // nothing ships.
+  // The coordinator orders every drain, and the feed mints one per mount from its clock; the
+  // probe composes the engine the same way.
   const frameCoordinator = useAnimationFrameCoordinator(props.clock);
   const reveal = useReveal({ frameCoordinator });
   props.handle.ingest = (laneId: string, text: string) => {
@@ -90,10 +69,8 @@ function StreamingProbeBody(props: { readonly laneId: string }): React.JSX.Eleme
 }
 
 /**
- * Mount the probe, and hand back the subject, the clock, and the ingest handle.
- *
- * `renderSettled` is the tier's one mount, so the console's own cleanup discipline
- * owns the unmount and no case here disposes a tree by hand.
+ * Mount the probe, and hand back the subject, the clock, and the ingest handle. The unmount
+ * belongs to `renderSettled`'s cleanup.
  */
 async function mountStreamingProbe(laneId = STREAMING_LANE_ID): Promise<{
   readonly clock: ManualClock;
@@ -134,9 +111,8 @@ describe("the visible text of a streaming lane", () => {
     const recorder = new VisibleTextMonotonicityRecorder(subject);
     recorder.start();
 
-    // One frame's budget per delta, so the engine has to hold a tail back and hand
-    // it over across frames — a source that fitted in one frame would make the
-    // whole claim vacuous, which is what `reveal.test-support.ts` sizes against.
+    // One frame's budget per delta, so the engine must hold a tail back and hand it over across
+    // frames; a source that fitted in one frame would make the claim vacuous.
     for (let frame = 0; frame < REVEAL_FRAME_COUNT; frame += 1) {
       streamOneFrame(clock, () => {
         ingest?.(STREAMING_LANE_ID, revealProse(REVEAL_FRAME_CHARACTER_BUDGET));
@@ -145,17 +121,14 @@ describe("the visible text of a streaming lane", () => {
     }
     recorder.stop();
 
-    // The negative control the clean result needs: zero regressions over zero
-    // records is a recorder that was never attached to anything.
+    // Zero regressions over zero records would be a recorder attached to nothing.
     expect(recorder.recordCount).toBeGreaterThan(0);
     expect(recorder.regressions).toStrictEqual([]);
     expect(recorder.visibleText.length).toBeGreaterThan(REVEAL_FRAME_CHARACTER_BUDGET);
   });
 
   it("is measured by a recorder that reports a regression when one happens", async () => {
-    // The recorder's own negative control, driven against a subject that really
-    // does go backwards. Without this the case above proves only that nothing was
-    // being watched.
+    // The recorder's own negative control, against a subject that really goes backwards.
     const { clock, handle, subject } = await mountStreamingProbe();
     const ingest = handle.ingest;
     const recorder = new VisibleTextMonotonicityRecorder(subject);
@@ -176,11 +149,9 @@ describe("the visible text of a streaming lane", () => {
   });
 
   it("grows the row's painted box monotonically while it reveals", async () => {
-    // GEOMETRY, WHICH IS WHY IT IS HERE. `TranscriptViewport.test.tsx` records that a
-    // geometry-dependent transcript assertion "would pass vacuously" under happy-dom,
-    // because every rect reads zero there. A box that never shrinks while text
-    // arrives is the layout half of "no lane teleports", and only a layout engine
-    // can answer it.
+    // Geometry is why this is here: every rect reads zero under happy-dom, so a box-size
+    // assertion would pass vacuously. A box that never shrinks while text arrives is the
+    // layout half of "no lane teleports".
     const { clock, handle, subject } = await mountStreamingProbe();
     const ingest = handle.ingest;
     const heights: number[] = [subject.getBoundingClientRect().height];
@@ -191,10 +162,8 @@ describe("the visible text of a streaming lane", () => {
       heights.push(subject.getBoundingClientRect().height);
     }
 
-    // The control: a real layout engine gave the filled box a height at all, which
-    // is exactly what the shim does not — every rect it reports is zero, so this
-    // case would pass vacuously there and cannot. The FIRST reading is legitimately
-    // zero: the paragraph is empty until the first delta lands.
+    // The control: the filled box has a nonzero height at all. The first reading is
+    // legitimately zero because the paragraph is empty until the first delta lands.
     expect(heights[heights.length - 1]).toBeGreaterThan(0);
     expect(heights[heights.length - 1]).toBeGreaterThan(heights[0] ?? 0);
     for (let index = 1; index < heights.length; index += 1) {

@@ -1,8 +1,7 @@
-// The screenshot tier: the terminal pane over the terminal-lease scenario, which ends with the shell held, per scheme.
-//
-// `settled-capture.ts` owns the mechanism: every capture is written into the gitignored
-// `__screenshots__/` and compared against nothing, so this file gates on whether the
-// pane can be captured at all.
+// The screenshot tier: the terminal pane over the terminal-lease scenario, which ends with the
+// shell held, per scheme. `settled-capture.ts` owns the mechanism: every capture is written into
+// the gitignored `__screenshots__/` and compared against nothing, so this file gates on whether
+// the pane can be captured at all.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 
@@ -26,9 +25,8 @@ afterEach(async () => {
 describe("screenshot — the terminal pane", () => {
   for (const scheme of COLOR_SCHEMES) {
     it(`renders terminal-pane-held-lease in the ${scheme} scheme`, async () => {
-      // Through the system preference rather than a stamped attribute: the token sheet's
-      // dark layer is a `prefers-color-scheme` block, which is what a default install
-      // resolves.
+      // Through the system preference, not a stamped attribute: the token sheet's dark layer is a
+      // `prefers-color-scheme` block, which a default install resolves.
       await emulateSystemScheme(scheme);
       const mounted = await mountTerminalPane();
 

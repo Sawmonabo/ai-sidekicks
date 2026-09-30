@@ -1,15 +1,7 @@
-// Every cell the `taskkill` arm does not own.
-//
-// Three subjects rather than one, and they sit together because none of them is
-// large enough to be its own file and all of them are what is left once the
-// external arm's cells are lifted out: the POSIX group signal, the liveness
-// reading both arms compose their verdict from, and the single cell that needs a
-// REAL child. That last one names no arm — it reads
-// `PROCESS_TREE_TERMINATION_MODE` and takes whichever this runner has — so it
-// belongs with neither arm's scripted cells and does not earn a file of its own.
-//
-// `termination-matrix-catalog.test-support.ts` composes these back onto the
-// external arm's, so the enumeration the suite asserts over is still one table.
+// The termination cells the `taskkill` arm does not own: the POSIX group signal, the liveness
+// reading both arms use, and the one cell that needs a real child (it reads
+// `PROCESS_TREE_TERMINATION_MODE`, so it belongs to neither arm).
+// `termination-matrix-catalog.test-support.ts` composes these with the external arm's cells.
 
 import { expect } from "vitest";
 
@@ -37,10 +29,8 @@ export const SIGNALED_AND_OBSERVED_CELLS: readonly TerminationCell[] = [
       settleRegistration: "accepted",
     },
     owedTermination: false,
-    // The reading that must be the GROUP's rather than the root's. The root is
-    // reaped — a root-only probe therefore reports it gone — while the
-    // descendant it left is still in the group the detached spawn created, and
-    // a group is alive for as long as one member is.
+    // The reading must be the group's, not the root's: the root is reaped, so a root-only probe
+    // reports it gone while the descendant it left is still in the group.
     answer: () =>
       Promise.resolve(
         terminateSignaledTree(
@@ -96,12 +86,10 @@ export const SIGNALED_AND_OBSERVED_CELLS: readonly TerminationCell[] = [
       Promise.resolve(readProcessLiveness(ROOT_PID, scriptedLiveness("S+")) !== "running"),
   },
   {
-    // THE ONE CELL THAT NEEDS A REAL CHILD. The registrar throwing is a spawn
-    // from `beforeAll`, and the caller never receives the handle — so the single
-    // ask the recovery used to make was the only ask that would ever be made,
-    // and a platform that refused it left a detached child running with nothing
-    // anywhere that could name it again. Nothing scripted can stand in for that:
-    // the defect is precisely that no object survives to be asked.
+    // The one cell that needs a real child. When the registrar throws (a spawn from `beforeAll`)
+    // the caller never gets the handle, so the recovery's single ask was the only one ever made,
+    // and a refusal left a detached child running with nothing that could name it. No scripted
+    // object survives to be asked.
     name: "a refused registration over a refused kill asks again rather than abandoning the tree",
     axes: {
       root: "alive",

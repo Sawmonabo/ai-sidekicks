@@ -1,24 +1,11 @@
-// The composed refusal, driven against a pane body that never arrives.
-//
-// WHAT THIS ADDS TO THE TWO CONTROLS THAT ALREADY EXIST. `settled-capture.test.ts`
-// drives the pure half — a list of kinds in, a throw out — and
-// `components/LazyBody/pending-body-marker.test.ts` drives the DOM read against a planted marker.
-// Neither one mounts anything, so between them they prove every link of the chain
-// except the one that failed in practice: a REAL pane, mounted from a real
-// registration whose module has not landed, handed to the real `captureSettled`.
-//
-// AND THE FAILURE IT PLANTS IS THE ONE THIS TIER ACTUALLY TOOK. A workflows capture
-// came back 1440x1172 against a 1440x1751 image taken earlier, and the first
-// hypothesis was
-// exactly this: the pane's lazily imported body had not loaded and the tier had
-// photographed the reserved region. It had not — the shortfall was a stylesheet that
-// had moved out of the initial graph, which the module-shape rules in
-// `apps/desktop/AGENTS.md` now rule on — but the hypothesis was only cheap to rule out because the marker exists,
-// and nothing was proving the marker reached the capture through a real mount.
-//
-// BOTH DIRECTIONS, BECAUSE ONE OF THEM IS VACUOUS ALONE. A refusal that fired on
-// everything would satisfy the pending case perfectly, so the loaded case asserts the
-// capture is REACHED: it settles, which only a call that got past the refusal can do.
+// The composed refusal, driven against a pane body that never arrives. `settled-capture.test.ts`
+// drives the pure half (kinds in, a throw out) and
+// `components/LazyBody/pending-body-marker.test.ts` drives the DOM read against a planted
+// marker. Neither mounts anything, so the link that could fail in practice was unproven: a real
+// pane, mounted from a real registration whose module has not landed, handed to the real
+// `captureSettled`. The planted failure is the tier photographing the reserved region because
+// the lazily imported body has not loaded. Both directions run, because a refusal that fired on
+// everything would satisfy the pending case; the loaded case asserts the capture is reached.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,9 +14,7 @@ import { captureSettled } from "./settled-capture.js";
 
 import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
-// The module that declares it: `LazyBodyModule` is the loader's own return type, and
-// every reader imports it from there. The pane registry's `lazy-body` suites reach it the
-// same way.
+// The module that declares it: `LazyBodyModule` is the loader's own return type.
 import type { LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 
 /** The kind the planted registration claims. Any real kind; the body is synthetic. */
@@ -39,12 +24,10 @@ const PLANTED_KIND = "browser";
 const PLANTED_OWNER = "pending-body-refusal-control";
 
 /**
- * A pane context carrying only what the reserved region reads.
- *
- * The same shape and the same reasoning as `syntheticPaneContextAt` in
- * `tests/helpers/lazy-body-contexts.ts`: the fallback reads `kind`,
- * `sessionStore`, and whether an `entity` is present, and standing up a bridge and three
- * stores to prove a refusal would be a fixture testing the fixture. The cast says so rather than hiding behind a builder.
+ * A pane context carrying only what the reserved region reads (`kind`, `sessionStore`, whether an
+ * `entity` is present), like `syntheticPaneContextAt` in `tests/helpers/lazy-body-contexts.ts`.
+ * Standing up a bridge and three stores to prove a refusal would be a fixture testing the
+ * fixture; the cast says so.
  */
 function plantedPaneContext(): PaneContext {
   return {
@@ -84,8 +67,8 @@ async function mountPane(registry: PaneRegistry): Promise<HTMLElement> {
 }
 
 describe("the capture refusal, over a real mount", () => {
-  // The planted failure. Without the refusal this capture SUCCEEDS — it photographs a
-  // pane that is its own chrome and nothing else, and the image it writes is stable.
+  // The planted failure. Without the refusal this capture succeeds and writes a stable image of
+  // the pane's chrome alone.
   it("refuses a capture whose pane body has not arrived, and names the kind", async () => {
     const container = await mountPane(registryWithPendingBody());
 
@@ -94,14 +77,9 @@ describe("the capture refusal, over a real mount", () => {
     );
   });
 
-  // The other direction: the refusal lets a settled tree through, and the capture is
-  // written. Under a tier that compares nothing this is the whole positive control —
-  // a settled tree reaches the capture and the capture completes.
-  //
-  // The name carries a `probe-` prefix because this one DOES write, and what it writes
-  // is a planted registry fixture rather than a console view. The directory is the
-  // one a person opens to look at the console, so a picture that is not of the console
-  // says so in its own file name rather than only in the spec directory above it.
+  // The other direction: the refusal lets a settled tree through and the capture is written. The
+  // `probe-` prefix marks that this writes a planted registry fixture, not a console view, in the
+  // directory a person opens to look at the console.
   it("takes the capture once the body has landed", async () => {
     const container = await mountPane(await registryWithLoadedBody());
 

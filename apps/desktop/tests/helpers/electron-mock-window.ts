@@ -1,13 +1,9 @@
 // The `BrowserWindow` stand-in the one `electron` mock hands to production code.
 //
-// SPLIT FROM `./electron-mock.ts`, which owns the `electron` module itself —
-// `app`, `Menu`, `ipcMain`, `protocol`, the operation log. This file owns one window:
-// what a test can read off it, and what it does when the code under test loads a URL,
-// focuses it, or destroys it. The mock composes this; nothing else constructs one.
-//
-// The two are still ONE factory. `electron-mock.ts` stays the single
-// `vi.mock("electron")` home and re-exports every shape declared here, so a suite
-// imports one module and this split is invisible to it.
+// Split from `electron-mock.ts`, which owns the `electron` module itself (`app`, `Menu`,
+// `ipcMain`, `protocol`, the operation log); this file owns one window: what a test can read off
+// it, and what it does when the code under test loads a URL, focuses it, or destroys it.
+// `electron-mock.ts` re-exports the shapes declared here, so a suite imports one module.
 
 import { vi } from "vitest";
 
@@ -25,9 +21,8 @@ export interface MockWebContents {
   /**
    * Every listener registered through `on` / `once`, by event name.
    *
-   * Exposed so a test can INVOKE the listener the production code registered —
-   * `render-process-gone`, `will-navigate` — rather than re-deriving what it
-   * would have done.
+   * Lets a test invoke the listener production code registered (`render-process-gone`,
+   * `will-navigate`) instead of re-deriving what it would have done.
    */
   readonly handlers: Map<string, (...args: never[]) => unknown>;
   readonly on: ReturnType<typeof vi.fn>;
@@ -55,11 +50,9 @@ export interface MockBrowserWindow {
   /**
    * How many times this window was asked to close.
    *
-   * Counted rather than collapsed into `isDestroyed`, because the two are different
-   * facts and a suite over the close path needs the difference: Electron's `close`
-   * runs the window's own teardown and fires `closed`, and this mock deliberately
-   * fires neither — the suites drive `onceHandlers.get("closed")` by hand, which is
-   * what lets a case assert what a close DID before deciding what the ending reports.
+   * Counted apart from `isDestroyed` because Electron's `close` runs the window's teardown and
+   * fires `closed`, and this mock fires neither: suites drive `onceHandlers.get("closed")` by
+   * hand, so a case can assert what a close did before deciding what the ending reports.
    */
   readonly closeCount: number;
   isDestroyed(): boolean;
@@ -75,11 +68,8 @@ export interface MockBrowserWindow {
 /**
  * What a window needs from the mock that owns it.
  *
- * A NARROW view rather than the mock's own type, and that narrowness is the point:
- * the window mints an id, records what it did, and asks whether this URL was armed
- * to fail. Handing it the whole mock would let a later edit reach for the menu log
- * or the `ipcMain` registry from inside a window, which is the coupling this split
- * exists to remove.
+ * A narrow view rather than the mock's own type, so a window cannot reach the menu log or the
+ * `ipcMain` registry.
  */
 export interface MockWindowOwner {
   record(operation: string): void;
@@ -91,9 +81,8 @@ export interface MockWindowOwner {
 /**
  * One mocked window.
  *
- * A class rather than an object literal because it owns state (its destroyed
- * flag, its load log, its listener maps) and because the `electron` mock hands
- * it to production code as a constructor.
+ * A class because it owns state (destroyed flag, load log, listener maps) and the `electron`
+ * mock hands it to production code as a constructor.
  */
 export class MockBrowserWindowImpl implements MockBrowserWindow {
   public readonly id: number;

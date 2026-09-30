@@ -1,23 +1,18 @@
-// What a suite watching the console's resource seam counts, and why it counts THAT.
+// Counts disposals on a resource that was already disposed.
 //
-// A RESOURCE A SUBJECT-SCOPED HOOK OPENS IS DISPOSED ONCE. `useSubjectScopedResource` is
-// handed one disposal object, and which SHAPE it has is what says whether the ending is
-// terminal: the resources these suites watch all hand over `{ dispose, isClosed }`, where
-// the reading is not optional beside the `dispose` it belongs with. Handed a bare release instead,
-// the seam records a corpse as committed, the caller publishes a replacement, and the
-// value-change cleanup disposes the corpse a second time. Every one of those disposals
-// happens to be re-entrant, so the second call changes nothing observable ON THE
-// RESOURCE — which is exactly why the observable has to be the CALL and not its effect.
-//
-// SPIED ON THE PROTOTYPE AND NOT WRAPPED, so what is counted is the disposal the
-// binding really performs through the real seam. A suite that handed a binding a
-// stand-in resource would be counting its own wrapper.
+// `useSubjectScopedResource` is handed one disposal object, and its shape says whether the ending
+// is terminal: the watched resources hand over `{ dispose, isClosed }`. Handed a bare release
+// instead, the seam records a corpse as committed, the caller publishes a replacement, and the
+// value-change cleanup disposes the corpse again. Each disposal is re-entrant, so the second call
+// changes nothing on the resource, which is why the call is the observable and not its effect.
+// The spy sits on the prototype rather than wrapping, so what is counted is the disposal the
+// binding really performs.
 
 /**
  * How many disposals landed on a resource that had already been disposed.
  *
- * Zero is the claim. A count rather than the resources themselves, because a failure
- * naming a reader prints the whole reader — and the number is the whole finding.
+ * Zero is the claim. A count rather than the resources, because a failure naming a reader prints
+ * the whole reader.
  */
 export function repeatedDisposalCount(disposals: DisposalSpy): number {
   const disposed = new Set<unknown>();

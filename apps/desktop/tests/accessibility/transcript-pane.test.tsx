@@ -1,35 +1,19 @@
-// The accessibility tier — the transcript.
+// The accessibility tier for the transcript: a virtualized feed of cards, a facet bar and a
+// find field, all hue-tinted per user. Many rules can fail here that fail nowhere else: a muted
+// label on a tinted ground, rows mounted and unmounted under the reader, a hover-revealed
+// control shipped without a name.
 //
-// WCAG 2.2 AA holds over every console view, and the transcript is the one a person spends the day inside: a virtualized
-// feed of cards, a facet bar, and a find field, all of them
-// hue-tinted per user. Almost every rule this tier owns has a way to fail
-// here that it has nowhere else — a card whose muted label sits on a tinted ground,
-// a feed whose rows are mounted and unmounted under the reader, a control that is
-// revealed on hover and therefore easy to ship without a name.
+// The pane is mounted directly, not through `AppProviders`. The store is opened on the
+// scenario's own log because content delivered by scripted beats depends on how far a frozen
+// clock was advanced, so the amount of transcript under test would be an accident of the test.
 //
-// WHY THE PANE IS MOUNTED DIRECTLY AND NOT THROUGH `AppProviders`
+// Everything else is the real composition: `SessionStore`, the projection, the
+// `@tanstack/react-virtual` instance, the registered row renderer, and the
+// `SessionScreenContainer` that gives the scroll container a definite height (a virtualizer
+// over a zero-height box reports no rows, and an empty feed would pass).
 //
-// `app-frame.test.tsx` mounts the root, which is right for the frame. The
-// transcript needs a session with CONTENT in it, and content reaches a store either from
-// a scripted beat — which a frozen clock delivers only when somebody advances it —
-// or from the log the store is handed. Advancing the fixture clock from here would
-// make the amount of transcript under test a function of how far the test wound the
-// clock, which is a quantity nobody reading a failure would think to check. So the
-// store is opened on the scenario's own log directly, and what is measured is the
-// whole of it.
-//
-// Everything else is the real composition: the real `SessionStore`, the real
-// projection, the real `@tanstack/react-virtual` instance, the real row renderer
-// the console actually registers, and the same `SessionScreenContainer`
-// wrapper the session screen mounts the panes inside — which is also what gives the scroll container a definite height, since a virtualizer
-// over a zero-height box reports no rows and would leave this file asserting that an
-// empty feed is accessible.
-//
-// TWO STATES, NOT ONE. A loaded transcript and an empty one are different documents:
-// the empty one has no feed items at all and renders an absence in their place, so a
-// rule that only bites over rows and a rule that only bites over the absence are two
-// rules, and running one state would leave the other unmeasured. Both run in both
-// schemes, on the frame case's reasoning about contrast.
+// A loaded transcript and an empty one are different documents, so both run, in both schemes
+// for the frame case's contrast reason.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -41,9 +25,8 @@ import type { Scenario } from "../../fixtures/scenario.js";
 import { EMPTY_SESSION_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-// Deeply, and not through `features/transcript/index.ts`: this tier is the row registration's only
-// consumer outside the transcript feature, and an export whose one reader is a test is
-// the feature's public entry widened for testing.
+// Imported deeply, not through the feature's `index.ts`: widening the public entry for one test
+// would be wrong.
 import { registerTranscriptRows } from "@renderer/features/transcript/contributions/transcript-rows.js";
 import {
   TranscriptPane,
@@ -56,25 +39,17 @@ import { unregisterTranscriptRowRenderer } from "@renderer/features/transcript/t
 import { SessionScreenContainer } from "@renderer/features/transcript/SessionScreenContainer.js";
 
 /**
- * The cursor a scenario's log is applied on top of.
- *
- * Zero rather than `-1`, because `composeScriptBeats` numbers a scenario's beats from
- * one: a store rebased at `-1` would see its first beat as sequence one arriving
- * after sequence zero never did, record the gap and mark itself degraded — a state
- * neither case here is about, and a difference between the two scenarios only one of
- * them would show.
+ * The cursor a scenario's log is applied on top of. Zero rather than `-1`, because
+ * `composeScriptBeats` numbers beats from one: a store rebased at `-1` would record a gap
+ * before the first beat and mark itself degraded.
  */
 const SCENARIO_BASE_CURSOR = 0;
 
 /**
- * The pane context, with the members this pane reads real and the rest cast.
- *
- * `frameStore` is real because the pane subscribes to it for the breadcrumb, and
- * `sessionStore` is real because it is the whole subject. The three it never touches
- * — the bridge handle on the context, the durable UI-state store, and the draft
- * store — are cast rather than constructed: one of them opens a database, and
- * building it to satisfy a field nothing reads would make the setup the subject.
- * (The bridge the transcript DOES read is the provider's, one level up, which is real.)
+ * The pane context, with the members this pane reads real and the rest cast. The bridge
+ * handle, the durable UI-state store and the draft store are never touched, and one of them
+ * opens a database, so they are cast rather than constructed. The bridge the transcript does
+ * read is the provider's, which is real.
  */
 function transcriptPaneContext(
   sessionId: string,
@@ -89,13 +64,9 @@ function transcriptPaneContext(
 }
 
 /**
- * A real store holding the whole of one scenario's log.
- *
- * Real rather than a stand-in, because the projection, the run group fold and the
- * superseded index all run over what this returns — and a fake
- * store would let every one of them be wrong together while axe reported a clean
- * document. The quiet scenario scripts no beats at all, which is exactly how the
- * empty case reaches a state a scripted stream can never produce.
+ * A real store holding the whole of one scenario's log, so the projection, the run group fold
+ * and the superseded index run over real state. The quiet scenario scripts no beats, which is
+ * how the empty case reaches a state a scripted stream never produces.
  */
 function openStoreOnScenario(scenario: Scenario): SessionStore {
   const sessionStore = new SessionStore({ sessionId: scenario.sessionId });
@@ -110,11 +81,8 @@ function openStoreOnScenario(scenario: Scenario): SessionStore {
 }
 
 /**
- * Mount one scenario's transcript the way a window mounts it.
- *
- * `SessionScreenContainer` is the production wrapper around the session screen, and it is
- * what carries the full-height grid down to the scroll container. A bare test wrapper
- * would have been a second layout nobody ships, measured instead of the one that is.
+ * Mount one scenario's transcript the way a window mounts it. `SessionScreenContainer` is
+ * the production wrapper that carries the full-height grid down to the scroll container.
  */
 async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
   const sessionStore = openStoreOnScenario(scenario);
@@ -130,9 +98,8 @@ async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
 
 beforeEach(() => {
   installMeridianTokens(document);
-  // The row renderer, registered the same way the console registers it. Without it the
-  // pane renders its reserved-not-built absence and this whole file would be
-  // measuring a gray line where the transcript is supposed to be.
+  // The row renderer, registered the way the console registers it; the pane cannot render
+  // rows without one.
   registerTranscriptRows();
 });
 
@@ -145,16 +112,14 @@ afterEach(async () => {
 describe("accessibility — the transcript", () => {
   for (const scheme of COLOR_SCHEMES) {
     it(`has no axe violation over a loaded transcript in the ${scheme} scheme`, async () => {
-      // Through the system preference rather than a stamped attribute, on the frame
-      // case's reasoning: the scheme attribute has an owner, and a test that wrote
-      // it would have both cases silently measured against one palette.
+      // Through the system preference, as in the frame case: the scheme attribute has an owner,
+      // and writing it would measure both cases against one palette.
       await emulateSystemScheme(scheme);
       const container = await mountTranscript(TRANSCRIPT_STATES_SCENARIO);
 
-      // The positive control for the whole case, and it is not a formality: axe over
-      // a feed that mounted no rows returns the same empty violation list as axe over
-      // a feed that mounted them all, so without this the clean result below would
-      // hold over a transcript that drew nothing.
+      // The positive control for the case: axe over a feed that mounted no rows returns the same
+      // empty list as one that mounted them all, so without this the clean result could hold
+      // over a transcript that drew nothing.
       expect(
         container.querySelectorAll(".meridian-transcript-viewport__row").length,
         "the transcript mounted no rows, so a clean axe result says nothing about a card",
@@ -167,9 +132,8 @@ describe("accessibility — the transcript", () => {
       await emulateSystemScheme(scheme);
       const container = await mountTranscript(EMPTY_SESSION_SCENARIO);
 
-      // The same control from the other side: this case is only about the empty
-      // state if the pane actually reached it, and a scenario that had grown a
-      // beat would put this file back on the loaded state without saying so.
+      // The same control from the other side: the pane must actually have reached the empty
+      // state, which a scenario that grew a beat would silently stop doing.
       expect(container.textContent).toContain("Nothing has happened in this session yet.");
       expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(0);
 
@@ -178,10 +142,8 @@ describe("accessibility — the transcript", () => {
   }
 
   it("finds a violation planted inside the transcript, so a clean result means something", async () => {
-    // Negative control, planted INSIDE the mounted pane rather than beside it: a
-    // run scoped to the wrong root, given the wrong tags, or swallowing an exception
-    // returns exactly the same nothing as a clean one, and planting within the
-    // container proves the run reaches the subtree the cases above assert over.
+    // Negative control, planted inside the mounted pane so it proves the run reaches the
+    // subtree the cases above assert over.
     const container = await mountTranscript(TRANSCRIPT_STATES_SCENARIO);
     const planted = document.createElement("div");
     planted.innerHTML = '<img src="data:," />';

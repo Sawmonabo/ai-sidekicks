@@ -1,14 +1,13 @@
-// The built output under `out/`, read two ways — the one reader of BUILD OUTPUT in this tier.
+// The built output under `out/`, read two ways: the tier's one reader of build output.
 //
-// `release-absence.test.ts` asks two questions of one release build: which strings the
-// shipped files carry, and which modules rendered code into them. The first is answered by
-// the renderer's shipped text, the second by the hidden source maps every build target
-// writes, which list each module the bundler rendered into a file. Both come from here, so
-// the tier has one walk over what the bundler emitted and no reader of renderer source.
+// `release-absence.test.ts` asks which strings the shipped files carry (answered by the
+// renderer's shipped text) and which modules rendered code into them (answered by the hidden
+// source maps every build target writes). Both come from here, so the tier has one walk over
+// what the bundler emitted and no reader of renderer source.
 //
-// NEITHER READ SKIPS WHEN ITS SUBJECT IS MISSING. An absence claim that passes because it
-// read nothing is worse than no claim at all, so a missing directory, an empty one, and a
-// target that wrote no source maps all throw with the command that produces a build.
+// Neither read skips when its subject is missing: an absence claim that passes because it read
+// nothing is worse than none, so a missing or empty directory, or a target with no source maps,
+// throws with the command that produces a build.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -22,11 +21,8 @@ export interface BuiltFile {
 }
 
 /**
- * One hidden source map: where it sits under `out/`, and the modules it lists.
- *
- * `sources` are absolute paths. A map spells each source relative to itself, and the
- * fixture predicate names some folders by absolute path, so a relative spelling would
- * slip past it.
+ * One hidden source map: where it sits under `out/`, and the modules it lists. `sources` are
+ * absolute paths because the fixture predicate names some folders by absolute path.
  */
 export interface BuiltSourceMap {
   readonly relativePath: string;
@@ -57,11 +53,9 @@ export function readBuiltTextOrFailLoudly(): readonly BuiltFile[] {
 }
 
 /**
- * Every source map one build target wrote, or a failure naming the cause.
- *
- * A target that built but wrote no map fails with its own message, because the fix is
- * different: the maps come from `sourcemap: "hidden"` in `electron.vite.config.ts`, and a
- * build without them would leave the module check reading nothing.
+ * Every source map one build target wrote, or a failure naming the cause. A target that built
+ * but wrote no map fails with its own message: the maps come from `sourcemap: "hidden"` in
+ * `electron.vite.config.ts`, and without them the module check would read nothing.
  */
 export function readSourceMapsOrFailLoudly(
   target: (typeof BUILD_TARGETS)[number],

@@ -1,10 +1,6 @@
-// Unit coverage for the bench-tier ledger.
-//
-// The ledger makes three promises the benchmarks rely on: it appends and never
-// deletes, its percentiles are computed from the samples it was handed, and a
-// corrupt file is a loud failure rather than a silent reset. Each is asserted
-// here — including the last, which is the one a passing benchmark run would
-// never exercise and the one whose failure destroys history.
+// The bench-tier ledger appends and never deletes, computes percentiles from the samples it
+// was handed, and fails loudly on a corrupt file. The last is asserted here because a passing
+// benchmark run never exercises it and its failure destroys history.
 
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -38,8 +34,7 @@ afterEach(() => {
 
 describe("summarizeBenchmarkSamples", () => {
   it("returns values the run actually observed, by nearest rank", () => {
-    // 20 samples: the 95th percentile position is ceil(0.95 * 20) = 19, so the
-    // 19th smallest — index 18, value 19.
+    // 20 samples: the 95th percentile position is ceil(0.95 * 20) = 19, the 19th smallest.
     const samples = Array.from({ length: 20 }, (_unused, index) => index + 1);
     const statistics = summarizeBenchmarkSamples(samples);
 
@@ -78,11 +73,8 @@ describe("BenchmarkLedger", () => {
     expect(alphaRows[1]?.median).toBe(20);
   });
 
-  // The ledger path here is a temp directory outside the repository, which is
-  // the case that catches a commit resolved from the OUTPUT location rather
-  // than from the benchmarked code: that mistake stamps `null` on every
-  // out-of-tree run and on none of the in-tree ones, so an in-tree-only test
-  // would never see it.
+  // The ledger path is a temp directory outside the repository: a commit resolved from the
+  // output location instead of the benchmarked code would stamp `null` only on out-of-tree runs.
   it("stamps provenance on every row — machine included — even writing out of tree", () => {
     const ledger = new BenchmarkLedger(temporaryLedgerPath());
     const [row] = ledger.appendAll([

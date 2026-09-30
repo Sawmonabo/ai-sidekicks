@@ -6,8 +6,7 @@ import type { ArtifactId, ArtifactManifest } from "@ai-sidekicks/contracts";
 import { SESSION_ID } from "./artifact-list-readers.js";
 import type { ArtifactManifestRow } from "@renderer/features/inspector/artifacts/artifact-model.js";
 
-// The run every row here is drawn as coming from. The session is the one the artifact-pane
-// suites read.
+// The run every row here comes from, in the session the artifact-pane suites read.
 const ARTIFACT_RUN_ID = "019b7b30-0280-7c11-8420-b1a5c0de2202";
 /** The producer every row here is drawn as coming from. */
 export const ARTIFACT_PRODUCER_ID = "019b7b30-0280-7c11-8420-b1a5c0de2203";
@@ -33,17 +32,13 @@ export function artifactRow(
 }
 
 /**
- * One served manifest as the wire hands it over, BEFORE the row reader has read it.
+ * One served manifest as the wire hands it over, before the row reader has read it.
  *
- * A SECOND BUILDER RATHER THAN A WIDENED `artifactRow`, because the two are on opposite
- * sides of one boundary: a row is what this console has already read, and a manifest is
- * whatever crossed the process boundary. The suites that drive the reader's guards need
- * the second, and a builder that produced only the first could not reach them.
- *
- * THE OVERRIDES ARE `unknown` PER MEMBER AND NOT THE SIGNATURE'S OWN TYPE, for the same
- * reason: half of what those suites drive is a reply the declared type forbids — an
- * absent free-form map, an object where a string is declared — and a builder that could
- * only express a conforming value could not express the case at all.
+ * A second builder rather than a widened `artifactRow`, because the two sit on opposite sides of
+ * a boundary: a row is what this console has read, a manifest is whatever crossed the process
+ * boundary. The overrides are `unknown` per member, since suites driving the reader's guards
+ * need replies the declared type forbids (an absent free-form map, an object where a string is
+ * declared).
  */
 export function artifactManifest(
   overrides: Readonly<Record<string, unknown>> = {},

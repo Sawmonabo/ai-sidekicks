@@ -1,19 +1,12 @@
-// The adapter-level workload the two terminal endurance files share.
+// The adapter-level workload the two terminal endurance files share: a real
+// `XtermTerminalAdapter` on this tier's DOM shim, filled at a working width and given back
+// before the next case. The mount, batched write and teardown ledger are the measurement's
+// instrument, so one copy keeps the budget's two halves priced at the same width, batch size
+// and teardown.
 //
-// Both of them drive the same thing — a real `XtermTerminalAdapter` on this tier's
-// DOM shim, filled at a working width — and both have to give every instance back
-// before the next case runs. Written once here because the mount, the batched
-// write, and the teardown ledger are the measurement's INSTRUMENT: two copies are
-// two workloads, and the budget's two halves would then be priced at widths, batch
-// sizes, and teardown disciplines that had drifted apart without either file
-// saying so.
-//
-// The width itself is deliberately NOT here. It is
-// `TERMINAL_BUDGET_MEASUREMENT_COLUMNS` in the terminal feature's `terminal-caps.ts`,
-// beside the scrollback depth the same budget is read at, because a number the
-// budget's meaning depends on lives with the feature that owns it rather than in a
-// test helper — and because the pane the budget bounds is measured against the same
-// width from the other file.
+// The width is `TERMINAL_BUDGET_MEASUREMENT_COLUMNS` in the terminal feature's
+// `terminal-caps.ts`, beside the scrollback depth the budget is read at, because the budget's
+// meaning depends on it and the pane half is measured at the same width.
 
 import { expect } from "vitest";
 
@@ -29,13 +22,11 @@ import { retainedGrowthBytes, type HeapSampler } from "./heap-sampling.js";
 const WRITE_BATCH_LINES = 500;
 
 /**
- * Refuse a heap reading no collection stands behind.
+ * Refuses a heap reading no collection stands behind.
  *
- * Named rather than skipped: a heap figure with no collection behind it is noise,
- * and a tier that is green because it measured noise is worse than one that is loud
- * about the gap. Takes the sampler rather than resolving its own collector, because
- * the resolution is memoized per sampler and a second resolution here would flip a
- * process-wide flag the caller's sampler had already settled.
+ * Named rather than skipped: a tier green on noise is worse than one loud about the gap. Takes
+ * the sampler because its collector resolution is memoized per sampler, and a second one here
+ * would flip a process-wide flag the caller's sampler had already settled.
  */
 export function requireHeapCollector(sampler: HeapSampler): void {
   if (!sampler.isCollectorAvailable) {
@@ -46,10 +37,8 @@ export function requireHeapCollector(sampler: HeapSampler): void {
 /**
  * One file's live adapters and their hosts, mounted and given back together.
  *
- * A class rather than two module arrays, for the reason `heap-sampling.ts` gives
- * for its own sampler: a ledger the whole tier shared would let one file's missed
- * teardown be read as another file's leak, and this tier's whole question is
- * whether the number comes back.
+ * A class rather than module arrays, so one file's missed teardown cannot be read as another
+ * file's leak.
  */
 export class TerminalAdapterWorkload {
   readonly #liveAdapters: XtermTerminalAdapter[] = [];
@@ -89,19 +78,13 @@ export class TerminalAdapterWorkload {
 }
 
 /**
- * What a FULL scrollback retains, measured on the adapter a terminal pane mounts.
+ * What a full scrollback retains, measured on the adapter a terminal pane mounts.
  *
- * The other half of the `terminal-instance-memory` row, and the reason it is a
- * function rather than a case: the pane's standing cost and this figure are two
- * components of ONE ceiling, and the row's harness adds them before it compares.
- * Measured at the same width and the same depth the pane is measured at, so the sum
- * is a sum of one terminal's parts rather than of two different terminals'.
- *
- * WHY A WARM-UP FILL PRECEDES THE BASELINE. `@xterm/xterm`'s module-level state,
- * its parser tables, and this process's own first-fill allocations are paid ONCE.
- * Measured from a cold baseline they land inside the figure and the row is charged
- * a library it does not own — the same discipline, and the same reason, as the
- * warm-up cycle the pane half takes before ITS baseline.
+ * The other half of the `terminal-instance-memory` row: the pane's standing cost and this figure
+ * are two components of one ceiling that the row's harness adds, so both are measured at the
+ * same width and depth. A warm-up fill precedes the baseline because `@xterm/xterm`'s
+ * module-level state, parser tables and this process's first-fill allocations are paid once and
+ * would otherwise land in the figure.
  */
 export async function measureFullScrollbackRetainedBytes(
   workload: TerminalAdapterWorkload,
@@ -115,8 +98,8 @@ export async function measureFullScrollbackRetainedBytes(
   const baseline = await sampler.sample();
   const filled = workload.mount("budget-scrollback", pool);
   await workload.writeLines(filled, TERMINAL_DEFAULT_SCROLLBACK_LINES);
-  // Read while the instance is still reachable: the figure is what a filled buffer
-  // RETAINS, so a sample taken after the disposal would measure its absence.
+  // Read while the instance is still reachable: the figure is what a filled buffer retains, so
+  // a sample after disposal would measure its absence.
   expect(
     filled.bufferLineCount,
     "the buffer took no line, so the scrollback half of this ceiling measured nothing",

@@ -1,16 +1,12 @@
-// The admissibility rule the pane sweep is judged by, driven over hand-written
-// readings rather than over a run.
+// The admissibility rule the pane sweep is judged by, driven over hand-written readings rather
+// than a run. A sweep costs a real Electron window, three WebGL contexts and fifteen settled
+// reads, so the cases proving the rule rejects what it should cannot be sweeps. Each series is
+// one the instrument could produce (the measured idle figures, loaded-runner figures, and the
+// shapes the band exists for), and every clean arm has a negative control that fails on a rule
+// returning `admissible` unconditionally.
 //
-// The rule and the readings it judges are separable on purpose: a sweep costs a real
-// Electron window, three WebGL contexts and fifteen forced collections, so the cases
-// that prove the rule REJECTS what it is meant to reject cannot be sweeps. Each one
-// below is a series the instrument could actually produce — the measured idle figures,
-// the loaded-runner figures that sent this control back to be hardened, and the two
-// shapes the band exists for — and every clean arm has the negative control beside it
-// that fails on a rule that returned `admissible` unconditionally.
-//
-// The sweep's own arithmetic is `terminal-instance-memory.test.ts`'s subject and is
-// not restated here; what this file owns is the verdict taken over it.
+// The sweep's own arithmetic is `terminal-instance-memory.test.ts`'s subject; this file owns
+// the verdict taken over it.
 
 import { describe, expect, it } from "vitest";
 
@@ -25,9 +21,8 @@ const KILOBYTE = 1024;
 /**
  * A series with the per-instance figures a case wants, and the rest filled in.
  *
- * The teardown residue and the baseline are not read by the rule at all — they are
- * the sweep's own claims — so they are held at figures a reader can ignore rather
- * than varied per case.
+ * The teardown residue and the baseline are not read by the rule; they are held at figures a
+ * reader can ignore rather than varied per case.
  */
 function seriesOf(
   paneStandingBytes: number,
@@ -53,16 +48,15 @@ const MEASURED_IDLE_SERIES = seriesOf(955 * KILOBYTE, [840 * KILOBYTE, 837 * KIL
 
 describe("the pane sweep's admissibility rule", () => {
   it("admits the figures this tree measures on an idle machine", () => {
-    // The floor under every rejection below: a rule that rejected everything would
-    // satisfy all of them and gate nothing.
+    // The floor under every rejection below: a rule that rejected everything would satisfy them
+    // all and gate nothing.
     expect(admissibilityOf(MEASURED_IDLE_SERIES).admissible).toBe(true);
   });
 
   it("refuses a figure inside the instrument's noise, and says that is what happened", () => {
-    // The loaded-runner reading that sent this control back: 2 021 kB against 310 kB.
-    // 310 kB clears the floor, so this case plants a figure that does not — the
-    // sentence has to name the instrument rather than the pane, because a sweep whose
-    // deltas the instrument cannot resolve has not measured a pane at all.
+    // A loaded runner read 2 021 kB against a 310 kB slope. 310 kB clears the floor, so this
+    // plants a figure that does not; the sentence must name the instrument rather than the pane,
+    // since a sweep whose deltas the instrument cannot resolve measured no pane.
     const verdict = admissibilityOf(
       seriesOf(955 * KILOBYTE, [840 * KILOBYTE, INSTRUMENT_NOISE_FLOOR_BYTES - 1]),
     );
@@ -71,15 +65,14 @@ describe("the pane sweep's admissibility rule", () => {
       throw new Error("unreachable");
     }
     expect(verdict.reason).toContain("noise floor");
-    // And it names the reading that is not a candidate, so a reviewer does not spend
-    // the afternoon on the graphics stack.
+    // It also names the reading that is not a candidate, so a reviewer does not chase the
+    // graphics stack.
     expect(verdict.reason).toContain("webgl");
   });
 
   it("refuses two intervals that disagree, however healthy their mean looks", () => {
-    // The counterexample this arm exists for, priced above the noise floor so the
-    // floor is not what rejects it: instance 2 at 1.5 MB and instance 3 at 260 kB
-    // average to 880 kB, which is inside the slope band against a 955 kB first
+    // Priced above the noise floor so the floor is not what rejects it: instance 2 at 1.5 MB
+    // and instance 3 at 260 kB average 880 kB, inside the slope band against a 955 kB first
     // instance. The mean is admissible and the readings are not.
     const disagreeing = seriesOf(955 * KILOBYTE, [1500 * KILOBYTE, 260 * KILOBYTE]);
     expect(Math.min(...disagreeing.perInstanceIntervalBytes)).toBeGreaterThan(
@@ -96,8 +89,7 @@ describe("the pane sweep's admissibility rule", () => {
   });
 
   it("refuses a slope that is a fraction of the first instance", () => {
-    // The finding this control exists for: a one-time cost carried by the first mount
-    // and reported as what an instance costs.
+    // A one-time cost carried by the first mount and reported as what an instance costs.
     const verdict = admissibilityOf(seriesOf(4000 * KILOBYTE, [900 * KILOBYTE, 880 * KILOBYTE]));
     expect(verdict.admissible).toBe(false);
     if (verdict.admissible) {
@@ -120,8 +112,7 @@ describe("the pane sweep's admissibility rule", () => {
     if (verdict.admissible) {
       throw new Error("unreachable");
     }
-    // Without this a reviewer reading a CI log has the verdict and not the readings,
-    // and the first thing anybody asks of a heap gate is what it actually measured.
+    // So a reviewer reading a CI log has the readings as well as the verdict.
     expect(verdict.reason).toContain("4000 kB");
     expect(verdict.reason).toContain("900 kB");
     expect(verdict.reason).toContain("880 kB");

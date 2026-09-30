@@ -1,10 +1,9 @@
 // The lane-concurrency reader, and the claim the concurrent-streaming script makes with it.
 //
-// Two subjects in one file because they are one claim: the reader is only worth
-// anything if it says four about the scenario the four-lane budget row measures, and
-// the scenario's claim is only checkable through the reader. The controls below vary
-// the SCRIPT rather than the reader, so each one shows a session the concurrent-streaming could
-// become and the number the reader would then report.
+// One file because it is one claim: the reader is worth something only if it says four about
+// the scenario the four-lane budget row measures, and the scenario's claim is checkable only
+// through the reader. The controls vary the script, not the reader, each showing a session the
+// scenario could become and what the reader would then report.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -17,10 +16,9 @@ import type { ScenarioBeat } from "../../fixtures/scenario.js";
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
 
 /**
- * The base instant these synthetic beats are spaced out from, minted from its
- * fields: `Date.parse` reads a timezone-less stamp in the host's zone, so a
- * fixture that parsed its own literal would be trusting the one function the
- * console bans.
+ * The base instant the synthetic beats are spaced from, minted from its fields: `Date.parse`
+ * reads a timezone-less stamp in the host's zone, so a fixture that parsed its own literal would
+ * trust the one function the console bans.
  */
 const streamBaseMs = Date.UTC(2026, 0, 1);
 
@@ -53,9 +51,8 @@ function laneEntries(runId: string): readonly (readonly [string, Record<string, 
 
 describe("peakConcurrentStreamingRuns", () => {
   it("counts one lane at a time when the runs are taken in sequence", () => {
-    // The failure this whole model exists to catch. The same beats, the same
-    // volume of output, the same run count — and not one moment where two lanes
-    // are mid-turn together.
+    // The failure this model exists to catch: the same beats, volume and run count, and never
+    // two lanes mid-turn together.
     const beats = beatsFor([...laneEntries("run-a"), ...laneEntries("run-b")]);
 
     expect(peakConcurrentStreamingRuns(beats, 0, beats.length)).toBe(1);
@@ -81,9 +78,8 @@ describe("peakConcurrentStreamingRuns", () => {
   });
 
   it("does not count a run that is running with nothing left to say", () => {
-    // The second conjunct, on its own. Both runs are in `running` at every beat
-    // and neither ever speaks, which is a session the transcript draws two idle
-    // run groups for — and is not two streaming lanes.
+    // The second condition on its own: both runs are in `running` at every beat and neither
+    // speaks, which the transcript draws as two idle run groups, not two streaming lanes.
     const beats = beatsFor([
       [
         "run.running",
@@ -99,9 +95,8 @@ describe("peakConcurrentStreamingRuns", () => {
   });
 
   it("stops counting a lane once it leaves `running`, even with output after it", () => {
-    // A tool result that lands after the run was paused belongs to no live turn.
-    // Without the span boundary the reader would count the pause away and keep
-    // the lane streaming to the end of the script.
+    // A tool result landing after the run was paused belongs to no live turn; without the span
+    // boundary the reader would count the lane streaming to the end of the script.
     const beats = beatsFor([
       [
         "run.running",
@@ -115,10 +110,9 @@ describe("peakConcurrentStreamingRuns", () => {
   });
 
   it("counts a lane that opened before the window and is still mid-turn inside it", () => {
-    // What the endurance harness needs: its sampled window starts part-way into
-    // the script, and a lane that began streaming before it is streaming through
-    // it. A reader that only counted spans opening inside the range would report
-    // zero for exactly the window the budget is measured over.
+    // The sampled window starts part-way into the script, and a lane that began before it
+    // streams through it. A reader counting only spans opened inside the range would report
+    // zero for the window the budget is measured over.
     const beats = beatsFor([
       [
         "run.running",
@@ -150,10 +144,8 @@ describe("the concurrent-streaming script", () => {
   });
 
   it("reaches that peak after its opening, so a sampled window contains it", () => {
-    // The endurance harness discards a warm-up before it starts sampling, so a
-    // script whose only four-lane moment sat in the first few beats would be
-    // measured entirely outside it. The peak is asserted over the tail rather
-    // than over the whole script for that reason.
+    // The harness discards a warm-up before sampling, so a script whose only four-lane moment
+    // sat in its first beats would be measured entirely outside it; hence the tail.
     const openingBeatCount = CONCURRENT_STREAMING_SCENARIO.beats.findIndex(
       (beat) => beat.event.kind === "assistant.thinking_update",
     );
@@ -169,10 +161,8 @@ describe("the concurrent-streaming script", () => {
   });
 
   it("negative control: the same script with its output removed streams nothing", () => {
-    // The control that fails on the revision this file was written against, whose
-    // concurrent-streaming script carried eight beats and no assistant or tool row at all. Every
-    // run transition is kept, so what is shown is that the lanes alone do not
-    // satisfy the claim.
+    // Fails on a script with no assistant or tool rows at all. Every run transition is kept, so
+    // this shows the lanes alone do not satisfy the claim.
     const withoutOutput = CONCURRENT_STREAMING_SCENARIO.beats.filter(
       (beat) => !beat.event.kind.startsWith("assistant.") && !beat.event.kind.startsWith("tool."),
     );
@@ -182,9 +172,8 @@ describe("the concurrent-streaming script", () => {
   });
 
   it("negative control: taking the lanes in sequence drops the peak to one", () => {
-    // The other half. The beats are the concurrent-streaming scenario's own, re-timed so each lane
-    // finishes before the next begins — which is the script a reviewer would
-    // accept as "four lanes" if concurrency were not measured.
+    // The other half: the scenario's own beats re-timed so each lane finishes before the next
+    // begins, the script a reviewer would accept as "four lanes" if concurrency were not measured.
     const runIdsInOrder: string[] = [];
     for (const beat of CONCURRENT_STREAMING_SCENARIO.beats) {
       const runId = beat.event.payload?.["runId"];

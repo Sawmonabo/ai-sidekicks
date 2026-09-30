@@ -1,28 +1,14 @@
-// The one phase of a launched-console test that used to be bounded by nothing.
+// The test-body allowance: what a body is handed, what an overrun says, and that the close runs
+// whichever way the body went.
 //
-// `launchConsole` is held to a deadline and `close()` is raced against a ceiling,
-// and between them ran the caller's own body with no allowance at all. The
-// end-to-end tier's timeout was a 60 000 ms literal; a launch is entitled to
-// 45 000 ms of it and cleanup reserves 10 000 ms more, so a body declaring three
-// 10 000 ms polls — which `e2e/color-scheme-lost-on-reload.test.ts` does
-// — could be killed by vitest mid-poll. Everything a reader needs then goes at
-// once: the poll's own message, the cleanup, and the Electron the cleanup would
-// have closed.
+// Reachable without an Electron: `BodyAllowance` takes its clock as an argument and
+// `withBoundedBody` takes the close alone. The arithmetic that keeps the allowance inside its tier
+// is `launch-deadline.test.ts`'s; the close itself is `bounded-cleanup.test.ts`'s.
 //
-// Reachable without an Electron, which is the point of the shape under test:
-// `BodyAllowance` takes its clock as a constructor argument and `withBoundedBody`
-// takes the close alone, so a body that overruns while a close records itself is
-// two object literals. The arithmetic that keeps the allowance inside its tier is
-// a different subject and is `launch-deadline.test.ts`'s; the close these cases
-// assert still runs is `bounded-cleanup.test.ts`'s.
-//
-// THE SAME ARITHMETIC ONE LAYER IN, which is why the palette's opening is here
-// rather than in a file of its own. `console-launch-body`'s derivation counts a
-// palette opening as ONE ten-second phase and `openPalette` performs two waits
-// inside it, so "what does the second wait get" is this allowance's own question
-// asked about a step. It is driven through the real helper against a scripted
-// window on the stopped clock the cases above already use, because a case proving
-// the second wait gets the REMAINDER cannot be made to wait one out.
+// The palette opening is here because `console-launch-body` counts it as one ten-second phase
+// while `openPalette` performs two waits inside it, so "what does the second wait get" is this
+// allowance's question asked about a step. It is driven through the real helper against a
+// scripted window on a stopped clock.
 
 import type { Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
@@ -60,9 +46,8 @@ function stoppedClock(startMs: number): { advance: (byMs: number) => void; now: 
 
 describe("body allowance — what is left, and what an overrun says", () => {
   it("hands a body what is LEFT rather than the whole allowance", () => {
-    // The figure a body passes to its own polls. Handing back the whole
-    // allowance after half of it had gone would let a poll outlast the bound
-    // that is supposed to contain it.
+    // The figure a body passes to its own polls; the whole allowance after half was spent would
+    // let a poll outlast its bound.
     const clock = stoppedClock(1_000);
     const allowance = new BodyAllowance(30_000, clock.now);
     expect(allowance.allowanceMs).toBe(30_000);
@@ -79,12 +64,9 @@ describe("body allowance — what is left, and what an overrun says", () => {
   });
 
   it("gives a wait the smaller of its own bound and what is left", () => {
-    // Both directions, because each loses a different sentence. While the
-    // allowance is long the wait keeps its own bound, so a stalled step reports
-    // as a stalled step rather than as a body that ran long; once the allowance
-    // is the shorter figure the wait takes THAT, so it cannot run past the
-    // allowance and let the enclosing race replace its message with the generic
-    // overrun.
+    // Both directions, each losing a different sentence: a long allowance keeps the wait's own
+    // bound, so a stalled step reports as itself; a short one caps the wait, so the generic
+    // overrun cannot replace its message.
     const clock = stoppedClock(1_000);
     const allowance = new BodyAllowance(30_000, clock.now);
     expect(allowance.boundedMs(10_000)).toBe(10_000);
@@ -93,9 +75,7 @@ describe("body allowance — what is left, and what an overrun says", () => {
   });
 
   it("never hands a wait zero, however spent the allowance is", () => {
-    // The floor `remainingMs` carries has to survive the minimum, for the same
-    // reason it exists: `timeout: 0` is no timeout at all to Playwright, so an
-    // exhausted allowance would convert an overrun into an unbounded wait.
+    // The `remainingMs` floor must survive the minimum: `timeout: 0` is no timeout to Playwright.
     const clock = stoppedClock(1_000);
     const allowance = new BodyAllowance(5_000, clock.now);
     clock.advance(500_000);
@@ -109,9 +89,7 @@ describe("body allowance — what is left, and what an overrun says", () => {
   });
 
   it("fails an overrunning body with the harness's own sentence naming the bound", async () => {
-    // THE FINDING. What a reader used to get here was "test timed out in
-    // 60000ms", which names neither the phase that was slow nor the allowance it
-    // overran — and arrived after the close had already been skipped.
+    // A reader must get the harness's sentence naming the bound, not vitest's generic timeout.
     await expect(
       new BodyAllowance(TEST_ALLOWANCE_MS).settle(() => new Promise<void>(() => undefined)),
     ).rejects.toThrow(
@@ -123,8 +101,7 @@ describe("body allowance — what is left, and what an overrun says", () => {
   });
 
   it("lets a body's own failure through rather than reporting it as an overrun", async () => {
-    // The body's assertion is the failure that explains the run. A sentence
-    // about a clock over the top of it is the inversion this module stops.
+    // The body's assertion explains the run; a clock sentence over it would invert that.
     const assertionFailure = new Error("the scheme did not change");
     await expect(
       new BodyAllowance(TEST_ALLOWANCE_MS).settle(() => Promise.reject(assertionFailure)),
@@ -143,9 +120,8 @@ describe("body allowance — the close runs whichever way the body went", () => 
   });
 
   it("closes after a body that OVERRAN, so no Electron is left alive", async () => {
-    // The half of the finding that costs a later launch rather than a reader: a
-    // body killed by vitest never reached its cleanup, so the process it would
-    // have closed survived into every launch after it.
+    // A body killed by vitest never reaches its cleanup, so the process it would have closed
+    // survives into every later launch.
     const application = recordingClose();
     await expect(
       withBoundedBody(
@@ -158,22 +134,11 @@ describe("body allowance — the close runs whichever way the body went", () => 
   });
 
   it("words the overrun as the allowance even when the clock disagrees with the timer", async () => {
-    // THE RACE THIS CASE PINS, and why the case above is not enough on its own.
-    //
-    // The bounding `setTimeout` fires against libuv's loop clock while the wording
-    // decision used to be re-derived from `Date.now()` — two independent readings of
-    // "has the budget gone", which disagree. Measured on the authoring machine at a
-    // 5 ms budget: the timer fired with `Date.now()` still one millisecond SHORT of
-    // the expiry instant in 55 of 4 000 trials, 1.4 %. In those runs the overrun was
-    // reported in the deadline's words rather than the allowance's, and the case
-    // above failed on a runner and passed on every re-run — which is what it did.
-    //
-    // A STOPPED clock is that skew taken to its limit and made deterministic: the
-    // timer still fires, and the second reading says the budget is untouched. Before
-    // the fix this produced the deadline's sentence every time rather than one run in
-    // seventy, so this case fails on the pre-fix shape by construction rather than by
-    // luck. The allowance's own path is now what settles a body that overran, and it
-    // knows it fired because the deadline SAYS so, not because a clock agrees.
+    // The wording decision must not depend on `Date.now()` agreeing with the bounding timer, which
+    // fires against libuv's loop clock. Measured at a 5 ms budget, the timer fired with
+    // `Date.now()` one millisecond short of expiry in 55 of 4 000 trials, giving the deadline's
+    // sentence instead of the allowance's. A stopped clock makes that skew deterministic: the
+    // timer fires and the second reading says the budget is untouched.
     const application = recordingClose();
     const frozen = stoppedClock(1_000);
     await expect(
@@ -192,10 +157,8 @@ describe("body allowance — the close runs whichever way the body went", () => 
   });
 
   it("still lets a body's own failure through when the deadline has spent its budget", async () => {
-    // The other direction, and the reason the decision cannot simply be "reword
-    // whatever comes out". A body that fails on its own AFTER the allowance is gone
-    // must still report its own assertion: an expiry the deadline never raised is not
-    // this harness's failure to describe.
+    // A body failing on its own after the allowance is gone still reports its own assertion,
+    // since the deadline never raised the expiry; the wording is not applied to whatever comes out.
     const spent = stoppedClock(1_000);
     const allowance = new BodyAllowance(TEST_ALLOWANCE_MS, spent.now);
     const assertionFailure = new Error("the scheme did not change");
@@ -206,8 +169,7 @@ describe("body allowance — the close runs whichever way the body went", () => 
   });
 
   it("negative control: the same wrapper that timed one body out passes a faster one", async () => {
-    // Without this the case above is ambiguous between "the allowance expired"
-    // and "the wrapper rejects everything".
+    // Guards the case above against a wrapper that rejects everything.
     const application = recordingClose();
     const allowance = new BodyAllowance(TEST_ALLOWANCE_MS);
     await expect(
@@ -246,12 +208,9 @@ interface PaletteWindowScript {
 }
 
 /**
- * A window that answers `openPalette`'s three questions and records what it was asked.
- *
- * A stand-in for the PAGE and never for the helper, which is imported real. It
- * supplies the two facts a Chromium supplies too slowly to assert about — a
- * dialog that appears after some of the phase has gone, an input that never takes
- * focus — plus the reading no Playwright API exposes: the timeout a wait received.
+ * A window that answers `openPalette`'s three questions and records what it was asked. It stands
+ * in for the page, never the helper, and supplies what Chromium supplies too slowly to assert on
+ * plus the timeout a wait received, which no Playwright API exposes.
  */
 class PaletteStubWindow {
   readonly #script: PaletteWindowScript;
@@ -299,8 +258,7 @@ class PaletteStubWindow {
 
 describe("palette opening — two waits, one phase of the body allowance", () => {
   it("hands the dialog wait the whole phase, and returns the input once focus lands", async () => {
-    // The ordinary run, and the non-vacuity every case below rests on: the
-    // helper still opens, still reads focus, and still returns the combobox.
+    // The ordinary run: the helper still opens, reads focus and returns the combobox.
     const clock = stoppedClock(1_000);
     const consoleWindow = new PaletteStubWindow({
       dialogSpendMs: 2_000,
@@ -321,13 +279,9 @@ describe("palette opening — two waits, one phase of the body allowance", () =>
   });
 
   it("fails on the focus reading INSIDE the phase when the dialog spent all of it", async () => {
-    // THE FINDING. Two waits each declaring `IN_WINDOW_STEP_TIMEOUT_MS` is a
-    // palette opening entitled to twenty seconds against a row that budgets ten,
-    // so an opening that is slow but in bound spent the body's allowance on
-    // behalf of every step after it — and the first of those was then killed by
-    // the enclosing race with the generic overrun in place of its own sentence.
-    // Sharing the phase makes the second wait's remainder zero, so the failure is
-    // the focus diagnostic and it arrives inside the ten seconds already paid for.
+    // Two waits each declaring `IN_WINDOW_STEP_TIMEOUT_MS` would entitle a palette opening to
+    // twenty seconds against a row that budgets ten. Sharing the phase leaves the second wait a
+    // zero remainder, so the failure is the focus diagnostic, inside the ten seconds already paid.
     const clock = stoppedClock(1_000);
     const consoleWindow = new PaletteStubWindow({
       dialogSpendMs: IN_WINDOW_STEP_TIMEOUT_MS,
@@ -353,12 +307,9 @@ describe("palette opening — two waits, one phase of the body allowance", () =>
   });
 
   it("negative control: the poll spends the REMAINDER, and a per-wait phase would restore the whole bound", async () => {
-    // Two halves of one control. First, the case above is not passing on a poll
-    // that never waits: leave the phase 300 ms and the rejection arrives about
-    // 300 ms later, so what the poll receives really is what the dialog left.
-    // Second, the shape this fix removed, through the same real classes — a phase
-    // minted per wait is unspent when the focus poll asks, so it hands back the
-    // whole bound again and the pair costs twice what the row pays for.
+    // Two halves. The poll really waits: leave the phase 300 ms and the rejection arrives about
+    // 300 ms later. And a phase minted per wait would be unspent when the focus poll asks, handing
+    // back the whole bound and doubling the cost.
     const clock = stoppedClock(1_000);
     const consoleWindow = new PaletteStubWindow({
       dialogSpendMs: IN_WINDOW_STEP_TIMEOUT_MS - LEFT_FOR_THE_POLL_MS,
@@ -366,8 +317,8 @@ describe("palette opening — two waits, one phase of the body allowance", () =>
       advanceClock: clock.advance,
     });
     const allowance = new BodyAllowance(BODY_ALLOWANCE_MS, clock.now);
-    // Minted from the same clock at the same instant the call mints its own, so
-    // this reads exactly what the helper's phase reads without reaching into it.
+    // Minted from the same clock at the same instant as the call's own, so it reads what the
+    // helper's phase reads.
     const phaseAsTheCallMintsIt = new LaunchDeadline(IN_WINDOW_STEP_TIMEOUT_MS, clock.now);
 
     const startedAt = Date.now();
@@ -390,10 +341,8 @@ describe("palette opening — two waits, one phase of the body allowance", () =>
 
 describe("body allowance — the registered figures", () => {
   it("gives the endurance tier a longer allowance than the default", () => {
-    // Both rows exist for this inequality: a single figure sized for the
-    // endurance workload would hand the end-to-end tier a ten-minute patience,
-    // and one sized for an end-to-end body would kill the endurance workload
-    // nine times over. A default is applied when a tier states nothing.
+    // One figure sized for endurance would give the end-to-end tier ten minutes of patience, and
+    // one sized for end-to-end would kill the endurance workload.
     expect(new BodyAllowance().allowanceMs).toBe(BODY_ALLOWANCE_MS);
     expect(ENDURANCE_BODY_ALLOWANCE_MS).toBeGreaterThan(BODY_ALLOWANCE_MS);
   });

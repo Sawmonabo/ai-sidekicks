@@ -1,10 +1,7 @@
-// What the transcript-states scenario claims, played through the transcript's own readers.
-//
-// COMPOSITION — the three lanes really do end in three different conditions, and the
-// rewind boundary really is followed by rows it supersedes. These are what the transcript
-// frame is built against, so a scenario that quietly lost one would leave a view
-// untested and green. Whether each beat is one a daemon can emit is the catalog-wide
-// contract check's question.
+// What the transcript-states scenario claims, played through the transcript's own readers: the
+// three lanes end in three different conditions and the rewind boundary is followed by rows it
+// supersedes. A scenario that lost either would leave a view untested and green. Whether each
+// beat is one a daemon can emit is the catalog-wide contract check's question.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -14,9 +11,8 @@ import {
   SUBAGENT_REVIEWER,
 } from "../../fixtures/scenarios/transcript-states.js";
 import type { Scenario, ScenarioBeat } from "../../fixtures/scenario.js";
-// The transcript's own readers, reached deeply rather than through the feature's public
-// entry: this is a claim about what THIS SCENARIO reaches, so the three treatments it has to reach are
-// named by the modules that derive them.
+// The transcript's own readers, reached deeply rather than through the feature's entry, since
+// this claim is about what the scenario reaches.
 import { projectTranscriptRows } from "@renderer/features/transcript/projection/transcript-row-projection.js";
 import { ChildRunIndex } from "@renderer/features/transcript/dispatches/child-run-entries.js";
 import { deriveSupersededBands } from "@renderer/features/transcript/superseded/superseded-bands.js";
@@ -54,9 +50,8 @@ describe("the transcript-states scenario", () => {
   });
 
   it("scripts no reply for a call the method registry does not carry", () => {
-    // `session.list` reads exactly like a real method: the registry carries
-    // `session.read` and no list verb, so a scripted answer to it puts a call in front
-    // of a view that has nowhere to send it.
+    // `session.list` reads like a real method, but the registry carries `session.read` and no
+    // list verb; a scripted answer would put a call in front of a view with nowhere to send it.
     const calls = TRANSCRIPT_STATES_SCENARIO.replies.map((reply) => reply.call);
     expect(calls).not.toContain("session.list");
     expect(calls).toContain("session.read");
@@ -70,9 +65,8 @@ function transcriptStatesRows(): ReturnType<typeof projectTranscriptRows>["rows"
 
 describe("the three lanes", () => {
   it("ends its three LANES in three different conditions at once", () => {
-    // The child run under the architect is a fourth run and not a fourth lane: the
-    // transcript folds it into its parent's run group as a summary rather than drawing it
-    // beside the three, so it is subtracted here rather than counted as one of them.
+    // The child run under the architect is a fourth run, not a fourth lane: the transcript folds
+    // it into its parent's run group, so it is subtracted here.
     const laneStates = [...finalRunStates(TRANSCRIPT_STATES_SCENARIO)]
       .filter(([runId]) => runId !== RUN_ARCHITECT_CHILD)
       .map(([, state]) => state)
@@ -106,8 +100,7 @@ describe("the three lanes", () => {
       .slice(boundaryIndex + 1)
       .filter((beat) => runIdOf(beat) === rewoundRunId);
     expect(laterRowsOfThatRun.length).toBeGreaterThan(0);
-    // The boundary states where the run landed, and the band is measured against
-    // that number — so a boundary carrying no target would leave nothing to compare.
+    // The band is measured against the target position the boundary carries.
     expect(typeof boundary.event.payload?.["targetPosition"]).toBe("number");
   });
 
@@ -131,12 +124,11 @@ describe("the folded bodies", () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.summary.runId).toBe(RUN_ARCHITECT_CHILD);
-    // The compaction inside the child folds the provider's context, not the log, so
-    // the child's rows are all still there to count.
+    // The compaction inside the child folds the provider's context, not the log, so all its rows
+    // are still there to count.
     expect(entries[0]?.summary.completeness.state).toBe("complete");
-    // Anchored at the birth row and re-summarized nowhere: the child's later rows say
-    // nothing about a parent, so filing them as re-summarizations would be a claim the
-    // wire did not make.
+    // Anchored at the birth row and re-summarized nowhere: the child's later rows say nothing
+    // about a parent.
     expect(entries[0]?.resummarizedRowIds).toStrictEqual([]);
   });
 
@@ -147,23 +139,21 @@ describe("the folded bodies", () => {
       .filter((row) => row.type.startsWith("subagent."))
       .map((row) => row.id);
 
-    // Both halves are in the log, and exactly one of them draws a card: the anchor is
-    // first-wins, so a completion, a resume, or a compaction inside the child all
-    // leave the handoff where the start put it.
+    // Both halves are in the log and exactly one draws a card: the anchor is first-wins, so a
+    // completion, resume or compaction leaves the handoff where the start put it.
     expect(subagentRowIds).toHaveLength(2);
     const subagentHandoffs = handoffs.filter((handoff) => subagentRowIds.includes(handoff.rowId));
     expect(subagentHandoffs).toHaveLength(1);
     expect(subagentHandoffs[0]?.wireType).toBe("subagent.started");
     expect(subagentHandoffs[0]?.rowId).toBe(subagentRowIds[0]);
-    // One in all: the anchor the pair above draws, and nothing else in the log is a handoff.
+    // One in all: the anchor above, and nothing else in the log is a handoff.
     expect(handoffs).toHaveLength(1);
   });
 
   it("names the subagent's identity, without which the pair could not be keyed", () => {
-    // The whole reason the completion is suppressed rather than drawn beside the
-    // start: both rows carry the same `(runId, provider, subagentId)` triple. A pair
-    // missing the provider or the id is two unrelated handoffs, which is what this
-    // scenario used to script.
+    // The completion is suppressed rather than drawn beside the start because both rows carry the
+    // same `(runId, provider, subagentId)` triple; a pair missing the provider or the id is two
+    // unrelated handoffs.
     const subagentPayloads = TRANSCRIPT_STATES_SCENARIO.beats
       .filter((beat) => beat.event.kind.startsWith("subagent."))
       .map((beat) => beat.event.payload);
@@ -180,8 +170,8 @@ describe("the folded bodies", () => {
 
     expect(bands).toHaveLength(1);
     expect(bands[0]?.runId).toBe(RUN_IMPLEMENTER);
-    // The band is the rewound run's FIRST epoch — the boundary belongs to the epoch it
-    // ended — and it holds the rows whose position exceeds the cutoff the wire named.
+    // The band is the rewound run's first epoch (the boundary belongs to the epoch it ended) and
+    // holds the rows past the cutoff the wire named.
     expect(bands[0]?.epoch).toBe(0);
     expect(bands[0]?.rowIds.length).toBeGreaterThan(0);
   });

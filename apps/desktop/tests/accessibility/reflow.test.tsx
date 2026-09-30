@@ -1,31 +1,18 @@
 // The console at its narrowest supported viewport.
 //
-// The console is held to WCAG 2.2 AA, and SC 1.4.10 (Reflow) is
-// the one criterion in it that no rule in this directory's axe runs can reach —
-// `axe-run.test.ts` records that the 2.2 tags select `target-size` and nothing
-// else at this pin, and reflow is a property of a layout at a width rather than of
-// a node. So this file narrows the page to `REFLOW_MIN_WIDTH_PX`, the floor
-// `tokens/palette.ts` declares and `frame.css` spends, and reads what would still
-// need a sideways scroll.
+// WCAG 2.2 SC 1.4.10 (Reflow) is the one criterion no axe rule in this directory reaches,
+// because reflow is a property of a layout at a width, not of a node. This file narrows the
+// page to `REFLOW_MIN_WIDTH_PX`, the floor `styles/palette.ts` declares, and reads what would
+// still need a sideways scroll.
 //
-// THE THREE RAIL DESTINATIONS, DERIVED AND NOT LISTED. `RAIL_DESTINATIONS` is the
-// routing module's closed tuple and `routeForDestination` is the frame's map from
-// one to an address, so a fourth destination is audited here the day it is declared
-// rather than the day somebody remembers this file. They are the whole of what the
-// main window opens at, which is what makes them the criterion's subject: reflow is
-// about a PAGE, and a pane mounted inside one is measured by whichever destination
-// carries it.
+// The rail destinations are derived from `RAIL_DESTINATIONS`, so a new destination is audited
+// the day it is declared. The concurrent-streaming scenario is used rather than the first-run
+// one because an empty console reflows trivially; real sessions, runs and wire identifiers
+// decide whether a 320 px column holds.
 //
-// THE CONCURRENT-STREAMING SCENARIO AND NOT THE FIRST-RUN ONE. A console with nothing in it
-// reflows trivially — there is no row long enough to push a box wide. The concurrent-streaming scenario
-// fixture is the one carrying real sessions, runs, and wire identifiers, which are
-// the strings that actually decide whether a 320 px column holds.
-//
-// WHAT A CLEAN RESULT MEANS is guarded twice over: the narrowing itself throws if
-// the viewport did not move (see `reflow.ts`), and the planted box below has to be
-// found — it is wider than the floor and narrower than the tier's own 1440 px
-// window, so it fits, and reports nothing, in exactly the world where the narrowing
-// failed.
+// A clean result is guarded twice: the narrowing throws if the viewport did not move (see
+// `reflow.ts`), and the planted box below is wider than the floor but narrower than the
+// tier's 1440 px window, so it goes unreported exactly when the narrowing failed.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -43,42 +30,28 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
 import { formatRoute } from "@renderer/routing/routes.js";
-// The sessions feature's screen registration, imported for its side effect: it reaches the
-// flyout that imports the feature's stylesheet, and the case below is about what that
-// stylesheet computes to when the row is given a column narrower than its text.
+// Imported for its side effect: it reaches the flyout that imports the sessions stylesheet
+// the row case below measures.
 import "@renderer/features/sessions/contributions/screens.js";
 import { SessionRow } from "@renderer/features/sessions/components/SessionRow.js";
-// The chunk root the settings screen's loader fetches, imported for its side effect:
-// `apps/desktop/AGENTS.md` puts a lazily-loaded directory's stylesheets behind that
-// root, and the case below is about what the keyboard sheet computes to when the meta
-// line is given a column narrower than the id on it.
+// Imported for its side effect: the lazily-loaded settings chunk root imports the keyboard
+// stylesheet the meta-line case below measures.
 import "@renderer/features/settings/settings-screen-body.js";
 import { KeybindingRowBody } from "@renderer/features/settings/pages/keyboard/components/KeybindingRowBody.js";
 import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
 import { REFLOW_MIN_WIDTH_PX } from "@renderer/styles/palette.js";
 
 /**
- * A wire identifier with no break opportunity anywhere in it.
- *
- * The concurrent-streaming scenario's session ids are UUIDs, and a UUID's four hyphens are break
- * opportunities — so the narrowest line one can make is a twelve-character group,
- * and whether THAT fits the column the floor leaves the row is a question about the
- * face as much as about the layout. A digest-shaped id hands the line breaker
- * nothing at all, so this case asks the row the question the concurrent-streaming scenario's data can only
- * ask of one font at a time: the box wraps whatever the wire sent, or it overflows on
- * every font there is.
+ * A wire identifier with no break opportunity anywhere in it. A UUID's hyphens are break
+ * opportunities, so whether one fits depends on the font; this id overflows in every font
+ * unless the box wraps whatever the wire sent.
  */
 const UNBREAKABLE_SESSION_ID = "b3a7c1d95e2f48a06b1c3d5e7f9012345678abcdef0123456789abcdef012345";
 
 /**
- * A command id long enough that no column at the floor holds it on one line.
- *
- * The keyboard page's meta line carries this id as a wire figure, and a figure is
- * rendered verbatim in mono and never truncated — so whether the page reflows is a
- * question about the longest id the command table happens to hold, which is data and
- * changes. The dotted segments are real break opportunities, which is what makes this
- * the honest question to ask: the row has to wrap INSIDE a segment, because the
- * narrowest line the segments alone can draw is still wider than the column.
+ * A command id no column at the floor holds on one line. The meta line renders a wire figure
+ * verbatim in mono and never truncates it, and the id's longest dotted segment is still wider
+ * than the column, so the row has to wrap inside a segment.
  */
 const UNBREAKABLE_COMMAND_ID =
   "console.example.group.command.aVeryLongIdentifierWithNoBreakOpportunityInsideItAtAll";
@@ -101,22 +74,19 @@ describe("reflow — the console at 320 CSS px", () => {
         <AppProviders composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
       );
 
-      // Stated before it is read, so the width this case measured is in the record
-      // rather than inferred from the assertion that follows it.
+      // Stated before it is read, so the measured width is in the record.
       expect(window.innerWidth).toBe(REFLOW_MIN_WIDTH_PX);
-      // The whole document, not the mounted container: the criterion is about a page
-      // scrolling in two dimensions, and a view that pushes the document wider
-      // does it through whichever boxes sit between them.
+      // The whole document, not the mounted container: the criterion is about a page scrolling
+      // in two dimensions, and a view pushes the document wider through whichever boxes sit
+      // between them.
       expect(describeHorizontalOverflow(document.documentElement)).toStrictEqual([]);
     });
   }
 
-  // Every settings page, because settings is where the console packs a form into a
-  // column: `settings-page.css` sets its prose measure in `ch`, lays field groups
-  // out on an auto-fitting track, and caps a control at a px width — three things
-  // that each hold a floor of their own and have to fit inside one 320 px viewport
-  // together. The set is `SETTINGS_PAGE_IDS`, the settings feature's own closed tuple, so a
-  // fourteenth page is audited the day it is declared.
+  // Every settings page, because settings packs a form into a column: `settings-page.css` sets
+  // its prose measure in `ch`, lays field groups on an auto-fitting track and caps a control at a
+  // px width, and the three floors have to fit one 320 px viewport together. The set is
+  // `SETTINGS_PAGE_IDS`, so a new page is audited the day it is declared.
   for (const page of SETTINGS_PAGE_IDS) {
     it(`needs no horizontal scroll on the ${page} settings page`, async () => {
       document.location.hash = formatRoute({ kind: "settings", page });
@@ -130,12 +100,10 @@ describe("reflow — the console at 320 CSS px", () => {
   }
 
   it("holds the frame at the floor rather than squeezing below it", async () => {
-    // The floor's production half. `frame.css` declares `min-width` from the token,
-    // so a viewport NARROWER than the floor scrolls the document sideways — which is
-    // what 1.4.10 permits below 320 CSS px — instead of taking every view inside
-    // the frame further into a squeeze the criterion says nothing about. Without the
-    // declaration the frame would simply track the viewport and this case would read
-    // the frame at the narrower width.
+    // The floor's production half. `app-frame.css` declares `min-width` from the token, so a
+    // viewport narrower than the floor scrolls the document sideways (which 1.4.10 permits below
+    // 320 CSS px) instead of squeezing every view further. Without it the frame would track the
+    // viewport and this case would read it at the narrower width.
     narrowTesterViewportTo(REFLOW_MIN_WIDTH_PX - 40);
     document.location.hash = formatRoute(routeForDestination("settings"));
     const { container } = await renderSettled(
@@ -146,15 +114,11 @@ describe("reflow — the console at 320 CSS px", () => {
     expect(frame?.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
   });
 
-  // The session row on its own, at the floor, carrying an identifier the console did
-  // not choose the width of.
-  //
-  // WHY A COMPONENT CASE BESIDE THE PAGE ONES. The destination case above measures
-  // the concurrent-streaming scenario's own ids in whatever face the host resolves, and both are
-  // variables — so it answers "these ids fit here today" rather than the thing the
-  // row actually owes, which is that the identity column wraps whatever the wire
-  // sent. That is a property one row can be asked about directly, with an identifier
-  // no font can fit and the face therefore out of the question.
+  // The session row on its own, at the floor, carrying an identifier the console did not choose
+  // the width of. The destination cases measure the scenario's own ids in whatever face the host
+  // resolves, so they answer "these ids fit here today"; the row owes that its identity column
+  // wraps whatever the wire sent, which one row can be asked directly with an identifier no font
+  // can fit.
   it("wraps a session identifier that has no break opportunity in it", async () => {
     const { container } = await renderSettled(
       <SessionRow
@@ -169,21 +133,17 @@ describe("reflow — the console at 320 CSS px", () => {
       />,
     );
 
-    // The harness sizes its container to the viewport, which `beforeEach` has already
-    // narrowed to the floor — so the row is laid out in exactly the width 1.4.10 asks
-    // about, and the same reader the destination cases use names the box that fails.
+    // The harness sizes its container to the viewport, which `beforeEach` narrowed to the floor,
+    // so the row is laid out in exactly the width 1.4.10 asks about.
     expect(container.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
     expect(describeHorizontalOverflow(container)).toStrictEqual([]);
   });
 
-  // The keyboard row on its own, at the floor, carrying a command id the console did
-  // not choose the width of.
-  //
-  // The page case above measures whatever ids the command table holds today, in
-  // whatever face the host resolves — so it answers "these ids fit here" rather than
-  // the thing the meta line owes, which is that it wraps whatever the wire named. The
-  // id below is wider than the floor in any face, so the face is out of the question
-  // and what is left is whether the line is allowed to break inside a segment at all.
+  // The keyboard row on its own, at the floor, carrying a command id the console did not choose
+  // the width of. The page cases measure the ids the command table holds today, so they answer
+  // "these ids fit here"; the meta line owes that it wraps whatever the wire named. The id below
+  // is wider than the floor in any face, leaving only whether the line may break inside a
+  // segment.
   it("wraps a command id the meta line has no room for", async () => {
     const { container } = await renderSettled(
       <KeybindingRowBody

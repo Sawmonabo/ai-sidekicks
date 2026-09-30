@@ -1,13 +1,7 @@
 // The reply legs: one answer per call, and a latency the frozen clock can spend.
 //
-// Beside the aggregate entry with its sibling axis files, and every case drives
-// `findScenarioContractDefects` rather than the leg module — the aggregate is the
-// only function a feature's scenario is ever measured through.
-//
-// EVERY CASE IS BUILT FROM THE SHIPPED SCENARIOS. The concurrent-streaming scenario's own replies are
-// the base, so what a case varies is the one property it is about; its beats are
-// the beats every other leg already accepts, which is what keeps a reported defect
-// attributable to the reply and not to the script around it.
+// Cases drive `findScenarioContractDefects`, the only function a scenario is measured through, and
+// start from the concurrent-streaming scenario so a reported defect is attributable to the reply.
 
 import { describe, expect, it } from "vitest";
 
@@ -18,7 +12,7 @@ import { CORPUS_DAEMON_METHODS_NOT_YET_BOUND } from "./reply-checks.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 import type { Scenario } from "../../../fixtures/scenario.js";
 
-/** A call the concurrent-streaming scripts no answer for, so a case adds one rather than shadowing one. */
+/** A call the concurrent-streaming scenario scripts no answer for, so a case adds one. */
 const PROBE_CALL = "presence.read";
 
 /** The concurrent-streaming scenario, with one extra reply carrying the latency under test. */
@@ -40,9 +34,8 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
   });
 
   it("reports a scripted reply to a method nothing registers", () => {
-    // The defect this leg was written for, and it is not hypothetical: a scenario
-    // answering `workflow.runList` renders a view that looks served, ships a
-    // reference image of it, and reaches nothing on the day the fixture define flips.
+    // A scenario answering `workflow.runList` would render a view that looks served and ship a
+    // reference image of it.
     const defects = findScenarioContractDefects([scenarioAnswering("workflow.runList")]);
 
     expect(defects).toHaveLength(1);
@@ -55,17 +48,14 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
   });
 
   it("negative control: the shipped scenarios answer only registered calls", () => {
-    // The real tree, which is where a feature's invented name would land. Every call it
-    // scripts is admitted by a derived registry rather than by a transcription: the
-    // daemon binding table.
+    // The real tree is where a feature's invented name would land; every call it scripts is
+    // admitted by the daemon binding table.
     expect(findScenarioContractDefects([CONCURRENT_STREAMING_SCENARIO])).toStrictEqual([]);
   });
 
   it("negative control: a bound method is clean through the table, not the transient list", () => {
-    // Without this the case above would hold over a leg that admitted every string in
-    // reach. The list is EMPTY, so no scripted call is admitted by it today:
-    // `presence.read` is clean because the console binds it, and the assertion beside
-    // the case is what says the transcription had no part in that.
+    // The list is empty, so `presence.read` is clean because the console binds it, not because a
+    // hand-written entry admitted it.
     expect(CORPUS_DAEMON_METHODS_NOT_YET_BOUND).toStrictEqual([]);
     expect(REGISTERED_DAEMON_METHODS as readonly string[]).toContain("presence.read");
     expect(findScenarioContractDefects([scenarioAnswering("presence.read")])).toStrictEqual([]);
@@ -74,10 +64,7 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
 
 describe("scenario wire truth — a scripted latency the frozen clock cannot spend", () => {
   it("reports a latency of Infinity, which parks the reply past every finite advance", () => {
-    // The engine parks a delayed reply at `elapsedMs + afterMs` and releases it when
-    // an advance reaches that tick. No advance reaches this one, so the reply is
-    // settled only by teardown — as abandoned — and the view awaiting it renders
-    // its loading state for the life of the window.
+    // No advance reaches the tick this parks at, so the reply settles only on teardown.
     const defects = findScenarioContractDefects([
       scenarioWithProbeReply("parks-forever", Number.POSITIVE_INFINITY),
     ]);
@@ -89,9 +76,8 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
   });
 
   it("reports a latency of NaN, which the engine's own test refuses and never parks", () => {
-    // The opposite failure with the same symptom on the gate: the fixture spends a
-    // latency only above zero, and `NaN` is not, so the reply settles on the calling
-    // turn and the loading state the scenario claims to exercise is unreachable.
+    // The fixture spends a latency only above zero, so a `NaN` reply settles on the calling turn
+    // and the loading state the scenario claims to exercise is unreachable.
     const defects = findScenarioContractDefects([
       scenarioWithProbeReply("never-parks", Number.NaN),
     ]);
@@ -111,9 +97,8 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
   });
 
   it("negative control: zero and a finite positive latency are both clean", () => {
-    // Without this the three cases above would hold over a leg that reported every
-    // scripted latency — and zero is not a defect at all: it is the honest way to
-    // script no latency, and it settles exactly as an absent `afterMs` does.
+    // Without this the cases above would hold over a leg that reported every latency; zero is the
+    // honest way to script none.
     expect(findScenarioContractDefects([scenarioWithProbeReply("no-latency", 0)])).toStrictEqual(
       [],
     );
@@ -129,8 +114,7 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
 
 describe("scenario wire truth — one scripted answer per call", () => {
   it("reports a second entry for a call the first already claims", () => {
-    // The leg the latency walk joined rather than replaced: `replyFor` answers with
-    // the first match, so the second entry can never be served.
+    // `replyFor` answers with the first match, so the second entry can never be served.
     const shadowed: Scenario = {
       ...CONCURRENT_STREAMING_SCENARIO,
       id: "claims-one-call-twice",
@@ -145,9 +129,8 @@ describe("scenario wire truth — one scripted answer per call", () => {
   });
 
   it("reports the unreachable entry once, and not also for the latency it carries", () => {
-    // A shadowed entry is never reached, so its `afterMs` is a property of a reply
-    // the fixture cannot serve. Reporting both would name two things to change where
-    // deleting the entry settles it.
+    // A shadowed entry is never reached, so reporting its latency too would name two things to
+    // change where deleting the entry settles it.
     const shadowedWithBadLatency: Scenario = {
       ...CONCURRENT_STREAMING_SCENARIO,
       id: "shadowed-and-unspendable",

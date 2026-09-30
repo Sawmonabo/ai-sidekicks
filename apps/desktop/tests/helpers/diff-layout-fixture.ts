@@ -1,25 +1,14 @@
 // The heights a DOM shim has no layout engine to produce.
 //
-// The console's unit tier runs under happy-dom, which reports every box as zero.
-// A virtualized list reads exactly one of those boxes twice over — the scroller's,
-// which is the viewport it windows against, and each rendered row's, which is how
-// tall that row turned out — and `@tanstack/react-virtual` reads both of them
-// through `offsetHeight`. Against a zero-height scroller it answers with an empty
-// range, which is correct and is not a bug to route around: a scroller with no
-// height shows no rows. So a happy-dom case that asserts anything about a rendered
-// diff row has to say how tall the pane is, and this module is where it says it.
+// The unit tier runs under happy-dom, which reports every box as zero, and
+// `@tanstack/react-virtual` reads the scroller's viewport and each row's height through
+// `offsetHeight`. A zero-height scroller correctly shows no rows, so a case asserting about a
+// rendered diff row must state how tall the pane is, which also makes the window bound a real
+// bound instead of one the overscan band satisfies.
 //
-// WHAT THIS BUYS BEYOND MAKING THE CASES PASS. Before a virtualizer was adopted,
-// those cases ran against a viewport of zero and were carried entirely by the
-// overscan band — a window bound of "fewer than a hundred rows" that a zero-height
-// viewport satisfies without virtualizing anything. Stating the height makes the
-// bound a bound.
-//
-// THE SHADOW IS NOT THIS MODULE'S AND THE RULE IS. `element-height-shim.ts` beside this file
-// owns writing the property on `HTMLElement.prototype` and taking it back, because that
-// write is global to the environment, and a second copy of it could leak a shadow into
-// every later file in the same worker. What stays here is the only part that is the diff's: which
-// element is a scroller, which is a row, and which row a wrapped line grew.
+// `element-height-shim.ts` owns writing and restoring the global `offsetHeight` property; what
+// stays here is the diff's part: which element is a scroller, which is a row, and which row a
+// wrapped line grew.
 
 import { ElementHeightShim } from "./element-height-shim.js";
 import {
@@ -43,18 +32,15 @@ export interface DiffLayoutFixtureOptions {
 /**
  * The viewport the diff cases measure against, in CSS pixels.
  *
- * A laptop-class pane: tall enough that the window holds a screenful rather than
- * only its overscan band, which is what makes a rendered-row ceiling a claim about
- * virtualization rather than about the overscan constant.
+ * Tall enough that the window holds a screenful rather than only its overscan band, so a
+ * rendered-row ceiling is a claim about virtualization.
  */
 export const DIFF_FIXTURE_VIEWPORT_HEIGHT_PX = 800;
 
 /**
- * Report the heights a browser would have laid out.
+ * Reports the heights a browser would have laid out.
  *
- * Installing twice replaces the reading rather than stacking a second shadow, so a case
- * that wants a grown row says so in one line and the hook that installed the plain
- * reading stays where it is.
+ * Installing twice replaces the reading instead of stacking a second shadow.
  */
 export class DiffLayoutFixture {
   readonly #shim = new ElementHeightShim();
@@ -71,14 +57,9 @@ export class DiffLayoutFixture {
 /**
  * The height one element reports.
  *
- * Either scroller answers the viewport, a row of either list answers its own, and
- * everything else answers the zero happy-dom answers anyway — so nothing outside the
- * diff changes behavior under an installed fixture.
- *
- * BOTH LISTS, because the pane windows two: the rows, and the changed-file list
- * beside them. A fixture that knew only the first would leave every file-list case
- * measuring a zero-height viewport, which is the state a window bound cannot be a
- * bound in.
+ * Either scroller answers the viewport, a row of either list answers its own, and everything else
+ * answers the zero happy-dom gives anyway. Both lists are covered because the pane windows two:
+ * the rows and the changed-file list beside them.
  */
 function laidOutHeightPx(element: HTMLElement, options: DiffLayoutFixtureOptions): number {
   if (

@@ -1,30 +1,10 @@
-// The resource a spawn was holding BEFORE it had a child, and who releases it.
-//
-// `electron-child-profile-removal.test.ts` beside this file asks which paths release a
-// profile once a child exists. This file asks the question one moment earlier,
-// and the answer used to be "nobody": the temporary Chromium profile is created
-// before the spawn — its path is a spawn argument — so between `mkdtempSync` and
-// a settled spawn there is a directory on disk that only this process knows
-// about, and `spawnManagedElectronChild` can THROW in that window.
-//
-// THE WINDOW IS NOT HYPOTHETICAL. The throw is the registrar refusing, which is
-// what `onTestFinished` does outside a running test — a spawn from `beforeAll`,
-// the misuse `electron-child.ts`'s own header names. Both of this package's Electron
-// spawners wrote the same two lines in the same order, spawn and then register
-// the removal, and both had the identical hole: the refusal propagated out of
-// the promise executor, the removal was registered from nowhere, and the profile
-// stayed on disk for the rest of the run. The kill was already covered — the
-// spawner disposes the child before it rethrows — so what survived was the
-// directory alone, which is exactly the leak that is invisible until a run has
-// accumulated a few dozen of them.
-//
-// So the ordering is owned once, by `spawnChildCleanedUpAtSettleTime`, and this
-// file makes that a property in both directions: it releases and rethrows, the
-// superseded shape does not, and both spawners call it.
-//
-// The doubles a spawn is handed are `electron-child-doubles.test-support.ts`'s,
-// the child programs are `electron-child-lifetime.test-support.ts`'s, and the
-// bounded readings are `electron-child-liveness.test-support.ts`'s, for their reasons.
+// A temporary profile exists before its child does, so a spawn that throws in between (the
+// settle-time registrar refuses, as `onTestFinished` does outside a running test) must still
+// remove it. `spawnChildCleanedUpAtSettleTime` owns that ordering; these cases prove it releases
+// and rethrows and that the spawn-then-register shape does not. Doubles come from
+// `electron-child-doubles.test-support.ts`, child programs from
+// `electron-child-lifetime.test-support.ts`, bounded readings from
+// `electron-child-liveness.test-support.ts`.
 
 import { existsSync, rmSync } from "node:fs";
 import process from "node:process";
@@ -68,10 +48,8 @@ describe("a spawn that refuses releases what it was already holding", () => {
   it(
     "removes the profile and rethrows when the settle-time registration refuses",
     async () => {
-      // THE FINDING. The directory exists before the spawn does, the registrar
-      // throws after it, and the caller's own registration of the removal is
-      // never reached — so without the guard the refusal arrives with a profile
-      // left on disk and no handle anywhere that names it.
+      // The directory exists before the spawn and the registrar throws after it, so without the
+      // guard the profile stays on disk with no handle naming it.
       const registrar = new RefusingSettleRegistrar();
       const terminator = new ObservedTreeTerminator();
       const profile = heldProfile();
@@ -93,9 +71,8 @@ describe("a spawn that refuses releases what it was already holding", () => {
           "the profile outlived the refusal — the removal is still reachable only from a registration the refusal skipped",
         ).toBe(false);
         expect(profile.removalCount()).toBe(1);
-        // The kill is the spawner's own recovery and is asserted here too:
-        // a guard that removed the directory while leaving the child running
-        // would have traded one leak for the worse one.
+        // The spawner's own kill recovery: removing the directory while the child kept running
+        // would trade one leak for a worse one.
         await expectTerminatedWithin(
           terminator.firstRequestedPid,
           "the child whose registration refused",
@@ -111,11 +88,9 @@ describe("a spawn that refuses releases what it was already holding", () => {
   it(
     "negative control: spawning first and registering the removal after leaves the profile behind",
     async () => {
-      // THE SUPERSEDED SHAPE, written out as both spawners used to spell it: the
-      // spawn on one line and the removal's own settle-time registration on the
-      // next. The second line is unreachable code the moment the first one
-      // throws, which is what makes the case above a property of
-      // `spawnChildCleanedUpAtSettleTime` rather than of `rmSync` happening to run somewhere.
+      // The shape a spawner could spell: spawn, then register the removal. The second step
+      // never runs once the first throws, so the case above tests the guard and not an incidental
+      // `rmSync`.
       const registrar = new RefusingSettleRegistrar();
       const terminator = new ObservedTreeTerminator();
       const profile = heldProfile();

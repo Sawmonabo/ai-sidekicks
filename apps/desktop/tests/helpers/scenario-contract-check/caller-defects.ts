@@ -1,7 +1,5 @@
-// The caller identity a scenario states.
-//
-// One claim, and the defect it catches renders as nothing at all rather than as
-// anything wrong — which is why a predicate has to hold every scenario to it.
+// The caller identity a scenario states. The defect renders as nothing rather than as anything
+// wrong, so a predicate must hold every scenario to it.
 
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import type { Scenario } from "../../../fixtures/scenario.js";
@@ -9,15 +7,11 @@ import type { Scenario } from "../../../fixtures/scenario.js";
 /**
  * A stated caller who is not in the session, or `undefined` when the scenario is sound.
  *
- * `callerUserId` is what the caller-identity read answers with, and every
- * view that attributes what it renders to this window resolves it by looking that
- * id up in the session's own user projection. An id outside
- * `userIdsInJoinOrder` resolves to nothing there, so the window's own rows are
- * attributed to nobody — which is invisible in the fixture, because it looks exactly
- * like a session nobody is looking at.
- *
- * Scoped to scenarios that STATE one: an absent caller is the deliberate state the
- * fixture refuses the caller-identity read from, not a defect.
+ * `callerUserId` is what the caller-identity read answers with, and views resolve it against the
+ * session's user projection. An id outside `userIdsInJoinOrder` resolves to nothing, so the
+ * window's own rows are attributed to nobody, which looks like a session nobody is viewing.
+ * Only scenarios that state one are checked: an absent caller is the deliberate state in which
+ * the fixture refuses the caller-identity read.
  */
 export function describeCallerDefect(scenario: Scenario): ScenarioContractDefect | undefined {
   const { callerUserId } = scenario;

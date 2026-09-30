@@ -1,13 +1,11 @@
 // What a capture is allowed to contain, and when it may be replaced.
 //
-// Split from `process-tree-identity.test.ts` beside it because it is a different
-// question with a different failure. That file asks whether the root pid still
-// names the same PROCESS; this one takes that answer as given and asks about the
-// set the answer produces — the only handle a rootless tree has once its root is
-// gone. Each of its subjects is a way that set can be wrong while every stamp
-// comparison over there passes: a row that was never this tree's admitted into
-// it, a verified set erased by a reading that failed, and a set GROWN by the one
-// reading taken after the number stopped being this tree's to read.
+// Split from `process-tree-identity.test.ts`, which asks whether the root pid still names the same
+// process. This takes that answer as given and asks about the set it produces, the only handle a
+// rootless tree has once its root is gone. Each subject is a way that set can be wrong while every
+// stamp comparison there passes: a row never this tree's admitted, a verified set erased by a
+// failed reading, and a set grown by the one reading taken after the number stopped being this
+// tree's to read.
 
 import { describe, expect, it } from "vitest";
 
@@ -24,33 +22,26 @@ import {
 import { processTableOf } from "./process-table-fixture.test-support.js";
 
 /**
- * The tick-shaped stamps the ancestry cases are ordered by.
- *
- * `CreationDate.Ticks` is what the Windows listing emits and this is the
- * platform the ancestry proof is FOR, so the stale-claimant cases are written in
- * its own spelling rather than in a shape only this suite would ever see. The
- * genuine child is one tick after its root, which is the tightest ordering the
- * platform can express and the one a comparison written with `<=` would fail.
+ * The tick-shaped stamps the ancestry cases are ordered by. `CreationDate.Ticks` is what the
+ * Windows listing emits, and the ancestry proof is for that platform. The genuine child is one
+ * tick after its root, the tightest ordering it can express and the one a `<=` comparison would
+ * fail.
  */
 const ROOT_TICKS = "638600000000000000";
 const GENUINE_CHILD_TICKS = "638600000000000001";
 const CLAIMANT_TICKS = "638500000000000000";
 
-/** A process that outlived the pid's FORMER holder, and a child it started since. */
+/** A process that outlived the pid's former holder, and a child it started since. */
 const STALE_CLAIMANT_PID = 4245;
 const STALE_CLAIMANT_CHILD_PID = 4246;
 
 describe("process termination — a claimant that predates the root was never this tree's", () => {
-  // THE FINDING. Windows does not reparent, so a process whose parent exited
-  // keeps naming that parent's number for as long as it runs — including once
-  // the number has been handed to this tree's root. Its row is byte for byte a
-  // descendant's row, and the start-stamp check passes it: the claimant is
-  // still itself, it was simply never ours. Captured, it becomes a member of the
-  // rootless kill list and `taskkill` takes an unrelated long-lived process.
-  //
-  // The separating fact is an ORDER and not an equality, and it is the one rule
-  // about parenthood no kernel breaks: a child cannot have started before its
-  // parent.
+  // Windows does not reparent, so a process whose parent exited keeps naming that parent's number
+  // while it runs, including once the number is handed to this tree's root. Its row matches a
+  // descendant's and passes the start-stamp check, since the claimant is still itself; captured,
+  // it enters the rootless kill list and `taskkill` takes an unrelated long-lived process. The
+  // separating fact is an order, the one rule about parenthood no kernel breaks: a child cannot
+  // have started before its parent.
 
   /** The root's own stamp, taken at construction, read twice per case. */
   function identityOverTable(
@@ -82,11 +73,9 @@ describe("process termination — a claimant that predates the root was never th
   });
 
   it("drops what the claimant started too, because a stranger's child is a stranger", () => {
-    // The pruning is of the TABLE and not of the walk's result, which is the
-    // whole difference here: the claimant's own child was started after this
-    // root, so its stamp proves nothing at all — what convicts it is the row it
-    // hangs off, and a post-filter over the walk would keep it while dropping the
-    // only row that explains where it came from.
+    // The pruning is of the table, not the walk's result: the claimant's child started after this
+    // root, so its stamp proves nothing. What convicts it is the row it hangs off, and a
+    // post-filter would keep it.
     const identity = identityOverTable(
       processTableOf([
         [CAPTURED_CHILD_PID, CAPTURED_ROOT_PID, GENUINE_CHILD_TICKS],
@@ -103,13 +92,9 @@ describe("process termination — a claimant that predates the root was never th
   });
 
   it("negative control: a row it cannot place in the root's order is kept, not dropped", () => {
-    // THE FAILURE DIRECTION, and the reason this control is the one that matters.
-    // A prune that fired on an unreadable stamp would empty the only handle a
-    // rootless tree has on exactly the host whose readings do not work — which
-    // is a larger failure than the one above, and the same trade this module
-    // takes at every other stamp comparison. Three doubts in one table: no stamp
-    // at all, a stamp in an order this does not recognize, and a stamp in the
-    // OTHER recognized order.
+    // The failure direction: a prune that fired on an unreadable stamp would empty the only handle
+    // a rootless tree has on exactly the host whose readings do not work. Three doubts in one
+    // table: no stamp, an unrecognized order, and the other recognized order.
     const identity = identityOverTable(
       processTableOf([
         [CAPTURED_CHILD_PID, CAPTURED_ROOT_PID, undefined],
@@ -128,20 +113,18 @@ describe("process termination — a claimant that predates the root was never th
   });
 
   it("orders the two stamp spellings this package reads, and refuses to order anything else", () => {
-    // The proof itself, driven directly. `<` and not `<=`, because `ps -o lstart=`
-    // resolves to the second: a child started inside its parent's second reads
-    // EQUAL, and equal is not evidence of predating anything.
+    // The proof, driven directly. `<` not `<=`, because `ps -o lstart=` resolves to the second: a
+    // child started inside its parent's second reads equal, and equal is no evidence of predating.
     expect(startStampPrecedes(CLAIMANT_TICKS, ROOT_TICKS)).toBe(true);
     expect(startStampPrecedes(GENUINE_CHILD_TICKS, ROOT_TICKS)).toBe(false);
     expect(startStampPrecedes(ROOT_TICKS, ROOT_TICKS)).toBe(false);
     expect(startStampPrecedes("Sun Sep  7 02:25:09 2026", "Sun Sep  7 02:25:10 2026")).toBe(true);
     expect(startStampPrecedes("Sun Sep  7 02:25:10 2026", "Sun Sep  7 02:25:10 2026")).toBe(false);
-    // Eighteen digits is past what a double holds exactly, so a comparison that
-    // read these as numbers would call two different ticks the same instant.
+    // Eighteen digits is past what a double holds exactly, so a numeric comparison would call two
+    // different ticks the same instant.
     expect(startStampPrecedes("638600000000000000", "638600000000000001")).toBe(true);
-    // And the pairs it must refuse: either side missing, an unrecognized
-    // spelling, and — the one that would answer confidently and mean nothing —
-    // a tick count against a calendar instant.
+    // The pairs it must refuse: either side missing, an unrecognized spelling, and a tick count
+    // against a calendar instant, which would answer confidently and mean nothing.
     expect(startStampPrecedes(undefined, ROOT_TICKS)).toBe(false);
     expect(startStampPrecedes(CLAIMANT_TICKS, undefined)).toBe(false);
     expect(startStampPrecedes("child-at-spawn", ROOT_TICKS)).toBe(false);
@@ -150,21 +133,13 @@ describe("process termination — a claimant that predates the root was never th
 });
 
 describe("process termination — an unreadable refresh must not erase the capture", () => {
-  // THE FINDING. The refresh that runs at the root's `exit` is the last chance
-  // this tree has to record what it is made of, and it reads the host to do it.
-  // A read that times out or will not start answers with the unreadable
-  // SENTINEL — and assigning that answer replaced a verified capture with
-  // nothing at precisely the moment it became the only handle: the launcher is
-  // gone, the browser it started is alive, and the rootless arm is handed no
-  // member to address, so it refuses every attempt and the browser outlives the
-  // run.
-  //
-  // The sentinel is what makes that separable at all, and it is the same value
-  // the verdict path fails closed on: a listing that RAN and named no
-  // descendant is a reading and does shrink the set, while one that did not run
-  // is no reading. Stale and addressable beats verified and erased; a member
-  // that has since exited is filtered by the caller's own liveness pass either
-  // way.
+  // The refresh at the root's `exit` is the last chance to record what the tree is made of. A
+  // read that times out or will not start answers with the unreadable sentinel, and assigning it
+  // replaced a verified capture with nothing exactly when it became the only handle: the launcher
+  // is gone, the browser is alive, and the rootless arm has no member to address. The sentinel
+  // separates the cases: a listing that ran and named no descendant is a reading and shrinks the
+  // set; one that did not run is no reading. Stale and addressable beats verified and erased, and
+  // a member that has exited is filtered by the caller's liveness pass either way.
 
   const capturedTree = [{ processId: CAPTURED_CHILD_PID, startStamp: CHILD_STAMP }];
 
@@ -197,22 +172,18 @@ describe("process termination — an unreadable refresh must not erase the captu
       identity.capturedDescendants,
       "an unreadable refresh erased the verified capture — the rootless arm has nothing left to address",
     ).toStrictEqual(capturedTree);
-    // And what survived is still a KILL LIST rather than a remembered number:
-    // the pair verifies against the table the arm will read it under.
+    // What survived is still a kill list: the pair verifies against the table the arm will read it
+    // under.
     expect(verifyCapturedMembers(identity.capturedDescendants, CAPTURED_TREE_TABLE)).toStrictEqual([
       CAPTURED_CHILD_PID,
     ]);
   });
 
   it("negative control: a readable refresh that lists no descendant does shrink the set", () => {
-    // Without this the case above is ambiguous between "an unreadable refresh is
-    // ignored" and "the capture only ever grows", and the second would keep
-    // addressing a tree the host has demonstrably reported as gone — turning
-    // every later disposal into a walk over pids nothing claims. Both foils are
-    // driven, because the sentinel is what separates them: a listing carrying
-    // an unrelated row, and one carrying no row at all. The second passed only
-    // while emptiness was being read as unreadability, which is the inference
-    // the sentinel replaces.
+    // Guards the case above against "the capture only ever grows", which would keep addressing a
+    // tree the host reported gone. Both foils are driven because the sentinel separates them: a
+    // listing with an unrelated row, and one with no row, which passed only while emptiness was
+    // read as unreadability.
     for (const readableListing of [processTableOf([[9999, 1, "unrelated"]]), processTableOf([])]) {
       let table: ReadonlyMap<number, ProcessTableRow> | undefined = CAPTURED_TREE_TABLE;
       const { identity } = identityAfterAVerifiedCapture(() => table);
@@ -226,19 +197,12 @@ describe("process termination — an unreadable refresh must not erase the captu
 });
 
 describe("process termination — the reading after the root's exit may only remove", () => {
-  // THE FINDING, AND IT IS A WINDOW RATHER THAN A COMPARISON. The refresh that
-  // ran at the root's `exit` RECORDED what the listing said, and by that event
-  // the process has been reaped: Node has closed the handle it held, so from
-  // that instant the operating system may hand the number to something else. A
-  // listing taken from there can carry rows a NEW holder of the number fathered
-  // inside the window the listing itself takes, and nothing in such a row tells
-  // them apart from this tree's — same parent pid, and a start stamp AFTER the
-  // original root's, so the ancestry proof admits them. Handed to
-  // `taskkill /t`, that is an unrelated tree this package never spawned.
-  //
-  // No filter over the rows closes it, which is why the fix is a rule about
-  // WHEN: the set is recorded while the root is verifiably still held, and the
-  // exit-time reading is narrowed to an INTERSECTION that can only remove.
+  // A window, not a comparison. By the root's `exit` the process is reaped and the OS may hand the
+  // number to something else, so a listing from there can carry rows a new holder fathered,
+  // indistinguishable from this tree's (same parent pid, a start stamp after the original root's)
+  // and handed to `taskkill /t` they are an unrelated tree. No row filter closes it, so the fix is
+  // a rule about when: the set is recorded while the root is verifiably held, and the exit-time
+  // reading is an intersection that can only remove.
 
   /** The reused number's new holder, and the two children it has started since. */
   const NEW_HOLDER_CHILD_PID = 5551;
@@ -267,9 +231,8 @@ describe("process termination — the reading after the root's exit may only rem
   }
 
   it("admits nothing the live capture did not already name", () => {
-    // The whole defect in one table: the root's number has been reissued, and
-    // its new holder has children of its own whose stamps postdate the original
-    // root. A capture taken here records them; an intersection cannot.
+    // The root's number has been reissued and its new holder has children whose stamps postdate
+    // the original root: a capture here records them, an intersection cannot.
     const identity = identityCapturedThenSeeing(
       processTableOf([
         [CAPTURED_CHILD_PID, CAPTURED_ROOT_PID, GENUINE_CHILD_TICKS],
@@ -287,8 +250,7 @@ describe("process termination — the reading after the root's exit may only rem
   });
 
   it("drops a captured member whose number has since been handed to a stranger", () => {
-    // The one thing an intersection IS for. The member is still listed, so a
-    // liveness pass would keep addressing it, and the pid is now a stranger's.
+    // What an intersection is for: the member is still listed, but its pid is now a stranger's.
     const identity = identityCapturedThenSeeing(
       processTableOf([[CAPTURED_CHILD_PID, 1, AFTER_THE_EXIT_TICKS]]),
     );
@@ -299,9 +261,7 @@ describe("process termination — the reading after the root's exit may only rem
   });
 
   it("keeps the set when the exit-time listing cannot be read at all", () => {
-    // The sentinel again, and the same trade the live capture takes: a reading
-    // that did not happen removes nobody, because stale-and-addressable beats
-    // verified-and-erased on exactly the host whose readings do not work.
+    // Same trade as the live capture: a reading that did not happen removes nobody.
     const identity = identityCapturedThenSeeing(undefined);
 
     identity.narrowCapturedDescendants();
@@ -312,9 +272,8 @@ describe("process termination — the reading after the root's exit may only rem
   });
 
   it("spends no host query when nothing was captured", () => {
-    // The POSIX teardown is this case on every run: nothing is ever captured
-    // there, and an intersection over no members can remove nobody — so the
-    // blocking listing is not taken, rather than taken and discarded.
+    // The POSIX teardown is this case on every run: nothing is captured there, so the blocking
+    // listing is not taken.
     let listings = 0;
     const identity = new SpawnedTreeIdentity(
       CAPTURED_ROOT_PID,

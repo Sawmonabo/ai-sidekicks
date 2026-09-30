@@ -1,34 +1,16 @@
-// The independent variables a termination decision reads, as a vocabulary.
-//
-// The role split `termination-failure-matrix.test.ts` was carved into: this
-// module is the AXES, `termination-matrix-tools.test-support.ts` is the scripted
-// platform, `termination-matrix-catalog.test-support.ts` is the table, and the
-// suite itself is the assertion. They were one file, and the assertions began
-// after five hundred lines of setup — which is a file doing four jobs, and the
-// one job a reader opens it for was the last of them.
-//
-// THE FIVE AXES, AND WHY THESE FIVE. They are what the termination decision
-// actually reads: what the root PID names (it is the handle a tree is addressed
-// through, and it names this tree's root, nothing, an unrelated process that
-// inherited the number, or nothing while this host still hangs rows off it), what
-// the PLATFORM said about the kill, which MECHANISM this platform's tree kill is
-// (a delivered group signal, or `taskkill` walking a descendant tree), what is
-// left RUNNING, and whether the settle-time REGISTRATION that owns the retry was
-// accepted. Every value is declared here, where the suite's coverage control can
-// read it; a cell whose axis value nothing else carries is exactly what that
-// control exists to notice.
+// The variables a termination decision reads, as a vocabulary: what the root pid names, what the
+// platform said about the kill, which mechanism this platform's tree kill is, what is still
+// running, and whether the settle-time registration that owns the retry was accepted. Declared
+// here so the suite's coverage control can read every value. The assertion is
+// `termination-failure-matrix.test.ts`, the scripted platform is
+// `termination-matrix-tools.test-support.ts`, and the table is
+// `termination-matrix-catalog.test-support.ts`.
 
 /**
- * What the root pid names when termination is asked for.
- *
- * `recycled` is the state that is not about this tree at all: the root exited,
- * was reaped, and the operating system handed its number to an unrelated
- * process. `reaped-with-a-stale-parent-row` is its quieter twin — the number
- * names NOTHING, and this host still lists a live process that recorded it as a
- * parent, because Windows retains that column after a parent exits and a child
- * of the pid's FORMER holder is indistinguishable from this tree's own. Both are
- * states of the PID rather than of the root, which is why they belong on this
- * axis — every reading a termination takes is taken through that number.
+ * What the root pid names when termination is asked for. `recycled` is the root reaped and its
+ * number handed to an unrelated process; `reaped-with-a-stale-parent-row` is the number naming
+ * nothing while the host still lists a live process that recorded it as parent (Windows keeps
+ * that column after a parent exits), so a child of the pid's former holder looks like this tree's.
  */
 export type RootState =
   | "alive"
@@ -38,12 +20,9 @@ export type RootState =
   | "recycled";
 
 /**
- * What the platform said about the kill this path issued.
- *
- * `never-asked` is a fourth answer rather than a shade of refusal: a path that
- * declines to signal at all and one that signaled and was refused are different
- * facts, and conflating them would let a cell asserting "the stranger was never
- * touched" be satisfied by one that touched it and lost.
+ * What the platform said about the kill this path issued. `never-asked` is not a refusal: a path
+ * that declines to signal and one that signaled and lost are different facts, and conflating them
+ * would let "the stranger was never touched" pass for one that touched it.
  */
 export type PlatformAnswer =
   | "delivered"
@@ -55,17 +34,12 @@ export type PlatformAnswer =
 export type TreeMode = "signal" | "external";
 
 /**
- * What is still able to run once the kill has been issued.
- *
- * `unobservable` is not "nothing": it is a tree there is no reading to take of
- * in either direction, which happens two ways — a root pid that belongs to
- * somebody else with nothing captured while it did not, and a host whose process
- * listing will not answer at all, which leaves a live descendant real and
- * unnameable. `unverifiable-claimant` is the other
- * side of that coin — a live process this host hangs off the former root pid
- * that this tree cannot vouch for, which must be neither killed (it may be a
- * stranger) nor ignored (it may be ours). Both owe a refusal, because absence of
- * evidence is the one thing this path must never report as a clean tree.
+ * What can still run once the kill has been issued. `unobservable` is not `nothing`: no reading
+ * can be taken, either because the root pid belongs to somebody else with nothing captured, or
+ * because the host's process listing will not answer. `unverifiable-claimant` is a live process
+ * hanging off the former root pid that this tree cannot vouch for: neither killable (it may be a
+ * stranger) nor ignorable (it may be ours). Both owe a refusal, since absence of evidence is
+ * never a clean tree.
  */
 export type SurvivingMember =
   | "nothing"
@@ -87,11 +61,9 @@ export interface TerminationAxes {
 }
 
 /**
- * One cell: the state, the verdict it owes, and the real code that answers.
- *
- * `owedTermination` is `true` only where nothing that could still execute is
- * left — a `false` costs a retry and a wrong `true` costs an Electron that
- * outlives the run, so a cell whose answer is uncertain owes `false`.
+ * One cell: the state, the verdict it owes, and the real code that answers. `owedTermination` is
+ * `true` only where nothing that could still execute is left; a `false` costs a retry and a wrong
+ * `true` costs an Electron that outlives the run, so an uncertain cell owes `false`.
  */
 export interface TerminationCell {
   readonly name: string;

@@ -1,27 +1,11 @@
 // The one act-wrapped settle, and the one derived debounce bound.
 //
-// Nine suites wrote this loop, differing only in the bound they passed (3, 3, 3, 4,
-// 4, 4, 6, 8) and in nothing else — same `act`, same wait, same shape. A loop written
-// nine times is a loop fixed once: a component that grows one more chained effect gets
-// its own copy raised, and the eight that flush one pass too few then assert against
-// a tree one settlement behind, intermittently, because the short count wins on a
-// fast machine.
-//
-// THE BOUND IS GONE, AND ITS ABSENCE IS THE POINT. Those eight numbers were tuned
-// against whatever promise chain each case happened to be written over, which is the
-// defect a counted flush always has: a reply that grows
-// one link deeper stops being waited for, and the case then reports the ABSENCE of an
-// answer that was merely still in flight — silent in exactly the direction that
-// matters, because a presence claim fails loudly and an absence claim goes quietly
-// green. So the wait is a BOUNDARY: `crossMacrotaskBoundary` beside this module
-// resolves on a macrotask, by which time every pending microtask chain has run
-// whatever its depth, and no caller has to say how deep its own runs.
-//
-// WHAT IS SHARED IS THE SCOPE. `act` around that boundary, so React flushes the
-// effects each pass schedules — a state write raised from a promise callback outside
-// React's scope is applied without the surrounding commit, and an assertion taken
-// next reads the render before it. The boundary alone, for a case already inside an
-// `act` body, is the sibling module's own export.
+// The settle waits on a boundary, not a counted number of microtask passes: a hard-coded count is
+// tuned to one case's promise chain, and when a reply grows one link deeper the case stops waiting
+// and reports the absence of an answer still in flight, which goes quietly green.
+// `crossMacrotaskBoundary` resolves on a macrotask, by which time every pending microtask chain
+// has run at any depth. `act` wraps it so React flushes the effects each pass schedules; a case
+// already inside an `act` body uses the sibling module's boundary alone.
 
 import { act } from "@testing-library/react";
 
@@ -31,10 +15,8 @@ import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 /**
  * Let every queued continuation reach React state, inside `act`.
  *
- * One microtask turn is not enough wherever an arrival settles an effect that
- * schedules the next one, which is every asynchronous read this console performs —
- * and a fixed number of turns is not enough either, which is why this crosses a
- * macrotask boundary instead of counting.
+ * One microtask turn is not enough where an arrival settles an effect that schedules the next,
+ * and neither is a fixed count, so this crosses a macrotask boundary.
  */
 export async function settle(): Promise<void> {
   await act(async () => {
@@ -43,11 +25,7 @@ export async function settle(): Promise<void> {
 }
 
 /**
- * A wait long enough to carry a debounced read past its window, derived once.
- *
- * Roughly twenty-five test sites restated this as the literal `500`. Raise
- * `REFRESH_DEBOUNCE_MS` and every one of them advances past nothing, the debounced
- * read never fires, and the cases fail naming a settlement rather than the constant
- * that moved. Derived here, they move with it.
+ * A wait long enough to carry a debounced read past its window, derived from
+ * `REFRESH_DEBOUNCE_MS` so a raised debounce moves every caller with it.
  */
 export const PAST_REFRESH_DEBOUNCE_MS: number = REFRESH_DEBOUNCE_MS * 2;

@@ -1,7 +1,5 @@
-// The preview pane, mounted once for the screenshot and accessibility tiers.
-//
-// The body comes out of a pane registry the preview feature registers into, so a tier
-// renders the body the pane layout would mount, with the stylesheets it brings.
+// The preview pane, mounted once for the screenshot and accessibility tiers, with the body the
+// pane registry resolves so a tier renders what the pane layout would mount.
 
 import type { FunctionComponent } from "react";
 

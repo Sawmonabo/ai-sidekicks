@@ -1,16 +1,7 @@
-// The wrapped call arm: what a suite decides, and what it leaves to the scenario.
+// `withDaemonCall`: a suite decides one method's answer and leaves the rest to the scenario.
 //
-// `withDaemonCall` spreads an answer of the suite's own over a REAL bridge, which is
-// the console's established shape for driving one namespace member. The gap it left
-// was that the arm answered EVERY method: a suite that cared about one call had to
-// invent replies for the rest, and the only shape available for that is the
-// hand-written stub this helper exists to keep out of a suite meant to reach a real
-// bridge. So the answer is handed the wrapped bridge's own call, and this file is
-// where that delegation is held to what it claims.
-//
-// The bridge under test is the real fixture over a re-scripted concurrent-streaming, so the
-// passed-through reply is one the scenario actually serves rather than a second stub
-// standing in for one.
+// The bridge under test is the real fixture over a re-scripted concurrent-streaming scenario, so
+// a passed-through reply is one the scenario actually serves.
 
 import { describe, expect, it } from "vitest";
 
@@ -25,7 +16,7 @@ import {
 import type { Scenario } from "../../fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
-/** The concurrent-streaming scenario script with its one read answered immediately, so no clock is spent. */
+/** The concurrent-streaming script with its one read answered at once, so no clock is spent. */
 function scenarioAnsweringImmediately(): Scenario {
   return {
     ...CONCURRENT_STREAMING_SCENARIO,
@@ -54,8 +45,8 @@ describe("withDaemonCall — one decided method, the rest left to the scenario",
   });
 
   it("hands a passed-through call the wrapped bridge's own scripted reply", async () => {
-    // The claim: the delegation reaches the bridge this helper WRAPPED. An arm that
-    // reached the arm it is building would never settle at all.
+    // The delegation must reach the bridge this helper wrapped; an arm reaching itself never
+    // settles.
     const { bridge } = bridgeDecidingOneCall();
 
     expect(await callBridge(bridge, DELAYED_CALL)).toStrictEqual(DELAYED_RESULT);
@@ -86,9 +77,8 @@ describe("withDaemonCall — one decided method, the rest left to the scenario",
   });
 
   it("negative control: an arm that ignores the pass-through answers its own value", async () => {
-    // Without this the case above would also pass against a scenario that happens to
-    // serve what the suite decided. Same call, same bridge, one difference — the arm
-    // does not delegate — and the scripted reply is nowhere in the answer.
+    // Guards the case above, which would also pass if the scenario served what the suite decided:
+    // same call and bridge, but the arm does not delegate, so the scripted reply is absent.
     const { bridge } = withDaemonCall(
       createFixture(scenarioAnsweringImmediately()).bridge,
       async () => DECIDED_RESULT,

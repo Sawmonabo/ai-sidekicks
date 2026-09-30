@@ -1,22 +1,14 @@
-// The tab strip's drag, against a real `DataTransfer` and a real cascade.
+// The tab strip's drag, against a real `DataTransfer` and a real cascade. happy-dom's drag
+// events carry no `DataTransfer`, so the co-located cases use a hand-rolled stand-in that
+// decides what `types`, `getData` and `effectAllowed` do; they prove the strip's arithmetic,
+// not how it handles the real object. Two things here are the browser's:
 //
-// This belongs to the browser tier and can belong nowhere else, and the reason is the
-// unit suite's own scaffolding: happy-dom's drag events carry no `DataTransfer` at
-// all, so the co-located cases hand the strip a hand-rolled stand-in. That stand-in is
-// the INPUT to everything they assert — it decides what `types` contains, what
-// `getData` returns, and whether assigning `effectAllowed` sticks — so those cases
-// prove the strip's arithmetic and prove nothing about the object it will actually be
-// handed. Two things here are the browser's and not a stub's:
-//
-//   • THE CLIPBOARD STORE. `setData` converts the format to ASCII lowercase, `types`
-//     is the browser's own list rather than one this file built, and a private MIME
-//     type is only useful if it survives that round trip intact. The strip's writer
-//     and its two readers are one seam, and this drives all three ends of it.
-//   • THE CASCADE. The drop marker and the selected-tab mark are both one declaration
-//     in `browser/pane/chrome/chrome.css`, and a rule whose selector matches nothing computes to the
-//     same value as a rule that was never written. No unit tier can tell those apart,
-//     and the selected-tab rule was in exactly that state — keyed on an `aria-current`
-//     the item never carries, because the attribute belongs on the face inside it.
+// - The clipboard store: `setData` lowercases the format, `types` is the browser's own list,
+//   and a private MIME type must survive that round trip. The strip's writer and its two
+//   readers are one seam, and this drives all three ends.
+// - The cascade: the drop marker and the selected-tab mark are declarations in
+//   `PageTabStrip.css`, and a rule whose selector matches nothing computes to the same value as
+//   one never written. No unit tier can tell those apart.
 
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -32,13 +24,7 @@ import { PAGE_TAB_DRAG_MEDIA_TYPE } from "@renderer/features/preview/tab-reorder
 // The preview feature's pane registration, imported for its side effect.
 import "@renderer/features/preview/contributions/panes.js";
 
-/**
- * What an unselected tab's border computes to — the base rule's own `transparent`.
- *
- * Written as the resolved value rather than the keyword because `getComputedStyle`
- * resolves `transparent` to this, and the case is about what the browser computed and
- * not about how the sheet spelled it.
- */
+/** An unselected tab's computed border color: `getComputedStyle` resolves `transparent` to it. */
 const TRANSPARENT_BORDER = "rgba(0, 0, 0, 0)";
 
 /** What the strip reported, so a case can assert the translated move index. */
@@ -67,18 +53,13 @@ async function mountStrip(): Promise<DraggedStrip> {
 }
 
 /**
- * Dispatch one real drag event, let the render it caused land, and report whether the
- * strip claimed it.
+ * Dispatch one real drag event, let the render it caused land, and report whether the strip
+ * claimed it. `dispatchEvent` answers `false` exactly when a listener called `preventDefault`,
+ * which for `dragover` is the acceptance: without it the element is not a drop target.
  *
- * `dispatchEvent` answers `false` exactly when a listener called `preventDefault`,
- * which for `dragover` IS the acceptance: an element that does not prevent the
- * default is not a drop target and the drop never fires there.
- *
- * THE SETTLE IS NOT OPTIONAL AND IT IS NOT A TIMING TWEAK. React treats `dragover` as
- * a continuous event, so the state it sets is scheduled rather than flushed the way a
- * click's is — a case that read the computed style straight after the dispatch would
- * measure the frame BEFORE the marker, and report "the marker does not paint" for a
- * strip that paints it correctly one frame later.
+ * The settle is required: React treats `dragover` as a continuous event, so its state is
+ * scheduled rather than flushed, and an immediate style read would see the frame before the
+ * marker.
  */
 async function dispatchDrag(
   target: HTMLElement,
@@ -104,16 +85,11 @@ describe("dragging a tab, against the browser's own drag store", () => {
     const strip = await mountStrip();
     const transfer = new DataTransfer();
     await dispatchDrag(strip.tabs[0] as HTMLElement, "dragstart", transfer);
-    // The browser's list, not one this file built: the writer put the type on and the
-    // store kept it under exactly that key.
+    // The browser's list, not one this file built.
     //
-    // `effectAllowed` is deliberately NOT asserted, and the reason is a limit of this
-    // harness rather than a gap in the writer. Chromium honors that setter only while
-    // a genuine user drag is in flight; a `DragEvent` this file constructs and
-    // dispatches is not one, so the assignment is dropped and the property reads
-    // `"none"` however the writer behaves. An assertion that cannot fail for the right
-    // reason cannot pass for it either — the cursor shape it governs is verified by
-    // dragging a tab, and by nothing that runs unattended.
+    // `effectAllowed` is not asserted: Chromium honors that setter only during a genuine user
+    // drag, so for a `DragEvent` this file dispatches it reads `"none"` however the writer
+    // behaves. The cursor shape it governs is checked by dragging a tab by hand.
     expect([...transfer.types]).toContain(PAGE_TAB_DRAG_MEDIA_TYPE);
     expect(transfer.getData(PAGE_TAB_DRAG_MEDIA_TYPE)).toBe("page-a");
 
@@ -144,20 +120,16 @@ describe("dragging a tab, against the browser's own drag store", () => {
     const strip = await mountStrip();
     const selected = strip.tabs[0] as HTMLElement;
     const neighbor = strip.tabs[1] as HTMLElement;
-    // The neighbor is asserted at the base rule's own transparent value rather than
-    // only as "different from the selected one". Inequality alone passes for a rule
-    // that stopped matching in EITHER direction — the defect this case was written
-    // after was a selector that matched nothing — so the unselected side is pinned to
-    // a value and the selected side is held away from it.
+    // The neighbor is pinned to the transparent value, not only "different from the selected
+    // one": inequality alone passes for a rule that stopped matching in either direction.
     expect(getComputedStyle(neighbor).borderTopColor).toBe(TRANSPARENT_BORDER);
     expect(getComputedStyle(selected).borderTopColor).not.toBe(TRANSPARENT_BORDER);
   });
 
   it("negative control: a drag carrying another type is not this strip's", async () => {
-    // The whole reason the payload is a private MIME type. A drag the strip accepted
-    // by mistake would reorder a tab from a file dropped out of the desktop, and a
-    // drop the strip claimed and could not read would swallow it from whatever else
-    // in the window would have taken it.
+    // Why the payload is a private MIME type: a stray drag the strip accepted would reorder a
+    // tab from a file dropped in from the desktop, and a drop it claimed but could not read
+    // would swallow it from whatever else in the window would have taken it.
     const strip = await mountStrip();
     const foreign = new DataTransfer();
     foreign.setData("text/plain", "page-a");

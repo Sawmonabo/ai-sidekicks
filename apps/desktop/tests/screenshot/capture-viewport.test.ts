@@ -1,26 +1,15 @@
-// The capture-window rule's own controls.
+// The capture-window rule's own controls. The rule decides four things, two of them refusals, so
+// every case drives the real rule with inputs that reach each arm. The DOM read that produces its
+// `required` argument is `settled-capture.ts`'s, with a pixel probe in `tall-capture.test.ts`.
 //
-// The rule decides four things and two of them are refusals, so a suite that only
-// ever handed it an element which already fits would prove what a function returning
-// one arm unconditionally proves. Every case here drives the real rule; the DOM
-// read that produces its `required` argument is `settled-capture.ts`'s and has the
-// probe in `tall-capture.test.ts` behind it, which reads the captured pixels rather
-// than the arithmetic.
+// The third arm is driven on both sides of its confirmation. An element sized by its window and
+// one that reflowed once while the first window was opening show the same non-closing overhang on
+// one observation; the pair of cases keeps them apart, and a rule that armed on the first
+// observation passes every other case.
 //
-// THE THIRD ARM IS DRIVEN ON BOTH SIDES OF ITS CONFIRMATION. An element sized by its
-// window and an element that reflowed once while the first window was opening show the
-// SAME non-closing overhang on one observation, and the pair of cases below is what
-// keeps them apart: the reflow is grown for and then fits, the coupled element hangs
-// over by the same constant again and takes the arm. A rule that armed on the first
-// observation passes every other case in this file.
-//
-// AND THE SECOND SUITE DRIVES WHAT THAT WINDOW COSTS IN TIME. The stability wait is
-// the same window read as work, so its cases sit beside the sizing ones. All three
-// turn on one rounding, which is exactly the shape a suite of whole-number inputs
-// would report clean on: one holds the wait a capture that fits has always had, one
-// asks what a fractional hold buys, and one asks what a hold SMALLER than the window
-// does — the case that separates rounding up from rounding down, and the only one
-// that would notice a small capture being given a fraction of the tier's wait.
+// The wait suite drives what the window costs in time. All three cases turn on one rounding,
+// which whole-number inputs would report clean on: the wait of a capture that fits, a fractional
+// hold, and a hold smaller than the window (which separates rounding up from rounding down).
 
 import { describe, expect, it } from "vitest";
 
@@ -42,9 +31,8 @@ describe("the window a capture opens", () => {
   });
 
   it("grows to an element taller than the window, keeping the width", () => {
-    // The width is carried rather than taken from `required`: a capture never widens
-    // its window, and an element narrower than the page must not shrink it either —
-    // the console would relayout and the capture would pin a different element.
+    // The width is carried, not taken from `required`: a capture never widens its window, and an
+    // element narrower than the page must not shrink it, or the console would relayout.
     expect(
       captureWindowStep(CONSOLE_WINDOW, { width: 1200, height: 2050 }, [], "repos-diff-pane-light"),
     ).toStrictEqual({
@@ -55,9 +43,8 @@ describe("the window a capture opens", () => {
   });
 
   it("grows again while the overhang is still closing", () => {
-    // An element that answered the first grow with a taller box — a deferred image
-    // landed, a container reflowed — is still worth growing for, because the gap it
-    // leaves is smaller than the one before it.
+    // An element that answered the first grow with a taller box (a deferred image landed, a
+    // container reflowed) is still worth growing for, since its gap is smaller than before.
     expect(
       captureWindowStep(
         { width: 1440, height: 2050 },
@@ -69,13 +56,11 @@ describe("the window a capture opens", () => {
   });
 
   it("grows for an overhang that failed to close on its first showing", () => {
-    // THE MISREAD THIS COSTS, and the reason the arm below is confirmed rather than
-    // taken. A grow is itself a layout change, so a deferred image can land during the
-    // settle and add back as much as the window just gained: the box was 2 050 in a
-    // 900 px window, the window opened to 2 050, and the image took it to 3 250. One
-    // non-closing overhang is all an element sized BY its window shows either, and
-    // reading this one as that put the window back and photographed the element with
-    // 1 200 px of unpainted tail — the defect the whole module exists to refuse.
+    // A grow is itself a layout change: a deferred image can land during the settle and add back
+    // as much as the window gained (box 2 050 in a 900 px window, window opened to 2 050, image
+    // took it to 3 250). One non-closing overhang is also what an element sized by its window
+    // shows, and reading it as that would restore the window and photograph 1 200 px of unpainted
+    // tail.
     expect(
       captureWindowStep(
         { width: 1440, height: 2050 },
@@ -87,9 +72,7 @@ describe("the window a capture opens", () => {
   });
 
   it("reports that element as fitting on the pass the second grow buys", () => {
-    // The other half of the same claim: the element that was misread is now in a
-    // window that holds it, which is the capture the arm was replacing with a restored
-    // window and a blank band.
+    // The misread element now sits in a window that holds it.
     expect(
       captureWindowStep(
         { width: 1440, height: 3250 },
@@ -101,12 +84,10 @@ describe("the window a capture opens", () => {
   });
 
   it("stops on an element whose overhang did not close twice over, and says how far it hangs", () => {
-    // The console's two full-height destinations: `min-height: 100%` around 32px of
-    // their own padding, so each measures 64px past whatever window it is in — at 900,
-    // at 964, and again at 1 028. That third measurement is what separates them from
-    // the reflow above. The arm carries the overhang because that figure is the whole
-    // claim — it is the band no window paints, and it is the element's padding rather
-    // than its content.
+    // The console's two full-height destinations are `min-height: 100%` around 32px of padding,
+    // so each measures 64px past whatever window it is in (at 900, 964 and 1 028). The third
+    // measurement separates them from the reflow above. The arm carries the overhang because it
+    // is the band no window paints, and it is the element's padding, not its content.
     expect(
       captureWindowStep(
         { width: 1440, height: 1028 },
@@ -118,10 +99,9 @@ describe("the window a capture opens", () => {
   });
 
   it("stops on an element whose overhang grew rather than closing", () => {
-    // The other half of the same conjunct. `>=` rather than `===` because an element
-    // that hangs over FURTHER after a grow is tracking its window at more than 1:1,
-    // and chasing that one is how a loop reaches the ceiling on an element nothing
-    // was ever going to hold.
+    // `>=` rather than `===`: an element that hangs over further after a grow tracks its window
+    // at more than 1:1, and chasing it is how a loop reaches the ceiling on an element nothing
+    // would hold.
     expect(
       captureWindowStep(
         { width: 1440, height: 1100 },
@@ -144,8 +124,8 @@ describe("the window a capture opens", () => {
   });
 
   it("takes an element of exactly the ceiling", () => {
-    // The boundary in the direction that matters: a rule written with `>=` would
-    // refuse the tallest window it is built to open.
+    // The boundary in the direction that matters: `>=` would refuse the tallest window the rule
+    // opens.
     expect(
       captureWindowStep(
         CONSOLE_WINDOW,
@@ -161,10 +141,9 @@ describe("the window a capture opens", () => {
   });
 
   it("refuses a suspected coupling whose confirming grow would pass the ceiling", () => {
-    // The order the rule states, on the side that is still a guess: an element that has
-    // hung over ONCE is not yet known to track its window, and exempting it from the
-    // ceiling to spare it the second grow is the misread above wearing the arm's name.
-    // So a confirming grow is bounded like any other, and the refusal names the height.
+    // An element that has hung over once is not yet known to track its window, and exempting it
+    // from the ceiling would be the misread above. A confirming grow is bounded like any other,
+    // and the refusal names the height.
     expect(() => {
       captureWindowStep(
         { width: 1440, height: 2900 },
@@ -176,10 +155,9 @@ describe("the window a capture opens", () => {
   });
 
   it("takes the third arm on a confirmed coupling the ceiling would have refused", () => {
-    // And the side that is not a guess. Two non-closing overhangs prove no window
-    // holds this element, so it is photographed at the tier's own window — where it is
-    // nowhere near the ceiling — rather than refused for a height it only ever has in
-    // the window the loop climbed to.
+    // The side that is not a guess: two non-closing overhangs prove no window holds this element,
+    // so it is photographed at the tier's own window rather than refused for a height it only has
+    // in the window the loop climbed to.
     expect(
       captureWindowStep(
         { width: 1440, height: 2900 },
@@ -202,8 +180,7 @@ describe("the window a capture opens", () => {
   });
 
   it("names the capture in every refusal", () => {
-    // A tier that pins dozens of captures reports a failure with no other way to
-    // say which one was being taken.
+    // A tier that pins dozens of captures has no other way to say which one was being taken.
     expect(() => {
       captureWindowStep(
         CONSOLE_WINDOW,
@@ -217,27 +194,21 @@ describe("the window a capture opens", () => {
 
 describe("how long a capture of that window is given to settle", () => {
   it("gives a viewport-sized capture the tier's own wait", () => {
-    // The unchanged case, and the reason this is a multiplier rather than a raise:
-    // every capture that fits in the window is still compared under exactly the
-    // five seconds it has always had, so nothing about a capture that was never slow
-    // is being made more patient.
+    // The unchanged case, and why this is a multiplier rather than a raise: a capture that fits
+    // keeps the five seconds it always had.
     expect(stabilityWaitMsFor(1)).toBe(STABILITY_WAIT_PER_VIEWPORT_MS);
   });
 
   it("rounds a fractional hold up to the whole window it does work in", () => {
-    // 2.05 windows is three windows of encoding and three of comparison in whichever
-    // pass reaches the last rows, so the budget is three windows' worth. A rule that
-    // rounded down would fund 2 of the 2.05 and fail on the fraction it did not.
+    // 2.05 windows is three windows of encoding and comparison in whichever pass reaches the last
+    // rows; rounding down would fund 2 and fail on the fraction.
     expect(stabilityWaitMsFor(2.05)).toBe(STABILITY_WAIT_PER_VIEWPORT_MS * 3);
   });
 
   it("gives a capture smaller than the window the whole wait rather than a fraction", () => {
-    // The floor, which the rounding is rather than something written beside it. A
-    // element half a window tall is `0.5`, and a rule that multiplied by it — or that
-    // rounded the other way — would hand a small capture a fraction of the wait the
-    // tier has always given it, so a change meant to make one class of capture more
-    // patient would quietly make every small one less so. Planted: rounding DOWN here
-    // gives 0 ms, and this is the only case that says so.
+    // The floor is the rounding itself. A half-window element has ratio 0.5, and multiplying by it
+    // or rounding down would hand small captures a fraction of the wait. Rounding down gives 0 ms,
+    // and this is the only case that says so.
     expect(stabilityWaitMsFor(0.5)).toBe(STABILITY_WAIT_PER_VIEWPORT_MS);
   });
 });

@@ -1,13 +1,6 @@
-// What every fixture-bridge suite needs before it can ask the bridge anything.
-//
-// One home for the roles more than one of the sibling suites plays: the fixture and
-// the engine driving it, the two ways a view reaches that bridge — a subscription
-// and a call — and the bridge whose call arm a suite decides the answer for. It
-// holds nothing a single suite uses: the scripts each concern re-writes, and the
-// constants only one of them reads, stay beside their reader.
-//
-// The macrotask wait the settling cases use is a timing helper, so it lives in
-// `macrotask-boundary.ts`.
+// What every fixture-bridge suite needs before it can ask the bridge anything: the fixture and
+// its engine, the subscribe and call helpers, and bridges whose call or subscribe arm a suite
+// decides. Roles only one suite uses stay beside it.
 
 import type {
   DaemonEvent,
@@ -38,6 +31,7 @@ export const DELAYED_RESULT: { readonly agents: readonly unknown[] } = { agents:
 /** The run this file's run-transition beats are about. */
 export const PROBE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
 
+/** The fixture bridge and the engine driving its scenario. */
 export interface FixtureUnderTest {
   readonly bridge: PlatformBridge;
   readonly engine: ScenarioEngine;
@@ -56,12 +50,8 @@ export interface BridgeUnderTest {
 }
 
 /**
- * One run-transition beat, in the shape the shipped scenarios script one.
- *
- * Here rather than in either suite because both of them script transitions and
- * neither owns the shape: the run-stream delivery suite drives it through the
- * bridge and the projector suite drives it directly, and two copies would drift on
- * the day the envelope grows a member.
+ * One run-transition beat in the shape the shipped scenarios script one. Shared because the
+ * run-stream delivery suite and the projector suite both script transitions.
  */
 export function runTransitionBeat(payload: Readonly<Record<string, unknown>>): ScenarioBeat {
   return {
@@ -78,12 +68,8 @@ export function runTransitionBeat(payload: Readonly<Record<string, unknown>>): S
 }
 
 /**
- * The tick a scenario's last beat falls due at.
- *
- * Read off the script rather than written as a number, because the scenarios'
- * scripts grow: a hardcoded "past every beat" tick silently stops covering the tail
- * the day a feature scripts a beat past it, and a case that was asserting over the
- * whole script starts asserting over a prefix of it and still passes.
+ * The tick a scenario's last beat falls due at, read off the script so a case asserting "past
+ * every beat" keeps covering the tail when a scenario grows.
  */
 export function lastScriptedBeatMs(scenario: Scenario): number {
   return scenario.beats.reduce((latest, beat) => Math.max(latest, beat.atMs), 0);
@@ -98,21 +84,14 @@ export function createFixture(
 }
 
 /**
- * Subscribe through the bridge exactly as a view would, scoped to the session the scenario
- * plays: the whole-session stream and both run streams are session-scoped, and a bare event
- * type is the fixture's own arm, which takes the same request.
+ * Subscribe through the bridge as a view would, scoped to the scenario's session.
  *
- * The event name is cast to `DaemonEvent` and the payload left `unknown`: the suites name
- * streams by string, including the bare event types the daemon's method map does not list,
- * and each names what it expects to receive through the type parameter below.
- *
- * The delivered type is a PARAMETER because the answer depends on the name: a bare
- * event type delivers the canonical `EventEnvelope`, the whole-session stream
- * delivers frames of them (read those through {@link subscribeToSessionStream}), and
- * the two narrowed run streams deliver the registered projection. Defaulting it to
- * the envelope lets every caller on a bare event type assert through the wire's own
- * shape — `type`, not the console's `kind` — while the run-stream suite names what it
- * actually receives instead of asserting through a type that is wrong for it.
+ * The event name is cast to `DaemonEvent` and the payload left `unknown` because suites name
+ * streams by string, including bare event types the daemon's method map omits. The delivered
+ * type is a parameter because it depends on the name: a bare event type delivers
+ * `EventEnvelope`, the whole-session stream delivers frames (read those through
+ * {@link subscribeToSessionStream}), and the two narrowed run streams deliver the registered
+ * projection.
  */
 export function subscribeThroughBridge<Delivered = EventEnvelope>(
   fixture: FixtureUnderTest,
@@ -140,9 +119,8 @@ export interface SessionStreamReceipt {
 /**
  * Subscribe to the whole-session stream through the bridge, as the session binder does.
  *
- * The frames are kept as delivered, so a case can assert the framing itself, and the
- * events are read off them on demand, so a case about which beats arrived asserts
- * over the log rather than over how it was batched.
+ * Frames are kept as delivered so a case can assert the framing; events are read off them on
+ * demand so a case about which beats arrived asserts over the log, not over its batching.
  */
 export function subscribeToSessionStream(fixture: FixtureUnderTest): SessionStreamReceipt {
   const frames = subscribeThroughBridge<SessionStreamFrame<EventEnvelope>>(
@@ -156,13 +134,9 @@ export function subscribeToSessionStream(fixture: FixtureUnderTest): SessionStre
 }
 
 /**
- * Reach one bridge's call function, whichever bridge that is.
- *
- * The raw call, written once. {@link callThroughBridge} is the fixture-shaped caller
- * and a suite holding a WRAPPED bridge — the answer arm below — has one too, so the
- * casts live here rather than at each of them. The suites that use it test the fixture's
- * reply seam, which answers by method name whatever the request carries, so a request
- * that does not match the method's contract (or none at all) is part of what they send.
+ * Reach one bridge's call function, whichever bridge that is; the casts live here once. The
+ * suites using it test the fixture's reply seam, which answers by method name, so a request that
+ * does not match the method's contract, or none at all, is part of what they send.
  */
 export function callBridge(
   bridge: PlatformBridge,
@@ -172,6 +146,7 @@ export function callBridge(
   return bridge.daemon.call(method as DaemonMethod, params as DaemonParams<DaemonMethod>);
 }
 
+/** Call a method on the fixture's bridge with no params. */
 export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
   return callBridge(fixture.bridge, method);
 }
@@ -179,30 +154,17 @@ export function callThroughBridge(fixture: FixtureUnderTest, method: string): Pr
 /**
  * Replace one bridge's `daemon.call` with an arm this suite decides the answer for.
  *
- * A spread over a REAL bridge, which is the console's established shape for driving
- * one namespace member (`palette/commands/bridge-commands.test.tsx`). That the rest is real is
- * the point: a view reaches the wire through `bridge.daemon.call` and
- * nothing else, so a case passing against a hand-built object would not have proved
- * it reached a bridge at all.
- *
- * Takes the bridge rather than building one, so a suite that has already overridden a
- * different namespace composes the two instead of minting a second builder to hold
- * both.
- *
- * THE ANSWER IS HANDED THE WRAPPED BRIDGE'S OWN CALL, which is what lets a suite
- * decide ONE method and leave every other one scripted by the scenario. Without it a
- * suite that only cares about `session.read` has to answer for `driver.listModels` too, and
- * the only shape available is a hand-written stub — which is exactly what this helper
- * exists to keep out of a suite that means to reach a real bridge. Delegation lives
- * here once rather than being spelled at each site that needs it.
+ * It spreads over a real bridge, so a case still proves a view reaches the wire through
+ * `bridge.daemon.call`. It takes the bridge so a suite that overrode another namespace composes
+ * both. The answer is handed the wrapped bridge's own call, so a suite decides one method and
+ * leaves the rest scripted by the scenario instead of hand-writing a stub for each.
  */
 export function withDaemonCall(
   bridge: PlatformBridge,
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
 ): BridgeUnderTest {
   const calls: RecordedDaemonCall[] = [];
-  // Bound before the spread below, so the pass-through reaches the bridge this helper
-  // WRAPPED rather than the arm it is building — which would call itself forever.
+  // Bound before the spread so the pass-through reaches the wrapped bridge, not the new arm.
   const wrappedCall = bridge.daemon.call.bind(bridge.daemon) as (
     method: string,
     params: unknown,
@@ -224,19 +186,12 @@ export function withDaemonCall(
 }
 
 /**
- * Replace one bridge's `daemon.subscribe` with an arm this suite decides.
+ * Replace one bridge's `daemon.subscribe` with an arm this suite decides; the twin of
+ * {@link withDaemonCall}.
  *
- * {@link withDaemonCall}'s twin for the OTHER daemon seam, and here for the same
- * reason that one is: the namespace spread that composes it is a reach admitted inside
- * this module and nowhere else, so a view's suite that wrote it itself would be a
- * second way in. Everything but the subscription stays the wrapped bridge's, so a
- * case proving a view came back after a refused open really did drive a bridge.
- *
- * `open` receives the pass-through so a case can refuse the first attempt and hold
- * the next, which is the shape the shipped stub preload puts a console in: every
- * daemon method throws until a build with a real one is installed. It receives the
- * subscriber's handler too, so a case can deliver what no scenario plays — a frame
- * carrying the daemon's drop mark — and the request the subscription was opened with.
+ * `open` receives the pass-through, so a case can refuse the first attempt and hold the next,
+ * plus the subscriber's handler and request, so it can deliver what no scenario plays, such as
+ * a frame carrying the daemon's drop mark.
  */
 export function withDaemonSubscribe(
   bridge: PlatformBridge,
@@ -246,8 +201,7 @@ export function withDaemonSubscribe(
     request: unknown,
   ) => Unsubscribe,
 ): PlatformBridge {
-  // Bound before the spread, so the pass-through reaches the bridge this helper
-  // WRAPPED rather than the arm it is building — which would call itself forever.
+  // Bound before the spread so the pass-through reaches the wrapped bridge, not the new arm.
   const wrappedSubscribe = bridge.daemon.subscribe.bind(bridge.daemon) as (
     event: string,
     request: unknown,
@@ -278,12 +232,8 @@ export interface AnsweringBridge extends BridgeUnderTest {
 }
 
 /**
- * The shipped fixture with that call arm on it, over the concurrent-streaming scenario or over a
- * scenario the suite names.
- *
- * The parameter is optional so the common case reads as it did, and present because a
- * feature's suite drives its OWN scenario — the composer's, for one — and
- * without it each one had to reach for `createFixtureBridge` and rebuild the spread.
+ * The shipped fixture with that call arm on it, over concurrent-streaming or a named scenario,
+ * so a feature suite driving its own scenario need not rebuild the spread.
  */
 export function bridgeAnswering(
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
@@ -294,15 +244,9 @@ export function bridgeAnswering(
 }
 
 /**
- * A scenario that scripts no reply and plays no beat.
- *
- * The fixture bridge REJECTS every `daemon.call` a scenario scripts no reply for,
- * which is the arm a view's own refusal rendering has to survive — so "nothing
- * scripted" is a deliberate posture rather than an empty placeholder, and the four
- * settings tests that need one would otherwise each write this literal out.
- *
- * The id is the caller's because the fixture names it in the refusal it raises: a
- * shared id would put one test's scenario name in another test's rendered failure.
+ * A scenario that scripts no reply and plays no beat. The fixture bridge rejects every
+ * `daemon.call` with no scripted reply, which is the arm a view's refusal rendering must
+ * survive. The id is the caller's because the fixture names it in the refusal it raises.
  */
 export function unscriptedScenario(id: string): Scenario {
   return {
@@ -326,10 +270,8 @@ export interface BridgeOnClock {
 }
 
 /**
- * A bridge over a scenario that scripts nothing, whose window runs on this clock.
- *
- * The clock is handed to the provider beside the bridge, the way a window resolves one. The
- * scenario id is the caller's for the reason `unscriptedScenario` gives.
+ * A bridge over a scenario that scripts nothing, whose window runs on this clock. The clock is
+ * handed to the provider beside the bridge, as a window resolves one.
  */
 export function bridgeOnClock(scenarioId: string, clock?: Clock): BridgeOnClock {
   const { bridge, scenarioEngine } = createFixtureBridge({

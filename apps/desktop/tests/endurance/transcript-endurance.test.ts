@@ -1,53 +1,30 @@
-// The transcript under a log as long as it claims to survive.
+// The transcript under a log as long as it claims to survive. This file measures the
+// transcript's own fold, `deriveTranscriptWindow` (a session's event log into rows, run groups,
+// seams and a superseded index), over a generated session of ten thousand rows, and is the one
+// file in this tier that does not launch Electron.
 //
-// WHAT THIS FILE MEASURES, AND WHY IT IS THE ONLY THING IN THIS TIER THAT DOES NOT
-// LAUNCH ELECTRON
+// It cannot launch one: the endurance scenario is absent from `fixtures/index.ts`, so no
+// launched console can be asked to play it. The generator is called directly with the row count.
 //
-// Its two neighbors hold a real window open and read the renderer's heap. This one
-// measures the transcript's own FOLD — `deriveTranscriptWindow`, which turns a session's
-// event log into rows, run groups, seams and a superseded index — over a
-// generated session of ten thousand rows.
+// A Node heap reading is honest here though not in `heap-at-rest.test.ts`. That file's subject
+// is the renderer heap, which a Node process cannot reach. This file's subject is the fold's own
+// retained structures, which live in whatever process runs the fold. It states no renderer
+// ceiling.
 //
-// It cannot be one of those runs, and the reason is structural rather than a
-// preference: the endurance scenario is deliberately absent from
-// `fixtures/index.ts`, so no launched console can be asked to play it. The
-// scenario module says why — nobody wants a ten-thousand-row session in the fixture
-// picker, and every suite that iterates the shipped set would pay for one. A
-// launched console therefore reaches this workload through no path at all, and the
-// generator is instead what its own header calls it: a generator the endurance and
-// bench tiers call with the row count they are measuring.
+// Three claims:
+//   - It folds the whole log. This is the control for the other two: a fold that dropped nine
+//     thousand rows would be fast, retain nothing, and pass everything else.
+//   - Its cost is about linear in the log. A quadratic fold is invisible at the two hundred rows
+//     other tiers use and fatal at ten thousand. Measured as a ratio between two sizes rather
+//     than a wall-clock ceiling, so a slower machine does not break it.
+//   - Repeating it retains nothing. A fold that held its own output (a cache keyed by a value
+//     never equal twice, a listener, a closure over the previous window) grows without bound in
+//     a console left open for a day.
 //
-// WHY A NODE HEAP READING IS HONEST HERE AND IS NOT IN `heap-at-rest.test.ts`
-//
-// That file refuses a Node reading, correctly: its subject is the RENDERER heap, and
-// a Node process holds no Chromium, no renderer isolate, no React and no DOM, so
-// every figure available there is short of the subject by everything that makes it
-// one. The subject HERE is the fold's own retained structures, and those live in
-// whatever process runs the fold. So the two readings are not the same reading taken
-// in two places; they are two subjects, and each is measured where it lives. This
-// file owns no renderer ceiling and states none.
-//
-// THREE CLAIMS, AND WHY EACH IS WORTH A RUN
-//
-//   • **It folds the whole log.** The control for the other two: a fold that dropped
-//     nine thousand rows would be fast and would retain nothing, and would pass every
-//     other assertion in this file.
-//   • **Its cost is about linear in the log.** The defect that actually ends a long
-//     session is a quadratic fold — invisible at the two hundred rows every other
-//     tier exercises, and fatal at ten thousand. Measured as a RATIO between two
-//     sizes rather than against a wall-clock ceiling, so the claim survives being run
-//     on a slower machine, which a millisecond budget would not.
-//   • **Repeating it retains nothing.** A fold that held onto its own output — a
-//     cache keyed by a value that is never equal twice, a listener, a closure over
-//     the previous window — grows without bound in a console left open for a day,
-//     which is the whole reason this tier exists.
-//
-// The collection below is FORCED rather than waited for. Node exposes no `gc` by
-// default and this tier cannot pass a process flag to itself, so the flag is set at
-// runtime and the function pulled out of a fresh context — the documented way to get
-// one. It is resolved once, at module scope, and a failure to resolve it throws
-// rather than falling back to a softer reading: a heap claim taken without a
-// collection is a claim about what V8 had not got round to yet.
+// The collection is forced, not waited for. Node exposes no `gc` by default and this tier cannot
+// pass itself a process flag, so the flag is set at runtime and the function pulled out of a
+// fresh context. A failure to resolve it throws instead of falling back to a softer reading: a
+// heap claim without a collection is about what V8 had not got round to yet.
 
 import { setFlagsFromString } from "node:v8";
 import process from "node:process";
@@ -62,10 +39,8 @@ import { deriveTranscriptWindow } from "@renderer/features/transcript/window/tra
 /**
  * The length of log this tier measures the transcript at.
  *
- * Passed to the generator EXPLICITLY on every call in this file rather than left to
- * its default, on the generator's own reasoning: an endurance reading names the row
- * count it was taken at, and a caller that let a default decide would be reporting
- * one number while measuring whatever the fixture happened to hold that week.
+ * Passed to the generator explicitly on every call, since a default deciding it would report one
+ * number while measuring whatever the fixture held.
  */
 const ENDURANCE_ROW_COUNT = 10_000;
 
@@ -75,13 +50,10 @@ const LINEARITY_PROBE_ROW_COUNT = 2_500;
 /**
  * How much larger the long fold may be than the short one.
  *
- * The step is 4×, so a linear fold lands near 4 and a quadratic one near 16. Set from
- * the measurement rather than from the arithmetic: the measured ratio is about 4.4
- * (2,500 rows fold in ~2.5 ms, 10,000 in ~11 ms, best of five on an eight-core
- * laptop), and this leaves comfortably over the noise while sitting half way to the
- * quadratic figure it exists to catch. Fixed per-call overhead can only push the
- * ratio DOWN — the larger fold amortizes it further — so it cannot manufacture a
- * failure here.
+ * The step is 4x, so a linear fold lands near 4 and a quadratic one near 16. The measured ratio
+ * is about 4.4 (2,500 rows fold in ~2.5 ms, 10,000 in ~11 ms, best of five on an eight-core
+ * laptop), and 8 leaves room over noise while sitting half way to the quadratic figure. Fixed
+ * per-call overhead can only push the ratio down, so it cannot manufacture a failure.
  */
 const SUPERLINEAR_COST_RATIO_CEILING = 8;
 
@@ -91,18 +63,12 @@ const REPEATED_FOLD_COUNT = 20;
 /**
  * What twenty folds of a ten-thousand-row log may add to the heap and still pass.
  *
- * Not zero, because V8 keeps code objects, inline caches and deoptimization data
- * alive across a run and none of that is the transcript's doing. Not a fraction of the
- * baseline either, for `steady-state.test.ts`' reason: what is being bounded is a
- * leak, and a leak's size has nothing to do with how large the process was to begin
- * with.
- *
- * It is bounded from BOTH sides, and the lower bound is the one that makes it a
- * gate. One held window over this log measures ~3.9 MB — measured by the negative
- * control below, not assumed — so a ceiling above that figure could not catch a fold
- * that kept a single one of its twenty outputs, which is the exact defect this case
- * exists for. Two megabytes sits under one window and two orders of magnitude above
- * the ~21 kB twenty clean folds actually retain.
+ * Not zero, because V8 keeps code objects, inline caches and deoptimization data alive across a
+ * run. Not a fraction of the baseline, since a leak's size does not depend on how large the
+ * process was. It is bounded from both sides: one held window over this log measures ~3.9 MB
+ * (the negative control below), so a ceiling above that could not catch a fold keeping a single
+ * one of its twenty outputs. Two megabytes sits under one window and two orders of magnitude
+ * above the ~21 kB twenty clean folds retain.
  */
 const REPEATED_FOLD_RETENTION_CEILING_BYTES = 2 * 1024 * 1024;
 
@@ -112,10 +78,8 @@ const MEASUREMENT_SAMPLE_COUNT = 5;
 /**
  * A real collection, forced.
  *
- * Resolved once at module scope — the shape `heap-at-rest.test.ts` uses for its own
- * bundle probe. It throws rather than degrading, because every heap figure below is
- * meaningless without it and a run that reported them anyway would be reporting
- * whatever V8 had not yet swept.
+ * Resolved once at module scope. It throws rather than degrading, because every heap figure
+ * below is meaningless without it.
  */
 const collectGarbage: () => void = resolveForcedCollection();
 
@@ -138,10 +102,9 @@ function enduranceTimeline(rowCount: number): readonly ProjectedSessionEvent[] {
 /**
  * The heap after collecting, as the smallest of several readings.
  *
- * The minimum rather than the last, because a collection is not a barrier: the
- * smallest figure over several passes is the one closest to what is actually
- * reachable, and it is the same estimator the renderer-side reading uses for the
- * same reason.
+ * The minimum rather than the last, because a collection is not a barrier: the smallest figure
+ * over several passes is closest to what is reachable, the same estimator the renderer-side
+ * reading uses.
  */
 function settledHeapBytes(): number {
   let smallestReading = Number.POSITIVE_INFINITY;
@@ -155,11 +118,9 @@ function settledHeapBytes(): number {
 /**
  * How long the transcript's fold takes over one log, best of several passes.
  *
- * The best rather than the mean, because the distribution is one-sided: a sample can
- * be slowed by a collection or by the scheduler and nothing can make one faster than
- * the work takes. The result is read before the timer is compared so the fold cannot
- * be eliminated as dead code — and read as a length rather than discarded, because a
- * fold whose output nobody touches is a fold the compiler is free to shorten.
+ * The best rather than the mean, because the distribution is one-sided: a collection or the
+ * scheduler can slow a sample and nothing can make one faster than the work takes. The result is
+ * read so the compiler cannot eliminate the fold as dead code.
  */
 function fastestFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): number {
   let fastestPass = Number.POSITIVE_INFINITY;
@@ -176,20 +137,13 @@ function fastestFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): nu
 }
 
 /**
- * A deliberately quadratic fold over the same shape of input.
+ * A deliberately quadratic fold over the same shape of input, for the negative control.
  *
- * The negative control's subject. It walks every pair of rows and accumulates, which
- * is the cost shape a real defect would have — an index rebuilt per row, a
- * `find` inside a loop over the same list — rather than a synthetic spin, so the
- * ratio it produces is the ratio the instrument is being asked to catch.
- *
- * Best of several passes, exactly as `fastestFoldMilliseconds` is, and that is not
- * incidental symmetry: a control is only evidence about an instrument if it is read
- * THROUGH that instrument. Timed once, the short pass carries the whole cost of
- * warming a path nothing had run before, which inflates the small reading and
- * divides the ratio down — a genuinely quadratic fold reported 5.95× over a 4× step
- * that way, and the control failed for a reason that had nothing to do with the
- * shape it was planted to prove.
+ * It walks every pair of rows, the cost shape a real defect would have (an index rebuilt per
+ * row, a `find` inside a loop over the same list). Best of several passes, exactly as
+ * `fastestFoldMilliseconds`: a control is evidence about an instrument only if read through it.
+ * Timed once, the short pass carries the cost of warming a path nothing had run, which inflated
+ * the small reading and divided a genuinely quadratic fold's ratio down to 5.95x over a 4x step.
  */
 function quadraticFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): number {
   let fastestPass = Number.POSITIVE_INFINITY;
@@ -214,31 +168,27 @@ function quadraticFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): 
 
 describe("endurance — the transcript's fold over a long session", () => {
   it("folds every row of a ten-thousand-row session into one complete window", () => {
-    // The control for everything else here. A fold that silently dropped most of the
-    // log would be fast, would retain almost nothing, and would satisfy both of the
-    // claims below — so what they mean rests on this one.
+    // The control for everything else here: a fold that silently dropped most of the log would
+    // be fast, retain almost nothing, and satisfy both claims below.
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     expect(timeline).toHaveLength(ENDURANCE_ROW_COUNT);
 
     const transcriptWindow = deriveTranscriptWindow(timeline);
 
-    // Every event the generator scripts is a registered kind the projection places,
-    // so every one becomes a row; a window that dropped an event category would
-    // otherwise still read as complete.
+    // Every event the generator scripts is a registered kind the projection places, so every one
+    // becomes a row; a window that dropped an event category would otherwise still read complete.
     expect(transcriptWindow.rows).toHaveLength(ENDURANCE_ROW_COUNT);
-    // The virtualizer's identity list and the body lookup are two views of one set:
-    // a viewport row with no body renders the not-loaded absence, and a body with no
-    // viewport row is never drawn at all.
+    // The virtualizer's identity list and the body lookup are two views of one set: a viewport
+    // row with no body renders the not-loaded absence, and a body with no viewport row is never
+    // drawn.
     expect(transcriptWindow.viewportRows).toHaveLength(transcriptWindow.rows.length);
     expect(transcriptWindow.rowsByKey.size).toBe(transcriptWindow.rows.length);
-    // Every generated run group closes, so the window holds no live turn — and every
-    // row that hangs from a run group is collapsed under the terminal run group fold.
-    // The rows that are NOT collapsed are exactly the ones that belong to no run group:
-    // the session's opening beats, whose arm structurally carries no run. Stated that
-    // way rather than as a count, so the claim does not encode how many beats the
-    // generator happens to spend opening a session — and it still fails the day the
-    // run group index stops recognizing a run's terminal at scale, because those rows
-    // would join the uncollapsed set carrying a run.
+    // Every generated run group closes, so the window holds no live turn and every row hanging
+    // from a run group is collapsed under the terminal run group fold. The rows not collapsed
+    // are exactly those belonging to no run group: the session's opening beats. Stated that way
+    // rather than as a count, so it does not encode how many beats the generator spends opening
+    // a session, and it still fails the day the run group index stops recognizing a run's
+    // terminal at scale.
     expect(transcriptWindow.hasActiveTurn).toBe(false);
     const uncollapsedRowKinds = new Set(
       transcriptWindow.rows
@@ -256,9 +206,7 @@ describe("endurance — the transcript's fold over a long session", () => {
     const longFoldMilliseconds = fastestFoldMilliseconds(enduranceTimeline(ENDURANCE_ROW_COUNT));
     const costRatio = longFoldMilliseconds / shortFoldMilliseconds;
 
-    // Reported before the assertion, on the reasoning both neighbors state: a gate
-    // that speaks only when it fails gives a reviewer no way to watch a margin
-    // shrink over months until the day it crosses.
+    // Reported before the assertion so a shrinking margin is visible.
     process.stdout.write(
       `[console-endurance] transcript fold ${shortFoldMilliseconds.toFixed(2)} ms at ` +
         `${String(LINEARITY_PROBE_ROW_COUNT)} rows, ${longFoldMilliseconds.toFixed(2)} ms at ` +
@@ -270,11 +218,10 @@ describe("endurance — the transcript's fold over a long session", () => {
   });
 
   it("negative control: the same ratio catches a planted quadratic", () => {
-    // Without this the case above would pass over an instrument that could not tell
-    // linear from quadratic at all — two timings that were both noise would divide
-    // to something small and report clean. The planted fold is measured across the
-    // same 4× step, at sizes small enough that a quadratic finishes quickly and
-    // large enough that neither reading is dominated by the clock.
+    // Without this the case above would pass over an instrument that could not tell linear from
+    // quadratic: two noise timings divide to something small and read clean. The planted fold
+    // uses the same 4x step, small enough that a quadratic finishes quickly and large enough
+    // that neither reading is dominated by the clock.
     const shortQuadraticMilliseconds = quadraticFoldMilliseconds(enduranceTimeline(1_000));
     const longQuadraticMilliseconds = quadraticFoldMilliseconds(enduranceTimeline(4_000));
 
@@ -284,10 +231,8 @@ describe("endurance — the transcript's fold over a long session", () => {
   });
 
   it("retains nothing of the folds it has already produced", () => {
-    // One fold before the baseline, dropped. Without it the first fold's one-time
-    // costs — the projection's own module state, V8's compiled code for a path
-    // nothing had exercised — would be reported as retention, which is a tier that
-    // fails on first use of a feature rather than on a leak.
+    // One fold before the baseline, dropped, so the first fold's one-time costs (the
+    // projection's module state, V8's compiled code) are not reported as retention.
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     dropFoldOf(timeline);
     const baselineHeapBytes = settledHeapBytes();
@@ -308,16 +253,13 @@ describe("endurance — the transcript's fold over a long session", () => {
   });
 
   it("negative control: a held window is large enough for the reading above to see one", () => {
-    // The retention ceiling is only a gate if one leaked window would cross it. This
-    // measures exactly that — the heap a single derived window occupies while it is
-    // held — and asserts it is larger than the allowance, which is what makes the
-    // case above sensitive rather than merely quiet.
+    // The retention ceiling is a gate only if one leaked window would cross it. This measures
+    // the heap a single derived window occupies while held and asserts it exceeds the allowance.
     const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
     const baselineHeapBytes = settledHeapBytes();
     const heldWindow = deriveTranscriptWindow(timeline);
     const heldHeapBytes = settledHeapBytes();
-    // Read through the held window AFTER the measurement, so it is unambiguously
-    // still reachable at the moment the heap was sampled.
+    // Read after the measurement so the window is still reachable when the heap is sampled.
     expect(heldWindow.rows.length).toBeGreaterThan(0);
 
     const windowBytes = heldHeapBytes - baselineHeapBytes;
@@ -330,13 +272,11 @@ describe("endurance — the transcript's fold over a long session", () => {
 });
 
 /**
- * Fold once and keep nothing.
+ * Folds once and keeps nothing.
  *
- * A named function rather than an inline statement, because what matters is that no
- * binding outlives the call: a loop that assigned each window to a variable in the
- * enclosing scope would hold the last one alive, and the reading would then be
- * measuring the test rather than the transcript. The length is read so the fold cannot
- * be eliminated as dead.
+ * A named function because no binding may outlive the call: a loop assigning each window to an
+ * outer variable would hold the last one alive and measure the test, not the transcript. The
+ * length is read so the fold cannot be eliminated as dead.
  */
 function dropFoldOf(timeline: readonly ProjectedSessionEvent[]): void {
   const rowCount = deriveTranscriptWindow(timeline).rows.length;

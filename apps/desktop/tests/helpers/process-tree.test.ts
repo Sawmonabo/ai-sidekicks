@@ -1,22 +1,9 @@
-// The one place a spawned Electron tree is killed, and the one place that is
-// checked.
+// Checks the shared Electron tree terminator without signaling anything real.
 //
-// Two harnesses spawn Electron — the smoke probe and the console launcher
-// — and each had grown its own terminator over the same platform facts.
-// They had already disagreed: one read `taskkill`'s exit status and the other did
-// not, so the second reported kills it had not performed. The implementation is
-// now shared, and so are these cases; both consumers are bound to it rather than
-// to a copy.
-//
-// What CANNOT be exercised here is the real thing. `terminateProcessTree` signals
-// a real process, and on the POSIX arm the negative-pid form reaches a whole
-// process GROUP — the launched tree only because playwright-core spawns detached,
-// and somebody else's group for any other pid it is handed. These cases run
-// inside the runner, so a terminator under test must signal nothing at all. The
-// platform arms therefore stay unexecuted by construction and the decision they
-// all funnel through is tested directly, with the liveness probe injected. That
-// split is the reason the decision is a named function rather than a boolean
-// expression at three call sites.
+// `terminateProcessTree` signals a real process, and on the POSIX arm the negative-pid form
+// reaches a whole process group, which is the launched tree only because playwright-core spawns
+// detached. These cases run inside the runner, so the platform arms stay unexecuted and the
+// decision they all funnel through is tested directly, with the liveness probe injected.
 
 import { spawnSync } from "node:child_process";
 import process from "node:process";
@@ -39,19 +26,10 @@ import {
 /**
  * A liveness probe pair whose existence answers are scripted in order.
  *
- * The race under test is a SEQUENCE and not a state — existence, then a state
- * lookup, then existence again when there was no state — and the only thing
- * that separates the two cases below is what the second answer says. So the
- * answers are a queue rather than a value, and how many were taken is readable,
- * which is what turns "it asked a second time" into an assertion instead of an
- * inference. A read past the script throws rather than repeating the last
- * answer: a reading that asks more often than the case described is a different
- * reading, and it must not pass quietly.
- *
- * Injected into the real function, never a stand-in for it. The window between
- * the two questions belongs to the kernel, so it cannot be arranged against a
- * live pid — which is the same reason the refused tree kill in the suite beside this one is
- * injected rather than provoked.
+ * The race under test is a sequence (existence, state lookup, existence again), so the answers
+ * are a queue and the number taken is readable. A read past the script throws, so a reading that
+ * asks more often than the case described cannot pass quietly. The window between the two
+ * questions belongs to the kernel and cannot be arranged against a live pid.
  */
 class ScriptedLivenessProbes implements ProcessLivenessProbes {
   readonly #existenceAnswers: readonly boolean[];
@@ -96,24 +74,20 @@ describe("process termination — a kill that was refused is not a kill", () => 
   it("counts a delivered signal as success without asking anything further", () => {
     const probe = existenceProbe(true);
     expect(terminationSucceeded(true, probe)).toBe(true);
-    // The probe costs a syscall and, more importantly, a delivered signal is
-    // already the answer. Asking anyway would make a live process — which a
-    // SIGKILL has not been reaped from yet — look like a failure.
+    // A delivered signal is already the answer; asking anyway would make a SIGKILLed process that
+    // is not yet reaped look like a failure.
     expect(probe.asked).toStrictEqual([]);
   });
 
   it("counts an undelivered signal as success when nothing is left to kill", () => {
-    // The ordinary case on both arms: the process exited between the close
-    // timing out and the kill being issued. POSIX reports ESRCH, Windows reports
-    // a non-zero taskkill, and neither is a failure — there is nothing running.
+    // The process exited between the close timing out and the kill; POSIX reports ESRCH and
+    // Windows a non-zero taskkill, and neither is a failure.
     expect(terminationSucceeded(false, existenceProbe(false))).toBe(true);
   });
 
   it("counts an undelivered signal as failure while the process is still there", () => {
-    // THE FINDING. On Windows a taskkill that spawns and exits non-zero —
-    // termination denied — leaves `error` undefined, and reporting that as a kill
-    // told a reader later launches were unaffected while Electron kept its
-    // profile lock. Delivery and survival are two questions.
+    // A taskkill that spawns and exits non-zero (termination denied) leaves `error` undefined;
+    // reporting that as a kill left Electron holding its profile lock.
     const probe = existenceProbe(true);
     expect(terminationSucceeded(false, probe)).toBe(false);
     // Non-vacuous: the verdict came from consulting the OS, not from the flag.
@@ -127,11 +101,8 @@ describe("process termination — asking whether a pid is still there", () => {
   });
 
   it("does not find a process that has already exited", () => {
-    // A REAPED pid, not a large number and emphatically not 0: `process.kill(0, 0)`
-    // succeeds, because on POSIX pid 0 addresses the caller's own process group
-    // (measured — it reports alive), so it is the one foil that looks dead and
-    // is not. `spawnSync` returns only once its child is gone, so its pid names
-    // a process that certainly ran and certainly is not running.
+    // A reaped pid, not a large number and not 0: `process.kill(0, 0)` succeeds because pid 0
+    // addresses the caller's own group on POSIX. `spawnSync` returns only after its child is gone.
     const reaped = spawnSync(process.execPath, ["-e", ""]);
     expect(reaped.status).toBe(0);
     expect(reaped.pid).toBeGreaterThan(0);
@@ -140,23 +111,16 @@ describe("process termination — asking whether a pid is still there", () => {
 });
 
 describe("process termination — the group handle that outlives a root", () => {
-  // A TREE IS NOT ITS ROOT, and on POSIX the handle that survives the root's exit
-  // is the process GROUP the detached spawn created. Reading the root instead is
-  // what reported a rootless tree — a reaped launcher shim under a live browser —
-  // as terminated. Windows has no group and answers the same question from its
-  // process table, which `process-tree-readers.test.ts` covers with the walk over
-  // it; nothing here is that platform's.
+  // On POSIX the handle that survives the root's exit is the process group; reading the root
+  // instead reported a rootless tree as terminated. Windows answers from its process table,
+  // which `process-tree-readers.test.ts` covers.
 
   it("finds the group this process is in, which is the one group guaranteed to hold a member", () => {
-    // Asked of this runner's OWN group rather than of a spawned tree: the probe
-    // is a reading and not a signal, and this group certainly holds a member
-    // because this process is that member. The id is read from the platform
-    // rather than guessed — a worker is not usually its own group's leader, so
-    // `process.pid` and `process.ppid` are both the wrong number for this.
+    // Asked of this runner's own group, which certainly holds this process. The id is read from
+    // the platform because a worker is usually not its own group's leader, so neither
+    // `process.pid` nor `process.ppid` is right.
     if (PROCESS_TREE_TERMINATION_MODE !== "signal") {
-      // Windows has no process group to ask about, which is the whole reason the
-      // other arm exists; asserting one here would be a POSIX detail on a
-      // platform that has none.
+      // Windows has no process group to ask about.
       return;
     }
     const reported = spawnSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {
@@ -169,52 +133,41 @@ describe("process termination — the group handle that outlives a root", () => 
   });
 
   it("refuses the pid that would report this runner as the live tree", () => {
-    // `0` is the one foil: `kill(-0, 0)` is `kill(0, 0)`, which on POSIX
-    // addresses the CALLER's own process group — so an unrecorded pid handed
-    // through would answer "the tree is alive" about the test runner itself.
+    // `kill(-0, 0)` is `kill(0, 0)`, which addresses the caller's own group, so an unrecorded pid
+    // would report the test runner itself as the live tree.
     expect(processGroupExists(0)).toBe(false);
   });
 });
 
 describe("process termination — a zombie is terminated, and existence cannot say so", () => {
-  // WHY THE STATE READ IS A PAIR OF PURE FUNCTIONS. A zombie is not a state a
-  // test can manufacture: it exists only between a process exiting and its
-  // parent reaping it, and for a grandchild that parent is an init this process
-  // does not own — prompt on a hosted runner, indefinite in a container whose
-  // init does not reap, which is exactly the run this reading was written for.
-  // So the platform I/O stays unexecuted and the two decisions it funnels
-  // through are driven directly, with real text on both sides.
+  // A zombie cannot be manufactured: it exists only until its parent reaps it, and for a
+  // grandchild that parent is an init this process does not own. The two decisions the platform
+  // I/O funnels through are driven directly, with real text on both sides.
 
   it("reads the state out of a `/proc` line whose executable name has spaces and parens", () => {
-    // THE PARSING TRAP, and the reason this is not a whitespace split: field 2
-    // is the executable name, unescaped, in parentheses. Both samples are real
-    // shapes — Firefox's content process is literally `(Web Content)`.
+    // Field 2 is the unescaped executable name in parentheses, so a whitespace split fails on
+    // both samples; Firefox's content process is literally `(Web Content)`.
     expect(processStateFromProcStat("4242 (Web Content) Z 1 4242 0 0 -1 4194560")).toBe("Z");
     expect(processStateFromProcStat("4242 (a) b) S 1 4242 0")).toBe("S");
   });
 
   it("reports nothing readable rather than guessing at text of another shape", () => {
-    // `undefined` is the caller's cue to fail towards "running", which is the
-    // whole failure direction of this module: claiming a process is gone
-    // without evidence is the false success it exists to prevent.
+    // `undefined` makes the caller fail towards "running"; claiming a process is gone without
+    // evidence is the false success this module exists to prevent.
     expect(processStateFromProcStat("")).toBeUndefined();
     expect(processStateFromProcStat("4242 no-parenthesis-here Z 1")).toBeUndefined();
   });
 
   it("counts the exited states as terminated, decoration and all", () => {
-    // `ps` decorates the code — `Z+` is a zombie in the foreground group — and
-    // the modifiers say nothing about whether the process still runs, so only
-    // the first letter is read. `X` is Linux's dying state; both are gone.
+    // `ps` decorates the code (`Z+` is a foreground zombie), so only the first letter is read.
     expect(isTerminatedProcessState("Z")).toBe(true);
     expect(isTerminatedProcessState("Z+")).toBe(true);
     expect(isTerminatedProcessState("X")).toBe(true);
   });
 
   it("counts every state a process can still run in as running", () => {
-    // The negative control, and the one that matters: a probe that called a
-    // sleeping or stopped process terminated would report every leaked Electron
-    // — which idles at 0% CPU, which is how the four orphans were found — as a
-    // clean tree.
+    // Negative control: calling an idle or stopped process terminated would report every leaked
+    // Electron, which idles at 0% CPU, as a clean tree.
     for (const stateCode of ["R", "S", "D", "T", "I", "Ss", "S+", "R<", "U"]) {
       expect(isTerminatedProcessState(stateCode), `${stateCode} is not a terminated state`).toBe(
         false,
@@ -223,9 +176,7 @@ describe("process termination — a zombie is terminated, and existence cannot s
   });
 
   it("reads this very process as running, through the real platform arm", () => {
-    // The one pid guaranteed to be alive and, being the reader itself, the one
-    // whose state read is guaranteed to be legible. It is what makes the arm
-    // this platform actually takes non-vacuous rather than only parsed.
+    // The reader's own pid is alive and legible, so the arm this platform takes is not vacuous.
     expect(readProcessLiveness(process.pid)).toBe("running");
     expect(processHasTerminated(process.pid)).toBe(false);
   });
@@ -239,25 +190,16 @@ describe("process termination — a zombie is terminated, and existence cannot s
 });
 
 describe("process termination — a state that vanished is not a process still running", () => {
-  // WHY THE PROBES ARE INJECTED HERE AND THE PLATFORM ARMS ARE NOT. The defect
-  // is a process that exits BETWEEN the existence probe and the state lookup,
-  // and the width of that window is the kernel's. Against a real pid the case
-  // would be a race the suite loses almost every time; against this seam it is
-  // two scripted answers.
+  // The defect is a process exiting between the existence probe and the state lookup; against a
+  // real pid that window is a race the suite would almost always lose, so the answers are scripted.
 
   it("reads a pid whose state vanished along with it as gone, not running", () => {
-    // THE FINDING. The pid was there when existence was asked and reaped by the
-    // time the state was looked up — `/proc/<pid>/stat` unreadable on Linux, `ps`
-    // exiting non-zero on macOS — which is byte for byte the `undefined` a
-    // platform with no state to keep returns. Reading both as `running` handed
-    // `terminateProcessTree` a live process after a signal it could not deliver,
-    // turning the commonest outcome there is into a refused kill: an ordinary
-    // ESRCH reported as unterminable, and a caller left retrying a number the
-    // operating system has already handed out again.
+    // The pid was there at the existence check and reaped by the state lookup, which looks like a
+    // platform with no state to keep. Reading that as `running` turned an ordinary ESRCH into a
+    // refused kill and left a caller retrying a number the OS had reissued.
     const probes = new ScriptedLivenessProbes([true, false]);
     expect(readProcessLiveness(4242, probes)).toBe("gone");
-    // Non-vacuity, and the line a rewrite that drops the recheck fails on: the
-    // verdict came from asking a second time, not from the first answer.
+    // Non-vacuity: the verdict came from a second existence read, not the first answer.
     expect(
       probes.existenceReads,
       "the reading settled on one existence answer — the vanished state is not being rechecked",
@@ -265,24 +207,17 @@ describe("process termination — a state that vanished is not a process still r
   });
 
   it("still reads a pid with no state to read as running while it is demonstrably there", () => {
-    // The foil, and the one that keeps the fix from becoming "no state means
-    // gone". Windows keeps no exited-but-unreaped entry at all, so EVERY reading
-    // on that platform reaches this branch with a live process behind it — and
-    // claiming a process is gone without evidence is the false success this
-    // whole module exists to prevent. The failure direction is unchanged; only
-    // the pid that is no longer there moved.
+    // Foil: Windows keeps no unreaped entry, so every reading there reaches this branch with a
+    // live process behind it, and "no state" must not mean "gone".
     const probes = new ScriptedLivenessProbes([true, true]);
     expect(readProcessLiveness(4242, probes)).toBe("running");
     expect(probes.existenceReads).toBe(2);
   });
 
   it("asks nothing further once the platform did report a state", () => {
-    // The recheck is scoped to the branch that has NO evidence, and the script
-    // enforces that: a single answer, so a reading that asked twice here throws
-    // rather than passing. A state that was read is already the evidence, and a
-    // second existence read after it would collapse `zombie` into `gone` for any
-    // pid an init reaped in between — losing the one distinction this three-state
-    // reading exists to make.
+    // The recheck applies only when there is no state; the script throws on a second read. A
+    // second read after a state would collapse `zombie` into `gone` for a pid init reaped in
+    // between.
     const zombie = new ScriptedLivenessProbes([true], "Z+");
     expect(readProcessLiveness(4242, zombie)).toBe("zombie");
     expect(zombie.existenceReads).toBe(1);
@@ -294,17 +229,9 @@ describe("process termination — a state that vanished is not a process still r
 });
 
 describe("process termination — the macOS state read is a command, and a command must be bounded", () => {
-  // THE FINDING. `readProcessStateCode`'s macOS arm ran its own `spawnSync("ps")`
-  // with no timeout while every other host query in this directory carried one.
-  // `spawnSync` blocks this thread until its child exits, and this reading is
-  // taken from inside a disposal that is already racing a teardown — so a `ps`
-  // that stalls blocks the very thread vitest's timeout runs on, the worker is
-  // killed while blocked, no teardown runs at all, and the detached Electron the
-  // reading was taken for outlives the run.
-  //
-  // WHY THE ARMS ARE INJECTED. A runner takes exactly one of the three, so the
-  // other two are claims nothing on this host could otherwise check — the same
-  // split the scripted probes below already make for the reading they feed.
+  // The macOS arm once ran its own unbounded `spawnSync("ps")`; a stalled `ps` blocks the thread
+  // vitest's timeout runs on and the detached Electron outlives the run. A runner takes only one
+  // of the three arms, so the others are injected.
 
   /** A bounded-query stand-in that records what it was asked, and what it was charged. */
   function recordingQuery(answer: string | undefined): {
@@ -349,26 +276,20 @@ describe("process termination — the macOS state read is a command, and a comma
   });
 
   it("negative control: the two arms that read no command run no query at all", () => {
-    // Without this the case above is ambiguous between "the macOS arm asks" and
-    // "every arm asks", and the second would run a `ps` on Windows — which keeps
-    // no such entry to read — inside the disposal the bound exists to protect.
+    // Without this the case above cannot tell "the macOS arm asks" from "every arm asks", which
+    // would run `ps` on Windows inside the disposal the bound protects.
     const query = recordingQuery("Z+");
     expect(readProcessStateCode(4242, undefined, "win32", query.ask)).toBeUndefined();
-    // Linux reads a file rather than running a command; what it finds under a pid
-    // this suite does not own is the host's business, and asking is not.
+    // Linux reads a file rather than running a command.
     readProcessStateCode(4242, undefined, "linux", query.ask);
     expect(query.asked).toStrictEqual([]);
   });
 
   it("reads a live process as not terminated on a budget that is already spent", () => {
-    // The answer an exhausted budget has to give, taken against the one pid
-    // guaranteed to be alive. The state probe runs nothing, so the reading falls
-    // to the existence recheck — a syscall rather than a spawn — and a pid still
-    // there is `running`. Not-terminated is what keeps a caller escalating; the
-    // opposite would report a tree clean because there was no time to look.
+    // With the budget spent the state probe runs nothing and the existence recheck answers
+    // `running`; the opposite would report a tree clean because there was no time to look.
     expect(processHasTerminated(process.pid, 0)).toBe(false);
-    // And an exhausted budget still reports a REAPED pid as terminated, because
-    // that answer never needed a command either.
+    // A reaped pid still reads as terminated, which needs no command either.
     const reaped = spawnSync(process.execPath, ["-e", ""]);
     expect(reaped.pid).toBeGreaterThan(0);
     expect(processHasTerminated(reaped.pid, 0)).toBe(true);

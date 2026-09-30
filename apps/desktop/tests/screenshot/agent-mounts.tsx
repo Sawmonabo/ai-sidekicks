@@ -1,23 +1,14 @@
-// The agents feature's pane, mounted once for the tiers that look at it.
+// The agents pane, mounted once for the tiers that look at it. Not a test file. `app-harness.ts`
+// owns how the app is mounted and this module owns what of the agents feature is mounted into it,
+// like the modules in `tests/helpers/feature-mounts/`.
 //
-// Not a test file — no `include` glob reaches it as one. It follows the feature
-// mount modules in `tests/helpers/feature-mounts/`: `app-harness.ts` owns HOW the app is
-// mounted, and a module named for a feature owns WHAT of that feature is mounted into it.
-//
-// The console pane is mounted over an unscripted fixture bridge, with the roster handed in
-// as a plain call. Nothing here re-authors a fixture: the roster rows come from the
-// module the feature already keeps them in, so a capture cannot drift from what the
-// feature's own suites are driven with.
-//
-// THE SESSION STORE OPENS WITH THE WINDOW'S OWN FOLD — {@link COMPOSED_ENTITY_PROJECTORS}
-// and never a registrar this file picked — so a partition a column reads is the one a
-// window would have projected.
-//
-// AND THE MOUNT SETTLES ITS OWN READS. `renderSettled` flushes promises and moves no
-// clock; the composition arms a `RefreshScheduler` on the fixture's frozen one, so the
-// advance is the second half of what settling MEANS for a view that reads. The mount
-// then WAITS ON THE THING IT EXISTS TO SHOW rather than returning on the settle alone,
-// because a capture of a skeleton is a green case in every tier that takes one.
+// The pane is mounted over an unscripted fixture bridge with the roster handed in as a plain
+// call; the roster rows come from the module the feature keeps them in, so a capture cannot drift
+// from the feature's own suites. The session store opens with the window's own fold
+// ({@link COMPOSED_ENTITY_PROJECTORS}), so a partition a column reads is the one a window would
+// project. `renderSettled` flushes promises and moves no clock, so the mount also drains the
+// scheduled reads and then waits for the roster cards: a capture of a skeleton is green in every
+// tier.
 
 import { waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -58,11 +49,9 @@ const AGENTS_PANE_CALLS: AgentsPaneCalls = {
 };
 
 /**
- * The one element a mount hands back, or a throw naming what was missing.
- *
- * A throw rather than an optional return, so a pane that stopped rendering its root
- * fails here — where the message names the selector — instead of handing a tier an
- * absent element to compare a reference against.
+ * The one element a mount hands back, or a throw naming what was missing. It throws so a pane that
+ * stopped rendering its root fails here, with the selector named, instead of handing a tier an
+ * absent element.
  */
 function requireRendered(root: ParentNode, selector: string): HTMLElement {
   const element = root.querySelector<HTMLElement>(selector);
@@ -123,9 +112,9 @@ async function renderAgentsPane(): Promise<{
     </FixtureBridgeProvider>,
   );
   await settleReads(fixture.scenarioEngine);
-  // Deliberately NOT inside `act`: the roster read resolves in a promise React knows
-  // nothing about, and an `act` scope holds the resulting commit back until it exits,
-  // so a wait placed inside one waits for a render its own scope prevents.
+  // Not inside `act`: the roster read resolves in a promise React does not know about, and an
+  // `act` scope holds the commit back until it exits, so a wait inside one would wait for a
+  // render its own scope prevents.
   await waitFor(() => {
     if (container.querySelector(".meridian-agent-card") === null) {
       throw new Error("the roster read has not landed yet");

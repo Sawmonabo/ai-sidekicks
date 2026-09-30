@@ -1,21 +1,14 @@
 // The browser tier: a windowed list's arrow keys actually move the focus ring.
 //
-// WHY THIS CANNOT LIVE IN THE UNIT TIER, which is the whole reason the file exists.
-// `console-unit` runs happy-dom, whose `focus()` sets `document.activeElement` on ANY
-// element — an `<li>` with no `tabindex` included. Chromium does not: focusing an
-// element that is not focusable is a no-op and the ring stays where it was. So a list
-// whose row marked ITSELF as the roving focus target while the tab stop sat on the
-// button inside it passed every unit case that asserted the move, and in a real
-// browser the ring never moved, the next Tab left the list, and `aria-current` walked
-// away from the focused control. The last case below is the control for that claim: it
-// plants exactly that shape and proves this engine refuses it.
+// happy-dom's `focus()` sets `document.activeElement` on any element, an `<li>` with no
+// `tabindex` included; Chromium treats focusing a non-focusable element as a no-op. A list whose
+// row marked itself as the roving focus target while the tab stop sat on the button inside it
+// would pass every unit case that asserted the move, while in a real browser the ring never
+// moves. The last case plants that shape and proves this engine refuses it.
 //
-// THE LIST IS THE CHANGED-FILE LIST, which windows, puts a control in every row, and
-// delegates its tab stop through `WindowedListRow`'s renderer form.
-//
-// The rows are all mounted here rather than windowed away: the claim is about which
-// ELEMENT the keyboard lands on, and a fixture small enough to mount whole is the
-// shape where a failure is unambiguous.
+// The list is the changed-file list, which windows, puts a control in every row, and delegates
+// its tab stop through `WindowedListRow`'s renderer form. Its rows are all mounted here because
+// the claim is about which element the keyboard lands on.
 
 import { describe, expect, it } from "vitest";
 
@@ -28,12 +21,7 @@ import { SMALL_DIFF_SHAPE } from "../helpers/diff-fixture-shapes.js";
 /** The attribute a row writes on whichever element holds its tab stop. */
 const ROW_TARGET_SELECTOR = "[data-row-target]";
 
-/**
- * The element that currently holds the page's focus, as an element.
- *
- * `document.activeElement` is `Element | null` and every assertion below is about a
- * control, so the narrowing happens once here rather than at each call site.
- */
+/** The element that currently holds the page's focus. */
 function focusedElement(): Element | null {
   return document.activeElement;
 }
@@ -56,16 +44,14 @@ describe("browser — a windowed list's arrow keys move the focus ring", () => {
 
     await pressKeys("{ArrowDown}");
 
-    // The RING moved, not merely the roving index: the second row's own button holds
-    // the focus, which is what a person sees and what the next Tab leaves from.
+    // The ring moved, not merely the roving index: the second row's own button holds the focus.
     expect(focusedElement()).toBe(rows[1]?.querySelector("button"));
     expect(focusedElement()).not.toBe(firstControl);
   });
 
   it("marks the control as the focus target, never the row around it", async () => {
-    // The structural half of the same claim, and the one that names the defect: the
-    // roving effect resolves a move to a row and then focuses whatever that row MARKED,
-    // testing the row itself first. A row that marked itself handed the effect an
+    // The structural half: the roving effect resolves a move to a row and focuses whatever that
+    // row marked, testing the row itself first, so a row that marked itself would hand it an
     // element this engine will not focus.
     const { container } = await renderSettled(
       <DiffFileList
@@ -87,10 +73,8 @@ describe("browser — a windowed list's arrow keys move the focus ring", () => {
   });
 
   it("negative control: this engine refuses to focus a row with no tabindex", async () => {
-    // Why the two cases above are in the browser tier and not beside the components.
-    // Under happy-dom this expectation is false — `focus()` there sets
-    // `activeElement` to the `<li>` — so a unit-tier copy of those cases would pass
-    // over the exact shape they exist to refuse.
+    // Under happy-dom this expectation is false (`focus()` sets `activeElement` to the `<li>`),
+    // so a unit-tier copy of the cases above would pass over the shape they refuse.
     const list = document.createElement("ul");
     const row = document.createElement("li");
     list.append(row);

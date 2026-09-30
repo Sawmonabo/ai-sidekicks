@@ -1,19 +1,11 @@
-// The synthetic contexts and the controllable loader every loader-form case is written
-// over.
+// The synthetic contexts and the controllable loader every loader-form case is written over.
 //
-// ONE HOME BECAUSE TWO TIERS ASK THE SAME QUESTION. The pane registry's and the screen
-// registry's `lazy-body` suites prove what the two registries do with a loader;
-// `tests/browser/app-harness.test.tsx` proves that the shared browser
-// mount waits for one. All of them need a context the fallback can render from and a
-// promise the case itself decides when to settle, and a second copy of either is how two
-// tiers come to disagree about what a cold mount looks like.
-//
-// THE CONTEXTS ARE CASTS, DELIBERATELY AND OUT LOUD. What a loader-form case reads of a
-// context is what the reserved region reads of it — the pane's `kind` and
-// `sessionStore`, and the route kind a pending screen names — and building a bridge, a
-// frame store and three persistence stores to reach those three members would be a
-// fixture proving the fixture. The cast says so where a reader meets it rather than
-// hiding behind a builder that looks complete and is not.
+// One home because the pane registry's and screen registry's `lazy-body` suites and
+// `tests/browser/app-harness.test.tsx` all need a context the fallback can render from and a
+// promise the case decides when to settle. The contexts are casts on purpose: a loader-form case
+// reads only what the reserved region reads (the pane's `kind` and `sessionStore`, and the route
+// kind a pending screen names), and building a bridge and stores to reach those would be a
+// fixture proving the fixture.
 
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
@@ -25,24 +17,19 @@ export function syntheticPaneContextAt(kind: PaneContext["kind"]): PaneContext {
 }
 
 /**
- * The same, for the screen registry.
- *
- * The route is real because the screen's reserved region names the destination it is
- * waiting for, exactly as the pane's names its kind.
+ * The same, for the screen registry. The route is real because the reserved region names the
+ * destination it is waiting for, as the pane's names its kind.
  */
 export function createSyntheticScreenContext(): ScreenContext {
   return { route: { kind: "settings", page: undefined } } as unknown as ScreenContext;
 }
 
 /**
- * A loader whose promise the CASE settles, so a wait can be proved rather than timed.
+ * A loader whose promise the case settles, so a wait can be proved rather than timed.
  *
- * WHY THE CASE HOLDS THE TRIGGER. A loader built over `Promise.resolve` lands inside the
- * first microtask drain, which every settle in this package crosses — so a mount that
- * waited for nothing at all would satisfy the assertion just as well as one that waited
- * correctly, and the case would be green against both. Handing the arrival to the case
- * is what separates the two: the module lands after the mount's own boundaries have gone
- * by, and only a mount that joined the registration's promise can still be waiting.
+ * A loader over `Promise.resolve` lands inside the first microtask drain, so a mount that waited
+ * for nothing would pass too. Handing the arrival to the case lets the module land after the
+ * mount's own boundaries, so only a mount that joined the registration's promise is still waiting.
  */
 export function deferredBodyModule<TContext extends object>(): {
   /** The registration's `body`: one promise, however many callers ask for it. */
@@ -66,12 +53,10 @@ export function deferredBodyModule<TContext extends object>(): {
 }
 
 /**
- * A loader whose module is written by the case, and a count of how often it was called.
- *
- * The count is the whole instrument for the memo claims: a registry that resolved the
- * module correctly and fetched it once per caller would satisfy every rendering
- * assertion in either board's suite and still pay for the chunk on every arrow-key
- * press. Here rather than in one of them because both boards' suites take it.
+ * A loader whose module is written by the case, and a count of how often it was called. The
+ * count is the instrument for the memo claims: a registry fetching once per caller would pass
+ * every rendering assertion and still pay for the chunk on every arrow-key press. Shared because
+ * both boards' suites take it.
  */
 export function countingLoader<TContext extends object>(
   Body: (context: TContext) => React.ReactNode,

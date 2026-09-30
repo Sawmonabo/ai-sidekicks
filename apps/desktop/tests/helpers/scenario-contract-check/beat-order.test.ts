@@ -1,15 +1,8 @@
-// The ordering leg: where a beat sits in the tick order the clock reaches it in, and
-// in the log position the store reconciles against.
+// The ordering leg: where a beat sits in the tick order and in the log position the store
+// reconciles against.
 //
-// Beside the aggregate entry for the reason its sibling run-beat file is: the cases
-// drive `findScenarioContractDefects`, which is the one function every scenario is
-// measured through. Both halves of the rule are here — the position a script OPENS
-// at, which needs a real multi-beat script to be shifted as a whole, and the tick and
-// contiguity claims over a beat and the one in front of it.
-//
-// EVERY CASE IS BUILT FROM A SHIPPED SCRIPT, on the sibling file's precedent: what a
-// case varies is the one member it is about, and every other member is one the shipped
-// scenarios already carry and the predicate already accepts.
+// Cases drive `findScenarioContractDefects`, the one function every scenario is measured through,
+// and are built from a shipped script so each varies only the member it is about.
 
 import { describe, expect, it } from "vitest";
 
@@ -39,9 +32,8 @@ describe("scenario wire truth — the log position a scenario opens at", () => {
   }
 
   it("reports a single-beat scenario that opens anywhere but the first position", () => {
-    // The case contiguity could never reach: with one beat there is no pair to
-    // compare, so the old walk skipped it entirely and a script opening at 2 shipped
-    // green while the store read position 1 as a row it had lost.
+    // With one beat there is no pair to compare, so a pairwise walk would let a script opening at 2
+    // ship green while the store read position 1 as a row it had lost.
     const openingBeat = FIRST_RUN_SCENARIO.beats[0];
     if (openingBeat === undefined) {
       throw new Error("the first-run scenario plays no beats, so there is nothing to shift");
@@ -60,9 +52,8 @@ describe("scenario wire truth — the log position a scenario opens at", () => {
   });
 
   it("reports a contiguous multi-beat scenario that starts late, naming its first beat", () => {
-    // Contiguous throughout, so every pair-wise check passes and the only thing
-    // wrong is where the run begins — which is the subject the defect has to name,
-    // because shifting the whole script is the fix and beat 1 is not the culprit.
+    // Contiguous throughout, so only the opening is wrong; the defect must name the first beat,
+    // since shifting the whole script is the fix.
     const defects = findScenarioContractDefects([scenarioOpeningAt("opens-at-three", 3)]);
 
     expect(defects).toHaveLength(1);
@@ -71,21 +62,18 @@ describe("scenario wire truth — the log position a scenario opens at", () => {
   });
 
   it("negative control: the same script opening at the first position is clean", () => {
-    // Without it both cases above would hold over a rule that reported every opening
-    // beat, and no scenario could be scripted at all. The shift is a no-op here, so
-    // what is measured is the position and nothing else about the beats.
+    // Without it both cases above would hold over a rule that reported every opening beat.
     expect(findScenarioContractDefects([scenarioOpeningAt("opens-at-one", 1)])).toStrictEqual([]);
   });
 });
 
 describe("scenario wire truth — a beat and the beat in front of it", () => {
   /**
-   * The concurrent-streaming scenario's opening PAIR as a script of its own, each beat revised by index.
+   * The concurrent-streaming scenario's opening pair as a script of its own, each beat revised by
+   * index.
    *
-   * Two beats is the smallest script the tick and contiguity claims are stated over —
-   * both are about a beat and its predecessor — and taking the shipped scenario's own
-   * first two means every member a case does not touch is one the predicate already accepts,
-   * so a case that reports one defect reports it for the reason the case is about.
+   * Two beats is the smallest script the tick and contiguity claims are about, and the shipped
+   * scenario's own first two keep every other member one the predicate already accepts.
    */
   function openingPairScenario(
     scenarioId: string,
@@ -111,10 +99,8 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
   }
 
   it("reports a beat due before the beat in front of it", () => {
-    // `beats` is an ordered script and the engine consumes the contiguous prefix that
-    // has fallen due, so an entry written behind a later-due one is delivered later
-    // than the tick it names — and the screenshot and endurance tiers pin frames by
-    // advancing to an exact tick.
+    // The engine consumes the contiguous prefix that has fallen due, so an entry written behind a
+    // later-due one is delivered late, and the screenshot and endurance tiers pin an exact tick.
     const defects = findScenarioContractDefects([
       openingPairScenario("is-due-out-of-order", (beat, beatIndex) =>
         dueAt(beat, beatIndex === 0 ? 200 : 20),
@@ -127,11 +113,8 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
   });
 
   it("accepts two beats at one tick that still take two log positions", () => {
-    // The two claims pulled apart. Sharing a tick is ordinary — an event and the
-    // transition it triggers land together, so the tick rule is nondecreasing rather
-    // than strictly increasing — and it does NOT make them share a position, so a rule
-    // that relaxed contiguity for equal ticks would let the gap below back in by
-    // the route this case guards.
+    // The two claims pulled apart: sharing a tick is ordinary but does not share a position, and
+    // relaxing contiguity for equal ticks would let the gap below back in.
     expect(
       findScenarioContractDefects([
         openingPairScenario("shares-one-tick", (beat) => dueAt(beat, 40)),
@@ -140,11 +123,8 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
   });
 
   it("reports a beat that skips a log position", () => {
-    // Every per-beat parse passes: both positions are ones an event can occupy. What
-    // fails is the store, which reconciles `session.subscribe` against the whole log
-    // from cursor zero, reads the jump as a real gap, and enters degradation and
-    // repair — where it can drop later rows — over a script the author meant as an
-    // ordinary session.
+    // Every per-beat parse passes; the store reads the jump as a real gap and enters degradation
+    // and repair, where it can drop later rows.
     const defects = findScenarioContractDefects([
       openingPairScenario("skips-a-position", (beat, beatIndex) =>
         beatIndex === 1 ? atLogPosition(beat, beat.event.sequence + 1) : beat,
@@ -157,14 +137,9 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
   });
 
   it("reports a beat that steps backwards in the log", () => {
-    // The other direction, and the louder one: the reconciler reads it as a divergence
-    // rather than a gap. Reported separately because the two produce different store
-    // behavior and a scenario author fixes them differently — which is why the two
-    // cases assert the two REASONS and not merely that something was reported.
-    //
-    // Both beats sit at the opening position rather than at the second and the first,
-    // so the script still opens where a session's first delivery has to open and the
-    // only thing wrong is the second beat's position.
+    // The reconciler reads this as a divergence rather than a gap; the two are fixed differently,
+    // so the cases assert the reasons. Both beats sit at the opening position so only the second
+    // beat's position is wrong.
     const openingPosition = CONCURRENT_STREAMING_SCENARIO.beats[0]?.event.sequence;
     if (openingPosition === undefined) {
       throw new Error(
@@ -183,8 +158,7 @@ describe("scenario wire truth — a beat and the beat in front of it", () => {
   });
 
   it("negative control: the opening pair the shipped scenario carries is clean", () => {
-    // Without it every case above would hold over a rule that reported every pair, and
-    // no scenario could be scripted at all.
+    // Without it every case above would hold over a rule that reported every pair.
     expect(
       findScenarioContractDefects([openingPairScenario("the-shipped-pair", (beat) => beat)]),
     ).toStrictEqual([]);

@@ -1,41 +1,23 @@
 // The child a settling test kills, and the shapes that leave one running.
 //
-// This drives the real `spawnManagedElectronChild` against a real child process
-// — a `node` that never exits, standing in for a hung Electron — because the
-// defect being proved is about signals and process groups, and a fake child
-// with a `kill` spy would prove only that the spy was called.
+// This drives the real `spawnManagedElectronChild` against a real `node` child that never exits,
+// standing in for a hung Electron: the defect is about signals and process groups, and a fake
+// child with a `kill` spy would prove only that the spy was called. Electron itself would cost a
+// window, a profile and a GPU context to observe a SIGKILL a small Node program observes as well;
+// the launcher shim is reconstructed by giving the child a grandchild of its own.
 //
-// Electron is deliberately NOT the child. The mechanism under test is the
-// lifetime, not the binary: spawning Electron here would cost this tier a
-// window, a profile, and a GPU context to observe a `SIGKILL` that a 40-byte
-// Node program observes just as well. The one property that would be lost —
-// that the launcher shim forwards signals the way this file assumes — is
-// reconstructed exactly, by giving the child a grandchild of its own.
+// The registrar is injected, alongside the real hook and never instead of it (see
+// `RecordingSettleRegistrar`), because a test proving that a settling test kills its child cannot
+// itself be the settling test.
 //
-// The registrar is injected rather than taken from vitest, for a reason that is
-// the point of the whole module: a test proving that a SETTLING test kills its
-// child cannot itself be the settling test. Injecting it makes the settlement
-// an event this file can cause and then observe. It is injected ALONGSIDE the
-// real hook and never instead of it — `RecordingSettleRegistrar` states why.
+// Termination is observed, never sampled. A killed grandchild is reparented to init and sits as a
+// zombie until that init reaps it, which `kill(pid, 0)` reports alive and a non-reaping container
+// init never ends. So each "is gone" assertion is a bounded observation, through vitest's poll, of
+// the liveness reading that counts a zombie as terminated.
 //
-// TERMINATION IS OBSERVED, NEVER SAMPLED. A group kill is delivered at once and
-// reaped asynchronously, and the direct child's `exit` says nothing about the
-// grandchild: on Linux a killed grandchild is reparented to init the instant it
-// dies and sits there as a zombie until that init reaps it — which `kill(pid, 0)`
-// answers "alive" for, and which a container init that does not reap never ends.
-// So every assertion that something is gone is a BOUNDED observation of the
-// liveness reading that counts a zombie as terminated, through vitest's own poll
-// rather than a sleep loop.
-//
-// The stand-ins those two paragraphs describe live beside this file —
-// `electron-child-lifetime.test-support.ts` for the children and
-// `electron-child-doubles.test-support.ts` for what a spawn is handed; the claims
-// made with them are here.
-//
-// What the child was HOLDING is a different subject and is
-// `electron-child-profile-removal.test.ts`'s: a kill bound to the test does not
-// on its own remove the temporary profile the child ran on, and which paths
-// reach that removal is the question that survives every claim here being true.
+// The children are in `electron-child-lifetime.test-support.ts` and what a spawn is handed is in
+// `electron-child-doubles.test-support.ts`. What the child held (the temporary profile) is
+// `electron-child-profile-removal.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -62,8 +44,8 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
       const registrar = new RecordingSettleRegistrar();
       const { managed, childPid, grandchildPid } = await spawnChildWithGrandchild(registrar);
       try {
-        // The spawn registers exactly one disposer, and it is the only kill path
-        // armed at this point: no deadline has been set and no timer is pending.
+        // The spawn registers exactly one disposer, the only kill path armed: no deadline or timer
+        // is pending.
         expect(registrar.registeredCount).toBe(1);
         expect(readProcessLiveness(childPid)).toBe("running");
         expect(readProcessLiveness(grandchildPid)).toBe("running");
@@ -72,11 +54,9 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
         await registrar.settle();
 
         const exitSignal = await exited;
-        // Asserted only where the kill IS a signal. On Windows the tree is walked
-        // by an external `taskkill /f`, so the child reports an exit code with
-        // `signal === null`, and naming a signal here would be asserting a POSIX
-        // detail on a platform that has none. What every platform owes is the
-        // same, and is asserted on every platform: nothing left running.
+        // Asserted only where the kill is a signal: on Windows `taskkill /f` walks the tree, so
+        // the child reports an exit code with `signal === null`. Every platform owes the same
+        // result, asserted everywhere: nothing left running.
         if (PROCESS_TREE_TERMINATION_MODE === "signal") {
           expect(exitSignal).toBe("SIGKILL");
         }
@@ -106,9 +86,9 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
         await exited;
         expect(managed.isKilled).toBe(true);
 
-        // Settling now runs the registered disposer a second time. On POSIX the
-        // pid may already name a different process by the time a real run reaches
-        // here, so the second pass must decide from the marker and signal nothing.
+        // Settling runs the registered disposer a second time. The pid may already name a
+        // different process on POSIX, so the second pass must decide from the marker and signal
+        // nothing.
         await registrar.settle();
         expect(managed.terminate("SIGKILL")).toBe(true);
       } finally {
@@ -128,19 +108,11 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
         terminateProcessTree: terminator.terminate,
       });
       try {
-        // THE REFUSED KILL, and the two things it has to leave behind. Asked of
-        // ONE disposal rather than of a settlement, because a settlement is now
-        // the whole bounded retry — the spawner's single disposer owns every
-        // attempt — and the readings below are about what ONE refused ask leaves
-        // for the next one to work with.
-        //
-        // The marker used to be set before the call, so a refusal recorded a
-        // delivered SIGKILL that no process ever received and every later
-        // disposer returned early on it. The marker now records the verdict —
-        // but a marker alone still could not make the retry work, because the
-        // abort ran unconditionally and reaches the direct handle ALONE: it
-        // took the root down, and a tree is addressed THROUGH its root. The
-        // retry would have walked from a pid that no longer named the tree.
+        // A refused kill must leave two things behind. It is asked of one disposal, not a
+        // settlement, because a settlement is the whole bounded retry. The marker must record the
+        // verdict (a refusal is not a delivered SIGKILL), and the direct handle must survive: the
+        // abort would take the root down, and a tree is addressed through its root, so the retry
+        // would walk from a pid that no longer names the tree.
         managed.dispose();
         expect(terminator.requests).toStrictEqual([{ processId: childPid, signal: "SIGKILL" }]);
         expect(managed.isKilled, "a refused kill was recorded as delivered").toBe(false);
@@ -154,15 +126,14 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
         ).toBe("running");
         expect(readProcessLiveness(grandchildPid)).toBe("running");
 
-        // The retry the marker would have suppressed, walking the root the
-        // refusal preserved, through the same disposer — and inside the ONE
-        // settlement, because a resource release is sequenced after the last
-        // attempt and a retry deferred to a later disposer would land after it.
+        // The retry walks the root the refusal preserved, inside the one settlement, because a
+        // resource release is sequenced after the last attempt and a deferred retry would land
+        // after it.
         await registrar.settle();
         expect(terminator.requests).toHaveLength(2);
         expect(managed.isKilled).toBe(true);
-        // Still false after the DELIVERED kill: the abort is not a second
-        // attempt at the tree, and a child with a pid never sees it fire.
+        // Still false after the delivered kill: the abort is not a second attempt at the tree, and
+        // a child with a pid never sees it fire.
         expect(managed.directHandleReleased).toBe(false);
         await expectTerminatedWithin(childPid, "the root the retry walked from");
         await expectTerminatedWithin(grandchildPid, "the grandchild the retry was for");
@@ -177,12 +148,9 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
   it(
     "gives the child up when the settle-time registration itself refuses",
     async () => {
-      // THE MISUSE WITH A CHILD IN IT. `onTestFinished` throws outside a running
-      // test, which is what a spawn from `beforeAll` reaches — and it throws
-      // AFTER the spawn, so the caller gets a clear diagnostic while a detached
-      // child it was never handed keeps running with no kill path anywhere. The
-      // pid is read out of the tree terminator because there is no returned
-      // handle to read it from: that absence is the defect.
+      // Misuse with a child in it: `onTestFinished` throws outside a running test (a spawn from
+      // `beforeAll`), after the spawn, leaving a detached child no handle reaches. The pid comes
+      // from the terminator because no handle is returned.
       const refused = new RefusedRegistrationSpawn();
       expect(refused.attempt).toThrow(REGISTRAR_REFUSAL_MESSAGE);
       expect(refused.registrationAttempts).toBe(1);
@@ -223,10 +191,9 @@ describe("a setup that throws before it returns still gives its child up", () =>
       ).rejects.toThrow(ABANDONED_SETUP_MESSAGE);
       expect(abandoned.childPid).toBeGreaterThan(0);
       expect(readProcessLiveness(abandoned.childPid)).toBe("running");
-      // Deliberately NOT settled here, and nothing is reaped: the recorder's own
-      // settlement is the path a failed setup never reaches, so the registration
-      // the recorder makes with the runner is the only kill path left. Whether it
-      // ran is the next case's question, and it can only be asked from there.
+      // Deliberately not settled or reaped: a failed setup never reaches the recorder's own
+      // settlement, so its registration with the runner is the only kill path left, which the
+      // next case checks.
     },
     LIFETIME_TEST_TIMEOUT_MS,
   );
@@ -239,8 +206,7 @@ describe("a setup that throws before it returns still gives its child up", () =>
         await expectTerminatedWithin(abandoned.childPid, "the abandoned child");
         await expectTerminatedWithin(abandoned.grandchildPid, "the abandoned grandchild");
       } finally {
-        // The control must not leak even when it fails, which is the whole
-        // difference between proving a leak and producing one.
+        // The control must not leak even when it fails.
         reap(abandoned.grandchildPid);
         reap(abandoned.childPid);
       }
@@ -256,11 +222,9 @@ describe("the two shapes that leave an Electron running — negative controls", 
       const registrar = new RecordingSettleRegistrar();
       const { managed, childPid, grandchildPid } = await spawnChildWithGrandchild(registrar);
       try {
-        // THE SUPERSEDED SHAPE. A `setTimeout` inside the spawn promise is a claim
-        // on the worker that armed it; when vitest's per-test timeout fires first
-        // the worker is torn down and the timer is discarded with it. `clearTimeout`
-        // is this file's stand-in for that teardown, because the timer never runs
-        // either way and what matters is that the child is still there afterwards.
+        // The superseded shape: a `setTimeout` inside the spawn promise is discarded with the
+        // worker when vitest's per-test timeout fires first. `clearTimeout` stands in for that
+        // teardown; the child must still be there afterwards.
         const timerOnlyKill = setTimeout(() => {
           managed.child.kill("SIGKILL");
         }, 30_000);
@@ -272,7 +236,7 @@ describe("the two shapes that leave an Electron running — negative controls", 
         ).toBe("running");
         expect(readProcessLiveness(grandchildPid)).toBe("running");
       } finally {
-        // Through the real mechanism, which is also a second reading of it.
+        // Through the real mechanism, a second reading of it.
         await registrar.settle();
         reap(grandchildPid);
         reap(childPid);
@@ -287,17 +251,16 @@ describe("the two shapes that leave an Electron running — negative controls", 
       const registrar = new RecordingSettleRegistrar();
       const { managed, childPid, grandchildPid } = await spawnChildWithGrandchild(registrar);
       try {
-        // THE MEASURED ORPHAN. `child.kill("SIGKILL")` on the launcher shim is
-        // unforwardable by construction: it takes the shim down and leaves the
-        // browser process reparented to init — which is the state the four
+        // The measured orphan: `child.kill("SIGKILL")` on the launcher shim cannot be forwarded,
+        // so it takes the shim down and leaves the browser reparented to init, the state the four
         // `sidekicks-gc-test-*` Electron processes were found in.
         const exited = exitOf(managed);
         managed.child.kill("SIGKILL");
         expect(await exited).toBe("SIGKILL");
 
-        // Also the negative control for the zombie reading: this grandchild is
-        // reparented and RUNNING, and a liveness probe that called it terminated
-        // because its parent was gone would report every leak as a clean tree.
+        // Also the negative control for the zombie reading: this grandchild is reparented and
+        // running, and a probe that called it terminated because its parent is gone would report
+        // every leak as clean.
         expect(
           readProcessLiveness(grandchildPid),
           "the direct-handle kill reached the grandchild — the control no longer reproduces the orphan",

@@ -1,23 +1,14 @@
-// The browser tier: the run's phase graph occupies its own box, and paints in it.
+// The browser tier: the run's phase graph occupies its own box, and paints in it. happy-dom
+// returns zeroes from every `getBoundingClientRect`, so "the canvas stays inside its wrapper"
+// would pass there over a canvas painted past it.
 //
-// A DOM shim cannot answer this one at all. happy-dom returns zeroes from every
-// `getBoundingClientRect`, so "the canvas stays inside its wrapper" passes there over a
-// canvas painted past it — which is exactly the state this file exists to prevent.
+// `.meridian-run-graph` takes its content's own minimum so the canvas's floor never overflows
+// the wrapper onto whatever follows it. The canvas keeps its declared floor whatever its child
+// does, so measuring only the canvas stays green over a graph root that collapsed to nothing
+// inside it; the last two cases therefore measure `.react-flow`, the element that paints, and
+// the box a phase node lands in.
 //
-// THE CANVAS KEEPS A FLOOR. `.meridian-run-graph` takes its content's own minimum, so
-// the canvas's floor never overflows the wrapper's edge onto whatever follows it; these
-// cases measure that in a real layout engine rather than asserting it about a
-// stylesheet's text.
-//
-// AND THE ROOT MUST PAINT AT THAT FLOOR. The canvas keeps its declared floor whatever
-// its child does, so a case that measured only the CANVAS stays green over a graph
-// library root that collapsed to nothing inside it: a 20rem sunken box with no phase,
-// no connector and no attribution plate in it. So the last two cases measure
-// `.react-flow`, the element that actually paints, and the box a phase node lands in —
-// the two readings a collapsed root cannot satisfy.
-//
-// The graph is mounted as a piece, from a hand-built parked run, because no view
-// composes it until the run read is built.
+// The graph is mounted as a piece, from a hand-built parked run.
 
 import { describe, expect, it } from "vitest";
 
@@ -36,11 +27,8 @@ function requireElement(root: HTMLElement, selector: string): HTMLElement {
 }
 
 /**
- * The mounted graph, waited on until its lazy chunk has painted.
- *
- * Through the readiness helper the screenshot and accessibility tiers wait on rather
- * than a wait of this file's own: a second reading of when a graph is ready is a second
- * thing to keep true.
+ * The mounted graph, waited on until its lazy chunk has painted, through the readiness helper
+ * the screenshot and accessibility tiers share so there is one reading of "ready".
  */
 async function mountWithPaintedGraph(): Promise<HTMLElement> {
   installMeridianTokens(document);
@@ -49,12 +37,7 @@ async function mountWithPaintedGraph(): Promise<HTMLElement> {
   return graph;
 }
 
-/**
- * The floor the canvas declares, in pixels, read off the cascade.
- *
- * A test that wrote `20rem` would be a second home for a length the stylesheet already
- * declares once, and it would keep passing after the declaration moved.
- */
+/** The floor the canvas declares, in pixels, read off the cascade so the length has one home. */
 function declaredCanvasFloorPx(canvas: HTMLElement): number {
   return Number.parseFloat(getComputedStyle(canvas).getPropertyValue("min-block-size"));
 }
@@ -65,18 +48,15 @@ describe("browser — the phase graph stays inside its own box", () => {
     const wrapper = requireElement(graph, ".meridian-run-graph").getBoundingClientRect();
     const canvas = requireElement(graph, ".meridian-run-graph__canvas").getBoundingClientRect();
 
-    // Said about the pair rather than about a sibling: whatever else the graph
-    // grows, a child painting past its own parent's edge is the mechanism.
+    // A child painting past its own parent's edge is the mechanism, whatever else the graph grows.
     expect(canvas.bottom).toBeLessThanOrEqual(wrapper.bottom + 0.5);
     expect(canvas.top).toBeGreaterThanOrEqual(wrapper.top - 0.5);
   });
 
   it("paints the library's own root at the canvas's declared floor, not collapsed", async () => {
-    // THE ROOT AND NOT THE CANVAS. The canvas keeps its `min-block-size` whatever its
-    // child does, so a case measuring it is green over an empty box; `.react-flow` is
-    // the element whose height decides whether anything is drawn, and it sizes itself
-    // as a percentage of the box above it — which resolves to nothing wherever that
-    // box has no definite block size of its own.
+    // The root, not the canvas: the canvas keeps its `min-block-size` whatever its child does,
+    // while `.react-flow` sizes itself as a percentage of the box above it, which resolves to
+    // nothing wherever that box has no definite block size.
     const graph = await mountWithPaintedGraph();
     const canvasElement = requireElement(graph, ".meridian-run-graph__canvas");
     const declaredFloorPx = declaredCanvasFloorPx(canvasElement);
@@ -89,10 +69,9 @@ describe("browser — the phase graph stays inside its own box", () => {
   });
 
   it("lands a phase node inside the canvas rather than clipped outside it", async () => {
-    // The other half of the same claim, and the one a person actually looks for: a
-    // root of the right height that fitted its picture somewhere off the box would
-    // satisfy the case above and still show an operator nothing. The canvas is
-    // `overflow: hidden`, so a node outside its rect is a node nobody can see.
+    // A root of the right height that fitted its picture off the box would pass the case above
+    // and still show nothing. The canvas is `overflow: hidden`, so a node outside its rect is
+    // invisible.
     const graph = await mountWithPaintedGraph();
     const canvas = requireElement(graph, ".meridian-run-graph__canvas").getBoundingClientRect();
     const nodes = [...graph.querySelectorAll<HTMLElement>(".meridian-run-graph .react-flow__node")];
