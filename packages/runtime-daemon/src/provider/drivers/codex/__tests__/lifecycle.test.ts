@@ -105,15 +105,16 @@ import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
 // exporting them would make them look like part of the driver's public surface.
 import {
   CALLER_DERIVED_TURN_POSTURE_FIELDS,
-  CODEX_ASK_OPTION_SET_MAX,
-  CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
-  CODEX_COMPACTION_WAIT_MS,
-  CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON,
   UNREALIZED_TURN_POSTURE_MEMBERS,
   assertRealizedTurnPostureMembers,
-  readCodexAskOptionSet,
+} from "../session-config.js";
+import { CODEX_ASK_OPTION_SET_MAX, readCodexAskOptionSet } from "../ask-option-sets.js";
+import {
+  CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
+  CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON,
   type CodexSessionServerRequest,
-} from "../lifecycle.js";
+} from "../server-requests.js";
+import { CODEX_COMPACTION_WAIT_MS } from "../provider-commands.js";
 
 // --------------------------------------------------------------------------
 // Fakes

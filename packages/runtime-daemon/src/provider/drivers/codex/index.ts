@@ -45,46 +45,54 @@ import type {
 
 import { resolveCodexModelCatalog, type CodexModelCatalogExchange } from "./capabilities.js";
 import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";
+import { CodexDriverConfigError } from "./session-errors.js";
+import { CodexLifecycleManager } from "./lifecycle.js";
 import {
-  CodexDriverConfigError,
-  CodexLifecycleManager,
   resolveCodexTransportSelection,
-  type CodexLifecycleOptions,
   type CodexTransportSelection,
-} from "./lifecycle.js";
+} from "./transport-selection.js";
+import { type CodexLifecycleOptions } from "./session-state.js";
 
+export { CodexAppServerConnection } from "./app-server-connection.js";
 export {
-  CodexAppServerConnection,
   CodexDriverConfigError,
-  CodexLifecycleManager,
   CodexLineTooLongError,
   CodexSessionAlreadyLiveError,
   CodexProviderRequestError,
   CodexRequestTimeoutError,
   CodexRewindBoundaryUnsupportedError,
   CodexTransportError,
+  normalizeProviderFailureDetail,
+} from "./session-errors.js";
+export { CodexLifecycleManager } from "./lifecycle.js";
+export {
   CODEX_APP_SERVER_READY_SENTINEL,
   CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
+  composeCodexTransportArgv,
+  resolveCodexTransportSelection,
+  type CodexTransportSelection,
+  type CodexWebsocketBearerCredential,
+} from "./transport-selection.js";
+export {
   CODEX_MAX_LINE_LENGTH,
   CODEX_ROUTED_SERVER_REQUEST_METHODS,
-  composeCodexTransportArgv,
+  type CodexServerRequestDecision,
+  type CodexSessionServerRequestResponder,
+} from "./server-requests.js";
+export {
   describeCodexPostureDivergence,
-  normalizeProviderFailureDetail,
   parseCodexRunConfig,
   parseCodexSessionConfig,
-  resolveCodexTransportSelection,
-  type CodexCredentialEnvPolicyResolver,
+  type CodexSessionConfig,
+} from "./session-config.js";
+export { type CodexCredentialEnvPolicyResolver } from "./session-state.js";
+export {
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
   type CodexScheduleTimeout,
-  type CodexServerRequestDecision,
-  type CodexSessionServerRequestResponder,
-  type CodexSessionConfig,
   type CodexTransportDiagnostic,
-  type CodexTransportSelection,
-  type CodexWebsocketBearerCredential,
-} from "./lifecycle.js";
+} from "./transport-diagnostics.js";
 
 // Only the model-catalog symbols: `listModels` is the one operation from `./capabilities.ts`.
 export { CODEX_DECLARED_MODEL_CATALOG, type CodexModelCatalogExchange } from "./capabilities.js";
