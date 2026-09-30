@@ -36,13 +36,15 @@ export const WORKTREE_COLUMN_LABELS: Readonly<Record<WorktreeColumnKey, string>>
   updatedAt: "Updated",
 };
 
+/** A column the card lists as a summary row; the branch and the state head the card instead. */
+export type WorktreeSummaryColumnKey = Extract<WorktreeColumnKey, "fsRoot" | "createdAt">;
+
 /**
- * What the card shows without being asked: state, branch, root, and age. Age is `createdAt`
- * read relatively, so the column is `createdAt` and the reading is the card's.
+ * The rows the card lists under its heading without being asked: the root, and the age, which
+ * is `createdAt` read relatively by the card. The branch names the card and the state is its
+ * chip, so neither is a row here.
  */
-export const WORKTREE_SUMMARY_COLUMNS: readonly WorktreeColumnKey[] = [
-  "state",
-  "branchName",
+export const WORKTREE_SUMMARY_COLUMNS: readonly WorktreeSummaryColumnKey[] = [
   "fsRoot",
   "createdAt",
 ];
