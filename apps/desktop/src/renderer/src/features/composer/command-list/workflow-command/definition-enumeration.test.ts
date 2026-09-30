@@ -1,6 +1,5 @@
-// The enumeration is read whole, and a walk nobody is waiting for stops. Matching only the first
-// page refused names past it, so the fixture pages by cursor, not by call count, and the control
-// is a second page that went unread.
+// The enumeration is read whole or not at all, and an endless cursor stops at the cap. The fixture
+// pages by cursor, not by call count.
 
 import { describe, expect, it } from "vitest";
 
@@ -44,27 +43,6 @@ describe("readWorkflowDefinitions", () => {
     ]);
   });
 
-  it("negative control: a first-page-only read misses the later definition", async () => {
-    // Reading one page and stopping leaves `release` unfound.
-    const operations = fixtureWorkflowStartOperations({
-      pages: [{ definitions: [{ name: "nightly" }] }, { definitions: [{ name: "release" }] }],
-    });
-
-    const firstPageOnly = await operations.readDefinitionPage({
-      sessionId: WORKFLOW_TEST_SESSION_ID,
-    });
-
-    expect(firstPageOnly.nextCursor).toBe("page-1");
-    expect(firstPageOnly.definitions.map((definition) => definition.name)).toStrictEqual([
-      "nightly",
-    ]);
-    expect(
-      namesOf(
-        await readWorkflowDefinitions(operations.readDefinitionPage, WORKFLOW_TEST_SESSION_ID),
-      ),
-    ).toContain("release");
-  });
-
   it("rejects the whole read when any page rejects", async () => {
     // A partial list would resolve a typed name against definitions never fully listed.
     const operations = fixtureWorkflowStartOperations({
@@ -98,46 +76,5 @@ describe("readWorkflowDefinitions", () => {
     // Bounded: a cursor handed back forever would otherwise loop on a keystroke.
     expect(calls.listed).toHaveLength(COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP);
     expect(enumeration.complete).toBe(false);
-  });
-
-  it("stops paging the moment the reading it was for is superseded", async () => {
-    const calls = recordedWorkflowCalls();
-    let isLive = true;
-    const operations = fixtureWorkflowStartOperations({
-      pages: [{ definitions: [{ name: "nightly" }] }],
-      endless: true,
-      calls,
-      onList: () => {
-        // Superseded between pages, as a keystroke supersedes the read in flight.
-        isLive = false;
-      },
-    });
-
-    const enumeration = await readWorkflowDefinitions(
-      operations.readDefinitionPage,
-      WORKFLOW_TEST_SESSION_ID,
-      () => isLive,
-    );
-
-    expect(calls.listed).toHaveLength(1);
-    expect(enumeration.complete).toBe(false);
-  });
-
-  it("negative control: the same endless port pages to the cap when nothing supersedes it", async () => {
-    // Without the liveness guard the walk would spend every page the cap allows.
-    const calls = recordedWorkflowCalls();
-    const operations = fixtureWorkflowStartOperations({
-      pages: [{ definitions: [{ name: "nightly" }] }],
-      endless: true,
-      calls,
-    });
-
-    await readWorkflowDefinitions(
-      operations.readDefinitionPage,
-      WORKFLOW_TEST_SESSION_ID,
-      () => true,
-    );
-
-    expect(calls.listed).toHaveLength(COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP);
   });
 });

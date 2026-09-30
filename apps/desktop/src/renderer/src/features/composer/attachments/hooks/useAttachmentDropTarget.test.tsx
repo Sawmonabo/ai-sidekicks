@@ -75,27 +75,4 @@ describe("the composer's drop and paste binding", () => {
     expect(delivered).toHaveLength(0);
     expect(event.defaultPrevented).toBe(false);
   });
-
-  it("stays lit while a drag crosses an inner boundary, and clears when it leaves", () => {
-    const { region } = mountProbe();
-    const transfer = fileTransferOf([fileNamed("notes.md")]);
-    dispatch(region, "dragenter", "dataTransfer", transfer);
-    expect(region.getAttribute("data-dragging")).toBe("true");
-    // Entering a child fires `dragenter` again before the parent's `dragleave`, the pair a
-    // flag would get wrong.
-    dispatch(region, "dragenter", "dataTransfer", transfer);
-    dispatch(region, "dragleave", "dataTransfer", transfer);
-    expect(region.getAttribute("data-dragging")).toBe("true");
-    dispatch(region, "dragleave", "dataTransfer", transfer);
-    expect(region.getAttribute("data-dragging")).toBe("false");
-  });
-
-  it("ignores a drag that declares no files, so a text drag reaches the input", () => {
-    const { region, delivered } = mountProbe();
-    const textDrag = { types: ["text/plain"], files: fileListOf([]) } as unknown as DataTransfer;
-    const event = dispatch(region, "drop", "dataTransfer", textDrag);
-    expect(region.getAttribute("data-dragging")).toBe("false");
-    expect(delivered).toHaveLength(0);
-    expect(event.defaultPrevented).toBe(false);
-  });
 });

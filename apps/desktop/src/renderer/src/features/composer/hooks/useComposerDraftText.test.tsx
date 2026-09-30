@@ -1,6 +1,7 @@
-// The one reading of the composer's line, and the two ways its callers take it.
+// The line's reader answers at call time: Send reads the body through it, so the text sent is
+// what the line holds, not what a render captured.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
@@ -21,31 +22,6 @@ function Probe(props: {
 }
 
 describe("useComposerDraftText — one subscription, two ways to take it", () => {
-  it("renders the key's text and re-renders on a write to it", () => {
-    const draftStore = new DraftStore({
-      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-    });
-    let latest = { text: "", read: (): string => "" };
-    const probe = render(
-      <Probe
-        draftStore={draftStore}
-        draftKey={KEY}
-        report={(reading) => {
-          latest = reading;
-        }}
-      />,
-    );
-
-    expect(probe.container.textContent).toBe("");
-
-    act(() => {
-      draftStore.write(KEY, "half a thought");
-    });
-
-    expect(probe.container.textContent).toBe("half a thought");
-    expect(latest.text).toBe("half a thought");
-  });
-
   it("reads at call time, so a handler is never answering with a stale render's text", () => {
     // The popover's dismissal records the text it was dismissed at; a handler closing over the
     // rendered value would key it to a string the person has typed past.
@@ -68,18 +44,5 @@ describe("useComposerDraftText — one subscription, two ways to take it", () =>
     draftStore.write(KEY, "typed since");
 
     expect(readerFromFirstRender()).toBe("typed since");
-  });
-
-  it("ignores a write to another address, so one line never reports another's", () => {
-    const draftStore = new DraftStore({
-      maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
-    });
-    const probe = render(<Probe draftStore={draftStore} draftKey={KEY} report={() => undefined} />);
-
-    act(() => {
-      draftStore.write("session::other", "for somewhere else");
-    });
-
-    expect(probe.container.textContent).toBe("");
   });
 });

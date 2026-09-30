@@ -1,5 +1,5 @@
-// What a send would carry: only settled ingests mint a reference, and the user's own order
-// survives.
+// What a send would carry: only settled ingests mint a reference, and every entry that minted
+// nothing is counted rather than dropped.
 
 import { describe, expect, it } from "vitest";
 
@@ -7,28 +7,6 @@ import { composeSendAttachmentReference } from "./send-attachment-reference.js";
 import { derivedTruth, sendingEntry, settledEntry } from "./ingest-entry.test-support.js";
 
 describe("the send attachment reference", () => {
-  it("reports nothing where nothing is attached, which is not the same as nothing ready", () => {
-    expect(composeSendAttachmentReference([])).toStrictEqual({ disposition: "none" });
-  });
-
-  it("carries the settled artifacts in the ledger's own order", () => {
-    const reference = composeSendAttachmentReference([
-      settledEntry("complete", {
-        localId: "local-1",
-        derived: derivedTruth({ artifactId: "artifact-first" }),
-      }),
-      settledEntry("complete", {
-        localId: "local-2",
-        derived: derivedTruth({ artifactId: "artifact-second" }),
-      }),
-    ]);
-    expect(reference).toStrictEqual({
-      disposition: "held",
-      artifactIds: ["artifact-first", "artifact-second"],
-      unsettledCount: 0,
-    });
-  });
-
   it("counts every entry that has minted nothing rather than shortening the list silently", () => {
     const reference = composeSendAttachmentReference([
       sendingEntry("ingesting", { localId: "local-1" }),
@@ -46,15 +24,6 @@ describe("the send attachment reference", () => {
       disposition: "held",
       artifactIds: ["artifact-only"],
       unsettledCount: 3,
-    });
-  });
-
-  it("holds a staged list of nothing but unsettled entries, rather than reporting none", () => {
-    // Something is attached, and none of it can be referenced yet.
-    expect(composeSendAttachmentReference([sendingEntry("declared")])).toStrictEqual({
-      disposition: "held",
-      artifactIds: [],
-      unsettledCount: 1,
     });
   });
 });

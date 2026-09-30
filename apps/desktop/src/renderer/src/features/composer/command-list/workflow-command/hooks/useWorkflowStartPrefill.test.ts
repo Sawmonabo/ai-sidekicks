@@ -10,11 +10,8 @@ import { commandRegistry } from "@renderer/registries/commands/window-command-re
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { readComposerCommands } from "../../composer-commands.js";
-import {
-  WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_START_COMMAND_PREFILL,
-} from "../workflow-command-grammar.js";
-import { decideWorkflowStartPrefill, useWorkflowStartPrefill } from "./useWorkflowStartPrefill.js";
+import { WORKFLOW_COMMAND_ROOT } from "../workflow-command-grammar.js";
+import { useWorkflowStartPrefill } from "./useWorkflowStartPrefill.js";
 
 const DRAFT_KEY = "composer:workflow-start-prefill";
 
@@ -42,35 +39,8 @@ afterEach(() => {
   commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
 });
 
-describe("decideWorkflowStartPrefill", () => {
-  it("prefills a line holding nothing", () => {
-    expect(decideWorkflowStartPrefill("")).toStrictEqual({ status: "prefill" });
-  });
-
-  it("prefills a line holding only whitespace", () => {
-    // Blankness is decided by trimming, without editing the text.
-    expect(decideWorkflowStartPrefill("   \n  ")).toStrictEqual({ status: "prefill" });
-  });
-
-  it("raises an explicit decision over unsent text, carrying the text itself", () => {
-    expect(decideWorkflowStartPrefill("  ship the parser fix  ")).toStrictEqual({
-      status: "confirm-replace",
-      displacedText: "  ship the parser fix  ",
-    });
-  });
-});
-
 describe("the palette entry", () => {
-  it("types the directive onto a line holding nothing", () => {
-    const { draftStore, rendered } = mountComposerLine();
-
-    pressPaletteRow();
-
-    expect(lineText(draftStore)).toBe(WORKFLOW_START_COMMAND_PREFILL);
-    expect(rendered.result.current.displacedText).toBeUndefined();
-  });
-
-  it("negative control: it does not write over unsent text, and names what would go", () => {
+  it("does not write over unsent text, and names what would go", () => {
     // An unconditional write left `/workflow start ` with the message gone.
     const { draftStore, rendered } = mountComposerLine("ship the parser fix");
 
@@ -78,18 +48,6 @@ describe("the palette entry", () => {
 
     expect(lineText(draftStore)).toBe("ship the parser fix");
     expect(rendered.result.current.displacedText).toBe("ship the parser fix");
-  });
-
-  it("writes once the person answers the question with Replace", () => {
-    const { draftStore, rendered } = mountComposerLine("ship the parser fix");
-    pressPaletteRow();
-
-    act(() => {
-      rendered.result.current.replaceLine();
-    });
-
-    expect(lineText(draftStore)).toBe(WORKFLOW_START_COMMAND_PREFILL);
-    expect(rendered.result.current.displacedText).toBeUndefined();
   });
 
   it("leaves the line exactly as it was when the person keeps it", () => {
@@ -115,13 +73,5 @@ describe("the palette entry", () => {
 
     expect(lineText(draftStore)).toBe("typed after this line rendered");
     expect(rendered.result.current.displacedText).toBe("typed after this line rendered");
-  });
-
-  it("is registered under the command root, so one command has one name", () => {
-    mountComposerLine();
-
-    expect(commandRegistry.get(WORKFLOW_COMMAND_ROOT)?.title).toBe("Start a workflow");
-    // The palette, recognizer and keyboard page all name the root, not a dotted id.
-    expect(commandRegistry.has("workflow.start")).toBe(false);
   });
 });

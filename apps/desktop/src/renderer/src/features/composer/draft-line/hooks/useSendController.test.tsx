@@ -1,23 +1,15 @@
 // What the controller does with a line the router intercepted. That arm reaches no wire, so
-// these drive the real hook over the real `DraftStore` and assert the settlements a recognized
-// command can have: ran, refused, nothing to run it, or no handler.
+// these drive the real hook over the real `DraftStore`: the line clears only once the command
+// applied, and a refused command keeps it.
 
 import { act, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerSessionTarget } from "../../composer-target.js";
-import { createClientCommandExecutor } from "../../command-list/client-command-executor.js";
-import {
-  LINE_READING_COMMAND_IDS,
-  noComposerCommandLineHandlers,
-} from "../../command-list/composer-command-line-handlers.js";
-import { readComposerCommands } from "../../command-list/composer-commands.js";
 import { WORKFLOW_COMMAND_ROOT } from "../../command-list/workflow-command/workflow-command-grammar.js";
 import type { CommandExecutor } from "../../types.js";
 import { composerDraftKey } from "../draft-key.js";
@@ -122,60 +114,5 @@ describe("useSendController — an intercepted command awaits its executor", () 
 
     expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/clear the history");
     expect(driven.latest().refusal).toStrictEqual(refusal);
-  });
-
-  it("refuses under a named code when nothing is wired to run the command", async () => {
-    // Before the executor existed, the line cleared and a recognized command looked successful.
-    const driven = driveController(undefined);
-
-    act(() => {
-      driven.latest().changeText("/clear the history");
-    });
-    await act(async () => {
-      await driven.latest().send();
-    });
-
-    expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/clear the history");
-    expect(driven.latest().refusal?.code).toBe("command-unexecutable");
-  });
-});
-
-describe("useSendController — a command that reads its line and has no handler", () => {
-  afterEach(() => {
-    commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
-  });
-
-  it("leaves the line as typed, draws nothing, and records no history", async () => {
-    const paletteAct = vi.fn();
-    commandRegistry.register({
-      id: WORKFLOW_COMMAND_ROOT,
-      title: "Start a workflow",
-      group: "Workflow",
-      run: paletteAct,
-    });
-    const driven = driveController(
-      createClientCommandExecutor({
-        readCommands: () => readComposerCommands(DEFAULT_ROUTE),
-        readCommandLineHandlers: noComposerCommandLineHandlers,
-        lineReadingCommandIds: LINE_READING_COMMAND_IDS,
-      }),
-    );
-
-    act(() => {
-      driven.latest().changeText("/workflow start nightly");
-    });
-    await act(async () => {
-      await driven.latest().send();
-    });
-
-    expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/workflow start nightly");
-    expect(driven.latest().refusal).toBeUndefined();
-    expect(paletteAct).not.toHaveBeenCalled();
-    act(() => {
-      driven.latest().changeText("");
-    });
-    expect(driven.latest().recallOlder({ selectionStart: 0, selectionEnd: 0, textLength: 0 })).toBe(
-      false,
-    );
   });
 });

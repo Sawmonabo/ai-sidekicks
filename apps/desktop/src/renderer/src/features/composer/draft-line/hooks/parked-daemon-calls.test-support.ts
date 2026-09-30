@@ -36,11 +36,6 @@ export class ParkedDaemonCalls {
     this.#takeOldest().resolve(interventionResponse("rejected", 8, { rejectionReason }));
   }
 
-  /** Answer the oldest parked call with this reply. */
-  public resolveOldest(reply: unknown): void {
-    this.#takeOldest().resolve(reply);
-  }
-
   #takeOldest(): ParkedCall {
     const parked = this.#parked.shift();
     if (parked === undefined) {

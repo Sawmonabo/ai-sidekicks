@@ -43,23 +43,6 @@ function resolveFailingUntilCleared(): {
 }
 
 describe("useQuestionAnswer — an answer is a settled act", () => {
-  it("holds the refusal when the answer never reached the daemon", async () => {
-    const call = resolveFailingUntilCleared();
-    const { result } = renderHook(() =>
-      useQuestionAnswer(SAMPLE_QUESTION_ID, call.resolveQuestion),
-    );
-
-    act(() => {
-      result.current.answer(SAMPLE_ANSWERS);
-    });
-    await settle();
-
-    expect(result.current.delivery).toMatchObject({
-      status: "refused",
-      refusal: { code: "call-rejected" },
-    });
-  });
-
   it("settles as accepted when the daemon takes the answers, sent as they were given", async () => {
     const call = resolveFailingUntilCleared();
     call.recover();

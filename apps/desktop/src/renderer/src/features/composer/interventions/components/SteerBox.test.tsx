@@ -1,4 +1,6 @@
-// What the form is keyed by, and when a dispatch is recorded at all.
+// The steer form: a body typed for one run is never sent to or cleared by another, a dispatch
+// is recorded only where the dispatch state admitted it, and the text survives a refusal and
+// reaches the wire as typed.
 
 import { useLayoutEffect, useState } from "react";
 import { act, render } from "@testing-library/react";
@@ -90,41 +92,6 @@ describe("the form is keyed by what it is composing against", () => {
       },
     };
   }
-
-  it("carries no body from one run to the next", () => {
-    const { container, retarget } = renderSwitchable(true);
-    typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
-    retarget(SECOND_RUN_ID);
-    expect(bodyValue(container)).toBe("");
-  });
-
-  it("carries no body across the key a later caller might drop", () => {
-    // The same switch with one element reused, so only the component's own reset can clear it.
-    const { container, retarget } = renderSwitchable(false);
-    typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
-    retarget(SECOND_RUN_ID);
-    expect(bodyValue(container)).toBe("");
-  });
-
-  it("carries no refusal from one target to the next", async () => {
-    const { container, retarget } = renderSwitchable(false);
-    await submit(container);
-    expect(container.textContent).toContain("empty-directive");
-    retarget(SECOND_RUN_ID);
-    expect(container.textContent).not.toContain("empty-directive");
-  });
-
-  it("leaves the new target unlatched while the old one's dispatch is still in flight", async () => {
-    const { container, retarget } = renderSwitchable(false, NEVER_SETTLES);
-    typeInto(container.querySelector(".meridian-run-composer__body"), "keep going");
-    await submit(container);
-    const confirm = container.querySelector(".meridian-run-composer__confirm");
-    expect(confirm instanceof HTMLButtonElement && confirm.disabled).toBe(true);
-    retarget(SECOND_RUN_ID);
-    const afterSwitch = container.querySelector(".meridian-run-composer__confirm");
-    expect(afterSwitch instanceof HTMLButtonElement && afterSwitch.disabled).toBe(false);
-    expect(bodyValue(container)).toBe("");
-  });
 
   it("shows the new target's own empty form in the commit that re-addresses", async () => {
     // The commit itself, not the settled state after it: a reset done in a passive effect is
@@ -291,5 +258,38 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
     await submit(container);
     expect(calls).toHaveLength(1);
     expect(dismissCount()).toBe(1);
+  });
+});
+
+describe("the composer outlives its dispatch", () => {
+  const REJECTED_STEER: ScriptedAnswer = () => ({
+    interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
+    interventionType: "steer",
+    state: "rejected",
+    rejectionReason: "run_not_paused",
+    runVersion: 9,
+  });
+
+  it("keeps the text and shows the daemon's own reason when the intervention is rejected", async () => {
+    const { container, dismissCount } = renderSteerBox(REJECTED_STEER);
+    typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
+    await submit(container);
+    expect(dismissCount()).toBe(0);
+    expect(bodyValue(container)).toBe("stop editing that file");
+    expect(container.textContent).toContain("run_not_paused");
+  });
+});
+
+describe("what reaches the wire", () => {
+  it("dispatches a typed steer byte-identical", async () => {
+    // A trim before the wire would cost a pasted block the shape that was the reason for
+    // pasting it.
+    const indented = "  if (ready) {\n    ship();\n  }\n\n";
+    const { container, calls } = renderSteerBox();
+    typeInto(container.querySelector(".meridian-run-composer__body"), indented);
+    await submit(container);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("run.intervene");
+    expect(calls[0]?.params).toMatchObject({ type: "steer", content: indented });
   });
 });

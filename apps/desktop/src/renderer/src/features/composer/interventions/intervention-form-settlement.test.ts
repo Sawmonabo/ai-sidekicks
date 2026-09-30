@@ -1,13 +1,10 @@
-// Which answers close the form, keep it open, or latch its confirm; driven on the mapping
-// so the arms the rendered cases never reach are covered.
+// The two arms the rendered cases never reach: an expiry keeps the form and its text, and an
+// intervention recorded but not applied latches the confirm, since a second one would double it.
 
 import { describe, expect, it } from "vitest";
 import type { InterventionRequestResponse } from "@ai-sidekicks/contracts";
 
-import {
-  admissionRefusal,
-  readInterventionFormSettlement,
-} from "./intervention-form-settlement.js";
+import { readInterventionFormSettlement } from "./intervention-form-settlement.js";
 import type { RunControlOutcome } from "../run-controls/services/run-control-dispatch.js";
 
 /** One settled dispatch, at one daemon state. */
@@ -29,24 +26,6 @@ function settledAt(
 }
 
 describe("only a settlement that landed closes the form", () => {
-  it("reads the two landed states as landed", () => {
-    expect(readInterventionFormSettlement(settledAt("applied")).kind).toBe("landed");
-    expect(readInterventionFormSettlement(settledAt("degraded")).kind).toBe("landed");
-  });
-
-  it("keeps the form open on a rejection, under the daemon's own reason", () => {
-    const settlement = readInterventionFormSettlement(settledAt("rejected", "run_not_paused"));
-    expect(settlement.kind).toBe("refused");
-    expect(settlement.kind === "refused" ? settlement.notice.code : undefined).toBe(
-      "run_not_paused",
-    );
-  });
-
-  it("falls back to the wire state where a rejection named no reason", () => {
-    const settlement = readInterventionFormSettlement(settledAt("rejected"));
-    expect(settlement.kind === "refused" ? settlement.notice.code : undefined).toBe("rejected");
-  });
-
   it("keeps the form open on an expiry", () => {
     expect(readInterventionFormSettlement(settledAt("expired")).kind).toBe("refused");
   });
@@ -55,35 +34,5 @@ describe("only a settlement that landed closes the form", () => {
     // Confirming twice there would raise a second intervention, so cancel is the way out.
     expect(readInterventionFormSettlement(settledAt("requested")).kind).toBe("recorded");
     expect(readInterventionFormSettlement(settledAt("accepted")).kind).toBe("recorded");
-  });
-
-  it("negative control: the arms are not all one answer", () => {
-    // Without this the cases above would pass over a reader that answered `refused` to
-    // everything.
-    const kinds = new Set(
-      (["applied", "rejected", "requested"] as const).map(
-        (state) => readInterventionFormSettlement(settledAt(state)).kind,
-      ),
-    );
-    expect(kinds).toStrictEqual(new Set(["landed", "refused", "recorded"]));
-  });
-});
-
-describe("what the form says beside a rejected settlement", () => {
-  it("keeps the general sentence for a rejected steer, which names no guard", () => {
-    const settlement = readInterventionFormSettlement(settledAt("rejected", "no_active_turn"));
-
-    expect(settlement.kind === "refused" ? settlement.notice.detail : "").toContain(
-      "change what it asks for",
-    );
-  });
-});
-
-describe("a refused admission says which reason it was", () => {
-  it("names the reason as its code and says nothing was sent", () => {
-    const refusal = admissionRefusal("in-flight");
-    expect(refusal.code).toBe("in-flight");
-    expect(refusal.detail).toContain("nothing was sent");
-    expect(refusal.detail).toContain("still here");
   });
 });

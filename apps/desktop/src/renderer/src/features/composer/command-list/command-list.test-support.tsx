@@ -1,15 +1,9 @@
 // Shared scaffolding for the command list suites: one real composer over the real store, fed
-// the composer scenario's beats through the registered run projectors, and the real fixture
-// bridge with `answer` in front of `daemon.call`. One mount helper keeps "the composer" one
-// answer across suites that drive the same composition.
+// the composer scenario's beats through the registered run projectors.
 
-import type { ProviderCommandBindingGroup, RunId } from "@ai-sidekicks/contracts";
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach } from "vitest";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { readRunId } from "@renderer/services/daemon/wire-identifiers.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
 import { scenarioLeadAgentId } from "../../../../../../fixtures/data/opening-entries.js";
@@ -22,53 +16,11 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { MessageComposer } from "../Composer.js";
-import { composerDraftKey } from "../draft-line/draft-key.js";
-import { settleEnumeration } from "./provider-command-read.js";
-// One copy of the enumeration method string, shared with the holder suite.
-import { ENUMERATION_METHOD } from "./provider-command-enumeration.test-support.js";
 
 /** The id of the console command the suites register so the list has an act to offer. */
 export const TEST_COMMAND_ID = "composer-discovery-test.act";
-/** A prefix no console command and no enumerated provider entry begins with. */
-export const UNMATCHED_PREFIX = "/zzz-nothing-begins-with-this";
-/** The sentence the popover renders when no entry matches what was typed. */
-export const EMPTY_STATE_SENTENCE = "No command matches what you have typed";
-/** The opening of the sentence the popover renders when no group names this run. */
-export const UNADDRESSED_BINDING_SENTENCE = "This run's binding published nothing here";
 /** A fragment of the sentence a press on a non-executable row is answered with. */
 export const NOT_RUNNABLE_FRAGMENT = "there is nothing here to run";
-/** An entry name the scenario's own enumeration does not carry. */
-export const UNADDRESSED_ENTRY_NAME = "status";
-/**
- * The run identifier the wire admits, or a loud failure. A literal asserted into the brand
- * would let a group carry a value the wire would refuse; the bridge's own reader answers it.
- */
-function fixtureRunId(value: string): RunId {
-  const runId = readRunId(value);
-  if (runId === undefined) {
-    throw new Error(`this fixture names a run id the wire would refuse: ${value}`);
-  }
-  return runId;
-}
-
-/**
- * A live binding on the other provider, attributed to a run this composer never addresses:
- * the second group the agent-scoped reply can carry. Typed rather than parsed, so a member
- * the wire does not carry fails `typecheck` here.
- */
-export const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = {
-  runId: fixtureRunId("019b7a11-1100-740e-8120-d1a4c1150312"),
-  binding: { driverName: "codex", providerAccountId: null },
-  entries: [
-    {
-      name: UNADDRESSED_ENTRY_NAME,
-      kind: "command",
-      description: "Report the other binding's state.",
-      binding: { driverName: "codex", providerAccountId: null },
-    },
-  ],
-  complete: true,
-} satisfies ProviderCommandBindingGroup;
 /** Command ids a case registered; removed from the registry after each test. */
 export const registeredIds: string[] = [];
 
@@ -76,97 +28,6 @@ export const registeredIds: string[] = [];
 export interface MountedComposer {
   readonly container: HTMLElement;
   readonly line: HTMLTextAreaElement;
-  readonly rerenderAt: (pane: PaneAddress) => Promise<void>;
-  /** Write the session-addressed draft through the store, as a view elsewhere would. */
-  readonly writeDraft: (text: string) => Promise<void>;
-  /** Take the composer down, for the cases about what its teardown releases. */
-  readonly unmount: () => void;
-}
-
-/**
- * The real fixture bridge with `answer` in front of `daemon.call`, deciding only whether a
- * call is forwarded to the fixture's own replies and clock or held. Not a spread of the
- * bridge: a view reaches the daemon only through `callDaemon`.
- */
-export function composerBridgeAnswering(
-  answer: (call: RecordedDaemonCall, forward: () => Promise<unknown>) => Promise<unknown>,
-): PlatformBridge {
-  return bridgeAnswering(answer, WAITING_FOR_INPUT_SCENARIO).bridge;
-}
-
-/** The fixture scenario, with the enumeration refused by the daemon's own code. */
-export function refusingEnumerationBridge(): PlatformBridge {
-  return createFixtureBridge({
-    scenario: {
-      ...WAITING_FOR_INPUT_SCENARIO,
-      id: "composer-discovery-refusing",
-      replies: [
-        ...WAITING_FOR_INPUT_SCENARIO.replies.filter((reply) => reply.call !== ENUMERATION_METHOD),
-        {
-          call: ENUMERATION_METHOD,
-          refusal: {
-            code: "driver.unavailable",
-            message: "This agent holds no live binding, so there is nothing to enumerate.",
-          },
-        },
-      ],
-    },
-  }).bridge;
-}
-
-/** The fixture, with the enumeration held open so the read stays in flight. */
-export function bridgeHoldingTheEnumeration(): PlatformBridge {
-  return composerBridgeAnswering((call, forward) =>
-    call.method === ENUMERATION_METHOD ? new Promise<unknown>(() => undefined) : forward(),
-  );
-}
-
-/**
- * The scenario's own enumerated groups, read through the command list's own read path so a
- * fixture that drifted from the wire shape reaches these cases as a refusal, which this
- * throws on. Asynchronous because a registered reply is reached by calling for it.
- */
-export async function scenarioBindingGroups(): Promise<readonly ProviderCommandBindingGroup[]> {
-  const { bridge } = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
-  const agentId = scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO);
-  // A bare controller nothing aborts: the helper awaits the read to completion and has no
-  // owner who could leave.
-  const liveLine = new AbortController();
-  const state = await settleEnumeration(
-    bridge,
-    WAITING_FOR_INPUT_SCENARIO.sessionId,
-    agentId,
-    liveLine.signal,
-  );
-  if (state.phase !== "served") {
-    throw new Error(`the composer scenario scripts no enumeration reply: ${state.phase}`);
-  }
-  return state.groups;
-}
-
-/** The run the scenario attributes its own Claude group to, which is the addressed one. */
-export async function addressedRunIdOfFirstAgent(): Promise<
-  NonNullable<ProviderCommandBindingGroup["runId"]>
-> {
-  const runId = (await scenarioBindingGroups())[0]?.runId;
-  if (runId === null || runId === undefined) {
-    throw new Error("the scenario's enumerated group names no run");
-  }
-  return runId;
-}
-
-/** The fixture scenario, answering the enumeration with exactly these groups. */
-export function bridgeEnumerating(groups: readonly ProviderCommandBindingGroup[]): PlatformBridge {
-  return createFixtureBridge({
-    scenario: {
-      ...WAITING_FOR_INPUT_SCENARIO,
-      id: "composer-discovery-bindings",
-      replies: [
-        ...WAITING_FOR_INPUT_SCENARIO.replies.filter((reply) => reply.call !== ENUMERATION_METHOD),
-        { call: ENUMERATION_METHOD, result: { bindings: groups } },
-      ],
-    },
-  }).bridge;
 }
 
 /** The scenario's lead, read out of the log rather than restated. */
@@ -226,33 +87,6 @@ export async function mountComposer(options: {
   return {
     container: mounted.container,
     line,
-    unmount: (): void => {
-      mounted.unmount();
-    },
-    writeDraft: async (text) => {
-      await act(async () => {
-        draftStore.write(
-          composerDraftKey({ path: "session-message", sessionId: route.sessionId }),
-          text,
-        );
-        await crossMacrotaskBoundary();
-      });
-    },
-    rerenderAt: async (pane) => {
-      await act(async () => {
-        mounted.rerender(
-          <MessageComposer
-            sessionStore={sessionStore}
-            bridge={options.bridge}
-            draftStore={draftStore}
-            frameStore={frameStore}
-            route={route}
-            focusedPane={pane}
-          />,
-        );
-        await crossMacrotaskBoundary();
-      });
-    },
   };
 }
 
