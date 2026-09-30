@@ -20,6 +20,7 @@ import { z } from "zod";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import {
   ProviderAccountIdSchema,
+  PROVIDER_NAMES,
   ProviderNameSchema,
   type ProviderAccountId,
   type ProviderName,
@@ -245,7 +246,11 @@ export const AgentDefinitionSchema: z.ZodType<AgentDefinition> = z
 // Where a definition lives, as the list serves it
 
 /** Which files a definition came from: ours, a provider's own, or a plugin's. */
-export const AGENT_DEFINITION_ORIGINS = ["ours", "claude", "codex", "plugin"] as const;
+export const AGENT_DEFINITION_ORIGINS: readonly ["ours", ...ProviderName[], "plugin"] = [
+  "ours",
+  ...PROVIDER_NAMES,
+  "plugin",
+];
 /** One of {@link AGENT_DEFINITION_ORIGINS}. */
 export type AgentDefinitionOrigin = (typeof AGENT_DEFINITION_ORIGINS)[number];
 
