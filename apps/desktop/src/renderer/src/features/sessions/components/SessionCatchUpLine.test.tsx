@@ -14,7 +14,7 @@ import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBrid
 import { OpenSessionEntry } from "@renderer/store/session/open-session-entry.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
-import { CATCH_UP_LINE_DWELL_MS } from "../hooks/useCatchUpLineShown.js";
+import { CATCH_UP_LINE_DWELL_MS } from "../hooks/useCatchUpLineWords.js";
 import { SessionCatchUpLine } from "./SessionCatchUpLine.js";
 
 const SESSION_ID = "session-catching-up";
@@ -121,6 +121,27 @@ describe("SessionCatchUpLine", () => {
 
     expect(afterTheRepairFailed).toBe("Couldn't catch up · Try again");
     expect(container.textContent).toBe("");
+  });
+
+  it("holds the words it shows until the hold ends, then changes them", () => {
+    const clock = new ManualClock(0);
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    sessionStore.initialize({ cursor: 0, entities: [] });
+    const container = renderLine(sessionStore, clock);
+
+    act(() => {
+      sessionStore.markDegraded("sequence-gap");
+    });
+    advance(clock, CATCH_UP_LINE_DWELL_MS + 100);
+    act(() => {
+      sessionStore.markReadFailed();
+    });
+    advance(clock, CATCH_UP_LINE_DWELL_MS - 101);
+    const insideTheHold = container.textContent;
+    advance(clock, 1);
+
+    expect(insideTheHold).toBe("Catching up…");
+    expect(container.textContent).toBe("Couldn't catch up · Try again");
   });
 
   it("asks for exactly one re-read of this session when Try again is pressed", () => {

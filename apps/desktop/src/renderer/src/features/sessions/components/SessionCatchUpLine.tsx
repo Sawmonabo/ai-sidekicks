@@ -12,7 +12,7 @@ import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionSto
 import { useSessionDegraded } from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { useCatchUpLineShown } from "../hooks/useCatchUpLineShown.js";
+import { useCatchUpLineWords } from "../hooks/useCatchUpLineWords.js";
 
 export interface SessionCatchUpLineProps {
   readonly sessionStore: SessionStore;
@@ -25,13 +25,16 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
   const clock = useClock();
   const isBehind = useSessionDegraded(props.sessionStore);
   const lastReadFailed = useSessionStore(props.sessionStore, readLastReadFailed);
-  const isShown = useCatchUpLineShown(isBehind, clock);
-  if (!isShown) {
+  const words = useCatchUpLineWords(
+    isBehind ? (lastReadFailed ? "could-not-catch-up" : "catching-up") : undefined,
+    clock,
+  );
+  if (words === undefined) {
     return null;
   }
   return (
     <div className="meridian-session-screen__catch-up" role="status">
-      {lastReadFailed ? (
+      {words === "could-not-catch-up" ? (
         <>
           {"Couldn't catch up · "}
           <button
