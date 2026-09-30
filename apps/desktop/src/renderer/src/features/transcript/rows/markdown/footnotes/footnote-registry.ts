@@ -1,5 +1,6 @@
-// One footnote registry per transcript, keyed by (source, identifier): a GFM identifier is scoped
-// to its own message, so a lookup can only find a definition its own message declared.
+// One footnote registry per transcript row (each row mints its own), keyed by (source,
+// identifier): a GFM identifier is scoped to its own message, so a lookup can only find a
+// definition its own message declared.
 // It is an external store (`definitionsFor` snapshot plus `subscribeToSource`) because writes come
 // from an effect, and a plain read during render would stay stale after the last frame.
 
@@ -25,7 +26,7 @@ export interface FootnoteDefinition {
   readonly bodyNodes: readonly RootContent[];
 }
 
-/** The transcript's footnote definitions, as an external store read through `definitionsFor`. */
+/** One row's footnote definitions, as an external store read through `definitionsFor`. */
 export class FootnoteRegistry {
   readonly #definitionsByKey = new Map<string, FootnoteDefinition>();
   /** One source's definitions, held until that source's set changes. */
@@ -38,8 +39,8 @@ export class FootnoteRegistry {
   readonly #emptyDefinitions: ReadonlyMap<string, FootnoteDefinition> = new Map();
 
   /**
-   * Records a definition under its own source. Bounded and oldest-first: a definition older
-   * than the window's oldest row can never be opened, because its reference is gone too.
+   * Records a definition under its own source. Bounded and oldest-first, so a message that
+   * declares more notes than the cap keeps its newest.
    *
    * Recency refreshes on every call, but sinks are told only when a body actually moved or was
    * evicted, so a reader showing an evicted note is told.
@@ -91,9 +92,8 @@ export class FootnoteRegistry {
   }
 
   /**
-   * Hears about one source's definitions changing while its body is mounted. Scoped to the
-   * source because one registry serves every row: an unscoped signal would re-render every
-   * mounted reader whenever any message declared a note.
+   * Hears about one source's definitions changing while its body is mounted. A change to any
+   * other source's definitions is not heard.
    */
   public subscribeToSource(sourceId: string, onChange: () => void): Unsubscribe {
     return this.#changes.subscribe((changedSourceId) => {
