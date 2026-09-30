@@ -27,7 +27,7 @@ This plan covers session ids, lead-agent creation, session-owner binding, local 
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-001 PRs and downstream extensions. Any change that would weaken or remove an invariant is coordinated across the plans that depend on it (see cross-plan-dependencies.md).
+The following invariants are **load-bearing** and MUST be preserved across all Plan-001 PRs and downstream extensions.
 
 ### I-001-2 — Sequence is the canonical replay key
 
@@ -67,8 +67,6 @@ Plan-001 owns the daemon-side session lifecycle and the `PtyHost.spawn` entry-po
 
 ## Preconditions
 
-- [x] Paired spec is approved
-- [x] Required ADRs are accepted (plan body)
 - [x] **Phase 1 ship-gate**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation. The engineering CI surface that lands in Phase 1 (`.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit framework, commitlint 20.5.2, Renovate dependency-update config, Gitleaks v8.30+ secret scanner, release-please-action@v5 + actions/attest@v4 release skeleton, code-signing custody artifacts) is governed by that ADR.
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
@@ -94,7 +92,7 @@ Workspace topology is authoritative in [Container Architecture](../architecture/
 - `.nvmrc` — pins Node 24.16, the floor the daemon and the command line run on because the memory gate reads `process.availableMemory()`, per [ADR-022](../decisions/022-v1-toolchain-selection.md)
 - `eslint.config.mjs` and `prettier.config.js` at root
 
-**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config (10-type set, drops `style`), Renovate config (`renovate.json5` with `minimumReleaseAge: 14 days`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (Apple Developer Individual + Azure Artifact Signing OIDC + Sigstore keyless + AWS KMS Ed25519 hot key + YubiHSM 2 cold key envelope) are owned by [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-023 §Decision](../decisions/023-v1-ci-cd-and-release-automation.md#decision).
+**Engineering CI surface** — `.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit hook framework + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 20.5.2 config (its type set leaves out `style`), Renovate config (`renovate.json5` with `minimumReleaseAge: 14 days`), `CODEOWNERS`, Gitleaks v8.30+ workflow, and code-signing custody artifacts (Apple Developer Individual + Azure Artifact Signing OIDC + Sigstore keyless + AWS KMS Ed25519 hot key + YubiHSM 2 cold key envelope) are owned by [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). Phase 1 lands the concrete artifact list per [ADR-023 §Decision](../decisions/023-v1-ci-cd-and-release-automation.md#decision).
 
 ### Per-Package Scaffolding
 

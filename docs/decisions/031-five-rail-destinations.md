@@ -34,7 +34,7 @@ The rail has exactly five destinations, in this order: **Sessions, Sidekicks, Sk
 ### Thesis — Why This Option
 
 - **One rule sorts every case.** An agent definition and a skill are things a person makes and then uses from other screens, so each is a destination. Tool servers configure what the machine exposes, so they stay in Settings. A future surface is sorted by the same sentence, without a new debate.
-- **Each destination has one owner.** Sessions is owned by [Spec-021](../specs/021-desktop-app-and-renderer.md), Sidekicks by [Spec-027](../specs/027-agent-definitions-and-peer-invocation.md), Skills by [Spec-030](../specs/030-skills.md), Workflows by [Spec-015](../specs/015-workflow-authoring-and-execution.md), and Settings by Spec-021 with each page's behaviour in the specification that owns its data.
+- **Each destination has one owner.** Sessions is owned by [Spec-021](../specs/021-desktop-app-and-renderer.md), Sidekicks by [Spec-027](../specs/027-agent-definitions-and-peer-invocation.md), Skills by [Spec-030](../specs/030-skills.md), Workflows by [Spec-015](../specs/015-workflow-authoring-and-execution.md), and Settings by Spec-021 with each page's behavior in the specification that owns its data.
 - **The order follows use.** Sessions is where work happens and comes first. Sidekicks and Skills are the two libraries a session draws on and sit together. Workflows composes agents into runs and follows them. Settings is visited least and sits last.
 - **Skills is its own screen, with no view switch and no tabs.** A skill list under a Sidekicks tab would hide one of the two libraries behind the other and would make a skill's address depend on a view state.
 - **One set of rows serves two consumers.** The composer's command list and a workflow step's agent chooser read the same definitions, which is only coherent when the definitions have one home that is not a settings page.
@@ -45,7 +45,7 @@ Five is a lot of top-level navigation for a product with one user whose time is 
 
 ### Synthesis — Why It Still Holds [T2]
 
-A rail of five icons costs five small squares of a fixed-width column and no transcript space. A merged Library destination saves one icon and pays for it with a view switch on every visit, a second level of routing, and an address that is not stable. The list is fixed so that routing, deep links, keyboard chords and the notification targets can be built once; it is not frozen against a sixth destination, which is added by a new record that applies the same rule. Remote Control reaches this machine's sessions from another device and adds no rail destination: its phone and web clients keep the rail beside each screen's list level and show every destination.
+A rail of five icons costs five small squares of a fixed-width column and no transcript space. A merged Library destination saves one icon and pays for it with a view switch on every visit, a second level of routing, and an address that is not stable. One fixed list lets routing, deep links, keyboard chords and the notification targets be built once, and a screen added later is sorted by the same make-or-use rule. Remote Control reaches this machine's sessions from another device and adds no rail destination: its phone and web clients keep the rail beside each screen's list level and show every destination.
 
 ---
 
@@ -76,8 +76,8 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | An agent definition has at least two consumers | Spec-027 resolves a definition whenever a run starts under it — a session's lead, an agent named in a composer, a workflow step; Spec-015's agent step runs on the same definitions | With one consumer the definition could live beside it, and the destination would be overhead |
-| 2 | Skills differ enough from agents to need their own screen | A skill is a folder of files loaded by a provider's own path; a definition is a record bound to a provider and a model | If the two converge, one destination is removed by a later record |
-| 3 | No sixth top-level screen is needed at V1 | Every console surface in Spec-021 §The surface set, Spec-027, Spec-030 and Spec-015 routes to one of the five | A sixth is added by a new record under the same rule |
+| 2 | Skills differ enough from agents to need their own screen | A skill is a folder of files loaded by a provider's own path; a definition is a record bound to a provider and a model | If the two converge, they share one destination |
+| 3 | The five destinations hold every V1 screen | Every console surface in Spec-021 §The surface set, Spec-027, Spec-030 and Spec-015 routes to one of the five | The rail gains a destination, sorted by the same make-or-use rule |
 
 ---
 
@@ -85,8 +85,8 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| A surface that is neither configuration nor authored content appears | Low | Low | A design review cannot sort it with the one-sentence rule | Extend the rule in a new record before adding the surface |
-| The rail feels heavy because four items are rarely used | Med | Low | The user says so | The rail is icons only; reorder or fold in a later record |
+| A surface that is neither configuration nor authored content appears | Low | Low | A design review cannot sort it with the one-sentence rule | Extend the make-or-use rule to cover it before the surface is built |
+| The rail feels heavy because four items are rarely used | Med | Low | The user says so | The rail is icons only; reorder or fold destinations |
 | Skills and Sidekicks drift into duplicating each other's lists | Low | Med | The same row appears on both screens | Each screen lists only what it owns; the definition editor's skills field is one link out, never a list |
 
 ## Reversibility Assessment
@@ -127,7 +127,7 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Every console surface routes to one of the five | No surface outside them | Read the routing table when the four non-session screens land | When Plan-030 completes |
+| Every console surface routes to one of the five | No surface outside them | Read the routing table when the Sidekicks, Skills, Workflows and Settings screens land | When Plan-030 completes |
 
 ---
 

@@ -19,7 +19,7 @@
 - [6. Provider Drivers](#6-provider-drivers)
 - [7. Git Engine](#7-git-engine)
 - [8. Client SDK](#8-client-sdk)
-- [Non-Negotiable Domain Model](#non-negotiable-domain-model)
+- [Core Domain Model](#core-domain-model)
 - [Critical Design Choices](#critical-design-choices)
 - [Execution Locality Vs Remote Control](#execution-locality-vs-remote-control)
 - [Provider Drivers And The Run Model](#provider-drivers-and-the-run-model)
@@ -236,7 +236,7 @@ The CLI and desktop app must share a typed client SDK.
 
 That keeps the daemon honest and prevents the desktop app from becoming the only real client.
 
-## Non-Negotiable Domain Model
+## Core Domain Model
 
 The core entities must be:
 
@@ -346,7 +346,7 @@ Revocation must be as easy as linking: removing a device ends its relay route an
 
 This must not be implemented as raw transcript forwarding between models.
 
-Instead, use run linkage with:
+Instead, use run links with:
 
 - budgets
 - the per-agent turn limit

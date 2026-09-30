@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the code-bearing execution surfaces used by sessions and runs.
+Define the code-bearing execution contexts used by sessions and runs.
 
 ## Scope
 

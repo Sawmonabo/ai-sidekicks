@@ -69,7 +69,7 @@ sidekicks relay repin --force    # a relay without a publicly trusted certificat
 | Key in two places | Three displacements within a minute; the relay refuses both connections for a minute |
 | Channel rekey | A fresh handshake on every connection and every 10 minutes on a long one |
 
-## On-Call Routing
+## Who Runs It And Where To Report
 
 - The relay belongs to one person, who runs this procedure on their machine and their own relay; there is no paging, no chat alert and no on-call rotation.
 - A relay that stays unreachable after these steps is reported to the project as a bug, with the relay block and the relay's logs attached.

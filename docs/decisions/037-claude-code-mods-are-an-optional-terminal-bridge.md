@@ -30,7 +30,7 @@
 | `turn.start` | marker file | `text`, `turnId` |
 | Turn the switch on from a settings file instead of the environment (measured 2026-09-24, Claude Code 2.1.282) | `claude plugin validate` on a module hooking `session.start`, `command.run` and `ui.render`, then three `initialize`-only runs: the switch in the environment, the switch only in `--settings {"env":{"CLAUDE_CODE_ENABLE_FUNCTION_HOOKS":"1"}}`, and neither | validation passed with warnings; the module's `session.start` fired in the first two runs and not in the third; a config home whose `settings.json` sets the same `env` key also fired it |
 
-So modules load and fire under `-p`, with no surface and no person at the prompt, exactly as the contract states for `session.start` ("null for a `-p` run or the SDK"; "false for a `-p` run or the SDK"). A string in the binary, `Function hook reached executeHooksOutsideREPL` followed by `Function hooks should only be used in REPL context (Stop hooks)`, belongs to the classic hook runner's handling of `function`-typed hook entries and does not gate module loading; a reading that took it as "mods are REPL only" was wrong.
+So modules load and fire under `-p`, with no surface and no person at the prompt, exactly as the contract states for `session.start` ("null for a `-p` run or the SDK"; "false for a `-p` run or the SDK"). A string in the binary, `Function hook reached executeHooksOutsideREPL` followed by `Function hooks should only be used in REPL context (Stop hooks)`, belongs to the classic hook runner's handling of `function`-typed hook entries and does not gate module loading.
 
 **Two gaps a parallel investigation proposed mods for, checked.**
 
@@ -43,7 +43,7 @@ Should any part of the daemon's control path to Claude Code be built on mods, an
 
 ### Trigger
 
-A community list of mods and a parallel investigation proposing a mod for compaction, a mod for steer and a Sidekicks pane inside Claude Code, arriving while the console design that settles messaging, accounts and provider switching was being carried into the specs.
+A community list of mods, and a parallel investigation proposing a mod for compaction, a mod for steer and a Sidekicks pane inside Claude Code, set against the console design's messaging, accounts and provider switching.
 
 ---
 
@@ -80,7 +80,7 @@ Not chosen: any mod in the driver's own path (compaction, steer, permissions), w
 
 - The wire is enough for what the design asks, and the design is the contract. Where the wire is thinner than the engine, the difference today is compaction detail the product does not draw and turn steps the transcript already streams.
 - "Weeks" is a plan, not a release. The flag is off by default, the contract says it changes without notice, `sec-default` can refuse a user-tier `tool.register` on managed machines, and Codex is untouched by any of it. A core that depends on it would be one flag flip from broken, on one provider.
-- Cheap is not the question; ownership is. A behaviour the daemon owns on both providers is kept once; a behaviour inside one vendor's plugin runtime is kept for as long as that runtime keeps its shape. The bridge is worth that upkeep because it is small and optional; the core is not.
+- Cheap is not the question; ownership is. A behavior the daemon owns on both providers is kept once; a behavior inside one vendor's plugin runtime is kept for as long as that runtime keeps its shape. The bridge is worth that upkeep because it is small and optional; the core is not.
 
 ---
 
@@ -96,7 +96,7 @@ Not chosen: any mod in the driver's own path (compaction, steer, permissions), w
 
 - **What:** Register the daemon as a mod in every hosted Claude Code session and drive it through `$`.
 - **Steel man:** The richest possible view of the engine, ahead of the wire, with Anthropic's own typed contract.
-- **Why rejected:** Claude-only; off by default and gated by a rollout flag and by policy; a contract that changes without notice this month; and every behaviour it would replace is measured on the published surface already (steer folded mid-turn, `PostToolUse` context, `can_use_tool`, the provider's own `/compact`). It also duplicates the classic hooks the daemon already registers.
+- **Why rejected:** Claude-only; off by default and gated by a rollout flag and by policy; a contract that says it may change without notice; and every behavior it would replace is measured on the published surface already (steer folded mid-turn, `PostToolUse` context, `can_use_tool`, the provider's own `/compact`). It also duplicates the classic hooks the daemon already registers.
 
 ### Option C: A read-only Sidekicks pane inside terminal Claude Code (Chosen, as part of Option A)
 
@@ -134,12 +134,12 @@ Not chosen: any mod in the driver's own path (compaction, steer, permissions), w
 
 | Scenario | Likelihood | Impact | Detection | Mitigation |
 | --- | --- | --- | --- | --- |
-| The contract changes and the module no longer validates or fires. | High this year | Low | `claude plugin validate` and the headless probe above run on every Claude Code pin bump; a red run names the hook. | Fix or withdraw the plugin; the daemon-side method under each hook is the product's behaviour meanwhile. |
+| The contract changes and the module no longer validates or fires. | High this year | Low | `claude plugin validate` and the headless probe above run on every Claude Code pin bump; a red run names the hook. | Fix or withdraw the plugin; the daemon-side method under each hook is the product's behavior meanwhile. |
 | The flag is off on the person's machine, or policy disables hooks. | High until general availability | Low | `session.start` never fires, so the bridge's tools are absent from the session's tool list. | The address method; the console's inspector offers `Copy address` regardless. |
 | A managed machine's `sec-default` refuses the user-tier `tool.register`. | Medium on Team and Enterprise | Low | The registration returns the refusal by name; the bridge logs it once. | The address method. |
 | The worker crashes and the plugin is unloaded mid-session. | Low | Low | The tools disappear from the session's tool list. | The address method for the rest of that session. |
 | The daemon's socket path exceeds 104 bytes on macOS. | Medium on a deep run directory | Low | The plugin's first `$.http.fetch` fails at `session.start`; the daemon refuses to bind a longer path with a plain error. | The daemon keeps its run directory short; the plugin falls back to the address method. |
-| Someone builds a daemon behaviour that only works with the plugin loaded. | Medium over time | High | Review against this record; a dependency-cruiser rule, added with the plugin, that nothing in the daemon imports from its folder. | Refuse in review; the daemon never requires the plugin. |
+| Someone builds a daemon behavior that only works with the plugin loaded. | Medium over time | High | Review against this record; a dependency-cruiser rule, added with the plugin, that nothing in the daemon imports from its folder. | Refuse in review; the daemon never requires the plugin. |
 | The contract's UI half changes and the pane no longer draws. | High this year | Low | The pin-bump check runs the headless probe with the pane's `ui.render` hook registered. | The pane leaves the plugin's next release and the hooks stay; the desktop shows the same sessions and agents. |
 | Turning the terminal switch off removes something the person set themselves. | Low | Medium | The switch's own tests: every unrelated setting, plugin, marketplace and `env` key is byte-identical before on and after off. | The switch removes only its own entries by name, and the `env` key only while it holds the value the switch wrote. |
 
@@ -147,8 +147,8 @@ Not chosen: any mod in the driver's own path (compaction, steer, permissions), w
 
 - **Reversal cost:** Hours. Delete the plugin folder, its build unit and the settings switch; no daemon code references the plugin, and `session.overviewRead` stays an ordinary daemon read or is deleted with it.
 - **Blast radius:** Terminal Claude Code sessions lose the by-name tools and the pane and fall back to the address method. Nothing else changes.
-- **Migration path:** None needed; the daemon-side methods are already the documented behaviour.
-- **Point of no return:** None while this record holds. It would appear the day a daemon behaviour required the plugin, which the failure-mode row above exists to prevent.
+- **Migration path:** None needed; the daemon-side methods are already the documented behavior.
+- **Point of no return:** None. It would appear the day a daemon behavior required the plugin, which the failure-mode row above exists to prevent.
 
 ## Consequences
 
@@ -205,10 +205,10 @@ Not chosen: any mod in the driver's own path (compaction, steer, permissions), w
 | Installed Claude Code 2.1.278 binary, strings | Primary research | Rollout flag `tengu_plugin_hooks_modules` default false, override `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`; `canLoadUserHooksModules` also requires hooks not policy-disabled; one hooks worker thread per plugin; crash unloads, overrun flags runaway; the `--smol` spawn is the built-in module bundler | `~/.local/share/claude/versions/2.1.278`, read 2026-09-21 |
 | Function hooks type contract, written by Claude Code 2.1.277 | Documentation | 92 events; `session.start` carries `surface: null` and `isInteractive: false` for a `-p` run or the SDK; `tool.call` may deny or answer; `session.compact` may rewrite or skip; `session.receive` carries origin `peer`; "EARLY ACCESS: this surface may change between releases without notice" | https://github.com/anthropics/claude-code/blob/main/mods/types/claude-code.d.ts, read 2026-09-21 |
 | Built-in mods and their README | Documentation | Four mods ship in the binary with source; `claude --plugin-dir` loads one from source; `claude plugin test` runs a mod's tests against the engine's own `$` | https://github.com/anthropics/claude-code/tree/main/mods, read 2026-09-21 |
-| `sec-default` README | Documentation | The outermost seat on managed machines; refuses a user-tier `tool.register` while managed settings hold `allowedMcpServers`; continues past the user tier for classic hooks, managed prompt content and settings reads | https://github.com/anthropics/claude-code/blob/main/mods/sec-default/README.md, read 2026-09-21 |
+| `sec-default` README | Documentation | The outermost mod on managed machines; refuses a user-tier `tool.register` while managed settings hold `allowedMcpServers`; continues past the user tier for classic hooks, managed prompt content and settings reads | https://github.com/anthropics/claude-code/blob/main/mods/sec-default/README.md, read 2026-09-21 |
 | Proposal issue "Mods - make Claude 10x more extensible" | Community discussion | Opened 2026-09-03; the 2026-09-09 update names the product "Claude Mods", offers `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` for testing and says "shipping in N weeks" | https://github.com/anthropics/claude-code/issues/91870, read 2026-09-21 |
 | Claude Code hooks reference and plugins reference | Documentation | Neither page mentions hooks modules, function hooks or `$`; the hooks page lists five hook types (command, http, mcp_tool, prompt, agent) and `additionalContext` on `PostToolUse` among others | https://code.claude.com/docs/en/hooks and https://code.claude.com/docs/en/plugins-reference, read 2026-09-21 |
-| Community list of mods | Community discussion | The catalogue the parallel investigation drew from; entries are plugin manifests, not all of them modules | https://github.com/karanb192/awesome-claude-code-mods, read 2026-09-21 |
+| Community list of mods | Community discussion | The catalog the parallel investigation drew from; entries are plugin manifests, not all of them modules | https://github.com/karanb192/awesome-claude-code-mods, read 2026-09-21 |
 | `lcm` README | Community discussion | Seven classic hooks (`PreCompact`, `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `Stop`, `PostToolUse`, `PostToolUseFailure`) plus an MCP server; not a hooks module | https://github.com/lossless-claude/lcm, read 2026-09-21 |
 | `cdx` README | Community discussion | A hooks module registering 21 tools on `session.start`, talking to its CLI through `$.process.run`, adding context on the next tool result mid-turn, and running headless with `surface === null` | https://github.com/RedesignedRobot/cdx, read 2026-09-21 |
 | Headless module probe | Primary research | The table in Context: validation passed; `session.start`, `tool.call` and `turn.start` fired under `-p` | This record, 2026-09-21 |

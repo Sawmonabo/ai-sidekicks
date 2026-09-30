@@ -21,7 +21,7 @@ How many provider processes does a session have, which account does each run on,
 
 ### Trigger
 
-The locked console design lets a person make another saved account the current one for a provider while sessions are running on it, and lets them ask a side question without disturbing the conversation. Both raise the question of a second process, and the answer shapes the daemon's supervision, the cost rows and the command list.
+The console design lets a person make another saved account the current one for a provider while sessions are running on it, and lets them ask a side question without disturbing the conversation. Both raise the question of a second process, and the answer shapes the daemon's supervision, the cost rows and the command list.
 
 ---
 

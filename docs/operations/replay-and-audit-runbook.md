@@ -59,7 +59,7 @@ sidekicks export-data <folder>   # every session's events, decrypted, one per li
 | Projection rebuild      | < 60s per 10k events          |
 | Event export throughput | > 1k events/s                 |
 
-## On-Call Routing
+## Who Runs It And Where To Report
 
 - The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
 - History that stays missing or diverges again after these steps is reported to the project as a bug, with the daemon's logs attached.

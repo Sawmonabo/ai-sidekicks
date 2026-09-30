@@ -62,7 +62,6 @@ The consequence this spec is built on: **a skill authored once can be made avail
 ## Preconditions
 
 - The specs and decision records under `Depends On` say what this one assumes.
-- Blocking open questions are resolved or explicitly deferred.
 
 ## Required Behavior
 
@@ -320,6 +319,6 @@ None.
 - [Spec-027](027-agent-definitions-and-peer-invocation.md) — the agent library beside this destination; a definition stays one file and every available skill reaches it through the pack. [Spec-027 §Browse plugins](027-agent-definitions-and-peer-invocation.md#browse-plugins) is where a plugin carrying skills is installed.
 - [ADR-031](../decisions/031-five-rail-destinations.md) — the five rail destinations, their order, and the rule that sorts a future surface into a destination or a Settings page.
 - [Claude wire reference §`system/init` command and skill enumeration](../reference/provider-wire/claude.md#systeminit-command-and-skill-enumeration--a-live-read-never-a-stored-registry) — Claude Code's own skill enumeration, names only, with no scope and no enabled axis.
-- [Codex wire reference §`skills/*`](../reference/provider-wire/codex.md#skills--the-skill-surface) — Codex's skill surface: the grouped-per-directory read, the change notification, the required `description`, and the four-value scope set.
+- [Codex wire reference §`skills/*`](../reference/provider-wire/codex.md#skills--the-skill-surface) — Codex's skill surface: the grouped-per-directory read, the change notification, the required `description`, and the scope set.
 - [Plan-030](../plans/030-skills.md) — the implementation plan for this spec.
 - Provider measurements behind the front-matter and liveness rules above, taken 2026-09-13: Claude Code `2.1.270` reads the front matter it knows and drops unknown keys silently, folds custom commands into the skills registry, and picks up a written skill on a forced reload request in about 100 ms; codex-cli `0.154.0` (source tag `rust-v0.154.0`) parses `name`, `description` and `metadata.short-description`, ignores unknown keys, reads the optional `agents/openai.yaml` metadata file beside the entry file, has no custom slash commands, and pushes a change notification within about two seconds of a skill folder being written, after which the same live thread can invoke it.

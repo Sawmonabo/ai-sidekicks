@@ -39,11 +39,11 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `local-only` | An operating constraint meaning the relevant session continuity or execution path remains usable on the user's own local runtime node without requiring current control-plane reachability. `local-only` is not a separate domain object or an alternate session model. |
 | `Transcript` | The session's own record of its conversation, written by the daemon and drawn on screen in order: messages, tool calls, approvals and replies. There is no replay surface over it: scrollback is scrollback, and a person scrolls it. |
 | `Conversation file` | The provider's own on-disk record of a session's conversation, kept under the credential home it runs in (Claude Code writes `projects/<project folder>/<session id>.jsonl`). An account switch copies this one file into the new account's home and resumes it there through the provider's own resume; nothing is re-sent as text. |
-| `Memory files` | The instruction files a provider reads from its home and the project at a session's start: `CLAUDE.md` and the memory folder on Claude Code, `AGENTS.md` on Codex. `providerAccount.memoryImport` copies an operator's ambient store of them into a named account's home once. |
+| `Memory files` | The instruction files a provider reads from its home and the project at a session's start: `CLAUDE.md` and the memory folder on Claude Code, `AGENTS.md` on Codex. `providerAccount.memoryImport` copies the person's ambient store of them into a named account's home once. |
 
 ## What This Is
 
-This glossary is the authoritative term index for canonical product documentation.
+This glossary is the term index for the product documentation.
 
 ## What This Is Not
 
@@ -52,15 +52,15 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 ## Invariants
 
 - Each term must have one canonical meaning across the documentation set.
-- Later specs must reuse glossary terms instead of inventing near-synonyms for the same concept.
-- If a new term overlaps an existing term, the distinction must be documented before the new term is used normatively.
+- A spec uses the glossary's term for a concept, never a near-synonym.
+- A new term that overlaps an existing one says how the two differ.
 - Canonical prose spelling is `local-only`; do not introduce `local_only` unless a later API or wire contract explicitly defines that literal.
 
 ## Relationships To Adjacent Concepts
 
 - `Session` is the top-level container.
 - `Agent`, `Run`, `QueueItem`, `Workspace`, `Artifact`, and `Approval` are all session-scoped concepts. `User`, `Device`, and `RuntimeNode` are account-scoped, and a `RepoMount` belongs to its machine; each appears inside a session by reference.
-- `Worktree` is a specialized repository execution surface inside a `Workspace`; it is not a synonym for `Workspace`.
+- `Worktree` is a specialized repository execution root inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
 - `Run` is an execution episode and `Agent` is the live actor inside a session that performs it; `AgentDefinition` is the saved, reusable configuration an `Agent` is resolved from.
 - `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and replay.
@@ -70,7 +70,7 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 
 ## Lifecycle
 
-The glossary is versioned through canonical doc updates. A term becomes stable only when its dedicated domain doc exists and uses the same meaning as the glossary entry.
+The glossary changes with the domain docs: each entry carries the same meaning as the term's own domain doc.
 
 ## Example Flows
 

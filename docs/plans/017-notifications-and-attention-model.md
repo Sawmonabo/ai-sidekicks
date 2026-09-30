@@ -24,13 +24,9 @@ This plan covers the attention projection and its kinds, the one gate the daemon
 
 - The push senders, the device push key's registration, the phone apps and the web client's service worker ([Plan-028](./028-remote-control.md)); this plan decides and seals each push and calls `push.send`
 - Marketing or email campaigns; the digest goes only to the person's own address
-- Full operator paging systems
+- A full on-call paging system for the person
 
 ## Preconditions
-
-- [x] Paired spec is approved
-- [x] Required ADRs are accepted
-- [x] Blocking open questions are resolved or explicitly deferred
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
@@ -56,7 +52,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-017 PRs and downstream extensions. Any change that would weaken or remove one requires a coordinated cross-plan change (see cross-plan-dependencies.md). Each grounds a property the §Test And Verification Plan bullets below verify, and each carries the id a task's `Verifies invariant:` field names.
+The following invariants are **load-bearing** and MUST be preserved across all Plan-017 PRs and downstream extensions. Each grounds a property the §Test And Verification Plan bullets below verify, and each carries the id a task's `Verifies invariant:` field names.
 
 - **I-017-1 — Attention state is derived from canonical session and run state, never from client heuristics.** Every attention item and every emitted notification traces to a canonical event or canonical run/session state; a transient client observation never mints attention, and a client that has observed nothing derives the same state on replay as one that watched the whole session. **Grounds in:** [Spec-017 §Required Behavior](../specs/017-notifications-and-attention-model.md#required-behavior) ("Notification emission must be derived from canonical session or run state, not from client heuristics alone"), [Spec-017 §State And Data Implications](../specs/017-notifications-and-attention-model.md#state-and-data-implications) ("Attention state is a derived projection from canonical events"), [Spec-017 §Pitfalls To Avoid](../specs/017-notifications-and-attention-model.md#pitfalls-to-avoid) ("Basing notifications only on transient client events"). **Why load-bearing:** it is what makes attention reproducible across devices and reconnects — the property every device's notification, the push and the desktop surfaces all assume.
 - **I-017-2 — Notification-delivery failure never removes in-app attention state.** An operating-system notification the platform denies or suppresses, a push that is never delivered, a web-address message that ends undelivered and a digest the mail server refuses are all delivery-layer outcomes; none of them clears, resolves, or hides the underlying attention item, which resolves only when the state that produced it resolves. **Grounds in:** [Spec-017 §Fallback Behavior](../specs/017-notifications-and-attention-model.md#fallback-behavior) ("If notification delivery is delayed, the session attention projection must still reflect outstanding actionable items"; "If OS notifications are unavailable or denied, the system must still show in-app badges and attention summaries"), [Spec-017 §Acceptance Criteria](../specs/017-notifications-and-attention-model.md#acceptance-criteria) AC-2 ("Notification loss does not remove in-app attention state"). **Why load-bearing:** it is the reason every channel may be best effort — losing a delivery costs a missed notification, never attention state.

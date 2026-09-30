@@ -42,7 +42,7 @@ Diagnose and contain driver-level provider failures that affect run execution or
 
 Use when one registered provider account's credentials have expired or been revoked while other accounts on the same node stay healthy. Scope and blast radius: **one account and its own credential home**, never the node and never the provider. Each account's credential material lives in its own daemon-managed home, so repairing one account cannot disturb another, and runs bound to the node's other accounts keep running throughout ([Spec-026 §Credential homes and the constructed environment](../specs/026-provider-accounts-and-credential-homes.md#credential-homes-and-the-constructed-environment)).
 
-The daemon refuses rather than substitutes. A run whose bound account is unregistered, whose credential home is missing or husked, or whose authentication probe reports anything other than `authenticated`, is refused **before spawn** with a typed refusal and no provider process is created — there is no fallback to the operator's ambient provider configuration, to the provider's current account, or to another registered account ([Spec-026 §Validation at spawn — fail-closed](../specs/026-provider-accounts-and-credential-homes.md#validation-at-spawn--fail-closed)). The refusal is the intended state, not a fault to route around.
+The daemon refuses rather than substitutes. A run whose bound account is unregistered, whose credential home is missing or husked, or whose authentication probe reports anything other than `authenticated`, is refused **before spawn** with a typed refusal and no provider process is created — there is no fallback to the person's ambient provider configuration, to the provider's current account, or to another registered account ([Spec-026 §Validation at spawn — fail-closed](../specs/026-provider-accounts-and-credential-homes.md#validation-at-spawn--fail-closed)). The refusal is the intended state, not a fault to route around.
 
 Detection: **normally Settings › Providers says so before any run does** — the background observation reads each account's own limits every five minutes, and an account whose login has gone reads `Login expired · Sign in again` on its row with the sign-in beside it, which is the front door to this procedure ([Spec-026 §Credential-home health observation](../specs/026-provider-accounts-and-credential-homes.md#credential-home-health-observation)). The other three arrivals are the account's authentication probe reporting other than `authenticated`, a run bound to it refusing before spawn, and a mid-run credential expiry surfacing the `reauth-required` recovery condition. Probe state is per `(driver, account)` — read it for the specific account, because a healthy sibling account says nothing about this one.
 
@@ -67,7 +67,7 @@ Detection: **normally Settings › Providers says so before any run does** — t
 
 ## Provider Usage-Limit Outage
 
-Use when a provider reports that the account's plan allowance is spent. **This is a pacing fact with a reset boundary — not a credential failure and not an operator-reconciliation condition.** The distinction is operational, not taxonomic: re-authenticating repairs nothing here and is actively harmful, because a completed re-authentication bumps the account's `credentialGeneration` and thereby ends the outage's attention epoch, splitting one outage into two attention records. Nor is it `recovery-needed` — that condition means a human must reconcile something, while a spent allowance needs no operator at all. The usage-limit signal is a sibling axis beside the closed `RecoveryCondition` set, never a member of it, so finding no `RecoveryCondition` value on a park is correct rather than missing data ([Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40)).
+Use when a provider reports that the account's plan allowance is spent. **This is a pacing fact with a reset boundary — not a credential failure and not a condition for the person to reconcile.** The distinction is operational, not taxonomic: re-authenticating repairs nothing here and is actively harmful, because a completed re-authentication bumps the account's `credentialGeneration` and thereby ends the outage's attention epoch, splitting one outage into two attention records. Nor is it `recovery-needed` — that condition means a human must reconcile something, while a spent allowance needs nothing from the person at all. The usage-limit signal is a sibling axis beside the `RecoveryCondition` set, never a member of it, so finding no `RecoveryCondition` value on a park is correct rather than missing data ([Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40)).
 
 Recognition is typed and only typed: the refusal is recognized from the driver's normalized usage-limit signal, which is account-scoped and keyed on `(accountId, credentialGeneration)`, and whose declaration is owned by [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md). Never classify from provider prose, an error string, a rate-limit window's name, or a model id.
 
@@ -84,7 +84,7 @@ Recognition is typed and only typed: the refusal is recognized from the driver's
 
 - The affected runs show a usage-limit park attributed to the correct `accountId` — not a `failed` run, and not a `recovery-needed` condition.
 - Runs bound to the node's other provider accounts, of this provider and of others, continued unaffected.
-- Where the boundary was provider-reported, the parked run resumed itself at the boundary with no operator action; where it was not, the park is visibly unscheduled and no countdown is displayed.
+- Where the boundary was provider-reported, the parked run resumed itself at the boundary with no action from the person; where it was not, the park is visibly unscheduled and no countdown is displayed.
 - The affected account's `credentialGeneration` is unchanged. If it moved, an account that was never broken was re-authenticated, and the outage's single attention record has split.
 - The account's quota snapshot carries that account's identity, and a two-account node attributes each snapshot to the correct account.
 - No run changed account except by the provider-wide switch, and no two accounts resolve to one credential home.
@@ -111,7 +111,7 @@ A provider is read and checked again on Settings › Providers, and a run is rea
 | Process starts | At most three per account per five minutes |
 | Capability refresh latency | < 5s |
 
-## On-Call Routing
+## Who Runs It And Where To Report
 
 - The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
 - A provider failure that stays after these steps is reported to the project as a bug, with the daemon's logs and the provider's version attached.

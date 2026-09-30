@@ -12,7 +12,7 @@
 
 ## Purpose
 
-Define the operator- and user-facing contract for detecting failures, diagnosing them, and recovering from degraded runtime conditions.
+Define the contract by which the person detects failures, diagnoses them, and recovers from degraded runtime conditions.
 
 ## Scope
 
@@ -42,17 +42,17 @@ This spec covers failure categories, the daemon's health signals and where each 
 
 - The daemon must keep health and failure signals for itself, provider drivers, replay state, queue state, control-plane connectivity, and run latency and run duration distributions, and it gives them out in three places, none of them a console read: its diagnostic logs, its loopback `/metrics` endpoint, and `sidekicks daemon status`. No `health.*` read serves the console. Settings › Runtime shows the service's status as its supervisor reports it, and reads the service's processor and memory when the page opens and again on `Check again`, each reading stamped with its time, never on a timer.
 - A failed recovery is never silent. A provider-session recovery that fails leaves the session showing that the provider ended, with `Restart`; a projection rebuild that fails puts the daemon in the degraded read-only mode of §Fallback Behavior.
-- Operators and users must be able to distinguish:
+- The person must be able to distinguish:
   - transport failure
   - provider failure
   - local persistence failure
   - projection failure
   - policy or approval blockage
-- Operators and users must be able to distinguish canonical `RunState` from derived health signals, failure categories, and recovery conditions.
+- The person must be able to distinguish canonical `RunState` from derived health signals, failure categories, and recovery conditions.
 - Degraded modes must be explicit and must preserve as much read visibility as possible.
 - Non-canonical observability payloads such as driver raw events, raw command output, and high-volume tool traces must use explicit bounded retention separate from canonical event and failure-detail retention.
 - Losing the connection to the local daemon must be one explicit reading in one place — never a banner, a toast, a modal, or a badge. In the console that place is the session's working line: it turns amber, reads `Connection lost` where the action words stand, says `Reconnecting…` while the connection is still being retried and `Not connected.` once retrying has stopped, keeps the elapsed clock of a turn that was under way and omits it on an idle session, and carries a `Retry` at its right that asks for the connection again and says so while it tries. Nothing is said while the connection is healthy — no green line, no `Connected` word — and the reading raises no notification and no second mark anywhere ([Spec-017 §Required Behavior](017-notifications-and-attention-model.md#required-behavior)). It arms only once the daemon has answered at least once since the client started, so a client started into an outage reports a daemon that would not start rather than a connection that was lost.
-- A connection gap must not empty what was already read. No session row dims, greys, moves, or leaves its list; no pane closes; no control is disabled; a draft keeps its text; a surface holding last-read facts keeps them until the daemon has re-read them rather than drawing its own empty state; and a list that could not be refreshed says only that it could not be refreshed. When the connection returns, the reading goes back to what it showed before, or away if nothing was running.
+- A connection gap must not empty what was already read. No session row dims, grays, moves, or leaves its list; no pane closes; no control is disabled; a draft keeps its text; a surface holding last-read facts keeps them until the daemon has re-read them rather than drawing its own empty state; and a list that could not be refreshed says only that it could not be refreshed. When the connection returns, the reading goes back to what it showed before, or away if nothing was running.
 - A provider process that ends on its own under a running session is a provider failure the product states rather than absorbs. The statement names the provider and carries the exit code or signal the daemon observed — never one the product composed — with the last output the process produced before it went, so a person can tell whether restarting will help, and it offers a restart that puts the provider back on the same session. The turn that was running ends where it was and leaves one record in the session's timeline: live calls stop at the figure they reached, the approval the process held dies, the command it was waiting on ends, and the agents it had dispatched end with it — each reading as having ended with the process rather than as having been stopped by a person. It is never silent, never attributed to a person, and never reported as an interruption.
 - A provider process the daemon slept is not a failure, and nothing on screen reports it. An idle Claude Code session is slept once it has been idle for 30 minutes and holds nothing the stop would end — no turn running, no message queued, no approval or question open, no background task, no pending wake-up or session-only scheduled job, no side question and no voice call. The next message to it wakes it through Claude Code's own resume on the same conversation, account, folder, settings and permission level, with nothing on screen: no banner, no row. Codex is never slept, and no process is stopped for memory pressure.
 - The app and the service accept being one version apart: each app accepts the service version before its own. Outside that range the console is read-only, and the session's working line names in words the side that is behind — the background service or the app — with a press that opens its fix: the service update on Settings › Runtime, or the app update on Settings › General. There is no separate banner for it.

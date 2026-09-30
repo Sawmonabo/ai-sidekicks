@@ -13,7 +13,7 @@
 
 V1 begins with no checked-in code. The repo holds a stub `package.json` (Apache-2.0 licensed) and the docs corpus; [Container Architecture](../architecture/container-architecture.md) §Canonical Implementation Topology is authoritative for the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/`, `apps/cli/`). [Plan-001](../plans/001-session-core.md) is the next code-execution gate and owns the one schema of each database, the daemon's and the control plane's, to which Plans 005, 016, 020 and 028 add their tables and columns.
 
-Constraints already locked by accepted ADRs:
+Constraints from accepted ADRs:
 
 - [ADR-016](./016-electron-desktop-app.md) — Electron 44.x, whose bundled Node (24.19) runs the app's main process and renderer.
 - [ADR-004](./004-sqlite-local-state-and-postgres-control-plane.md) — SQLite for local execution (`session_events`, `session_snapshots`), Postgres for shared state.
@@ -25,7 +25,7 @@ The implementer is Claude Opus 4.7 (AI-implementation economics outweigh human-D
 
 ## Problem Statement
 
-What workspace, quality, and runtime-driver primitives should V1 lock so Plan-001 implementation can begin against a stable, decided toolchain — and so downstream plans (003/006/018/022 in particular) inherit a coherent build surface?
+What workspace, quality, and runtime-driver primitives should V1 use so Plan-001 implementation can begin against a decided toolchain — and so downstream plans (003/006/018/022 in particular) inherit a coherent build surface?
 
 ### Trigger
 
@@ -75,7 +75,7 @@ A skeptical staff engineer would argue:
 - **Bun rejected; re-evaluated on a named trigger.** Bun's official `bun.com/docs/pm/workspaces` page (verified live 2026-04-26) does not surface isolated installs as a primary workspace primitive — independent reporting places isolated-install support in 1.2.x as a CLI flag, but the absence from canonical docs is itself a maturity signal. Turborepo's first-class lockfile support targets pnpm v10/v11 (turbo canary 2.9.7 added pnpm v11 multi-document lockfile parsing) before equivalent Bun lockfile work. Multi-year ecosystem-bet risk on the first-class primitive is the wrong allocation. Re-evaluate when [Re-evaluation Triggers](#re-evaluation-triggers) item 3 fires. Bun as the runtime and package tool of a workflow Code step is a separate choice this does not touch.
 - **Oxlint+tsgolint rejected, named criterion documented.** tsgolint is alpha (`oxlint-tsgolint` 0.21.1 as of 2026-04-22). Oxfmt is beta. ESLint 10 flat-config (GA 2026-02-06) is mature and meets perf bar via `--cache` plus running type-aware rules in CI only (`typescript-eslint.io/troubleshooting/typed-linting/performance`). Migration trigger: when tsgolint reaches 1.0 stable AND Oxfmt reaches 1.0 stable, evaluate migration with `@oxlint/migrate`.
 - **One Node line, at 24.16.** The memory gate needs `process.availableMemory()` to count inactive and purgeable pages on macOS, which it does only from Node 24.16.0; on Node 22 it returns free pages alone, so a Mac with room reads as full and no step starts. The Electron app already runs Node 24 (Electron 44 bundles 24.19), so the whole workspace targets one line: one `engines.node` floor, one `target: es2024`, one CI matrix, and security support through 2028-04 against Node 22's 2027-04.
-- **`tsc` only fails the hot-build budget.** At the scale of an Electron renderer + 5 packages + a daemon, `tsc -b` rebuild cycles are tens of seconds. esbuild emits the same TS-stripped JS in hundreds of milliseconds. The two-tool risk (tsc and esbuild disagreeing on a TypeScript edge case) is bounded by `isolatedModules: true` (mandatory) and `isolatedDeclarations: true` (recommended), which constrain TS source to constructs both tools agree on. Adopting `isolatedDeclarations` now is also the maximally-smooth preparation for tsgo / TypeScript 7 native compiler when it stabilizes.
+- **`tsc` only fails the hot-build budget.** At the scale of an Electron renderer + the workspace packages + a daemon, `tsc -b` rebuild cycles are tens of seconds. esbuild emits the same TS-stripped JS in hundreds of milliseconds. The two-tool risk (tsc and esbuild disagreeing on a TypeScript edge case) is bounded by `isolatedModules: true` (mandatory) and `isolatedDeclarations: true` (recommended), which constrain TS source to constructs both tools agree on. Adopting `isolatedDeclarations` now is also the maximally-smooth preparation for tsgo / TypeScript 7 native compiler when it stabilizes.
 
 ---
 
@@ -211,16 +211,16 @@ A skeptical staff engineer would argue:
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Plan-001 implementation completes without integration friction across all primitives | All Plan-001 acceptance criteria pass with ADR-022 toolchain unchanged | Plan-001 Done Checklist | `2026-05-15` |
-| CI cold-build under target | < 10 minutes from `pnpm install` to all-package build green | CI pipeline timing | `2026-05-15` |
-| Hot-build under target (single-package change) | < 30 seconds from save to test result | Local `turbo watch` + Vitest watch latency | `2026-05-15` |
+| Plan-001 implementation completes without integration friction across all primitives | All Plan-001 acceptance criteria pass with ADR-022 toolchain unchanged | Plan-001 Done Checklist | When Plan-001's last phase lands |
+| CI cold-build under target | < 10 minutes from `pnpm install` to all-package build green | CI pipeline timing | Each CI run |
+| Hot-build under target (single-package change) | < 30 seconds from save to test result | Local `turbo watch` + Vitest watch latency | At each toolchain version change |
 | `better-sqlite3` installs from a bundled Node-API prebuild on every V1 platform | `pnpm install` on macOS x64/arm64, Linux x64/arm64, Windows x64 resolves a bundled `.node` for `better-sqlite3` 13.0.3 with no source compile, and the daemon suite passes on the Node floor (24.16) and under Electron 44's Node ABI 149 | CI matrix run | `2026-09-08` |
 
 ---
 
 ## Re-evaluation Triggers
 
-The toolchain is locked for V1 but not frozen forever. Each of the following events SHOULD trigger an explicit re-evaluation of the named primitive:
+Each of the following events triggers a re-evaluation of the named primitive:
 
 1. **Oxlint+tsgolint stabilization** — when tsgolint reaches 1.0 stable AND Oxfmt reaches 1.0 stable, evaluate ESLint+Prettier → Oxlint+Oxfmt+tsgolint migration with `@oxlint/migrate`.
 2. **tsgo / TypeScript 7 native compiler stabilization** — when watch-mode incremental rechecking lands and `--build` reaches feature parity with `tsc -b`, evaluate tsc+esbuild → tsgo migration.

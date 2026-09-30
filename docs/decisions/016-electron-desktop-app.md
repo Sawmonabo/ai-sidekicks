@@ -21,7 +21,7 @@ What desktop framework should host the React + Vite renderer, start and watch th
 
 ### Trigger
 
-The console surface fixes a renderer budget, a terminal tier, and an embedded browser pane, and the web client reuses the console's front end. V1 ship requires the framework question closed before Plan-021 starts scaffolding.
+The console surface fixes a renderer budget, a terminal tier, and a Preview pane that embeds a browser, and the web client reuses the console's front end. V1 ship requires the framework question closed before Plan-021 starts scaffolding.
 
 ## Decision
 
@@ -58,7 +58,7 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
 ### Option A: Electron (Chosen)
 
 - **What:** Chromium renderer with a Node.js main process, `contextBridge` preload, `electron-updater` 6.8.9 behind the product's own feed provider for auto-update with delta downloads, `electron-builder` for packaging into dmg and zip, NSIS x64 and arm64, AppImage, deb and rpm; Windows signing through SignPath Foundation.
-- **Steel man:** Uniform Chromium renderer on macOS, Linux and Windows — one set of console budget numbers, one terminal tier, and one `WebContentsView` + debugger path for the embedded-browser pane; a Node main process that spawns the daemon detached and shares its contracts; mature ecosystem (VS Code, Slack, Discord, Teams, Notion, Figma Desktop); TypeScript-native main process aligns with the rest of the stack; preload-bridge model maps to the renderer-untrusted trust boundary.
+- **Steel man:** Uniform Chromium renderer on macOS, Linux and Windows — one set of console budget numbers, one terminal tier, and one `WebContentsView` + debugger path for the Preview pane's embedded browser; a Node main process that spawns the daemon detached and shares its contracts; mature ecosystem (VS Code, Slack, Discord, Teams, Notion, Figma Desktop); TypeScript-native main process aligns with the rest of the stack; preload-bridge model maps to the renderer-untrusted trust boundary.
 - **Weaknesses:** 100 MB+ baseline bundle; 418.6 MB across the app's own processes on the session screen with Preview open, about 38 to 46 MB more than Tauri with Chromium for Preview; Chromium security-patch cadence tied to Electron release cadence; Node.js in the main process expands the attack surface vs a Rust or Go host.
 
 ### Option B: Tauri 2.x, with or without Chromium for Preview (Rejected)

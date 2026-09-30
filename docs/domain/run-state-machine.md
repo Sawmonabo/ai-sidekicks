@@ -111,7 +111,7 @@ The next send — the edited message of an edit and resend included, which goes 
 
 ## Complete Transition Table
 
-The following table is the single authoritative reference for every allowed run state transition. It includes primary transitions, the failure paths added above, and recovery transitions.
+The following table lists every allowed run state transition. It includes primary transitions, the failure paths added above, and recovery transitions.
 
 | From | To | Trigger | Condition |
 | --- | --- | --- | --- |

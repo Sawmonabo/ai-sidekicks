@@ -67,7 +67,7 @@ sidekicks daemon start
 | SQLite WAL checkpoint        | < 5s   |
 | IPC round-trip latency (p99) | < 50ms |
 
-## On-Call Routing
+## Who Runs It And Where To Report
 
 - The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
 - A daemon that stays down after these steps is reported to the project as a bug, with the daemon's logs and the output of `sidekicks daemon status` attached.

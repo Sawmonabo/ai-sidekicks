@@ -50,7 +50,7 @@ V1 scopes event-sourcing to per-machine local event logs. Each session runs on o
 
 **Audit across machines (accepted trade-off).** No single query spans all of the person's machines: each machine answers for the sessions it runs, and an audit or export covering several machines reads each one. The control plane holds no event payloads, which is the cost of a relay that sees no session content.
 
-**Within-daemon ordering primitive.** For ordering events emitted by a single daemon across wall-clock discontinuities (NTP step, VM resume, operator clock edit), the authoritative primitive is `session_events.monotonic_ns` — a BIGINT produced by `process.hrtime.bigint()` per [Spec-013 §Clock Handling](../specs/013-persistence-recovery-and-replay.md#clock-handling). Its zero point is unspecified and resets on every daemon restart, so it is strictly a within-process ordering primitive, never a cross-daemon one.
+**Within-daemon ordering primitive.** For ordering events emitted by a single daemon across wall-clock discontinuities (NTP step, VM resume, a manual clock edit), the authoritative primitive is `session_events.monotonic_ns` — a BIGINT produced by `process.hrtime.bigint()` per [Spec-013 §Clock Handling](../specs/013-persistence-recovery-and-replay.md#clock-handling). Its zero point is unspecified and resets on every daemon restart, so it is strictly a within-process ordering primitive, never a cross-daemon one.
 
 ## Trust Boundaries
 

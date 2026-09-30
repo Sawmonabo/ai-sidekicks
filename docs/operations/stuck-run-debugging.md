@@ -57,7 +57,7 @@ A run is read and interrupted from its session; the command line has no `run` co
 | Claude Code silent retry | Up to about three minutes, while the working line reads `Retrying…` |
 | Codex service restart | At once; after three deaths within five minutes it stays down until `Restart` |
 
-## On-Call Routing
+## Who Runs It And Where To Report
 
 - The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
 - A stall that an interrupt does not clear, and that comes back, is reported to the project as a bug with the daemon's logs attached.

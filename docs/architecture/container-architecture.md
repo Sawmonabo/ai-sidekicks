@@ -30,9 +30,9 @@ The system is split so that a user's devices can reach a session from anywhere w
 | `Local Event Store And Projection Store` | Durable node-local record of run events, receipts, projections, and recovery state. |
 | `Shared Metadata Store` | Durable control-plane record of the account, the statement chain, the device registry and each machine's registration. |
 
-## Canonical Implementation Topology
+## Implementation Topology
 
-The canonical monorepo layout for implementation is:
+The monorepo layout for implementation is:
 
 | Repo Area | Ownership |
 | --- | --- |
@@ -44,7 +44,6 @@ The canonical monorepo layout for implementation is:
 | `apps/cli/` | CLI client implementation over the shared client SDK. |
 
 - Implementation plans may target submodules beneath these roots.
-- If the repo shape changes materially, update this architecture doc before treating path-specific plans as canonical.
 
 ## Client Delivery Sequence
 

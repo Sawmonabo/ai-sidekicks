@@ -54,7 +54,7 @@ Codex prompts, long calls moved to the background on Codex, and DPoP servers on 
 8. **The person's own provider sign-ins stay theirs.** The service never reads or renews a sign-in held by the person's own Claude Code or Codex outside the app. A server replaces a public client's refresh token on every renewal, so a second party renewing it would sign the person's own provider out.
 9. **The sign-in page's address** is held only while the sign-in uses it, written to no storage and no log, and dropped when the sign-in settles.
 
-**The plane boundary.** [ADR-028](028-provider-credential-custody-posture.md) governs the credentials of the provider accounts themselves (Claude Code's and Codex's own sign-ins). This record governs the credentials of MCP servers, and only those: on this plane the service is an OAuth client in its own right and speaks the server's token endpoint for its own sign-ins. Nothing here widens what the service may do with a provider account's credential, and nothing in ADR-028 governs an MCP server's.
+**Provider accounts and MCP servers.** [ADR-028](028-provider-credential-custody-posture.md) governs the credentials of the provider accounts themselves (Claude Code's and Codex's own sign-ins). This record governs the credentials of MCP servers, and only those: for an MCP server the service is an OAuth client in its own right and speaks the server's token endpoint for its own sign-ins. Nothing here widens what the service may do with a provider account's credential, and nothing in ADR-028 governs an MCP server's.
 
 **Library.** The service's MCP client is `@modelcontextprotocol/client` 2.1.0, the one maintained MCP client that signs DPoP proofs; the refresh token and the DPoP key go through `@napi-rs/keyring` 2.1.0, the credential-store binding [ADR-021](021-cli-identity-key-storage-custody.md) names, opened with `{linux: {store: "secret-service"}}` on macOS and Linux. On Windows, native and WSL alike, they go through the service's Windows half at `CRED_PERSIST_LOCAL_MACHINE`, as the master key's entry does ([Spec-020 §Daemon Master Key](../specs/020-data-retention-and-gdpr.md#daemon-master-key)), because the 2.1.0 binding's Windows path writes every entry at the roaming Enterprise persistence. `@modelcontextprotocol/sdk` stays in the daemon only to host Playwright's tool server.
 
@@ -215,7 +215,7 @@ Codex prompts, long calls moved to the background on Codex, and DPoP servers on 
 
 ### Related ADRs
 
-- [ADR-028: Provider Credential Custody Posture](028-provider-credential-custody-posture.md) — the provider-account plane; this record is the MCP-server plane beside it.
+- [ADR-028: Provider Credential Custody Posture](028-provider-credential-custody-posture.md) — custody of the provider accounts' own credentials; this record covers MCP-server credentials beside it.
 - [ADR-021: Machine Identity Key Custody](021-cli-identity-key-storage-custody.md) — the operating-system credential store and the binding the product uses for its own identity keys.
 - [ADR-033: One Claude Code Process Per Session, One Codex Service Per Account](033-one-claude-process-per-session-one-codex-service-per-account.md) — the provider processes the service launches, which are the only ones that get a helper.
 

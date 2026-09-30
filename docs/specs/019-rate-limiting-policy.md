@@ -31,7 +31,7 @@ The local daemon is explicitly excluded. It is trusted by socket reachability an
 - Per-provider or per-model token-level throttling
 - Billing or usage metering: nothing is billed, because the relay serves its one owner
 - Bans and automatic escalation: the relay blocks no identity beyond a limit's own window, and a stolen device's token is answered by revoking that device
-- Per-operator admin credentials: the relay has one owner
+- Admin credentials for more than one person: the relay has one owner
 - A relay serving other people, or a free public relay
 
 ## Domain Dependencies

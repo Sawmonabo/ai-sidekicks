@@ -18,19 +18,19 @@ Deliver the node-local agent-definition registry, the resolution a run performs 
 
 ## Scope
 
-The `agent_definitions` table in the daemon's one local schema; the definition-plane `agent.*` operations and the definition-list stream; the definition store over the origins, with its file watch, its own parse of every file, and its case-insensitive uniqueness enforcement within one origin and scope; the fail-closed resolver; the run-start integration that consumes it; the tool catalog reads; the spawn-time realization of the tool allowlist, the turn cap, the hooks and the memory; a save's reach into a running session, and `/reload`; the one session pack; the bridge's `SessionCallbackTool` registrations and their invocation handler; the CLI command surface; the desktop library and editor handed to Plan-021's renderer mount; and `Browse plugins`, with the daemon's plugin homes and the `plugin.*` operations.
+The `agent_definitions` table in the daemon's one local schema; the `agent.*` operations on definitions and the definition-list stream; the definition store over the origins, with its file watch, its own parse of every file, and its case-insensitive uniqueness enforcement within one origin and scope; the fail-closed resolver; the run-start integration that consumes it; the tool catalog reads; the spawn-time realization of the tool allowlist, the turn cap, the hooks and the memory; a save's reach into a running session, and `/reload`; the one session pack; the bridge's `SessionCallbackTool` registrations and their invocation handler; the CLI command surface; the desktop library and editor handed to Plan-021's renderer mount; and `Browse plugins`, with the daemon's plugin homes and the `plugin.*` operations.
 
 ## Non-Goals
 
 - **No orchestration mechanism.** Run admission, link projection, and budget accounting are Plan-014's and are consumed unchanged. There is no depth limit and no count limit to consume: the runtime adds none, and the provider's own limits apply under the person's own provider settings. This plan authors no admission rule.
-- **No approval mechanism.** The Cedar gate, the approval pipeline, and the remembered-grant store are Plan-010's. This plan registers one named action against them for the definition plane, rides the existing `tool_execution` category for a bridge call, and authors no Plan-010 symbol.
+- **No approval mechanism.** The Cedar gate, the approval pipeline, and the remembered-grant store are Plan-010's. This plan registers one named action against them for managing definitions, rides the existing `tool_execution` category for a bridge call, and authors no Plan-010 symbol.
 - **No driver or transport work.** The callback-tool registry, its dispatch seam, and the daemon-hosted ephemeral MCP server that carries it on the Claude leg are Plan-004's and already ship. This plan registers the bridge's six verbs into that registry and authors no Plan-004 file.
 - **No provider-account mechanism.** Account identity, readiness, and credential homes are Plan-026's. This plan reads its published registry surface and authors no Plan-026 file.
-- **No new session event type, and no new error code _on the peer-invocation path_.** Nothing on the definition plane appends to the event log: every session-visible consequence of a peer invocation rides existing events, and every peer-invocation refusal rides the callback-tool result's existing `denied` / `failed` arms. The definition and resolution paths do own the registered definition-plane `agent.*` codes ([error-contracts.md §Agent Definitions](../architecture/contracts/error-contracts.md#agent-definitions)), the import refusal, the export write failure and the refused update among them; reusing another namespace's codes for them would make the code itself a lie about which subsystem refused.
+- **No new session event type, and no new error code _on the peer-invocation path_.** Nothing that manages definitions appends to the event log: every session-visible consequence of a peer invocation rides existing events, and every peer-invocation refusal rides the callback-tool result's existing `denied` / `failed` arms. The definition and resolution paths do own the registered `agent.*` definition codes ([error-contracts.md §Agent Definitions](../architecture/contracts/error-contracts.md#agent-definitions)), the import refusal, the export write failure and the refused update among them; reusing another namespace's codes for them would make the code itself a lie about which subsystem refused.
 
 ## Invariants
 
-The following invariants are **load-bearing** and MUST be preserved across all Plan-027 PRs and downstream extensions. Any change that would weaken or remove an invariant is agreed with the counterpart plans, not taken locally (see cross-plan-dependencies.md).
+The following invariants are **load-bearing** and MUST be preserved across all Plan-027 PRs and downstream extensions.
 
 ### I-027-1 — Definition identity is opaque, immutable, and never the name
 
@@ -54,13 +54,13 @@ Resolution copies the definition's values onto the run's own agent record when t
 
 ### I-027-3 — Resolution fails closed and never substitutes
 
-An unresolvable provider account, model, effort level, or tool allowlist refuses the run, names what could not be resolved, and starts nothing. The four inputs are exactly the four arms of the closed `agent.resolution_refused` `reason` discriminator, so every unresolvable input has a typed refusal and none falls through untyped. The resolver never falls back to the provider's current account, a nearest-match model, a neighbouring effort level, or a silently narrowed — or unconstrained — tool set.
+An unresolvable provider account, model, effort level, or tool allowlist refuses the run, names what could not be resolved, and starts nothing. The four inputs are exactly the four arms of the `agent.resolution_refused` `reason` discriminator, so every unresolvable input has a typed refusal and none falls through untyped. The resolver never falls back to the provider's current account, a nearest-match model, a neighboring effort level, or a silently narrowed — or unconstrained — tool set.
 
 **Grounds in.** [Spec-027 §Fallback Behavior](../specs/027-agent-definitions-and-peer-invocation.md#fallback-behavior).
 
-**Why load-bearing.** Every substitution this rule forbids is a silent change to who pays, which identity acts, or what the agent costs and does. A pinned account quietly becoming "whichever account is current now" is precisely the class of change an operator pinned it to prevent.
+**Why load-bearing.** Every substitution this rule forbids is a silent change to who pays, which identity acts, or what the agent costs and does. A pinned account quietly becoming "whichever account is current now" is precisely the class of change the person pinned it to prevent.
 
-**Verification.** T3.1 refusal rows for absent account, absent model, unsupported effort, and unrealizable tool allowlist — one per closed `reason` arm; T3.2 assertion that no agent row survives a refused resolution.
+**Verification.** T3.1 refusal rows for absent account, absent model, unsupported effort, and unrealizable tool allowlist — one per `reason` arm; T3.2 assertion that no agent row survives a refused resolution.
 
 ### I-027-4 — The tool allowlist has three distinguishable states and is enforced at spawn
 
@@ -68,7 +68,7 @@ Absent, empty, and populated allowlists are stored and transported distinguishab
 
 **Grounds in.** [Spec-027 §Required Behavior](../specs/027-agent-definitions-and-peer-invocation.md#required-behavior) — the tool-allowlist state rule and the spawn-enforcement rule.
 
-**Why load-bearing.** Collapsing absent into empty strips an agent of every tool; collapsing empty into absent hands it all of them. Both are silent. Recording an allowlist without enforcing it is worse than storing none, because the registry then reports a restriction that does not hold — a false assurance an operator will rely on.
+**Why load-bearing.** Collapsing absent into empty strips an agent of every tool; collapsing empty into absent hands it all of them. Both are silent. Recording an allowlist without enforcing it is worse than storing none, because the registry then reports a restriction that does not hold — a false assurance the person will rely on.
 
 **Verification.** T1.2 round-trip rows proving `NULL` and `'[]'` survive distinctly; T3.1 spawn-enforcement test asserting an unrealizable allowlist refuses; T3.2 observable-difference test between an absent and an empty allowlist.
 
@@ -78,7 +78,7 @@ The bridge's six verbs are registered at spawn unconditionally, and every invoca
 
 **Grounds in.** [Spec-027 §Required Behavior](../specs/027-agent-definitions-and-peer-invocation.md#required-behavior) — the registration and adjudication rules.
 
-**Why load-bearing.** This is a correctness property, not a stylistic one. `callbackTools` rides only the session-creation and resume parameter shapes and there is no live-registry mutation seam, so a registry composed against session state is frozen at spawn: a widening would change nothing until the leg respawned, and — worse in the other direction — a narrowing would leave a live leg holding authority the operator believes they revoked until its next spawn boundary. Per-call adjudication makes both directions immediate and needs no seam that does not exist. It also matches the landed `workflow_run` precedent, the corpus's only other concrete session callback tool, which is likewise registered at spawn and adjudicated per invocation.
+**Why load-bearing.** This is a correctness property, not a stylistic one. `callbackTools` rides only the session-creation and resume parameter shapes and there is no live-registry mutation seam, so a registry composed against session state is frozen at spawn: a widening would change nothing until the leg respawned, and — worse in the other direction — a narrowing would leave a live leg holding authority the person believes they revoked until its next spawn boundary. Per-call adjudication makes both directions immediate and needs no seam that does not exist. It also matches the landed `workflow_run` precedent, the corpus's only other concrete session callback tool, which is likewise registered at spawn and adjudicated per invocation.
 
 **Verification.** T4.1 asserting all six verbs present in a freshly composed registry and that the module reads no session state; T4.2 asserting a denied call answers `denied` on an already-running leg with no respawn, and that a call on an asking level raises the same approval any tool call raises.
 
@@ -118,9 +118,9 @@ The daemon has no code path that relays, publishes, or transmits a definition ro
 
 **Grounds in.** [Spec-027 §Non-Goals](../specs/027-agent-definitions-and-peer-invocation.md#non-goals) — the node-local rule.
 
-**Why load-bearing.** `instructions` is operator-authored free text that routinely carries repository, workflow, and organizational detail. Definitions are configuration rather than session history, so they are outside the relay's end-to-end encryption story entirely; the correct guarantee is that they never enter it.
+**Why load-bearing.** `instructions` is free text the person writes, and it routinely carries repository, workflow, and organizational detail. Definitions are configuration rather than session history, so they are outside the relay's end-to-end encryption story entirely; the correct guarantee is that they never enter it.
 
-**Verification.** A dependency-cruiser rule forbids every relay or control-plane client module from importing the definition store, and the control-plane contracts from importing any definition-plane `agent.*` type.
+**Verification.** A dependency-cruiser rule forbids every relay or control-plane client module from importing the definition store, and the control-plane contracts from importing any `agent.*` definition type.
 
 ### I-027-10 — A definition's tool allowlist binds the daemon's own tools too
 
@@ -138,9 +138,9 @@ Every terminal state of a bridged agent settles a wait outstanding on it.
 
 **Grounds in.** [Spec-027 §Required Behavior](../specs/027-agent-definitions-and-peer-invocation.md#required-behavior) — the wait-settlement rule.
 
-**Why load-bearing.** A wait outlives the work it watches: admission succeeding does not guarantee an answer, so an agent that fails, is cancelled, or finishes silently would leave the asking model blocked on a call that never returns — the one outcome the callback-tool dispatch seam forbids.
+**Why load-bearing.** A wait outlives the work it watches: admission succeeding does not guarantee an answer, so an agent that fails, is canceled, or finishes silently would leave the asking model blocked on a call that never returns — the one outcome the callback-tool dispatch seam forbids.
 
-**Verification.** T4.2 settlement rows for each terminal — failed, cancelled, interrupted, and finished-without-answer — each settling the outstanding wait with that terminal, plus a race row landing the terminal between admission and subscription.
+**Verification.** T4.2 settlement rows for each terminal — failed, canceled, interrupted, and finished-without-answer — each settling the outstanding wait with that terminal, plus a race row landing the terminal between admission and subscription.
 
 ### I-027-12 — Every daemon-consumed resolved axis has a durable, non-opaque home
 
@@ -184,33 +184,27 @@ Definition management is authorized as `Action::"agent::manage"`, registered by 
 
 **Why surfaced here.** I-027-2's keep-what-you-were-given guarantee and I-027-12 both rest on these columns existing.
 
-## Preconditions
-
-- [x] Paired spec is approved
-- [x] Required ADRs are accepted
-- [x] Blocking open questions are resolved or explicitly deferred
-
 ## Target Areas
 
-- `packages/contracts/src/agent-definition.ts` (NEW) — the definition record and its list members, the definition-plane `agent.*` request/response pairs and the definition-list stream, and `callbackTool.list`'s request and response.
+- `packages/contracts/src/agent-definition.ts` (NEW) — the definition record and its list members, the `agent.*` definition request/response pairs and the definition-list stream, and `callbackTool.list`'s request and response.
 - `packages/contracts/src/plugin.ts` (NEW) — the `plugin.*` pairs with their notices.
 - `packages/runtime-daemon/src/agents/` (NEW directory, Plan-027-owned): `definition-store.ts`, `definition-resolver.ts`, `run-start-resolution.ts`, `handlers.ts`, `bridge-tools.ts`, `peer-invocation-handler.ts`, `errors.ts`, and `session-pack.ts`, the one session pack every contributor extends; beside them the definition watch, the hook gate, and the plugin service. The bridge verbs' argument schemas, with the 10-second wait cap and the 15-second close figure declared beside them, live here, since only the daemon's tool server and a provider read them.
 - The daemon's one local schema and its test (EXTEND) — the `agent_definitions` table.
 - `packages/runtime-daemon/src/provider/drivers/` (EXTEND) — each driver's fixed built-in tool table, and the spawn-time carriers for the allowlist, the turn cap, the hooks and the memory, at the driver sites.
 - `apps/cli/src/commands/agent-definition-*.ts` (NEW) — the CLI definition commands, each extending the shared base command class per CP-006-15.
-- `packages/client-sdk/src/` (EXTEND) — `agentClient.ts` (NEW), the typed client for the four definition-plane `agent.*` pairs, plus one barrel export line in the Plan-001-owned `index.ts`.
-- `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the definition-plane `agent.*` handler files (T2.2).
-- `apps/desktop/src/renderer/src/console/agents/` (EXTEND) — the destination's own family, handed to Plan-021's mount under CP-027-2:
-  - `index.ts` (EXTEND) — the family door: the definition-list read that the session composer's own list and the workflow node's chooser consume, the page-body root, and the route helpers.
-  - `agents.css` (EXTEND) — the family's own stylesheet.
-  - `agent-wire.ts` (EXTEND) — the two-tool peer-invocation list retires for the bridge's six verbs (T4.1).
-  - `library/` (NEW) — `AgentLibrary.tsx`, `AgentCard.tsx`, `library-filters.ts`, `library-view.ts` (the read, delete and duplicate state machine). The saved-definitions page at `console/agents/definitions/` moves here.
+- `packages/client-sdk/src/` (EXTEND) — `agentClient.ts` (NEW), the typed client for the `agent.*` definition pairs, plus one barrel export line in the Plan-001-owned `index.ts`.
+- `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the `agent.*` definition handler files (T2.2).
+- `apps/desktop/src/renderer/src/features/agents/` (EXTEND) — the agents feature, the destination's own, handed to Plan-021's mount under CP-027-2:
+  - `index.ts` (EXTEND) — the feature's public API: the definition-list read that the session composer's own list and the workflow node's chooser consume, the page-body root, and the route helpers.
+  - `agents.css` (EXTEND) — the feature's own stylesheet.
+  - `agent-wire.ts` (EXTEND) — the bridge's six verbs replace the two-tool peer-invocation list (T4.1).
+  - `library/` (NEW) — `AgentLibrary.tsx`, `AgentCard.tsx`, `library-filters.ts`, `library-view.ts` (the read, delete and duplicate state machine). The saved-definitions page moves here.
   - `editor/` (NEW) — `AgentEditor.tsx`, `InstructionsField.tsx`, `GoalField.tsx`, `PostureModeField.tsx`, `ToolAllowlistPicker.tsx`, `ProviderBindings.tsx`, `IconField.tsx`, `TryItPanel.tsx`.
   - the `Browse plugins` view, a third part of the agents feature beside the library and the editor, over the `plugin.*` operations (T6.2); the editor also gains the scope, hooks and memory fields (T5.1).
 
-  The page body is a lazy chunk root and the editor is a second lazy chunk: the renderer's initial import graph is gated at **450 kB gzip over code** (`renderer-initial-bundle`, `apps/desktop/test/console/budget/budgets.json`) and neither surface sits on a launch path.
+  The page body is a lazy chunk root and the editor is a second lazy chunk: the renderer's initial import graph is gated at **450 kB gzip over code** (`renderer-initial-bundle`, `apps/desktop/tests/budget/budgets.json`) and neither surface sits on a launch path.
 
-  `console/agents/agent-definitions-section.ts` and `apps/desktop/src/renderer/src/console/agents-settings-page.ts` are deleted, and the `agents` id leaves `apps/desktop/src/renderer/src/console/settings/settings-sections.ts`, because the destination replaces that settings page rather than sitting beside it. The dependent axis chain and the axis combobox (`console/agents/dependent-axis-chain.ts`, `console/agents/AxisCombobox.tsx`) are **reused** by the editor's binding chain, never forked. The family's folder and file names say agent; the destination a person sees is Sidekicks, at `#/sidekicks`.
+  The agents settings section and the agents settings page are deleted, and the `agents` id leaves the settings section list in `features/settings/`, because the destination replaces that settings page rather than sitting beside it. The dependent axis chain and the axis combobox (`features/agents/binding/`) are **reused** by the editor's binding chain, never forked. The feature's folder and file names say agent; the destination a person sees is Sidekicks, at `#/sidekicks`.
 
 ## Data And Storage Changes
 
@@ -221,7 +215,6 @@ Definition management is authorized as `Action::"agent::manage"`, registered by 
 - Agent memory is folders, never rows: `~/.ai-sidekicks/agent-memory/<name>/` for the everywhere scope and Claude Code's own paths inside a project for the project scopes, with every Claude Code configuration home the daemon creates linking `agent-memory` to the everywhere folder. The hook gate's per-session file of hook definitions lives in the daemon's folder for that session and is deleted when the session ends.
 - Installed plugins live in the daemon's two plugin homes, `~/.ai-sidekicks/plugins/claude/` and `~/.ai-sidekicks/plugins/codex/`, in each provider's own layout: the two catalogs, about 100 MB, and the installed plugins. Nothing is written into an account home or the person's own home.
 - `agents` holds three resolved-at-run-start columns — `execution_posture_mode`, `tool_allowlist`, `instructions` — in Plan-014's own `CREATE` in the daemon's one local schema under CP-027-7, stamped by that plan's T2.1 from the resolution T3.2 supplies and carried on the durable record of that start so the projection stays replay-complete (I-027-12; a column the log cannot rebuild would falsify `Plan-014 I-014-4`). A definition's goal has no column: the agent starts with it as its goal command, and `session.goal_updated` records it.
-- **All six columns** move no table census.
 - No control-plane table, no relay surface, no export surface.
 
 ## API And Transport Changes
@@ -232,12 +225,12 @@ Definition management is authorized as `Action::"agent::manage"`, registered by 
 - `session.definitionsReload`, the composer's `/reload`.
 - Six `SessionCallbackTool` registrations — the bridge's `run`, `message`, `wait`, `stop`, `close` and `list` verbs — served through Plan-004's existing callback-tool dispatch seam. These are tool registrations, not wire methods. `run` takes an optional output schema, and the wait cap and the close figure are declared beside the argument schema.
 - The `plugin.*` operations: `plugin.catalogList`, `plugin.read`, `plugin.install`, `plugin.uninstall`, `plugin.installedList`, `plugin.marketplaceAdd`, `plugin.marketplaceRemove` and `plugin.appList`, and the daemon notices `plugin.installed` and `plugin.uninstalled`.
-- **No new session event type.** Registered definition-plane `agent.*` refusal codes on the definition and resolution paths — `agent.import_refused`, `agent.export_write_failed` and `agent.update_refused` among them — and none on the peer-invocation path, which rides the callback-tool result arms.
+- **No new session event type.** Registered `agent.*` refusal codes on the definition and resolution paths — `agent.import_refused`, `agent.export_write_failed` and `agent.update_refused` among them — and none on the peer-invocation path, which rides the callback-tool result arms.
 
 ## Implementation Steps
 
 1. Author the contract module and the schema table, and pin them to one another with a conformance suite.
-2. Build the definition store over the origins, with its file watch, its own parse of every file and storage-level case-insensitive uniqueness within one origin and scope, then the definition-plane `agent.*` handlers and the list stream behind the `agent::manage` Cedar action.
+2. Build the definition store over the origins, with its file watch, its own parse of every file and storage-level case-insensitive uniqueness within one origin and scope, then the `agent.*` definition handlers and the list stream behind the `agent::manage` Cedar action.
 3. Ship the CLI commands over the handlers.
 4. Build the fail-closed resolver, then wire it into Plan-014's run-start path and prove a running agent is unaffected by later edits to its definition; then the tool catalog reads, the spawn-time realization of the allowlist, the turn cap, the hooks and the memory, and a save's reach into a running session.
 5. Build the one session pack, register the bridge's verbs unconditionally — filtered only by the resolved agent's tool allowlist — adjudicate each invocation per call under the session's permission level, implement the bridge over Plan-014's admission pipeline and each provider's own helper surface, and prove the cost and causation consequences.
@@ -249,7 +242,7 @@ Definition management is authorized as `Action::"agent::manage"`, registered by 
 - Phase 1's three tasks are sequential: the conformance suite exists to pin the other two together.
 - Phase 2's store and handlers are sequential; the CLI commands (T2.3) can run in parallel with Phase 3 once the handlers land.
 - Phase 3 and Phase 4 are sequential — peer invocation resolves its targets through the same resolver every run start uses.
-- Phase 5 follows Phase 3: the library and the editor read the definition plane and the resolution echo, and nothing in them is presentation over the bridge, so Phase 4 does not gate it. The SDK surface sits in T2.4 rather than in Phase 5, so it lands with its first consumer, the Phase-2 CLI.
+- Phase 5 follows Phase 3: the library and the editor read the definition operations and the resolution echo, and nothing in them is presentation over the bridge, so Phase 4 does not gate it. The SDK surface sits in T2.4 rather than in Phase 5, so it lands with its first consumer, the Phase-2 CLI.
 - Within Phase 3, T3.4, T3.5 and T3.6 follow T3.2 and can run in parallel with one another.
 - Phase 6 follows Phase 5 and Plan-030 Phase 3: its plugin origin feeds the library the library already draws, and a plugin's skills join the pack Plan-030 extends.
 
@@ -270,13 +263,6 @@ Plan-027 implementation lands as a sequence of small PRs. Each PR exercises one 
 ### Phase 1 — Contracts and schema
 
 **Precondition:** Plan-014 Phase 1 merged; Plan-026 Phase 1 merged.
-
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: external_plan_phase_merged, plan: 014, phase: 1 }
-  - { type: external_plan_phase_merged, plan: 026, phase: 1 }
-```
 
 **Goal:** the registry's contract surface and durable table exist, pinned to one another by a mechanical conformance suite.
 
@@ -308,14 +294,6 @@ preconditions:
 
 **Precondition:** Phase 1 merged; Plan-010 Phase 2 merged; Plan-006 Phase R3 merged.
 
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: plan_phase, plan: 027, phase: 1, status: merged }
-  - { type: external_plan_phase_merged, plan: 010, phase: 2 }
-  - { type: external_plan_phase_merged, plan: 006, phase: R3 }
-```
-
 **Goal:** definitions can be created, listed, updated, renamed, and deleted from the CLI — through the typed client SDK that surface consumes — under Cedar authorization, with uniqueness enforced in storage.
 
 #### Tasks
@@ -326,25 +304,25 @@ preconditions:
   - **Consumes:** T1.1 contracts, T1.2 table.
   - **Spec coverage:** Spec-027 §Required Behavior; Spec-027 §Non-Goals.
   - **Verifies invariant:** I-027-1, I-027-7, I-027-9.
-  - **Tests:** rename preserving `definitionId` byte-for-byte; case-variant create in one origin and scope refused at the service and, with the pre-check bypassed, at the index; two non-ASCII case variants issued concurrently, asserting exactly one commits and the other surfaces `agent.definition_name_conflict` — the race an ASCII index admits; delete succeeding while agents resolved from the row are running; a broken agent file listed with its load error and a provider-disabled one with that fact, and one carrying both; a file edited outside the product changing the next list read; a provider file renamed outside the product leaving an orphaned record with its last path, and a reattach refused while the record is not orphaned; deleting a provider-origin definition deleting the file the store read and its record, and no other file; the ban on any relay or control-plane client module importing this store, and on the control-plane contracts importing any definition-plane `agent.*` type, is a dependency-cruiser rule rather than a test.
-- **T2.2 — Definition-plane `agent.*` handlers and Cedar authorization.**
+  - **Tests:** rename preserving `definitionId` byte-for-byte; case-variant create in one origin and scope refused at the service and, with the pre-check bypassed, at the index; two non-ASCII case variants issued concurrently, asserting exactly one commits and the other surfaces `agent.definition_name_conflict` — the race an ASCII index admits; delete succeeding while agents resolved from the row are running; a broken agent file listed with its load error and a provider-disabled one with that fact, and one carrying both; a file edited outside the product changing the next list read; a provider file renamed outside the product leaving an orphaned record with its last path, and a reattach refused while the record is not orphaned; deleting a provider-origin definition deleting the file the store read and its record, and no other file; the ban on any relay or control-plane client module importing this store, and on the control-plane contracts importing any `agent.*` definition type, is a dependency-cruiser rule rather than a test.
+- **T2.2 — Definition `agent.*` handlers and Cedar authorization.**
   - **Files:** `packages/runtime-daemon/src/agents/handlers.ts` (NEW).
-  - **Provides:** the six definition-plane JSON-RPC pairs registered in the `agent.*` namespace — create, update, delete, list, export and import — and the `agent.definitionSubscribe` stream, which sends the whole list again on every change the store or its watch makes (a save, delete or import from any window, a provider's file added, changed or removed, a plugin landing or leaving), each pair authorized under `Action::"agent::manage"` through Plan-010's published Cedar gate, and implemented over the T2.1 store. Create takes `scope`, `hooks` and `memoryScope`; update replaces `bindings` and `hooks` whole, sets `memoryScope`, reattaches an orphaned record through its picked-file token, refusing a token for a record that is not orphaned with `agent.update_refused` (`not_orphaned`), and is refused on a plugin's agent with `agent.update_refused` (`plugin_read_only`). Export writes the chosen definitions to the file the platform's save dialog picked — provider-account references cleared, hooks and memory scope kept, the memory folder's notes never read — and refuses a failed write with `agent.export_write_failed`, carrying the operating system's cause. Import reads the file the platform's open dialog picked and creates every definition in it in the global scope in one daemon transaction, or none, suffixing a colliding name against the store's unique index, and refuses an unknown format marker or an invalid entry with `agent.import_refused`. A picked file reaches the daemon as a path the main process's relay derives from the dialog's token; the client never holds it. Authorization resolves one resource descriptor under that action: the node-scoped one, because definition mutation is node-global and carries no `sessionId`. A Cedar denial on any of these verbs raises `agent.permission_denied`; an invocation-time denial never reaches this handler, arriving on the callback-tool `denied` arm from T4.2 instead.
+  - **Provides:** the six definition JSON-RPC pairs registered in the `agent.*` namespace — create, update, delete, list, export and import — and the `agent.definitionSubscribe` stream, which sends the whole list again on every change the store or its watch makes (a save, delete or import from any window, a provider's file added, changed or removed, a plugin landing or leaving), each pair authorized under `Action::"agent::manage"` through Plan-010's published Cedar gate, and implemented over the T2.1 store. Create takes `scope`, `hooks` and `memoryScope`; update replaces `bindings` and `hooks` whole, sets `memoryScope`, reattaches an orphaned record through its picked-file token, refusing a token for a record that is not orphaned with `agent.update_refused` (`not_orphaned`), and is refused on a plugin's agent with `agent.update_refused` (`plugin_read_only`). Export writes the chosen definitions to the file the platform's save dialog picked — provider-account references cleared, hooks and memory scope kept, the memory folder's notes never read — and refuses a failed write with `agent.export_write_failed`, carrying the operating system's cause. Import reads the file the platform's open dialog picked and creates every definition in it in the global scope in one daemon transaction, or none, suffixing a colliding name against the store's unique index, and refuses an unknown format marker or an invalid entry with `agent.import_refused`. A picked file reaches the daemon as a path the main process's relay derives from the dialog's token; the client never holds it. Authorization resolves one resource descriptor under that action: the node-scoped one, because definition mutation is node-global and carries no `sessionId`. A Cedar denial on any of these verbs raises `agent.permission_denied`; an invocation-time denial never reaches this handler, arriving on the callback-tool `denied` arm from T4.2 instead.
   - **Consumes:** T2.1; Plan-010 Cedar gate (Phase 2, published) — the `agent::manage` check only, never the remembered-rule store, which cannot represent a grant for an action that traverses no approval pipeline (D-027-4); Plan-006 JSON-RPC handler registry; the platform save and open dialogs and the main process's path relay (Plan-021).
   - **Spec coverage:** Spec-027 §Interfaces And Contracts; Spec-027 §Required Behavior.
   - **Verifies invariant:** none — authorization surface over the already-verified T2.1 store.
-  - **Tests:** each verb refused for a principal lacking the action; a definition mutation authorized against the node-scoped resource descriptor, asserting the path invents no `sessionId`; a negative check asserting no handler in this module writes a `remembered_approval_rules` row, since an action that traverses no approval pipeline cannot be represented as one; each definition-plane pair and the stream registered; an export clearing every account and carrying no memory contents, and a failed write refused with its cause; an import file with an unknown marker, and one with a single invalid entry, each creating nothing; an imported definition landing in the global scope; an update to a plugin's agent refused; a stream subscriber receiving the whole list after a save in another window and after a file changed on disk.
+  - **Tests:** each verb refused for a principal lacking the action; a definition mutation authorized against the node-scoped resource descriptor, asserting the path invents no `sessionId`; a negative check asserting no handler in this module writes a `remembered_approval_rules` row, since an action that traverses no approval pipeline cannot be represented as one; each definition pair and the stream registered; an export clearing every account and carrying no memory contents, and a failed write refused with its cause; an import file with an unknown marker, and one with a single invalid entry, each creating nothing; an imported definition landing in the global scope; an update to a plugin's agent refused; a stream subscriber receiving the whole list after a save in another window and after a file changed on disk.
 - **T2.3 — CLI definition commands.**
   - **Files:** `apps/cli/src/commands/agent-definition-list.ts`, `agent-definition-create.ts`, `agent-definition-edit.ts`, `agent-definition-delete.ts` (all NEW), `apps/cli/src/main.ts` (EXTEND — its `.register()` calls only).
-  - **Provides:** the operator-facing definition surface over the T2.2 handlers, under the command group word a person types, `sidekick-definition` (D-027-9), each command extending the shared base command class from `apps/cli/src/base-command.ts` per CP-006-15, writing results to the injected stdout and diagnostics to the injected stderr.
+  - **Provides:** the definition commands the person runs over the T2.2 handlers, under the command group word a person types, `sidekick-definition` (D-027-9), each command extending the shared base command class from `apps/cli/src/base-command.ts` per CP-006-15, writing results to the injected stdout and diagnostics to the injected stderr.
   - **Consumes:** T2.2; **T2.4** — the typed client this command surface calls, which is why the SDK is authored in this phase rather than in Phase 5; Plan-006 base command class (Phase R3) and client SDK transport.
   - **Spec coverage:** Spec-027 §Scope.
-  - **Verifies invariant:** none — operator surface over already-verified handlers.
+  - **Verifies invariant:** none — a command surface over already-verified handlers.
   - **Tests:** one regression assertion per command that a thrown error routes to stderr with stdout byte-empty under the mapped exit code; a list rendering golden.
 
 - **T2.4 — Client SDK surface.**
   - **Files:** `packages/client-sdk/src/agentClient.ts` (NEW), `packages/client-sdk/src/index.ts` (EXTEND — barrel export only).
-  - **Provides:** typed client methods for the definition-plane `agent.*` pairs and the list stream, consumed by the CLI commands here in Phase 2 and by the desktop's agents feature in Phase 5. **Authored in this phase and not with the desktop surface:** its first consumer is T2.3, and Phase 5 sits behind Phases 3 and 4, so an SDK homed there would leave the Phase-2 CLI importing a client that does not yet exist or permanently bypassing the typed surface it is required to consume.
+  - **Provides:** typed client methods for the `agent.*` definition pairs and the list stream, consumed by the CLI commands here in Phase 2 and by the desktop's agents feature in Phase 5. **Authored in this phase and not with the desktop surface:** its first consumer is T2.3, and Phase 5 sits behind Phases 3 and 4, so an SDK homed there would leave the Phase-2 CLI importing a client that does not yet exist or permanently bypassing the typed surface it is required to consume.
   - **Consumes:** T2.2; Plan-001 client SDK transport (shipped).
   - **Spec coverage:** Spec-027 §Interfaces And Contracts.
   - **Verifies invariant:** none — transport surface over already-verified handlers.
@@ -365,7 +343,7 @@ preconditions:
   - **Consumes:** T2.1 store; Plan-026 `providerAccount.list` registry read (published — consulted for account existence, never for readiness); Plan-004 driver capability surface (published).
   - **Spec coverage:** Spec-027 §Fallback Behavior; Spec-027 §Default Behavior.
   - **Verifies invariant:** I-027-3, I-027-4, I-027-8.
-  - **Tests:** refusal rows for absent account, absent model, unsupported effort, and unrealizable allowlist — one per closed `reason` arm — each carrying the matching arm and naming the unresolved input, the allowlist row asserting **both** of its arm's naming fields (the unrealizable tools and the driver's supported set), since either alone leaves the operator unable to tell what to edit; a row proving a registered-but-unauthenticated account resolves successfully here and is refused later by the spawn gate, so the resolver never second-guesses I-026-3; a negative-control row proving the resolver fails on a known-bad account rather than passing vacuously; absent-optional rows resolving to the documented defaults.
+  - **Tests:** refusal rows for absent account, absent model, unsupported effort, and unrealizable allowlist — one per `reason` arm — each carrying the matching arm and naming the unresolved input, the allowlist row asserting **both** of its arm's naming fields (the unrealizable tools and the driver's supported set), since either alone leaves the person unable to tell what to edit; a row proving a registered-but-unauthenticated account resolves successfully here and is refused later by the spawn gate, so the resolver never second-guesses I-026-3; a negative-control row proving the resolver fails on a known-bad account rather than passing vacuously; absent-optional rows resolving to the documented defaults.
 - **T3.2 — Run-start resolution integration.**
   - **Files:** `packages/runtime-daemon/src/agents/run-start-resolution.ts` (NEW — the seam Plan-014's run-start handler calls).
   - **Provides:** the resolver call Plan-014 makes before writing the `agents` row; the per-field override of resolved values by explicitly-present request members; the effective-resolved-configuration echo; the resolved axis set handed to Plan-014's insert for stamping into its **typed** `agents` columns and onto the durable record of the start under CP-027-7 (this task supplies the values; the owning plan performs the write, since the `agents` insert is a Plan-014-owned file) — posture mode, tool allowlist and instructions, which cannot live inside `config`, that column being opaque to everything outside the driver while these are read by registry composition, prompt construction, and the spawn gate, as `provider_account_id` is for the same reason; the definition's goal, handed to Plan-014's goal path as the agent's goal command when it starts and never to a column or a system prompt; and the fail-closed refusal path, raising `agent.definition_not_found` for a `definitionId` naming no row and `agent.definition_unreadable` when the registry cannot be read, with nothing started and nothing partial left behind.
@@ -407,22 +385,12 @@ preconditions:
 
 **Precondition:** Phase 3 merged; Plan-004 Phase 3 merged; Plan-005 Phase 4 merged; Plan-014 Phase 2 merged; Plan-014 Phase 4B merged. Phase 4B is gated here and not only cited by T4.3, because a phase whose task consumes the session cost receipt cannot dispatch while its own gate does not require the receipt to exist. Plan-005 Phase 4 is gated for the same reason: T4.2 replays from a captured cursor over the `event.readAfterCursor` read surface that phase lands, and a replay against a read surface that does not exist has no settlement.
 
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: plan_phase, plan: 027, phase: 3, status: merged }
-  - { type: external_plan_phase_merged, plan: 004, phase: 3 }
-  - { type: external_plan_phase_merged, plan: 005, phase: 4 }
-  - { type: external_plan_phase_merged, plan: 014, phase: 2 }
-  - { type: external_plan_phase_merged, plan: 014, phase: 4B }
-```
-
 **Goal:** every session exposes the bridge's six verbs on both providers; an invocation produces an admitted, tree-visible agent the daemon runs on its own provider, steerable and stoppable from the row and from the lead, whose cost lands where the spec says.
 
 #### Tasks
 
 - **T4.1 — The bridge's six verbs, their pack entry, and unconditional, allowlist-filtered registration.**
-  - **Files:** `packages/runtime-daemon/src/agents/bridge-tools.ts` (NEW), `apps/desktop/src/renderer/src/console/agents/agent-wire.ts` (EXTEND — the bridge's six verbs replace the two-tool peer-invocation list the renderer still carries).
+  - **Files:** `packages/runtime-daemon/src/agents/bridge-tools.ts` (NEW), `apps/desktop/src/renderer/src/features/agents/agent-wire.ts` (EXTEND — the bridge's six verbs replace the two-tool peer-invocation list the renderer still carries).
   - **Provides:** the six `SessionCallbackTool` declarations — `run`, `message`, `wait`, `stop`, `close`, `list` — each with the name, description and JSON-Schema arguments the bridge needs, accepting a target as either a saved `definitionId` or a running agent's handle, `run` also accepting an optional output schema; the 10-second wait cap and the 15-second close figure declared beside the argument schema in the daemon's agents module (`packages/runtime-daemon/src/agents/`), so the handler declares none of its own; the **contract in the descriptions and in what the verbs return**, because a lead that calls them itself never loads a stand-in's instructions; `run` answering with a handle immediately and `wait` returning within 10 seconds whatever the caller asked for; the per-provider exposure — on the Claude leg one pack entry per cross-provider agent whose tool list holds these verbs and nothing else, with the lead's own tool list holding none of them, and on the Codex leg the tool server's own description listing every cross-provider agent by name and description, the one tool server being named `sidekicks`; the **identifier each cross-provider agent is exposed under**, which carries the provider running it — `sidekicks:codex-<name>` in a Claude Code session, `sidekicks:claude-<name>` in a Codex session — so two files of the same name never collide and the row a person picks inserts the identifier rather than anyone typing it; the spawn-time registry contribution, which yields the verbs **unconditionally** (the `workflow_run` shape) and applies exactly one filter: the resolved agent's tool allowlist. An empty allowlist yields none of them, a populated one yields only what it names, and an absent one leaves the driver-default composition unchanged (I-027-10). No session state is consulted here at all — authorization is the per-call approval T4.2 takes through the ordinary pipeline. And the one session pack, `session-pack.ts`, which Plan-030 extends with skills and T6.1 with installed plugins: this task builds it with this product's own agents and the cross-provider entries — on Claude Code every agent in the `agents` map of the `initialize` request under its namespaced name with every field of its record (`description`, `prompt`, `tools`, `disallowedTools`, `model`, `effort`, `permissionMode`, `mcpServers`, `hooks`, `maxTurns`, `memory`), and the plugin folder named `sidekicks`, passed with `--plugin-dir`, carrying skills only, because Claude Code ignores `hooks`, `mcpServers` and `permissionMode` in a plugin's agent file; on Codex, role files and skill folders through its configuration, and what a role file cannot carry — hooks, tool servers, sandbox and memory — on the conversation's `thread/start` configuration, handed over at the driver sites.
   - **Consumes:** the resolved allowlist ← T3.1; Plan-004 callback-tool registry and its callback-tool host (published, Phase 3), which already routes every invocation through Plan-010's evaluation seam on `approval.requestCreate`-shaped inputs keyed by `ApprovalCategory` — a bridge call is expressible there unchanged, because `tool_execution` is one of those categories.
   - **Spec coverage:** Spec-027 §Required Behavior (the bridge, its verbs, the per-lead reach, the registration rule and the allowlist-filters-the-registry rule); Spec-027 §Default Behavior.
@@ -444,22 +412,15 @@ preconditions:
 
 ### Phase 5 — Desktop library and editor
 
-**Precondition:** Phase 3 merged; Plan-021 Phase 6 merged. Phase 4 is deliberately not gated here: the library and the editor read the definition plane and the resolution echo, and nothing in them is presentation over the bridge.
-
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: plan_phase, plan: 027, phase: 3, status: merged }
-  - { type: external_plan_phase_merged, plan: 021, phase: 6 }
-```
+**Precondition:** Phase 3 merged; Plan-021 Phase 6 merged. Phase 4 is deliberately not gated here: the library and the editor read the definition operations and the resolution echo, and nothing in them is presentation over the bridge.
 
 **Goal:** a user can build, edit, and pick an agent definition from the desktop.
 
 #### Tasks
 
 - **T5.1 — The destination's library and editor.**
-  - **Files:** `apps/desktop/src/renderer/src/console/agents/library/` and `console/agents/editor/` (both NEW — the library over the registry, the editor over one definition, and the delete confirmation), plus `console/agents/index.ts` and `console/agents/agents.css` (EXTEND — the family door and its stylesheet).
-  - **Provides:** the library over the registry — create, duplicate, delete, export, import, search, the orderings, and selecting for export — and the editor over one definition, including its try-it panel — all of it over the definition-plane `agent.*` handlers and the list stream, which keeps every open window current — with the tool allowlist's absent and empty states presented as visibly different choices rather than as one empty control, and the pinned-account field showing the account's readiness as an **advisory** signal, so a definition whose account would refuse at spawn under I-026-3 is legible before it is used — never as a resolution-time gate, which checks registry existence only. The library also carries `Browse plugins` in its header, the in-flight loading note, shown only after 800 ms, with the count reading `—`, the origin mark over the origins, the provider facts, the `File gone` group with `Reattach…` (the platform's file chooser) and `Discard`, no delete on a plugin's agent, and a delete confirmation that names a provider file's path and an agent's memory folder; export and import go through the platform's own save and open dialogs. The editor also carries the global-or-project choice on a new agent, the hooks list with its in-place `Add a hook` and its provider-only lines, the memory choice with its line, each driver's built-in tools in their own group, and a plugin's agent drawn read-only.
+  - **Files:** `apps/desktop/src/renderer/src/features/agents/library/` and `features/agents/editor/` (both NEW — the library over the registry, the editor over one definition, and the delete confirmation), plus `features/agents/index.ts` and `features/agents/agents.css` (EXTEND — the feature's public API and its stylesheet).
+  - **Provides:** the library over the registry — create, duplicate, delete, export, import, search, the orderings, and selecting for export — and the editor over one definition, including its try-it panel — all of it over the `agent.*` definition handlers and the list stream, which keeps every open window current — with the tool allowlist's absent and empty states presented as visibly different choices rather than as one empty control, and the pinned-account field showing the account's readiness as an **advisory** signal, so a definition whose account would refuse at spawn under I-026-3 is legible before it is used — never as a resolution-time gate, which checks registry existence only. The library also carries `Browse plugins` in its header, the in-flight loading note, shown only after 800 ms, with the count reading `—`, the origin mark over the origins, the provider facts, the `File gone` group with `Reattach…` (the platform's file chooser) and `Discard`, no delete on a plugin's agent, and a delete confirmation that names a provider file's path and an agent's memory folder; export and import go through the platform's own save and open dialogs. The editor also carries the global-or-project choice on a new agent, the hooks list with its in-place `Add a hook` and its provider-only lines, the memory choice with its line, each driver's built-in tools in their own group, and a plugin's agent drawn read-only.
   - **Consumes:** T2.2 handlers through the client SDK; T3.4's catalog reads; Plan-021's renderer mount per CP-027-2.
   - **Spec coverage:** Spec-027 §The library; Spec-027 §The editor; Spec-027 §Pitfalls To Avoid.
   - **Verifies invariant:** I-027-4.
@@ -500,29 +461,29 @@ preconditions:
 
 ## Rollback Or Fallback
 
-- Phases 1–3 are additive: unshipped definition-plane operations and an unused `definitionId` member leave every run-start path behaving exactly as before, so rolling back a phase never breaks a run whose axes are spelled out in full.
+- Phases 1–3 are additive: unshipped definition operations and an unused `definitionId` member leave every run-start path behaving exactly as before, so rolling back a phase never breaks a run whose axes are spelled out in full.
 - Phase 4 adds no state to roll back: the bridge's verbs are present in every session's registry, and what a session permits is decided by its own permission level on each call, so narrowing that level is effective on the next invocation with no code change and no respawn. A policy set that denies tool execution refuses every invocation without withdrawing the verbs.
 - The table is additive: no foreign key points at it in either direction, so taking it out of the schema touches no other table.
 - Phase 6 installs plugins only into the daemon's own plugin homes, so removing a plugin, or the phase, leaves every account home and the person's own home as they were.
 
 ## Risks And Blockers
 
-- **Ordering.** This plan sits beside Plans 010, 014, and 026, and depends on all three. Its phases carry explicit `external_plan_phase_merged` gates so the ordering is enforced mechanically rather than by tier membership alone.
+- **Ordering.** This plan sits beside Plans 010, 014, and 026, and depends on all three. Each phase's precondition names the phases of those plans it waits on.
 - **Effort validation depends on a driver-reported set.** A driver that reports no effort levels makes every explicit effort unresolvable. The resolver treats an empty reported set as "effort not supported by this driver" and refuses an explicit effort while accepting an absent one, rather than passing an unvalidated value through.
-- **Definition text is unbounded operator input.** `instructions` is the largest free-text column this plan owns; its CHECK bounds length so a pathological definition cannot make every run start slow or a spawn argument list unbuildable.
+- **Definition text is unbounded input from the person.** `instructions` is the largest free-text column this plan owns; its CHECK bounds length so a pathological definition cannot make every run start slow or a spawn argument list unbuildable.
 - **Peer invocation makes a run's cost depend on another account's readiness.** A target whose account has gone unauthenticated refuses at spawn under I-026-3 — not at resolution, which checks existence only — and that surfaces to the asking agent as `denied` mid-turn. That is the intended fail-closed behavior, and T4.2 pins the reason reaching the caller so it is diagnosable rather than opaque.
 
 ## Decision Log
 
-- **D-027-1 — No foreign key from `provider_account_id` to `provider_accounts`.** `ON DELETE CASCADE` would delete a definition when its account is removed, discarding operator-authored configuration; `ON DELETE SET NULL` would silently convert a pinned account into "the provider's current account", which is exactly the substitution I-027-3 forbids; `ON DELETE RESTRICT` would make account removal fail because an unrelated definition names it. The row therefore carries an unenforced reference and resolution checks account **existence** when the run starts — never readiness, which I-026-3's live spawn probe settles — which is the only point at which the answer matters.
-- **D-027-2 — A definition stores a posture mode, not a composed posture.** A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` that is meaningful only against the session that composed it; persisting one lets a stale definition re-grant a superseded trust decision, or dangle. The mode literal is the operator's actual intent, and the session composes the rest.
+- **D-027-1 — No foreign key from `provider_account_id` to `provider_accounts`.** `ON DELETE CASCADE` would delete a definition when its account is removed, discarding configuration the person wrote; `ON DELETE SET NULL` would silently convert a pinned account into "the provider's current account", which is exactly the substitution I-027-3 forbids; `ON DELETE RESTRICT` would make account removal fail because an unrelated definition names it. The row therefore carries an unenforced reference and resolution checks account **existence** when the run starts — never readiness, which I-026-3's live spawn probe settles — which is the only point at which the answer matters.
+- **D-027-2 — A definition stores a posture mode, not a composed posture.** A composed `ExecutionPosture` carries a content-addressed `credentialPolicyRef` that is meaningful only against the session that composed it; persisting one lets a stale definition re-grant a superseded trust decision, or dangle. The mode literal is the person's actual intent, and the session composes the rest.
 - **D-027-3 — A run keeps the configuration it was resolved for, not a live reference.** The live-reference alternative reads as the more useful feature and is an authorization hole: it widens a running agent's authority without an authorization act. Configuration reuse is delivered when the run starts, which is where the authorization check already sits.
 - **D-027-4 — A bridge call is an ordinary tool call, in the existing `tool_execution` category.** A named Cedar action of its own is the wrong shape twice over. A named Cedar action allows or denies and nothing else: it traverses no approval pipeline and produces no resolution, so a permission level that asks could not raise the card it raises for every other tool call, and a remembered rule could not answer it — `remembered_approval_rules` closes its `category` column over the approval-pipeline categories and requires `created_from_request_id` to reference an `approval_resolutions` row, neither of which such an action produces. It is also unrepresentable in the Plan-004 callback-tool host, whose evaluation inputs are keyed by `ApprovalCategory`. A new category beside the existing ones would ask a second question about one act. A bridge call therefore rides `tool_execution`, the category every tool call already rides, under whatever level the session is set to: the permission level the person chose is the gate, and the product adds no gate the providers themselves do not have.
-- **D-027-5 — The bridge's verbs are registered unconditionally and adjudicated per call.** Registering the verbs only once a grant exists, on the reasoning that a tool a model can see is one it will plan around, does not work: `callbackTools` rides only the session-creation and resume parameter shapes, and nothing changes a running leg's registry, so a registry filtered by session state is frozen at spawn. Widening mid-session would then change nothing an operator could observe until the leg respawned, and narrowing would leave a live leg holding a revoked capability until the same boundary. Per-call adjudication makes both directions take effect on the next call, needs no seam that does not exist, and matches the workflow tools, which are likewise registered at spawn and adjudicated per invocation. The cost is a visible tool that can be refused, which that reasoning objects to, and it is the smaller cost.
+- **D-027-5 — The bridge's verbs are registered unconditionally and adjudicated per call.** Registering the verbs only once a grant exists, on the reasoning that a tool a model can see is one it will plan around, does not work: `callbackTools` rides only the session-creation and resume parameter shapes, and nothing changes a running leg's registry, so a registry filtered by session state is frozen at spawn. Widening mid-session would then change nothing the person could observe until the leg respawned, and narrowing would leave a live leg holding a revoked capability until the same boundary. Per-call adjudication makes both directions take effect on the next call, needs no seam that does not exist, and matches the workflow tools, which are likewise registered at spawn and adjudicated per invocation. The cost is a visible tool that can be refused, which that reasoning objects to, and it is the smaller cost.
 - **D-027-6 — The tool allowlist is three-state.** `NULL` means the driver's defaults and `'[]'` means no tools. Representing "no tools" as an absent value would make the most restrictive choice unexpressible, which is the wrong direction for a security control to be lossy in.
 - **D-027-7 — No depth rule is authored here.** [Spec-014 §Default Behavior](../specs/014-multi-agent-orchestration.md#default-behavior) sets no depth limit of the runtime's own, so a nested peer invocation is admitted exactly like any other child run. The provider's own nesting limit still applies, and when it refuses a level the refusal is shown as the provider words it.
 - **D-027-8 — The wire pairs, with `definitionList` returning full records.** A separate read verb would duplicate the list's projection and give two surfaces that can disagree about what a definition is; this follows the `providerAccount.list` shape, which returns full rows for the same reason. Export and import are daemon pairs rather than client work, because an import applies nothing partially — one daemon transaction creates every definition in the file or none — and the client never holds a file path.
-- **D-027-9 — The CLI group word is `sidekick-definition`.** Two shorter alternatives were considered and rejected. Bare `definition` collides with `Spec-015`'s frozen **workflow definitions**, whose command group lives in this same `apps/cli/src/commands/` directory, so `definition-*.ts` beside `workflow-*.ts` would be ambiguous at exactly the point a reader needs disambiguation. Bare `sidekick` truncates a two-word resource to one word, which both stutters as `sidekicks sidekick list` and reads as a command over _running_ session agents rather than over the saved records this plan owns — a distinction [Spec-027 §Required Behavior](../specs/027-agent-definitions-and-peer-invocation.md#required-behavior) draws throughout, since a peer-invocation target may be either. The group word therefore names the resource in full, following the corpus's only other two-word CLI resource, [Plan-026](./026-provider-accounts-and-credential-homes.md)'s `sidekicks provider-account` group. The command files say agent — `agent-definition-*.ts` — because identifiers and file names carry the concept while the word a person types carries the brand, the same split the renderer family takes. The everyday form is `sidekicks sidekick-definition list`.
+- **D-027-9 — The CLI group word is `sidekick-definition`.** Two shorter alternatives were considered and rejected. Bare `definition` collides with `Spec-015`'s frozen **workflow definitions**, whose command group lives in this same `apps/cli/src/commands/` directory, so `definition-*.ts` beside `workflow-*.ts` would be ambiguous at exactly the point a reader needs disambiguation. Bare `sidekick` truncates a two-word resource to one word, which both stutters as `sidekicks sidekick list` and reads as a command over _running_ session agents rather than over the saved records this plan owns — a distinction [Spec-027 §Required Behavior](../specs/027-agent-definitions-and-peer-invocation.md#required-behavior) draws throughout, since a peer-invocation target may be either. The group word therefore names the resource in full, following the corpus's only other two-word CLI resource, [Plan-026](./026-provider-accounts-and-credential-homes.md)'s `sidekicks provider-account` group. The command files say agent — `agent-definition-*.ts` — because identifiers and file names carry the concept while the word a person types carries the brand, the same split the renderer's agents feature takes. The everyday form is `sidekicks sidekick-definition list`.
 
 ## Done Checklist
 

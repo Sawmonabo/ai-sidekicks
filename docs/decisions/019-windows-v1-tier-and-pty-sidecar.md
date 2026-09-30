@@ -15,7 +15,7 @@ Agent runs spawn shells and tools (`git`, compilers, interpreters, REPLs, langua
 
 PTY on Windows is a distinct surface. Windows 10 1809 introduced ConPTY as the modern API; prior to that, tools relied on `winpty`. `node-pty` supports ConPTY on Windows, and that support is where a cluster of known open bugs lives:
 
-- [`openai/codex#13973`](https://github.com/openai/codex/issues/13973) — ConPTY assertion failure that kills the Node host (OPEN as of 2026-03-08; first-party trigger in our critical path since we host Codex).
+- [`openai/codex#13973`](https://github.com/openai/codex/issues/13973) — ConPTY assertion failure that kills the Node host (open when read on 2026-03-08; first-party trigger in our critical path since we host Codex).
 - [`microsoft/node-pty#904`](https://github.com/microsoft/node-pty/issues/904) — `SIGABRT` on Electron exit via a `ThreadSafeFunction` race condition (OPEN).
 - [`microsoft/node-pty#887`](https://github.com/microsoft/node-pty/issues/887) — ConoutConnection worker strands the Node exit path (OPEN).
 - [`microsoft/node-pty#894`](https://github.com/microsoft/node-pty/issues/894) — PowerShell 7 exhibits a 3.5-second delay under `useConptyDll: true` (OPEN).
@@ -28,7 +28,7 @@ A Rust alternative exists. [`portable-pty`](https://github.com/wezterm/wezterm/t
 
 ADR-015 places Windows in V1 implicitly (V1 ships Desktop GUI, and ADR-016 commits to Electron which ships on Windows). The question is whether Windows V1 should ship as **GA** with full quality-gate equivalence to macOS and Linux, or as **Beta** with explicit quality-level caveats.
 
-An earlier evaluation (cited primary sources catalogued in §Research Conducted below) recommended **Option C (Windows V1 Beta)** under a human-implementation cost model on the grounds that the ~3–5 engineer-weeks required for a Rust sidecar and the ongoing "language in critical path" maintenance cost were load-bearing. That cost model does not hold under AI implementation (Claude Opus 4.7 executes the plan), which collapses the engineering-week estimate by more than 70% and eliminates the "engineer learning Rust" ramp. The decision below re-runs the same trade-off with the revised cost model.
+Under a human-implementation cost model, **Option C (Windows V1 Beta)** is the better choice (cited primary sources cataloged in §Research Conducted below), because the ~3–5 engineer-weeks required for a Rust sidecar and the ongoing "language in critical path" maintenance cost are load-bearing. That cost model does not hold under AI implementation (Claude Opus 4.7 executes the plan), which collapses the engineering-week estimate by more than 70% and eliminates the "engineer learning Rust" ramp. The decision below weighs the same trade-off under the AI-implementation cost model.
 
 ## Problem Statement
 
@@ -37,7 +37,7 @@ What is the V1 quality tier for Windows, and what PTY backend strategy on Window
 ### Trigger
 
 - Agent drivers in V1 include Codex, which has a first-party open issue (`openai/codex#13973`) that triggers the ConPTY assertion class; we cannot ship Windows without addressing this.
-- AI implementation of the plan changes the cost-benefit math that drove the prior Option C recommendation (under a human-implementation cost model); re-run required.
+- AI implementation of the plan changes the cost-benefit math that favors Option C under a human-implementation cost model.
 - Plan-001 (session core) needs a decided PTY backend contract before it authors terminal-session code.
 
 ## Decision
@@ -98,17 +98,17 @@ The antithesis is the correct default position for a team that is one major bug 
 - **Steel man:** Industry norm; minimal implementation surface; one language in the critical path; the `node-pty` bug cluster has been tractable in practice for other teams; the fix for the Tabby ConPTY class was a single dependency pin; AI implementation makes it trivial to monitor and pin `node-pty` versions.
 - **Why rejected:** `openai/codex#13973` is a first-party provider driver issue against the exact ConPTY assertion class that caused the Tabby user-rollback wave. Shipping GA on a PTY stack with a known open first-party bug trigger is path-dependent on a future upstream fix that is not committed. "Pin an older version" is a workaround, not a fix; it constrains future `node-pty` upgrades and keeps us on code that does not receive further maintenance. The Tabby precedent shows the user-visible failure mode; accepting that risk for V1 launch is not consistent with a GA tier for Windows.
 
-### Option C: Windows V1 Beta on `node-pty` (Rejected; prior recommendation under human-implementation cost model)
+### Option C: Windows V1 Beta on `node-pty` (Rejected)
 
 - **What:** Ship V1 with a Windows tier explicitly labeled Beta. Quality gates tolerate known `node-pty` issues. Sidecar is reserved for V1.1 if the bug cluster bites.
-- **Steel man:** Lowers V1 scope; communicates quality delta honestly to Windows users; gives a production-data escape hatch for the sidecar decision; matches the prior cost-benefit under a human-implementation cost model.
-- **Why rejected:** Under the prior human-implementation cost model, Option C's recommendation was driven by the 3–5 engineer-weeks of Rust work and the "+1 language in critical path" ongoing cost. Under AI implementation (Claude Opus 4.7), the engineer-weeks cost compresses by >70% and the "learning ramp" portion of the language-in-stack cost vanishes. With the dominant cost collapsed, the cost-benefit inverts against the Tabby-precedent risk. Additionally, Windows Beta communicates a category-positioning cost: a developer-market product that ships one of its three target platforms at a lower tier is read as "don't use this on Windows," which loses users rather than setting expectations. The Beta hedge also does not structurally address the `node-pty` bug cluster; it only labels the risk.
+- **Steel man:** Lowers V1 scope; communicates quality delta honestly to Windows users; gives a production-data escape hatch for the sidecar decision; matches the cost-benefit under a human-implementation cost model.
+- **Why rejected:** Under a human-implementation cost model, Option C is driven by the 3–5 engineer-weeks of Rust work and the "+1 language in critical path" ongoing cost. Under AI implementation (Claude Opus 4.7), the engineer-weeks cost compresses by >70% and the "learning ramp" portion of the language-in-stack cost vanishes. With the dominant cost collapsed, the cost-benefit inverts against the Tabby-precedent risk. Additionally, Windows Beta communicates a category-positioning cost: a developer-market product that ships one of its three target platforms at a lower tier is read as "don't use this on Windows," which loses users rather than setting expectations. The Beta hedge also does not structurally address the `node-pty` bug cluster; it only labels the risk.
 
 ### Option D: `useConptyDll: true` experimental flag (Deferred, not rejected)
 
 - **What:** Enable `node-pty`'s `useConptyDll: true` option, which uses the newer bundled ConPTY DLL rather than the OS-provided one. Some of the bug cluster is reported fixed in the bundled DLL.
 - **Steel man:** A forward fix within `node-pty` itself, aligned with the upstream maintenance direction.
-- **Disposition:** Deferred, not rejected. As of 2026-04, `microsoft/node-pty#894` (PowerShell 7 3.5-second delay under `useConptyDll: true`) is OPEN, so enabling the flag creates a new regression class. Once `#894` closes and the flag is validated against our Windows fallback path, enabling `useConptyDll: true` alongside the Rust sidecar primary is a zero-risk upgrade to the fallback backend. Tripwire 3 below names this revisit gate.
+- **Disposition:** Deferred, not rejected. `microsoft/node-pty#894` (PowerShell 7 3.5-second delay under `useConptyDll: true`) was open when read in 2026-04, so enabling the flag creates a new regression class. Once `#894` closes and the flag is validated against our Windows fallback path, enabling `useConptyDll: true` alongside the Rust sidecar primary is a zero-risk upgrade to the fallback backend. Tripwire 3 below names this revisit gate.
 
 ## Assumptions Audit
 
@@ -215,7 +215,7 @@ These metrics gate substrate-promotion close (per §Substrate Promotion Window a
 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
-| `openai/codex#13973` | Upstream issue | ConPTY assertion (`remove_pty_baton(baton->id)` at `conpty.cc` line 106); first-party provider trigger; OPEN as of 2026-03-08 | <https://github.com/openai/codex/issues/13973> |
+| `openai/codex#13973` | Upstream issue | ConPTY assertion (`remove_pty_baton(baton->id)` in `conpty.cc`); first-party provider trigger; open when read on 2026-03-08 | <https://github.com/openai/codex/issues/13973> |
 | `microsoft/node-pty#904` | Upstream issue | `SIGABRT` on Electron exit; ThreadSafeFunction cleanup race; same class as `codex#13973`; OPEN 2026-03-27 | <https://github.com/microsoft/node-pty/issues/904> |
 | `microsoft/node-pty#887` | Upstream issue | ConoutConnection worker thread strands Node exit after `kill()`; OPEN 2026-04-06 | <https://github.com/microsoft/node-pty/issues/887> |
 | `microsoft/node-pty#894` | Upstream issue | PowerShell 7 3.5 s output delay under `useConptyDll: true`; blocks the bundled-ConPTY workaround; OPEN 2026-03-11 | <https://github.com/microsoft/node-pty/issues/894> |

@@ -70,7 +70,7 @@ flowchart TD
  n017_3["Plan-015 Phase 3 — multi-agent and human steps"]
  n017_4["Plan-015 Phase 4 — parallel steps and memory admission"]
  n017_5["Plan-015 Phase 5 — resumption, CLI, authoring surfaces"]
- n017_5B["Plan-015 Phase 5B — park cancellability and operator recovery"]
+ n017_5B["Plan-015 Phase 5B — park cancelability and operator recovery"]
  n017_5C["Plan-015 Phase 5C — always-on engine event record"]
  %% Plan-016
  n018_1["Plan-016 Phase 1 — user contracts"]
@@ -119,7 +119,7 @@ flowchart TD
  %% Plan-026
  n029_2["Plan-026 Phase 2 — account registry service and authorization"]
  n029_3["Plan-026 Phase 3 — credential homes and spawn binding"]
- n029_4["Plan-026 Phase 4 — cost attribution and operator surfaces"]
+ n029_4["Plan-026 Phase 4 — cost attribution and client surfaces"]
  %% Plan-027
  n030_1["Plan-027 Phase 1 — agent definition contracts and schema"]
  n030_2["Plan-027 Phase 2 — definition registry, CLI, SDK"]
@@ -355,7 +355,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-016 Phase 5](../plans/016-identity-and-user-state.md) | credential seam and account. | Plan-016 Phase 4 |
 |  | [Plan-020 Phase 3](../plans/020-data-retention-and-gdpr.md) | write-path integration. | Plan-020 Phase 2 |
 |  | [Plan-021 Phase 3](../plans/021-desktop-app-and-renderer.md) | daemon supervisor and crash reporter. | Plan-021 Phase 2 |
-|  | [Plan-026 Phase 4](../plans/026-provider-accounts-and-credential-homes.md) | cost attribution and operator surfaces. | Plan-026 Phase 3 |
+|  | [Plan-026 Phase 4](../plans/026-provider-accounts-and-credential-homes.md) | cost attribution and client surfaces. | Plan-026 Phase 3 |
 |  | [Plan-028 Phase 7](../plans/028-remote-control.md) | Remote Control frontend. | Plan-028 Phase 4, Plan-028 Phase 6 |
 | 6 | [Plan-030 Phase 2](../plans/030-skills.md) | folder write, availability record, widening scan. | Plan-030 Phase 1 |
 |  | [Plan-014 Phase 3](../plans/014-multi-agent-orchestration.md) | orchestration wire namespace and SDK. | Plan-014 Phase 2 |

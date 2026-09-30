@@ -25,7 +25,7 @@ Measured on 2026-09-14, before this cleanup:
 - A session preamble of roughly 12,000 tokens before any work began.
 - Codex review rounds with no cap.
 
-The tooling was not broken. It was built for a reader that no longer sits at this keyboard, and its cost is paid on every commit by the reader that does.
+The tooling was not broken. It was built for models that needed step lists and machine checks, and its cost is paid on every commit by models that do not.
 
 ## Problem Statement
 
@@ -99,8 +99,8 @@ The 54 % figure is the clearest signal. More than half the harness was tests of 
 ### Negative (accepted trade-offs)
 
 - A red check can land on `develop`. It is fixed forward, and the nightly full run catches what slips. This is the deliberate trade: the develop branch becomes a place where work lands and is corrected, and `main` keeps its protection.
-- Status words on existing documents are left as they are. One check still reads them: the retained preflight refuses to dispatch a plan whose `**Status**` is not `ready`, `approved`, or `completed`. Nothing else does, and a plan that is genuinely not ready should refuse to dispatch — the one plan still marked `draft` (and the template it was copied from) is correct as it stands. Sweeping the rest would be a large diff bought with no check.
-- The 2,283 backticked `Spec-NNN §Heading` citations became markdown links. The roughly 2,000 un-backticked prose mentions of the same form stayed prose: they have no closing delimiter, so nothing can parse them reliably; nothing parses them any more anyway; and rewriting them would be a large diff bought with no check.
+- Status words on existing documents are left as they are. One check still reads them: the retained preflight refuses to dispatch a plan whose `**Status**` is not `ready`, `approved`, or `completed`. Nothing else does, and a plan that is genuinely not ready should refuse to dispatch. Sweeping the rest would be a large diff bought with no check.
+- Backticked `Spec-NNN §Heading` citations are markdown links. Un-backticked prose mentions of the same form stay prose: they have no closing delimiter, so nothing can parse them reliably, and rewriting them would be a large diff bought with no check.
 
 ### Unknowns
 

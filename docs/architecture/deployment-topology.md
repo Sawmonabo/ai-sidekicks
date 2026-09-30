@@ -26,7 +26,7 @@ Supported topologies:
 | --- | --- |
 | `Single-Device Local` | Desktop or CLI plus one local daemon on the same machine, operating in `local-only` continuity. No control-plane dependency. |
 | `Workers Relay` | The person's own control plane and relay on Cloudflare Workers and Durable Objects, deployed in their own Cloudflare account, holding the device and machine registry and the account's statement chain and relaying their channels. It serves that one person and no one else, per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). |
-| `Compose Relay` | The same control plane and relay on the person's own server: Node, Caddy and Postgres from one `docker-compose.yml`, per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-024: Self-Host Secure Defaults](../specs/024-self-host-secure-defaults.md) with operator-facing companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-024 Acceptance Criterion). |
+| `Compose Relay` | The same control plane and relay on the person's own server: Node, Caddy and Postgres from one `docker-compose.yml`, per [ADR-020](../decisions/020-v1-deployment-model-and-oss-license.md). It serves the same features as the Workers relay, and it alone gives shared ports in the web client an address. Secure-defaults posture for this topology is normative per [Spec-024: Self-Host Secure Defaults](../specs/024-self-host-secure-defaults.md) with its hands-on companion at [Operations › Self-Host Secure Defaults](../operations/self-host-secure-defaults.md) (Spec-024 Acceptance Criterion). |
 | `Relay-Assisted Remote Access` | A device reaches the person's machines through their relay, one channel per device and machine, without moving execution into the control plane. |
 
 ## Data Flow
@@ -40,7 +40,7 @@ Supported topologies:
 
 - No supported topology moves arbitrary code execution into the shared control plane.
 - Relay-assisted access changes connectivity, not execution authority.
-- Self-hosting changes operator ownership, not the logical security model.
+- Self-hosting changes who runs the relay, not the logical security model.
 
 ## Rate Limiting By Deployment
 
@@ -130,7 +130,7 @@ The workload is one person, their machines and their devices, on one relay. The 
 
 ### Local Daemon Memory Instrumentation And Budget Triggers
 
-The 256 MB local daemon budget above is an operating target derived from one user's session sizing on a developer workstation — a handful of concurrent runs, one working tree, and the relay connection that serves that user's other devices — not a hard ceiling. Budget violations MUST be observable so that operators and product owners can decide between a budget raise and a deeper change.
+The 256 MB local daemon budget above is an operating target derived from one user's session sizing on a developer workstation — a handful of concurrent runs, one working tree, and the relay connection that serves that user's other devices — not a hard ceiling. Budget violations MUST be observable, so that a budget raise or a deeper change is decided from the numbers.
 
 **Instrumentation requirement.** The daemon MUST expose `process_resident_memory_bytes` via the default Prometheus `prom-client` collector ([default metrics](https://github.com/siimon/prom-client#default-metrics)). RSS (resident set size) is the authoritative metric for process footprint — distinct from V8 heap-used, which excludes native allocations from SQLite page cache, `node-pty` file descriptors, and `@noble/*` cryptographic buffers. Alert fires when RSS exceeds **80% of the budget (≥ 205 MB)** sustained for ≥ 5 minutes. Sustained (not instantaneous) reduces false positives from transient build-step allocations. The 80% threshold and 5-minute window are design choices, not external standards.
 

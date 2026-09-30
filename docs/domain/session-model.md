@@ -47,7 +47,7 @@ A session is the durable container that holds:
 - [User And Device Model](./user-and-device-model.md) describes who owns the session and which devices drive it.
 - `RuntimeNode` is the machine that runs the session. A session has exactly one, fixed when the session starts.
 - `Agent` and `Run` describe who executes work and which execution episode is in progress.
-- `RepoMount`, `Workspace`, and `Worktree` describe the code-bearing surfaces used by runs inside the session.
+- `RepoMount`, `Workspace`, and `Worktree` describe the code-bearing execution contexts used by runs inside the session.
 - `local-only` describes a connectivity state of the one session; it is not a second root model and not a second kind of session.
 
 ## State Model

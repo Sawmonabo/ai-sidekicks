@@ -58,7 +58,7 @@ The command line has no `workspace` or `worktree` command. A worktree the app ma
 | Repo health check        | < 3s   |
 | Worktree retire-to-clean | < 15s  |
 
-## On-Call Routing
+## Who Runs It And Where To Report
 
 - The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
 - A repo or worktree that stays unusable after these steps is reported to the project as a bug, with the daemon's logs attached.

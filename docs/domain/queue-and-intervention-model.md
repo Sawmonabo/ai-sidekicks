@@ -16,7 +16,7 @@ This document covers `QueueItem` and `Intervention`.
 
 ## What This Is
 
-This model defines how the system stores follow-up work, prioritizes it, and records deliberate operator changes to execution.
+This model defines how the system stores follow-up work, prioritizes it, and records deliberate changes to execution.
 
 ## What This Is Not
 
@@ -51,7 +51,7 @@ Queue item states:
 | `canceled` | Removed before the agent took it (`Remove`, `run.queueCancel`); nothing reaches the agent. |
 | `not_delivered` | The daemon took the message but could not deliver it: it waited longer than the daemon's own delivery timeout, or its delivery failed outright. The item carries its reason and is sent again from itself (`Retry`). While the daemon is only unreachable the item stays `queued` and reads as waiting to be delivered. |
 
-Intervention states (6 canonical states):
+Intervention states:
 
 | State | Meaning |
 | --- | --- |
@@ -148,7 +148,7 @@ The driver-result and intervention-lifecycle vocabularies are distinct and map n
 | `applied` | driver → daemon | Driver returned `status: 'applied'` — the intervention was delivered, whether by the driver's own provider verb or by the orchestration leg above it |
 | `degraded` | driver → daemon; or daemon (post-driver) | Driver returned `status: 'degraded'` — the type could be delivered neither by a provider verb of the driver's own nor by the orchestration leg above it, so the orchestration layer fell back (`fallbackAction`), which neither V1 provider reaches; or a dispatched frame whose command-shaped-text neutralization the runtime tripwire found not to have held ([Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)) — the author's text undelivered and no `fallbackAction` (dispatch occurred, so pre-dispatch `rejected` is definitionally unavailable), with the cause carried to this caller **best-effort** on `DriverInterventionResult.refusalCode` (set only when the trip is classified before the call resolves; the run terminal below is the guarantee, an absent member never evidence of no trip); and because the provider may have executed an unrecognized client-side action against the session state the run depends on, the trip also **fails the run** — `driver.text_neutralization_failed` on the `run.failed` terminal's `providerFailureDetail` beside a `recovery-needed` condition — and **disposes the run's runtime binding**, so no later run re-binds to that session |
 
-Static capability refusal is a separate, earlier surface with a narrow carve-out: the daemon MAY refuse dispatch outright with `driver.capability_unsupported` ONLY for an intervention type that has no documented orchestration fallback under the excluded flag. A type with a documented fallback — one a driver can neither perform natively nor have performed for it above the driver, which degrades to the queue+interrupt composite per [Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior-1) — MUST enter the lifecycle and terminate `degraded`, so the fallback is recorded on the intervention row (`fallbackAction`); **neither V1 provider reaches that path**, Claude declaring `steer: true` and delivering the steer inside the same run. Static refusal never substitutes for a documented degraded path ([Plan-004](../plans/004-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split within that rule).
+Static capability refusal is a separate, earlier path with a narrow carve-out: the daemon MAY refuse dispatch outright with `driver.capability_unsupported` ONLY for an intervention type that has no documented orchestration fallback under the excluded flag. A type with a documented fallback — one a driver can neither perform natively nor have performed for it above the driver, which degrades to the queue+interrupt composite per [Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior-1) — MUST enter the lifecycle and terminate `degraded`, so the fallback is recorded on the intervention row (`fallbackAction`); **neither V1 provider reaches that path**, Claude declaring `steer: true` and delivering the steer inside the same run. Static refusal never substitutes for a documented degraded path ([Plan-004](../plans/004-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split within that rule).
 
 ## Boundary: Interventions vs Interactive Requests
 

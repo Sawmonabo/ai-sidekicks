@@ -26,7 +26,7 @@ What features compose the V1 release of the product, and what is out of scope fo
 
 ### Trigger
 
-An earlier scope triage signaled positions that would not survive launch-positioning review, and downstream plans cannot safely cite a scope source until this decision lands.
+The plans and the cross-cutting specs cite one V1 scope, and that scope has to carry the vision's positioning claims.
 
 ## Decision
 
@@ -50,7 +50,7 @@ V1 consists of **21 features**, and nothing is deferred to a later release. What
 | 15 | Desktop GUI | [Spec-021](../specs/021-desktop-app-and-renderer.md) |
 | 16 | Multi-agent orchestration | [Spec-014](../specs/014-multi-agent-orchestration.md) |
 | 17 | Workflow authoring and execution (full engine) | [Spec-015](../specs/015-workflow-authoring-and-execution.md): the V1 engine covers the DAG executor, the visual builder and its node catalog — whose agent and person kinds, `agent.run`, `agent.multi-agent`, `human.approval` and `human.form`, delegate to the existing run, orchestration, approval and form machinery — parallel steps admitted by a memory gate and joined through a `flow.merge` node, the entry node’s trigger kinds, and the `workflow.*` event taxonomy across its categories. The full contract is in Spec-015 and [Plan-015](../plans/015-workflow-authoring-and-execution.md). |
-| 18 | MCP server configuration and governance | [Spec-025](../specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](../plans/025-mcp-server-configuration-and-governance.md): server-config CRUD, an operator-managed trusted-server store with Cedar-gated per-tool overrides, zero-billed-turn status and health probing, and server OAuth |
+| 18 | MCP server configuration and governance | [Spec-025](../specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](../plans/025-mcp-server-configuration-and-governance.md): server-config CRUD, a trusted-server store, managed by the person, with Cedar-gated per-tool overrides, zero-billed-turn status and health probing, and server OAuth |
 | 19 | Undo to an earlier message | [Spec-003](../specs/003-queue-steer-pause-resume.md) (the undo a person asks for — the conversation and the files, the conversation alone, or the files alone — as one request with one reported result, implemented by [Plan-003](../plans/003-queue-steer-pause-resume.md)), [Spec-013 §Required Behavior](../specs/013-persistence-recovery-and-replay.md#required-behavior) (the daemon's own file checkpoint store), [ADR-017](./017-shared-event-sourcing-scope.md) (every undo is recorded forward, as `session.restore_finished`, with `run.rolled_back` for the conversation cut — the log never truncates). The conversation goes back through the provider's own cut, Claude Code's `rewind_conversation` and Codex's `thread/revert {threadId, beforeTurnId}` ([Spec-004](../specs/004-provider-driver-contract-and-capabilities.md)), and neither touches a file; the files go back through the daemon's checkpoints, never through the git snapshot. A point before Claude Code's last compaction is reached through the provider's own copy of the conversation, resumed in place, so the session keeps its identity and no point is refused. Codex has no `thread/rollback`. |
 | 20 | Session goals | [Spec-014](../specs/014-multi-agent-orchestration.md) (`/goal` gives one agent a condition to work toward until it is met, cleared or stopped unmet, through `session.goalUpdate` and `session.goalClear`; a session may have no goal, one or several over its life, and is never named or labeled by one), [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) (`session.goal_updated`, carrying the goal's status, and `session.goal_cleared`, each drawn only as a transcript system message) |
 | 21 | Session callback tools | [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) (the daemon-registered tool shape), [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) (Cedar-governed identically to provider tools) |
@@ -113,7 +113,7 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 ### Positive
 
 - Single authoritative scope source for the plans and the cross-cutting specs.
-- Shipped scope matches vision positioning; the two scope inconsistencies named in §Context resolve against this ADR.
+- Shipped scope matches vision positioning on the two claims named in §Context.
 - Multi-agent orchestration quality bar lands at V1 where it meets the category-positioning claim.
 - Desktop GUI lands at V1 so launch positioning includes both client tracks vision names.
 

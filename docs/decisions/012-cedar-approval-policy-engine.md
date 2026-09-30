@@ -15,11 +15,11 @@ The system defines approval categories that govern what actions agents may take 
 
 ## Problem Statement
 
-What policy engine should evaluate the approval categories so that authorization decisions stay auditable, operator-tunable, and decoupled from application release cadence?
+What policy engine should evaluate the approval categories so that authorization decisions stay auditable, tunable, and decoupled from application release cadence?
 
 ### Trigger
 
-Approval logic was accumulating inside application code, making it impossible to audit or modify policies without a full deploy. The architecture program needs to pick a dedicated policy engine before approval specs and UI surface freeze.
+Approval logic was accumulating inside application code, making it impossible to audit or modify policies without a full deploy. A dedicated policy engine has to be chosen before the approval specs and UI surface are built.
 
 ## Decision
 
@@ -65,7 +65,7 @@ Use Cedar (CNCF sandbox) as the approval policy engine. Policies are written in 
 - **Reversal cost:** Medium. Policies and their evaluation sites are well isolated, but every approval path calls the policy engine, so replacement touches each integration.
 - **Blast radius:** Approval service, CLI/desktop approval prompts, audit logs, and any runtime code that branches on approval decisions.
 - **Migration path:** Introduce an engine-agnostic policy interface, run Cedar and a replacement engine in shadow mode, diff decisions, then cut over once divergence is zero.
-- **Point of no return:** After operator-authored policies accumulate in production and audit logs reference Cedar policy identifiers, replacement requires a coordinated policy-translation effort.
+- **Point of no return:** After policies accumulate in production and audit logs reference Cedar policy identifiers, replacement requires a coordinated policy-translation effort.
 
 ## Consequences
 

@@ -11,7 +11,7 @@
 | **Required ADRs** | [ADR-003](../decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-012](../decisions/012-cedar-approval-policy-engine.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md) |
 | **Dependencies** | [Plan-013](./013-persistence-recovery-and-replay.md) (persistence layer) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
-| **Owned Spec-024 Rows** | 9 — Prometheus `/metrics` exposition (daemon endpoint + five daemon metric families (row 9a) + the bind/auth secure-default contract, which is shared: the same `METRICS_BIND` / `METRICS_AUTH` contract governs row 9b's relay endpoint); see [Spec-024 row 9](../specs/024-self-host-secure-defaults.md#required-behavior). The relay mounts the equivalent relay-side surface, owning row 9b's relay metric families and endpoint wiring while consuming this plan's bind/auth contract. |
+| **Owned Spec-024 Rows** | 9 — Prometheus `/metrics` exposition (daemon endpoint + the daemon metric families of row 9a + the bind/auth secure-default contract, which is shared: the same `METRICS_BIND` / `METRICS_AUTH` contract governs row 9b's relay endpoint); see [Spec-024 row 9](../specs/024-self-host-secure-defaults.md#required-behavior). The relay mounts the equivalent relay-side surface, owning row 9b's relay metric families and endpoint wiring while consuming this plan's bind/auth contract. |
 
 ## Goal
 
@@ -29,10 +29,6 @@ This plan covers the diagnostic buckets `driver_raw_events`, `command_output` an
 
 ## Preconditions
 
-- [x] Paired spec is approved
-- [x] Required ADRs are accepted
-- [x] Blocking open questions are resolved or explicitly deferred
-
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
 ## Target Areas
@@ -47,7 +43,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 Plan-018 is the implementation surface for [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) and must honor the [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map) classification of diagnostic data. The bounded-retention diagnostic buckets — `driver_raw_events`, `command_output`, `tool_traces` — are runtime-local stores that may transit raw user content and therefore require TTL-bounded local retention and never leave the machine.
 
-- Default TTL: ≤ 7 days per [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics). Operator-configured overrides > 30 days MUST emit the `retention_policy_override` warning metric on every daemon startup and on each policy read.
+- Default TTL: ≤ 7 days per [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics). An override the person configures beyond 30 days MUST emit the `retention_policy_override` warning metric on every daemon startup and on each policy read.
 - Nothing leaves the machine: the daemon runs no telemetry exporter and sends no diagnostic bucket content to any sink. A compacted summary carries only signals derived by construction from non-PII inputs (counts, categories, latencies).
 - Bound and erase: each bucket drops its rows past `Keep diagnostic logs for` ([Spec-020 §Erasure Paths](../specs/020-data-retention-and-gdpr.md#erasure-paths) Path 3), and `Erase all data` deletes them with the data folder. There is no per-person flush.
 
@@ -62,8 +58,8 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 - Path: `GET /metrics`
 - Wire format: Prometheus v0.0.4 exposition (text/plain; version=0.0.4; charset=utf-8). OpenMetrics is accepted where clients request it via `Accept:` negotiation.
 - Default bind: `METRICS_BIND=127.0.0.1:<port>` (loopback only). The daemon MUST reject a non-loopback `METRICS_BIND` at config-parse time unless auth is configured (bearer-token OR mTLS client cert).
-- Non-loopback opt-in: when `METRICS_BIND` is non-loopback, the daemon MUST require either (a) `METRICS_AUTH=bearer` with a rotated token file or (b) `METRICS_AUTH=mtls` with an operator-provided client-cert allow-list. Missing auth on non-loopback bind is a parse-time error.
-- Credential inputs (the concrete-variable layer of this contract; the relay config loader parses the identical set): credential material is supplied by file-path env vars, never inline env values. `METRICS_AUTH=bearer` requires `METRICS_AUTH_TOKEN_FILE` — the path to the bearer-token file; the entire trimmed file body is the token. `METRICS_AUTH=mtls` requires `METRICS_TLS_CLIENT_CA_FILE` — the PEM CA bundle presented client certificates must chain to — and `METRICS_TLS_CLIENT_ALLOWLIST_FILE` — the operator-provided allow-list, one SPKI-SHA256 client-certificate fingerprint per line (the fingerprint form Spec-024 row 1 persists at `./data/trust/fingerprint.txt`), `#`-prefixed comment lines ignored; a client certificate is accepted only when it both verifies against the CA bundle and matches an allow-list entry. Any non-loopback `METRICS_BIND` additionally requires the listener keypair `METRICS_TLS_CERT_FILE` + `METRICS_TLS_KEY_FILE` (server certificate + private key) in **both** auth modes — Spec-024 row 2 refuses unencrypted non-loopback listeners independently of the auth gate, so a plaintext bearer scrape is never servable.
+- Non-loopback opt-in: when `METRICS_BIND` is non-loopback, the daemon MUST require either (a) `METRICS_AUTH=bearer` with a rotated token file or (b) `METRICS_AUTH=mtls` with a client-cert allow-list the person provides. Missing auth on non-loopback bind is a parse-time error.
+- Credential inputs (the concrete-variable layer of this contract; the relay config loader parses the identical set): credential material is supplied by file-path env vars, never inline env values. `METRICS_AUTH=bearer` requires `METRICS_AUTH_TOKEN_FILE` — the path to the bearer-token file; the entire trimmed file body is the token. `METRICS_AUTH=mtls` requires `METRICS_TLS_CLIENT_CA_FILE` — the PEM CA bundle presented client certificates must chain to — and `METRICS_TLS_CLIENT_ALLOWLIST_FILE` — the allow-list the person provides, one SPKI-SHA256 client-certificate fingerprint per line (the fingerprint form Spec-024 row 1 persists at `./data/trust/fingerprint.txt`), `#`-prefixed comment lines ignored; a client certificate is accepted only when it both verifies against the CA bundle and matches an allow-list entry. Any non-loopback `METRICS_BIND` additionally requires the listener keypair `METRICS_TLS_CERT_FILE` + `METRICS_TLS_KEY_FILE` (server certificate + private key) in **both** auth modes — Spec-024 row 2 refuses unencrypted non-loopback listeners independently of the auth gate, so a plaintext bearer scrape is never servable.
 - Credential validation (fail closed): at config-parse time, a required credential file that is missing, unreadable, empty, or malformed — including a cert/key pair that does not match, a CA bundle containing no usable certificate, and an allow-list with zero entries — is a parse-time error naming the offending variable, never a warn-and-serve. Credential material that becomes invalid after startup (token file deleted or emptied, allow-list emptied) causes every scrape to be rejected with an actionable log line rather than the endpoint serving unauthenticated.
 - Credential rotation/reload: `METRICS_AUTH_TOKEN_FILE` and `METRICS_TLS_CLIENT_ALLOWLIST_FILE` are change-detected and re-read on the authorization path, so replacing file contents rotates the credential without a daemon restart; a rotated-away token or de-listed fingerprint is rejected from the next request onward with no accept-both grace window (the behavior T3.3's rotation test pins). `METRICS_TLS_CERT_FILE` / `METRICS_TLS_KEY_FILE` / `METRICS_TLS_CLIENT_CA_FILE` take effect on daemon restart.
 - Disable: `METRICS_BIND=off` disables the endpoint entirely. Disabling MUST emit a banner + `security.default.override=metrics_disabled` log event per [Spec-024 §Fallback Behavior](../specs/024-self-host-secure-defaults.md#fallback-behavior).
@@ -103,11 +99,11 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 
 ## Invariants
 
-Load-bearing constraints every Plan-018 PR — and every downstream extension — must preserve. Weakening or removing one is a coordinated cross-plan change, not a local edit. Each entry names the governing clause it grounds in, or declares itself plan-owned.
+Load-bearing constraints every Plan-018 PR — and every downstream extension — must preserve. Each entry names the governing clause it grounds in, or declares itself plan-owned.
 
-- **I-018-1 — The daemon `/metrics` cardinality ceiling is a hard limit, not a warning.** Total emitted series across the registered daemon families — the row-9a families and the `retention_policy_override` warning gauge — stays below 200 per daemon instance. An integration test asserts the live series count; exceeding the ceiling blocks merge until the label allow-list tightens, rather than emitting a warning and shipping. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a states the ceiling ("cardinality ceiling < 200 series per daemon instance"). The merge-blocking enforcement posture layered on top of it is **plan-owned**: the spec states the ceiling but no enforcement mechanism for it. **Why load-bearing.** A metrics endpoint that degrades gracefully past its ceiling degrades silently — series growth is monotonic in practice, so a warning is observed once and then ignored while scrape cost and daemon memory grow unbounded on operator hardware nobody is watching. **Verification.** T3.4.
+- **I-018-1 — The daemon `/metrics` cardinality ceiling is a hard limit, not a warning.** Total emitted series across the registered daemon families — the row-9a families and the `retention_policy_override` warning gauge — stays below 200 per daemon instance. An integration test asserts the live series count; exceeding the ceiling blocks merge until the label allow-list tightens, rather than emitting a warning and shipping. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a states the ceiling ("cardinality ceiling < 200 series per daemon instance"). The merge-blocking enforcement posture layered on top of it is **plan-owned**: the spec states the ceiling but no enforcement mechanism for it. **Why load-bearing.** A metrics endpoint that degrades gracefully past its ceiling degrades silently — series growth is monotonic in practice, so a warning is observed once and then ignored while scrape cost and daemon memory grow unbounded on the person's machine while nobody is watching. **Verification.** T3.4.
 - **I-018-2 — Metric labels are PII-free by construction, enforced at emission time.** Label values come from a closed, compile-time-enumerable allow-list per family; no label value derives from user IDs, session IDs, command text, file paths, URLs, tokens, or any free-form content; an out-of-allow-list value throws at emission time rather than being silently coerced or truncated. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a ("Labels MUST be bounded and PII-free"), serving [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics). The closed allow-list plus emission-time throw is the **plan-owned** enforcement mechanism for that MUST — the spec states the property, not how it is detected. **Why load-bearing.** `/metrics` is scraped by systems outside the daemon's trust boundary; a single dynamic label value leaks PII to every scraper and every retained scrape sample simultaneously, and truncating or masking it does not help because partial PII is still PII per Spec-018. Throwing at emission converts a silent leak into a loud test failure at the moment a new code path adds an observation. **Verification.** T3.1.
-- **I-018-3 — Diagnostic-bucket retention is TTL-bounded at ≤ 7 days by default, and any longer override announces itself.** All the buckets (`driver_raw_events`, `command_output`, `tool_traces`) default to a ≤ 7-day TTL; an operator override beyond 30 days emits the `retention_policy_override` warning metric on every daemon startup and on every policy read. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Bounded local retention"), with the storage side owned by [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map)'s bounded-retention tier. **Why load-bearing.** The buckets capture full prompts, full command arguments, and full tool results by the nature of their purpose; unbounded retention turns diagnostics into an Article-17 escape hatch where erasure obligations are satisfied on canonical stores while the same content persists indefinitely beside them. Repeating the warning on every policy read (not once at startup) is what keeps a long override visible to the operator who inherits the deployment. **Verification.** T2.7.
+- **I-018-3 — Diagnostic-bucket retention is TTL-bounded at ≤ 7 days by default, and any longer override announces itself.** All the buckets (`driver_raw_events`, `command_output`, `tool_traces`) default to a ≤ 7-day TTL; an override the person sets beyond 30 days emits the `retention_policy_override` warning metric on every daemon startup and on every policy read. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Bounded local retention"), with the storage side owned by [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map)'s bounded-retention tier. **Why load-bearing.** The buckets capture full prompts, full command arguments, and full tool results by the nature of their purpose; unbounded retention turns diagnostics into an Article-17 escape hatch where erasure obligations are satisfied on canonical stores while the same content persists indefinitely beside them. Repeating the warning on every policy read (not once at startup) is what keeps a long override visible to the person long after it was set. **Verification.** T2.7.
 - **I-018-4 — Diagnostics never leave the machine, and a compacted summary carries no free text.** The daemon runs no telemetry exporter and sends no diagnostic-bucket row to any sink. Where high-volume tool traces are compacted, the summary is built from counts, categories and durations, never truncated from free text. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Nothing leaves the machine", "Summary-only retention"). **Why load-bearing.** A summary cut from a prompt keeps part of the prompt past the TTL that bounds the raw row, and truncated personal data is still personal data. **Verification.** T2.8.
 
 ## Cross-Plan Obligations
@@ -118,7 +114,7 @@ Each entry transcribes an obligation already committed in the named counterparty
 
 **Obligation.** Plan-019 registers its canonical control-plane `rate_limit_*` metric families against this plan's §Prometheus `/metrics` Exposition label invariants — bounded, compile-time-enumerable label values, PII-free by construction, emission-time enforcement (I-018-2). Plan-019 records the relationship as `consumes ←` and scopes it explicitly: a **doc contract only, with no Plan-018 code consumed**, so neither plan waits on the other's code.
 
-**Resolution.** Live and reciprocal. Plan-019's side is CP-019-4; the reciprocal recorded there is that Plan-019's canonical family set is the sole registry for those families (D-019-8), as this plan's §Prometheus `/metrics` Exposition already states. Plan-018 owes Plan-019 a stable label-invariant contract, not code; a change to the invariants is a cross-plan change because Plan-019's registrations are validated against them.
+**Resolution.** Live and reciprocal. Plan-019's side is CP-019-4; the reciprocal recorded there is that Plan-019's canonical family set is the sole registry for those families (D-019-8), as this plan's §Prometheus `/metrics` Exposition already states. Plan-018 owes Plan-019 a stable label-invariant contract, not code; Plan-019's registrations are validated against the invariants, so a change to them reaches those registrations too.
 
 ### CP-018-2 — The diagnostic buckets are bounded by `Keep diagnostic logs for` (⇄ Plan-020 CP-020-7)
 
@@ -142,11 +138,6 @@ Three phases decompose the three §Implementation Steps above; nothing here is n
 
 **Precondition:** none. Implementation Step 1; gates Phase 2, whose retention and summary code read this state.
 
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-```
-
 #### Tasks
 
 - **T1.3 — Diagnostic redaction policy state (daemon-local).**
@@ -161,12 +152,6 @@ preconditions:
 ### Phase 2 — Diagnostic-bucket retention
 
 **Precondition:** Phase 1 merged. Implementation Step 2.
-
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: plan_phase, plan: 018, phase: 1, status: merged }
-```
 
 #### Tasks
 
@@ -200,12 +185,6 @@ preconditions:
 ### Phase 3 — Prometheus `/metrics` exposition
 
 **Precondition:** Phase 2 merged. Implementation Step 3; the endpoint reports on the retention state Phase 2 creates.
-
-<!-- prettier-ignore -->
-```yaml
-preconditions:
-  - { type: plan_phase, plan: 018, phase: 2, status: merged }
-```
 
 #### Tasks
 
@@ -258,7 +237,7 @@ preconditions:
 - **/metrics endpoint secure-default tests (Spec-024 row 9):**
   - Default bind is `127.0.0.1`; a non-loopback `METRICS_BIND` without auth fails at config-parse time with actionable error.
   - `METRICS_AUTH=bearer` on non-loopback bind rejects requests without the bearer token and with a wrong bearer token; rotating the token file invalidates old tokens on the next request; the token is read from `METRICS_AUTH_TOKEN_FILE`, and a missing, unreadable, or empty token file is a config-parse-time error (fail closed).
-  - `METRICS_AUTH=mtls` on non-loopback bind rejects requests from clients whose cert is not on the operator-provided allow-list; the listener keypair (`METRICS_TLS_CERT_FILE` / `METRICS_TLS_KEY_FILE`), client CA (`METRICS_TLS_CLIENT_CA_FILE`), and fingerprint allow-list (`METRICS_TLS_CLIENT_ALLOWLIST_FILE`) each fail closed at parse time when missing or invalid.
+  - `METRICS_AUTH=mtls` on non-loopback bind rejects requests from clients whose cert is not on the allow-list the person provides; the listener keypair (`METRICS_TLS_CERT_FILE` / `METRICS_TLS_KEY_FILE`), client CA (`METRICS_TLS_CLIENT_CA_FILE`), and fingerprint allow-list (`METRICS_TLS_CLIENT_ALLOWLIST_FILE`) each fail closed at parse time when missing or invalid.
   - `METRICS_BIND=off` disables the endpoint, emits the loud banner, and emits `security.default.override=metrics_disabled` log event exactly once per startup.
   - Cardinality ceiling (I-018-1): integration test asserts total emitted series across the registered families stays below 200 per daemon instance; exceeding the ceiling fails the test.
   - PII-free label enforcement (I-018-2): attempting to emit a label value outside the documented allow-list throws at emission time (unit test per family).

@@ -21,7 +21,7 @@ How many kinds of session are there, what decides which kind a session is, and w
 
 ### Trigger
 
-The locked console design draws different controls on the two kinds of session, so the rule that tells them apart must be fixed before the session record, the mount record and the screens are built against it.
+The console design draws different controls on the two kinds of session, so the rule that tells them apart must be fixed before the session record, the mount record and the screens are built against it.
 
 ---
 
@@ -41,7 +41,7 @@ A session has one of two shapes, **chat** or **project**, and the shape is decid
 - **Every session has a real folder.** A provider process always has a working directory, an agent in a chat can still write a file, and the file is in a git repository from its first byte, so undo and checkpoints work the same way in both shapes.
 - **The binding cannot lie.** A mode flag can disagree with what the session is actually bound to. A shape read from the binding cannot.
 - **Defining "project" by origin stops every chat becoming a project.** If a project were "a session with a folder", every chat would silently be one, because every chat has a managed workspace.
-- **Promotion in place keeps the conversation.** A person who realises mid-conversation that they need their repository does not start again.
+- **Promotion in place keeps the conversation.** A person who realizes mid-conversation that they need their repository does not start again.
 
 ### Antithesis — The Strongest Case Against [T2]
 
@@ -49,7 +49,7 @@ A managed git workspace per chat is real disk and real process cost for conversa
 
 ### Synthesis — Why It Still Holds [T2]
 
-An empty git-initialized folder costs a few kilobytes and no process. Creating it lazily buys that back at the price of a session whose working directory changes identity on its first write, which is exactly the class of surprise the binding rule removes. The two shapes do not double the screen: a control that needs a repository is absent on a chat, with the pane chips the one exception, greyed with their reason; the composer placeholder and the strip that reads `Session workspace` beside `Attach a repo` are the only other differences. Promotion is one transition whose only data movement is a file copy into the repository's working tree, which is why it is cheap to test.
+An empty git-initialized folder costs a few kilobytes and no process. Creating it lazily buys that back at the price of a session whose working directory changes identity on its first write, which is exactly the class of surprise the binding rule removes. The two shapes do not double the screen: a control that needs a repository is absent on a chat, with the pane chips the one exception, grayed with their reason; the composer placeholder and the strip that reads `Session workspace` beside `Attach a repo` are the only other differences. Promotion is one transition whose only data movement is a file copy into the repository's working tree, which is why it is cheap to test.
 
 ---
 
@@ -97,7 +97,7 @@ An empty git-initialized folder costs a few kilobytes and no process. Creating i
 
 - **Reversal cost:** Weeks. The session record, the mount record, the purge path and every pane read the shape.
 - **Blast radius:** [Spec-001](../specs/001-session-core.md), [Spec-007](../specs/007-repo-attachment-and-workspace-binding.md), [Spec-008](../specs/008-worktree-lifecycle-and-execution-modes.md), [Spec-012](../specs/012-artifacts-files-and-attachments.md) and the session screen.
-- **Migration path:** None is needed before release; after it, a new record with a data plan.
+- **Migration path:** None is needed before release; after it, a plan for the managed workspaces already on people's disks.
 - **Point of no return:** The first release that writes managed workspaces to people's disks.
 
 ## Consequences
@@ -142,7 +142,7 @@ An empty git-initialized folder costs a few kilobytes and no process. Creating i
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | Feature census of reference app B, a Rust desktop console | Primary research | A session's checkout and its ref are picked before the first message and fixed afterwards there — an existing session draws read-only labels in place of the pickers and the ref picker refuses a pick — so a conversation that turns out to need a repository is started again rather than promoted in place | Read for the console design; the reading is summarized here |
-| Feature census of reference app B, session list | Primary research | A session with no project is labelled against the home directory rather than against a folder of its own, which is the shape that leaves every reader asking whether the session has a folder at all | Read for the console design; the reading is summarized here |
+| Feature census of reference app B, session list | Primary research | A session with no project is labeled against the home directory rather than against a folder of its own, which is the shape that leaves every reader asking whether the session has a folder at all | Read for the console design; the reading is summarized here |
 
 ### Related ADRs
 
