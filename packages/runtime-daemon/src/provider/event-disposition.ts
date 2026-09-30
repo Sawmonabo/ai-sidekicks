@@ -336,9 +336,9 @@ const EVENT_DISPOSITION_RECORD = {
 
 /**
  * The disposition of each normalized kind: what the taxonomy makes of it, or why it is folded or
- * dropped; the section comment above says what it covers. Each normalizer row that names a
- * census kind names the same target as this table. A
- * `ReadonlyMap`, not a plain object, so `.get()` is safe on untrusted input: a wire kind such as
+ * dropped; the section comment above says what it covers. A normalizer row that names a census
+ * kind takes its target from this table ({@link resolveAdoptedEventTarget}). A `ReadonlyMap`, not
+ * a plain object, so `.get()` is safe on untrusted input: a wire kind such as
  * `__proto__` or `constructor` resolves to `undefined`, never a truthy non-disposition value.
  */
 export const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKindDisposition> =
@@ -349,3 +349,21 @@ export const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKi
       [NormalizedEventKind, EventKindDisposition]
     >,
   );
+
+/** The session event a normalizer row emits: its category and its registered type. */
+export interface AdoptedEventTarget {
+  readonly family: EventCategory;
+  readonly eventType: SessionEventType;
+}
+
+/**
+ * The target the table adopts `kind` onto, for a normalizer row that names that kind. Throws for
+ * a kind the table correlates or discards: a row that emits one contradicts the table.
+ */
+export function resolveAdoptedEventTarget(kind: NormalizedEventKind): AdoptedEventTarget {
+  const disposition = EVENT_DISPOSITION_BY_KIND.get(kind);
+  if (disposition?.disposition !== "adopt") {
+    throw new Error(`normalized kind '${kind}' is not adopted by the disposition table`);
+  }
+  return { family: disposition.category, eventType: disposition.eventType };
+}

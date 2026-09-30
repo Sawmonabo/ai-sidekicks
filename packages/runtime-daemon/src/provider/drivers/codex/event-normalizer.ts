@@ -20,7 +20,7 @@ import {
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import type { CodexToolName } from "./tools.js";
-import type { NormalizedEventKind } from "../../event-disposition.js";
+import { resolveAdoptedEventTarget, type NormalizedEventKind } from "../../event-disposition.js";
 
 /**
  * Which server-originated JSON-RPC root a frame arrives on: a `server-request` must be answered, a
@@ -128,8 +128,9 @@ export function resolveCodexEmissionReadiness(eventType: SessionEventType): Code
 
 /**
  * A frame that normalizes into one family and names the event type it emits. `normalizedKind` is
- * `null` for a member with no census kind (such as `thread/goal/updated`); `emissionReadiness`
- * is derived when the map is built, never stated per row.
+ * `null` for a member with no census kind (such as `thread/goal/updated`), whose row states its
+ * own target; a row naming a kind takes its target from the disposition table. Both, and
+ * `emissionReadiness`, are put on the row when the map is built.
  */
 export interface CodexNormalizedFamilyEmission {
   readonly disposition: "normalized";
@@ -161,11 +162,33 @@ export type CodexFrameNormalization =
   | CodexNormalizedFamilyEmission
   | CodexNotEventedFrameDisposition;
 
-// A row before `emissionReadiness` is derived onto it. Stating the readiness by hand is a compile
-// error (TS2353), but only for fresh object literals, which every row here is.
+// A row before its derived members are put on it. Stating one by hand is a compile error (TS2353),
+// but only for fresh object literals, which every row here is.
 type CodexFrameNormalizationTableRow =
-  | Omit<CodexNormalizedFamilyEmission, "emissionReadiness">
+  | (Omit<CodexNormalizedFamilyEmission, "emissionReadiness" | "family" | "eventType"> & {
+      readonly normalizedKind: NormalizedEventKind;
+      readonly family?: never;
+      readonly eventType?: never;
+    })
+  | (Omit<CodexNormalizedFamilyEmission, "emissionReadiness"> & { readonly normalizedKind: null })
   | CodexNotEventedFrameDisposition;
+
+function composeCodexFrameNormalization(
+  row: CodexFrameNormalizationTableRow,
+): CodexFrameNormalization {
+  if (row.disposition === "not-evented") {
+    return row;
+  }
+  const target =
+    row.normalizedKind === null
+      ? { family: row.family, eventType: row.eventType }
+      : resolveAdoptedEventTarget(row.normalizedKind);
+  return {
+    ...row,
+    ...target,
+    emissionReadiness: resolveCodexEmissionReadiness(target.eventType),
+  };
+}
 
 /**
  * Thrown when a Codex inbound method resolves to no census row. `nativeMethod` is untrusted data,
@@ -191,8 +214,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "item/tool/call",
     transport: "server-request",
-    family: "tool_activity",
-    eventType: "tool.invoked",
     normalizedKind: "tool_start",
   },
   // Experimental-gated: the gate decides delivery, this table decides disposition.
@@ -200,8 +221,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "item/tool/requestUserInput",
     transport: "server-request",
-    family: "interactive_request",
-    eventType: "question.asked",
     normalizedKind: "user_input_request",
   },
   // A tool server's question (an MCP elicitation) becomes the same question record.
@@ -209,8 +228,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "mcpServer/elicitation/request",
     transport: "server-request",
-    family: "interactive_request",
-    eventType: "question.asked",
     normalizedKind: "user_input_request",
   },
   // Each permission ask is recorded once as `approval.requested`; the provider's request id only
@@ -219,40 +236,30 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "item/commandExecution/requestApproval",
     transport: "server-request",
-    family: "approval_flow",
-    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   "item/fileChange/requestApproval": {
     disposition: "normalized",
     nativeMethod: "item/fileChange/requestApproval",
     transport: "server-request",
-    family: "approval_flow",
-    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   "item/permissions/requestApproval": {
     disposition: "normalized",
     nativeMethod: "item/permissions/requestApproval",
     transport: "server-request",
-    family: "approval_flow",
-    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   execCommandApproval: {
     disposition: "normalized",
     nativeMethod: "execCommandApproval",
     transport: "server-request",
-    family: "approval_flow",
-    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   applyPatchApproval: {
     disposition: "normalized",
     nativeMethod: "applyPatchApproval",
     transport: "server-request",
-    family: "approval_flow",
-    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   // Control-plane requests answered on the transport; adopting either would put a handshake on the
@@ -275,8 +282,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "error",
     transport: "server-notification",
-    family: "run_lifecycle",
-    eventType: "run.failed",
     normalizedKind: "error",
   },
   // Notices that drive no state transition (kind `notification`). `warning` and `deprecationNotice`
@@ -285,24 +290,18 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "warning",
     transport: "server-notification",
-    family: "session_lifecycle",
-    eventType: "session.notice",
     normalizedKind: "notification",
   },
   configWarning: {
     disposition: "normalized",
     nativeMethod: "configWarning",
     transport: "server-notification",
-    family: "session_lifecycle",
-    eventType: "session.notice",
     normalizedKind: "notification",
   },
   deprecationNotice: {
     disposition: "normalized",
     nativeMethod: "deprecationNotice",
     transport: "server-notification",
-    family: "session_lifecycle",
-    eventType: "session.notice",
     normalizedKind: "notification",
   },
   // Codex's own reviewer: `guardianWarning` and `autoApprovalReview/strictReviewRequired` are one
@@ -337,8 +336,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "account/rateLimits/updated",
     transport: "server-notification",
-    family: "usage_telemetry",
-    eventType: "usage.rate_limit_update",
     normalizedKind: "rate_limits",
   },
   // Provider context-window compaction, not the daemon's `event.compacted` retention pass.
@@ -346,8 +343,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "thread/compacted",
     transport: "server-notification",
-    family: "usage_telemetry",
-    eventType: "usage.context_compacted",
     normalizedKind: "compact_boundary",
   },
   // Not evented: an empty invalidation signal to re-run `skills/list`; the one consequence the
@@ -391,16 +386,12 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "process/outputDelta",
     transport: "server-notification",
-    family: "tool_activity",
-    eventType: "tool.result",
     normalizedKind: "command_output",
   },
   "process/exited": {
     disposition: "normalized",
     nativeMethod: "process/exited",
     transport: "server-notification",
-    family: "tool_activity",
-    eventType: "tool.result",
     normalizedKind: "command_exit",
   },
   "turn/moderationMetadata": {
@@ -477,8 +468,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "turn/diff/updated",
     transport: "server-notification",
-    family: "tool_activity",
-    eventType: "tool.result",
     normalizedKind: "diff",
   },
   // A proposed plan is an `assistant.message` row (kind `proposed_plan`).
@@ -486,8 +475,6 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     nativeMethod: "turn/plan/updated",
     transport: "server-notification",
-    family: "assistant_output",
-    eventType: "assistant.message",
     normalizedKind: "proposed_plan",
   },
 } as const satisfies Record<CodexInboundFrameMethod, CodexFrameNormalizationTableRow>;
@@ -510,16 +497,9 @@ export const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
     Object.entries(CODEX_FRAME_NORMALIZATION_RECORD) as ReadonlyArray<
       [CodexInboundFrameMethod, CodexFrameNormalizationTableRow]
     >
-  ).map(([nativeMethod, normalization]) => [
+  ).map(([nativeMethod, row]) => [
     nativeMethod,
-    Object.freeze(
-      normalization.disposition === "normalized"
-        ? {
-            ...normalization,
-            emissionReadiness: resolveCodexEmissionReadiness(normalization.eventType),
-          }
-        : normalization,
-    ),
+    Object.freeze(composeCodexFrameNormalization(row)),
   ]),
 );
 
