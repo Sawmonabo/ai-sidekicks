@@ -13,11 +13,6 @@ export const RAIL_DESTINATIONS = ["sessions", "workflows", "settings"] as const;
 /** One icon-rail destination, derived from the tuple above. */
 export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
 
-/** One phase of one run, as a session screen address names it; derived from the route arm. */
-export type WorkflowPhaseFocus = NonNullable<
-  Extract<AppRoute, { kind: "session" }>["workflowPhase"]
->;
-
 /**
  * Which rail destination is current, or `undefined` where the route lights none.
  *
@@ -50,8 +45,6 @@ export function settingsSelection(route: AppRoute): string | undefined {
 /**
  * The settings address for one page, scoped to a selection where the caller has one.
  * Omits the `selection` key when there is none, which the parse round trip depends on.
- *
- * @consumedBy opening a Settings page at one selection, such as one device
  */
 export function settingsRoute(page: string, selection: string | undefined): AppRoute {
   return selection === undefined
@@ -86,11 +79,7 @@ export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
     case "workflows":
       return true;
     case "session":
-      return (
-        right.kind === "session" &&
-        left.sessionId === right.sessionId &&
-        workflowPhaseFocusesAreEqual(left.workflowPhase, right.workflowPhase)
-      );
+      return right.kind === "session" && left.sessionId === right.sessionId;
     case "pane-harness":
       return (
         right.kind === "pane-harness" &&
@@ -106,18 +95,4 @@ export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
     case "not-found":
       return right.kind === "not-found" && left.attempted === right.attempted;
   }
-}
-
-/**
- * The session screen arm's focus, compared field by field. Both absent is equal; one absent is
- * not, because a bare session address and a focused one are different places.
- */
-function workflowPhaseFocusesAreEqual(
-  left: WorkflowPhaseFocus | undefined,
-  right: WorkflowPhaseFocus | undefined,
-): boolean {
-  if (left === undefined || right === undefined) {
-    return left === right;
-  }
-  return left.workflowRunId === right.workflowRunId && left.phaseId === right.phaseId;
 }

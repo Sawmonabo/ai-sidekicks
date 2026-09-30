@@ -39,6 +39,9 @@ function renderReading(
   typedPrefix: string | undefined,
   onComplete: (definitionName: string) => void,
 ): React.JSX.Element {
+  if (complete && definitions.length === 0) {
+    return <Nothing kind="empty" title="No workflows yet" />;
+  }
   const candidates = workflowDefinitionCandidates(definitions, typedPrefix);
   if (candidates.length === 0) {
     // Withheld under an incomplete walk: a search that stopped short says nothing about what is

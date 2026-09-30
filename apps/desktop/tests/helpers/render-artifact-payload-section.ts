@@ -20,8 +20,6 @@ import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBrid
 
 /** The artifact the bound section opens on. */
 export const OPENED_ARTIFACT_ID = "artifact-diff-01" as ArtifactId;
-/** A second artifact the bound section can be pointed at. */
-export const OTHER_ARTIFACT_ID = "artifact-attachment-02" as ArtifactId;
 
 /**
  * What the bound section is mounted over: the bridge, the session store, the calls, and the

@@ -47,9 +47,6 @@ export type CpInput<P extends CpProcedure> = P extends CpProcedure ? unknown : n
 /** Control-plane procedure output (stub). */
 export type CpOutput<P extends CpProcedure> = P extends CpProcedure ? unknown : never;
 
-/** Relay subscription event handler (stub). */
-export type RelayEventHandler = (event: unknown) => void;
-
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */
 export type Unsubscribe = () => void;
 
@@ -335,12 +332,10 @@ export interface PreloadApi {
 
   readonly controlPlane: {
     /**
-     * Forwards a control-plane request/response procedure. The renderer never negotiates the
-     * relay: main does and consumes its token in-process, and the renderer reaches the relay
-     * only through `subscribeRelay`.
+     * Forwards one control-plane request/response procedure. The renderer never negotiates or
+     * reaches the relay.
      */
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
-    subscribeRelay(sessionId: SessionId, handler: RelayEventHandler): Unsubscribe;
   };
 
   readonly native: {
@@ -459,7 +454,6 @@ export function createStubBridge(app: AppFacts): PreloadApi {
     },
     controlPlane: {
       call: () => stubThrow("controlPlane.call"),
-      subscribeRelay: () => stubThrow("controlPlane.subscribeRelay"),
     },
     native: {
       showOpenDialog: () => stubThrow("native.showOpenDialog"),

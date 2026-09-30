@@ -1,11 +1,9 @@
 // What a message is carrying, beside the line it is written on. Absent when nothing is attached.
-// The running count is a figure, never a gate: the daemon refuses an over-long staged list at
-// acceptance and the bound is operator-tunable, so the eleventh file is handed over like the
-// first.
+// The staging bounds are the daemon's and the provider's, read at acceptance and never written
+// here, so the strip draws no count against them.
 
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
-import { stagedAttachmentsFill } from "./attachment-bounds.js";
 import type { StagedAttachmentsBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentChip } from "./AttachmentChip.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
@@ -16,7 +14,7 @@ import "./AttachmentStrip.css";
 /** What the strip reads: the session's staged attachments, and whether a file is being dragged. */
 export interface AttachmentStripProps {
   readonly stagedAttachments: StagedAttachmentsBinding;
-  /** True while a file drag is over the composer, so the strip can say it will land. */
+  /** True while a file drag is over the composer, which the strip shows as a tint alone. */
   readonly isDraggingFiles: boolean;
 }
 
@@ -27,7 +25,6 @@ export function AttachmentStrip(props: AttachmentStripProps): React.JSX.Element 
   if (entries.length === 0 && !props.isDraggingFiles) {
     return null;
   }
-  const fill = stagedAttachmentsFill(entries.length);
   const reference = composeSendAttachmentReference(entries);
   return (
     // A `section` because `aria-label` on a generic element names nothing.
@@ -39,9 +36,6 @@ export function AttachmentStrip(props: AttachmentStripProps): React.JSX.Element 
       }
       aria-label="Attachments on this message"
     >
-      {props.isDraggingFiles ? (
-        <p className="meridian-composer-attachments__drop">Drop to attach to this message.</p>
-      ) : null}
       <ul className="meridian-composer-attachments__list">
         {entries.map((entry) => (
           <AttachmentChip
@@ -52,15 +46,6 @@ export function AttachmentStrip(props: AttachmentStripProps): React.JSX.Element 
           />
         ))}
       </ul>
-      <p className="meridian-composer-attachments__fill">
-        <DerivedFigure
-          text={`${formatCount(fill.attached)} of ${formatCount(fill.allowance)} attached`}
-        />
-        <span className="meridian-composer-attachments__fill-source">
-          The default bound. An operator can raise it, and the background service decides at
-          acceptance.
-        </span>
-      </p>
       {reference.disposition === "none" ? null : (
         <p className="meridian-composer-attachments__hold">
           <DerivedFigure text={`${formatCount(reference.artifactIds.length)} ready to reference`} />

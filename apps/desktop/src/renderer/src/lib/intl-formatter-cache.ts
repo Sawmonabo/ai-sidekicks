@@ -107,47 +107,29 @@ export function dayDurationFormatFor(locale?: string): Intl.NumberFormat {
   return dayDurationFormatters.formatterFor(locale);
 }
 
-/**
- * Currency codes whose minor-unit precision is remembered. Real renders use a handful; the bound
- * exists because the code is a wire string and an unbounded cache would grow with it.
- */
-const CURRENCY_MINOR_UNIT_CACHE_CAP = 32;
+/** How many decimals a dollar figure carries: to the cent, or to the hundredth of a cent. */
+type DollarFractionDigits = 2 | 4;
 
 /**
- * How many fractional digits a currency's own minor unit has. Cached because the answer comes
- * from constructing an `Intl.NumberFormat`. Keyed on the code alone, since the minor unit belongs
- * to the currency, not the locale.
+ * The two dollar formats, held because every cost row renders one. Fixed to US dollars in
+ * `en-US`, so a figure reads `$`, a period for the decimals and commas between thousands on
+ * every machine, whatever its own locale.
  */
-class CurrencyMinorUnitRegistry {
-  readonly #digitsByCurrencyCode = new Map<string, number>();
+const DOLLAR_FORMATS: Readonly<Record<DollarFractionDigits, Intl.NumberFormat>> = {
+  2: dollarFormat(2),
+  4: dollarFormat(4),
+};
 
-  /** Throws `RangeError` for a code `Intl` will not accept; such a code never reaches the cache. */
-  public digitsFor(currency: string, locale: string | undefined): number {
-    const currencyCode = currency.toUpperCase();
-    const remembered = this.#digitsByCurrencyCode.get(currencyCode);
-    if (remembered !== undefined) {
-      return remembered;
-    }
-    const { maximumFractionDigits } = new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency: currencyCode,
-    }).resolvedOptions();
-    // The member is optional; an absent reading means the platform names no bound, and 0 lets
-    // `Math.max` leave the console's own floor deciding the precision.
-    const minorUnitDigits = maximumFractionDigits ?? 0;
-    dropOldestEntry(this.#digitsByCurrencyCode, CURRENCY_MINOR_UNIT_CACHE_CAP);
-    this.#digitsByCurrencyCode.set(currencyCode, minorUnitDigits);
-    return minorUnitDigits;
-  }
+/** The one `Intl.NumberFormat` held for dollar figures at this many decimals. */
+export function dollarFormatFor(fractionDigits: DollarFractionDigits): Intl.NumberFormat {
+  return DOLLAR_FORMATS[fractionDigits];
 }
 
-/** The console's one reader of currency precision. */
-const currencyMinorUnits = new CurrencyMinorUnitRegistry();
-
-/**
- * How many fractional digits `currency`'s own minor unit has.
- * Throws `RangeError` for a code `Intl` will not accept.
- */
-export function currencyMinorUnitDigits(currency: string, locale: string | undefined): number {
-  return currencyMinorUnits.digitsFor(currency, locale);
+function dollarFormat(fractionDigits: DollarFractionDigits): Intl.NumberFormat {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
 }

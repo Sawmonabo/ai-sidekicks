@@ -17,8 +17,8 @@
 
 import { parseInstant } from "./instant.js";
 import {
-  currencyMinorUnitDigits,
   dayDurationFormatFor,
+  dollarFormatFor,
   relativeTimeFormatFor,
 } from "./intl-formatter-cache.js";
 
@@ -250,37 +250,20 @@ export function formatPercent(fraction: number, locale?: string): string {
   }).format(fraction);
 }
 
+/** The largest amount that still reads to four decimals. */
+const FOUR_DECIMAL_CEILING_DOLLARS = 0.5;
+
 /**
- * A money figure in its own currency. Two fractional digits is a floor, not the precision: a
- * currency with a finer minor unit (KWD, BHD, TND) keeps its own three, and a sub-unit amount
- * keeps four since a token price is not the cent it rounds to. The sub-unit test is on the
- * absolute value, so a refund and a charge of the same size share a column width.
- *
- * @consumedBy the session's spend figure
+ * A dollar figure as every surface reads it: two decimals above $0.50 and four at or below it,
+ * so a sub-cent spend never reads as nothing, and a spend of nothing reads `$0.00`. The amount
+ * is in US dollars and is rounded once, half up.
  */
-export function formatMoney(amount: number, currency: string, locale?: string): string {
+export function formatMoney(amount: number): string {
   if (!Number.isFinite(amount)) {
     return "—";
   }
-  const minimumFractionDigits = 2;
-  const floorFractionDigits = Math.abs(amount) < 1 ? 4 : minimumFractionDigits;
-  try {
-    return new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      minimumFractionDigits,
-      maximumFractionDigits: Math.max(
-        floorFractionDigits,
-        currencyMinorUnitDigits(currency, locale),
-      ),
-    }).format(amount);
-  } catch {
-    // `Intl.NumberFormat` throws `RangeError` for a currency that is not three ASCII letters, and
-    // the currency is an unvalidated wire string. Throwing would hide a figure the daemon sent, so
-    // the amount keeps its `Intl` formatting and the code renders verbatim beside it. The rejected
-    // code names no currency, so the floor is the whole precision here.
-    return `${new Intl.NumberFormat(locale, { minimumFractionDigits, maximumFractionDigits: floorFractionDigits }).format(amount)}\u00A0${currency}`;
-  }
+  const fractionDigits = amount === 0 || amount > FOUR_DECIMAL_CEILING_DOLLARS ? 2 : 4;
+  return dollarFormatFor(fractionDigits).format(amount);
 }
 
 function formatDescriptorMember(value: unknown): string {

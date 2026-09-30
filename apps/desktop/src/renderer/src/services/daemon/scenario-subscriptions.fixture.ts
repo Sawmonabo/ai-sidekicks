@@ -1,10 +1,10 @@
 // What a fixture subscriber is handed, and when. `daemon.subscribe` hands beats as they fall due on
 // the frozen clock, only to a subscriber the seam says they reach and in the shape that
 // subscription registers. `session-event-streams.ts` routes, `run-stream-projection.fixture.ts`
-// projects and `event-envelope.fixture.ts` composes. The relay is routed on its own key, the
-// session, and the whole-session stream is replay-then-tail, so a store opened mid-scenario does
-// not read the next beat as a sequence gap. `daemon.fixture.ts` composes these two functions.
-import type { RelayEventHandler, Unsubscribe } from "@shared/preload-api.js";
+// projects and `event-envelope.fixture.ts` composes. The whole-session stream is
+// replay-then-tail, so a store opened mid-scenario does not read the next beat as a sequence
+// gap. `daemon.fixture.ts` composes this function.
+import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { FixtureBridgeError } from "./refusal.fixture.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
@@ -69,32 +69,6 @@ export function subscribeToScenario(
         throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
       }
       deliver(projection.delivery);
-    }
-  });
-}
-
-/**
- * Deliver a scenario's beats to one relay subscriber, scoped to its session.
- *
- * `subscribeRelay(sessionId, handler)` in `apps/desktop/src/shared/preload-api.ts` takes the
- * session it is scoped to, so a subscriber for one session never receives another's. The scope
- * is decided once at attach: an engine's scenario names one session for its life, so a
- * subscription for any other session attaches nothing and returns a no-op disposer, as the live
- * bridge is silent for a session with no relay traffic. Beats are composed into envelopes rather
- * than forwarded raw, since the relay frame is a stub and the console's projection type is not a
- * wire shape.
- */
-export function subscribeToScenarioRelay(
-  engine: ScenarioEngine,
-  sessionId: string,
-  handler: RelayEventHandler,
-): Unsubscribe {
-  if (sessionId !== engine.scenario.sessionId) {
-    return () => undefined;
-  }
-  return engine.subscribe((events) => {
-    for (const event of events) {
-      handler(composeScenarioEventEnvelope(event));
     }
   });
 }

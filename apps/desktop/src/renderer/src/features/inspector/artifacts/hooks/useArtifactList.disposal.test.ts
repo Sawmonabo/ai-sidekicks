@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   LISTED_ONE_ROW,
+  OTHER_ARTIFACT_ID,
   SESSION_ID,
   artifactOperations,
   readThrough,
   settleAct,
 } from "@test/helpers/artifact-list-readers.js";
 import {
-  OTHER_ARTIFACT_ID,
   artifactPayloadSubject,
   artifactPayloadTree,
   renderArtifactPayloadSection,

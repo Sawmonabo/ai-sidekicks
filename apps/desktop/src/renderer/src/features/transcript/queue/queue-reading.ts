@@ -18,6 +18,12 @@ import {
 } from "./queue-cancellation.js";
 import { QueueOrder } from "./queue-order.js";
 import { type Clock } from "@renderer/lib/clock.js";
+import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
+import {
+  type WireReadPhase,
+  type WireReadState,
+} from "@renderer/services/wire-reads/read-lifecycle.js";
 
 /**
  * Reads one session's whole queue at one moment, in the daemon's canonical order.
@@ -41,11 +47,10 @@ export interface QueueCalls {
 }
 
 /**
- * The queue as a view reads it. `phase` is `reading` until the first snapshot lands, so an
- * empty list before it is never mistaken for an empty queue.
+ * The queue as a view reads it. `phase` is `reading` until the first snapshot lands and
+ * `refused` when the newest one failed, so an empty list is never mistaken for an empty queue.
  */
-export interface QueueFeed extends QueueCancellationState {
-  readonly phase: "reading" | "read";
+export interface QueueFeed extends QueueCancellationState, WireReadState {
   /** Canonical order: the snapshot's, with live-only rows appended in arrival order. */
   readonly items: readonly QueueItemSummary[];
 }
@@ -75,7 +80,8 @@ export class SessionQueueReading implements ReadTriggerTarget {
    */
   #isRetired = false;
   #closeTail: (() => void) | undefined = undefined;
-  #phase: QueueFeed["phase"] = "reading";
+  #phase: WireReadPhase = "reading";
+  #readRefusal: Refusal | undefined = undefined;
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
   #feed: QueueFeed;
 
@@ -155,18 +161,35 @@ export class SessionQueueReading implements ReadTriggerTarget {
       return;
     }
     const round = this.#readLine.openRound();
-    const items = await this.#calls.list(this.#sessionId);
+    let items: readonly QueueItemSummary[];
+    try {
+      items = await this.#calls.list(this.#sessionId);
+    } catch (rejection) {
+      // The rows already folded stay; only the read failed, and the view says so.
+      round.settle(() => {
+        this.#phase = "refused";
+        this.#readRefusal = coerceToRefusal(rejection, QUEUE_LIST_ORIGIN);
+        this.#publish();
+      });
+      return;
+    }
     // A superseded round and an abandoned line each install nothing.
     round.settle(() => {
       this.#order.replaceWithSnapshot(items);
       this.#items = this.#order.items();
       this.#phase = "read";
+      this.#readRefusal = undefined;
       this.#publish();
     });
   }
 
   #composeFeed(): QueueFeed {
-    return { ...this.#cancellations.state, phase: this.#phase, items: this.#items };
+    return {
+      ...this.#cancellations.state,
+      phase: this.#phase,
+      readRefusal: this.#readRefusal,
+      items: this.#items,
+    };
   }
 
   #publish(): void {
@@ -178,3 +201,6 @@ export class SessionQueueReading implements ReadTriggerTarget {
 }
 
 const EMPTY_ITEMS: readonly QueueItemSummary[] = Object.freeze([]);
+
+/** Names the queue's snapshot read in a refusal, so a failure says which read failed. */
+const QUEUE_LIST_ORIGIN = "queue-list";

@@ -50,12 +50,12 @@ describe("WorkflowRunLiveRefresh — what advances the round", () => {
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore);
-    expect(reading.round).toBe(0);
+    expect(reading.snapshot).toBe(0);
 
     sessionStore.applyBatch([eventOfKind(SESSION_ID, "workflow.phase_suspended", 1)]);
     await settle(clock);
 
-    expect(reading.round).toBe(1);
+    expect(reading.snapshot).toBe(1);
   });
 
   it("advances when the session's projection is repaired", async () => {
@@ -65,11 +65,11 @@ describe("WorkflowRunLiveRefresh — what advances the round", () => {
 
     sessionStore.markDegraded("subscription-closed");
     await settle(clock);
-    expect(reading.round).toBe(0);
+    expect(reading.snapshot).toBe(0);
 
     sessionStore.initialize({ cursor: 0, entities: [] });
     await settle(clock);
 
-    expect(reading.round).toBe(1);
+    expect(reading.snapshot).toBe(1);
   });
 });
