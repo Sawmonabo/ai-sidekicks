@@ -101,7 +101,6 @@ export {
   CodexRequestTimeoutError,
   CodexRewindBoundaryUnsupportedError,
   CodexTransportError,
-  CODEX_APP_SERVER_BIN_ENV_VAR,
   CODEX_APP_SERVER_READY_SENTINEL,
   CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,

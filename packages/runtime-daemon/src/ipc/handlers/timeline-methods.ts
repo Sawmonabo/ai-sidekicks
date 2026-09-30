@@ -1,4 +1,5 @@
-// The daemon-side binder for the four `timeline.*` methods.
+// The daemon-side binder for the `timeline.*` methods, and the `timeline.bodyRead`
+// handler.
 //
 //   * the canonical method/procedure-type/schema table, whose code-side
 //     mirror is `TIMELINE_METHOD_DESCRIPTORS` in
@@ -28,7 +29,7 @@
 // Where the caller's principal comes from
 // ----------------------------------------------------------------------------
 //
-// NOT from the request. None of the four request types declares a principal
+// NOT from the request. No timeline request type declares a principal
 // member, and each is `.strict()`, so a caller that supplies one is refused
 // rather than having it stripped. The settled contract is recorded on the
 // `ReasoningSurfaceReadRequest` block beneath.
@@ -61,23 +62,26 @@
 // value, because it never gets to choose the schema.
 //
 // ----------------------------------------------------------------------------
-// No handlers are registered here
+// Which handlers live here
 // ----------------------------------------------------------------------------
 //
-// Phase 1 ships contracts and this seam. The services these methods dispatch to
-// arrive in Phase 2 (`timeline/timeline-projector.ts`) and Phase 3
-// (`timeline/reasoning-surface-service.ts`,
-// `timeline/child-run-summary-service.ts`), and each phase's binder calls
-// through here with its own handler. A placeholder handler is deliberately NOT
-// shipped: it would put a method on the wire that answers nothing, which a
-// client cannot distinguish from a method that answers wrongly.
+// `timeline.bodyRead` is answered here, from the stored event and its sealed
+// body ({@link registerTimelineBodyRead}). Every other method is bound by the
+// service that answers it — the timeline projection, the reasoning surface, the
+// child-run summaries, the session search — through the binders below, and none
+// is bound before its service exists: a placeholder handler would put a method
+// on the wire that answers nothing, which a client cannot distinguish from a
+// method that answers wrongly.
 
 import {
+  TIMELINE_BODY_READ_METHOD,
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_METHOD_DESCRIPTORS,
+  TIMELINE_PATCH_READ_METHOD,
   TIMELINE_READ_LIMIT_MAX,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
+  TIMELINE_SEARCH_METHOD,
   TIMELINE_SUBSCRIBE_METHOD,
 } from "@ai-sidekicks/contracts";
 import type {
@@ -85,6 +89,7 @@ import type {
   HandlerContext,
   LocalSubscriptionProducer,
   MethodRegistry,
+  SessionId,
   TimelineMethodRequest,
   TimelineMethodResponse,
   TimelineQueryMethodName,
@@ -94,6 +99,7 @@ import type {
   ZodType,
 } from "@ai-sidekicks/contracts";
 
+import type { SessionContentReader, StoredEventContentRow } from "../../events/content-read.js";
 import { RegistryDispatchError } from "../registry.js";
 import {
   createSubscriptionAckBarrier,
@@ -226,6 +232,7 @@ type TimelineRequestCorrelationCheck<MethodName extends TimelineQueryMethodName>
  * invite a reader to treat that row as the offending one.
  */
 const refusePageOverRequestedCeiling = (
+  pagedMemberName: string,
   entryCount: number,
   ceiling: number,
   ceilingIsCallerSupplied: boolean,
@@ -236,7 +243,7 @@ const refusePageOverRequestedCeiling = (
   return [
     {
       code: "custom",
-      path: ["entries"],
+      path: [pagedMemberName],
       message:
         `the reply carries ${String(entryCount)} entries against a ceiling of ` +
         `${String(ceiling)} (${
@@ -278,6 +285,7 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
     // one layer that can hold a read for ten rows to ten rows.
     const violations: RequestCorrelationViolation[] = [
       ...refusePageOverRequestedCeiling(
+        "entries",
         result.entries.length,
         request.limit ?? TIMELINE_READ_LIMIT_MAX,
         request.limit !== undefined,
@@ -355,7 +363,14 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
     // request grows a caller-supplied limit, which is the change that would
     // otherwise reintroduce the read window's gap on a second surface.
     const violations: RequestCorrelationViolation[] = Array.isArray(result?.entries)
-      ? [...refusePageOverRequestedCeiling(result.entries.length, TIMELINE_READ_LIMIT_MAX, false)]
+      ? [
+          ...refusePageOverRequestedCeiling(
+            "entries",
+            result.entries.length,
+            TIMELINE_READ_LIMIT_MAX,
+            false,
+          ),
+        ]
       : [];
     if (typeof result?.runId !== "string") {
       return violations;
@@ -379,6 +394,21 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
     });
     return violations;
   },
+  // A body read and a patch read answer with stored text and no subject: the
+  // reply names no session, row or call that could be the wrong one.
+  [TIMELINE_BODY_READ_METHOD]: () => [],
+  [TIMELINE_PATCH_READ_METHOD]: () => [],
+  // A search page holds to the window the caller asked for, as a read window
+  // does; its hits carry no session member to cross-check.
+  [TIMELINE_SEARCH_METHOD]: (request, result) =>
+    Array.isArray(result?.hits)
+      ? refusePageOverRequestedCeiling(
+          "hits",
+          result.hits.length,
+          request.limit ?? TIMELINE_READ_LIMIT_MAX,
+          request.limit !== undefined,
+        )
+      : [],
 };
 
 /**
@@ -692,4 +722,50 @@ export function registerTimelineSubscription(
     handler as Handler<unknown, unknown>,
     { mutating: descriptor.mutating },
   );
+}
+
+/** What `timeline.bodyRead` reads through. */
+export interface TimelineBodyReadDependencies {
+  /**
+   * The stored row of one event in one session, or `undefined` when the
+   * session holds no event with that id. A session that does not exist throws
+   * `SessionNotFoundError`, which the wire reports as `session.not_found`.
+   */
+  readonly readStoredEventRow: (
+    sessionId: SessionId,
+    eventId: string,
+  ) => Promise<StoredEventContentRow | undefined>;
+  /** Opens a stored row's sealed body. */
+  readonly contentReader: Pick<SessionContentReader, "hydrate">;
+}
+
+/**
+ * Bind `timeline.bodyRead`: a row's large body or full output, read when its
+ * control is pressed.
+ *
+ * The row id is the id of the event the row renders, so the read is the stored
+ * event and its sealed body, answered as the body or the closed reason it
+ * cannot be opened. A row id the session does not hold is refused as a request
+ * naming nothing, on the `rowId` path, so a surface can tell it from a body that
+ * exists and cannot be read.
+ */
+export function registerTimelineBodyRead(
+  registry: MethodRegistry,
+  dependencies: TimelineBodyReadDependencies,
+): void {
+  registerTimelineMethod(registry, {
+    method: TIMELINE_BODY_READ_METHOD,
+    handler: async (request) => {
+      const storedRow = await dependencies.readStoredEventRow(request.sessionId, request.rowId);
+      if (storedRow === undefined) {
+        throw new RegistryDispatchError(
+          "invalid_params",
+          `${TIMELINE_BODY_READ_METHOD}: the session holds no row with this id`,
+          [{ code: "custom", path: ["rowId"], message: "the session holds no row with this id" }],
+        );
+      }
+      const hydrated = await dependencies.contentReader.hydrate(storedRow);
+      return hydrated.content;
+    },
+  });
 }

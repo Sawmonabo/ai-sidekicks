@@ -53,6 +53,7 @@ import {
 } from "../event.js";
 import type { EventCategory } from "../event.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
+import { REPO_PATH_MAX_LEN } from "../repo.js";
 import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run-control.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
 
@@ -210,6 +211,22 @@ export const SupersededMarkerSchema: z.ZodType<SupersededMarker> = z
   .strict();
 
 /**
+ * One file whose patch a tool call's row left out, and the patch's size in bytes.
+ * The row draws like one whose patch traveled; `timeline.patchRead` fetches every
+ * left-out patch of the call in one read.
+ */
+export interface TimelineOmittedPatch {
+  path: string;
+  size: number;
+}
+const TimelineOmittedPatchSchema: z.ZodType<TimelineOmittedPatch> = z
+  .object({
+    path: wireFreeFormString(REPO_PATH_MAX_LEN, "TimelineOmittedPatch.path"),
+    size: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/**
  * The members every timeline row carries, whatever its `kind`.
  *
  * `payload` is `Record<string, unknown>` on two of the three arms and the
@@ -234,6 +251,8 @@ export interface TimelineRowBase {
   timestamp: string;
   /** Present when this row is a summarized child-run row. */
   childRunSummary?: ChildRunSummary | undefined;
+  /** Present on a tool call's row that left out one or more patches. */
+  omittedPatches?: TimelineOmittedPatch[] | undefined;
   payload: Record<string, unknown>;
 }
 
@@ -254,6 +273,7 @@ const buildTimelineRowCommonShape = () => ({
   summary: wireFreeFormString(TIMELINE_ROW_SUMMARY_MAX_LEN, "TimelineRow.summary"),
   timestamp: z.iso.datetime({ offset: true }),
   childRunSummary: ChildRunSummarySchema.optional(),
+  omittedPatches: z.array(TimelineOmittedPatchSchema).min(1).optional(),
 });
 
 /**
@@ -261,11 +281,10 @@ const buildTimelineRowCommonShape = () => ({
  *
  * Deliberately WITHOUT the `__proto__` pre-guard `EventEnvelopeSchema` applies
  * to its own payload. That guard exists because the envelope's parse output is
- * hashed: a key Zod's record parser silently drops would collapse two distinct
- * wire byte-strings onto one `row_hash`. A timeline row is a read projection —
- * never hashed, never chained, never signed ("timeline rows are read
- * projections, not canonical events themselves") — so the collapse hazard does
- * not reach it, and the anti- pollution drop Zod performs is the whole of the
+ * what the log stores: a key Zod's record parser silently drops would collapse
+ * two distinct wire byte-strings onto one stored row. A timeline row is a read
+ * projection, never stored as a canonical event, so the collapse hazard does
+ * not reach it, and the anti-pollution drop Zod performs is the whole of the
  * security requirement here.
  */
 const projectedPayloadSchema = z.record(z.string(), z.unknown());
@@ -665,7 +684,7 @@ const timelineRollbackBoundaryArmSchema = z
   .strict()
   // The three-way agreement. `.superRefine()` returns `this`, so this stays a
   // ZodObject and remains a valid `z.discriminatedUnion` option (the same Zod-4
-  // property `event.ts`'s `audit_integrity_failed` arm relies on).
+  // property `event.ts`'s `withEpochStamp` relies on).
   //
   // The payload-presence guard is deliberate and MEASURED rather than assumed:
   // zod 4.3.6 skips a schema's checks once the shape parse has failed (probed

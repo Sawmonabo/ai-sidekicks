@@ -1,0 +1,576 @@
+// The `repo.*` method table — every method's name, procedure type, mutating
+// flag and schemas, stated once, and the empty reply the mutations share. It
+// imports every `repo.*` contract file and none of them imports it, so it can
+// see the whole namespace without a cycle.
+//
+// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
+// and nothing whose import closure reaches it (the transitive rule repo.ts's
+// header documents). Every module imported below is closure-clean.
+import { z } from "zod";
+
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
+import {
+  ProjectBranchPatternUpdateRequestSchema,
+  ProjectEditResponseSchema,
+  ProjectListRequestSchema,
+  ProjectListResponseSchema,
+  ProjectListSchema,
+  ProjectRenameRequestSchema,
+  ProjectSetupUpdateRequestSchema,
+  ProjectEnvironmentUpdateRequestSchema,
+  ProjectStateChangeRequestSchema,
+  type ProjectBranchPatternUpdateRequest,
+  type ProjectEditResponse,
+  type ProjectList,
+  type ProjectListRequest,
+  type ProjectListResponse,
+  type ProjectRenameRequest,
+  type ProjectSetupUpdateRequest,
+  type ProjectEnvironmentUpdateRequest,
+  type ProjectStateChangeRequest,
+} from "./project.js";
+import {
+  RemovedWorktreeListRequestSchema,
+  RemovedWorktreeListResponseSchema,
+  RemovedWorktreeRequestSchema,
+  WorktreeRestoreResponseSchema,
+  type RemovedWorktreeListRequest,
+  type RemovedWorktreeListResponse,
+  type RemovedWorktreeRequest,
+  type WorktreeRestoreResponse,
+} from "./removed-worktree.js";
+import {
+  RepoAttachRequestSchema,
+  RepoAttachResponseSchema,
+  RepoDetachRequestSchema,
+  RepoDetachResponseSchema,
+  RepoMountReadRequestSchema,
+  RepoMountReadResponseSchema,
+  type RepoAttachRequest,
+  type RepoAttachResponse,
+  type RepoDetachRequest,
+  type RepoDetachResponse,
+  type RepoMountReadRequest,
+  type RepoMountReadResponse,
+} from "./repo.js";
+import {
+  RepoCloneAnswerRequestSchema,
+  RepoCloneFolderReadRequestSchema,
+  RepoCloneFolderReadResponseSchema,
+  RepoCloneProjectRequestSchema,
+  RepoCloneRequestSchema,
+  RepoCloneResponseSchema,
+  RepoCloneStatusSchema,
+  RepoCloneSubscribeResponseSchema,
+  type RepoCloneAnswerRequest,
+  type RepoCloneFolderReadRequest,
+  type RepoCloneFolderReadResponse,
+  type RepoCloneProjectRequest,
+  type RepoCloneRequest,
+  type RepoCloneResponse,
+  type RepoCloneStatus,
+  type RepoCloneSubscribeResponse,
+} from "./repo-clone.js";
+import {
+  RepoFolderListRequestSchema,
+  RepoFolderListResponseSchema,
+  RepoMountListRequestSchema,
+  RepoMountListResponseSchema,
+  type RepoFolderListRequest,
+  type RepoFolderListResponse,
+  type RepoMountListRequest,
+  type RepoMountListResponse,
+} from "./repo-folders.js";
+import {
+  RepoBranchListRequestSchema,
+  RepoBranchListResponseSchema,
+  RepoFileReadRequestSchema,
+  RepoFileReadResponseSchema,
+  WorkingTreeChangeSchema,
+  WorkingTreeSubscribeRequestSchema,
+  WorkingTreeSubscribeResponseSchema,
+  type RepoBranchListRequest,
+  type RepoBranchListResponse,
+  type RepoFileReadRequest,
+  type RepoFileReadResponse,
+  type WorkingTreeChange,
+  type WorkingTreeSubscribeRequest,
+  type WorkingTreeSubscribeResponse,
+} from "./repo-git-reads.js";
+import {
+  WorkspaceBindRequestSchema,
+  WorkspaceBindResponseSchema,
+  WorkspaceExecutionModeCapabilitiesReadRequestSchema,
+  WorkspaceExecutionModeCapabilitiesReadResponseSchema,
+  WorkspaceListRequestSchema,
+  WorkspaceListResponseSchema,
+  type WorkspaceBindRequest,
+  type WorkspaceBindResponse,
+  type WorkspaceExecutionModeCapabilitiesReadRequest,
+  type WorkspaceExecutionModeCapabilitiesReadResponse,
+  type WorkspaceListRequest,
+  type WorkspaceListResponse,
+} from "./workspace.js";
+import {
+  ExecutionModeSelectRequestSchema,
+  ExecutionModeSelectResponseSchema,
+  ExecutionRootPrepareRequestSchema,
+  ExecutionRootPrepareResponseSchema,
+  WorktreeRetireRequestSchema,
+  WorktreeRetireResponseSchema,
+  WorktreeReuseCheckRequestSchema,
+  WorktreeReuseCheckResponseSchema,
+  WorktreeStatusReadRequestSchema,
+  WorktreeStatusReadResponseSchema,
+  type ExecutionModeSelectRequest,
+  type ExecutionModeSelectResponse,
+  type ExecutionRootPrepareRequest,
+  type ExecutionRootPrepareResponse,
+  type WorktreeRetireRequest,
+  type WorktreeRetireResponse,
+  type WorktreeReuseCheckRequest,
+  type WorktreeReuseCheckResponse,
+  type WorktreeStatusReadRequest,
+  type WorktreeStatusReadResponse,
+} from "./worktree.js";
+import {
+  WorktreeSetupRequestSchema,
+  WorktreeSetupStatusSchema,
+  WorktreeSetupSubscribeResponseSchema,
+  type WorktreeSetupRequest,
+  type WorktreeSetupStatus,
+  type WorktreeSetupSubscribeResponse,
+} from "./worktree-setup.js";
+
+/**
+ * An empty reply: the mutation was accepted and what it changes arrives on the
+ * stream that reports it. Shared by every `repo.*` mutation whose effect is
+ * read elsewhere.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface RepoEmptyResponse {}
+/** Wire schema for {@link RepoEmptyResponse}. */
+export const RepoEmptyResponseSchema: z.ZodType<RepoEmptyResponse> = z.object({}).strict();
+
+// ==========================================================================
+// The `repo.*` method table.
+// ==========================================================================
+//
+// A descriptor registers nothing: a method reaches the wire only when the
+// daemon service that answers it registers a handler against its descriptor.
+
+/** The `repo.*` descriptors, keyed by method name. */
+export interface RepoMethodDescriptors {
+  readonly "repo.attach": MethodDescriptor<"repo.attach", RepoAttachRequest, RepoAttachResponse>;
+  readonly "repo.mountRead": MethodDescriptor<
+    "repo.mountRead",
+    RepoMountReadRequest,
+    RepoMountReadResponse
+  >;
+  readonly "repo.mountList": MethodDescriptor<
+    "repo.mountList",
+    RepoMountListRequest,
+    RepoMountListResponse
+  >;
+  readonly "repo.detach": MethodDescriptor<"repo.detach", RepoDetachRequest, RepoDetachResponse>;
+  readonly "repo.folderList": MethodDescriptor<
+    "repo.folderList",
+    RepoFolderListRequest,
+    RepoFolderListResponse
+  >;
+  readonly "repo.workspaceBind": MethodDescriptor<
+    "repo.workspaceBind",
+    WorkspaceBindRequest,
+    WorkspaceBindResponse
+  >;
+  readonly "repo.executionModeCapabilitiesRead": MethodDescriptor<
+    "repo.executionModeCapabilitiesRead",
+    WorkspaceExecutionModeCapabilitiesReadRequest,
+    WorkspaceExecutionModeCapabilitiesReadResponse
+  >;
+  readonly "repo.workspaceList": MethodDescriptor<
+    "repo.workspaceList",
+    WorkspaceListRequest,
+    WorkspaceListResponse
+  >;
+  readonly "repo.projectList": SubscriptionMethodDescriptor<
+    "repo.projectList",
+    ProjectListRequest,
+    ProjectListResponse,
+    ProjectList
+  >;
+  readonly "repo.projectRename": MethodDescriptor<
+    "repo.projectRename",
+    ProjectRenameRequest,
+    ProjectEditResponse
+  >;
+  readonly "repo.projectArchive": MethodDescriptor<
+    "repo.projectArchive",
+    ProjectStateChangeRequest,
+    ProjectEditResponse
+  >;
+  readonly "repo.projectReactivate": MethodDescriptor<
+    "repo.projectReactivate",
+    ProjectStateChangeRequest,
+    ProjectEditResponse
+  >;
+  readonly "repo.projectSetupUpdate": MethodDescriptor<
+    "repo.projectSetupUpdate",
+    ProjectSetupUpdateRequest,
+    ProjectEditResponse
+  >;
+  readonly "repo.projectEnvironmentUpdate": MethodDescriptor<
+    "repo.projectEnvironmentUpdate",
+    ProjectEnvironmentUpdateRequest,
+    ProjectEditResponse
+  >;
+  readonly "repo.projectBranchPatternUpdate": MethodDescriptor<
+    "repo.projectBranchPatternUpdate",
+    ProjectBranchPatternUpdateRequest,
+    ProjectEditResponse
+  >;
+  readonly "repo.clone": MethodDescriptor<"repo.clone", RepoCloneRequest, RepoCloneResponse>;
+  readonly "repo.cloneSubscribe": SubscriptionMethodDescriptor<
+    "repo.cloneSubscribe",
+    RepoCloneProjectRequest,
+    RepoCloneSubscribeResponse,
+    RepoCloneStatus
+  >;
+  readonly "repo.cloneAnswer": MethodDescriptor<
+    "repo.cloneAnswer",
+    RepoCloneAnswerRequest,
+    RepoEmptyResponse
+  >;
+  readonly "repo.cloneCancel": MethodDescriptor<
+    "repo.cloneCancel",
+    RepoCloneProjectRequest,
+    RepoEmptyResponse
+  >;
+  readonly "repo.cloneFolderRead": MethodDescriptor<
+    "repo.cloneFolderRead",
+    RepoCloneFolderReadRequest,
+    RepoCloneFolderReadResponse
+  >;
+  readonly "repo.largeFilesPull": MethodDescriptor<
+    "repo.largeFilesPull",
+    RepoCloneProjectRequest,
+    RepoEmptyResponse
+  >;
+  readonly "repo.branchList": MethodDescriptor<
+    "repo.branchList",
+    RepoBranchListRequest,
+    RepoBranchListResponse
+  >;
+  readonly "repo.fileRead": MethodDescriptor<
+    "repo.fileRead",
+    RepoFileReadRequest,
+    RepoFileReadResponse
+  >;
+  readonly "repo.workingTreeSubscribe": SubscriptionMethodDescriptor<
+    "repo.workingTreeSubscribe",
+    WorkingTreeSubscribeRequest,
+    WorkingTreeSubscribeResponse,
+    WorkingTreeChange
+  >;
+  readonly "repo.executionModeSelect": MethodDescriptor<
+    "repo.executionModeSelect",
+    ExecutionModeSelectRequest,
+    ExecutionModeSelectResponse
+  >;
+  readonly "repo.executionRootPrepare": MethodDescriptor<
+    "repo.executionRootPrepare",
+    ExecutionRootPrepareRequest,
+    ExecutionRootPrepareResponse
+  >;
+  readonly "repo.worktreeReuseCheck": MethodDescriptor<
+    "repo.worktreeReuseCheck",
+    WorktreeReuseCheckRequest,
+    WorktreeReuseCheckResponse
+  >;
+  readonly "repo.worktreeRetire": MethodDescriptor<
+    "repo.worktreeRetire",
+    WorktreeRetireRequest,
+    WorktreeRetireResponse
+  >;
+  readonly "repo.worktreeStatusRead": MethodDescriptor<
+    "repo.worktreeStatusRead",
+    WorktreeStatusReadRequest,
+    WorktreeStatusReadResponse
+  >;
+  readonly "repo.worktreeSetupSubscribe": SubscriptionMethodDescriptor<
+    "repo.worktreeSetupSubscribe",
+    WorktreeSetupRequest,
+    WorktreeSetupSubscribeResponse,
+    WorktreeSetupStatus
+  >;
+  readonly "repo.worktreeSetupRetry": MethodDescriptor<
+    "repo.worktreeSetupRetry",
+    WorktreeSetupRequest,
+    RepoEmptyResponse
+  >;
+  readonly "repo.removedWorktreeList": MethodDescriptor<
+    "repo.removedWorktreeList",
+    RemovedWorktreeListRequest,
+    RemovedWorktreeListResponse
+  >;
+  readonly "repo.worktreeRestore": MethodDescriptor<
+    "repo.worktreeRestore",
+    RemovedWorktreeRequest,
+    WorktreeRestoreResponse
+  >;
+  readonly "repo.removedWorktreeDelete": MethodDescriptor<
+    "repo.removedWorktreeDelete",
+    RemovedWorktreeRequest,
+    RepoEmptyResponse
+  >;
+}
+
+/** Every `repo.*` method's contract. */
+export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescriptors({
+  "repo.attach": {
+    method: "repo.attach",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RepoAttachRequestSchema,
+    responseSchema: RepoAttachResponseSchema,
+  },
+  "repo.mountRead": {
+    method: "repo.mountRead",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: RepoMountReadRequestSchema,
+    responseSchema: RepoMountReadResponseSchema,
+  },
+  "repo.mountList": {
+    method: "repo.mountList",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: RepoMountListRequestSchema,
+    responseSchema: RepoMountListResponseSchema,
+  },
+  "repo.detach": {
+    method: "repo.detach",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RepoDetachRequestSchema,
+    responseSchema: RepoDetachResponseSchema,
+  },
+  "repo.folderList": {
+    method: "repo.folderList",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: RepoFolderListRequestSchema,
+    responseSchema: RepoFolderListResponseSchema,
+  },
+  "repo.workspaceBind": {
+    method: "repo.workspaceBind",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: WorkspaceBindRequestSchema,
+    responseSchema: WorkspaceBindResponseSchema,
+  },
+  "repo.executionModeCapabilitiesRead": {
+    method: "repo.executionModeCapabilitiesRead",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: WorkspaceExecutionModeCapabilitiesReadRequestSchema,
+    responseSchema: WorkspaceExecutionModeCapabilitiesReadResponseSchema,
+  },
+  "repo.workspaceList": {
+    method: "repo.workspaceList",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: WorkspaceListRequestSchema,
+    responseSchema: WorkspaceListResponseSchema,
+  },
+  "repo.projectList": {
+    method: "repo.projectList",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: ProjectListRequestSchema,
+    responseSchema: ProjectListResponseSchema,
+    emissionSchema: ProjectListSchema,
+  },
+  "repo.projectRename": {
+    method: "repo.projectRename",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ProjectRenameRequestSchema,
+    responseSchema: ProjectEditResponseSchema,
+  },
+  "repo.projectArchive": {
+    method: "repo.projectArchive",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ProjectStateChangeRequestSchema,
+    responseSchema: ProjectEditResponseSchema,
+  },
+  "repo.projectReactivate": {
+    method: "repo.projectReactivate",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ProjectStateChangeRequestSchema,
+    responseSchema: ProjectEditResponseSchema,
+  },
+  "repo.projectSetupUpdate": {
+    method: "repo.projectSetupUpdate",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ProjectSetupUpdateRequestSchema,
+    responseSchema: ProjectEditResponseSchema,
+  },
+  "repo.projectEnvironmentUpdate": {
+    method: "repo.projectEnvironmentUpdate",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ProjectEnvironmentUpdateRequestSchema,
+    responseSchema: ProjectEditResponseSchema,
+  },
+  "repo.projectBranchPatternUpdate": {
+    method: "repo.projectBranchPatternUpdate",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ProjectBranchPatternUpdateRequestSchema,
+    responseSchema: ProjectEditResponseSchema,
+  },
+  "repo.clone": {
+    method: "repo.clone",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RepoCloneRequestSchema,
+    responseSchema: RepoCloneResponseSchema,
+  },
+  "repo.cloneSubscribe": {
+    method: "repo.cloneSubscribe",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: RepoCloneProjectRequestSchema,
+    responseSchema: RepoCloneSubscribeResponseSchema,
+    emissionSchema: RepoCloneStatusSchema,
+  },
+  "repo.cloneAnswer": {
+    method: "repo.cloneAnswer",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RepoCloneAnswerRequestSchema,
+    responseSchema: RepoEmptyResponseSchema,
+  },
+  "repo.cloneCancel": {
+    method: "repo.cloneCancel",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RepoCloneProjectRequestSchema,
+    responseSchema: RepoEmptyResponseSchema,
+  },
+  "repo.cloneFolderRead": {
+    method: "repo.cloneFolderRead",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: RepoCloneFolderReadRequestSchema,
+    responseSchema: RepoCloneFolderReadResponseSchema,
+  },
+  "repo.largeFilesPull": {
+    method: "repo.largeFilesPull",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RepoCloneProjectRequestSchema,
+    responseSchema: RepoEmptyResponseSchema,
+  },
+  "repo.branchList": {
+    method: "repo.branchList",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: RepoBranchListRequestSchema,
+    responseSchema: RepoBranchListResponseSchema,
+  },
+  "repo.fileRead": {
+    method: "repo.fileRead",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: RepoFileReadRequestSchema,
+    responseSchema: RepoFileReadResponseSchema,
+  },
+  "repo.workingTreeSubscribe": {
+    method: "repo.workingTreeSubscribe",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: WorkingTreeSubscribeRequestSchema,
+    responseSchema: WorkingTreeSubscribeResponseSchema,
+    emissionSchema: WorkingTreeChangeSchema,
+  },
+  "repo.executionModeSelect": {
+    method: "repo.executionModeSelect",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ExecutionModeSelectRequestSchema,
+    responseSchema: ExecutionModeSelectResponseSchema,
+  },
+  "repo.executionRootPrepare": {
+    method: "repo.executionRootPrepare",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ExecutionRootPrepareRequestSchema,
+    responseSchema: ExecutionRootPrepareResponseSchema,
+  },
+  "repo.worktreeReuseCheck": {
+    method: "repo.worktreeReuseCheck",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: WorktreeReuseCheckRequestSchema,
+    responseSchema: WorktreeReuseCheckResponseSchema,
+  },
+  "repo.worktreeRetire": {
+    method: "repo.worktreeRetire",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: WorktreeRetireRequestSchema,
+    responseSchema: WorktreeRetireResponseSchema,
+  },
+  "repo.worktreeStatusRead": {
+    method: "repo.worktreeStatusRead",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: WorktreeStatusReadRequestSchema,
+    responseSchema: WorktreeStatusReadResponseSchema,
+  },
+  "repo.worktreeSetupSubscribe": {
+    method: "repo.worktreeSetupSubscribe",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: WorktreeSetupRequestSchema,
+    responseSchema: WorktreeSetupSubscribeResponseSchema,
+    emissionSchema: WorktreeSetupStatusSchema,
+  },
+  "repo.worktreeSetupRetry": {
+    method: "repo.worktreeSetupRetry",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: WorktreeSetupRequestSchema,
+    responseSchema: RepoEmptyResponseSchema,
+  },
+  "repo.removedWorktreeList": {
+    method: "repo.removedWorktreeList",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: RemovedWorktreeListRequestSchema,
+    responseSchema: RemovedWorktreeListResponseSchema,
+  },
+  "repo.worktreeRestore": {
+    method: "repo.worktreeRestore",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RemovedWorktreeRequestSchema,
+    responseSchema: WorktreeRestoreResponseSchema,
+  },
+  "repo.removedWorktreeDelete": {
+    method: "repo.removedWorktreeDelete",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RemovedWorktreeRequestSchema,
+    responseSchema: RepoEmptyResponseSchema,
+  },
+});

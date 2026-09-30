@@ -24,6 +24,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
   DRIVER_CAPABILITY_FLAGS,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
@@ -86,7 +87,6 @@ import {
   CodexRequestTimeoutError,
   CodexRewindBoundaryUnsupportedError,
   CodexTransportError,
-  CODEX_APP_SERVER_BIN_ENV_VAR,
   CODEX_APP_SERVER_READY_SENTINEL,
   CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
@@ -954,7 +954,7 @@ describe("CodexDriver spawn and handshake", () => {
     // daemon-configured socket path or credential-file path cannot be
     // re-parsed by the shell (leg 6).
     expect(CODEX_APP_SERVER_SHELL_PRELUDE).toBe(
-      `stty -icanon -echo && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL} && exec "$${CODEX_APP_SERVER_BIN_ENV_VAR}" "$@"`,
+      `stty -icanon -echo && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL} && exec "$${CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME}" "$@"`,
     );
   });
 
@@ -967,7 +967,7 @@ describe("CodexDriver spawn and handshake", () => {
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
       ["PATH", "/usr/bin"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -1343,7 +1343,7 @@ describe("CodexDriver resumeSession", () => {
     expect(harness.server.spawnRequests[0]?.cwd).toBe(RESUME_SPAWN_CONFIG.cwd);
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2121,7 +2121,7 @@ describe("CodexLifecycleManager probeAuth", () => {
     expect(spawn?.cwd).toBe(RESUME_SPAWN_CONFIG.cwd);
     expect(spawn?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
   });
@@ -2193,7 +2193,7 @@ describe("CodexDriver spawn-environment hygiene", () => {
     // assertion above does not cover it.
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2204,7 +2204,7 @@ describe("CodexDriver spawn-environment hygiene", () => {
 
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 });
@@ -2244,7 +2244,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     // dropped or reordered something else.
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2268,7 +2268,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2316,7 +2316,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2357,7 +2357,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
       [DENIED_ENV_VAR, "sk-live"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2387,7 +2387,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
       [DENIED_ENV_VAR, "sk-live"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2457,7 +2457,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 
     expect(harness.server.spawnRequests[1]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2492,7 +2492,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     // it inherited would not pass.
     expect(harness.server.spawnRequests[1]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2526,7 +2526,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     expect(harness.server.spawnRequests[1]?.env).toEqual([
       ["HOME", "/home/agent"],
       [DENIED_ENV_VAR, "sk-live"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2554,7 +2554,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2596,7 +2596,7 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
     ]);
   });
 
@@ -2613,14 +2613,14 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
         cwd: SESSION_CWD,
         env: [["HOME", "/home/agent"]],
         credentialEnvPolicy: {
-          denyEnvVars: [CODEX_APP_SERVER_BIN_ENV_VAR],
+          denyEnvVars: [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME],
           envNameMatch: "case-sensitive",
         },
       },
     });
 
     expect(harness.server.spawnRequests[0]?.env).toContainEqual([
-      CODEX_APP_SERVER_BIN_ENV_VAR,
+      CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
       EXECUTABLE_PATH,
     ]);
   });

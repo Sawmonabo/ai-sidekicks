@@ -1,11 +1,11 @@
 // Golden-vector suite for the RFC 8785 JCS canonicalizer.
 //
 // WHY GOLDEN VECTORS AND NOT ROUND-TRIP TESTS. The canonical bytes this module
-// produces are the input to every `row_hash` and `daemon_signature` on disk,
-// so the property that matters is not "canonicalization is self-consistent" —
-// it is "these exact bytes, today and after every future refactor and
-// dependency bump". A self-consistent implementation that changed one byte
-// would invalidate the whole chain silently. Hence inline hex fixtures (the
+// produces are what every consumer measures, hashes, or signs, so the property
+// that matters is not "canonicalization is self-consistent" — it is "these
+// exact bytes, today and after every future refactor and dependency bump". A
+// self-consistent implementation that changed one byte would move every
+// consumer's bytes silently. Hence inline hex fixtures (the
 // crypto-paseto convention) and RFC-sourced expected values rather than values
 // recomputed from the code under test.
 //
@@ -42,12 +42,7 @@ import type { EventEnvelope, EventEnvelopeVersion, SessionId } from "@ai-sidekic
 // suite's job is to bind THIS module's bytes, not the dependency's.
 import canonicalize from "canonicalize";
 import { describe, expect, it } from "vitest";
-import {
-  canonicalizeEvent,
-  canonicalizeJson,
-  isCanonicalOccurredAt,
-  normalizeOccurredAt,
-} from "../canonicalizer.js";
+import { canonicalizeEvent, canonicalizeJson, normalizeOccurredAt } from "../canonicalizer.js";
 
 // --------------------------------------------------------------------------
 // Helpers — deliberately hand-rolled rather than imported from a byte-utility
@@ -214,8 +209,8 @@ describe("RFC 8785 conformance — the published JCS vectors", () => {
     const canonicalBytes = canonicalizeJson(JSON.parse(RFC_8785_SAMPLE_DOCUMENT_SOURCE));
 
     // The byte assertion is the normative one — RFC 8785 section 3.2.4 fixes UTF-8 as
-    // the canonical output encoding, and these are the bytes a signature
-    // commits to. Asserted as hex so a failure prints a readable diff.
+    // the canonical output encoding, and these are the bytes every consumer
+    // receives. Asserted as hex so a failure prints a readable diff.
     expect(bytesToHex(canonicalBytes)).toBe(bytesToHex(hexToBytes(RFC_8785_SAMPLE_DOCUMENT_BYTES)));
 
     // The text assertion is redundant with the bytes but is what a human reads
@@ -260,7 +255,7 @@ describe("RFC 8785 conformance — the published JCS vectors", () => {
         // These two refusals originate inside `canonicalize@3.0.0` and surface
         // with its bare wording — pinned here so a library swap that started
         // emitting `null` (plain `JSON.stringify` behavior) fails loudly
-        // instead of signing a silently-substituted value.
+        // instead of producing a silently-substituted value.
         const message = captureThrownMessage(() =>
           canonicalizeJson(ieee754HexToNumber(sample.ieee754Hex)),
         );
@@ -315,8 +310,8 @@ const GOLDEN_ENVELOPE: EventEnvelope = {
   // where the input is a bare JSON value and no envelope contract applies.
   sequence: 9007199254740991,
   occurredAt: "2026-03-04T05:06:07.008Z",
-  category: "audit_integrity",
-  type: "audit.chain_verified",
+  category: "event_maintenance",
+  type: "event.compacted",
   actor: "user-7f3a",
   payload: {
     zebra: "sorts-last",
@@ -335,41 +330,40 @@ const GOLDEN_ENVELOPE: EventEnvelope = {
 // Produced by this module and pinned as a REGRESSION constant: unlike the RFC
 // vectors above there is no external publication of what an AI-Sidekicks
 // envelope must hash to, so what this fixture buys is byte-stability across
-// refactors and dependency bumps — the property that keeps every `row_hash`
-// already on disk verifiable.
+// refactors and dependency bumps.
 const GOLDEN_ENVELOPE_CANONICAL_TEXT =
-  '{"actor":"user-7f3a","category":"audit_integrity","causationId":"causation-4b1d",' +
+  '{"actor":"user-7f3a","category":"event_maintenance","causationId":"causation-4b1d",' +
   '"correlationId":"correlation-9c2e","id":"01960b3c-e1d0-7a41-b2c9-5f8e37d6a204",' +
   '"occurredAt":"2026-03-04T05:06:07.008Z","payload":{"alpha":"sorts-first",' +
   '"nested":{"B":"upper-b","a":"lower-a","é":"e-acute"},"ratio":333333333.3333332,' +
   '"zebra":"sorts-last"},"sequence":9007199254740991,' +
-  '"sessionId":"0192f3a4-5b6c-7d8e-9f01-234567890abc","type":"audit.chain_verified",' +
+  '"sessionId":"0192f3a4-5b6c-7d8e-9f01-234567890abc","type":"event.compacted",' +
   '"version":"1.0"}';
 
 const GOLDEN_ENVELOPE_CANONICAL_BYTES = `
   7b 22 61 63 74 6f 72 22 3a 22 75 73 65 72 2d 37 66 33 61 22
-  2c 22 63 61 74 65 67 6f 72 79 22 3a 22 61 75 64 69 74 5f 69
-  6e 74 65 67 72 69 74 79 22 2c 22 63 61 75 73 61 74 69 6f 6e
-  49 64 22 3a 22 63 61 75 73 61 74 69 6f 6e 2d 34 62 31 64 22
-  2c 22 63 6f 72 72 65 6c 61 74 69 6f 6e 49 64 22 3a 22 63 6f
-  72 72 65 6c 61 74 69 6f 6e 2d 39 63 32 65 22 2c 22 69 64 22
-  3a 22 30 31 39 36 30 62 33 63 2d 65 31 64 30 2d 37 61 34 31
-  2d 62 32 63 39 2d 35 66 38 65 33 37 64 36 61 32 30 34 22 2c
-  22 6f 63 63 75 72 72 65 64 41 74 22 3a 22 32 30 32 36 2d 30
-  33 2d 30 34 54 30 35 3a 30 36 3a 30 37 2e 30 30 38 5a 22 2c
-  22 70 61 79 6c 6f 61 64 22 3a 7b 22 61 6c 70 68 61 22 3a 22
-  73 6f 72 74 73 2d 66 69 72 73 74 22 2c 22 6e 65 73 74 65 64
-  22 3a 7b 22 42 22 3a 22 75 70 70 65 72 2d 62 22 2c 22 61 22
-  3a 22 6c 6f 77 65 72 2d 61 22 2c 22 c3 a9 22 3a 22 65 2d 61
-  63 75 74 65 22 7d 2c 22 72 61 74 69 6f 22 3a 33 33 33 33 33
-  33 33 33 33 2e 33 33 33 33 33 33 32 2c 22 7a 65 62 72 61 22
-  3a 22 73 6f 72 74 73 2d 6c 61 73 74 22 7d 2c 22 73 65 71 75
-  65 6e 63 65 22 3a 39 30 30 37 31 39 39 32 35 34 37 34 30 39
-  39 31 2c 22 73 65 73 73 69 6f 6e 49 64 22 3a 22 30 31 39 32
-  66 33 61 34 2d 35 62 36 63 2d 37 64 38 65 2d 39 66 30 31 2d
-  32 33 34 35 36 37 38 39 30 61 62 63 22 2c 22 74 79 70 65 22
-  3a 22 61 75 64 69 74 2e 63 68 61 69 6e 5f 76 65 72 69 66 69
-  65 64 22 2c 22 76 65 72 73 69 6f 6e 22 3a 22 31 2e 30 22 7d
+  2c 22 63 61 74 65 67 6f 72 79 22 3a 22 65 76 65 6e 74 5f 6d
+  61 69 6e 74 65 6e 61 6e 63 65 22 2c 22 63 61 75 73 61 74 69
+  6f 6e 49 64 22 3a 22 63 61 75 73 61 74 69 6f 6e 2d 34 62 31
+  64 22 2c 22 63 6f 72 72 65 6c 61 74 69 6f 6e 49 64 22 3a 22
+  63 6f 72 72 65 6c 61 74 69 6f 6e 2d 39 63 32 65 22 2c 22 69
+  64 22 3a 22 30 31 39 36 30 62 33 63 2d 65 31 64 30 2d 37 61
+  34 31 2d 62 32 63 39 2d 35 66 38 65 33 37 64 36 61 32 30 34
+  22 2c 22 6f 63 63 75 72 72 65 64 41 74 22 3a 22 32 30 32 36
+  2d 30 33 2d 30 34 54 30 35 3a 30 36 3a 30 37 2e 30 30 38 5a
+  22 2c 22 70 61 79 6c 6f 61 64 22 3a 7b 22 61 6c 70 68 61 22
+  3a 22 73 6f 72 74 73 2d 66 69 72 73 74 22 2c 22 6e 65 73 74
+  65 64 22 3a 7b 22 42 22 3a 22 75 70 70 65 72 2d 62 22 2c 22
+  61 22 3a 22 6c 6f 77 65 72 2d 61 22 2c 22 c3 a9 22 3a 22 65
+  2d 61 63 75 74 65 22 7d 2c 22 72 61 74 69 6f 22 3a 33 33 33
+  33 33 33 33 33 33 2e 33 33 33 33 33 33 32 2c 22 7a 65 62 72
+  61 22 3a 22 73 6f 72 74 73 2d 6c 61 73 74 22 7d 2c 22 73 65
+  71 75 65 6e 63 65 22 3a 39 30 30 37 31 39 39 32 35 34 37 34
+  30 39 39 31 2c 22 73 65 73 73 69 6f 6e 49 64 22 3a 22 30 31
+  39 32 66 33 61 34 2d 35 62 36 63 2d 37 64 38 65 2d 39 66 30
+  31 2d 32 33 34 35 36 37 38 39 30 61 62 63 22 2c 22 74 79 70
+  65 22 3a 22 65 76 65 6e 74 2e 63 6f 6d 70 61 63 74 65 64 22
+  2c 22 76 65 72 73 69 6f 6e 22 3a 22 31 2e 30 22 7d
 `;
 
 describe("canonicalizeEvent — the canonical eleven-member envelope", () => {
@@ -423,13 +417,13 @@ describe("canonicalizeEvent — the canonical eleven-member envelope", () => {
 
   it("projects only the canonical set — a runtime-only member is not serialized", () => {
     // `pii_payload` is a storage column, deliberately NOT an envelope member:
-    // crypto-shred clears that column and the canonical bytes must survive it.
-    // The explicit projection in `canonicalizeEvent` is what guarantees a
-    // member the envelope happens to carry at runtime never reaches the signed
-    // bytes.
+    // crypto-shred clears that column and the canonical bytes must not depend
+    // on it. The explicit projection in `canonicalizeEvent` is what guarantees
+    // a member the envelope happens to carry at runtime never reaches the
+    // canonical bytes.
     const withStorageOnlyMember: EventEnvelope = {
       ...GOLDEN_ENVELOPE,
-      ...{ pii_payload: "ciphertext-that-must-not-be-signed" },
+      ...{ pii_payload: "ciphertext-that-must-not-be-serialized" },
     };
     // Guard the FIXTURE, not the module. The inner spread is what lets an
     // excess member past the object-literal check; if a later refactor changes
@@ -444,7 +438,7 @@ describe("canonicalizeEvent — the canonical eleven-member envelope", () => {
   it("normalizes occurredAt inside canonicalization — one instant, one byte string", () => {
     // Three lexical spellings of the SAME instant (Z form, a positive offset,
     // and a negative offset with omitted seconds) must produce identical bytes,
-    // because `daemon_signature` commits to the instant.
+    // because the canonical form records the instant.
     const utcSpelling: EventEnvelope = {
       ...GOLDEN_ENVELOPE,
       occurredAt: "2026-03-04T05:06:07.008Z",
@@ -660,10 +654,10 @@ describe("canonicalizeJson — the nesting-depth ceiling", () => {
 // routes strings and property names through `JSON.stringify`, whose ES2019
 // well-formed behavior escapes a lone surrogate as `\ud800` rather than emitting
 // ill-formed UTF-16. The result is VALID JSON TEXT that round-trips through
-// `JSON.parse` — nothing downstream looks broken — while a conforming verifier
-// handed the same event terminates and produces no bytes at all. The guard
-// exists so this daemon never signs a byte string no conforming implementation
-// will agree is canonical.
+// `JSON.parse` — nothing downstream looks broken — while a conforming
+// implementation handed the same event terminates and produces no bytes at all.
+// The guard exists so this daemon never produces a byte string no conforming
+// implementation will agree is canonical.
 
 /** A lone HIGH surrogate (no low surrogate follows) — the U+D800 end of the range. */
 const LONE_HIGH_SURROGATE = "\ud800";
@@ -978,10 +972,9 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     expect(canonicalize(statefulProjection)).toBe('{"v":1}');
     expect(canonicalize(statefulProjection)).toBe('{"v":2}');
 
-    // Step 2 — that is fatal for the integrity protocol specifically.
-    // Verification RE-CANONICALIZES a rehydrated row and compares bytes, so a
-    // second draw that differs makes the row's own `row_hash` unreproducible
-    // from the row.
+    // Step 2 — that is fatal for any consumer that re-canonicalizes a value
+    // and compares bytes: a second draw that differs makes the bytes
+    // unreproducible from the value.
     projectionCount = 0;
     expect(canonicalize(statefulProjection)).not.toBe(canonicalize(statefulProjection));
 
@@ -1229,217 +1222,11 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
   });
 
   it("is idempotent — the canonical form is a fixed point of every branch", () => {
-    // Load-bearing: verifiers re-canonicalize a stored row to recompute
-    // `row_hash`, so byte-reproduction must hold whether the append path
-    // persisted the raw or the normalized string.
+    // Load-bearing: a stored row re-canonicalizes to the same bytes whether
+    // the append path persisted the raw or the normalized string.
     for (const vector of OCCURRED_AT_NORMALIZATIONS) {
       const onceNormalized = normalizeOccurredAt(vector.input);
       expect(normalizeOccurredAt(onceNormalized)).toBe(onceNormalized);
-    }
-  });
-});
-
-// --------------------------------------------------------------------------
-// isCanonicalOccurredAt — the READ-side check that binds the column's BYTES.
-// --------------------------------------------------------------------------
-//
-// WHAT IT IS FOR, AND WHY IT IS A SEPARATE PREDICATE. Normalization is
-// many-to-one, so `daemon_signature` commits to the INSTANT and every lexical
-// respelling of that instant verifies green — which makes
-// `session_events.occurred_at` the one signed column with a MANDATED canonical
-// stored form that an at-rest attacker can respell undetected, dropping the row
-// out of lexical range scans and misordering it under `ORDER BY`. It is NOT the
-// only respellable column, and the unqualified claim would be false: `payload`
-// is stored as TEXT and `JSON.parse`d before re-canonicalization, so member
-// reordering, whitespace, `2` vs `2.0`, and `A` vs `A` all survive a green
-// verdict too. What separates them is that no column contract pins `payload`'s
-// spelling and it is neither an ordering nor a filtering key, so there is no
-// canonical form to test it against and no scan for a respelling to fall out
-// of. That asymmetry is precisely what makes a form predicate possible here and
-// not there. Both spellings this suite pins as attacks are pinned GREEN
-// on the verify side by `post-purge-verify.test.ts`'s two `occurredAt` controls,
-// and correctly so: `verifyRow` decides hash and signature, and both are intact.
-// This predicate is the other half.
-//
-// THE CLOSURE ARGUMENT, which is what makes the pair complete rather than merely
-// better. The canonical form admits EXACTLY ONE spelling per instant — it is
-// `toISOString()` output, a function of the instant alone — and it is a fixed
-// point of `normalizeOccurredAt`. So over a row whose signature verifies: the
-// predicate holding means the stored string IS the signed string byte for byte,
-// and the predicate failing means it is a respelling. A string that names no
-// instant cannot produce a green verdict at all, because `normalizeOccurredAt`
-// throws on it first. Those three arms cover the space, and the fixed-point test
-// below is the load-bearing one — without it "canonical" and "what was signed"
-// are two different claims.
-//
-// NOT WIRED INTO ANY PRODUCTION CALL PATH. the audit range-walk is the consumer
-// and does not exist yet; this ships as a forward-declared contract, so every
-// assertion here is against the exported function directly.
-
-/**
- * `OCCURRED_AT_REFUSALS` inputs the predicate ALSO rejects — five of the seven.
- * Held as an explicit list rather than filtered out of that table, so the
- * partition below can assert both halves reconstitute it.
- */
-const REFUSALS_THE_PREDICATE_ALSO_REJECTS: readonly string[] = [
-  "2026-01-01T00:00:00.0001Z",
-  "0000-01-01T00:00:00+05:00",
-  "9999-12-31T23:59:59-05:00",
-  "2026-01-01t00:00:00.000Z",
-  "2026-01-01 00:00:00.000Z",
-];
-
-/**
- * The other two — `normalizeOccurredAt` refuses them, this predicate ACCEPTS
- * them. Characterization, not endorsement: see the residual test below.
- */
-const REFUSALS_THE_PREDICATE_ACCEPTS: readonly string[] = [
-  "2026-02-29T00:00:00.000Z",
-  "2026-02-30T00:00:00.000Z",
-];
-
-describe("isCanonicalOccurredAt — the stored spelling, not just the instant", () => {
-  it("accepts the canonical form and rejects both real respelling attacks", () => {
-    // THE TWO ATTACK SPELLINGS ARE NOT INVENTED FOR THIS TEST. Both are the
-    // literal strings `post-purge-verify.test.ts` UPDATEs into
-    // `session_events.occurred_at` and then asserts `{ valid: true }` for — the
-    // offset respelling and the fourth-fractional-digit respelling of the golden
-    // envelope's own `occurredAt`. Verification is green for both; this is where
-    // they are caught.
-    expect(isCanonicalOccurredAt("2026-03-04T05:06:07.008Z")).toBe(true);
-    expect(isCanonicalOccurredAt(GOLDEN_ENVELOPE.occurredAt)).toBe(true);
-
-    expect(isCanonicalOccurredAt("2026-03-04T00:06:07.008-05:00")).toBe(false);
-    expect(isCanonicalOccurredAt("2026-03-04T05:06:07.0080Z")).toBe(false);
-
-    // Both DO name the signed instant — which is exactly why the signature
-    // cannot see them, and why the predicate has to. Asserted rather than
-    // asserted-about: without this the two rejects above would be consistent
-    // with the strings simply being malformed.
-    expect(normalizeOccurredAt("2026-03-04T00:06:07.008-05:00")).toBe("2026-03-04T05:06:07.008Z");
-    expect(normalizeOccurredAt("2026-03-04T05:06:07.0080Z")).toBe("2026-03-04T05:06:07.008Z");
-  });
-
-  it("is exactly the fixed-point set of normalizeOccurredAt — canonical IS what was signed", () => {
-    // THE CLOSURE ARGUMENT'S LOAD-BEARING STEP. "Lexically canonical" would be a
-    // cosmetic property if it were not also "byte-identical to what the signer
-    // saw". For every accepted input, the predicate holds on the string exactly
-    // when normalization leaves it untouched — so on a row that verifies, a
-    // `true` here means the stored bytes ARE the signed bytes.
-    for (const vector of OCCURRED_AT_NORMALIZATIONS) {
-      const normalized = normalizeOccurredAt(vector.input);
-      expect(isCanonicalOccurredAt(vector.input), vector.input).toBe(vector.input === normalized);
-      expect(isCanonicalOccurredAt(normalized), vector.why).toBe(true);
-      // The fixed point itself: canonical ⇒ normalization is the identity.
-      expect(normalizeOccurredAt(normalized), vector.why).toBe(normalized);
-    }
-    // THE ANTI-VACUITY PIN: the loop above is satisfiable by a constant
-    // predicate unless the table carries BOTH arms, so both are asserted
-    // non-empty rather than counted (a count would churn every time a vector is
-    // added). Today it is six respellings against three already-canonical
-    // vectors.
-    const respellings = OCCURRED_AT_NORMALIZATIONS.filter(
-      (vector) => vector.input !== vector.normalized,
-    );
-    const alreadyCanonical = OCCURRED_AT_NORMALIZATIONS.filter(
-      (vector) => vector.input === vector.normalized,
-    );
-    expect(respellings.length).toBeGreaterThan(0);
-    expect(alreadyCanonical.length).toBeGreaterThan(0);
-  });
-
-  it("rejects five of the seven normalizeOccurredAt refusals, and accepts two", () => {
-    // A DERIVED PARTITION, NOT TWO INDEPENDENT LISTS: the two halves are asserted
-    // to reconstitute `OCCURRED_AT_REFUSALS` exactly, so a row added to that
-    // table fails HERE rather than quietly escaping this predicate's coverage.
-    const partition = [
-      ...REFUSALS_THE_PREDICATE_ALSO_REJECTS,
-      ...REFUSALS_THE_PREDICATE_ACCEPTS,
-    ].sort();
-    expect(partition).toStrictEqual(OCCURRED_AT_REFUSALS.map((vector) => vector.input).sort());
-
-    for (const input of REFUSALS_THE_PREDICATE_ALSO_REJECTS) {
-      expect(isCanonicalOccurredAt(input), input).toBe(false);
-    }
-    for (const input of REFUSALS_THE_PREDICATE_ACCEPTS) {
-      expect(isCanonicalOccurredAt(input), input).toBe(true);
-    }
-  });
-
-  it("is LEXICAL, not a calendar or field-range validator — the residual, pinned", () => {
-    // CHARACTERIZATION, NOT ENDORSEMENT, in the same register as the
-    // negative-but-safe `sequence` residual below. `\d{2}` admits a month, day,
-    // hour, minute, and second outside their real ranges, so a string naming no
-    // instant at all satisfies this predicate.
-    //
-    // NOTHING IS LOST, and that is the claim the second assertion in each pair
-    // makes: every one of these throws out of `normalizeOccurredAt` — guard 3 for
-    // the calendar ones, guard 1 for the field-range ones, whose values the
-    // ACCEPTED-input pattern bounds at `[01]\d|2[0-3]` and `[0-5]\d`. A row
-    // carrying one therefore cannot verify, so the predicate never has to decide
-    // it. Re-deriving the calendar read-back inside the predicate would duplicate
-    // guard 3 and give it a second way to disagree with guard 3.
-    const namesNoInstant: ReadonlyArray<{ readonly input: string; readonly guard: RegExp }> = [
-      { input: "2026-02-29T00:00:00.000Z", guard: /does not exist on the calendar/ },
-      { input: "2026-02-30T00:00:00.000Z", guard: /does not exist on the calendar/ },
-      { input: "2026-13-01T00:00:00.000Z", guard: /does not exist on the calendar/ },
-      { input: "2026-01-00T00:00:00.000Z", guard: /does not exist on the calendar/ },
-      { input: "2026-01-01T25:00:00.000Z", guard: /must be an RFC 3339 date-time/ },
-      { input: "2026-01-01T00:60:00.000Z", guard: /must be an RFC 3339 date-time/ },
-      // RFC 3339 section 5.8's leap-second spelling. The accepted-input pattern's
-      // `[0-5]\d` refuses `:60`, so it is guard 1, not a calendar refusal.
-      { input: "2026-12-31T23:59:60.000Z", guard: /must be an RFC 3339 date-time/ },
-    ];
-    for (const { input, guard } of namesNoInstant) {
-      expect(isCanonicalOccurredAt(input), input).toBe(true);
-      expect(
-        captureThrownMessage(() => normalizeOccurredAt(input)),
-        input,
-      ).toMatch(guard);
-    }
-  });
-
-  it("RETURNS on garbage rather than throwing — the property the range-walk needs", () => {
-    // WHY A THROW WOULD BE WORSE THAN A WRONG ANSWER, and the reason this test
-    // exists at all. walks a RANGE of rows; a throw aborts the walk and
-    // suppresses verification of every row after the offending one, so one
-    // malformed `occurred_at` would buy an attacker a range-wide blind spot. The
-    // read path already has three layers that throw
-    // (`post-purge-verify.test.ts`'s characterized hole); this predicate must
-    // never become a fourth.
-    //
-    // Every input below makes `normalizeOccurredAt` throw. The predicate returns
-    // `false` for each — asserted through a thunk so a throw fails as a THROW
-    // rather than as a wrong boolean.
-    const inputsThatMakeNormalizationThrow: readonly string[] = [
-      "",
-      "not-a-date",
-      "2026-01-01",
-      "2026-01-01T00:00:00.0001Z",
-      "0000-01-01T00:00:00+05:00",
-      "  2026-03-04T05:06:07.008Z  ",
-      "2026-03-04T05:06:07.008Z\n",
-      "2026-03-04T05:06:07.008Z2026-03-04T05:06:07.008Z",
-      "\u0000",
-      "😀",
-    ];
-    for (const input of inputsThatMakeNormalizationThrow) {
-      expect(() => normalizeOccurredAt(input), input).toThrow();
-      expect(() => isCanonicalOccurredAt(input), input).not.toThrow();
-      expect(isCanonicalOccurredAt(input), input).toBe(false);
-    }
-  });
-
-  it("is stateless across calls — the pattern carries no g flag", () => {
-    // A `g`-flagged pattern would make `.test` advance `lastIndex` and alternate
-    // `true` / `false` on repeated calls with the SAME input. the walk calls
-    // this once per row over a shared module-level pattern, so that regression
-    // would silently flag every other row. Cheap to pin, invisible otherwise.
-    const canonical = "2026-03-04T05:06:07.008Z";
-    const respelled = "2026-03-04T00:06:07.008-05:00";
-    for (let call = 0; call < 3; call++) {
-      expect(isCanonicalOccurredAt(canonical), `call ${String(call)}`).toBe(true);
-      expect(isCanonicalOccurredAt(respelled), `call ${String(call)}`).toBe(false);
     }
   });
 });
@@ -1451,8 +1238,8 @@ describe("isCanonicalOccurredAt — the stored spelling, not just the instant", 
 describe("canonicalizeJson — values with no JSON representation", () => {
   // `canonicalize@3.0.0` DELEGATES to `JSON.stringify` for non-objects, which
   // returns `undefined` rather than throwing for these three. Unguarded, the
-  // encoder would turn that into ZERO canonical bytes and the signer would sign
-  // the empty string for an input it could not represent.
+  // encoder would turn that into ZERO canonical bytes for an input it could not
+  // represent.
   const valuesWithoutJsonRepresentation: ReadonlyArray<{ label: string; value: unknown }> = [
     { label: "undefined", value: undefined },
     { label: "a function", value: (): number => 1 },
@@ -1533,12 +1320,11 @@ describe("canonicalizeJson — values with no JSON representation", () => {
 // `canonicalizeEvent` DOES NOT PARSE. Every other bound on `sequence` lives on
 // `EventEnvelopeSchema`, so an in-process caller that builds an `EventEnvelope`
 // literal — which the type system fully permits, `sequence` being plain
-// `number` — reaches the hash chain having met no schema at all. That caller is
+// `number` — reaches the log having met no schema at all. That caller is
 // the uncovered path, and the reason the guard is at the canonicalizer.
 //
 // Above 2^53 − 1 distinct integers share one IEEE-754 double, so two different
-// events canonicalize to identical bytes and collide on `row_hash` — inside the
-// structure builds precisely to make tampering detectable.
+// events canonicalize to identical bytes and share one replay key.
 
 describe("canonicalizeEvent — sequence must be faithfully representable", () => {
   const sequenceRefusalPattern = /canonicalization refused: sequence .* is not a safe integer/;
@@ -1562,7 +1348,7 @@ describe("canonicalizeEvent — sequence must be faithfully representable", () =
       canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: 9007199254740992 }),
     );
     expect(message).toMatch(sequenceRefusalPattern);
-    expect(message).toMatch(/row_hash/);
+    expect(message).toMatch(/replay key/);
   });
 
   it("refuses the collapsed pair that would otherwise share canonical bytes", () => {

@@ -1,11 +1,41 @@
-// Workflow runs: starting, canceling and resuming a run, reading a finished step's saved
-// outputs, deciding an approval, submitting a form, verifying the approval record, and
-// listing runs. Payload shapes only; nothing here registers a method or a handler.
+// Workflow runs: the run id, the statuses and the step record every run method and
+// event shares, and the codes a failed step carries. A node's id, an item and a step's
+// error are the workflow document's, in `workflow-definition.ts`. The methods that act on a run are in
+// `workflow-run-control.ts`, those that read, list and keep run records in
+// `workflow-run-records.ts`, and one step's data, approval and form in
+// `workflow-run-step.ts`; each builds on this file and none of them is imported here.
 import { z } from "zod";
 
+import {
+  AgentIdSchema,
+  AgentResolvedConfigurationSchema,
+  type AgentId,
+  type AgentResolvedConfiguration,
+} from "./agent-definition.js";
+import { jsonUtf8ByteLength } from "./jsonrpc.js";
+import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
-import { WorkflowVersionIdSchema } from "./workflow-definition.js";
+import { UsdMicrosSchema } from "./session-cost.js";
+import {
+  EventCursorSchema,
+  SessionIdSchema,
+  UserIdSchema,
+  type EventCursor,
+  type SessionId,
+  type UserId,
+} from "./session.js";
+import {
+  WorkflowItemSchema,
+  WorkflowNodeIdSchema,
+  WorkflowStepErrorSchema,
+  type WorkflowItem,
+  type WorkflowNodeId,
+  type WorkflowStepError,
+} from "./workflow-definition.js";
+
+// --------------------------------------------------------------------------
+// Ids
+// --------------------------------------------------------------------------
 
 /** A workflow run's id. The daemon mints it; a client passes it through and never parses it. */
 export type WorkflowRunId = string & { readonly __brand: "WorkflowRunId" };
@@ -15,7 +45,16 @@ export const WorkflowRunIdSchema: z.ZodType<WorkflowRunId, WorkflowRunId> = z
   .min(1)
   .brand<"WorkflowRunId">() as unknown as z.ZodType<WorkflowRunId, WorkflowRunId>;
 
-const WORKFLOW_RUN_STATUSES = [
+// --------------------------------------------------------------------------
+// Closed vocabularies
+// --------------------------------------------------------------------------
+
+/**
+ * A run's status, the only ones a surface shows. `waiting` covers a run held by a
+ * person, a chain's question or a spent provider account; it is never swept to
+ * `crashed` when the daemon starts and never pruned, so a waiting run survives a restart.
+ */
+export const WORKFLOW_RUN_STATUSES = [
   "new",
   "running",
   "waiting",
@@ -24,61 +63,235 @@ const WORKFLOW_RUN_STATUSES = [
   "canceled",
   "crashed",
 ] as const;
-
-/**
- * A run's status, the one a surface shows for it. `waiting` covers a run parked on a
- * person or on a provider account. It is never swept to `crashed` when the daemon
- * starts and never pruned, so a parked run survives a restart.
- */
+/** One of {@link WORKFLOW_RUN_STATUSES}. */
 export type WorkflowRunStatus = (typeof WORKFLOW_RUN_STATUSES)[number];
-
-// Several replies answer with only some of these statuses. Each subset is taken from
-// this one enum rather than spelled again, so a renamed status cannot leave a subset behind.
-const workflowRunStatusEnum = z.enum(WORKFLOW_RUN_STATUSES);
-
-const WORKFLOW_STEP_STATUSES = ["pending", "running", "succeeded", "failed", "skipped"] as const;
-
-/** The status of one step, meaning one execution of one node. */
-export type WorkflowStepStatus = (typeof WORKFLOW_STEP_STATUSES)[number];
-
-const workflowStepStatusEnum = z.enum(WORKFLOW_STEP_STATUSES);
+/** Wire schema for {@link WorkflowRunStatus}. */
+export const WorkflowRunStatusSchema: z.ZodType<WorkflowRunStatus, WorkflowRunStatus> =
+  z.enum(WORKFLOW_RUN_STATUSES);
 
 /**
- * The `workflow.runStart` input: the version to run, taken verbatim from a definition
- * or version read.
+ * The status of one step, meaning one execution of one node. `waiting` is a step held
+ * for a person, a chain's question or a spent account; `waiting-memory` is a step the
+ * memory gate has not started yet, which needs nobody. `canceled` is a step that was
+ * running or waiting when its run ended failed or canceled.
  */
-export interface WorkflowRunStartRequest {
-  workflowVersionId: string;
-  sessionId?: SessionId | undefined;
+export const WORKFLOW_STEP_STATUSES = [
+  "pending",
+  "running",
+  "waiting",
+  "waiting-memory",
+  "succeeded",
+  "failed",
+  "skipped",
+  "canceled",
+] as const;
+/** One of {@link WORKFLOW_STEP_STATUSES}. */
+export type WorkflowStepStatus = (typeof WORKFLOW_STEP_STATUSES)[number];
+/** Wire schema for {@link WorkflowStepStatus}. */
+export const WorkflowStepStatusSchema: z.ZodType<WorkflowStepStatus, WorkflowStepStatus> =
+  z.enum(WORKFLOW_STEP_STATUSES);
+
+/**
+ * What a waiting step waits on: a person's approval, form or chat reply, its chain's
+ * question, or a spent provider account. Only the account wait needs nobody.
+ */
+export const WORKFLOW_WAIT_CAUSES = ["approval", "form", "reply", "account", "chain"] as const;
+/** One of {@link WORKFLOW_WAIT_CAUSES}. */
+export type WorkflowWaitCause = (typeof WORKFLOW_WAIT_CAUSES)[number];
+/** Wire schema for {@link WorkflowWaitCause}. */
+export const WorkflowWaitCauseSchema: z.ZodType<WorkflowWaitCause, WorkflowWaitCause> =
+  z.enum(WORKFLOW_WAIT_CAUSES);
+
+/** How a run was started, which is a different question from who started it. */
+export const WORKFLOW_RUN_MODES = [
+  "manual",
+  "trigger",
+  "webhook",
+  "chat",
+  "agent",
+  "retry",
+  "sub-workflow",
+] as const;
+/** One of {@link WORKFLOW_RUN_MODES}. */
+export type WorkflowRunMode = (typeof WORKFLOW_RUN_MODES)[number];
+/** Wire schema for {@link WorkflowRunMode}. */
+export const WorkflowRunModeSchema: z.ZodType<WorkflowRunMode, WorkflowRunMode> =
+  z.enum(WORKFLOW_RUN_MODES);
+
+/**
+ * Who or what started a run, as its row and its header name it. A chat start carries
+ * the message it came from, so the run links back to that message.
+ */
+export type WorkflowStartedBy =
+  | { kind: "user"; userId: UserId }
+  | { kind: "schedule" }
+  | { kind: "chat"; sessionId: SessionId; messageAnchorCursor?: EventCursor | undefined }
+  | { kind: "agent"; agentId: AgentId }
+  | { kind: "webhook" }
+  | { kind: "fileEvent" }
+  | { kind: "parentWorkflow"; parentWorkflowRunId: WorkflowRunId };
+/** Wire schema for {@link WorkflowStartedBy}. */
+export const WorkflowStartedBySchema: z.ZodType<WorkflowStartedBy> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("user"), userId: UserIdSchema }).strict(),
+  z.object({ kind: z.literal("schedule") }).strict(),
+  z
+    .object({
+      kind: z.literal("chat"),
+      sessionId: SessionIdSchema,
+      messageAnchorCursor: EventCursorSchema.optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal("agent"), agentId: AgentIdSchema }).strict(),
+  z.object({ kind: z.literal("webhook") }).strict(),
+  z.object({ kind: z.literal("fileEvent") }).strict(),
+  z
+    .object({ kind: z.literal("parentWorkflow"), parentWorkflowRunId: WorkflowRunIdSchema })
+    .strict(),
+]);
+
+// --------------------------------------------------------------------------
+// Step data
+// --------------------------------------------------------------------------
+
+/**
+ * The most bytes a step payload is carried inline, counted on its JSON encoding. A
+ * larger payload is stored as an artifact and referenced, and the panel says which.
+ */
+export const WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP: number = 64 * 1024;
+
+/**
+ * A step payload by reference: inline items up to the cap, an artifact above it, or
+ * `expired` once the step data is past its time bound. `expired` is not an error: the
+ * run still lists and carries its status, timings and summary.
+ */
+export type WorkflowPayloadRef =
+  | { kind: "inline"; items: WorkflowItem[] }
+  | { kind: "artifact"; artifactId: ArtifactId; sizeBytes: number }
+  | { kind: "expired" };
+/** Wire schema for {@link WorkflowPayloadRef}; an inline payload over the cap is refused. */
+export const WorkflowPayloadRefSchema: z.ZodType<WorkflowPayloadRef> = z.discriminatedUnion(
+  "kind",
+  [
+    z
+      .object({ kind: z.literal("inline"), items: z.array(WorkflowItemSchema) })
+      .strict()
+      .refine(
+        (payload) => jsonUtf8ByteLength(payload.items) <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP,
+        {
+          path: ["items"],
+          message: "An inline payload is at most 64 KiB; a larger one is an artifact.",
+        },
+      ),
+    z
+      .object({
+        kind: z.literal("artifact"),
+        artifactId: ArtifactIdSchema,
+        sizeBytes: z.number().int().positive(),
+      })
+      .strict(),
+    z.object({ kind: z.literal("expired") }).strict(),
+  ],
+);
+
+/**
+ * What a step or a run cost, in whole micro-dollars, and the account that paid.
+ * Present only where a provider was billed; a step that spent nothing carries none.
+ */
+export interface WorkflowCost {
+  usdMicros: number;
+  providerAccountId: ProviderAccountId;
 }
-/** Wire schema for {@link WorkflowRunStartRequest}. */
-export const WorkflowRunStartRequestSchema: z.ZodType<
-  WorkflowRunStartRequest,
-  WorkflowRunStartRequest
-> = z
+/** Wire schema for {@link WorkflowCost}. */
+export const WorkflowCostSchema: z.ZodType<WorkflowCost> = z
   .object({
-    workflowVersionId: WorkflowVersionIdSchema,
-    // Present only on a start made from a chat, naming that chat's session. When it is
-    // absent, the run lives in the workflow's own session.
-    sessionId: SessionIdSchema.optional(),
+    usdMicros: UsdMicrosSchema,
+    providerAccountId: ProviderAccountIdSchema,
   })
   .strict();
 
-/**
- * The `workflow.runStart` result. A start can only leave the run admitted but not yet
- * dispatched (`new`) or already `running`, so `state` allows only those two.
- */
-export interface WorkflowRunStartResponse {
-  workflowRunId: WorkflowRunId;
-  state: Extract<WorkflowRunStatus, "new" | "running">;
+/** One input slot's feed: the node, its output and which execution of it fed the slot. */
+export interface WorkflowStepSource {
+  nodeId: WorkflowNodeId;
+  outputIndex: number;
+  executionIndex: number;
 }
-/** Wire schema for {@link WorkflowRunStartResponse}. */
-export const WorkflowRunStartResponseSchema: z.ZodType<WorkflowRunStartResponse> = z
+
+/**
+ * One execution of one node. `executionIndex` is per-run and increasing, so it orders
+ * a branching run faithfully; `source` records, per input slot, the edge that actually
+ * fed it and which execution of the source produced it (null for a slot nothing fed).
+ * A waiting step names its cause and, where armed, the instant it resumes itself and
+ * the instant its `Timeout` gives up.
+ */
+export interface WorkflowStep {
+  workflowRunId: WorkflowRunId;
+  nodeId: WorkflowNodeId;
+  attempt: number;
+  executionIndex: number;
+  source: (WorkflowStepSource | null)[];
+  status: WorkflowStepStatus;
+  waitCause?: WorkflowWaitCause | undefined;
+  resumeAt?: string | undefined;
+  waitDeadlineAt?: string | undefined;
+  startedAt: string;
+  finishedAt?: string | undefined;
+  inputRef: WorkflowPayloadRef;
+  outputRef: WorkflowPayloadRef;
+  logRef: WorkflowPayloadRef;
+  cost?: WorkflowCost | undefined;
+  error?: WorkflowStepError | undefined;
+  advisories?: string[] | undefined;
+  resolvedConfiguration?: AgentResolvedConfiguration | undefined;
+}
+/**
+ * Wire schema for {@link WorkflowStep}. A waiting step carries its cause and no other
+ * step does; the two instants appear only on a waiting step.
+ */
+export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
   .object({
     workflowRunId: WorkflowRunIdSchema,
-    state: workflowRunStatusEnum.extract(["new", "running"]),
+    nodeId: WorkflowNodeIdSchema,
+    attempt: z.number().int().positive(),
+    executionIndex: z.number().int().nonnegative(),
+    source: z.array(
+      z
+        .object({
+          nodeId: WorkflowNodeIdSchema,
+          outputIndex: z.number().int().nonnegative(),
+          executionIndex: z.number().int().nonnegative(),
+        })
+        .strict()
+        .nullable(),
+    ),
+    status: WorkflowStepStatusSchema,
+    waitCause: WorkflowWaitCauseSchema.optional(),
+    resumeAt: z.iso.datetime({ offset: true }).optional(),
+    waitDeadlineAt: z.iso.datetime({ offset: true }).optional(),
+    startedAt: z.iso.datetime({ offset: true }),
+    finishedAt: z.iso.datetime({ offset: true }).optional(),
+    inputRef: WorkflowPayloadRefSchema,
+    outputRef: WorkflowPayloadRefSchema,
+    logRef: WorkflowPayloadRefSchema,
+    cost: WorkflowCostSchema.optional(),
+    error: WorkflowStepErrorSchema.optional(),
+    advisories: z.array(z.string().min(1)).optional(),
+    resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine((step) => (step.status === "waiting") === (step.waitCause !== undefined), {
+    path: ["waitCause"],
+    message: "A waiting step names its cause, and no other step carries one.",
+  })
+  .refine(
+    (step) =>
+      step.status === "waiting" ||
+      (step.resumeAt === undefined && step.waitDeadlineAt === undefined),
+    { path: ["resumeAt"], message: "Only a waiting step carries a resume or a deadline instant." },
+  );
+
+// --------------------------------------------------------------------------
+// Cancel reasons
+// --------------------------------------------------------------------------
 
 /**
  * The most bytes a cancellation reason may take, counted on its UTF-8 encoding rather
@@ -89,295 +302,107 @@ export const WORKFLOW_CANCEL_REASON_BYTE_CAP: number = 8 * 1024;
 const utf8Encoder = new TextEncoder();
 
 /**
- * The `workflow.runCancel` input. `reason` is recorded on the run and carried on its
- * canceled event. It never reaches a step's output or anything an agent reads.
+ * A cancellation's reason as the person typed it, within the byte cap. It is recorded
+ * on the run and its canceled event and never reaches a step's output or anything an
+ * agent reads.
  */
-export interface WorkflowRunCancelRequest {
-  workflowRunId: WorkflowRunId;
-  reason?: string | undefined;
+export const WorkflowCancelReasonSchema: z.ZodType<string, string> = z
+  .string()
+  .min(1)
+  .refine((reason) => utf8Encoder.encode(reason).byteLength <= WORKFLOW_CANCEL_REASON_BYTE_CAP, {
+    message: `reason must be at most ${WORKFLOW_CANCEL_REASON_BYTE_CAP} bytes of UTF-8.`,
+  });
+
+// --------------------------------------------------------------------------
+// Refusals every run method shares
+// --------------------------------------------------------------------------
+
+/** A workflow definition or run that does not exist. */
+export type WorkflowNotFoundCode = "workflow.not_found";
+/** The code of a missing workflow definition or run. */
+export const WORKFLOW_NOT_FOUND_CODE: WorkflowNotFoundCode = "workflow.not_found";
+
+// --------------------------------------------------------------------------
+// Step failures: each rides the failed step's error and its failed event
+// --------------------------------------------------------------------------
+
+/** A value `Keep for later runs` would keep over 64 KiB. */
+export type WorkflowKeptValueTooLargeCode = "workflow.kept_value_too_large";
+/** The code of a kept value over its bound. */
+export const WORKFLOW_KEPT_VALUE_TOO_LARGE_CODE: WorkflowKeptValueTooLargeCode =
+  "workflow.kept_value_too_large";
+/** The kept-value refusal's details: the value's name and its size in bytes. */
+export interface WorkflowKeptValueTooLargeDetails {
+  name: string;
+  sizeBytes: number;
 }
-/** Wire schema for {@link WorkflowRunCancelRequest}. */
-export const WorkflowRunCancelRequestSchema: z.ZodType<
-  WorkflowRunCancelRequest,
-  WorkflowRunCancelRequest
-> = z
+/** Wire schema for {@link WorkflowKeptValueTooLargeDetails}. */
+export const WorkflowKeptValueTooLargeDetailsSchema: z.ZodType<WorkflowKeptValueTooLargeDetails> = z
+  .object({ name: z.string().min(1), sizeBytes: z.number().int().positive() })
+  .strict();
+
+/** A step cut by a time limit: its own `Timeout`, or the run's cap. */
+export type WorkflowStepTimedOutCode = "workflow.step_timed_out";
+/** The code of a step cut by a time limit. */
+export const WORKFLOW_STEP_TIMED_OUT_CODE: WorkflowStepTimedOutCode = "workflow.step_timed_out";
+/** Which limit cut the step. */
+export const WORKFLOW_STEP_TIMED_OUT_CAUSES = ["step_timeout", "run_cap"] as const;
+/** One of {@link WORKFLOW_STEP_TIMED_OUT_CAUSES}. */
+export type WorkflowStepTimedOutCause = (typeof WORKFLOW_STEP_TIMED_OUT_CAUSES)[number];
+/** The time-limit failure's details: which limit, and the limit itself in milliseconds. */
+export interface WorkflowStepTimedOutDetails {
+  cause: WorkflowStepTimedOutCause;
+  limitMs: number;
+}
+/** Wire schema for {@link WorkflowStepTimedOutDetails}. */
+export const WorkflowStepTimedOutDetailsSchema: z.ZodType<WorkflowStepTimedOutDetails> = z
   .object({
-    workflowRunId: WorkflowRunIdSchema,
-    reason: z
-      .string()
-      .min(1)
-      .refine(
-        (reason) => utf8Encoder.encode(reason).byteLength <= WORKFLOW_CANCEL_REASON_BYTE_CAP,
-        {
-          message: `reason must be at most ${WORKFLOW_CANCEL_REASON_BYTE_CAP} bytes of UTF-8.`,
-        },
-      )
-      .optional(),
+    cause: z.enum(WORKFLOW_STEP_TIMED_OUT_CAUSES),
+    limitMs: z.number().int().positive(),
   })
   .strict();
 
 /**
- * The `workflow.runCancel` result. `state` has one value because a successful cancel
- * has exactly one outcome; a run that already succeeded or failed is refused instead.
- * `alreadyCanceled` is true when the run was already canceled and this call replayed
- * the first: no second event is written, and `canceledEventId` names the original.
+ * A full-tier Code step or a sandboxed shell step whose provider sandbox did not start.
+ * The step never runs unprotected instead.
  */
-export interface WorkflowRunCancelResponse {
-  workflowRunId: WorkflowRunId;
-  state: Extract<WorkflowRunStatus, "canceled">;
-  canceledEventId: string;
-  alreadyCanceled: boolean;
+export type WorkflowSandboxUnavailableCode = "workflow.sandbox_unavailable";
+/** The code of a sandbox that did not start. */
+export const WORKFLOW_SANDBOX_UNAVAILABLE_CODE: WorkflowSandboxUnavailableCode =
+  "workflow.sandbox_unavailable";
+/** The sandbox failure's details: whose sandbox, and its wrapper's own error. */
+export interface WorkflowSandboxUnavailableDetails {
+  provider: "claude-code" | "codex";
+  detail: string;
 }
-/** Wire schema for {@link WorkflowRunCancelResponse}. */
-export const WorkflowRunCancelResponseSchema: z.ZodType<WorkflowRunCancelResponse> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    state: workflowRunStatusEnum.extract(["canceled"]),
-    canceledEventId: z.string().min(1),
-    alreadyCanceled: z.boolean(),
-  })
-  .strict();
+/** Wire schema for {@link WorkflowSandboxUnavailableDetails}. */
+export const WorkflowSandboxUnavailableDetailsSchema: z.ZodType<WorkflowSandboxUnavailableDetails> =
+  z.object({ provider: z.enum(["claude-code", "codex"]), detail: z.string().min(1) }).strict();
 
+/** A full-tier Code step whose package install did not finish. */
+export type WorkflowCodeInstallFailedCode = "workflow.code_install_failed";
+/** The code of a Code step's failed install. */
+export const WORKFLOW_CODE_INSTALL_FAILED_CODE: WorkflowCodeInstallFailedCode =
+  "workflow.code_install_failed";
 /**
- * The `workflow.runResume` input. An ordinary resume omits `versionRepin` and continues
- * on the run's pinned version. Only an explicit `versionRepin` moves the run, and it
- * names the target version instead of asking for the latest, so the recorded
- * from-and-to pair is the one the person saw.
+ * Why the install failed: too little disk to hold it, or any other install error,
+ * a stale lock included.
  */
-export interface WorkflowRunResumeRequest {
-  workflowRunId: WorkflowRunId;
-  versionRepin?: { targetWorkflowVersionId: string } | undefined;
+export const WORKFLOW_CODE_INSTALL_FAILED_REASONS = ["disk_space", "tool_error"] as const;
+/** One of {@link WORKFLOW_CODE_INSTALL_FAILED_REASONS}. */
+export type WorkflowCodeInstallFailedReason = (typeof WORKFLOW_CODE_INSTALL_FAILED_REASONS)[number];
+/** The install failure's details: the reason and the installer's own error. */
+export interface WorkflowCodeInstallFailedDetails {
+  reason: WorkflowCodeInstallFailedReason;
+  detail: string;
 }
-/** Wire schema for {@link WorkflowRunResumeRequest}. */
-export const WorkflowRunResumeRequestSchema: z.ZodType<
-  WorkflowRunResumeRequest,
-  WorkflowRunResumeRequest
-> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    versionRepin: z
-      .object({ targetWorkflowVersionId: WorkflowVersionIdSchema })
-      .strict()
-      .optional(),
-  })
+/** Wire schema for {@link WorkflowCodeInstallFailedDetails}. */
+export const WorkflowCodeInstallFailedDetailsSchema: z.ZodType<WorkflowCodeInstallFailedDetails> = z
+  .object({ reason: z.enum(WORKFLOW_CODE_INSTALL_FAILED_REASONS), detail: z.string().min(1) })
   .strict();
 
-/**
- * The `workflow.runResume` result. `waiting` is a legal outcome, not a refusal: a resume
- * that reaches a provider account still out of quota parks again, and that new park is
- * what the person sees. The two repinned ids are present only on an accepted re-pin.
- */
-export interface WorkflowRunResumeResponse {
-  workflowRunId: WorkflowRunId;
-  state: Extract<WorkflowRunStatus, "running" | "waiting">;
-  repinnedFromWorkflowVersionId?: string | undefined;
-  repinnedToWorkflowVersionId?: string | undefined;
-}
-/** Wire schema for {@link WorkflowRunResumeResponse}. */
-export const WorkflowRunResumeResponseSchema: z.ZodType<WorkflowRunResumeResponse> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    state: workflowRunStatusEnum.extract(["running", "waiting"]),
-    repinnedFromWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-    repinnedToWorkflowVersionId: WorkflowVersionIdSchema.optional(),
-  })
-  .strict();
-
-/** The `workflow.phaseOutputRead` input: the run whose finished step's outputs are read. */
-export interface WorkflowPhaseOutputReadRequest {
-  workflowRunId: WorkflowRunId;
-}
-/** Wire schema for {@link WorkflowPhaseOutputReadRequest}. */
-export const WorkflowPhaseOutputReadRequestSchema: z.ZodType<
-  WorkflowPhaseOutputReadRequest,
-  WorkflowPhaseOutputReadRequest
-> = z.object({ workflowRunId: WorkflowRunIdSchema }).strict();
-
-/**
- * One saved output of a finished step. An `artifact_ref` output points at a stored
- * artifact by id and never carries its bytes; an `inline` output carries no artifact.
- */
-export type WorkflowStepOutput =
-  | { valueKind: "inline"; summary: string; producedAt: string }
-  | { valueKind: "artifact_ref"; artifactId: ArtifactId; summary: string; producedAt: string };
-/** Wire schema for {@link WorkflowStepOutput}. */
-export const WorkflowStepOutputSchema: z.ZodType<WorkflowStepOutput> = z.discriminatedUnion(
-  "valueKind",
-  [
-    z
-      .object({
-        valueKind: z.literal("inline"),
-        summary: z.string(),
-        producedAt: z.iso.datetime({ offset: true }),
-      })
-      .strict(),
-    z
-      .object({
-        valueKind: z.literal("artifact_ref"),
-        artifactId: ArtifactIdSchema,
-        summary: z.string(),
-        producedAt: z.iso.datetime({ offset: true }),
-      })
-      .strict(),
-  ],
-);
-
-/**
- * The `workflow.phaseOutputRead` result. `state` is the step's status, not the run's;
- * both vocabularies have these two values, and only the step's is what this read reports.
- */
-export interface WorkflowPhaseOutputReadResponse {
-  state: Extract<WorkflowStepStatus, "succeeded" | "failed">;
-  outputs: WorkflowStepOutput[];
-}
-/** Wire schema for {@link WorkflowPhaseOutputReadResponse}. */
-export const WorkflowPhaseOutputReadResponseSchema: z.ZodType<WorkflowPhaseOutputReadResponse> = z
-  .object({
-    state: workflowStepStatusEnum.extract(["succeeded", "failed"]),
-    outputs: z.array(WorkflowStepOutputSchema),
-  })
-  .strict();
-
-/**
- * The `workflow.gateResolve` input: a person's decision on one of a run's approval
- * steps, with optional feedback.
- */
-export interface WorkflowGateResolveRequest {
-  workflowRunId: WorkflowRunId;
-  decision: "approved" | "rejected";
-  feedback?: string | undefined;
-}
-/** Wire schema for {@link WorkflowGateResolveRequest}. */
-export const WorkflowGateResolveRequestSchema: z.ZodType<
-  WorkflowGateResolveRequest,
-  WorkflowGateResolveRequest
-> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    decision: z.enum(["approved", "rejected"]),
-    feedback: z.string().min(1).optional(),
-  })
-  .strict();
-
-/**
- * The `workflow.gateResolve` result: the two halves of the decision's place in the run's
- * approval record. `rowHash` chains this entry to the one before it: BLAKE3 over the
- * previous hash and this entry's RFC 8785 canonical JSON. The same pair is written on
- * the matching session event in the same write, so the record can be verified later.
- */
-export interface WorkflowGateResolveResponse {
-  gateResolutionId: string;
-  rowHash: string;
-  decidedAt: string;
-}
-/** Wire schema for {@link WorkflowGateResolveResponse}. */
-export const WorkflowGateResolveResponseSchema: z.ZodType<WorkflowGateResolveResponse> = z
-  .object({
-    gateResolutionId: z.string().min(1),
-    rowHash: z.string().min(1),
-    decidedAt: z.iso.datetime({ offset: true }),
-  })
-  .strict();
-
-/**
- * The `workflow.humanFormSubmit` input. `expectedRevision` is the form's revision when
- * it was opened. A submit carrying a stale revision is refused; it never overwrites an
- * answer that was already accepted.
- */
-export interface WorkflowHumanFormSubmitRequest {
-  workflowRunId: WorkflowRunId;
-  fields: Record<string, unknown>;
-  expectedRevision: number;
-}
-/** Wire schema for {@link WorkflowHumanFormSubmitRequest}. */
-export const WorkflowHumanFormSubmitRequestSchema: z.ZodType<
-  WorkflowHumanFormSubmitRequest,
-  WorkflowHumanFormSubmitRequest
-> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    fields: z.record(z.string(), z.unknown()),
-    expectedRevision: z.number().int().nonnegative(),
-  })
-  .strict();
-
-/** The `workflow.humanFormSubmit` result: when the answer was accepted. */
-export interface WorkflowHumanFormSubmitResponse {
-  submittedAt: string;
-}
-/** Wire schema for {@link WorkflowHumanFormSubmitResponse}. */
-export const WorkflowHumanFormSubmitResponseSchema: z.ZodType<WorkflowHumanFormSubmitResponse> = z
-  .object({ submittedAt: z.iso.datetime({ offset: true }) })
-  .strict();
-
-/** The `workflow.gateChainVerify` input: the run whose approval record is checked. */
-export interface WorkflowGateChainVerifyRequest {
-  workflowRunId: WorkflowRunId;
-}
-/** Wire schema for {@link WorkflowGateChainVerifyRequest}. */
-export const WorkflowGateChainVerifyRequestSchema: z.ZodType<
-  WorkflowGateChainVerifyRequest,
-  WorkflowGateChainVerifyRequest
-> = z.object({ workflowRunId: WorkflowRunIdSchema }).strict();
-
-/**
- * The `workflow.gateChainVerify` result. It recomputes each entry's hash link in
- * sequence order and checks the matching session event. A failed check reports the
- * first divergence, not a bare fail: `firstDivergentSequence` and `divergence` are both
- * present exactly when `verified` is false.
- */
-export interface WorkflowGateChainVerifyResponse {
-  workflowRunId: WorkflowRunId;
-  verified: boolean;
-  rowsChecked: number;
-  firstDivergentSequence?: number | undefined;
-  divergence?:
-    | "row_hash_mismatch"
-    | "sequence_gap"
-    | "missing_event_anchor"
-    | "signature_invalid"
-    | undefined;
-}
-/** Wire schema for {@link WorkflowGateChainVerifyResponse}. */
-export const WorkflowGateChainVerifyResponseSchema: z.ZodType<WorkflowGateChainVerifyResponse> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    verified: z.boolean(),
-    rowsChecked: z.number().int().nonnegative(),
-    firstDivergentSequence: z.number().int().nonnegative().optional(),
-    divergence: z
-      .enum(["row_hash_mismatch", "sequence_gap", "missing_event_anchor", "signature_invalid"])
-      .optional(),
-  })
-  .strict();
-
-/** The `workflow.runList` input. Without `sessionId` it lists every run this daemon ran. */
-export interface WorkflowRunListRequest {
-  sessionId?: SessionId | undefined;
-}
-/** Wire schema for {@link WorkflowRunListRequest}. */
-export const WorkflowRunListRequestSchema: z.ZodType<
-  WorkflowRunListRequest,
-  WorkflowRunListRequest
-> = z.object({ sessionId: SessionIdSchema.optional() }).strict();
-
-/**
- * One row of the runs table. It names the definition the run came from, because a list
- * answers with runs nobody named, and an opaque id alone tells a reader nothing.
- */
-export interface WorkflowRunSummary {
-  definitionName: string;
-}
-/** Wire schema for {@link WorkflowRunSummary}. */
-export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
-  .object({ definitionName: z.string().min(1) })
-  .strict();
-
-/** The `workflow.runList` result. */
-export interface WorkflowRunListResponse {
-  runs: WorkflowRunSummary[];
-}
-/** Wire schema for {@link WorkflowRunListResponse}. */
-export const WorkflowRunListResponseSchema: z.ZodType<WorkflowRunListResponse> = z
-  .object({ runs: z.array(WorkflowRunSummarySchema) })
-  .strict();
+/** A Code step over its memory or time budget. */
+export type WorkflowCodeOverBudgetCode = "workflow.code_over_budget";
+/** The code of a Code step over its budget. */
+export const WORKFLOW_CODE_OVER_BUDGET_CODE: WorkflowCodeOverBudgetCode =
+  "workflow.code_over_budget";

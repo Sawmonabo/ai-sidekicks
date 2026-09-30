@@ -52,12 +52,10 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { ExecutionMode, SessionId, WorkspaceState } from "@ai-sidekicks/contracts";
+import type { ExecutionMode, WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import {
   WorkspaceBranchMismatchError,
   WorkspaceBranchNameRequiredError,
@@ -127,23 +125,6 @@ const EPOCH: string = "2026-08-07T00:00:00.000Z";
 // refresh is how "the row was preserved, not replaced" is told apart from "a new
 // row happened to carry the same values".
 const SEEDED_CONTEXT_STAMP: string = "2026-01-01T00:00:00.000Z";
-
-/** A fixed-key signing source — enough for a suite that only ever signs. */
-const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(9) as Ed25519PrivateKey;
-
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = FIXED_DAEMON_PRIVATE_KEY;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(
-      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
-    );
-  }
-}
 
 // ----------------------------------------------------------------------------
 // Deterministic identifiers
@@ -370,7 +351,6 @@ beforeEach(() => {
       events: new WorkspaceEventEmitter({
         sessionEvents: new EventLogService({
           db,
-          signingKeySource: new FixedDaemonSigningKeySource(),
         }),
       }),
       sessions: KNOWN_SESSIONS,

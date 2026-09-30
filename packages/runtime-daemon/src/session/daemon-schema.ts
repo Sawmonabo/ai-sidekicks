@@ -14,11 +14,8 @@
  */
 export const DAEMON_SCHEMA_SQL: string = `
 -- ---------------------------------------------------------------------------
--- session_events: the append-only, hash-chained, signed event log.
+-- session_events: the append-only event log.
 -- ---------------------------------------------------------------------------
--- The integrity columns carry no DEFAULT: a writer that forgot to fill the
--- chain must fail loudly. Their length CHECKs catch a wrong-size placeholder at
--- insert time instead of at chain verification.
 CREATE TABLE session_events (
   id                TEXT PRIMARY KEY,             -- ULID or UUID
   session_id        TEXT NOT NULL,
@@ -30,7 +27,7 @@ CREATE TABLE session_events (
   type              TEXT NOT NULL,
   actor             TEXT,                         -- user or agent id; NULL for the system
   payload           TEXT NOT NULL DEFAULT '{}',   -- JSON
-  -- per-user AES-256-GCM; outside the hashed and signed bytes
+  -- per-user AES-256-GCM
   pii_payload       BLOB,
   -- owner stamp: the user whose key sealed pii_payload
   pii_user_id       TEXT,
@@ -42,30 +39,18 @@ CREATE TABLE session_events (
   -- the writer parses the real shape. TEXT, because comparison parses the parts.
   version           TEXT NOT NULL DEFAULT '1.0'
                     CHECK(version GLOB '[0-9]*.[0-9]*'),
-  -- 32 bytes; row_hash of the previous row, zero-filled at sequence 0
-  prev_hash         BLOB NOT NULL,
-  -- 32 bytes; BLAKE3(prev_hash || JCS envelope bytes)
-  row_hash          BLOB NOT NULL,
-  daemon_signature  BLOB NOT NULL,                -- 64 bytes; Ed25519 over the same canonical bytes
-  -- NULL = live row (chain-verified); 'audit_stub' = compacted (anchor and
-  -- stub_signature verified). A column, not a payload member, so the verifier
-  -- can branch on it without trusting the bytes it is about to verify.
+  -- NULL = live row; 'audit_stub' = purged. A column, not a payload member, so
+  -- a reader can branch on it without parsing the payload.
   retention_class   TEXT
                     CHECK(retention_class IS NULL OR retention_class = 'audit_stub'),
-  -- 64 bytes; Ed25519 over the exact stub bytes stored in payload. row_hash and
-  -- daemon_signature commit only to the discarded pre-compaction bytes.
-  stub_signature    BLOB,
-  UNIQUE (session_id, sequence),
-  CHECK(length(prev_hash) = 32),
-  CHECK(length(row_hash) = 32),
-  CHECK(length(daemon_signature) = 64)
+  UNIQUE (session_id, sequence)
 ) STRICT;
 
 CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequence);
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
   WHERE correlation_id IS NOT NULL;
--- Keeps replay and the compactor's candidate scan off the stub suffix, which
+-- Keeps replay and the purge's candidate scan off the stub suffix, which
 -- grows without bound while the live set stays bounded.
 CREATE INDEX idx_session_events_live ON session_events(session_id, sequence)
   WHERE retention_class IS NULL;
@@ -131,6 +116,15 @@ CREATE TABLE session_snapshots (
 
 CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_of_sequence);
 
+-- The composer's unsent draft, one row per session, so a half-typed message
+-- survives a restart and reaches the person's other devices. An empty draft
+-- is no row: Send clears the draft by deleting it.
+CREATE TABLE session_drafts (
+  session_id  TEXT PRIMARY KEY,
+  text        TEXT NOT NULL,
+  updated_at  TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
+) STRICT;
+
 -- ---------------------------------------------------------------------------
 -- Key custody.
 -- ---------------------------------------------------------------------------
@@ -152,51 +146,6 @@ CREATE TABLE session_content_keys (
   created_at          TEXT NOT NULL,
   rotated_at          TEXT
 ) STRICT;
-
--- The per-session Ed25519 key that signs every session_events row. Local only:
--- it attests that this machine wrote a row. The private half is sealed with the
--- OS-keystore master key. rotated_at stays NULL: a different-key registration is
--- refused, and no rotation exists.
-CREATE TABLE daemon_signing_keys (
-  session_id          TEXT PRIMARY KEY,
-  public_key          BLOB NOT NULL,            -- 32 bytes
-  sealed_private_key  BLOB NOT NULL,
-  created_at          TEXT NOT NULL,
-  rotated_at          TEXT
-) STRICT;
-
--- ---------------------------------------------------------------------------
--- Merkle anchors awaiting upload to the control plane.
--- ---------------------------------------------------------------------------
--- A row here, not a confirmed upload, is what lets compaction proceed: the
--- control plane is a witness, and compaction must keep working while it is
--- unreachable. Durable so a restart never re-signs or skips a range. Rows on the
--- daemon-scope sentinel session are local witnesses only and are never uploaded,
--- so their uploaded_at stays NULL.
-CREATE TABLE pending_anchor_uploads (
-  id                TEXT PRIMARY KEY,
-  session_id        TEXT NOT NULL,
-  node_id           TEXT NOT NULL,
-  start_sequence    INTEGER NOT NULL,
-  end_sequence      INTEGER NOT NULL,
-  -- BLAKE3 Merkle root over row_hash leaves (RFC 9162 MTH)
-  merkle_root       BLOB NOT NULL,
-  root_signature    BLOB NOT NULL,              -- Ed25519 over the anchor claim (RFC 8785)
-  anchored_at       TEXT NOT NULL,
-  uploaded_at       TEXT,                       -- set once the control plane confirms
-  attempt_count     INTEGER NOT NULL DEFAULT 0, -- drives the upload backoff
-  last_attempt_at   TEXT,
-  last_error        TEXT,
-  -- end_sequence is in the key: a cadence anchor [1,1000] and a covering anchor
-  -- [1,5000] share a start and must coexist. "A covering anchor exists" is a
-  -- coverage query, never an exact-start match; the key dedups only a re-fire of
-  -- the identical range.
-  UNIQUE (session_id, node_id, start_sequence, end_sequence)
-) STRICT;
-
-CREATE INDEX idx_pending_anchor_uploads_pending
-  ON pending_anchor_uploads(session_id, anchored_at)
-  WHERE uploaded_at IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- This machine's registration: one row per machine and owning user.

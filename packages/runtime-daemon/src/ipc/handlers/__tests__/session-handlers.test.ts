@@ -1,78 +1,24 @@
-// Phase 3 `session.*` handler test suite.
+// `session.create`, `session.read` and `session.subscribe` handler tests, driven through the
+// method registry.
 //
-//   * the `session.*` methods are the V1 vertical-slice surface (`create`
-//     / `read` / `subscribe`); this file exercises the handlers'
-//     registry-binding boundary and the streaming `subscribe` slice's
-//     wire-frame emission.
+//   * `session.create`: a dispatched request reaches the deps with its parsed params, a
+//     malformed one is refused as `-32602 InvalidParams` before the handler runs, and a second
+//     registration of the method is refused.
+//   * `session.read`: a known session answers its snapshot; an unknown one maps through
+//     `SessionNotFoundError` to `-32602` with `data.type: "session.not_found"`.
+//   * `session.subscribe`: the ack precedes every frame; changes go out batched, one frame per
+//     window or per full frame, each change with its cursor; a connection that falls behind is
+//     dropped for and told on the next frame that fits, or by one frame with no changes once it
+//     catches up; a malformed frame cancels the subscription without taking the daemon down;
+//     the upstream detaches when the subscription ends.
 //
-// Write the test suite covering every cross-plan obligation owed by
-// Phase 3 handlers.
-//
-// Invariants verified here (canonical text through):
-//   * Duplicate method-name registration is rejected at register- time. T5
-//     below verifies via `registerSessionCreate(...)` called twice against
-//     the same registry.
-//   * T2 below verifies via a malformed `session.create` payload + a
-//     mock spy whose call count remains zero after the throw.
-//   * T2's malformed-params arm walks through `mapJsonRpcError` to
-//     confirm the wire-level numeric is `-32602 InvalidParams`; T8's
-//     unknown-id arm walks the same `mapJsonRpcError` path through the
-//     new `SessionNotFoundError` discriminator branch.
-//
-// Acceptance Criteria coverage matrix (task contract + closure for
-// AC-N2/AC-N3):
-//   * `session.create` round-trip through the registry: mock `createSession` invoked
-//     with parsed params; response matches `SessionCreateResponseSchema`. Verified by
-//     `it("session.create round-trip...")`.
-//   * Malformed `session.create` payload routed through `dispatch()`
-//     rejected with JSON-RPC `-32602 InvalidParams`; handler closure
-//     NEVER invoked (via spy). Verified across two `it()` blocks
-//     (registry-side throw + wire-mapping numeric).
-//   * `session.subscribe` happy path returns `{ subscriptionId }`;
-//     `sub.next(event)` routes as `$/subscription/notify` frames; `sub.cancel()`
-//     drains BOTH `#subscriptions` AND `#subscriptionsByTransport` (verified via
-//     `cancelSubscription` returning `false` post-cancel). Cancel- idempotency
-//     on a fresh subscription verified separately (true → false across two
-//     direct calls). Frame-shape assertions are inline-duplicated across each
-//     `it()` block per the task contract's "no shared helper" directive.
-//   * Duplicate `registerSessionCreate(registry, deps)` throws
-//     `RegistryRegistrationError("duplicate_method")` at registration time.
-//   * Known sessionId returns `SessionRead`-shape projection (happy path);
-//     unknown sessionId throws `SessionNotFoundError` from
-//     `packages/runtime-daemon/src/ipc/session-errors.ts` which
-//     `mapJsonRpcError` discriminates to `-32602 InvalidParams` + `data.type:
-//     "session.not_found"`.
-//
-// Test-fixture posture:
-//   * The runtime-daemon's `package.json` deliberately does NOT depend on
-//     `zod`. Tests use the duck-typed `passthroughSchema` /
-//     `rejectingSchema` helpers from `__fixtures__/zod-schemas.ts` for every
-//     schema slot the registry interrogates AT DISPATCH TIME (T2's malformed-
-//     params arm uses `rejectingSchema` to force the invalid_params branch
-//     without a real Zod runtime). However, T1 / T3 / T5 register handlers
-//     against the REAL contract schemas (`SessionCreateRequestSchema`, etc.)
-//     because the registry's `safeParse` machinery delegates to each schema's
-//     `safeParse` — the contract schemas already implement the duck-typed
-//     interface natively at runtime. Both surfaces co-exist in this file.
-//
-// What this file does NOT cover:
-//   * Cross-plan `mapJsonRpcError` integration beyond the T2 invalid_params
-//     arm and T8's `session.not_found` arm — covered by
-//     `jsonrpc-error-mapping.test.ts` (sibling).
-//   * Streaming-primitive validation invariants beyond T3's frame-shape
-//     check — covered by `streaming-primitive.test.ts` (sibling).
-//
-// Shared-helper directive (task contract):
-//   T3's `$/subscription/notify` frame-shape assertions are INLINE-DUPLICATED
-//   verbatim across each `it()` block; the task contract explicitly forbids
-//   extracting a shared helper. The duplication is load-bearing for
-//   per-block isolation: each `it()` block exercises the frame-shape
-//   contract independently so a regression in any single block surfaces in
-//   place rather than collapsing through a shared helper.
+// The streaming primitive's own guarantees (cancel bookkeeping, transport ownership, cancel
+// handlers) are covered in `streaming-primitive.test.ts`.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import type {
+  EventCursor,
   Handler,
   HandlerContext,
   JsonRpcNotification,
@@ -82,8 +28,11 @@ import type {
   SessionId,
   SessionReadRequest,
   SessionReadResponse,
+  SessionStreamChange,
+  SessionStreamFrame,
   SessionSubscribeRequest,
   SessionSubscribeResponse,
+  SubscriptionId,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts";
 import {
@@ -91,11 +40,11 @@ import {
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
   JsonRpcErrorCode,
-  SessionEventSchema,
   SessionReadRequestSchema,
   SessionReadResponseSchema,
   SessionSubscribeRequestSchema,
   SessionSubscribeResponseSchema,
+  STREAM_FRAME_MAX_CHANGES,
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts";
 
@@ -110,9 +59,12 @@ import { StreamingPrimitive } from "../../streaming-primitive.js";
 
 import { registerSessionCreate, type SessionCreateDeps } from "../session-create.js";
 import { registerSessionRead, type SessionReadDeps } from "../session-read.js";
-import { registerSessionSubscribe, type SessionSubscribeDeps } from "../session-subscribe.js";
-
-import { passthroughSchema } from "../../__tests__/__fixtures__/zod-schemas.js";
+import {
+  registerSessionSubscribe,
+  SESSION_STREAM_WINDOW_MS,
+  type OutboundQueue,
+  type SessionSubscribeDeps,
+} from "../session-subscribe.js";
 
 // ----------------------------------------------------------------------------
 // Shared fixtures — canonical-shape SessionCreateResponse + SessionEvent
@@ -315,705 +267,396 @@ describe("malformed session.create payload (verifies handler NEVER runs maps to 
 });
 
 // ----------------------------------------------------------------------------
-// `session.subscribe` happy path + cancel idempotency
+// `session.subscribe`: harness
+// ----------------------------------------------------------------------------
+//
+// The handler batches changes on a 16 ms window, so these tests fake
+// `setTimeout` / `clearTimeout` and leave `setImmediate` real: the ack barrier
+// crosses into the check phase with `setImmediate`, and a faked one would never
+// release it.
+
+/** The primitive's per-connection send, as the tests capture it. */
+type SendFrame = (transportId: number, frame: JsonRpcNotification<unknown>) => void;
+
+/** An outbound queue that always has room. */
+const ALWAYS_ROOM: OutboundQueue = {
+  isFull: () => false,
+  onceDrained: () => () => undefined,
+};
+
+/** An outbound queue a test fills and drains by hand. */
+function controllableOutboundQueue(): {
+  readonly queue: OutboundQueue;
+  fill(): void;
+  drain(): void;
+  readonly drainListenerCount: () => number;
+} {
+  let full = false;
+  const drainListeners = new Set<() => void>();
+  return {
+    queue: {
+      isFull: () => full,
+      onceDrained: (_transportId, listener) => {
+        drainListeners.add(listener);
+        return () => {
+          drainListeners.delete(listener);
+        };
+      },
+    },
+    fill: () => {
+      full = true;
+    },
+    drain: () => {
+      full = false;
+      const listeners = [...drainListeners];
+      drainListeners.clear();
+      for (const listener of listeners) listener();
+    },
+    drainListenerCount: () => drainListeners.size,
+  };
+}
+
+function changeAt(index: number): SessionStreamChange<SessionEvent> {
+  return {
+    cursor: `cursor-${String(index)}` as EventCursor,
+    event: { ...buildSessionCreatedEvent(), id: `evt-${String(index)}`, sequence: index },
+  };
+}
+
+/** Crosses the ack barrier's `setImmediate` boundary. */
+async function crossAckBarrier(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+/** The frame each captured `$/subscription/notify` carried, in send order. */
+function sentFrames(send: Mock<SendFrame>): SessionStreamFrame<SessionEvent>[] {
+  return send.mock.calls.map(([, frame]) => {
+    expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
+    expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
+    return (frame.params as SubscriptionNotifyParams<SessionStreamFrame<SessionEvent>>).value;
+  });
+}
+
+interface SubscribedStream {
+  readonly send: Mock<SendFrame>;
+  readonly primitive: StreamingPrimitive;
+  readonly subscriptionId: SubscriptionId;
+  readonly onChange: (change: SessionStreamChange<SessionEvent>) => void;
+}
+
+/** Registers the handler, subscribes on transport 7 and crosses the ack barrier. */
+async function subscribeWith(
+  outboundQueue: OutboundQueue,
+  replay: readonly SessionStreamChange<SessionEvent>[] = [],
+): Promise<SubscribedStream> {
+  const registry = new MethodRegistryImpl();
+  const send = vi.fn<SendFrame>();
+  const primitive = new StreamingPrimitive({ registry, send });
+  const onChangeHolder: { current: ((change: SessionStreamChange<SessionEvent>) => void) | null } =
+    { current: null };
+  registerSessionSubscribe(registry, {
+    streamingPrimitive: primitive,
+    outboundQueue,
+    subscribeToSession: (_sessionId, _afterCursor, onChange) => {
+      onChangeHolder.current = onChange;
+      for (const change of replay) onChange(change);
+      return () => undefined;
+    },
+  });
+  const result = (await registry.dispatch(
+    "session.subscribe",
+    { sessionId: TEST_SESSION_ID },
+    { transportId: 7 },
+  )) as SessionSubscribeResponse;
+  await crossAckBarrier();
+  const onChange = onChangeHolder.current;
+  if (onChange === null) throw new Error("unreachable — subscribeToSession ran during dispatch");
+  return { send, primitive, subscriptionId: result.subscriptionId, onChange };
+}
+
+// ----------------------------------------------------------------------------
+// `session.subscribe`: the ack, and changes batched into frames
 // ----------------------------------------------------------------------------
 
-describe("session.subscribe happy path + cancel idempotency", () => {
-  it("dispatches subscribe; returns `{ subscriptionId }`; sub.next(event) routes as `$/subscription/notify` frame", async () => {
-    // Arrange — wire a real StreamingPrimitive against a captured `send`
-    // mock. The streaming primitive's `createSubscription` allocates a
-    // fresh `subscriptionId` via `crypto.randomUUID()`; the handler's job
-    // is to wire the deps' `subscribeToSession` upstream onto the
-    // primitive's `sub.next(event)` producer call site.
+describe("session.subscribe batches a session's changes into frames", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("answers `{ subscriptionId }` and passes the session and cursor to the upstream", async () => {
     const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
+    const send = vi.fn<SendFrame>();
     const primitive = new StreamingPrimitive({ registry, send });
-
-    // Capture the upstream onEvent callback the handler passes into
-    // `subscribeToSession`. The deps' callback receives (sessionId,
-    // afterCursor, onEvent) and returns an unsubscribe handle. We capture
-    // the `onEvent` lambda so the test can drive event emission directly.
-    //
-    // Holder-object pattern: TypeScript's control-flow analysis narrows a
-    // `let foo: T | null = null` whose only assignment lives inside a
-    // closure to `null` at the outer read sites — TS doesn't sequence the
-    // closure mutation. Wrapping in a holder object preserves the property
-    // type across reads while still letting the closure write to it.
-    const onEventHolder: { current: ((event: SessionEvent) => void) | null } = {
-      current: null,
-    };
-    const unsubscribe = vi.fn<() => void>();
     const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
-      (sessionId, afterCursor, onEvent) => {
-        onEventHolder.current = onEvent;
-        return unsubscribe;
-      },
+      () => () => undefined,
     );
-    const deps: SessionSubscribeDeps = {
+    registerSessionSubscribe(registry, {
       streamingPrimitive: primitive,
+      outboundQueue: ALWAYS_ROOM,
       subscribeToSession,
-    };
-    registerSessionSubscribe(registry, deps);
+    });
+    const afterCursor = "cursor-41" as EventCursor;
+    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID, afterCursor };
 
-    // Act — dispatch `session.subscribe` with a transport-bound ctx (the
-    // handler refuses `ctx.transportId === undefined` with a plain Error
-    // per substrate-internal-invariant posture; maps to -32603 on wire).
-    const transportId = 42;
-    const ctx: HandlerContext = { transportId };
-    const subscribeReq: SessionSubscribeRequest = {
-      sessionId: TEST_SESSION_ID,
-    };
-    const result = (await registry.dispatch(
-      "session.subscribe",
-      subscribeReq,
-      ctx,
-    )) as SessionSubscribeResponse;
+    const result = (await registry.dispatch("session.subscribe", subscribeReq, {
+      transportId: 42,
+    })) as SessionSubscribeResponse;
 
-    // Assert — the response carries an opaque `subscriptionId` matching
-    // the canonical UUID shape generated by `crypto.randomUUID()` (RFC 9562).
-    expect(typeof result.subscriptionId).toBe("string");
     expect(result.subscriptionId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
-
-    // Assert — the deps' upstream callback ran with the correct args.
-    expect(subscribeToSession).toHaveBeenCalledTimes(1);
     expect(subscribeToSession).toHaveBeenCalledWith(
       TEST_SESSION_ID,
-      undefined, // no afterCursor
+      afterCursor,
       expect.any(Function),
     );
-    expect(onEventHolder.current).not.toBeNull();
-
-    // Act — drive an event through the captured onEvent lambda. The handler
-    // routed it to `sub.next(event)` which validates against
-    // `SessionEventSchema` (streaming analog) and emits a
-    // `$/subscription/notify` frame on the captured `send`.
-    //
-    // Wire-ordering invariant — the handler buffers events fired before the
-    // `setImmediate` boundary so the response lands first; we drain that
-    // boundary here so subsequent live-tail events route directly through
-    // `sub.next(event)` rather than via the replay buffer. See the
-    // `"session.subscribe response precedes synchronously-fired replay
-    // notifies"` test below for the buffering-during-replay arm.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(send).not.toHaveBeenCalled();
-    const onEvent = onEventHolder.current;
-    if (onEvent === null) throw new Error("unreachable — capturedOnEvent assertion above");
-    const event = buildSessionCreatedEvent();
-    onEvent(event);
-
-    // Assert — exactly one `$/subscription/notify` frame was emitted with
-    // the canonical wire shape. Inline-duplicated per the task contract's
-    // "no shared helper" directive (per-block isolation; see file header).
-    expect(send).toHaveBeenCalledTimes(1);
-    const call = send.mock.calls[0];
-    if (call === undefined) throw new Error("unreachable");
-    const [actualTransportId, frame] = call;
-    expect(actualTransportId).toBe(transportId);
-    expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
-    expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
-    const params = frame.params as SubscriptionNotifyParams<SessionEvent>;
-    expect(params.subscriptionId).toBe(result.subscriptionId);
-    expect(params.value).toStrictEqual(event);
-  });
-
-  it("sub.cancel() (server-side, producer handle) drains BOTH `#subscriptions` AND `#subscriptionsByTransport` (T3 prong A)", () => {
-    // Arrange — a fresh primitive-level subscription so we have a direct
-    // `LocalSubscriptionProducer<T>` producer handle. The handler-binding path is
-    // exercised in the first `it()` block above; here we need direct access
-    // to `sub.cancel()` because that's the canonical AC text:
-    //   "sub.cancel() removes from BOTH #subscriptions AND
-    //    #subscriptionsByTransport (verified via cancelSubscription
-    //    idempotency: returns true→false)".
-    //
-    // CRITICAL — `sub.cancel()` and `primitive.cancelSubscription(id)` walk
-    // DIFFERENT code paths inside streaming-primitive.ts:
-    //   * `sub.cancel()` → `removeFromTransport(id)` (the closure-bound
-    //      cleanup at lines 311-327) + `subscriptions.delete(id)`. The
-    //      closure handles the per-transport bucket pruning.
-    //   * `primitive.cancelSubscription(id)` → inline bucket cleanup at
-    //      lines 438-446 + `subscriptions.delete(id)`.
-    // A regression in `removeFromTransport` would NOT surface through
-    // prong B's direct-cancelSubscription test; this prong specifically
-    // exercises the producer-handle path.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-
-    // Open a subscription via the primitive's direct API so we hold the
-    // LocalSubscriptionProducer<SessionEvent> handle. We reuse SessionEventSchema
-    // because that's the schema the handler-binding wires into the
-    // primitive at runtime — keeping the test schema consistent with the
-    // handler avoids a divergence that could mask a regression.
-    const transportId = 99;
-    const sub = primitive.createSubscription<SessionEvent>(transportId, SessionEventSchema);
-
-    // Sanity — before cancel, the entry exists. We don't assert this via
-    // `cancelSubscription` because it's destructive; instead we exercise
-    // the live next() path: a valid event lands a `$/subscription/notify`
-    // frame on `send`. After cancel, the SAME call is a silent no-op.
-    sub.next(buildSessionCreatedEvent());
-    expect(send).toHaveBeenCalledTimes(1);
-
-    // Act — drain via the producer handle.
-    sub.cancel();
-
-    // Assert (T3 prong A) — `sub.cancel()` walked `removeFromTransport`
-    // AND `subscriptions.delete`, so both maps no longer hold the entry.
-    // `cancelSubscription(id)` returning `false` is the introspection knob
-    // that proves the entry is GONE — the function returns `false` only
-    // when `#subscriptions.get(id) === undefined`, which is the
-    // post-`sub.cancel()` state.
-    expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(false);
-
-    // Sanity — post-cancel `sub.next(value)` is a silent no-op per the
-    // documented contract (streaming-primitive.ts:333-339). If the entry
-    // had only drained from `#subscriptions` but not `#subscriptionsByTransport`,
-    // the lookup miss would still produce a no-op (next() consults
-    // `#subscriptions` only); but the bucket-pruning regression that
-    // would matter here surfaces via cleanupTransport on a different
-    // transport — covered separately in streaming-primitive.test.ts.
-    sub.next(buildSessionCreatedEvent());
-    expect(send).toHaveBeenCalledTimes(1); // unchanged from pre-cancel emit
-
-    // Sanity — `sub.cancel()` is also idempotent at the producer level.
-    // A second cancel is a no-op (the entry is already gone; the closure-
-    // bound `removeFromTransport` lookup misses and silent-returns).
-    expect(() => sub.cancel()).not.toThrow();
-  });
-
-  it("primitive.cancelSubscription is canonically idempotent on a fresh subscription (T3 prong B: true → false)", () => {
-    // Arrange — a fresh subscription on the primitive directly (no handler
-    // binding required for this prong). `cancelSubscription(id)` is the
-    // public introspection knob; calling twice in immediate succession
-    // verifies its idempotency contract per streaming-primitive.ts:432-447.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const sub = primitive.createSubscription<unknown>(123, passthroughSchema<unknown>());
-
-    // Act + Assert — first call returns `true` (entry was present and is
-    // now removed); second call returns `false` (entry already gone).
-    expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(true);
-    expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(false);
-  });
-
-  it("emits the `$/subscription/notify` method name verbatim with the canonical wire shape", async () => {
-    // Mirrors the frame-shape assertion in the first T3 `it()` block —
-    // inline-duplicated per the task contract's "no shared helper"
-    // directive (per-block isolation; see file header).
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    // Holder-object pattern — see first T3 `it()` block for the rationale.
-    const onEventHolder: { current: ((event: SessionEvent) => void) | null } = {
-      current: null,
-    };
-    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
-      (_sessionId, _afterCursor, onEvent) => {
-        onEventHolder.current = onEvent;
-        return () => undefined;
-      },
-    );
-    const deps: SessionSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToSession,
-    };
-    registerSessionSubscribe(registry, deps);
-    const ctx: HandlerContext = { transportId: 7 };
-    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
-    await registry.dispatch("session.subscribe", subscribeReq, ctx);
-    // Drain the wire-ordering replay-buffer flush boundary; see the first
-    // T3 `it()` block for the rationale.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    const onEvent = onEventHolder.current;
-    if (onEvent === null)
-      throw new Error("unreachable — capturedOnEvent set in subscribeToSession spy");
-    onEvent(buildSessionCreatedEvent());
-    expect(send).toHaveBeenCalledTimes(1);
-    const call = send.mock.calls[0];
-    if (call === undefined) throw new Error("unreachable");
-    const [, frame] = call;
-    expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
-    expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
-  });
-
-  it("registers `session.subscribe` with mutating: false (subscribe escapes pre-handshake gate)", () => {
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const deps: SessionSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToSession: () => () => undefined,
-    };
-    registerSessionSubscribe(registry, deps);
     expect(registry.isMutating("session.subscribe")).toBe(false);
   });
 
-  it("session.subscribe response precedes synchronously-fired replay notifies (wire-ordering invariant)", async () => {
-    // Wire-ordering invariant — `{ subscriptionId }` MUST land on the wire
-    // BEFORE any `$/subscription/notify` for that subscription. The SDK
-    // registers the subscription in its inbound dispatcher map AFTER the
-    // init response settles; any pre-response notify is silently dropped
-    // (unknown-id branch in `#handleSubscriptionNotify`).
-    //
-    // The projector contract permits `subscribeToSession` to perform cursor
-    // replay SYNCHRONOUSLY (replay-then-live-tail). This test models that
-    // posture: the deps' `subscribeToSession` calls `onEvent` 3 times
-    // BEFORE returning the unsubscribe handle. The handler's fix buffers
-    // replay events fired during the synchronous window and flushes them
-    // after a `setImmediate` boundary, which runs in the check phase AFTER
-    // the dispatch promise's `.then` microtask (where `#sendEnvelope`
-    // writes the response).
-    //
-    // Harness shape: this test reuses the existing direct-dispatch + send-
-    // mock pattern (no gateway wired). To verify wire ordering, we capture
-    // both response and notify frames into ONE ordered array. The response
-    // push happens at the `await registry.dispatch(...)` resumption — that
-    // is the same microtask checkpoint where the gateway's `#sendEnvelope`
-    // would call `socket.write` synchronously. Then we drain `setImmediate`
-    // by awaiting a `new Promise` that resolves on a fresh check-phase
-    // tick; only after that drain is the buffered-replay flush observable.
-    const registry = new MethodRegistryImpl();
+  it("sends the changes of one window as one frame when the window closes, each with its cursor", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const stream = await subscribeWith(ALWAYS_ROOM);
 
-    type CapturedFrame =
-      | { kind: "response"; subscriptionId: string }
-      | { kind: "notify"; value: SessionEvent };
-    const frames: CapturedFrame[] = [];
+    stream.onChange(changeAt(1));
+    vi.advanceTimersByTime(5);
+    stream.onChange(changeAt(2));
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS - 6);
+    expect(stream.send).not.toHaveBeenCalled();
 
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>(
-      (_transportId, frame) => {
-        const params = frame.params as SubscriptionNotifyParams<SessionEvent>;
-        frames.push({ kind: "notify", value: params.value });
-      },
+    vi.advanceTimersByTime(1);
+    expect(sentFrames(stream.send)).toStrictEqual([{ changes: [changeAt(1), changeAt(2)] }]);
+    expect(stream.send.mock.calls[0]?.[0]).toBe(7);
+    const params = stream.send.mock.calls[0]?.[1].params as SubscriptionNotifyParams<unknown>;
+    expect(params.subscriptionId).toBe(stream.subscriptionId);
+  });
+
+  it("sends a full frame at once, without waiting for the window", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const stream = await subscribeWith(ALWAYS_ROOM);
+    const changes = Array.from({ length: STREAM_FRAME_MAX_CHANGES + 1 }, (_, index) =>
+      changeAt(index),
     );
+
+    for (const change of changes) stream.onChange(change);
+
+    expect(sentFrames(stream.send)).toStrictEqual([
+      { changes: changes.slice(0, STREAM_FRAME_MAX_CHANGES) },
+    ]);
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    expect(sentFrames(stream.send)).toStrictEqual([
+      { changes: changes.slice(0, STREAM_FRAME_MAX_CHANGES) },
+      { changes: changes.slice(STREAM_FRAME_MAX_CHANGES) },
+    ]);
+  });
+
+  it("writes the ack before any frame of a synchronous replay, the replay in order", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const registry = new MethodRegistryImpl();
+    const written: string[] = [];
+    const send = vi.fn<SendFrame>((_transportId, frame) => {
+      const frameValue = (
+        frame.params as SubscriptionNotifyParams<SessionStreamFrame<SessionEvent>>
+      ).value;
+      written.push(`frame:${frameValue.changes.map((change) => change.cursor).join(",")}`);
+    });
     const primitive = new StreamingPrimitive({ registry, send });
-
-    // Build three production-ordered SessionEvents. `buildSessionCreatedEvent`
-    // synthesizes one canonical-shape event; we vary `id` + `sequence` per
-    // event so the assert-order step can distinguish them.
-    const baseEvent = buildSessionCreatedEvent();
-    const replayEvents: SessionEvent[] = [
-      { ...baseEvent, id: "evt-replay-0001", sequence: 0 },
-      { ...baseEvent, id: "evt-replay-0002", sequence: 1 },
-      { ...baseEvent, id: "evt-replay-0003", sequence: 2 },
-    ];
-
-    // Test double — `subscribeToSession` calls `onEvent` 3 times
-    // SYNCHRONOUSLY before returning the unsubscribe handle. This is
-    // exactly the cursor-replay-then-live-tail shape the projector
-    // contract permits.
-    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
-      (_sessionId, _afterCursor, onEvent) => {
-        for (const event of replayEvents) {
-          onEvent(event);
-        }
+    const replay = Array.from({ length: STREAM_FRAME_MAX_CHANGES + 2 }, (_, index) =>
+      changeAt(index),
+    );
+    registerSessionSubscribe(registry, {
+      streamingPrimitive: primitive,
+      outboundQueue: ALWAYS_ROOM,
+      subscribeToSession: (_sessionId, _afterCursor, onChange) => {
+        for (const change of replay) onChange(change);
         return () => undefined;
       },
-    );
-    const deps: SessionSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToSession,
-    };
-    registerSessionSubscribe(registry, deps);
+    });
 
-    // Act — dispatch and resume on the same microtask the gateway's
-    // dispatch `.then` would fire on. The captured `frames` array carries
-    // every `send`-routed notify frame in production order; the response
-    // is appended at the dispatch-await resumption to model the gateway's
-    // synchronous `socket.write` from the `.then` microtask.
-    const ctx: HandlerContext = { transportId: 7 };
-    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
-    const result = (await registry.dispatch(
+    await registry.dispatch(
       "session.subscribe",
-      subscribeReq,
-      ctx,
-    )) as SessionSubscribeResponse;
-    frames.push({ kind: "response", subscriptionId: result.subscriptionId });
+      { sessionId: TEST_SESSION_ID },
+      { transportId: 7 },
+    );
+    written.push("ack");
+    await crossAckBarrier();
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
 
-    // Drain the check phase so the buffered-replay flush observes. A bare
-    // `await Promise.resolve()` would only drain microtasks; we need a
-    // `setImmediate` boundary to cross into the check phase the handler's
-    // `setImmediate(...)` callback runs in.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    // Assert — replay was synchronous (the deps call returned before the
-    // dispatch promise resolved); without buffering, the three notify
-    // frames would have been pushed to `frames` BEFORE the response push.
-    expect(subscribeToSession).toHaveBeenCalledTimes(1);
-    expect(frames).toHaveLength(4);
-    expect(frames[0]?.kind).toBe("response");
-    if (frames[0]?.kind === "response") {
-      expect(frames[0].subscriptionId).toBe(result.subscriptionId);
-    }
-    // Notify frames MUST follow in production order (replay 0..2).
-    expect(frames[1]?.kind).toBe("notify");
-    if (frames[1]?.kind === "notify") {
-      expect(frames[1].value.id).toBe("evt-replay-0001");
-    }
-    expect(frames[2]?.kind).toBe("notify");
-    if (frames[2]?.kind === "notify") {
-      expect(frames[2].value.id).toBe("evt-replay-0002");
-    }
-    expect(frames[3]?.kind).toBe("notify");
-    if (frames[3]?.kind === "notify") {
-      expect(frames[3].value.id).toBe("evt-replay-0003");
-    }
+    const cursors = (from: number, to: number): string =>
+      replay
+        .slice(from, to)
+        .map((change) => change.cursor)
+        .join(",");
+    expect(written).toStrictEqual([
+      "ack",
+      `frame:${cursors(0, STREAM_FRAME_MAX_CHANGES)}`,
+      `frame:${cursors(STREAM_FRAME_MAX_CHANGES, STREAM_FRAME_MAX_CHANGES + 2)}`,
+    ]);
   });
 });
 
 // ----------------------------------------------------------------------------
-// Daemon-crash hazard regression on `session.subscribe`
+// `session.subscribe`: a connection that falls behind is dropped for, and told
+// ----------------------------------------------------------------------------
+
+describe("session.subscribe never waits for a connection that falls behind", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("drops the frame that does not fit and marks the next frame that does", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const outbound = controllableOutboundQueue();
+    const stream = await subscribeWith(outbound.queue);
+
+    outbound.fill();
+    stream.onChange(changeAt(1));
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    expect(stream.send).not.toHaveBeenCalled();
+
+    stream.onChange(changeAt(2));
+    outbound.drain();
+
+    expect(sentFrames(stream.send)).toStrictEqual([{ changes: [changeAt(2)], dropped: true }]);
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    expect(stream.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends one frame with no changes, the drop mark and the newest cursor once a quiet connection catches up", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const outbound = controllableOutboundQueue();
+    const stream = await subscribeWith(outbound.queue);
+
+    outbound.fill();
+    stream.onChange(changeAt(1));
+    stream.onChange(changeAt(2));
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    expect(stream.send).not.toHaveBeenCalled();
+
+    outbound.drain();
+
+    expect(sentFrames(stream.send)).toStrictEqual([
+      { changes: [], dropped: true, cursor: changeAt(2).cursor },
+    ]);
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    expect(stream.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops listening for room once the subscription is canceled", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const outbound = controllableOutboundQueue();
+    const stream = await subscribeWith(outbound.queue);
+
+    outbound.fill();
+    stream.onChange(changeAt(1));
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    expect(outbound.drainListenerCount()).toBe(1);
+
+    stream.primitive.cleanupTransport(7);
+
+    expect(outbound.drainListenerCount()).toBe(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// `session.subscribe`: a malformed frame never takes the daemon down
 // ----------------------------------------------------------------------------
 //
-// `session-subscribe.ts` had two unguarded `sub.next(event)`
-// call sites that throw `StreamingValidationError` (per
-// `streaming-primitive.ts:346-352`) when the producer hands the primitive a
-// malformed event. Both sites run on a LATER event-loop turn than the
-// registry's `dispatch()` error-mapping wrapper:
-//
-//   1. The replay-buffer flush body inside `setImmediate(() => { ... })`
-//      runs in the check phase, AFTER the dispatch promise's `.then`
-//      microtask resolved the response — escapes registry error mapping.
-//   2. The live-tail callback (the lambda passed to `subscribeToSession(...)`)
-//      runs on whatever turn the upstream event source triggers (DB tick,
-//      event bus, etc.) — also outside the registry's reach.
-//
-// An uncaught throw on either path becomes an uncaught exception capable of
-// terminating the daemon process. The fix wraps both call sites in a
-// try/catch that calls `sub.cancel()` and logs a tripwire diagnostic via
-// `console.error` (no structured logger exists in the daemon today;
-// TRIPWIRE replaces it when one lands).
-//
-// These tests verify the guards hold under direct injection of a malformed
-// event. They do NOT assert the structured logger path (no logger exists);
-// they DO assert the `console.error` tripwire fires so a regression that
-// drops the catch block surfaces the bare throw and FAILS this test as
-// "Promise rejected" / uncaught / silent (no log call).
-//
-// Test fixture posture: a malformed `SessionEvent` is constructed by
-// casting `{}` to `SessionEvent` — this is the simplest value that fails
-// `SessionEventSchema.safeParse` (the schema is a discriminated union
-// requiring `type`/`category`/`sessionId`/etc.). The cast is the standard
-// "test-only narrow" pattern; production code never sees this shape.
+// A frame the primitive refuses throws `StreamingValidationError` from a turn
+// no dispatch wrapper covers: the barrier's flush, or the upstream's own turn.
+// The barrier cancels the subscription and logs; these tests pin that for the
+// session stream on both sides of the ack.
 
-describe("replay-flush + live-tail crash guards", () => {
-  // Restore all `vi.spyOn(...)` instances after EACH test so a console.error
-  // spy that survives a mid-test assertion failure doesn't leak into the
-  // next test's stdout (which would silently swallow legitimate diagnostics).
-  // The runtime-daemon's `vitest.config.ts` does NOT set `restoreMocks: true`,
-  // so explicit per-block hygiene is the right call. Centralizing restore
-  // here is also why the per-test `consoleErrorSpy.mockRestore()` calls
-  // present in earlier drafts were removed — they only ran on the happy
-  // path; this hook runs unconditionally.
+describe("session.subscribe survives a malformed frame", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it("replay-flush: malformed event in replay buffer is caught; subscription canceled; daemon survives", async () => {
-    // Arrange — wire `subscribeToSession` to fire a malformed event
-    // SYNCHRONOUSLY (so it lands in the handler's `replayBuffer`, not the
-    // live-tail path). The setImmediate boundary then drains the buffer
-    // and the inner `sub.next(event)` throws `StreamingValidationError`.
-    // Without the F1 guard, that throw escapes `setImmediate` as uncaught
-    // and the test process would log "Unhandled error in setImmediate" —
-    // vitest catches that via its own uncaught-exception hook and FAILS
-    // the test. With the guard, the catch runs `sub.cancel()` and logs.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-
-    // Spy `console.error` so the F1 tripwire is observable in the test.
-    // The describe-level `afterEach(() => vi.restoreAllMocks())` resets
-    // this spy after EVERY test (including failing ones), so subsequent
-    // tests' console.error calls land on the real implementation.
+  it("replay: a malformed event in a replayed frame cancels the subscription and sends nothing after it", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const malformed = { cursor: "cursor-0" as EventCursor, event: {} as SessionEvent };
+    const replay = [
+      malformed,
+      ...Array.from({ length: STREAM_FRAME_MAX_CHANGES }, (_, index) => changeAt(index + 1)),
+    ];
 
-    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
-      (_sessionId, _afterCursor, onEvent) => {
-        // Fire SYNCHRONOUSLY — this is the replay window per the projector
-        // contract. Cast `{}` to `SessionEvent` because
-        // `SessionEventSchema.safeParse({})` fails (the schema is a
-        // discriminated union and `{}` carries no `type` discriminator).
-        onEvent({} as SessionEvent);
-        return () => undefined;
-      },
-    );
-    const deps: SessionSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToSession,
-    };
-    registerSessionSubscribe(registry, deps);
+    const stream = await subscribeWith(ALWAYS_ROOM, replay);
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
 
-    // Act — dispatch and drain the `setImmediate` flush boundary.
-    const ctx: HandlerContext = { transportId: 7 };
-    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
-    const result = (await registry.dispatch(
-      "session.subscribe",
-      subscribeReq,
-      ctx,
-    )) as SessionSubscribeResponse;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    // Assert — the daemon survived (we got here; no uncaught throw aborted
-    // the test). The primitive's `cancelSubscription(id)` returns `false`
-    // because `sub.cancel()` already ran inside the F1 catch block,
-    // draining BOTH `#subscriptions` AND `#subscriptionsByTransport`.
-    expect(primitive.cancelSubscription(result.subscriptionId)).toBe(false);
-
-    // Assert — the malformed event did NOT propagate to the wire as a
-    // `$/subscription/notify` frame. `send` is the gateway's per-transport
-    // write hook; if the F1 guard drained AFTER emitting (or didn't catch
-    // the throw at all and let some partial state leak), this would be 1.
-    expect(send).not.toHaveBeenCalled();
-
-    // Assert — the F1 tripwire fired. The first call's first arg is the
-    // tripwire prefix string, the second arg is the captured error.
-    // A regression that drops the catch block makes this expectation
-    // fail (zero calls), surfacing the missing guard.
+    expect(stream.send).not.toHaveBeenCalled();
+    expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
     expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    const errCall = consoleErrorSpy.mock.calls[0];
-    if (errCall === undefined) throw new Error("unreachable — tripwire log expected");
-    const [prefix, err] = errCall;
-    expect(typeof prefix).toBe("string");
+    const [prefix, err] = consoleErrorSpy.mock.calls[0] ?? [];
     expect(prefix).toContain("[session.subscribe] replay event validation/emission failed");
-    expect(prefix).toContain(result.subscriptionId);
-    expect(err).toBeInstanceOf(Error);
-    if (err instanceof Error) {
-      // The thrown error is `StreamingValidationError` (per
-      // `streaming-primitive.ts:346-352`); its `.name` is the discriminator.
-      expect(err.name).toBe("StreamingValidationError");
-    }
+    expect(prefix).toContain(stream.subscriptionId);
+    expect((err as Error).name).toBe("StreamingValidationError");
   });
 
-  it("live-tail: malformed event after replay drain is caught; subscription canceled; daemon survives", async () => {
-    // Arrange — `subscribeToSession` captures `onEvent` and returns
-    // immediately (no synchronous replay). After we drain the
-    // `setImmediate` boundary, `replayDrained === true`, so any subsequent
-    // `onEvent(event)` call lands the live-tail branch of the handler's
-    // callback — the second F1 guard site.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
+  it("live tail: a malformed event cancels the subscription without throwing into the upstream", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stream = await subscribeWith(ALWAYS_ROOM);
 
-    // Holder-object pattern — same as T3 above (TS control-flow narrowing
-    // requires a holder for closure-mutated bindings to read back as
-    // non-null at the outer scope).
-    const onEventHolder: { current: ((event: SessionEvent) => void) | null } = {
-      current: null,
-    };
-    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
-      (_sessionId, _afterCursor, onEvent) => {
-        onEventHolder.current = onEvent;
-        return () => undefined;
-      },
-    );
-    const deps: SessionSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToSession,
-    };
-    registerSessionSubscribe(registry, deps);
+    stream.onChange({ cursor: "cursor-0" as EventCursor, event: {} as SessionEvent });
+    expect(() => vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS)).not.toThrow();
 
-    // Act — dispatch, drain the replay boundary, then fire the malformed
-    // event through the captured live-tail callback. With the F1 guard,
-    // the throw is caught inside the lambda's `if (replayDrained)` branch.
-    // Without the guard, the throw escapes the lambda and surfaces as an
-    // uncaught exception on the turn the upstream event source triggered.
-    const ctx: HandlerContext = { transportId: 7 };
-    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
-    const result = (await registry.dispatch(
-      "session.subscribe",
-      subscribeReq,
-      ctx,
-    )) as SessionSubscribeResponse;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    const onEvent = onEventHolder.current;
-    if (onEvent === null) throw new Error("unreachable — capturedOnEvent assertion above");
-
-    // Fire the malformed event. The lambda is synchronous-call from this
-    // test stack; the F1 guard catches the throw and the call returns
-    // normally (cancel + log). Without the guard, this `onEvent({} ...)`
-    // call would itself throw — and we wrap it in expect().not.toThrow()
-    // to surface that regression as a clean test failure rather than an
-    // uncaught exception that aborts the suite.
-    expect(() => onEvent({} as SessionEvent)).not.toThrow();
-
-    // Assert — same shape as the replay-flush test: subscription canceled,
-    // no wire frame emitted, tripwire log captured.
-    expect(primitive.cancelSubscription(result.subscriptionId)).toBe(false);
-    expect(send).not.toHaveBeenCalled();
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    const errCall = consoleErrorSpy.mock.calls[0];
-    if (errCall === undefined) throw new Error("unreachable — tripwire log expected");
-    const [prefix, err] = errCall;
-    expect(typeof prefix).toBe("string");
+    expect(stream.send).not.toHaveBeenCalled();
+    expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
+    const [prefix] = consoleErrorSpy.mock.calls[0] ?? [];
     expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");
-    expect(prefix).toContain(result.subscriptionId);
-    expect(err).toBeInstanceOf(Error);
-    if (err instanceof Error) {
-      expect(err.name).toBe("StreamingValidationError");
-    }
-  });
-
-  it("replay-flush: subsequent good events do NOT propagate after a malformed event aborts the loop", async () => {
-    // Arrange — fire a malformed event FIRST, then a good event. The F1
-    // guard cancels the subscription on the first throw and the loop
-    // breaks out of the catch, so the good event never reaches `send`.
-    // This codifies the silent-no-op-after-cancel contract documented in
-    // streaming-primitive.ts:333-339 against the F1-canceled state.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(
-      (_sessionId, _afterCursor, onEvent) => {
-        onEvent({} as SessionEvent); // malformed — throws inside flush
-        onEvent(buildSessionCreatedEvent()); // canonical — would emit if not canceled
-        return () => undefined;
-      },
-    );
-    const deps: SessionSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToSession,
-    };
-    registerSessionSubscribe(registry, deps);
-
-    const ctx: HandlerContext = { transportId: 7 };
-    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
-    const result = (await registry.dispatch(
-      "session.subscribe",
-      subscribeReq,
-      ctx,
-    )) as SessionSubscribeResponse;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    // Assert — the canonical event did NOT emit. The catch block fires
-    // `sub.cancel()` BEFORE the loop's next iteration would have called
-    // `sub.next(canonicalEvent)`; even if it did, `sub.next` post-cancel
-    // is a documented silent-no-op (streaming-primitive.ts:333-339).
-    expect(send).not.toHaveBeenCalled();
-    expect(primitive.cancelSubscription(result.subscriptionId)).toBe(false);
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
   });
 });
 
 // ----------------------------------------------------------------------------
-// onCancel wire-up: upstream unsubscribe runs when the wire client cancels OR
-// the transport disconnects, so the event source detaches its watcher rather
-// than leaking it for the transport's lifetime. The discarded `unsubscribe`
-// handle in `session-subscribe.ts` was the leak; extending
-// `LocalSubscriptionProducer<T>` with `onCancel` closes it on the existing
-// lifecycle interface.
+// `session.subscribe`: the upstream detaches when the subscription ends
 // ----------------------------------------------------------------------------
 
-describe("session.subscribe wires upstream unsubscribe via sub.onCancel", () => {
-  it("wire-cancel (`$/subscription/cancel` from the same transport) fires the upstream unsubscribe", async () => {
-    // Arrange — `subscribeToSession`'s test double returns a vi-fn
-    // unsubscribe so we can assert exactly when it ran. The handler-binding
-    // path registers the unsubscribe via `sub.onCancel(unsubscribe)`; the
-    // primitive's wire-cancel path (the registered `$/subscription/cancel`
-    // handler dispatching to `cancelSubscription`) must fire it.
+describe("session.subscribe detaches the upstream when the subscription ends", () => {
+  async function subscribeCountingDetach(transportId: number): Promise<{
+    readonly registry: MethodRegistryImpl;
+    readonly primitive: StreamingPrimitive;
+    readonly unsubscribe: Mock<() => void>;
+    readonly subscriptionId: SubscriptionId;
+  }> {
     const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
+    const send = vi.fn<SendFrame>();
     const primitive = new StreamingPrimitive({ registry, send });
     const unsubscribe = vi.fn<() => void>();
-    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(() => unsubscribe);
-    const deps: SessionSubscribeDeps = {
+    registerSessionSubscribe(registry, {
       streamingPrimitive: primitive,
-      subscribeToSession,
-    };
-    registerSessionSubscribe(registry, deps);
-
-    const transportId = 13;
-    const ctx: HandlerContext = { transportId };
-    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
+      outboundQueue: ALWAYS_ROOM,
+      subscribeToSession: () => unsubscribe,
+    });
     const result = (await registry.dispatch(
       "session.subscribe",
-      subscribeReq,
-      ctx,
-    )) as SessionSubscribeResponse;
-    // Drain the replay-flush boundary so any post-init race is observable
-    // before we cancel.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    expect(unsubscribe).not.toHaveBeenCalled();
-
-    // Act — dispatch the wire-cancel through the registered cancel handler
-    // (the same path a real client's `$/subscription/cancel` notification
-    // walks). The cancel handler verifies transport-scoped ownership BEFORE
-    // calling `cancelSubscription`; matching `transportId` is required.
-    const cancelResult = await registry.dispatch(
-      "$/subscription/cancel",
-      { subscriptionId: result.subscriptionId },
+      { sessionId: TEST_SESSION_ID },
       { transportId },
+    )) as SessionSubscribeResponse;
+    await crossAckBarrier();
+    return { registry, primitive, unsubscribe, subscriptionId: result.subscriptionId };
+  }
+
+  it("a `$/subscription/cancel` from the same connection detaches the upstream", async () => {
+    const stream = await subscribeCountingDetach(13);
+    expect(stream.unsubscribe).not.toHaveBeenCalled();
+
+    const cancelResult = await stream.registry.dispatch(
+      "$/subscription/cancel",
+      { subscriptionId: stream.subscriptionId },
+      { transportId: 13 },
     );
 
-    // Assert — the cancel removed the entry AND fired the registered
-    // upstream-detach callback. Without the F5 wire-up, the entry would
-    // drain but `unsubscribe` would stay uncalled, leaving the upstream
-    // event-source's watcher running.
     expect((cancelResult as { canceled: boolean }).canceled).toBe(true);
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(stream.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it("transport-disconnect (`cleanupTransport`) fires the upstream unsubscribe", async () => {
-    // Arrange — same wiring; the disconnect path runs through the bootstrap
-    // orchestrator's composed `onDisconnect` hook in production, which
-    // calls `streamingPrimitive.cleanupTransport(transportId)`. Direct
-    // invocation here models that hook firing.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const unsubscribe = vi.fn<() => void>();
-    const subscribeToSession = vi.fn<SessionSubscribeDeps["subscribeToSession"]>(() => unsubscribe);
-    const deps: SessionSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToSession,
-    };
-    registerSessionSubscribe(registry, deps);
+  it("the connection closing detaches the upstream", async () => {
+    const stream = await subscribeCountingDetach(21);
 
-    const transportId = 21;
-    const ctx: HandlerContext = { transportId };
-    const subscribeReq: SessionSubscribeRequest = { sessionId: TEST_SESSION_ID };
-    await registry.dispatch("session.subscribe", subscribeReq, ctx);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(unsubscribe).not.toHaveBeenCalled();
+    stream.primitive.cleanupTransport(21);
 
-    // Act — simulate transport disconnect via cleanupTransport.
-    primitive.cleanupTransport(transportId);
-
-    // Assert — the upstream watcher detached; without the F5 wire-up it
-    // would remain registered against the now-dead transport.
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
-  });
-
-  it("complete() does NOT fire the upstream unsubscribe (natural producer-driven termination is silent)", async () => {
-    // Arrange — capture the `LocalSubscriptionProducer` handle so the test can
-    // call `complete()` on it directly. We do this by replacing the handler-
-    // binding path with a direct primitive call (the handler returns the
-    // subscription via `createSubscription`; we exercise the same producer
-    // surface here).
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const sub = primitive.createSubscription<SessionEvent>(31, SessionEventSchema);
-    const unsubscribe = vi.fn<() => void>();
-    sub.onCancel(unsubscribe);
-
-    // Act — natural completion. The producer signals "no more values" via
-    // `complete()`. By contract this MUST NOT fire onCancel handlers —
-    // the producer already knows the stream ended (it's the caller); a
-    // self-callback here would just be noise.
-    sub.complete();
-
-    // Assert — the upstream watcher is NOT detached on natural completion.
-    // The producer is responsible for releasing its own resources when it
-    // chooses to call `complete()`; the hook only fires on externally-
-    // imposed cancellation.
-    expect(unsubscribe).not.toHaveBeenCalled();
+    expect(stream.unsubscribe).toHaveBeenCalledTimes(1);
   });
 });
 

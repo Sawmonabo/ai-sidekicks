@@ -10,12 +10,11 @@
 //   * `append()` refuses on a default-constructed service; reads need
 //     no opt-in. The `beforeEach` fixture opts in explicitly
 //     (`allowUnsignedPlaceholderAppend`) so the D2/D3/D4 blocks can
-//     seed placeholder rows; see the append-guard describe block.
+//     seed rows; see the append-guard describe block.
 //
 // Migration runner coverage:
 //   * `openDatabase` factory: idempotent reopen test.
 //   * `applyMigrations` sequential idempotency on a second handle.
-//   * Integrity-column CHECK constraint rejection at INSERT time.
 //
 // Concurrency coverage (see "Concurrent-boot migration race" block below):
 //   * Concurrent-boot via `worker_threads` proves `BEGIN IMMEDIATE`
@@ -118,7 +117,7 @@ beforeEach(() => {
   ctx = {
     db,
     // Explicit test-only opt-in to the guarded append path — this suite's
-    // D2/D3/D4 blocks seed placeholder rows through it (the append-guard
+    // D2/D3/D4 blocks seed rows through it (the append-guard
     // describe block pins the refusal on a default-constructed service).
     service: new SessionService(db, {
       allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
@@ -558,8 +557,8 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     // 10/20 and would pass silently — the negative control below
     // catches "DEFERRED-shaped contention exists" but not
     // intermediate failure rates. When adds further
-    // migration-related concurrency invariants (per-event
-    // hash-chain commit, snapshot-write coupling), revisit this
+    // migration-related concurrency invariants (snapshot-write
+    // coupling, say), revisit this
     // threshold and add bug-class-specific assertions for any
     // regression class that wouldn't surface here at the existing
     // 50 % threshold.
@@ -864,88 +863,11 @@ describe("openDatabase — failure-mode cleanup (closes handle if init throws)",
 });
 
 // ----------------------------------------------------------------------------
-// Integrity-column CHECK constraints
-// ----------------------------------------------------------------------------
-//
-// The schema declares CHECK(length(prev_hash) = 32 AND length(row_hash)
-// = 32 AND length(daemon_signature) = 64) on session_events. Without
-// these CHECKs, wrong-length placeholder bytes (e.g. Buffer.alloc(0))
-// would silently succeed and surface as a chain-recompute failure
-// later verification territory. These tests pin the constraints at
-// INSERT time.
-
-describe("session_events integrity-column CHECK constraints", () => {
-  it("rejects an INSERT with a wrong-length prev_hash (must be 32 bytes)", () => {
-    const stmt = ctx.db.prepare(
-      `INSERT INTO session_events (
-        id, session_id, sequence, occurred_at, monotonic_ns,
-        category, type, payload,
-        prev_hash, row_hash, daemon_signature
-      ) VALUES (
-        @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
-        @category, @type, @payload,
-        @prev_hash, @row_hash, @daemon_signature
-      )`,
-    );
-    expect(() =>
-      stmt.run({
-        id: "01J0EV9990NN5J5J5J5J5J5J5J",
-        session_id: SESSION_ID,
-        sequence: 0,
-        occurred_at: "2026-04-27T12:00:00.000Z",
-        monotonic_ns: 1n,
-        category: "session_lifecycle",
-        type: "session.created",
-        payload: "{}",
-        prev_hash: Buffer.alloc(31), // Wrong: 31 bytes instead of 32.
-        row_hash: Buffer.alloc(32),
-        daemon_signature: Buffer.alloc(64),
-      }),
-    ).toThrow(/CHECK constraint failed/);
-  });
-
-  it("rejects an INSERT with a wrong-length daemon_signature (must be 64 bytes)", () => {
-    const stmt = ctx.db.prepare(
-      `INSERT INTO session_events (
-        id, session_id, sequence, occurred_at, monotonic_ns,
-        category, type, payload,
-        prev_hash, row_hash, daemon_signature
-      ) VALUES (
-        @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
-        @category, @type, @payload,
-        @prev_hash, @row_hash, @daemon_signature
-      )`,
-    );
-    expect(() =>
-      stmt.run({
-        id: "01J0EV9991NN5J5J5J5J5J5J5J",
-        session_id: SESSION_ID,
-        sequence: 0,
-        occurred_at: "2026-04-27T12:00:00.000Z",
-        monotonic_ns: 1n,
-        category: "session_lifecycle",
-        type: "session.created",
-        payload: "{}",
-        prev_hash: Buffer.alloc(32),
-        row_hash: Buffer.alloc(32),
-        daemon_signature: Buffer.alloc(63), // Wrong: 63 bytes instead of 64.
-      }),
-    ).toThrow(/CHECK constraint failed/);
-  });
-
-  it("accepts an INSERT with the canonical placeholder bytes (the SessionService default)", () => {
-    // Belt-and-braces: a normal SessionService.append() must succeed.
-    // This is already covered by D2/D3/D4 but pinning it here makes the
-    // CHECK-constraint test block read as a self-contained proof.
-    expect(() => ctx.service.append(makeCreatedEvent())).not.toThrow();
-  });
-});
-
-// ----------------------------------------------------------------------------
+// Append guard
 // ----------------------------------------------------------------------------
 //
 // A default-constructed service is read-only: a composition root wiring a
-// real database cannot reach the unsigned append path by accident. The
+// real database cannot reach the test-seeding append path by accident. The
 // refusal test below is the guard's own negative control — it proves the
 // guard fires, so the opted-in green suite is not vacuous evidence.
 
@@ -956,7 +878,7 @@ export const DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST: string =
 export const FORGED_TOKEN_REFUSAL_TEST: string =
   "refuses a FORGED token — the guard checks identity against the module-private singleton, not structure";
 
-describe("SessionService — append guard (unsigned placeholder writes are opt-in)", () => {
+describe("SessionService — append guard (test-seeding writes are opt-in)", () => {
   it(DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST, () => {
     const guardedService: SessionService = new SessionService(ctx.db);
     expect(() => guardedService.append(makeCreatedEvent())).toThrow(
@@ -1023,12 +945,10 @@ describe("SessionService — read-side payload validation", () => {
       .prepare(
         `INSERT INTO session_events (
            id, session_id, sequence, occurred_at, monotonic_ns,
-           category, type, payload,
-           prev_hash, row_hash, daemon_signature
+           category, type, payload
          ) VALUES (
            @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
-           @category, @type, @payload,
-           @prev_hash, @row_hash, @daemon_signature
+           @category, @type, @payload
          )`,
       )
       .run({
@@ -1040,9 +960,6 @@ describe("SessionService — read-side payload validation", () => {
         category: "session_lifecycle",
         type: "session.created",
         payload: payloadText,
-        prev_hash: Buffer.alloc(32),
-        row_hash: Buffer.alloc(32),
-        daemon_signature: Buffer.alloc(64),
       });
   }
 

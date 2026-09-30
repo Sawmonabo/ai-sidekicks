@@ -175,14 +175,14 @@
 // BOTH retirement decisions — already-retired and busy-holder — are taken
 // INSIDE the retirement transaction, in `#emitRetirement`'s prelude. A probe
 // outside it decides against a state a concurrent writer can still change: the
-// append path awaits a signing-key unseal and the per-session append lock
-// between the read and the transaction, so a `markBusy` landing in that window
-// would have its worktree retired out from under a live run — after which the
-// sweep's leg (d) removes the running run's execution root. The prelude is the
-// only place where the decision and the write are the same transaction, and it
-// is where a throw still aborts before anything persists. `#runDetachCascade`
-// in `../workspace/repo-mount-service.js` closes the equivalent race the same
-// way, with the same reasoning at its own header.
+// append path awaits the per-session append lock between the read and the
+// transaction, so a `markBusy` landing in that window would have its worktree
+// retired out from under a live run — after which the sweep's leg (d) removes
+// the running run's execution root. The prelude is the only place where the
+// decision and the write are the same transaction, and it is where a throw
+// still aborts before anything persists. `#runDetachCascade` in
+// `../workspace/repo-mount-service.js` closes the equivalent race the same way,
+// with the same reasoning at its own header.
 //
 // ---------------------------------------------------------------------------
 // RESIDUAL — a branch name can be free in the INDEX and taken in GIT
@@ -1188,12 +1188,12 @@ export class WorktreeService {
     } catch (readyEmissionFailure) {
       // The SAME recovery the materialization failure gets, and for a sharper
       // reason. A ready emission can fail for causes that have nothing to do
-      // with this worktree — a signing-key read, an administrative ingest halt,
-      // a disk error on the event INSERT — and every one of them would
-      // otherwise leave the row in `creating`. `creating` is LIVE under
-      // `idx_worktrees_active_branch`, so the (mount, branch) pair would be
-      // wedged permanently, and NO sweep leg can reach such a row: leg (c)
-      // wants a non-attached mount and leg (d) wants `retired`.
+      // with this worktree — a size refusal, a disk error on the event INSERT —
+      // and every one of them would otherwise leave the row in `creating`.
+      // `creating` is LIVE under `idx_worktrees_active_branch`, so the (mount,
+      // branch) pair would be wedged permanently, and NO sweep leg can reach
+      // such a row: leg (c) wants a non-attached mount and leg (d) wants
+      // `retired`.
       //
       // `#markFailedStmt`'s `state = 'creating'` predicate matches here because
       // a rejected append committed nothing: the prelude's `-> ready` write and
@@ -1336,9 +1336,8 @@ export class WorktreeService {
     const parsedWorktreeId = WorktreeIdSchema.parse(row.id);
     // A FAST PATH, not the authority. The prelude re-reads the same state
     // inside the retirement transaction and is what actually decides; this read
-    // only spares an already-retired row the per-session append lock, the
-    // signing-key unseal and the envelope construction — sequentially, before
-    // any of that starts.
+    // only spares an already-retired row the per-session append lock and the
+    // envelope construction — sequentially, before any of that starts.
     if (WorktreeStateSchema.parse(row.state) === "retired") {
       return { worktreeId: parsedWorktreeId, state: "retired" };
     }

@@ -272,6 +272,67 @@ export function SubscriptionNotifyParamsSchema<T>(
 }
 
 // --------------------------------------------------------------------------
+// StreamFrame — the batched value of a stream that sends changes
+// --------------------------------------------------------------------------
+
+/**
+ * The most changes one frame carries. The daemon coalesces a stream's changes
+ * into one frame per short window or this many changes, whichever comes first,
+ * so a burst costs the screen one parse per frame rather than one per change.
+ */
+export const STREAM_FRAME_MAX_CHANGES = 50;
+
+/**
+ * One notify's `value` on a stream that sends changes rather than whole state.
+ *
+ * `changes` are the changes since the previous frame, oldest first, each
+ * carrying its own cursor. The daemon never waits for a slow screen: when a
+ * connection falls behind, the changes that do not fit are dropped for it, and
+ * `dropped` rides the very next frame that fits, so the screen learns of the
+ * loss at once and repairs from the daemon's record by cursor.
+ *
+ * A frame with no changes exists for one case only: a connection that fell
+ * behind has caught up and nothing new has happened since. That frame carries
+ * `dropped` and, in `cursor`, the newest cursor the stream has, so a session
+ * that went quiet right after a drop still tells the screen it is behind. A
+ * frame with changes carries no frame-level cursor; its changes carry theirs.
+ */
+export interface StreamFrame<Change, Cursor> {
+  readonly changes: readonly Change[];
+  readonly dropped?: true;
+  readonly cursor?: Cursor;
+}
+
+/**
+ * Builds the schema for a {@link StreamFrame} over one stream's change and
+ * cursor schemas. It refuses more than {@link STREAM_FRAME_MAX_CHANGES}
+ * changes, a frame with no changes that is not the caught-up drop frame, and
+ * a frame-level cursor beside changes.
+ */
+export function StreamFrameSchema<Change, Cursor>(
+  changeSchema: z.ZodType<Change>,
+  cursorSchema: z.ZodType<Cursor>,
+): z.ZodType<StreamFrame<Change, Cursor>> {
+  return z
+    .object({
+      changes: z.array(changeSchema).max(STREAM_FRAME_MAX_CHANGES),
+      dropped: z.literal(true).optional(),
+      cursor: cursorSchema.optional(),
+    })
+    .strict()
+    .refine(
+      (frame) =>
+        frame.changes.length > 0
+          ? frame.cursor === undefined
+          : frame.dropped === true && frame.cursor !== undefined,
+      {
+        message:
+          "A frame carries changes and no frame cursor, or no changes with the drop mark and the newest cursor.",
+      },
+    ) as unknown as z.ZodType<StreamFrame<Change, Cursor>>;
+}
+
+// --------------------------------------------------------------------------
 // $/subscription/cancel — inbound notification params + result
 // --------------------------------------------------------------------------
 

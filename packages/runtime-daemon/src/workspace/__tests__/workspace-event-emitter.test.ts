@@ -17,10 +17,8 @@
 //   * Per-event persistence: each of the six methods appends exactly ONE row
 //     carrying its own type, its registry category, and the schema-parsed
 //     payload — including the post-transition state the method determines.
-//   * Integrity columns: the emitter never computes them, and the append path
-//     materializes real ones (a genuine chain hash + daemon signature, not
-//     zero-fill), which is the observable form of "this module touches no
-//     integrity primitive".
+//   * monotonic_ns: the emitter forwards its injected clock, and the append
+//     path persists it.
 //   * Reconciliation: one `sessionId` / `actor` input populates BOTH the
 //     envelope and the payload, and the envelope-only linkage fields stay OUT
 //     of the payload.
@@ -60,7 +58,7 @@ import {
   RepoWorkspaceLifecyclePayloadSchema,
   SESSION_EVENT_CATEGORY_BY_TYPE,
 } from "@ai-sidekicks/contracts";
-import type { SessionEventType, SessionId } from "@ai-sidekicks/contracts";
+import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import type {
@@ -68,8 +66,6 @@ import type {
   UnsequencedEventEnvelope,
 } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
 import type { WorkspaceEventEmitterDeps, WorkspaceEventLog } from "../workspace-event-emitter.js";
@@ -87,12 +83,6 @@ const WORKSPACE_ID: string = "0190f8a2-2d4e-7f7b-9a32-3d8e7c5f0b21";
 // a branded id — any bounded non-blank string is valid.
 const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
-// The integrity-column widths the `session_events` CHECK constraints enforce.
-// The emitter never writes them; the arm below asserts the append path
-// materialized REAL ones.
-const CHAIN_HASH_LEN: number = 32;
-const DAEMON_SIGNATURE_LEN: number = 64;
-
 // The six types this emitter owns. `SessionEventType`-annotated so a literal
 // that left the census fails this file's compile rather than silently
 // asserting against a name nothing registers.
@@ -105,31 +95,7 @@ const LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "workspace.archived",
 ];
 
-/**
- * A fixed-key {@link DaemonSigningKeySource} — enough for an EMISSION suite
- * (`signing-key-source.test.ts` owns key custody). A 32-byte Ed25519 seed;
- * `create` is unreachable here because these tests only ever sign.
- */
-const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
-
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = FIXED_DAEMON_PRIVATE_KEY;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    // Never called: this suite signs against a pre-existing key. Throwing keeps
-    // an accidental provisioning call loud instead of returning a fake public
-    // key that would silently pass an assertion.
-    return Promise.reject(
-      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
-    );
-  }
-}
-
-// Raw read shape — the integrity columns are not exposed by any read model.
+// Raw read shape — `monotonic_ns` is not exposed by any read model.
 interface LifecycleRow {
   readonly sequence: bigint;
   readonly type: string;
@@ -139,16 +105,13 @@ interface LifecycleRow {
   readonly occurred_at: string;
   readonly monotonic_ns: bigint;
   readonly payload: string;
-  readonly prev_hash: Buffer;
-  readonly row_hash: Buffer;
-  readonly daemon_signature: Buffer;
 }
 
 function readRawRows(db: DatabaseType, sessionId: string): ReadonlyArray<LifecycleRow> {
   return db
     .prepare(
       `SELECT sequence, type, category, version, actor, occurred_at, monotonic_ns,
-              payload, prev_hash, row_hash, daemon_signature
+              payload
          FROM session_events
         WHERE session_id = ?
         ORDER BY sequence ASC`,
@@ -178,7 +141,6 @@ function recordingEventLog(appended: UnsequencedEventEnvelope[]): WorkspaceEvent
       return Promise.resolve({
         id: envelope.id,
         sequence: appended.length - 1,
-        rowHash: new Uint8Array(32),
       });
     },
   };
@@ -208,7 +170,6 @@ beforeEach(() => {
     db,
     eventLog: new EventLogService({
       db,
-      signingKeySource: new FixedDaemonSigningKeySource(),
     }),
     tmpDir,
   };
@@ -436,11 +397,11 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Integrity primitives — materialized by the append path, never by the emitter
+// monotonic_ns — forwarded by the emitter, persisted by the append path
 // ----------------------------------------------------------------------------
 
-describe("WorkspaceEventEmitter — integrity columns and monotonic_ns", () => {
-  it("persists the injected monotonic_ns and REAL integrity columns it never computed", async () => {
+describe("WorkspaceEventEmitter — monotonic_ns and sequence", () => {
+  it("persists the injected monotonic_ns", async () => {
     await makeEmitter({ monotonicNow: () => 7_000_000_000n }).emitRepoAttached({
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
@@ -448,20 +409,6 @@ describe("WorkspaceEventEmitter — integrity columns and monotonic_ns", () => {
 
     const row: LifecycleRow = readSingleRow("repo.attached");
     expect(row.monotonic_ns).toBe(7_000_000_000n);
-
-    // Exact CHECK-constraint widths, written by the append path.
-    expect(row.prev_hash.length).toBe(CHAIN_HASH_LEN);
-    expect(row.row_hash.length).toBe(CHAIN_HASH_LEN);
-    expect(row.daemon_signature.length).toBe(DAEMON_SIGNATURE_LEN);
-
-    // `prev_hash` IS all-zero here, for the opposite of a placeholder reason:
-    // this is the session's FIRST row, so its chain link is the genesis value.
-    // The two columns a non-computing writer would ALSO have left zero are the
-    // discriminating ones, and both are asserted NON-zero — which is what
-    // proves the emitter delegated rather than filled them in.
-    expect(row.prev_hash.equals(Buffer.alloc(CHAIN_HASH_LEN))).toBe(true);
-    expect(row.row_hash.equals(Buffer.alloc(CHAIN_HASH_LEN))).toBe(false);
-    expect(row.daemon_signature.equals(Buffer.alloc(DAEMON_SIGNATURE_LEN))).toBe(false);
   });
 
   it("lets the append path allocate every sequence — successive emits advance it", async () => {
@@ -750,7 +697,7 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
     const capturingEventLog: WorkspaceEventLog = {
       append: (envelope, options) => {
         forwardedOptions.push(options ?? {});
-        return Promise.resolve({ id: envelope.id, sequence: 0, rowHash: new Uint8Array(32) });
+        return Promise.resolve({ id: envelope.id, sequence: 0 });
       },
     };
     const prelude = (): void => {};
@@ -772,7 +719,7 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
     const capturingEventLog: WorkspaceEventLog = {
       append: (envelope, options) => {
         forwardedOptions.push((options ?? {}) as Record<string, unknown>);
-        return Promise.resolve({ id: envelope.id, sequence: 0, rowHash: new Uint8Array(32) });
+        return Promise.resolve({ id: envelope.id, sequence: 0 });
       },
     };
 
@@ -862,7 +809,7 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
     // or a wrapper, a false positive on the fail-closed side. A regression to
     // `instanceof` leaves every other arm green (their fakes return real
     // Promises); this one is what fails.
-    const receipt: EventLogAppendReceipt = { id: "x", sequence: 3, rowHash: new Uint8Array(32) };
+    const receipt: EventLogAppendReceipt = { id: "x", sequence: 3 };
     const customThenableEventLog: WorkspaceEventLog = {
       append: (): Promise<EventLogAppendReceipt> =>
         ({

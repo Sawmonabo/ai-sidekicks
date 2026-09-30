@@ -10,10 +10,18 @@
 //         (EVENT_CURSOR_MAX_LEN defense-in-depth cap), boundary accepts
 //   • Response (alias seam over the canonical SubscribeAckResponse):
 //       - `{subscriptionId}` parses; UUID-guarded; extra keys rejected
+//   • Frame (each notify's value):
+//       - a batch of changes, each with its cursor, parses, with or without the drop mark
+//       - the caught-up frame (no changes, the drop mark, the newest cursor) parses
+//       - refused: too many changes, an empty frame that is not the caught-up frame, a frame
+//         cursor beside changes, a change without a cursor, an unknown member
 import { describe, expect, it } from "vitest";
 
+import { SessionEventSchema } from "../event.js";
+import { STREAM_FRAME_MAX_CHANGES } from "../jsonrpc-streaming.js";
 import {
   EVENT_CURSOR_MAX_LEN,
+  SessionStreamFrameSchema,
   SessionSubscribeRequestSchema,
   SessionSubscribeResponseSchema,
 } from "../session.js";
@@ -103,5 +111,63 @@ describe("SessionSubscribeResponseSchema (alias seam over SubscribeAckResponse)"
       unexpected: "field",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("SessionStreamFrameSchema (each `session.subscribe` notify's value)", () => {
+  const FrameSchema = SessionStreamFrameSchema(SessionEventSchema);
+  const event = {
+    id: "evt-0001",
+    sessionId: SESSION_ID,
+    sequence: 0,
+    occurredAt: "2026-01-22T19:14:35.000Z",
+    category: "session_lifecycle",
+    type: "session.created",
+    actor: null,
+    version: "1.0",
+    payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
+  };
+  const change = (cursor: string): { cursor: string; event: typeof event } => ({ cursor, event });
+
+  it("accepts a batch of changes, each with its cursor", () => {
+    expect(FrameSchema.safeParse({ changes: [change("c-1"), change("c-2")] }).success).toBe(true);
+  });
+
+  it("accepts a batch carrying the drop mark", () => {
+    expect(FrameSchema.safeParse({ changes: [change("c-9")], dropped: true }).success).toBe(true);
+  });
+
+  it("accepts the caught-up frame: no changes, the drop mark and the newest cursor", () => {
+    expect(FrameSchema.safeParse({ changes: [], dropped: true, cursor: "c-9" }).success).toBe(true);
+  });
+
+  it(`refuses more than ${String(STREAM_FRAME_MAX_CHANGES)} changes in one frame`, () => {
+    const changes = Array.from({ length: STREAM_FRAME_MAX_CHANGES + 1 }, (_, index) =>
+      change(`c-${String(index)}`),
+    );
+    expect(FrameSchema.safeParse({ changes }).success).toBe(false);
+  });
+
+  it("refuses an empty frame without the drop mark and the newest cursor", () => {
+    expect(FrameSchema.safeParse({ changes: [] }).success).toBe(false);
+    expect(FrameSchema.safeParse({ changes: [], dropped: true }).success).toBe(false);
+    expect(FrameSchema.safeParse({ changes: [], cursor: "c-9" }).success).toBe(false);
+  });
+
+  it("refuses a frame cursor beside changes", () => {
+    expect(
+      FrameSchema.safeParse({ changes: [change("c-1")], dropped: true, cursor: "c-1" }).success,
+    ).toBe(false);
+  });
+
+  it("refuses a change without its cursor", () => {
+    expect(FrameSchema.safeParse({ changes: [{ event }] }).success).toBe(false);
+  });
+
+  it("refuses an unknown member on the frame or on a change", () => {
+    expect(FrameSchema.safeParse({ changes: [change("c-1")], gap: true }).success).toBe(false);
+    expect(FrameSchema.safeParse({ changes: [{ ...change("c-1"), sequence: 1 }] }).success).toBe(
+      false,
+    );
   });
 });

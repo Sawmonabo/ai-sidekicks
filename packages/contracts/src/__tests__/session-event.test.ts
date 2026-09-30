@@ -11,8 +11,8 @@
 //     `.strict()` modifier prevents cross-variant payload smuggling)
 //   • Each variant carries the canonical `category` literal per
 //     `SESSION_EVENT_CATEGORY_BY_TYPE`, AND a category/type mismatch is
-//     rejected at parse time (`category` participates in the BLAKE3-hashed
-//     canonical bytes)
+//     rejected at parse time (`category` participates in the canonical
+//     bytes)
 //   • `SESSION_EVENT_CATEGORY_BY_TYPE` is a `ReadonlyMap`, so prototype-
 //     chain walks (`__proto__`, `constructor`, etc.) resolve to `undefined`
 //     instead of returning truthy non-EventCategory values
@@ -32,23 +32,17 @@
 // extends with the daemon-scope sentinel pin (the B18 `mcp_governance` binding
 // costs the carrier no carve-out). appends the `CapabilityDetailsSchema` suite
 // last: the canonical capability snapshot (exhaustive enum-keyed flags;
-// non-normalizing strict tools). extends coverage with the four-variant
-// acceptance/rejection suite for the
-// `audit_integrity` + `event_maintenance` payload variants emits itself —
-// including the `failureMode`-discriminated `audit_integrity_failed` arms and
-// the daemon-scope sentinel binding — and ends with the standalone-vs-union
-// parity block for the four `*EventSchema` exports, on the worktree.test.ts
-// precedent (outer `.strict()` has no compile-time backstop).
+// non-normalizing strict tools). extends coverage with the acceptance/rejection
+// suite for the `event_maintenance` payload variant the daemon emits itself —
+// including the daemon-scope sentinel binding — and ends with the
+// standalone-vs-union parity block for its `*EventSchema` export, on the
+// worktree.test.ts precedent (outer `.strict()` has no compile-time backstop).
 import { describe, expect, it } from "vitest";
 
 import {
   APPROVAL_FLOW_EVENT_TYPES,
   ARTIFACT_PUBLICATION_EVENT_TYPES,
   ASSISTANT_OUTPUT_EVENT_TYPES,
-  AUDIT_INTEGRITY_DETAIL_MAX_LEN,
-  AUDIT_INTEGRITY_EVENT_TYPES,
-  AuditIntegrityFailedEventSchema,
-  AuditIntegrityVerifiedEventSchema,
   CAPABILITY_CONTRACT_VERSION_MAX_LEN,
   CapabilityDetailsSchema,
   compareEventEnvelopeVersion,
@@ -63,7 +57,6 @@ import {
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
   INTERACTIVE_REQUEST_EVENT_TYPES,
-  KeyReuseDetectedEventSchema,
   MCP_GOVERNANCE_EVENT_TYPES,
   ORCHESTRATION_ADMISSION_EVENT_TYPES,
   POLICY_EVENTS_EVENT_TYPES,
@@ -77,14 +70,15 @@ import {
   SessionEventSchema,
   TOOL_ACTIVITY_EVENT_TYPES,
   USAGE_TELEMETRY_EVENT_TYPES,
-  VerifierFailureModeSchema,
-  VerifierFailurePathSchema,
+  WORKFLOW_GATE_RESOLUTION_EVENT_TYPES,
+  WORKFLOW_LIFECYCLE_EVENT_TYPES,
+  WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES,
+  WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES,
   type CapabilityDetails,
   type EventCategory,
   type EventEnvelope,
   type SessionEvent,
   type SessionEventType,
-  CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_PAYLOAD_PLAINTEXT_MAX,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
@@ -117,11 +111,12 @@ const buildSessionCreated = () => ({
 
 describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
   it("registers exactly the payload-variant roster", () => {
-    // The SCHEMA-registered subset (21), not the 111-type census. Each
+    // The SCHEMA-registered subset (51), not the 153-type census. Each
     // group's round-trip and payload coverage lives in the suite that owns
     // its contract (repo.test.ts / worktree.test.ts for the payload shapes,
-    // and the audit-integrity / event-maintenance and body-bearing assistant
-    // / tool suites at the end of this file).
+    // the event-maintenance and body-bearing assistant /
+    // tool suites at the end of this file, and each owning contract's own
+    // suite for the variants whose payload it declares).
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
       "repo.attached",
@@ -135,15 +130,45 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "worktree.dirty",
       "worktree.merged",
       "worktree.retired",
-      "audit_integrity_verified",
-      "audit_integrity_failed",
-      "key_reuse_detected",
       "event.compacted",
       "assistant.message",
       "assistant.thinking_update",
       "tool.invoked",
       "tool.result",
       "tool.error",
+      "approval.rejected",
+      "approval.canceled",
+      "approval.remembered",
+      "approval.rule_revoked",
+      "moderation.review_flagged",
+      "plan.proposed",
+      "plan.accepted",
+      "plan.handed_off",
+      "question.asked",
+      "mcp.server_status_changed",
+      "mcp.server_config_changed",
+      "mcp.server_trust_changed",
+      "mcp.tool_override_changed",
+      "mcp.server_oauth_completed",
+      "cloud.task_updated",
+      "session.restore_finished",
+      "session.goal_cleared",
+      "session.notice",
+      "session.side_question_answered",
+      "git.settled",
+      "relay.pin_refused",
+      "command.ended",
+      "usage.model_rerouted",
+      "session.archived",
+      "session.reactivated",
+      "session.closed",
+      "session.pinned",
+      "session.unpinned",
+      "session.muted",
+      "session.unmuted",
+      "session.converted",
+      "session.branch_changed",
+      "session.swept_to_repo_root",
     ]);
   });
 
@@ -240,9 +265,9 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     "emits the canonical category %s -> %s",
     (label, build, expected) => {
       // Round-trip parse pin: each variant carries its declared canonical category.
-      // This is wire-load-bearing because puts `category` inside the canonical bytes
-      // that back the BLAKE3 hash chain and Ed25519 signature; the parsed value must
-      // equal the per-type category defined in `SESSION_EVENT_CATEGORY_BY_TYPE`.
+      // This is wire-load-bearing because `category` sits inside the canonical bytes;
+      // the parsed value must equal the per-type category defined in
+      // `SESSION_EVENT_CATEGORY_BY_TYPE`.
       const parsed = SessionEventSchema.parse(build());
       expect(parsed.category).toBe(expected);
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(label)).toBe(expected);
@@ -252,8 +277,8 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
   it.each([["__proto__"], ["constructor"], ["toString"], ["hasOwnProperty"], ["unknown.event"]])(
     "SESSION_EVENT_CATEGORY_BY_TYPE.get rejects prototype-chain walks: %s",
     (untrusted) => {
-      // Map (NOT object-literal) lookup is load-bearing: a integrity
-      // verifier that calls `.get(evt.type)` on a not-yet-parsed string
+      // Map (NOT object-literal) lookup is load-bearing: a reader that
+      // calls `.get(evt.type)` on a not-yet-parsed string
       // MUST resolve to `undefined` for every key that isn't in the
       // explicit table, including built-in object prototype keys. With an
       // object literal `lookup['__proto__']` resolves to a truthy
@@ -265,8 +290,8 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
   it("rejects a category/type mismatch (usage_telemetry on session.created)", () => {
     // Wire-integrity check: the per-variant `category: z.literal(...)`
     // forbids cross-namespace smuggling. If this ever silently accepted,
-    // the integrity protocol would hash the event under the wrong
-    // category byte and replay would diverge.
+    // the log would store the event under the wrong category and replay
+    // would diverge.
     const broken = { ...buildSessionCreated(), category: "usage_telemetry" as const };
     const result = SessionEventSchema.safeParse(broken);
     expect(result.success).toBe(false);
@@ -280,7 +305,7 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
     expect(result.success).toBe(false);
   });
 
-  it("EventCategorySchema enumerates exactly the 16 canonical categories", () => {
+  it("EventCategorySchema enumerates exactly the 19 canonical categories", () => {
     // Pinning the enum values prevents accidental drift from the canonical
     // EventCategory definition. If adds a category, the spec edit must land
     // before this list; the test will fail until both sides agree.
@@ -295,19 +320,22 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "usage_telemetry",
       "runtime_node_lifecycle",
       "recovery_events",
-      "audit_integrity",
       "security_events",
       "event_maintenance",
       "policy_events",
       "orchestration_admission",
       "mcp_governance",
+      "workflow_lifecycle",
+      "workflow_phase_lifecycle",
+      "workflow_parallel_coordination",
+      "workflow_gate_resolution",
     ];
     // Read `.options` from the underlying enum construct. The schema is
     // typed as the abstract `z.ZodType<EventCategory>` so we cast via
     // `unknown` to read the construct-specific `.options` property; the
     // assertions below check both length AND exact set membership.
     const schemaInternals = EventCategorySchema as unknown as { options: readonly string[] };
-    expect(schemaInternals.options).toHaveLength(16);
+    expect(schemaInternals.options).toHaveLength(19);
     expect([...schemaInternals.options].sort()).toEqual([...expected].sort());
     for (const cat of expected) {
       expect(EventCategorySchema.safeParse(cat).success).toBe(true);
@@ -520,35 +548,38 @@ describe("compareEventEnvelopeVersion", () => {
 // SessionEventType census + category registry.
 // --------------------------------------------------------------------------
 //
-// Backstops the full census (111 types across 16 categories) plus the
+// Backstops the full census (153 types across 19 categories) plus the
 // category/type bijection: SESSION_EVENT_CATEGORY_BY_TYPE covers every
-// registered type exactly once, its values span exactly the 16 canonical
-// categories (every category non-empty), and the 16 per-category arrays
+// registered type exactly once, its values span exactly the 19 canonical
+// categories (every category non-empty), and the 19 per-category arrays
 // partition the census. Assertions are exact-set style wherever set equality
 // is feasible (the hardened idiom of the EventCategorySchema pin above), with
-// the exact size assertions (size === 111, 16 distinct categories) alongside.
+// the exact size assertions (size === 153, 19 distinct categories) alongside.
 
-// One row per category with its pinned count. Rows sum to 111 (asserted
+// One row per category with its pinned count. Rows sum to 153 (asserted
 // below), mirroring the census table's Total row.
 const CENSUS_BASELINE: ReadonlyArray<
   readonly [EventCategory, readonly SessionEventType[], number]
 > = [
   ["run_lifecycle", RUN_LIFECYCLE_EVENT_TYPES, 13],
   ["assistant_output", ASSISTANT_OUTPUT_EVENT_TYPES, 2],
-  ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 7],
-  ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 16],
-  ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 6],
-  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 27],
+  ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 8],
+  ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 17],
+  ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 7],
+  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 37],
   ["approval_flow", APPROVAL_FLOW_EVENT_TYPES, 10],
   ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 8],
   ["runtime_node_lifecycle", RUNTIME_NODE_LIFECYCLE_EVENT_TYPES, 2],
   ["recovery_events", RECOVERY_EVENTS_EVENT_TYPES, 3],
-  ["audit_integrity", AUDIT_INTEGRITY_EVENT_TYPES, 3],
   ["security_events", SECURITY_EVENTS_EVENT_TYPES, 5],
   ["event_maintenance", EVENT_MAINTENANCE_EVENT_TYPES, 1],
   ["policy_events", POLICY_EVENTS_EVENT_TYPES, 2],
   ["orchestration_admission", ORCHESTRATION_ADMISSION_EVENT_TYPES, 1],
   ["mcp_governance", MCP_GOVERNANCE_EVENT_TYPES, 5],
+  ["workflow_lifecycle", WORKFLOW_LIFECYCLE_EVENT_TYPES, 13],
+  ["workflow_phase_lifecycle", WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES, 17],
+  ["workflow_parallel_coordination", WORKFLOW_PARALLEL_COORDINATION_EVENT_TYPES, 1],
+  ["workflow_gate_resolution", WORKFLOW_GATE_RESOLUTION_EVENT_TYPES, 1],
 ];
 
 // The fifteen most recently minted literals, each with the category it
@@ -559,7 +590,7 @@ const CENSUS_BASELINE: ReadonlyArray<
 // later edit renames, which the immutability rule forbids — is a COMPILE
 // error under `tsc -p tsconfig.test.json` (the package's `typecheck` leg;
 // vitest strips types and would not catch it). The runtime assertions below
-// pin the category half and the 96 + 15 = 111 arithmetic.
+// pin the category half and the 138 + 15 = 153 arithmetic.
 const LATE_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory]> = [
   ["session.provider_status", "session_lifecycle"],
   ["session.notice", "session_lifecycle"],
@@ -579,9 +610,9 @@ const LATE_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory
 ];
 
 describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", () => {
-  it("registers exactly 111 types across exactly 16 distinct categories", () => {
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(111);
-    expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(16);
+  it("registers exactly 153 types across exactly 19 distinct categories", () => {
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(153);
+    expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(19);
   });
 
   it("registry categories span exactly the canonical EventCategory set (no empty category)", () => {
@@ -593,12 +624,12 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     expect(registryCategories).toEqual([...schemaInternals.options].sort());
   });
 
-  it("census table is complete: 16 rows, one per category, counts summing to 111", () => {
+  it("census table is complete: 19 rows, one per category, counts summing to 153", () => {
     const tableCategories = CENSUS_BASELINE.map(([category]) => category);
-    expect(tableCategories).toHaveLength(16);
-    expect(new Set(tableCategories).size).toBe(16);
+    expect(tableCategories).toHaveLength(19);
+    expect(new Set(tableCategories).size).toBe(19);
     const total = CENSUS_BASELINE.reduce((sum, [, , expectedCount]) => sum + expectedCount, 0);
-    expect(total).toBe(111);
+    expect(total).toBe(153);
   });
 
   it.each(CENSUS_BASELINE)(
@@ -611,7 +642,7 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
       // Exact set equality vs the registry's keys filtered to this category
       // — anti-drift bind between arrays and registry. This also forces
       // pairwise-disjoint arrays: each registry key carries exactly one
-      // category, so the 16 filtered key sets are disjoint.
+      // category, so the 19 filtered key sets are disjoint.
       const registryKeysInCategory = [...SESSION_EVENT_CATEGORY_BY_TYPE.entries()]
         .filter(([, registeredCategory]) => registeredCategory === category)
         .map(([eventType]) => eventType)
@@ -620,43 +651,20 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     },
   );
 
-  it("the 16 per-category arrays partition the registry key set exactly", () => {
+  it("the 19 per-category arrays partition the registry key set exactly", () => {
     const aggregated = CENSUS_BASELINE.flatMap(([, categoryTypes]) => [...categoryTypes]);
-    expect(aggregated).toHaveLength(111);
-    expect(new Set(aggregated).size).toBe(111);
+    expect(aggregated).toHaveLength(153);
+    expect(new Set(aggregated).size).toBe(153);
     expect([...aggregated].sort()).toEqual([...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].sort());
   });
 
   it("keeps the founding wire literal unrenamed with an unchanged category", () => {
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("session.created")).toBe("session_lifecycle");
     // The SCHEMA-registered payload subset grows ONLY through the
-    // union-registration seam, and every one of those type strings is
-    // already a census member. The loop below is the bind that matters:
-    // every registered variant must be a census member, so a variant
-    // registered under an unregistered literal fails here.
-    expect(SESSION_EVENT_TYPES).toEqual([
-      "session.created",
-      "repo.attached",
-      "repo.detached",
-      "workspace.preparing",
-      "workspace.ready",
-      "workspace.stale",
-      "workspace.archived",
-      "worktree.created",
-      "worktree.ready",
-      "worktree.dirty",
-      "worktree.merged",
-      "worktree.retired",
-      "audit_integrity_verified",
-      "audit_integrity_failed",
-      "key_reuse_detected",
-      "event.compacted",
-      "assistant.message",
-      "assistant.thinking_update",
-      "tool.invoked",
-      "tool.result",
-      "tool.error",
-    ]);
+    // union-registration seam, and every one of those type strings must
+    // already be a census member: a variant registered under an unregistered
+    // literal fails here. The roster itself is pinned by the round-trip
+    // suite above.
     for (const registered of SESSION_EVENT_TYPES) {
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(registered)).toBe(true);
     }
@@ -667,8 +675,7 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     // against the spec sections so a future "cleanup" by namespace
     // heuristic fails loud. The registry, never the prefix, is the
     // category authority (name preservation for the `session.clock_*`
-    // pair `key_reuse_detected` is a flat name with no namespace at
-    // all).
+    // pair).
     ["session.clock_unsynced", "runtime_node_lifecycle"],
     ["session.clock_corrected", "runtime_node_lifecycle"],
     ["daemon.master_key_source", "security_events"],
@@ -681,7 +688,6 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     ["orchestration.rejected", "orchestration_admission"],
     ["subagent.started", "tool_activity"],
     ["pty.control_changed", "session_lifecycle"],
-    ["key_reuse_detected", "audit_integrity"],
   ] as const)(
     "category authority is the registry, not the namespace prefix: %s -> %s",
     (eventType, expectedCategory) => {
@@ -689,25 +695,25 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     },
   );
 
-  it("the census minus the fifteen late-minted literals is exactly 96 types", () => {
+  it("the census minus the fifteen late-minted literals is exactly 138 types", () => {
     // Completeness self-check for the LATE_MINTED_TYPES fixture (the same
-    // row-sum bind CENSUS_BASELINE gets above): `111 − 15 = 96`, pinning
+    // row-sum bind CENSUS_BASELINE gets above): `153 − 15 = 138`, pinning
     // the delta's SIZE so the widening cannot be over- or under-counted. A
     // dropped or duplicated fixture entry fails here instead of leaving 14
     // passing per-literal pins.
     expect(LATE_MINTED_TYPES).toHaveLength(15);
     expect(new Set(LATE_MINTED_TYPES.map(([eventType]) => eventType)).size).toBe(15);
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - LATE_MINTED_TYPES.length).toBe(96);
-    // Removing the fifteen leaves exactly 96 keys. This is a cardinality
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - LATE_MINTED_TYPES.length).toBe(138);
+    // Removing the fifteen leaves exactly 138 keys. This is a cardinality
     // bind, not an identity one: a rename edited in both the record and its
-    // per-category array would still land on 96. Names are pinned elsewhere —
+    // per-category array would still land on 138. Names are pinned elsewhere —
     // the founding literal and the prefix-mismatch rows above, plus
     // CENSUS_BASELINE's per-category counts.
     const minted = new Set<string>(LATE_MINTED_TYPES.map(([eventType]) => eventType));
     const remaining = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter(
       (eventType) => !minted.has(eventType),
     );
-    expect(remaining).toHaveLength(96);
+    expect(remaining).toHaveLength(138);
   });
 
   it.each([...LATE_MINTED_TYPES])(
@@ -828,9 +834,9 @@ describe("EventEnvelopeSchema — canonical carrier", () => {
   //
   // Neither test covers the path the bound actually exists for: `sequence`
   // above 2^53 − 1 collapses onto a shared IEEE-754 double, so two different
-  // events would canonicalize to identical bytes and collide on `row_hash`, and
-  // a caller reaches the hash chain WITHOUT parsing. That enforcement lives at
-  // `canonicalizeEvent` in the daemon, and its tests live beside it.
+  // events would carry the same replay key, and a caller reaches the log
+  // WITHOUT parsing. That enforcement lives at `canonicalizeEvent` in the
+  // daemon, and its tests live beside it.
 
   it("accepts a sequence at exactly EVENT_ENVELOPE_SEQUENCE_MAX (boundary)", () => {
     expect(EVENT_ENVELOPE_SEQUENCE_MAX).toBe(Number.MAX_SAFE_INTEGER);
@@ -849,13 +855,11 @@ describe("EventEnvelopeSchema — canonical carrier", () => {
     expect(overCeiling.success).toBe(false);
     // The discriminating half. `.int()`'s own bound would already have failed
     // the parse with a bare "too big"; only the named `.max()` explains that
-    // the ceiling protects hash-chain injectivity. Issue COUNT is deliberately
+    // the ceiling protects replay-key injectivity. Issue COUNT is deliberately
     // not asserted — both checks firing is correct and informative, but pinning
     // the count would couple this test to Zod's internals.
     const issueMessages = overCeiling.error?.issues.map((issue) => issue.message) ?? [];
-    expect(issueMessages.some((message) => /collide in the row_hash chain/.test(message))).toBe(
-      true,
-    );
+    expect(issueMessages.some((message) => /carry the same replay key/.test(message))).toBe(true);
   });
 
   it("accepts a census type with no payload variant; SessionEventSchema rejects it", () => {
@@ -1241,12 +1245,12 @@ describe("CapabilityDetailsSchema (canonical capability snapshot)", () => {
 });
 
 // --------------------------------------------------------------------------
-// The four payload variants.
+// The event_maintenance payload variant.
 // --------------------------------------------------------------------------
 //
-// `audit_integrity` (3) + `event_maintenance` (1) — the only registered
-// variants emits itself, so their payload schemas are authored in event.ts
-// rather than imported from an emitting plan's module. Coverage is
+// `event.compacted` — the variant the daemon emits itself, so its payload
+// schema is authored in event.ts rather than imported from an emitting
+// contract. Coverage is
 // deliberately variant-level (through `SessionEventSchema`) rather than
 // payload-level: registration into the union is half of what ships, and a
 // payload-only suite would stay green if an arm were never registered.
@@ -1255,109 +1259,9 @@ const NODE_ID = "node-7f3a2c";
 // The daemon-scope sentinel (RFC 9562 section 5.10 Max UUID, lowercase — the case
 // matters, see the carrier-level pin above) is referenced BY ITS PRODUCTION NAME
 // below, `DAEMON_SCOPE_SENTINEL_SESSION_ID`, with no local literal and no local
-// alias. asks for single-SOURCE, not merely single-VALUE: a local alias binding
-// would still declare a name in this module that a later edit could silently
-// re-point at a respelled literal, which is the exact drift the export exists to
-// foreclose. A SECOND real session id.
-const OTHER_SESSION_ID = "990e8400-e29b-41d4-a716-446655440004";
-// 64-char lowercase hex — the house digest spelling. The schema accepts any
-// bounded free-form string here (no authority pins the member's wire form),
-// so this fixture documents the emitter's convention, it does not pin it.
-const ROOT_HASH = "0f".repeat(32);
-// Built at runtime rather than spelled as a unicode escape, so the control
-// character never lands in these source bytes.
-const NUL_BEARING_ALGORITHM = `ed25519${String.fromCharCode(0)}x`;
-const OTHER_ROOT_HASH = "1a".repeat(32);
-
-const buildAuditIntegrityVerified = () => ({
-  id: "evt-0100",
-  sessionId: SESSION_ID,
-  sequence: 100,
-  occurredAt: "2026-01-22T19:14:35.000Z",
-  category: "audit_integrity" as const,
-  type: "audit_integrity_verified" as const,
-  actor: null,
-  version: VERSION,
-  payload: {
-    sessionId: SESSION_ID,
-    anchorId: "anchor-0007",
-    verifierNodeId: NODE_ID,
-    treeSize: 4096,
-    rootHash: ROOT_HASH,
-    fromSeq: 1,
-    toSeq: 4096,
-    verifiedAt: "2026-01-22T19:14:35.000Z",
-    signatureAlgorithm: "ed25519",
-  },
-});
-
-const buildAuditIntegrityFailedVerifierArm = () => ({
-  id: "evt-0101",
-  sessionId: SESSION_ID,
-  sequence: 101,
-  occurredAt: "2026-01-22T19:14:36.000Z",
-  category: "audit_integrity" as const,
-  type: "audit_integrity_failed" as const,
-  actor: null,
-  version: VERSION,
-  payload: {
-    sessionId: SESSION_ID,
-    verifierNodeId: NODE_ID,
-    treeSize: 4096,
-    expectedRootHash: ROOT_HASH,
-    observedRootHash: OTHER_ROOT_HASH,
-    // The verified range — REQUIRED on this arm, because the
-    // consumer dedupe key is `(verifierNodeId, fromSeq, toSeq, verifiedAt)`
-    // and was unconstructible without them. Same endpoints as the
-    // `audit_integrity_verified` fixture.
-    fromSeq: 1,
-    toSeq: 4096,
-    failureMode: "hash_mismatch",
-    failurePath: "inclusion",
-    offendingSeq: 2048,
-    detail: "row 2048 hashes to a different row_hash than its successor's prev_hash",
-  },
-});
-
-const buildAuditIntegrityFailedRegistrarArm = () => ({
-  id: "evt-0102",
-  sessionId: SESSION_ID,
-  sequence: 102,
-  occurredAt: "2026-01-22T19:14:37.000Z",
-  category: "audit_integrity" as const,
-  type: "audit_integrity_failed" as const,
-  actor: null,
-  version: VERSION,
-  payload: {
-    // The refused registration's REAL session id, never the sentinel.
-    sessionId: SESSION_ID,
-    verifierNodeId: NODE_ID,
-    failureMode: "signing_key_slot_conflict",
-    failurePath: "signature",
-    detail: `slot (${SESSION_ID}, ${NODE_ID}) holds a key this daemon never minted`,
-  },
-});
-
-const buildKeyReuseDetected = () => ({
-  id: "evt-0103",
-  sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
-  sequence: 103,
-  occurredAt: "2026-01-22T19:14:38.000Z",
-  category: "audit_integrity" as const,
-  type: "key_reuse_detected" as const,
-  actor: null,
-  version: VERSION,
-  payload: {
-    offendingKeyFingerprint: ROOT_HASH,
-    observedIdentities: [
-      { sessionId: SESSION_ID, nodeId: NODE_ID },
-      { sessionId: OTHER_SESSION_ID, nodeId: "node-b41d" },
-    ],
-    firstSeenAt: "2026-01-22T18:00:00.000Z",
-    rotationInvariantViolated: "refuse_on_rotation",
-    detectorNodeId: NODE_ID,
-  },
-});
+// alias: a local alias binding would still declare a name in this module that a
+// later edit could silently re-point at a respelled literal, which is the exact
+// drift the export exists to foreclose.
 
 const buildEventCompacted = () => ({
   id: "evt-0105",
@@ -1372,85 +1276,15 @@ const buildEventCompacted = () => ({
     nodeId: NODE_ID,
     operationId: "compact-2026-01-22-01",
     occurredAt: "2026-01-22T19:14:40.000Z",
-    fromSeq: 1,
-    toSeq: 4096,
-    eventsBefore: 4096,
-    eventsAfter: 512,
-    bytesReclaimed: 8_388_608,
-    tombstoneCount: 3584,
-    compactionReason: "age_threshold",
+    removedSessions: [{ sessionId: SESSION_ID, fromSeq: 1, toSeq: 4096 }],
   },
 });
 
-const REGISTRAR_FAILURE_MODE = "signing_key_slot_conflict";
+const SESSION_EVENT_VARIANTS = [["event.compacted", buildEventCompacted]] as const;
 
-// The registered modes READ OFF THE ENUM rather than re-spelled — and read
-// through the EXPORTED type surface with NO cast, which is itself the tripwire
-// for the annotation regression: `VerifierFailureModeSchema` is
-// annotated `z.ZodEnum<...>` precisely so `.options` and `.exclude()` survive
-// the module boundary (derives its verifier discriminator with the latter), and
-// an annotation sliding back to the erasing `z.ZodType` form turns this line
-// red at compile time instead of leaving to discover it at ITS boundary.
-// Contrast the `EventCategorySchema` pin above, which still needs the cast
-// idiom because no consumer derives from its enum surface. Exact membership is
-// pinned once, against a hand-transcribed list, in the vocabulary test below —
-// the tables here only DRIVE, so an eighteenth mode joins the per-mode coverage
-// automatically instead of being silently skipped.
-const VERIFIER_FAILURE_MODE_OPTIONS = VerifierFailureModeSchema.options;
+const SENTINEL_BOUND_VARIANTS = [["event.compacted", buildEventCompacted]] as const;
 
-// The read-side verifier modes — every registered mode except the registrar's,
-// which belongs to the other payload arm and is exercised separately. That
-// split is the whole point of the discrimination, so the table derives it
-// rather than restating it.
-const VERIFIER_FAILURE_MODES = VERIFIER_FAILURE_MODE_OPTIONS.filter(
-  (mode) => mode !== REGISTRAR_FAILURE_MODE,
-);
-
-// Each verifier mode beside a `failurePath` the corpus ADMITS for it,
-// transcribed by hand from `Security Architecture ` rather than imported from
-// event.ts's own map — two independent spellings are what make the pin worth
-// anything. The first three and the last seven rows are the TEN
-// authority-FIXED pairings (rule 1 → `inclusion`, rule 3 → `consistency`,
-// rules 2 + 4 → `signature`); the middle six modes have no corpus-fixed path,
-// so their entry here is one lawful choice among three and the latitude itself
-// is asserted separately below. Set membership is pinned against
-// `VERIFIER_FAILURE_MODES` so a vocabulary change breaks this table loudly
-// instead of leaving a mode silently unexercised.
-const VERIFIER_MODE_PATH_PAIRS = [
-  ["hash_mismatch", "inclusion"],
-  ["signature_mismatch", "signature"],
-  ["anchor_mismatch", "consistency"],
-  ["inclusion_proof_failed", "inclusion"],
-  ["consistency_proof_failed", "consistency"],
-  ["log_file_missing", "inclusion"],
-  ["log_file_moved", "inclusion"],
-  ["anchor_missing_for_compacted_range", "consistency"],
-  ["anchor_signature_invalid", "signature"],
-  ["stub_signature_invalid", "signature"],
-  ["stub_scalar_mismatch", "signature"],
-  ["signature_placeholder", "signature"],
-  ["occurred_at_not_canonical", "signature"],
-  ["pii_ciphertext_digest_unbound", "signature"],
-  ["pii_owner_stamp_unbound", "signature"],
-  ["content_ciphertext_digest_unbound", "signature"],
-] as const;
-
-const SESSION_EVENT_VARIANTS = [
-  ["audit_integrity_verified", buildAuditIntegrityVerified],
-  ["audit_integrity_failed", buildAuditIntegrityFailedVerifierArm],
-  ["audit_integrity_failed (registrar arm)", buildAuditIntegrityFailedRegistrarArm],
-  ["key_reuse_detected", buildKeyReuseDetected],
-  ["event.compacted", buildEventCompacted],
-] as const;
-
-// `audit_integrity_verified` / `audit_integrity_failed` are deliberately
-// ABSENT: they carry the verified range's real session id.
-const SENTINEL_BOUND_VARIANTS = [
-  ["key_reuse_detected", buildKeyReuseDetected],
-  ["event.compacted", buildEventCompacted],
-] as const;
-
-describe("audit_integrity + event_maintenance payload variants", () => {
+describe("event_maintenance payload variant", () => {
   it.each(SESSION_EVENT_VARIANTS)("round-trips %s through JSON without loss", (_label, build) => {
     const original = build();
     const firstPass = SessionEventSchema.parse(original);
@@ -1466,8 +1300,8 @@ describe("audit_integrity + event_maintenance payload variants", () => {
     (_label, build) => {
       const event = build();
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(event.type)).toBe(event.category);
-      // `category` is in the BLAKE3-hashed canonical bytes, so a type/category
-      // mismatch must die at parse time, never be coerced.
+      // `category` is in the canonical bytes, so a type/category mismatch
+      // must die at parse time, never be coerced.
       expect(
         SessionEventSchema.safeParse({ ...event, category: "session_lifecycle" }).success,
       ).toBe(false);
@@ -1490,10 +1324,10 @@ describe("audit_integrity + event_maintenance payload variants", () => {
   it.each(SESSION_EVENT_VARIANTS)(
     "%s rejects a sourceEpoch/sourcePosition stamp (non-admitting family)",
     (_label, build) => {
-      // None of the four is run-scoped, so none is `withEpochStamp`-wrapped and
-      // the strict payload refuses the stamp. The admission RULE is walked
-      // over the live union in event-source-epoch.test.ts; this is the
-      // wire-level consequence for these four branches.
+      // It is not run-scoped, so it is not `withEpochStamp`-wrapped and the
+      // strict payload refuses the stamp. The admission RULE is walked over
+      // the live union in event-source-epoch.test.ts; this is the wire-level
+      // consequence for this branch.
       const event = build();
       expect(
         SessionEventSchema.safeParse({
@@ -1516,440 +1350,27 @@ describe("audit_integrity + event_maintenance payload variants", () => {
     },
   );
 
-  it("registers EXACTLY the seventeen failure modes and the three failure paths", () => {
-    // The exported vocabulary consume, transcribed in the enum's own order.
-    // Seventeen, not sixteen: the registrar's `signing_key_slot_conflict` is a
-    // member of the enum even though it routes to the other payload arm.
-    //
-    // Set equality, not just acceptance — acceptance alone passes an
-    // eighteenth mode, a dropped one, and a renamed one alike, and every
-    // per-mode table below is DERIVED from `.options`, so this is the single
-    // place where enum drift can be caught rather than absorbed.
-    const expectedModes = [
-      "hash_mismatch",
-      "signature_mismatch",
-      "anchor_mismatch",
-      "inclusion_proof_failed",
-      "consistency_proof_failed",
-      "log_file_missing",
-      "log_file_moved",
-      "anchor_missing_for_compacted_range",
-      "anchor_signature_invalid",
-      "stub_signature_invalid",
-      "stub_scalar_mismatch",
-      "signature_placeholder",
-      "occurred_at_not_canonical",
-      "pii_ciphertext_digest_unbound",
-      "pii_owner_stamp_unbound",
-      "content_ciphertext_digest_unbound",
-      REGISTRAR_FAILURE_MODE,
-    ];
-    expect(VERIFIER_FAILURE_MODE_OPTIONS).toHaveLength(17);
-    expect([...VERIFIER_FAILURE_MODE_OPTIONS].sort()).toEqual([...expectedModes].sort());
-    // The derivation the arm split rests on: sixteen read-side modes, the
-    // registrar's excluded.
-    expect(VERIFIER_FAILURE_MODES).toHaveLength(16);
-    expect(VERIFIER_FAILURE_MODES).not.toContain(REGISTRAR_FAILURE_MODE);
-    // The mode/path table below must cover exactly those sixteen — a mode
-    // added, renamed, or retired must not leave a row unexercised.
-    expect(VERIFIER_MODE_PATH_PAIRS.map(([mode]) => mode).sort()).toEqual(
-      [...VERIFIER_FAILURE_MODES].sort(),
-    );
-    for (const mode of expectedModes) {
-      expect(VerifierFailureModeSchema.safeParse(mode).success).toBe(true);
-    }
-    expect(VerifierFailureModeSchema.safeParse("not_a_registered_mode").success).toBe(false);
-
-    const expectedPaths = ["inclusion", "consistency", "signature"];
-    const pathOptions = (VerifierFailurePathSchema as unknown as { options: readonly string[] })
-      .options;
-    expect(pathOptions).toHaveLength(3);
-    expect([...pathOptions].sort()).toEqual([...expectedPaths].sort());
-    for (const path of expectedPaths) {
-      expect(VerifierFailurePathSchema.safeParse(path).success).toBe(true);
-    }
-    expect(VerifierFailurePathSchema.safeParse("anchor").success).toBe(false);
-  });
-
-  it("exports VerifierFailureModeSchema with its .exclude() surface intact", () => {
-    // The DOCUMENTED consumer derivation, written here exactly as that task
-    // will write it in `integrity-verifier.ts`. Writing it from a DIFFERENT
-    // module is the whole point: under the erasing
-    // `z.ZodType<VerifierFailureMode>` annotation the same expression compiled
-    // fine inside event.ts, off the unannotated module-local twin, and broke
-    // only where an importer wrote it — so the break was invisible to the file
-    // that shipped the symbol.
-    const verifierOnly = VerifierFailureModeSchema.exclude([REGISTRAR_FAILURE_MODE]);
-    expect(verifierOnly.options).toHaveLength(16);
-    expect([...verifierOnly.options].sort()).toEqual([...VERIFIER_FAILURE_MODES].sort());
-    for (const mode of VERIFIER_FAILURE_MODES) {
-      expect(verifierOnly.safeParse(mode).success).toBe(true);
-    }
-    // The seventeenth is refused by the derived schema and accepted by its
-    // parent — the derivation subtracts exactly one member.
-    expect(verifierOnly.safeParse(REGISTRAR_FAILURE_MODE).success).toBe(false);
-    expect(VerifierFailureModeSchema.safeParse(REGISTRAR_FAILURE_MODE).success).toBe(true);
-  });
-
-  it.each(VERIFIER_MODE_PATH_PAIRS)(
-    "the verifier arm accepts failureMode %s with failurePath %s, carrying the Merkle triple and the range",
-    (failureMode, failurePath) => {
-      const event = buildAuditIntegrityFailedVerifierArm();
-      expect(
-        SessionEventSchema.safeParse({
-          ...event,
-          payload: { ...event.payload, failureMode, failurePath },
-        }).success,
-      ).toBe(true);
-    },
-  );
-
-  it.each([
-    // The motivating example first: a never-signed row claiming
-    // the CHAIN path would route to the tamper responder instead of the
-    // sequencing-bug owner, permanently — these rows are never compacted and
-    // never shredded.
-    ["signature_placeholder", "inclusion"],
-    ["hash_mismatch", "signature"],
-    ["anchor_mismatch", "inclusion"],
-  ] as const)(
-    "rejects the authority-fixed %s paired with the wrong failurePath %s",
-    (failureMode, failurePath) => {
-      const event = buildAuditIntegrityFailedVerifierArm();
-      // Positive control on the same fixture: the row is lawful until the
-      // pairing is broken, so the rejection below is the pairing's doing.
-      expect(SessionEventSchema.safeParse(event).success).toBe(true);
-      expect(
-        SessionEventSchema.safeParse({
-          ...event,
-          payload: { ...event.payload, failureMode, failurePath },
-        }).success,
-      ).toBe(false);
-    },
-  );
-
-  it.each(["inclusion", "consistency", "signature"] as const)(
-    "an unfixed mode keeps the full three-value latitude — log_file_missing + %s",
-    (failurePath) => {
-      // The six modes `Security Architecture ` names with no `failurePath` must
-      // NOT be pinned locally: a narrowing nothing could relax is MAJOR #8.
-      // This is the guard against over-tightening the check above.
-      const event = buildAuditIntegrityFailedVerifierArm();
-      expect(
-        SessionEventSchema.safeParse({
-          ...event,
-          payload: { ...event.payload, failureMode: "log_file_missing", failurePath },
-        }).success,
-      ).toBe(true);
-    },
-  );
-
-  it.each([
-    ["treeSize"],
-    ["expectedRootHash"],
-    ["observedRootHash"],
-    // The range endpoints are REQUIRED, not optional: the dedupe key is
-    // unconstructible without them, and every verifier invocation has a
-    // request range even when no single row is implicated.
-    ["fromSeq"],
-    ["toSeq"],
-    ["detail"],
-  ] as const)("the verifier arm REQUIRES %s", (member) => {
-    const event = buildAuditIntegrityFailedVerifierArm();
-    const { [member]: _omitted, ...payload } = event.payload;
-    expect(SessionEventSchema.safeParse({ ...event, payload }).success).toBe(false);
-  });
-
-  it("the verifier arm rejects failureMode signing_key_slot_conflict", () => {
-    // The fifteen-mode discriminator EXCLUDES it, so a payload carrying the
-    // triple under that mode dispatches to the registrar arm and dies there on
-    // the triple's unknown keys. Either way it must not parse: a registrar
-    // event can never claim roots.
-    const event = buildAuditIntegrityFailedVerifierArm();
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, failureMode: "signing_key_slot_conflict" },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("rejects a failureMode outside the registered vocabulary entirely", () => {
-    // Complement of the test above: that one refuses a REGISTERED mode
-    // arriving at the wrong arm; this one refuses a mode NO arm declares, so
-    // the payload matches neither discriminator and the union has nowhere to
-    // dispatch it. Without this control the discriminator could admit any
-    // string and every in-vocabulary assertion in this block would still pass.
-    // The unmodified-fixture parse is the positive control — it proves the
-    // rejection below comes from the mode, not from a fixture that drifted.
-    const event = buildAuditIntegrityFailedVerifierArm();
-    expect(SessionEventSchema.safeParse(event).success).toBe(true);
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, failureMode: "not_a_registered_mode" },
-      }).success,
-    ).toBe(false);
-  });
-
-  it.each([
-    ["treeSize", 4096],
-    ["expectedRootHash", ROOT_HASH],
-    ["offendingSeq", 12],
-    // The range endpoints split the same way as the triple: the registrar
-    // verified no range, so carrying one here would be fabrication too.
-    ["fromSeq", 1],
-    ["toSeq", 4096],
-  ] as const)("the registrar arm rejects the verifier-only member %s", (member, value) => {
-    // The arm split exists so the registrar — which walked no tree — cannot
-    // fabricate roots. `.strict()` on the arm is what enforces it.
-    const event = buildAuditIntegrityFailedRegistrarArm();
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, [member]: value },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("the registrar arm pins failurePath to signature", () => {
-    const event = buildAuditIntegrityFailedRegistrarArm();
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, failurePath: "inclusion" },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("the registrar arm REJECTS anchorId — its reduced base, enforced", () => {
-    // The discriminating control: this assertion
-    // FAILS on the pre-fix schema, where the arm spread the full base and an
-    // offered `anchorId` parsed green. calls the member permanently absent on
-    // this row — never compacted, never shredded, never rewritten — so an
-    // optional-but-conventionally-unset member would leave an emitter free to
-    // persist a false anchor association nothing could later correct.
-    // `.strict()` is what turns the dropped key into a refusal.
-    const event = buildAuditIntegrityFailedRegistrarArm();
-    // Positive control: the fixture carries no `anchorId` and parses.
-    expect(SessionEventSchema.safeParse(event).success).toBe(true);
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, anchorId: "anchor-0007" },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("the verifier arm still takes anchorId — the exclusion is arm-scoped", () => {
-    // The complement of the assertion above, and the reason it is a SPLIT
-    // rather than a removal: `anchorId` stays meaningful on the arm that
-    // walked a range an anchor can cover.
-    const event = buildAuditIntegrityFailedVerifierArm();
-    expect(SessionEventSchema.safeParse(event).success).toBe(true);
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, anchorId: "anchor-0007" },
-      }).success,
-    ).toBe(true);
-  });
-
-  it("the audit_integrity_verified payload takes anchorId both ways (optional)", () => {
-    // Scoped to this event type as of 2026-08-03: the sibling
-    // `audit_integrity_failed` registrar arm refuses the member outright, so
-    // "audit_integrity payloads" would now over-quantify.
-    const event = buildAuditIntegrityVerified();
-    expect(SessionEventSchema.safeParse(event).success).toBe(true);
-    const { anchorId: _absent, ...withoutAnchor } = event.payload;
-    expect(SessionEventSchema.safeParse({ ...event, payload: withoutAnchor }).success).toBe(true);
-  });
-
-  it("the verifier arm takes offendingSeq both ways (optional)", () => {
-    // Optional by design: a whole-range failure (`log_file_missing`,
-    // `anchor_missing_for_compacted_range`) implicates no single row, so
-    // requiring the member would force the verifier to invent a pointer. Every
-    // other verifier-arm fixture in this suite carries it, so without this
-    // assertion the `.optional()` is never exercised.
-    const event = buildAuditIntegrityFailedVerifierArm();
-    expect(SessionEventSchema.safeParse(event).success).toBe(true);
-    const { offendingSeq: _absent, ...withoutOffendingSeq } = event.payload;
-    expect(SessionEventSchema.safeParse({ ...event, payload: withoutOffendingSeq }).success).toBe(
-      true,
-    );
-  });
-
-  it("event.compacted takes its payload sessionId both ways (single-session pass)", () => {
+  it("event.compacted names at least one removed session", () => {
     const event = buildEventCompacted();
     expect(SessionEventSchema.safeParse(event).success).toBe(true);
     expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, sessionId: SESSION_ID },
-      }).success,
-    ).toBe(true);
-  });
-
-  it("key_reuse_detected requires at least two observed identities", () => {
-    // A key "registered under MORE THAN ONE identity". One identity holding
-    // its own key is the compliant register-once state, not an alarm.
-    const event = buildKeyReuseDetected();
-    const [firstIdentity] = event.payload.observedIdentities;
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, observedIdentities: [firstIdentity] },
-      }).success,
+      SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, removedSessions: [] } })
+        .success,
     ).toBe(false);
-    expect(SessionEventSchema.safeParse(event).success).toBe(true);
   });
 
-  it("key_reuse_detected rejects ONE identity spelled twice (pairwise distinct)", () => {
-    // States the finding as the same key material under two DISTINCT
-    // `(session_id, node_id)` pairs, so a repeated pair is one identity
-    // holding its own key, listed twice: the compliant register-once posture.
-    // With `.min(2)` alone this row parses green and mints a false key-reuse
-    // alarm on a row that is never compacted and never shredded, so the false
-    // alarm is permanent.
-    //
-    // The duplicate is a fresh object, not the same reference — the check has
-    // to compare identity VALUES, not array slots.
-    const event = buildKeyReuseDetected();
-    const identity = { sessionId: SESSION_ID, nodeId: NODE_ID };
-    const duplicated = SessionEventSchema.safeParse({
-      ...event,
-      payload: { ...event.payload, observedIdentities: [identity, { ...identity }] },
-    });
-    expect(duplicated.success).toBe(false);
-    // `.min(2)` is satisfied by this input, so the refinement is the only check
-    // that can have fired — asserting on its message is what makes the test
-    // fail if the refinement is ever dropped.
-    const issueMessages = duplicated.error?.issues.map((issue) => issue.message) ?? [];
-    expect(
-      issueMessages.some((message) => /must not name one .* identity twice/.test(message)),
-    ).toBe(true);
-  });
-
-  it("key_reuse_detected rejects ONE identity spelled in two UUID cases", () => {
-    // The distinctness check keys on a serialized `(sessionId, nodeId)` pair,
-    // which makes that key a Map-key boundary — and UUID hex is
-    // case-INSENSITIVE (RFC 9562 section 4) while the branded schemas normalize
-    // nothing. Without canonicalization these two rows read as two identities
-    // and mint a permanent FALSE alarm on a never-compacted, never-shredded
-    // row: the same defect the test above catches, reached by spelling rather
-    // than by duplication. This is the discriminating control for the fix —
-    // it passes (wrongly) against a refinement that keys on the raw value.
-    const event = buildKeyReuseDetected();
-    const uppercased = {
-      sessionId: SESSION_ID.toUpperCase(),
-      nodeId: NODE_ID,
-    };
-    const caseVariants = SessionEventSchema.safeParse({
-      ...event,
-      payload: {
-        ...event.payload,
-        observedIdentities: [{ sessionId: SESSION_ID, nodeId: NODE_ID }, uppercased],
-      },
-    });
-    expect(caseVariants.success).toBe(false);
-    const issueMessages = caseVariants.error?.issues.map((issue) => issue.message) ?? [];
-    expect(
-      issueMessages.some((message) => /must not name one .* identity twice/.test(message)),
-    ).toBe(true);
-  });
-
-  it("key_reuse_detected still accepts two DISTINCT identities when one is uppercase", () => {
-    // The other half of the canonicalization: folding case must not collapse
-    // genuinely different identities. `nodeId` is deliberately NOT folded —
-    // it is a bounded free-form brand, not a UUID, so no authority makes it
-    // case-insensitive and folding it could merge two real nodes, failing
-    // OPEN on the alarm this event exists to raise.
-    const event = buildKeyReuseDetected();
+  it("event.compacted refuses a stubbed range that ends before it starts", () => {
+    const event = buildEventCompacted();
     expect(
       SessionEventSchema.safeParse({
         ...event,
         payload: {
           ...event.payload,
-          observedIdentities: [
-            { sessionId: SESSION_ID.toUpperCase(), nodeId: NODE_ID },
-            { sessionId: OTHER_SESSION_ID, nodeId: "node-b41d" },
-          ],
+          removedSessions: [{ sessionId: SESSION_ID, fromSeq: 10, toSeq: 9 }],
         },
-      }).success,
-    ).toBe(true);
-    // Same sessionId, different nodeId — still two identities, uncollapsed.
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: {
-          ...event.payload,
-          observedIdentities: [
-            { sessionId: SESSION_ID, nodeId: NODE_ID },
-            { sessionId: SESSION_ID, nodeId: "node-b41d" },
-          ],
-        },
-      }).success,
-    ).toBe(true);
-  });
-
-  it("key_reuse_detected pins rotationInvariantViolated to refuse_on_rotation", () => {
-    const event = buildKeyReuseDetected();
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, rotationInvariantViolated: "rotate_on_conflict" },
       }).success,
     ).toBe(false);
   });
-
-  it.each([["age_threshold"], ["count_threshold"], ["storage_threshold"]] as const)(
-    "event.compacted accepts compactionReason %s",
-    (compactionReason) => {
-      const event = buildEventCompacted();
-      expect(
-        SessionEventSchema.safeParse({ ...event, payload: { ...event.payload, compactionReason } })
-          .success,
-      ).toBe(true);
-    },
-  );
-
-  it.each([["compactionReason", buildEventCompacted, "disk_pressure"]] as const)(
-    "rejects an out-of-vocabulary %s",
-    (member, build, badValue) => {
-      const event = build();
-      expect(
-        SessionEventSchema.safeParse({
-          ...event,
-          payload: { ...event.payload, [member]: badValue },
-        }).success,
-      ).toBe(false);
-    },
-  );
-
-  it("caps audit_integrity_failed.detail at its boundary", () => {
-    const event = buildAuditIntegrityFailedRegistrarArm();
-    const atCap = { ...event.payload, detail: "x".repeat(AUDIT_INTEGRITY_DETAIL_MAX_LEN) };
-    const overCap = { ...event.payload, detail: "x".repeat(AUDIT_INTEGRITY_DETAIL_MAX_LEN + 1) };
-    expect(SessionEventSchema.safeParse({ ...event, payload: atCap }).success).toBe(true);
-    expect(SessionEventSchema.safeParse({ ...event, payload: overCap }).success).toBe(false);
-  });
-
-  it.each([
-    ["whitespace-only", "   "],
-    ["NUL-byte", NUL_BEARING_ALGORITHM],
-    ["oversized", "x".repeat(EVENT_FIELD_MAX_LEN + 1)],
-  ] as const)(
-    "rejects a %s signatureAlgorithm (wireFreeFormString guards)",
-    (_label, badAlgorithm) => {
-      const event = buildAuditIntegrityVerified();
-      expect(
-        SessionEventSchema.safeParse({
-          ...event,
-          payload: { ...event.payload, signatureAlgorithm: badAlgorithm },
-        }).success,
-      ).toBe(false);
-    },
-  );
 
   it("bounds payload sequence endpoints by the envelope's own ceiling", () => {
     // A range endpoint above MAX_SAFE_INTEGER cannot name the row it points
@@ -1962,13 +1383,23 @@ describe("audit_integrity + event_maintenance payload variants", () => {
     const event = buildEventCompacted();
     const atCeiling = SessionEventSchema.safeParse({
       ...event,
-      payload: { ...event.payload, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX },
+      payload: {
+        ...event.payload,
+        removedSessions: [
+          { sessionId: SESSION_ID, fromSeq: 1, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX },
+        ],
+      },
     });
     expect(atCeiling.success).toBe(true);
 
     const overCeiling = SessionEventSchema.safeParse({
       ...event,
-      payload: { ...event.payload, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX + 1 },
+      payload: {
+        ...event.payload,
+        removedSessions: [
+          { sessionId: SESSION_ID, fromSeq: 1, toSeq: EVENT_ENVELOPE_SEQUENCE_MAX + 1 },
+        ],
+      },
     });
     expect(overCeiling.success).toBe(false);
     // Issue COUNT is deliberately not asserted (the envelope pin's reasoning):
@@ -1982,16 +1413,6 @@ describe("audit_integrity + event_maintenance payload variants", () => {
     ).toBe(true);
   });
 
-  it("rejects a non-integer count", () => {
-    const event = buildEventCompacted();
-    expect(
-      SessionEventSchema.safeParse({
-        ...event,
-        payload: { ...event.payload, tombstoneCount: 3.5 },
-      }).success,
-    ).toBe(false);
-  });
-
   it.each(SESSION_EVENT_VARIANTS)(
     "%s stays interpretable at the tolerant carrier as well as the strict layer",
     (_label, build) => {
@@ -2003,9 +1424,9 @@ describe("audit_integrity + event_maintenance payload variants", () => {
   );
 });
 
-// The standalone exports are the surface the four emission seams validate
-// against before append — they all `.parse()` a candidate row
-// through one of them rather than through the whole union. They must therefore
+// The standalone export is the surface the emission seam validates against
+// before append — it `.parse()`s a candidate row through it rather than
+// through the whole union. They must therefore
 // agree with the independently-spelled union arms (the repo.test.ts /
 // worktree.test.ts standalone-vs-union stance). The two spellings are NOT
 // deduplicated: independent spelling is the design, and this block is what
@@ -2014,38 +1435,24 @@ describe("audit_integrity + event_maintenance payload variants", () => {
 // Structural `parse` / `safeParse` typing sidesteps `z.ZodType` variance (the
 // repo.test.ts standalone-schema precedent); the fixture view is the two
 // members every row is probed on.
-type AuditEventFixture = {
+type MaintenanceEventFixture = {
   readonly category: string;
   readonly payload: Record<string, unknown>;
 };
 
-const STANDALONE_AUDIT_EVENT_SCHEMAS: ReadonlyArray<
+const STANDALONE_MAINTENANCE_EVENT_SCHEMAS: ReadonlyArray<
   readonly [
     string,
-    () => AuditEventFixture,
+    () => MaintenanceEventFixture,
     {
       parse: (candidate: unknown) => unknown;
       safeParse: (candidate: unknown) => { success: boolean };
     },
   ]
-> = [
-  ["audit_integrity_verified", buildAuditIntegrityVerified, AuditIntegrityVerifiedEventSchema],
-  [
-    "audit_integrity_failed (verifier arm)",
-    buildAuditIntegrityFailedVerifierArm,
-    AuditIntegrityFailedEventSchema,
-  ],
-  [
-    "audit_integrity_failed (registrar arm)",
-    buildAuditIntegrityFailedRegistrarArm,
-    AuditIntegrityFailedEventSchema,
-  ],
-  ["key_reuse_detected", buildKeyReuseDetected, KeyReuseDetectedEventSchema],
-  ["event.compacted", buildEventCompacted, EventCompactedEventSchema],
-];
+> = [["event.compacted", buildEventCompacted, EventCompactedEventSchema]];
 
 describe("standalone event schemas agree with the union arms", () => {
-  it.each(STANDALONE_AUDIT_EVENT_SCHEMAS)(
+  it.each(STANDALONE_MAINTENANCE_EVENT_SCHEMAS)(
     "%s standalone accepts what the union accepts, with an identical parse output",
     (_label, build, standaloneSchema) => {
       const fixture = build();
@@ -2059,7 +1466,7 @@ describe("standalone event schemas agree with the union arms", () => {
     },
   );
 
-  it.each(STANDALONE_AUDIT_EVENT_SCHEMAS)(
+  it.each(STANDALONE_MAINTENANCE_EVENT_SCHEMAS)(
     "%s standalone rejects what the union rejects (unknown payload key)",
     (_label, build, standaloneSchema) => {
       const fixture = build();
@@ -2069,7 +1476,7 @@ describe("standalone event schemas agree with the union arms", () => {
     },
   );
 
-  it.each(STANDALONE_AUDIT_EVENT_SCHEMAS)(
+  it.each(STANDALONE_MAINTENANCE_EVENT_SCHEMAS)(
     "%s standalone refuses a spurious ENVELOPE key and a category mismatch",
     (_label, build, standaloneSchema) => {
       // Outer `.strict()` is the one axis of this parity with NO compile-time
@@ -2077,21 +1484,20 @@ describe("standalone event schemas agree with the union arms", () => {
       // `z.ZodType<*Event>` annotation, and payload strictness cannot diverge
       // because both surfaces reference the same payload schema object — but a
       // schema's inferred output type does not reflect outer `.strict()`, so a
-      // copy-paste slip that dropped it from one of the four exports would
+      // copy-paste slip that dropped it from the export would
       // typecheck green and STRIP the spurious key instead of rejecting. The
       // emission seam validating through that surface would then append
       // canonical bytes it never built, surfacing much later as a strict-union
-      // rejection at replay — and on these four rows, which are never
-      // compacted, the divergence is permanent. The union control on
+      // rejection at replay — and on this row, which is never purged, the
+      // divergence is permanent. The union control on
       // each row is what makes the verdict a parity statement rather than a
       // lone rejection.
       const fixture = build();
       const withSpuriousEnvelopeKey = { ...fixture, spuriousEnvelopeKey: "x" };
       expect(standaloneSchema.safeParse(withSpuriousEnvelopeKey).success).toBe(false);
       expect(SessionEventSchema.safeParse(withSpuriousEnvelopeKey).success).toBe(false);
-      // `category` sits in the RFC 8785 canonical bytes backing the hash
-      // chain — pinned on the union above, pinned here on the standalone
-      // surface.
+      // `category` sits in the RFC 8785 canonical bytes — pinned on the union
+      // above, pinned here on the standalone surface.
       const withMismatchedCategory = { ...fixture, category: "session_lifecycle" };
       expect(standaloneSchema.safeParse(withMismatchedCategory).success).toBe(false);
       expect(SessionEventSchema.safeParse(withMismatchedCategory).success).toBe(false);
@@ -2126,7 +1532,6 @@ const buildAssistantMessage = () => ({
     runId: RUN_ID,
     contentType: "text/markdown",
     contentLength: 4096,
-    contentCiphertextDigest: "a".repeat(64),
   },
 });
 
@@ -2143,7 +1548,6 @@ const buildAssistantThinkingUpdate = () => ({
     sessionId: SESSION_ID,
     runId: RUN_ID,
     contentLength: 128,
-    contentCiphertextDigest: "b".repeat(64),
   },
 });
 
@@ -2164,7 +1568,6 @@ const buildToolRow = (type: "tool.invoked" | "tool.result" | "tool.error", seque
     durationMs: 1200,
     contentLength: 262_145,
     contentTruncated: true as const,
-    contentCiphertextDigest: "c".repeat(64),
   },
 });
 
@@ -2204,9 +1607,8 @@ describe("SessionEventSchema — body-bearing assistant / tool variants", () => 
       const bare: Record<string, unknown> = { ...event.payload };
       delete bare[CONTENT_LENGTH_PAYLOAD_KEY];
       delete bare[CONTENT_TRUNCATED_PAYLOAD_KEY];
-      delete bare[CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY];
       // A row whose type admits prose but that carried none is valid; requiring
-      // the members would force a producer to fabricate a digest for bytes that
+      // the members would force a producer to fabricate a length for bytes that
       // do not exist.
       expect(SessionEventSchema.safeParse({ ...event, payload: bare }).success).toBe(true);
     },
@@ -2274,9 +1676,395 @@ describe("SessionEventSchema — body-bearing assistant / tool variants", () => 
     expect(CONTENT_PAYLOAD_PLAINTEXT_MAX).toBe(256 * 1024);
   });
 
-  it("exports the three codec-owned payload keys under their wire spellings", () => {
-    expect(CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY).toBe("contentCiphertextDigest");
+  it("exports the two codec-owned payload keys under their wire spellings", () => {
     expect(CONTENT_LENGTH_PAYLOAD_KEY).toBe("contentLength");
     expect(CONTENT_TRUNCATED_PAYLOAD_KEY).toBe("contentTruncated");
   });
+});
+
+// --------------------------------------------------------------------------
+// The variants whose payload a contract of its own declares.
+// --------------------------------------------------------------------------
+//
+// One row per owning contract. Each row's refused event names the case that
+// must fail at the union: a refinement the owner wrote, the strictness of an
+// arm, the category the registry files the type under, or half an epoch stamp.
+// Each owner's own suite covers the rest of its payload.
+
+const OWNER_RUN_ID = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
+const OWNER_AGENT_ID = "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7b";
+const OWNER_REQUEST_ID = "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const OWNER_PLAN_ID = "1f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const OWNER_QUESTION_ID = "2f2b4d5e-cccc-4ccc-8ccc-cccccccccccc";
+const OWNER_WAIT_ID = "3f2b4d5e-dddd-4ddd-8ddd-dddddddddddd";
+const OWNER_SIDE_QUESTION_ID = "4f2b4d5e-eeee-4eee-8eee-eeeeeeeeeeee";
+
+const ownedVariantEvent = (
+  type: SessionEventType,
+  category: EventCategory,
+  payload: Record<string, unknown>,
+) => ({
+  id: `evt-${type}`,
+  sessionId: SESSION_ID,
+  sequence: 9,
+  occurredAt: "2026-09-29T19:30:00.000Z",
+  category,
+  type,
+  actor: null,
+  version: VERSION,
+  payload,
+});
+
+const APPROVAL_RESOLVED = {
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  approvalRequestId: OWNER_REQUEST_ID,
+  category: "tool_execution",
+  scope: "pnpm test",
+  approver: USER_ID,
+  effectiveScope: "pnpm test",
+  clientResolutionId: OWNER_WAIT_ID,
+};
+const QUESTION = {
+  questionId: OWNER_QUESTION_ID,
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  pageCount: 1,
+  questions: [{ text: "Which branch?", options: [], severalAnswers: false, secret: false }],
+};
+const MCP_STATUS = {
+  provider: "claude",
+  scope: "project",
+  scopeRefDigest: "b3:9f2c",
+  serverName: "docs",
+  previousStatus: "starting",
+  status: "failed",
+  origin: "session_feed",
+  bindingId: "leg-1",
+};
+const SIDE_QUESTION = {
+  sessionId: SESSION_ID,
+  sideQuestionId: OWNER_SIDE_QUESTION_ID,
+  question: "Why is the build slow?",
+  answer: "The type check runs twice.",
+};
+const REVIEW_FLAGGED = {
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  agentId: OWNER_AGENT_ID,
+  eventId: "item-7",
+  signal: "review_required",
+  text: "This request requires additional safety checks",
+};
+const COMMAND_ENDED = {
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  commandId: "cmd-1",
+  ending: "ended_by_person",
+  durationMs: 4200,
+  sourceEpoch: 1,
+  sourcePosition: 4,
+};
+const OWNER_REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
+const OWNER_WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f12";
+const OWNER_REMOVED_WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f22";
+const SESSION_SWEPT = {
+  sessionId: SESSION_ID,
+  repoMountId: OWNER_REPO_MOUNT_ID,
+  worktreeId: OWNER_WORKTREE_ID,
+  pendingMoveCleared: true,
+};
+const WORKTREE_READY = { sessionId: SESSION_ID, worktreeId: OWNER_WORKTREE_ID, state: "ready" };
+const MODEL_REROUTED = {
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  agentId: OWNER_AGENT_ID,
+  fromModel: "claude-opus-5-5",
+  toModel: "claude-sonnet-5",
+  scope: "local",
+  cause: "safety",
+  safetyCategory: "cybersecurity",
+  sourceEpoch: 1,
+  sourcePosition: 4,
+};
+const RELAY_PIN_REFUSED = {
+  relayHost: "relay.example.com",
+  pinnedSpkiPrefix: "3f3f3f3f3f3f3f3f",
+  presentedSpkiPrefix: "0123456789abcdef",
+};
+
+const OWNED_VARIANT_FAMILIES: ReadonlyArray<
+  readonly [
+    string,
+    string,
+    ReturnType<typeof ownedVariantEvent>,
+    ReturnType<typeof ownedVariantEvent>,
+  ]
+> = [
+  [
+    "approval",
+    "a member the answer does not declare",
+    ownedVariantEvent("approval.rejected", "approval_flow", APPROVAL_RESOLVED),
+    ownedVariantEvent("approval.rejected", "approval_flow", {
+      ...APPROVAL_RESOLVED,
+      editedAction: "pnpm test --filter contracts",
+    }),
+  ],
+  [
+    "plan",
+    "a hand-off that names no fresh session",
+    ownedVariantEvent("plan.handed_off", "approval_flow", {
+      planId: OWNER_PLAN_ID,
+      sessionId: SESSION_ID,
+      freshSessionId: USER_ID,
+    }),
+    ownedVariantEvent("plan.handed_off", "approval_flow", {
+      planId: OWNER_PLAN_ID,
+      sessionId: SESSION_ID,
+    }),
+  ],
+  [
+    "question",
+    "a question naming both a run and a workflow wait",
+    ownedVariantEvent("question.asked", "interactive_request", QUESTION),
+    ownedVariantEvent("question.asked", "interactive_request", {
+      ...QUESTION,
+      waitId: OWNER_WAIT_ID,
+    }),
+  ],
+  [
+    "MCP governance",
+    "a session observation that names no leg",
+    ownedVariantEvent("mcp.server_status_changed", "mcp_governance", MCP_STATUS),
+    ownedVariantEvent("mcp.server_status_changed", "mcp_governance", {
+      ...MCP_STATUS,
+      bindingId: undefined,
+    }),
+  ],
+  [
+    "cloud task",
+    "the type filed under another category",
+    ownedVariantEvent("cloud.task_updated", "session_lifecycle", {
+      task: {
+        taskId: "session_01ABCDEF",
+        sessionId: SESSION_ID,
+        provider: "claude",
+        state: "submitted",
+        url: "https://claude.ai/code/session_01ABCDEF",
+      },
+    }),
+    ownedVariantEvent("cloud.task_updated", "tool_activity", {
+      task: {
+        taskId: "session_01ABCDEF",
+        sessionId: SESSION_ID,
+        provider: "claude",
+        state: "submitted",
+        url: "https://claude.ai/code/session_01ABCDEF",
+      },
+    }),
+  ],
+  [
+    "undo",
+    "a record with no result",
+    ownedVariantEvent("session.restore_finished", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      target: { kind: "snapshot", snapshotId: "turn-7" },
+      result: { outcome: "restore-finished", requested: "files", restored: "files" },
+      files: { restoredFileCount: 3, restoredLineCount: 41, skipped: [] },
+    }),
+    ownedVariantEvent("session.restore_finished", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      target: { kind: "snapshot", snapshotId: "turn-7" },
+    }),
+  ],
+  [
+    "goal",
+    "a clear that names no agent",
+    ownedVariantEvent("session.goal_cleared", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      agentId: OWNER_AGENT_ID,
+    }),
+    ownedVariantEvent("session.goal_cleared", "session_lifecycle", { sessionId: SESSION_ID }),
+  ],
+  [
+    "notice",
+    "a lowered level looser than the one asked for",
+    ownedVariantEvent("session.notice", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      kind: "settings_ignored",
+      provider: "codex",
+      file: "/home/.codex/config.toml",
+      line: 4,
+    }),
+    ownedVariantEvent("session.notice", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      kind: "permission_level_lowered",
+      requestedLevel: "reviewed",
+      level: "yolo",
+    }),
+  ],
+  [
+    "side question",
+    "an answer with no question",
+    ownedVariantEvent("session.side_question_answered", "session_lifecycle", SIDE_QUESTION),
+    ownedVariantEvent("session.side_question_answered", "session_lifecycle", {
+      ...SIDE_QUESTION,
+      question: undefined,
+    }),
+  ],
+  [
+    "reviewer flag",
+    "a reviewer signal outside the two",
+    ownedVariantEvent("moderation.review_flagged", "approval_flow", REVIEW_FLAGGED),
+    ownedVariantEvent("moderation.review_flagged", "approval_flow", {
+      ...REVIEW_FLAGGED,
+      signal: "review_blocked",
+    }),
+  ],
+  [
+    "command",
+    "half an epoch stamp",
+    ownedVariantEvent("command.ended", "tool_activity", COMMAND_ENDED),
+    ownedVariantEvent("command.ended", "tool_activity", {
+      ...COMMAND_ENDED,
+      sourcePosition: undefined,
+    }),
+  ],
+  [
+    "git settlement",
+    "a push that names a run",
+    ownedVariantEvent("git.settled", "artifact_publication", {
+      sessionId: SESSION_ID,
+      cause: "committed",
+      commitId: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      runId: OWNER_RUN_ID,
+    }),
+    ownedVariantEvent("git.settled", "artifact_publication", {
+      sessionId: SESSION_ID,
+      cause: "pushed",
+      branch: "main",
+      runId: OWNER_RUN_ID,
+    }),
+  ],
+  [
+    "relay pin",
+    "a whole key hash where its prefix belongs",
+    ownedVariantEvent("relay.pin_refused", "security_events", RELAY_PIN_REFUSED),
+    ownedVariantEvent("relay.pin_refused", "security_events", {
+      ...RELAY_PIN_REFUSED,
+      presentedSpkiPrefix: "3f".repeat(32),
+    }),
+  ],
+  [
+    "session lifecycle move",
+    "a move that names no state the session is in",
+    ownedVariantEvent("session.archived", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      previousState: "active",
+      newState: "archived",
+      actor: USER_ID,
+    }),
+    ownedVariantEvent("session.archived", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      previousState: "active",
+    }),
+  ],
+  [
+    "session mark",
+    "a pin carrying a pin order in place of its time",
+    ownedVariantEvent("session.pinned", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      at: "2026-09-29T12:30:00.000-07:00",
+    }),
+    ownedVariantEvent("session.pinned", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      pinOrder: 1,
+    }),
+  ],
+  [
+    "chat conversion",
+    "a negative copy count",
+    ownedVariantEvent("session.converted", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      repoMountId: OWNER_REPO_MOUNT_ID,
+      copiedCount: 3,
+      skippedPaths: ["README.md"],
+    }),
+    ownedVariantEvent("session.converted", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      repoMountId: OWNER_REPO_MOUNT_ID,
+      copiedCount: -1,
+      skippedPaths: [],
+    }),
+  ],
+  [
+    "sweep to the repository root",
+    "a cleared-move flag spelled false",
+    ownedVariantEvent("session.swept_to_repo_root", "session_lifecycle", SESSION_SWEPT),
+    ownedVariantEvent("session.swept_to_repo_root", "session_lifecycle", {
+      ...SESSION_SWEPT,
+      pendingMoveCleared: false,
+    }),
+  ],
+  [
+    "branch change",
+    "a change that omits the branch it left",
+    ownedVariantEvent("session.branch_changed", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      repoMountId: OWNER_REPO_MOUNT_ID,
+      worktreeId: null,
+      branch: null,
+      previousBranch: "main",
+    }),
+    ownedVariantEvent("session.branch_changed", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      repoMountId: OWNER_REPO_MOUNT_ID,
+      worktreeId: null,
+      branch: null,
+    }),
+  ],
+  [
+    "worktree put-back",
+    "the kept-copy member on a worktree event that does not declare it",
+    ownedVariantEvent("worktree.created", "session_lifecycle", {
+      ...WORKTREE_READY,
+      restoredFrom: OWNER_REMOVED_WORKTREE_ID,
+    }),
+    ownedVariantEvent("worktree.ready", "session_lifecycle", {
+      ...WORKTREE_READY,
+      restoredFrom: OWNER_REMOVED_WORKTREE_ID,
+    }),
+  ],
+  [
+    "worktree discard",
+    "a created worktree naming a copy a discard left",
+    ownedVariantEvent("worktree.retired", "session_lifecycle", {
+      ...WORKTREE_READY,
+      state: "retired",
+      removedWorktreeId: OWNER_REMOVED_WORKTREE_ID,
+    }),
+    ownedVariantEvent("worktree.created", "session_lifecycle", {
+      ...WORKTREE_READY,
+      removedWorktreeId: OWNER_REMOVED_WORKTREE_ID,
+    }),
+  ],
+  [
+    "model reroute",
+    "a subagent scope, which the payload names local",
+    ownedVariantEvent("usage.model_rerouted", "usage_telemetry", MODEL_REROUTED),
+    ownedVariantEvent("usage.model_rerouted", "usage_telemetry", {
+      ...MODEL_REROUTED,
+      scope: "subagent",
+    }),
+  ],
+];
+
+describe("SessionEventSchema — variants whose payload a contract of its own declares", () => {
+  it.each(OWNED_VARIANT_FAMILIES)(
+    "%s: accepts the design's shape with the PII pair, and refuses %s",
+    (_family, _refusedCase, accepted, refused) => {
+      expect(SessionEventSchema.safeParse(accepted).success).toBe(true);
+      expect(SessionEventSchema.safeParse(refused).success).toBe(false);
+    },
+  );
 });

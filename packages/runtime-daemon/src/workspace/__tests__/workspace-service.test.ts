@@ -46,8 +46,6 @@ import {
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import type { DaemonDomainError } from "../../ipc/domain-error.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { openDatabase } from "../../session/migration-runner.js";
@@ -100,23 +98,6 @@ const WORKSPACE_ID_POOL: readonly string[] = [
   "0190f8b2-0000-7000-8000-000000000005",
   "0190f8b2-0000-7000-8000-000000000006",
 ];
-
-const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(9) as Ed25519PrivateKey;
-
-/** Fixed-key signer — key custody is `signing-key-source.test.ts`'s beat. */
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = FIXED_DAEMON_PRIVATE_KEY;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(
-      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
-    );
-  }
-}
 
 /** Knows the one session this suite binds under; every other id names no session. */
 const KNOWN_SESSIONS: SessionExistenceReader = {
@@ -347,7 +328,6 @@ beforeEach(async () => {
   const emitter = new WorkspaceEventEmitter({
     sessionEvents: new EventLogService({
       db,
-      signingKeySource: new FixedDaemonSigningKeySource(),
     }),
   });
 
@@ -1012,7 +992,7 @@ describe("reprovision cycle", () => {
     // gate that refused `stale` would make the documented retry impossible.
     await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
 
-    // MID-RETRY, before the outcome is known. `packages/contracts/src/repo.ts`
+    // MID-RETRY, before the outcome is known. `packages/contracts/src/workspace.ts`
     // makes `lastError` "present iff the workspace went `stale` from a recorded
     // failure" an emitter obligation on this module, and a `preparing` row is
     // not that. Clearing only at completion would leave the whole in-flight

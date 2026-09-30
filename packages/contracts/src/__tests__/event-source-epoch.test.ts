@@ -4,11 +4,9 @@
 //   • SourceEpochSchema / SourcePositionSchema accept 0 and positive
 //     integers and reject negatives, non-integers, and non-numbers — `0` is
 //     the pre-any-rollback epoch, so it is a VALUE, never a falsy sentinel.
-//   • The three shared wire literals are pinned by exact string equality:
-//     `sourceEpoch` / `sourcePosition` (the registered payload-field names
-//     two plans' code writes and reads) and `originPosition` (the audit-stub
-//     projection key rewind-span check reads back). A rename is
-//     forbidden-non-additive #8.
+//   • The two shared wire literals are pinned by exact string equality:
+//     `sourceEpoch` / `sourcePosition`, the registered payload-field names
+//     ingestion writes and the supersede projection reads.
 //   • withEpochStamp composition: strictness survives (a composed strict
 //     payload still rejects unknown keys), the stamp stays OPTIONAL (absence
 //     means current-epoch), and the pairing refinement rejects all three
@@ -60,7 +58,7 @@
 //     `run_lifecycle` branch (stragglers are absorbed, never appended) and
 //     the account-plane `usage.rate_limit_update` (no `runId` — an epoch
 //     stamp there is unattributable). A branch payload may itself be a
-//     DISCRIMINATED UNION (`audit_integrity_failed`), so the walk resolves a
+//     DISCRIMINATED UNION (`session.notice`), so the walk resolves a
 //     payload to its arms and applies each rule arm-exactly; a known-bad
 //     union-payload arm is in the FIRES table so that path cannot rot green.
 //   • The envelope canonical set is UNTOUCHED: the pair rides inside
@@ -71,9 +69,6 @@ import { z } from "zod";
 
 import {
   EventEnvelopeSchema,
-  ORIGIN_POSITION_STUB_KEY,
-  PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_USER_ID_PAYLOAD_KEY,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
   SessionEventSchema,
@@ -82,7 +77,6 @@ import {
   SOURCE_POSITION_PAYLOAD_KEY,
   SourcePositionSchema,
   withEpochStamp,
-  type AssistantOutputPayload,
   type EventCategory,
   type SessionEventType,
 } from "../event.js";
@@ -143,7 +137,6 @@ describe("payload-field + stub-projection key names (pins)", () => {
   it.each([
     ["SOURCE_EPOCH_PAYLOAD_KEY", SOURCE_EPOCH_PAYLOAD_KEY, "sourceEpoch"],
     ["SOURCE_POSITION_PAYLOAD_KEY", SOURCE_POSITION_PAYLOAD_KEY, "sourcePosition"],
-    ["ORIGIN_POSITION_STUB_KEY", ORIGIN_POSITION_STUB_KEY, "originPosition"],
   ])("%s === %s", (_label, actual, expected) => {
     // Exact-string pins, not shape checks: the stamping leg and compactor's
     // stub projection write and read these literals across plan boundaries,
@@ -634,7 +627,6 @@ type BranchFacts = {
   readonly category: string;
   readonly runScoped: boolean;
   readonly stampKeyCount: number;
-  readonly piiKeyCount: number;
   readonly refined: boolean;
   readonly payloadStrict: boolean;
 };
@@ -653,7 +645,7 @@ type PayloadObjectView = {
     readonly catchall?: { readonly def: { readonly type: string } } | undefined;
   };
 };
-type PayloadUnionView = { readonly options: readonly PayloadObjectView[] };
+type PayloadUnionView = { readonly options: readonly PayloadView[] };
 type PayloadView = PayloadObjectView | PayloadUnionView;
 type BranchView = {
   readonly shape: {
@@ -665,12 +657,12 @@ type BranchView = {
 type UnionView = { readonly options: readonly BranchView[] };
 
 // A branch's payload is either ONE object schema or a DISCRIMINATED UNION of
-// them — `audit_integrity_failed` is the first of the latter (the fifteen
-// verifier modes carry the Merkle triple, the registrar mode carries none).
-// Resolving to the arm list keeps every rule below arm-exact.
+// them, and a union's option may itself be a union (`session.notice`
+// discriminates on `kind`, then its `settings_ignored` arms on `provider`). Resolving to the
+// flattened arm list keeps every rule below arm-exact.
 const payloadArms = (payload: PayloadView): readonly PayloadObjectView[] => {
   if (Array.isArray((payload as PayloadUnionView).options)) {
-    return (payload as PayloadUnionView).options;
+    return (payload as PayloadUnionView).options.flatMap(payloadArms);
   }
   if ((payload as PayloadObjectView).shape !== undefined) {
     return [payload as PayloadObjectView];
@@ -695,18 +687,11 @@ const readBranchFacts = (union: unknown): BranchFacts[] =>
     const stampKeys = [SOURCE_EPOCH_PAYLOAD_KEY, SOURCE_POSITION_PAYLOAD_KEY].filter((key) =>
       arms.some((arm) => Object.hasOwn(arm.shape, key)),
     );
-    // The PII indirection pair aggregates with the same `some` direction and
-    // for the same reason: any arm carrying a key makes the branch carry it,
-    // which is the conservative reading for the must-NOT-admit rule.
-    const piiKeys = [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_USER_ID_PAYLOAD_KEY].filter((key) =>
-      arms.some((arm) => Object.hasOwn(arm.shape, key)),
-    );
     return {
       type: branch.shape.type.def.values[0] ?? "(no discriminator literal)",
       category: branch.shape.category.def.values[0] ?? "(no category literal)",
       runScoped: arms.every((arm) => Object.hasOwn(arm.shape, RUN_ID_PAYLOAD_KEY)),
       stampKeyCount: stampKeys.length,
-      piiKeyCount: piiKeys.length,
       // A hand-rolled pair of keys without the pairing refinement is NOT a
       // wrap: it would admit exactly the half-stamped rows the helper exists
       // to reject. `withEpochStamp` leaves a refinement check on the payload
@@ -854,8 +839,8 @@ describe("wrap-admission ratchet over the live SessionEventSchema union", () => 
           .object({
             type: z.literal("tool.invoked"),
             category: z.literal("tool_activity"),
-            // A discriminated-union payload, the shape `audit_integrity_failed`
-            // introduced. Without the arm-resolving read this arm would throw
+            // A discriminated-union payload, the shape `session.notice` takes.
+            // Without the arm-resolving read this arm would throw
             // (no `.shape` on a union) instead of classifying — which is the
             // point: the union path must be exercised by a KNOWN-BAD case, or
             // a broken walk stays green on the passing ones.
@@ -945,269 +930,6 @@ describe("wrap-admission ratchet over the live SessionEventSchema union", () => 
 });
 
 // --------------------------------------------------------------------------
-// The PII-indirection admission ratchet over the LIVE SessionEventSchema union.
-// --------------------------------------------------------------------------
-//
-// The union's SECOND cross-cutting payload pair, ratcheted by the same walk as
-// the first. `readBranchFacts` / `payloadArms` and the live union are shared
-// deliberately: a second introspection walk over the same Zod internals would
-// be a second thing to keep correct, and the walk is what this file owns even
-// though its name says `source-epoch`.
-//
-// Requires a row whose `pii_payload` column is non-NULL to embed BOTH
-// `pii_ciphertext_digest` and `pii_user_id` in `payload`. The sealing
-// codec does exactly that and then signs the composed row, so a registered
-// variant that did not admit the pair would reject the very row the daemon
-// signed — a permanently unparseable authoritative event, refused only AFTER
-// the encrypt. Admission is scoped by CATEGORY and by nothing else, because
-// that is the only axis the codec's own refusal is keyed on.
-
-// The two categories holds free of user PII: never compacted, never
-// crypto-shredded, `pii_payload` NULL by construction, and refused BY NAME in
-// the codec before it encrypts anything. Spelled here rather than imported,
-// on the `STAMP_ADMITTING_CATEGORIES` precedent above: this is the RULE the
-// union is held against, and reading it from the same declaration the
-// implementation reads would make the assertion circular.
-const PII_REFUSED_CATEGORIES: readonly EventCategory[] = ["audit_integrity", "event_maintenance"];
-
-const piiAdmissionViolations = (branches: readonly BranchFacts[]): string[] => {
-  const violations: string[] = [];
-  for (const branch of branches) {
-    const mustAdmit = !PII_REFUSED_CATEGORIES.includes(branch.category as EventCategory);
-    if (mustAdmit && branch.piiKeyCount !== 2) {
-      violations.push(
-        `${branch.type}: a ${branch.category} branch MUST admit the PII indirection pair (found ${branch.piiKeyCount}/2 keys) — the sealing codec embeds both into the payload of any row of a non-refused category and signs what it composed, so a variant missing them rejects a row that is already durable and authoritative`,
-      );
-    }
-    if (!mustAdmit && branch.piiKeyCount > 0) {
-      violations.push(
-        `${branch.type}: a ${branch.category} branch MUST NOT admit the PII indirection pair (found ${branch.piiKeyCount} key(s)) — so admitting the pair would declare legal a row the append path refuses to produce`,
-      );
-    }
-    if (branch.piiKeyCount > 0 && !branch.payloadStrict) {
-      violations.push(
-        `${branch.type}: a payload carrying the PII indirection pair MUST stay strict — composition inherits strictness, so widening a non-strict payload silently strips unknown keys away from the canonical bytes the row was signed over`,
-      );
-    }
-  }
-  return violations;
-};
-
-describe("PII-indirection admission ratchet over the live SessionEventSchema union", () => {
-  const liveBranches = readBranchFacts(SessionEventSchema);
-
-  it("the branch walk sees every registered payload variant (non-vacuity guard)", () => {
-    // Repeated rather than borrowed from the block above: without it a broken
-    // introspection read would yield zero branches and every rule below would
-    // pass vacuously, and a guard that lives in another describe is one this
-    // one does not actually have.
-    expect(liveBranches.map((branch) => branch.type).sort()).toEqual(
-      [...SESSION_EVENT_TYPES].sort(),
-    );
-  });
-
-  it("every registered branch satisfies the PII-admission rule", () => {
-    expect(piiAdmissionViolations(liveBranches)).toEqual([]);
-  });
-
-  it("the admitted/refused split is 17/4 over the 21 registered variants", () => {
-    // The set-quantifier pin. Both halves are asserted, so neither a variant
-    // that quietly stops admitting nor a newly registered refused-category
-    // variant can move the split without this line moving with it.
-    const refused = liveBranches.filter((branch) =>
-      PII_REFUSED_CATEGORIES.includes(branch.category as EventCategory),
-    );
-    expect(liveBranches).toHaveLength(21);
-    expect(refused).toHaveLength(4);
-    expect(refused.map((branch) => branch.type).sort()).toEqual([
-      "audit_integrity_failed",
-      "audit_integrity_verified",
-      "event.compacted",
-      "key_reuse_detected",
-    ]);
-  });
-
-  it.each([
-    [
-      "session_lifecycle branch that does NOT admit the pair",
-      z.discriminatedUnion("type", [
-        z
-          .object({
-            type: z.literal("repo.attached"),
-            category: z.literal("session_lifecycle"),
-            payload: runScopedPayloadSchema,
-          })
-          .strict(),
-      ]),
-      "MUST admit the PII indirection pair",
-    ],
-    [
-      "event_maintenance branch that DOES admit the pair",
-      z.discriminatedUnion("type", [
-        z
-          .object({
-            type: z.literal("event.compacted"),
-            category: z.literal("event_maintenance"),
-            payload: runScopedPayloadSchema.extend({
-              [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
-              [PII_USER_ID_PAYLOAD_KEY]: z.string().optional(),
-            }),
-          })
-          .strict(),
-      ]),
-      "MUST NOT admit the PII indirection pair",
-    ],
-    [
-      "admitting branch carrying the pair on a NON-strict payload",
-      z.discriminatedUnion("type", [
-        z
-          .object({
-            type: z.literal("assistant.message"),
-            category: z.literal("assistant_output"),
-            payload: strippingPayloadSchema.extend({
-              [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
-              [PII_USER_ID_PAYLOAD_KEY]: z.string().optional(),
-            }),
-          })
-          .strict(),
-      ]),
-      "MUST stay strict",
-    ],
-  ])("the PII ratchet FIRES on a known-bad union: %s", (_label, badUnion, expectedFragment) => {
-    // Negative control for the zero-violation result above: a checker that
-    // cannot fail proves nothing.
-    const violations = piiAdmissionViolations(readBranchFacts(badUnion));
-    expect(violations).toHaveLength(1);
-    expect(violations[0]).toContain(expectedFragment);
-  });
-
-  it("the PII ratchet PASSES a correctly widened branch", () => {
-    const goodUnion = z.discriminatedUnion("type", [
-      z
-        .object({
-          type: z.literal("assistant.message"),
-          category: z.literal("assistant_output"),
-          payload: runScopedPayloadSchema.extend({
-            [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: z.string().optional(),
-            [PII_USER_ID_PAYLOAD_KEY]: z.string().optional(),
-          }),
-        })
-        .strict(),
-    ]);
-    expect(piiAdmissionViolations(readBranchFacts(goodUnion))).toEqual([]);
-  });
-});
-
-// --------------------------------------------------------------------------
-// The pair round-trips through the live union — the BEHAVIORAL leg.
-// --------------------------------------------------------------------------
-//
-// The structural ratchet above reads shapes; this parses rows. It is the leg
-// that actually proves the registration landed, because a shape that carries
-// the keys but rejects the values would satisfy every rule above.
-
-describe("a sealed row's PII indirection pair parses through its own strict variant", () => {
-  const buildAssistantMessageRow = (payloadExtra: Record<string, unknown>) => ({
-    id: "evt-pii-0001",
-    sessionId: SESSION_ID,
-    sequence: 41,
-    occurredAt: "2026-08-30T11:02:04.000Z",
-    category: "assistant_output" as const,
-    type: "assistant.message",
-    actor: null,
-    version: VERSION,
-    payload: { sessionId: SESSION_ID, runId: RUN_ID, ...payloadExtra },
-  });
-
-  /**
-   * Parse through the LIVE union and narrow to the branch under test.
-   *
-   * The narrowing is part of the assertion rather than a convenience: on
-   * `SessionEvent` the `payload` member is the union of all thirty payload
-   * types, and only the twenty-four admitting ones carry the PII pair — so a
-   * bare index would not compile, and a cast to `Record<string, unknown>` would
-   * assert the members exist by fiat instead of reading them off the type the
-   * registration produced.
-   */
-  const parseAssistantMessagePayload = (row: unknown): AssistantOutputPayload => {
-    const parsed = SessionEventSchema.parse(row);
-    if (parsed.type !== "assistant.message") {
-      throw new Error(`expected an assistant.message row, parsed a ${parsed.type} one`);
-    }
-    return parsed.payload;
-  };
-
-  const PII_PAIR = {
-    [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]:
-      "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea",
-    [PII_USER_ID_PAYLOAD_KEY]: "990e8400-e29b-41d4-a716-446655440009",
-  };
-
-  it("accepts a row carrying BOTH members, verbatim", () => {
-    const payload = parseAssistantMessagePayload(buildAssistantMessageRow(PII_PAIR));
-    expect(payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe(
-      PII_PAIR[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY],
-    );
-    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBe(PII_PAIR[PII_USER_ID_PAYLOAD_KEY]);
-  });
-
-  it("accepts a NON-UUID owner stamp, which is what the codec actually embeds", () => {
-    // The stamp is a bounded free-form string and deliberately NOT
-    // `UserIdSchema`: the codec types the value a plain `string` because
-    // nothing on that path mints the brand. A variant demanding a canonical
-    // UUID here would refuse rows the append path legally signs.
-    const payload = parseAssistantMessagePayload(
-      buildAssistantMessageRow({ ...PII_PAIR, [PII_USER_ID_PAYLOAD_KEY]: "local-holder-7" }),
-    );
-    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBe("local-holder-7");
-  });
-
-  it("accepts a row carrying NEITHER member (the pair stays optional)", () => {
-    const payload = parseAssistantMessagePayload(buildAssistantMessageRow({}));
-    expect(payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBeUndefined();
-    expect(payload[PII_USER_ID_PAYLOAD_KEY]).toBeUndefined();
-  });
-
-  it("REJECTS the pair on a refused-category row (event.compacted)", () => {
-    // The other direction of the invariant, parsed rather than introspected:
-    // holds this category's `pii_payload` NULL, so the pair is not merely
-    // unused here — it is not registered.
-    const compactedPayload = {
-      nodeId: "990e8400-e29b-41d4-a716-446655440011",
-      operationId: "compact-pass-0007",
-      occurredAt: "2026-08-30T11:02:04.000Z",
-      fromSeq: 0,
-      toSeq: 40,
-      eventsBefore: 41,
-      eventsAfter: 41,
-      bytesReclaimed: 2048,
-      tombstoneCount: 41,
-      compactionReason: "age_threshold" as const,
-    };
-    const base = {
-      id: "evt-pii-0002",
-      sessionId: SESSION_ID,
-      sequence: 42,
-      occurredAt: "2026-08-30T11:02:04.000Z",
-      category: "event_maintenance" as const,
-      type: "event.compacted",
-      actor: null,
-      version: VERSION,
-    };
-    // The clean row parses, so the rejection below is caused by the pair and
-    // not by a malformed fixture.
-    expect(SessionEventSchema.safeParse({ ...base, payload: compactedPayload }).success).toBe(true);
-
-    const result = SessionEventSchema.safeParse({
-      ...base,
-      payload: { ...compactedPayload, ...PII_PAIR },
-    });
-    expect(result.success).toBe(false);
-    expect(issuePaths(result)).toContain("payload");
-  });
-});
-
-// --------------------------------------------------------------------------
 // The envelope canonical set stays fixed.
 // --------------------------------------------------------------------------
 
@@ -1234,11 +956,9 @@ describe("the carrier is a PAYLOAD field, not an envelope field", () => {
     expect(parsed.payload[SOURCE_POSITION_PAYLOAD_KEY]).toBe(5);
   });
 
-  it.each([[SOURCE_EPOCH_PAYLOAD_KEY], [SOURCE_POSITION_PAYLOAD_KEY], [ORIGIN_POSITION_STUB_KEY]])(
+  it.each([[SOURCE_EPOCH_PAYLOAD_KEY], [SOURCE_POSITION_PAYLOAD_KEY]])(
     "rejects `%s` as a TOP-LEVEL envelope member (membership is closed)",
     (key) => {
-      // `originPosition` is likewise a stub-projection key, never an
-      // envelope member.
       const broken = { ...buildEnvelope(), [key]: 1 };
       expect(EventEnvelopeSchema.safeParse(broken).success).toBe(false);
     },

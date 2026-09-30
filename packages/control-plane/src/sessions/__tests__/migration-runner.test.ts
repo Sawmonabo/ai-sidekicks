@@ -1,6 +1,5 @@
 // `applyMigrations()` on a fresh database and on one that already has the
-// schema, plus the anchor table's range CHECK and `anchored_at` default, reached
-// by direct insert.
+// schema.
 //
 // A re-call on an existing database must be a no-op that leaves stored rows
 // untouched; a re-run of the DDL would fail with `42P07 relation already exists`.
@@ -82,27 +81,6 @@ afterEach(async () => {
   await ctx.pg.close();
 });
 
-// Omits `anchored_at`, so the column default supplies it.
-async function insertAnchor(
-  querier: Querier,
-  startSequence: number,
-  endSequence: number,
-): Promise<void> {
-  await querier.query(
-    `INSERT INTO event_log_anchors
-       (session_id, node_id, start_sequence, end_sequence, merkle_root, root_signature)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [
-      "01970000-0000-7000-8000-00000000a001",
-      "node-alpha",
-      startSequence,
-      endSequence,
-      Buffer.alloc(32, 0x11),
-      Buffer.alloc(64, 0x22),
-    ],
-  );
-}
-
 describe("applyMigrations", () => {
   it("is a no-op on a database that already has the schema, and keeps its rows", async () => {
     await applyMigrations(ctx.querier);
@@ -116,30 +94,5 @@ describe("applyMigrations", () => {
       "SELECT COUNT(*)::text AS count FROM users",
     );
     expect(users.rows).toEqual([{ count: "1" }]);
-  });
-});
-
-describe("event_log_anchors", () => {
-  it("rejects an inverted range and accepts a single-row range", async () => {
-    await applyMigrations(ctx.querier);
-
-    await expect(insertAnchor(ctx.querier, 1000, 999)).rejects.toThrow(/violates check constraint/);
-    // A compaction range one row wide needs exactly this.
-    await expect(insertAnchor(ctx.querier, 7, 7)).resolves.toBeUndefined();
-  });
-
-  it("fills anchored_at with now() when the insert omits it", async () => {
-    await applyMigrations(ctx.querier);
-
-    const beforeInsert: number = Date.now();
-    await insertAnchor(ctx.querier, 1, 1000);
-
-    const probe = await ctx.querier.query<{ anchored_at: Date }>(
-      "SELECT anchored_at FROM event_log_anchors",
-    );
-    const stored: Date | undefined = probe.rows[0]?.anchored_at;
-    expect(stored).toBeInstanceOf(Date);
-    expect(stored?.getTime()).toBeGreaterThanOrEqual(beforeInsert - 1_000);
-    expect(stored?.getTime()).toBeLessThanOrEqual(Date.now() + 1_000);
   });
 });

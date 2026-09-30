@@ -1,29 +1,21 @@
-// SessionService — durable append + replay over Local SQLite.
+// SessionService — test-seeding append + replay over Local SQLite.
 //
-// Append path (owned — GUARDED, test-only, 2026-07-28):
+// Append path (GUARDED, test-only):
 //   - `append()` refuses to run unless the service was constructed with the
 //     module-private `UnsignedPlaceholderAppendToken` singleton
-//     (`UnsignedPlaceholderAppendToken.forTestsOnly()`). The rows this path
-//     writes carry zero-filled integrity placeholders — exactly the
-//     never-signed rows the `verifyRow` refuses fail-closed
-//     (`signature_placeholder`) — so no production composition root may
-//     reach it precondition (added 2026-07-27): durable production writes
-//     belong to the `EventLogService.append`, the sole durable writer. Tests
-//     seeding placeholder rows opt in explicitly at construction.
-//   - Writes one `session_events` row per event. Single-statement
-//     INSERT is implicitly atomic in SQLite will introduce a
-//     `db.transaction(...)` wrapper once snapshot writes land alongside
-//     event writes (so the row + snapshot commit as a unit).
-//   - Materializes hash-chain placeholder bytes (zero-fill) so the NOT
-//     NULL constraints in the schema are satisfied without claiming
-//     hash-chain semantics. replaces this with real BLAKE3 + Ed25519
-//     over RFC 8785 JCS-canonical bytes.
-//   - Materializes `monotonic_ns` from the writer (caller-supplied) so
-//     tests can drive non-monotonic values to exercise D3.
-//   - Writes `pii_payload = NULL` always — no V1 SessionEvent variant
-//     carries PII. owns the wrapping pipeline that populates this column
-//     for sensitive event variants.
+//     (`UnsignedPlaceholderAppendToken.forTestsOnly()`). It writes a row with a
+//     caller-chosen `sequence`, outside the per-session append lock, with no
+//     sealing and no canonical-size ceiling — everything the sole durable
+//     writer, `EventLogService.append`, exists to guarantee — so no production
+//     composition root may reach it. Tests seeding rows opt in explicitly at
+//     construction.
+//   - Writes one `session_events` row per event. A single-statement INSERT is
+//     implicitly atomic in SQLite.
+//   - Materializes `monotonic_ns` from the writer (caller-supplied) so tests
+//     can drive non-monotonic values.
+//   - Writes `pii_payload = NULL` always.
 //
+// Replay path:
 //   - Reads events for a session by `sequence ASC` — the canonical replay
 //     key.
 //   - Returns hydrated `StoredEvent` objects (parsed JSON payload). The
@@ -33,26 +25,15 @@
 //     values above this — so better-sqlite3's `safeIntegers` mode is
 //     enabled per-statement on the read path).
 //
-// What this service does NOT do (deferred):
-//   - Snapshot persistence to `session_snapshots`. D4 proves replay
-//     reproducibility from the event log alone; snapshot caching is a
-//     read-perf optimization reserves for later in the slice and that
-//     and refine.
-//   - Real hash-chain or signature material. See top-of-file note.
+// What this service does NOT do:
+//   - Snapshot persistence to `session_snapshots`: replay reproduces state
+//     from the event log alone.
 //   - Recovery from torn writes mid-batch.
 
 import type { Database, RunResult, Statement } from "better-sqlite3";
 
 import type { AppendableEvent, DaemonSessionSnapshot, StoredEvent } from "./types.js";
 import { replay as projectReplay } from "./session-projector.js";
-
-// Hash-chain placeholder bytes: the `session_events` integrity columns in
-// `daemon-schema.ts` are NOT NULL and length-checked, so the writer fills them
-// with zeros of the right size.
-const HASH_PLACEHOLDER_LEN: number = 32;
-const SIG_PLACEHOLDER_LEN: number = 64;
-const ZERO_HASH: Buffer = Buffer.alloc(HASH_PLACEHOLDER_LEN);
-const ZERO_SIGNATURE: Buffer = Buffer.alloc(SIG_PLACEHOLDER_LEN);
 
 // Internal row shape returned by better-sqlite3's `.all()` on the read
 // query. Kept private — callers receive `StoredEvent` (with parsed JSON
@@ -83,8 +64,8 @@ interface SessionEventRow {
 }
 
 /**
- * Capability token gating `SessionService.append`'s zero-filled
- * placeholder writes (see the guard rationale in the file header).
+ * Capability token gating `SessionService.append`'s test-seeding writes (see
+ * the guard rationale in the file header).
  *
  * A boolean opt-in — even one typed as the literal `true` — is not a
  * real barrier: TypeScript narrows a `boolean` to `true` inside an
@@ -151,8 +132,8 @@ export class UnsignedPlaceholderAppendToken {
 
 // Construction options for `SessionService`.
 export interface SessionServiceOptions {
-  // TEST-ONLY. Permits `append()`'s zero-filled integrity placeholders
-  // (see the guard rationale in the file header). Takes the nominal
+  // TEST-ONLY. Permits `append()`'s test-seeding writes (see the guard
+  // rationale in the file header). Takes the nominal
   // identity-checked `UnsignedPlaceholderAppendToken` — not a boolean —
   // so the opt-in can never be MANUFACTURED from data: no config value,
   // env string, or deserialized object is the singleton. Obtaining it
@@ -184,13 +165,11 @@ export class SessionService {
       `INSERT INTO session_events (
          id, session_id, sequence, occurred_at, monotonic_ns,
          category, type, actor, payload, pii_payload,
-         correlation_id, causation_id, version,
-         prev_hash, row_hash, daemon_signature
+         correlation_id, causation_id, version
        ) VALUES (
          @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
          @category, @type, @actor, @payload, NULL,
-         @correlation_id, @causation_id, @version,
-         @prev_hash, @row_hash, @daemon_signature
+         @correlation_id, @causation_id, @version
        )`,
     );
     this.#replayStmt = db
@@ -216,27 +195,16 @@ export class SessionService {
    * the genuine `UnsignedPlaceholderAppendToken` — see the file header, the
    * token's class doc, and `SessionServiceOptions`.
    *
-   * Returns `undefined` (not `void`) as a deliberate residue of the
-   * SYNCHRONOUS-transactional `SessionEventLog` seam this method was
-   * once shaped to satisfy: that seam's `undefined` return type
-   * rejected Promise-returning implementations at compile time.
-   *
-   * Re-point INVERTED that seam — it is async-transactional now,
-   * backed by `EventLogService.append`, and this method no longer
-   * satisfies it (nor should it: the seam's whole point is that a
-   * production append is signed and chained, which this one is not).
-   * The signature is kept as-is anyway, because the tests that seed
-   * placeholder rows call it directly and a `void` return would be a
-   * gratuitous churn on that surface.
+   * Returns `undefined` (not `void`): the tests that seed rows call it
+   * directly.
    */
   append(event: AppendableEvent): undefined {
     if (!this.#allowUnsignedPlaceholderAppend) {
       throw new Error(
-        "SessionService.append is guarded: it writes zero-filled prev_hash / row_hash / " +
-          "daemon_signature placeholders, which integrity verification refuses fail-closed " +
-          "(failureMode signature_placeholder). Durable production writes belong to" +
-          "the EventLogService.append. Tests seeding placeholder rows opt in explicitly" +
-          "with the identity-checked capability token: new SessionService(db, " +
+        "SessionService.append is guarded: it writes a caller-sequenced row outside the " +
+          "append lock, with no sealing and no size ceiling. Durable production writes belong " +
+          "to EventLogService.append. Tests seeding rows opt in explicitly with the " +
+          "identity-checked capability token: new SessionService(db, " +
           "{ allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly() }).",
       );
     }
@@ -253,9 +221,6 @@ export class SessionService {
       correlation_id: event.correlationId,
       causation_id: event.causationId,
       version: event.version,
-      prev_hash: ZERO_HASH,
-      row_hash: ZERO_HASH,
-      daemon_signature: ZERO_SIGNATURE,
     });
     if (result.changes !== 1) {
       throw new Error(

@@ -146,7 +146,8 @@ interface RecordedSubscribeCall {
  * Script `session.subscribe` and `$/subscription/cancel` on the fake daemon.
  * Each subscribe acks a fresh subscription id, records the `afterCursor` it
  * was sent, then replays the events `readHistory()` returns strictly after
- * that cursor, as the daemon's handler replays its store before going live.
+ * that cursor, as the daemon's handler replays its store before going live,
+ * one event per frame with the event's id as its cursor.
  * History is read on every subscribe, so a test can change it between calls.
  */
 function scriptSessionStream(readHistory: () => readonly SessionEvent[]): {
@@ -172,7 +173,10 @@ function scriptSessionStream(readHistory: () => readonly SessionEvent[]): {
           return history.slice(cursorIndex + 1).map((event) => ({
             jsonrpc: JSONRPC_VERSION,
             method: SUBSCRIPTION_NOTIFY_METHOD,
-            params: { subscriptionId: subscriptionIdFor(recorded.callCount), value: event },
+            params: {
+              subscriptionId: subscriptionIdFor(recorded.callCount),
+              value: { changes: [{ cursor: event.id, event }] },
+            },
           }));
         },
       },

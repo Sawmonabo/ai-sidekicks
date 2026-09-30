@@ -27,6 +27,11 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -307,3 +312,41 @@ export type PresenceSubscribeResponse = SubscribeAckResponse;
 // single-T for the same reason).
 export const PresenceSubscribeResponseSchema: z.ZodType<PresenceSubscribeResponse> =
   SubscribeAckResponseSchema;
+
+// --------------------------------------------------------------------------
+// The presence methods, as a table
+// --------------------------------------------------------------------------
+
+/** The `presence.*` methods the daemon answers. */
+export interface PresenceMethodDescriptors {
+  readonly "presence.read": MethodDescriptor<
+    "presence.read",
+    PresenceReadRequest,
+    PresenceReadResponse
+  >;
+  readonly "presence.subscribe": SubscriptionMethodDescriptor<
+    "presence.subscribe",
+    PresenceSubscribeRequest,
+    PresenceSubscribeResponse,
+    PresenceUpdate
+  >;
+}
+
+/** The `presence.*` methods the daemon answers: their names, how each answers, and their shapes. */
+export const PRESENCE_METHOD_DESCRIPTORS: PresenceMethodDescriptors = defineMethodDescriptors({
+  "presence.read": {
+    method: "presence.read",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: PresenceReadRequestSchema,
+    responseSchema: PresenceReadResponseSchema,
+  },
+  "presence.subscribe": {
+    method: "presence.subscribe",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: PresenceSubscribeRequestSchema,
+    responseSchema: PresenceSubscribeResponseSchema,
+    emissionSchema: PresenceUpdateSchema,
+  },
+});

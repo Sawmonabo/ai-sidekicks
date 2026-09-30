@@ -13,9 +13,9 @@
 // entry points, over durable state, with nothing mocked that the claim depends
 // on. Every seam the sibling suites inject to reach a branch (resolvers,
 // filesystem probes, id sources, interfering clocks, failing emitters) is left
-// at its production default here. Beyond the two this package's harnesses all
-// share — a fixed daemon signing key, and the seeded `session.created` anchor
-// `replay` requires of every chain — two mechanisms are test-only:
+// at its production default here. Beyond the one this package's harnesses all
+// share — the seeded `session.created` row `replay` requires of every session —
+// two mechanisms are test-only:
 //
 //   * REAL git fixtures, built once in `beforeAll` under a hermetic
 //     environment.
@@ -60,8 +60,6 @@ import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import { RepoMountService } from "../repo-mount-service.js";
@@ -87,25 +85,6 @@ const RUN_ID: string = "0190fa16-0000-7000-8000-000000000001";
  * root still comes from provisioning, not from this path.
  */
 const BOUND_SUBDIRECTORY: string = "packages";
-
-const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(
-  17,
-) as Ed25519PrivateKey;
-
-/** Fixed-key signer — key custody is `signing-key-source.test.ts`'s beat. */
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = FIXED_DAEMON_PRIVATE_KEY;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(
-      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
-    );
-  }
-}
 
 interface StoredMountRow {
   readonly id: string;
@@ -266,7 +245,6 @@ function buildDaemonStack(database: DatabaseType, now: () => string): DaemonStac
   const emitter = new WorkspaceEventEmitter({
     sessionEvents: new EventLogService({
       db: database,
-      signingKeySource: new FixedDaemonSigningKeySource(),
     }),
   });
   // No `newWorkspaceId` / `newRepoMountId` override: the production `mintUuidV7`

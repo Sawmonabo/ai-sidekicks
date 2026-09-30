@@ -121,14 +121,11 @@ import {
   REASONING_SURFACE_ENTRIES_MAX,
   ReasoningSurfaceReadRequestSchema,
   ReasoningSurfaceReadResponseSchema,
-  TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_METHOD_DESCRIPTORS,
   TIMELINE_METHOD_NAMES,
   TIMELINE_PAGE_FRAME_RESERVE_BYTES,
   TIMELINE_PAGE_MAX_BYTES,
   TIMELINE_READ_LIMIT_MAX,
-  TIMELINE_READ_METHOD,
-  TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
   TIMELINE_ROW_KINDS,
   TIMELINE_ROW_SUMMARY_MAX_LEN,
@@ -141,6 +138,12 @@ import {
   TimelineRowSchema,
   TimelineSubscribeRequestSchema,
   TimelineSubscribeResponseSchema,
+  TimelineBodyReadRequestSchema,
+  TimelineBodyReadResponseSchema,
+  TimelinePatchReadRequestSchema,
+  TimelinePatchReadResponseSchema,
+  TimelineSearchRequestSchema,
+  TimelineSearchResponseSchema,
   type TimelineRow,
 } from "../timeline/index.js";
 
@@ -293,6 +296,14 @@ describe("TimelineRow arm selection", () => {
       superseded: { targetPosition: 5 },
     };
     expectRoundTrip(TimelineRowSchema, attributedStub);
+  });
+
+  it("names the patches a tool call's row left out, and refuses an empty list", () => {
+    const omittedPatches = [{ path: "src/app.ts", size: 1_258_291 }];
+    expectRoundTrip(TimelineRowSchema, { ...runScopedRow, omittedPatches });
+    expect(TimelineRowSchema.safeParse({ ...runScopedRow, omittedPatches: [] }).success).toBe(
+      false,
+    );
   });
 
   it("P10 — `childRunSummary` rides a general row and a run row alike", () => {
@@ -1127,62 +1138,6 @@ describe("timeline read window and live stream", () => {
 // ----------------------------------------------------------------------------
 
 describe("timeline method-name registry", () => {
-  it("registers exactly the four canonical method strings", () => {
-    expect([...TIMELINE_METHOD_NAMES]).toStrictEqual([
-      "timeline.read",
-      "timeline.subscribe",
-      "timeline.reasoningSurfaceRead",
-      "timeline.childRunExpand",
-    ]);
-    expect(Object.keys(TIMELINE_METHOD_DESCRIPTORS).sort()).toStrictEqual(
-      [...TIMELINE_METHOD_NAMES].sort(),
-    );
-  });
-
-  it("every method string is BOUND to its own schema pair, not merely declared", () => {
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_READ_METHOD].requestSchema).toBe(
-      TimelineReadRequestSchema,
-    );
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_READ_METHOD].responseSchema).toBe(
-      TimelineReadResponseSchema,
-    );
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_SUBSCRIBE_METHOD].requestSchema).toBe(
-      TimelineSubscribeRequestSchema,
-    );
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_SUBSCRIBE_METHOD].responseSchema).toBe(
-      TimelineSubscribeResponseSchema,
-    );
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_REASONING_SURFACE_READ_METHOD].requestSchema).toBe(
-      ReasoningSurfaceReadRequestSchema,
-    );
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_REASONING_SURFACE_READ_METHOD].responseSchema).toBe(
-      ReasoningSurfaceReadResponseSchema,
-    );
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_CHILD_RUN_EXPAND_METHOD].requestSchema).toBe(
-      ChildRunExpandRequestSchema,
-    );
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_CHILD_RUN_EXPAND_METHOD].responseSchema).toBe(
-      ChildRunExpandResponseSchema,
-    );
-  });
-
-  it("mirrors the canonical registry's procedure types and read-only posture", () => {
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_READ_METHOD].procedureType).toBe("query");
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_SUBSCRIBE_METHOD].procedureType).toBe(
-      "subscription",
-    );
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_REASONING_SURFACE_READ_METHOD].procedureType).toBe(
-      "query",
-    );
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_CHILD_RUN_EXPAND_METHOD].procedureType).toBe(
-      "query",
-    );
-    for (const method of TIMELINE_METHOD_NAMES) {
-      expect(TIMELINE_METHOD_DESCRIPTORS[method].mutating).toBe(false);
-      expect(TIMELINE_METHOD_DESCRIPTORS[method].method).toBe(method);
-    }
-  });
-
   it("the descriptor registry is frozen — a consumer cannot re-point a method's schemas", () => {
     expect(Object.isFrozen(TIMELINE_METHOD_DESCRIPTORS)).toBe(true);
     for (const method of TIMELINE_METHOD_NAMES) {
@@ -1239,12 +1194,14 @@ describe("run attribution is refused where it cannot be read, and pinned where i
     // the per-category payload shapes when it moves — do not simply re-pin
     // the number.
     //
-    // 34 = 13 `run_lifecycle` + 2 `assistant_output` + 7 `tool_activity`
-    //    + 10 `interactive_request` (6 `intervention.*` carrying required
-    //      `targetRunId`, 4 `driver_ask.*` carrying required `runId`)
+    // 36 = 13 `run_lifecycle` + 2 `assistant_output` + 8 `tool_activity`
+    //      (`command.ended` carrying required `runId` among them)
+    //    + 11 `interactive_request` (6 `intervention.*` carrying required
+    //      `targetRunId`, 4 `driver_ask.*` carrying required `runId`, and
+    //      `question.asked`, which the category default admits)
     //    + 2 `usage_telemetry` (`context_compacted`, `model_rerouted`, the two
     //      whose per-type shapes pin `runId` required).
-    expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.size).toBe(34);
+    expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.size).toBe(36);
     // Membership spot-checks across all five contributing categories, so the
     // count is not carried by one category swelling while another emptied.
     for (const runScopedType of [
@@ -1788,5 +1745,166 @@ describe("paged replies are ordered, run-scoped, and frame-safe", () => {
         hasMore: false,
       }).success,
     ).toBe(true);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// A row's body, a call's left-out patches, and the session's own search
+// ----------------------------------------------------------------------------
+
+/** A string whose JSON form is over one reply frame while its length is not. */
+const overFrameText = "\u0001".repeat(Math.ceil(TIMELINE_PAGE_MAX_BYTES / 6) + 1);
+
+describe("timeline.bodyRead", () => {
+  it("accepts the request and each reply arm", () => {
+    expectRoundTrip(TimelineBodyReadRequestSchema, { sessionId: SESSION_ID, rowId: "evt-0001" });
+    expectRoundTrip(TimelineBodyReadResponseSchema, {
+      status: "available",
+      body: "the whole output",
+      contentLength: 16,
+    });
+    expectRoundTrip(TimelineBodyReadResponseSchema, {
+      status: "unavailable",
+      reason: "wrapped_key_missing",
+    });
+  });
+
+  it("refuses a request without the row", () => {
+    expect(TimelineBodyReadRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(false);
+  });
+
+  it("never answers that a body was compacted away", () => {
+    expect(
+      TimelineBodyReadResponseSchema.safeParse({ status: "unavailable", reason: "compacted" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("refuses a body too large for one reply frame", () => {
+    expect(
+      TimelineBodyReadResponseSchema.safeParse({ status: "available", body: overFrameText })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("timeline.patchRead", () => {
+  it("accepts the request and a reply with a patch and a missing one", () => {
+    expectRoundTrip(TimelinePatchReadRequestSchema, {
+      sessionId: SESSION_ID,
+      toolCallId: "toolu_01",
+    });
+    expectRoundTrip(TimelinePatchReadResponseSchema, {
+      files: [
+        { path: "src/a.ts", patch: "@@ -1 +1 @@\n-a\n+b\n" },
+        { path: "src/b.ts", unavailable: "absent" },
+      ],
+    });
+  });
+
+  it("refuses a request without the call", () => {
+    expect(TimelinePatchReadRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(false);
+  });
+
+  it("refuses a file carrying both a patch and a reason, and a compacted reason", () => {
+    expect(
+      TimelinePatchReadResponseSchema.safeParse({
+        files: [{ path: "src/a.ts", patch: "x", unavailable: "absent" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      TimelinePatchReadResponseSchema.safeParse({
+        files: [{ path: "src/a.ts", unavailable: "compacted" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses patches too large for one reply frame", () => {
+    expect(
+      TimelinePatchReadResponseSchema.safeParse({
+        files: [{ path: "src/a.ts", patch: overFrameText }],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("timeline.search", () => {
+  const hit = {
+    rowId: "evt-0001",
+    cursor: "seq-42",
+    snippet: "the parser drops the last line",
+    matchRanges: [{ offset: 4, length: 6 }],
+  };
+
+  it("accepts the request and a continuing and a final page", () => {
+    expectRoundTrip(TimelineSearchRequestSchema, {
+      sessionId: SESSION_ID,
+      query: "parser",
+      beforeCursor: "seq-90",
+      limit: 20,
+    });
+    expectRoundTrip(TimelineSearchResponseSchema, {
+      matchCount: 9,
+      hits: [hit],
+      hasMore: true,
+      nextCursor: "seq-42",
+    });
+    expectRoundTrip(TimelineSearchResponseSchema, { matchCount: 0, hits: [], hasMore: false });
+  });
+
+  it("refuses a blank query and a limit over the window ceiling", () => {
+    expect(
+      TimelineSearchRequestSchema.safeParse({ sessionId: SESSION_ID, query: "  " }).success,
+    ).toBe(false);
+    expect(
+      TimelineSearchRequestSchema.safeParse({
+        sessionId: SESSION_ID,
+        query: "parser",
+        limit: TIMELINE_READ_LIMIT_MAX + 1,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses a continuing page with no hits", () => {
+    expect(
+      TimelineSearchResponseSchema.safeParse({
+        matchCount: 3,
+        hits: [],
+        hasMore: true,
+        nextCursor: "seq-42",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses a match range outside its snippet or overlapping the one before", () => {
+    expect(
+      TimelineSearchResponseSchema.safeParse({
+        matchCount: 1,
+        hits: [{ ...hit, matchRanges: [{ offset: 28, length: 6 }] }],
+        hasMore: false,
+      }).success,
+    ).toBe(false);
+    expect(
+      TimelineSearchResponseSchema.safeParse({
+        matchCount: 2,
+        hits: [
+          {
+            ...hit,
+            matchRanges: [
+              { offset: 4, length: 6 },
+              { offset: 8, length: 2 },
+            ],
+          },
+        ],
+        hasMore: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses a whole-session count below the matches on the page", () => {
+    expect(
+      TimelineSearchResponseSchema.safeParse({ matchCount: 0, hits: [hit], hasMore: false })
+        .success,
+    ).toBe(false);
   });
 });

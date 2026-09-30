@@ -978,7 +978,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "thread/settings/updated",
     transport: "server-notification",
     reason:
-      "provider-side settings echo; agent configuration is daemon-owned and already evented as `agent.config_updated` when the daemon applies it, so adopting the echo would double-record a mutation the daemon authored",
+      "provider-side settings echo; agent configuration is daemon-owned and settles as `agent.provider_binding_changed` when the daemon applies it, so adopting the echo would double-record a mutation the daemon authored",
   },
 
   // ------------------------------------------------------------------

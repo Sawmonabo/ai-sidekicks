@@ -1,32 +1,26 @@
 // The daemon's outbound-credential seam for control-plane calls.
 //
 // DECLARED HERE, IMPLEMENTED LATER. This module ships an INTERFACE and a
-// refusing stub; it ships no credential minting. The reason is the same one
-// `signing-key-source.ts`'s `DaemonSigningKeySealer` states for its own
-// boundary, and it is a corpus fact rather than a preference: the daemon has no
-// PASETO signing identity yet. needs anchors uploaded, but the key that would
-// sign a daemon's PASETO v4.public token, the key's custody, and the control
-// plane's verification of it are the (PASETO auth) and land later. Minting
-// a token here would mean inventing a claim set and a signing key that a real provider
-// then has to honor or break.
+// refusing stub; it ships no credential minting. The daemon has no PASETO
+// signing identity yet: the key that would sign a daemon's PASETO v4.public
+// token, the key's custody, and the control plane's verification of it land
+// with PASETO auth. Minting a token here would mean inventing a claim set and a
+// signing key that a real provider then has to honor or break.
 //
-// Declaring the interface NOW is not premature either: it is what lets the
-// uploader be written and reviewed against a real call shape instead of a
-// TODO, and what lets the composition root wire a real provider later
-// without touching this file's consumers. hoists this declaration for exactly
-// that reason — Phase 3 precedes Phase 4, and Phase 3 is where the first
-// consumer lands.
+// Declaring the interface now lets a control-plane caller be written against a
+// real call shape, and lets the composition root wire a real provider later
+// without touching this file's consumers.
 //
 // ----------------------------------------------------------------------------
 // Why DPoP and not Bearer — the one thing this seam DOES fix
 // ----------------------------------------------------------------------------
 //
-// A bearer token is, by definition, usable by whoever holds it. If the anchor
-// upload carried `Authorization: Bearer <token>`, a control plane that logged
-// request headers, a proxy that buffered them, or an operator reading a crash
-// dump would each hold something replayable against the anchor endpoint — and
-// the anchor endpoint writes the integrity witness for an audit log. Anyone who
-// can replay it can enqueue anchors attributed to a daemon they do not run.
+// A bearer token is, by definition, usable by whoever holds it. If a
+// control-plane call carried `Authorization: Bearer <token>`, a control plane
+// that logged request headers, a proxy that buffered them, or an operator
+// reading a crash dump would each hold something replayable against that
+// endpoint — and anyone who can replay it can make writes attributed to a
+// daemon they do not run.
 //
 // RFC 9449 (DPoP) closes that by binding the token to a key the sender proves
 // possession of, per-request. Two headers travel together, and both are the
@@ -61,9 +55,9 @@
 //
 // The token's claim set, the proof JWT's exact header/payload, the signing
 // algorithm's key custody, and the nonce ceremony (RFC 9449 section 8) are all the
-// implementor's. Same reasoning as `DaemonSigningKeySealer`: pre-committing a
-// format here would bind every later reader on a guess. What IS fixed is the
-// OPERATION and the two header names, because those are what the uploader must
+// implementor's: pre-committing a format here would bind every later reader on
+// a guess. What IS fixed is the OPERATION and the two header names, because
+// those are what the caller must
 // agree with the control plane about, and `assertDpopCredentialMaterial` below
 // is where that agreement is checked rather than assumed.
 //
@@ -74,7 +68,7 @@ import type { NodeId, SessionId } from "@ai-sidekicks/contracts";
 /**
  * The HTTP header carrying the DPoP-bound access token.
  *
- * Canonical spelling, exported so the uploader and any test assert the same
+ * Canonical spelling, exported so a caller and any test assert the same
  * string rather than two independently-typed literals.
  */
 export const AUTHORIZATION_HEADER_NAME = "Authorization";
@@ -102,7 +96,7 @@ export const DPOP_AUTHORIZATION_SCHEME = "DPoP";
  * authority being claimed, and `htm`/`htu` are the RFC 9449 section 4.3 proof claims.
  */
 export interface DaemonCredentialAttempt {
-  /** The session whose anchors this call carries. */
+  /** The session this call is about. */
   readonly sessionId: SessionId;
   /** The calling daemon's NodeId — the identity the control plane attributes the write to. */
   readonly nodeId: NodeId;
@@ -143,6 +137,8 @@ export interface DaemonCredentialMaterial {
  * mints once and reuses the headers across retries is reusing a proof, which a
  * conforming control plane will reject — correctly. Call this once per attempt,
  * inside the retry loop, not outside it.
+ *
+ * @consumedBy the daemon's control-plane callers, such as the notification publisher
  */
 export interface DaemonCredentialProvider {
   mintForAttempt(attempt: DaemonCredentialAttempt): Promise<DaemonCredentialMaterial>;
@@ -151,27 +147,20 @@ export interface DaemonCredentialProvider {
 /**
  * Refuses every mint with a diagnostic naming the deferral.
  *
- * This is the provider the composition root wires until lands, and it is a
- * REFUSAL rather than a no-op on purpose: a provider that returned empty
- * headers would let the uploader issue an unauthenticated request that the
+ * This is the provider the composition root wires until PASETO auth lands, and
+ * it is a REFUSAL rather than a no-op on purpose: a provider that returned empty
+ * headers would let the caller issue an unauthenticated request that the
  * control plane rejects with a generic 401, and the operator would debug the
  * control plane. Throwing here names the actual cause at the actual boundary.
- *
- * It is also why the anchor path treats an upload failure as retriable rather
- * than fatal — the anchor is already durably queued in `pending_anchor_uploads`
- * before any upload is attempted, so a daemon running with this stub still
- * anchors correctly; it simply never flushes, exactly as it would during an
- * indefinite partition.
  */
 export class DeferredDaemonCredentialProvider implements DaemonCredentialProvider {
   mintForAttempt(attempt: DaemonCredentialAttempt): Promise<DaemonCredentialMaterial> {
     return Promise.reject(
       new Error(
-        `DaemonCredentialProvider.mintForAttempt is deferred (PASETO auth;` +
-          `no daemon PASETO signing identity exists yet, so no` +
+        `DaemonCredentialProvider.mintForAttempt is deferred (PASETO auth): ` +
+          `no daemon PASETO signing identity exists yet, so no ` +
           `${DPOP_AUTHORIZATION_SCHEME}-bound token can be minted for ${attempt.htm} ${attempt.htu} ` +
-          `(session ${attempt.sessionId}, node ${attempt.nodeId}). The anchor remains durably ` +
-          `queued in pending_anchor_uploads and flushes once a real provider is wired.`,
+          `(session ${attempt.sessionId}, node ${attempt.nodeId}).`,
       ),
     );
   }
@@ -206,8 +195,7 @@ function readHeader(headers: Readonly<Record<string, string>>, name: string): st
  * plausible-looking wrong implementation ships quietly — the request would
  * succeed against a permissive control plane, and the replayable-credential
  * exposure the header exists to prevent would be live in production with every
- * test green. Checking at the consumer is the same discipline
- * `signing-key-source.ts` applies to its injected sealer's result.
+ * test green. So the consumer checks the injected provider's result.
  *
  * WHAT IT CANNOT CHECK: that the token is a well-formed PASETO v4.public, that
  * the proof's `htm`/`htu` match this request, or that `ath` hashes this token.
@@ -217,9 +205,9 @@ function readHeader(headers: Readonly<Record<string, string>>, name: string): st
  * implying broader coverage.
  *
  * NO THROW PATH IN THIS FUNCTION ECHOES THE HEADER VALUE, not even the scheme
- * prefix. A refusal here is persisted by the caller (see the inline comment on
- * the separator check), so a diagnostic that quoted the offending value would
- * turn a rejected credential into a durable one.
+ * prefix. A caller may log or persist a refusal (see the inline comment on the
+ * separator check), so a diagnostic that quoted the offending value would turn
+ * a rejected credential into a durable one.
  *
  * @throws Error when either header is missing, when `Authorization` carries no
  * scheme separator, when its scheme is not `DPoP`, or when the scheme is bare.
@@ -229,17 +217,16 @@ export function assertDpopCredentialMaterial(material: DaemonCredentialMaterial)
   if (authorization === undefined || authorization.length === 0) {
     throw new Error(
       `DaemonCredentialProvider.mintForAttempt returned no ${AUTHORIZATION_HEADER_NAME} header. ` +
-        `The anchor upload is an authenticated write; an unauthenticated attempt would surface as ` +
+        `The control-plane call is an authenticated write; an unauthenticated attempt would surface as ` +
         `a generic control-plane 401 that names the wrong cause. That is an injection bug at the ` +
         `boundary.`,
     );
   }
 
   // NOTHING BELOW INTERPOLATES `authorization` OR ANY SLICE OF IT, AND THAT IS A
-  // SECURITY PROPERTY OF THIS FILE RATHER THAN A STYLE CHOICE.
-  // `MerkleAnchorService.uploadPendingAnchors` persists a failed attempt's
-  // `Error.message` into `pending_anchor_uploads.last_error`, so an echo here
-  // writes a cleartext credential to disk, where it outlives the request, the
+  // SECURITY PROPERTY OF THIS FILE RATHER THAN A STYLE CHOICE. A caller may
+  // log or persist a failed attempt's `Error.message`, so an echo here could
+  // write a cleartext credential to disk, where it outlives the request, the
   // process, and the token's own validity window. The diagnostics below name
   // the header, the RFC clause, and the boundary — everything except the one
   // thing that must not be durable. The operator has the provider.
@@ -250,8 +237,7 @@ export function assertDpopCredentialMaterial(material: DaemonCredentialMaterial)
         `with no scheme separator, so it names no scheme and carries no token (RFC 9449 section 7.1 ` +
         `requires \`${DPOP_AUTHORIZATION_SCHEME} <token>\`). The value is WITHHELD from this ` +
         `message on purpose: a separator-less header is most often the bare token itself, and ` +
-        `this message is persisted to pending_anchor_uploads.last_error. That is an injection ` +
-        `bug boundary.`,
+        `this message may be logged or persisted. That is an injection bug at the boundary.`,
     );
   }
 
@@ -265,10 +251,9 @@ export function assertDpopCredentialMaterial(material: DaemonCredentialMaterial)
       `DaemonCredentialProvider.mintForAttempt returned an ${AUTHORIZATION_HEADER_NAME} header ` +
         `that is not \`${DPOP_AUTHORIZATION_SCHEME}\`-schemed (RFC 9449 section 7.1). A bearer ` +
         `credential on this path is replayable by anyone who reads it from a log, a proxy buffer, ` +
-        `or a crash dump — and this endpoint writes the audit log's integrity witness. The ` +
-        `offending scheme is not quoted back: it is a prefix of a credential, and this message is ` +
-        `persisted. That is an injection bug boundary, not a control-plane` +
-        `compatibility question.`,
+        `or a crash dump. The offending scheme is not quoted back: it is a prefix of a credential, ` +
+        `and this message may be persisted. That is an injection bug at the boundary, not a ` +
+        `control-plane compatibility question.`,
     );
   }
 

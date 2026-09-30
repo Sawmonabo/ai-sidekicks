@@ -1,8 +1,8 @@
-// The four `timeline.*` method strings against the REAL daemon
-// `MethodRegistry`.
+// The `timeline.*` method strings against the REAL daemon `MethodRegistry`,
+// and the `timeline.bodyRead` handler.
 //
 // The defect was that a timeline operation's SCHEMA NAME
-// resolved while its METHOD STRING did not. Asserting the four names against
+// resolved while its METHOD STRING did not. Asserting the names against
 // `METHOD_NAME_FORMAT` alone would not close that — a regex says a name is
 // well-formed, not that the deployed registry accepts it (is the worked case:
 // every camelCase-tailed V1 name matched the canonical regex in the doc and
@@ -13,6 +13,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type {
+  EventCursor,
+  EventEnvelope,
   ChildRunExpandResponse,
   Handler,
   HandlerContext,
@@ -27,6 +29,7 @@ import type {
   TimelineSubscribeRequest,
 } from "@ai-sidekicks/contracts";
 import {
+  EventEnvelopeVersionSchema,
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_METHOD_DESCRIPTORS,
   TIMELINE_METHOD_NAMES,
@@ -34,17 +37,24 @@ import {
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_SUBSCRIBE_METHOD,
+  TIMELINE_BODY_READ_METHOD,
+  TIMELINE_PATCH_READ_METHOD,
+  TIMELINE_SEARCH_METHOD,
 } from "@ai-sidekicks/contracts";
 
 // THROUGH THE BARREL, deliberately. `handlers/index.js` is the surface a
 // caller binds the timeline methods from. A test that reached past it into
-// `timeline-methods.js` would pass while the barrel could still expose only
-// three of the four methods.
+// `timeline-methods.js` would pass while the barrel could still expose every
+// method but one.
 import {
   registerTimelineMethod,
   registerTimelineSubscription,
   TimelineSubscriptionScopeError,
 } from "../handlers/index.js";
+import { SessionContentReader, type StoredEventContentRow } from "../../events/content-read.js";
+import { SessionContentKeyUnavailableError } from "../../events/session-content-key-store.js";
+import { registerTimelineBodyRead } from "../handlers/timeline-methods.js";
+import { SessionNotFoundError } from "../session-errors.js";
 import {
   isCanonicalMethodName,
   MethodRegistryImpl,
@@ -128,7 +138,7 @@ const buildStreamingPrimitive = (): {
 };
 
 /**
- * Bind all four methods with handlers that resolve a valid response for their
+ * Bind every method with handlers that resolve a valid response for their
  * own operation. Deliberately NOT a production binder — the production
  * handlers arrive with the Phase-2/Phase-3 services; these exist so the
  * registration and dispatch paths can be exercised end to end.
@@ -164,6 +174,18 @@ const registerAllTimelineMethods = (
     method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
     handler: async () => childRunExpandResponse,
   });
+  registerTimelineMethod(registry, {
+    method: TIMELINE_BODY_READ_METHOD,
+    handler: async () => ({ status: "unavailable", reason: "absent" }),
+  });
+  registerTimelineMethod(registry, {
+    method: TIMELINE_PATCH_READ_METHOD,
+    handler: async () => ({ files: [] }),
+  });
+  registerTimelineMethod(registry, {
+    method: TIMELINE_SEARCH_METHOD,
+    handler: async () => ({ matchCount: 0, hits: [], hasMore: false }),
+  });
 };
 
 describe("timeline method-name registration", () => {
@@ -172,13 +194,13 @@ describe("timeline method-name registration", () => {
       expect(isCanonicalMethodName(method)).toBe(true);
     }
     // Negative control on the same predicate: a PascalCase sibling of one of
-    // these names is rejected, so the four passes above are the names and not
+    // these names is rejected, so the passes above are the names and not
     // a checker that says yes to everything.
     expect(isCanonicalMethodName("Timeline.read")).toBe(false);
     expect(isCanonicalMethodName("timeline.")).toBe(false);
   });
 
-  it("all four register on a real MethodRegistryImpl and then resolve", () => {
+  it("every method registers on a real MethodRegistryImpl and then resolves", () => {
     const registry = new MethodRegistryImpl();
     for (const method of TIMELINE_METHOD_NAMES) {
       expect(registry.has(method)).toBe(false);
@@ -193,7 +215,7 @@ describe("timeline method-name registration", () => {
   });
 
   it("an unregistered `timeline.*` sibling still resolves to method_not_found", () => {
-    // Namespace isolation: registering the four does not open the namespace.
+    // Namespace isolation: registering the methods does not open the namespace.
     const registry = new MethodRegistryImpl();
     registerAllTimelineMethods(registry);
     expect(registry.has("timeline.write")).toBe(false);
@@ -348,8 +370,8 @@ describe("timeline method-name registration", () => {
   it("no two operations share a schema object — the identity check can discriminate", () => {
     // Negative control for the test above. If any two operations happened to
     // reuse one schema instance, an identity assertion could pass while the
-    // binder had paired a method with a sibling's schema. All four request
-    // schemas and all four response schemas must be pairwise distinct for the
+    // binder had paired a method with a sibling's schema. The request schemas
+    // and the response schemas must each be pairwise distinct for the
     // identity check to mean what it claims.
     const requestSchemas = TIMELINE_METHOD_NAMES.map(
       (method) => TIMELINE_METHOD_DESCRIPTORS[method].requestSchema,
@@ -542,16 +564,16 @@ describe("timeline method-name registration", () => {
     }
   });
 
-  it("the handler barrel exposes BOTH binders, so a bootstrap can register all four", () => {
+  it("the handler barrel exposes BOTH binders, so a bootstrap can register every method", () => {
     // The query binder is typed to refuse `timeline.subscribe`, and the
     // subscription's per-emission schema is consumed nowhere but its own
     // binder. A barrel carrying only the first would let a bootstrap that
-    // follows the declared convention register three of the four methods and
-    // force a reach past the barrel for the fourth — the convention silently
-    // broken by the surface meant to state it.
+    // follows the declared convention register every method but the
+    // subscription and force a reach past the barrel for it — the convention
+    // silently broken by the surface meant to state it.
     expect(typeof registerTimelineMethod).toBe("function");
     expect(typeof registerTimelineSubscription).toBe("function");
-    // Registering all four THROUGH the barrel imports above is the claim: if
+    // Registering every method THROUGH the barrel imports above is the claim: if
     // either binder were missing from `handlers/index.ts` this file would not
     // have compiled.
     const registry = new MethodRegistryImpl();
@@ -967,5 +989,128 @@ describe("timeline method-name registration", () => {
     const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
     producer.next(timelineRow);
     expect(sentFrames).toHaveLength(0);
+  });
+});
+
+describe("timeline.bodyRead", () => {
+  const storedEnvelope: EventEnvelope = {
+    id: "evt-output",
+    sessionId: SESSION_ID,
+    sequence: 3,
+    occurredAt: "2026-09-01T00:00:00.000Z",
+    category: "tool_activity",
+    type: "tool.result",
+    actor: "agent-1",
+    payload: { sessionId: SESSION_ID, runId: RUN_ID, toolName: "Bash" },
+    version: EventEnvelopeVersionSchema.parse("1.0"),
+  };
+  const storedRow = (retentionClass: string | null): StoredEventContentRow => ({
+    envelope: storedEnvelope,
+    contentPayload: null,
+    retentionClass,
+  });
+  const contentReader = new SessionContentReader({
+    keyReader: {
+      read: (sessionId) =>
+        Promise.reject(
+          new SessionContentKeyUnavailableError("wrapped_key_missing", sessionId, "no key"),
+        ),
+    },
+  });
+
+  const registryReading = (
+    readStoredEventRow: (
+      sessionId: SessionId,
+      eventId: string,
+    ) => Promise<StoredEventContentRow | undefined>,
+    reader: Pick<SessionContentReader, "hydrate"> = contentReader,
+  ): MethodRegistryImpl => {
+    const registry = new MethodRegistryImpl();
+    registerTimelineBodyRead(registry, { readStoredEventRow, contentReader: reader });
+    return registry;
+  };
+
+  const dispatchBodyRead = (registry: MethodRegistryImpl, rowId = "evt-output"): Promise<unknown> =>
+    registry.dispatch(TIMELINE_BODY_READ_METHOD, { sessionId: SESSION_ID, rowId }, dispatchContext);
+
+  it("answers with the row's opened body", async () => {
+    const readStoredEventRow = vi.fn(async () => storedRow(null));
+    const registry = registryReading(readStoredEventRow, {
+      hydrate: async (row) => ({
+        event: row.envelope,
+        content: { status: "available", body: "done\n", contentLength: 5 },
+      }),
+    });
+    await expect(dispatchBodyRead(registry)).resolves.toStrictEqual({
+      status: "available",
+      body: "done\n",
+      contentLength: 5,
+    });
+    expect(readStoredEventRow).toHaveBeenCalledWith(SESSION_ID, "evt-output");
+  });
+
+  it("answers why a body cannot be read", async () => {
+    const registry = registryReading(async () => storedRow(null));
+    await expect(dispatchBodyRead(registry)).resolves.toStrictEqual({
+      status: "unavailable",
+      reason: "absent",
+    });
+  });
+
+  it("refuses a row the session does not hold, on the rowId path", async () => {
+    const registry = registryReading(async () => undefined);
+    const refusal = await dispatchBodyRead(registry, "evt-missing").catch(
+      (error: unknown) => error,
+    );
+    expect(refusal).toBeInstanceOf(RegistryDispatchError);
+    expect((refusal as RegistryDispatchError).registryCode).toBe("invalid_params");
+    expect((refusal as RegistryDispatchError).issues?.[0]).toMatchObject({ path: ["rowId"] });
+  });
+
+  it("lets an unknown session surface as session.not_found", async () => {
+    const registry = registryReading(async () => {
+      throw new SessionNotFoundError("no such session");
+    });
+    await expect(dispatchBodyRead(registry)).rejects.toBeInstanceOf(SessionNotFoundError);
+  });
+
+  it("never puts a compacted body on the wire", async () => {
+    const registry = registryReading(async () => storedRow("compacted"));
+    const refusal = await dispatchBodyRead(registry).catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(RegistryDispatchError);
+    expect((refusal as RegistryDispatchError).registryCode).toBe("invalid_result");
+  });
+});
+
+describe("timeline.search", () => {
+  it("a page over the caller's own limit is refused, and at the limit resolves", async () => {
+    const hit = {
+      rowId: "evt-1",
+      cursor: "seq-1" as EventCursor,
+      snippet: "a parser",
+      matchRanges: [{ offset: 2, length: 6 }],
+    };
+    const registry = new MethodRegistryImpl();
+    registerTimelineMethod(registry, {
+      method: TIMELINE_SEARCH_METHOD,
+      handler: async () => ({ matchCount: 3, hits: [hit, hit, hit], hasMore: false }),
+    });
+    const refusal = await registry
+      .dispatch(
+        TIMELINE_SEARCH_METHOD,
+        { sessionId: SESSION_ID, query: "parser", limit: 2 },
+        dispatchContext,
+      )
+      .catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(RegistryDispatchError);
+    expect((refusal as RegistryDispatchError).registryCode).toBe("invalid_result");
+    expect((refusal as RegistryDispatchError).issues?.[0]).toMatchObject({ path: ["hits"] });
+    await expect(
+      registry.dispatch(
+        TIMELINE_SEARCH_METHOD,
+        { sessionId: SESSION_ID, query: "parser", limit: 3 },
+        dispatchContext,
+      ),
+    ).resolves.toMatchObject({ matchCount: 3 });
   });
 });

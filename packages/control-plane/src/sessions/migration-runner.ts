@@ -60,7 +60,7 @@ async function hasSchema(querier: Querier): Promise<boolean> {
     `SELECT EXISTS (
        SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public'
-          AND table_name = 'event_log_anchors'
+          AND table_name = 'users'
      ) AS exists`,
   );
   return probe.rows[0]?.exists === true;

@@ -53,7 +53,6 @@ const buildAssistantMessage = () => ({
     runId: RUN_ID,
     contentType: "text/markdown",
     contentLength: 4096,
-    contentCiphertextDigest: "a".repeat(64),
   },
 });
 
@@ -86,27 +85,32 @@ const DRIVER_EVENT_CATEGORIES: readonly EventCategory[] = [
   "runtime_node_lifecycle",
 ];
 
-// The census size of the seven driver categories: 13 + 2 + 7 + 16 + 6 + 8 + 2.
+// The census size of the seven driver categories: 13 + 2 + 8 + 17 + 7 + 8 + 2.
 // Hand-maintained on purpose — it is the one number here derived from neither
 // the arrays nor the registry, so it fails when a category grows or when the
 // driver list itself changes, which no derivation-versus-derivation assert can
 // catch.
-const DRIVER_EVENT_TYPE_COUNT = 54;
+const DRIVER_EVENT_TYPE_COUNT = 57;
 
 // One sample per driver category that currently REGISTERS a payload variant —
-// `assistant_output` and `tool_activity`. The element
-// type is the pin: `DriverEventType` is derived by `Extract` over the union's
-// literal `category` member, so a category dropped or misspelled in the
-// derivation removes its arms from the type and fails this declaration at
-// COMPILE time (vitest strips types and would not catch it).
+// `assistant_output`, `tool_activity`, `interactive_request` and
+// `artifact_publication`. The element type is the pin: `DriverEventType` is
+// derived by `Extract` over the union's literal `category` member, so a
+// category dropped or misspelled in the derivation removes its arms from the
+// type and fails this declaration at COMPILE time (vitest strips types and
+// would not catch it).
 //
-// The five categories with no sample here are not omissions: `run_lifecycle`,
-// `interactive_request`, `artifact_publication`, `usage_telemetry` and
-// `runtime_node_lifecycle` are on the driver list and carry census types, but
-// none of them registers a payload variant yet, so none contributes an arm to
-// `DriverEvent` today.
+// The three categories with no sample here are not omissions: `run_lifecycle`,
+// `usage_telemetry` and `runtime_node_lifecycle` are on the driver list and
+// carry census types, but none of them registers a payload variant yet, so
+// none contributes an arm to `DriverEvent` today.
 // That asymmetry is exactly what the set-versus-type bind below states.
-const DRIVER_EVENT_TYPE_SAMPLES: readonly DriverEventType[] = ["assistant.message", "tool.invoked"];
+const DRIVER_EVENT_TYPE_SAMPLES: readonly DriverEventType[] = [
+  "assistant.message",
+  "tool.invoked",
+  "question.asked",
+  "git.settled",
+];
 
 describe("DriverEvent — the driver slice of the census", () => {
   it("DRIVER_EVENT_TYPES is exactly the census filtered to the seven driver categories", () => {
@@ -149,7 +153,7 @@ describe("DriverEvent — the driver slice of the census", () => {
     // Runtime read of the compile-time fixture, so the pin anchors to an
     // executing assertion rather than sitting inert (the `@ts-expect-error`
     // idiom the provider-driver suite uses).
-    expect(DRIVER_EVENT_TYPE_SAMPLES).toHaveLength(2);
+    expect(DRIVER_EVENT_TYPE_SAMPLES).toHaveLength(4);
     for (const sample of DRIVER_EVENT_TYPE_SAMPLES) {
       expect(DRIVER_EVENT_TYPES.has(sample)).toBe(true);
       expect(SESSION_EVENT_TYPES).toContain(sample);

@@ -82,9 +82,8 @@ export function projectEvent(
     case "session.created":
       // Daemon-internal authorial choice (not contract guarantee): the
       // projector treats `session.created` as a sequence-0 anchor and
-      // rejects any later occurrence. The storage schema only references
-      // `sequence = 0` in the prev_hash zero-fill rule and does not
-      // explicitly prohibit `session.created` at sequence > 0. The
+      // rejects any later occurrence. The storage schema does not
+      // prohibit `session.created` at sequence > 0. The
       // bootstrap is anchored at sequence=0 here because `replay()` uses
       // the first event for bootstrap and the service layer reads in
       // `sequence ASC`, so any non-zero `session.created` would either

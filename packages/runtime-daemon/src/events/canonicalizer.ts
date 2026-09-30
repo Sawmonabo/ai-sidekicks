@@ -1,14 +1,14 @@
 // RFC 8785 JSON Canonicalization Scheme (JCS) — the workspace's single source
-// of canonical bytes for the audit-log integrity protocol.
+// of canonical bytes.
 //
-// computes BOTH the `row_hash` chain input and the Ed25519-signed message over
-// the SAME canonical byte string, so there is exactly one implementation of RFC
-// 8785 in this repo and everything that needs canonical bytes routes through
-// it: the `signRow`, the PII codec, the append path, and the
-// `request_body_hash`, which consumes `canonicalizeJson` rather than
-// re-implementing the scheme. Two honest implementations that diverge here
-// produce incompatible hashes and signatures for identical events, which is
-// precisely why the divergence surface is kept to one module. Consumers inherit
+// There is exactly one implementation of RFC 8785 in this repo and everything
+// that needs canonical bytes routes through it: the append path's
+// relay-frame size ceiling, the PII codec's plaintext serialization, the purge's
+// audit stub, the `request_body_hash`, and the machine signature on
+// `runtimenode.certificateChallengeSet`, which consume `canonicalizeJson` rather
+// than re-implementing the scheme. Two honest implementations that diverge here
+// produce different bytes for identical values, which is precisely why the
+// divergence surface is kept to one module. Consumers inherit
 // its refusal boundary along with its bytes, and THREE refusals live on the
 // GENERIC entry point: `canonicalizeJson` REFUSES any value nesting containers
 // past a fixed ceiling (see `CANONICAL_JSON_MAX_DEPTH`), it REFUSES any value
@@ -27,18 +27,18 @@
 // and a `"__proto__"` key parses as an ordinary own data property rather than setting
 // a prototype — so the predicate `typeof value.toJSON === "function"` is unsatisfiable
 // on parsed input. Its KIND is a third one besides POLICY and MUST: it enforces the
-// DETERMINISM the integrity protocol assumes, that re-canonicalizing one value
+// DETERMINISM every consumer assumes, that re-canonicalizing one value
 // reproduces one byte string. The EVENT entry point carries one refusal neither
 // generic one does: `canonicalizeEvent` rejects a `sequence` outside the safe-integer
 // range, where distinct sequences collapse onto one IEEE-754 double and two different
-// events could share a `row_hash` (see `assertRepresentableSequence`). That asymmetry
+// events could share one replay key (see `assertRepresentableSequence`). That asymmetry
 // is forced, not stylistic — RFC 8785 Appendix B MANDATES output for unsafe numbers,
 // so the generic serializer has to keep serializing them.
 //
 // The serializer is `canonicalize@3.0.0` (Erdtman's RFC 8785 reference
 // implementation), EXACT-pinned in package.json rather than caret-ranged: a
-// silent minor bump that changed one output byte would invalidate every
-// `row_hash` and `daemon_signature` already on disk. the golden-vector suite
+// silent minor bump that changed one output byte would change the bytes every
+// consumer measures, hashes, or signs. The golden-vector suite
 // binds this module's output to RFC 8785 Appendix B, Table 1
 // ("ECMAScript-Compatible JSON Number Serialization Samples", 26 rows) — and
 // NOT to Appendix A, which is the illustrative "ECMAScript Sample
@@ -78,16 +78,13 @@ import canonicalize from "canonicalize";
 const utf8Encoder = new TextEncoder();
 
 /**
- * The UTF-8 bytes produced by RFC 8785 JCS canonicalization — the exact byte
- * string that `row_hash` chains over and `daemon_signature` signs.
+ * The UTF-8 bytes produced by RFC 8785 JCS canonicalization.
  *
  * Phantom-branded and constructible ONLY inside this module: no constructor,
- * cast helper, factory, or brand symbol is exported. That is the structural
- * half of — a downstream `signRow(canonical: CanonicalBytes, …)` can only be
- * handed bytes that came through here, so invoking the signer before the
- * encrypt → digest → embed → canonicalize stages is a TypeScript error rather
- * than a runtime integrity bug. Brand shape mirrors the contracts-package
- * convention (`SessionId`, `RunId`, `EventEnvelopeVersion`).
+ * cast helper, factory, or brand symbol is exported, so a consumer typed
+ * `CanonicalBytes` can only be handed bytes that came through here. Brand shape
+ * mirrors the contracts-package convention (`SessionId`, `RunId`,
+ * `EventEnvelopeVersion`).
  */
 export type CanonicalBytes = Uint8Array & { readonly __brand: "CanonicalBytes" };
 
@@ -95,9 +92,9 @@ export type CanonicalBytes = Uint8Array & { readonly __brand: "CanonicalBytes" }
 // occurredAt normalization — instant-preserving AND representable, or reject.
 // --------------------------------------------------------------------------
 //
-// requires `occurredAt` to be RFC 3339 UTC at millisecond precision
+// The stored `occurredAt` is RFC 3339 UTC at millisecond precision
 // (`YYYY-MM-DDTHH:MM:SS.sssZ`) so ordering is byte-stable, and
-// `packages/contracts/src/event.ts` defers that narrowing to hashing time on
+// `packages/contracts/src/event.ts` defers that narrowing to the append path on
 // purpose. The wire schema there is `z.iso.datetime({ offset: true })`, which
 // admits a strictly wider set: optional seconds, an UNBOUNDED number of
 // fractional digits, and numeric `±HH:MM` offsets alongside `Z`.
@@ -131,51 +128,28 @@ export type CanonicalBytes = Uint8Array & { readonly __brand: "CanonicalBytes" }
 // nothing to represent. Guards 2 and 4 ARE the policy's two refusal classes —
 // inputs that DO name a real instant and are refused anyway.
 //
-// Guard 2 is a tamper-evidence property, not a tidiness one: the canonical
-// bytes are what `daemon_signature` commits to, so silently discarding
-// sub-millisecond digits would leave the signature NOT committing to the
-// recorded timestamp — an at-rest attacker could then edit
-// `session_events.occurred_at` within the discarded precision and every
-// verification would still pass. Both classes are therefore refused loud, at
-// the boundary, where the producer can fix it.
+// Guard 2 keeps the stored timestamp faithful: silently discarding
+// sub-millisecond digits would store a different instant than the producer
+// recorded. Both classes are therefore refused loud, at the boundary, where the
+// producer can fix it.
 //
 // IDEMPOTENCE IS LOAD-BEARING: normalize(normalize(t)) === normalize(t),
-// because the canonical form is a fixed point of every branch below. Verifiers
-// re-canonicalize a stored row to recompute `row_hash`, so HASH REPRODUCTION
-// holds whether the append path persisted the raw or the normalized string.
+// because the canonical form is a fixed point of every branch below.
 //
-// TAMPER-EVIDENCE DOES NOT, AND THE TWO HALVES MUST BE HELD APART. The very
-// property that makes reproduction robust — many spellings, one canonical byte
-// string — is the property that leaves the STORED spelling uncommitted, so a
-// verifier reproducing the hash from a respelled column is agreeing with the
-// attacker rather than catching them (the mechanism is the next paragraph).
-// That check is `isCanonicalOccurredAt`, exported below for the range-walk.
-//
-// Robust reproduction is NOT a license to persist the raw one, and the governing
-// authority is the column contract, not a threat model:
-// `daemon-schema.ts` declares `occurred_at TEXT NOT NULL, -- RFC 3339 UTC, ms
-// precision`, while the wire schema admits `+05:00` offsets and
-// omitted seconds. Persisting the producer's raw `2026-01-01T00:00Z` therefore
-// violates that column outright, with no adversary required. The tamper case is
-// the second reason, not the first: normalization is MANY-TO-ONE, so
-// `daemon_signature` commits to the INSTANT, never to the bytes sitting in
-// `session_events.occurred_at`, and an attacker with at-rest write access can
-// rewrite a stored `occurred_at` into a different lexical spelling of the same
-// instant (`2026-01-01T00:00:00.000Z` → `2025-12-31T19:00:00-05:00`) —
-// verification still passes, but the row drops out of every lexical date-range
-// scan over that column. The append path (the `EventLogService.append`, the sole
-// append path) MUST therefore persist the normalized string —
-// `normalizeOccurredAt` is exported so it can — rather than the producer's raw
-// input. What that buys is the column contract plus a canonical DEFAULT state;
-// it does not bind the adversary above, who is defined by writing to the column
-// AFTER the append path ran. Detecting the rewrite is `isCanonicalOccurredAt`'s,
-// on the read side.
+// The column contract is the governing authority: `daemon-schema.ts` declares
+// `occurred_at TEXT NOT NULL, -- RFC 3339 UTC, ms precision`, while the wire
+// schema admits `+05:00` offsets and omitted seconds. Persisting the producer's
+// raw `2026-01-01T00:00Z` would violate that column outright, and normalization
+// is MANY-TO-ONE, so a raw spelling would drop the row out of lexical
+// date-range scans over that column. The append path (`EventLogService.append`)
+// therefore persists the normalized string — `normalizeOccurredAt` is exported
+// so it can — rather than the producer's raw input.
 //
 // Parsing is component-wise off the pattern below, never `Date.parse`: ECMA-262
 // lets `Date.parse` fall back to implementation-specific heuristics for any
 // string outside its own Date Time String Format, and engine leniency there
 // (extra fractional digits, out-of-range days) must never be what decides a
-// hash input. Same stance as crypto-paseto's `base64UrlDecode`, which refuses
+// stored value. Same stance as crypto-paseto's `base64UrlDecode`, which refuses
 // Node's lenient base64url for the same reason. The instant is assembled with
 // `setUTCFullYear` / `setUTCHours` rather than `Date.UTC` because `Date.UTC`
 // maps years 0–99 to 1900 + year, which would silently relocate a `0026-…`
@@ -189,8 +163,8 @@ const CANONICAL_OCCURRED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{
 // sub-validation (re-derived by the field read-back below). Uppercase `T` / `Z`
 // only — RFC 3339 section 5.6 permits the lowercase spellings but the wire schema does
 // not admit them, so they are rejected here rather than case-folded; accepting
-// a form the producer's own parser rejects would put bytes on the hash chain
-// that never passed a wire parse.
+// a form the producer's own parser rejects would store bytes that never passed a
+// wire parse.
 //
 // Capture groups: 1 year, 2 month, 3 day, 4 hour, 5 minute, 6 second?,
 // 7 fractional digits?, then ONE of the two trailing arms — `Z` (no groups) or
@@ -206,12 +180,10 @@ const CANONICALIZABLE_OCCURRED_AT_PATTERN =
  * landing outside the four-digit-year range — and the first to fire is the only
  * one the caller sees.
  *
- * Exported so the append path — the `EventLogService.append` — can persist
- * EXACTLY the string that was signed instead of the producer's raw input.
- * Without this affordance the append path has no way to obtain the normalized
- * form, and a raw `session_events.occurred_at` is only one of many lexical
- * spellings of the signed instant (see the many-to-one note above). In-package
- * surface for now: `src/index.ts` does not re-export this module.
+ * Exported so the append path — `EventLogService.append` — can persist the
+ * normalized string instead of the producer's raw input (see the many-to-one
+ * note above). In-package surface for now: `src/index.ts` does not re-export
+ * this module.
  */
 export function normalizeOccurredAt(occurredAt: string): string {
   const match = CANONICALIZABLE_OCCURRED_AT_PATTERN.exec(occurredAt);
@@ -244,7 +216,7 @@ export function normalizeOccurredAt(occurredAt: string): string {
   // represent, so it is refused rather than truncated (see the header note).
   if (/[1-9]/.test(fractionalDigits.slice(3))) {
     throw new Error(
-      `EventEnvelope.occurredAt carries sub-millisecond precision (${JSON.stringify(occurredAt)}), which the canonical form YYYY-MM-DDTHH:MM:SS.sssZ cannot represent. Truncating it here would leave daemon_signature not committing to the recorded timestamp, so the producer must emit millisecond precision.`,
+      `EventEnvelope.occurredAt carries sub-millisecond precision (${JSON.stringify(occurredAt)}), which the canonical form YYYY-MM-DDTHH:MM:SS.sssZ cannot represent. Truncating it here would store a different instant than the one recorded, so the producer must emit millisecond precision.`,
     );
   }
   const millisecond = Number(fractionalDigits.padEnd(3, "0").slice(0, 3));
@@ -283,7 +255,7 @@ export function normalizeOccurredAt(occurredAt: string): string {
   // present sign means the numeric-offset arm matched, which guarantees groups
   // 9 and 10, so they take the same `!` as groups 1–5 rather than a `?? "0"`
   // default: in a module whose whole stance is refuse-loudly, a default here
-  // would silently fold an offset to zero — shifting the signed instant by up
+  // would silently fold an offset to zero — shifting the stored instant by up
   // to 23 hours — if the pattern were ever edited to make them truly optional.
   const offsetSign = match[8];
   const offsetMilliseconds =
@@ -301,74 +273,13 @@ export function normalizeOccurredAt(occurredAt: string): string {
     // and renders `-000001-12-31T19:00:00.000Z`, while
     // `9999-12-31T23:59:59-05:00` lands in year 10000 and renders
     // `+010000-01-01T04:59:59.000Z`. The instant survived the fold in each
-    // case; the canonical form simply cannot spell it. Refuse rather than sign
+    // case; the canonical form simply cannot spell it. Refuse rather than store
     // a shape the spec does not define.
     throw new Error(
       `EventEnvelope.occurredAt does not fold into the canonical form YYYY-MM-DDTHH:MM:SS.sssZ: ${JSON.stringify(occurredAt)} normalizes to ${JSON.stringify(normalized)}.`,
     );
   }
   return normalized;
-}
-
-/**
- * Reports whether a stored `occurred_at` string is ALREADY in the canonical
- * form. The READ-SIDE answer to the many-to-one hazard the note above describes,
- * and the missing half of that column's binding: verification pins the INSTANT,
- * this pins the SPELLING, and only the two together pin the BYTES.
- *
- * WHY VERIFICATION ALONE DOES NOT COVER IT, and why composing the two DOES.
- * `daemon_signature` commits to the canonical bytes, in which `occurredAt`
- * appears NORMALIZED, so a signature verifies for every lexical spelling of the
- * signed instant — which makes `session_events.occurred_at` the one signed
- * column an at-rest attacker can rewrite while leaving verification green. The
- * canonical form, though, admits EXACTLY ONE spelling per instant: it is
- * `toISOString()`'s output, a function of the instant alone, and it is a fixed
- * point of `normalizeOccurredAt` (the pattern this reads is that function's own
- * exit check). So over a row whose signature verifies, the space is closed in both
- * directions — canonical means the stored string IS the signed string byte for
- * byte, and non-canonical means it is a respelling, which is the tamper. A row
- * where this predicate holds but the string names no instant cannot verify at
- * all: `normalizeOccurredAt` throws on it before any bytes are produced.
- *
- * IT MUST NEVER THROW, WHICH IS THE LOAD-BEARING HALF OF ITS CONTRACT rather
- * than a style preference. The consumer is the audit range-walk, which verifies
- * a SPAN of rows; a throw there aborts the walk and suppresses verification of
- * every row after the offending one, so one malformed row would buy an attacker
- * a range-wide blind spot — the exact escalation `post-purge-verify.test.ts`
- * characterizes over the read path's three existing throw layers. This function
- * is written so it can never become a fourth: `RegExp.prototype.test` coerces
- * its argument and returns, for every string and for every value a `TEXT` column
- * can hand back, and the pattern carries no `g` flag, so `.test` holds no
- * `lastIndex` state across calls.
- *
- * A LEXICAL CHECK, NOT A CALENDAR ONE — the residual, stated rather than
- * glossed. `\d{2}` admits `2026-02-30`, `2026-13-01`, and `T25:00:00`, so a
- * string naming no instant at all satisfies this predicate. Nothing is lost, per
- * the closure argument above: guard 1 or guard 3 refuses each of those one call
- * later inside {@link canonicalizeEvent}, so the two mechanisms compose — this
- * one rules out a WELL-FORMED respelling, those rule out an ill-formed one.
- * Re-deriving the calendar read-back here would duplicate guard 3 and give this
- * function a second way to disagree with it.
- *
- * DELIBERATELY NOT WIRED INTO {@link canonicalizeEvent} OR `verifyRow`. owns
- * the read path, and emitting a verdict from here would be T2 code deciding a
- * question. The verdict itself now exists: the sixteen-value `failureMode`
- * enum carries `occurred_at_not_canonical`, paired `failurePath: 'signature'`
- * because that field names the guarantee that failed — the signature binds the
- * stored bytes — not the column the defect occupies.
- *
- * IT APPLIES TO COMPACTED ROWS TOO, which is the non-obvious half. the
- * scalar-binding check requires `occurred_at` to BYTE-EQUAL the signed
- * projection's `occurredAt`, so it catches a respelling applied AFTER
- * compaction, reporting `stub_scalar_mismatch`. It cannot catch one applied
- * BEFORE: preserves the original timestamp verbatim, so a row respelled while
- * live has the bad spelling copied into the projection, signed into the stub
- * bytes, and byte-equal to its column forever. Compaction LAUNDERS the live-path
- * defect into signed bytes, which is why this predicate is the only binding that
- * catches the respelling in either state.
- */
-export function isCanonicalOccurredAt(occurredAt: string): boolean {
-  return CANONICAL_OCCURRED_AT_PATTERN.test(occurredAt);
 }
 
 // --------------------------------------------------------------------------
@@ -515,11 +426,11 @@ function assertWithinCanonicalDepth(value: unknown): void {
 //   1. NON-DETERMINISM, which is the one that decides the fix SHAPE. `toJSON`
 //      is arbitrary caller code, so it need not be a function of the value: a
 //      counter-incrementing `toJSON` canonicalizes to `{"v":1}` on the first
-//      pass and `{"v":2}` on the second, same object (measured). The whole
-//      integrity protocol assumes the opposite — verification RE-CANONICALIZES
-//      a rehydrated row and compares the bytes — so a value whose canonical
-//      form is not a function of the value has no `row_hash` and no
-//      `daemon_signature` that mean anything. No output-side check can repair
+//      pass and `{"v":2}` on the second, same object (measured). Every consumer
+//      assumes the opposite — a hash or a signature over canonical bytes is
+//      checked by re-canonicalizing the value — so a value whose canonical form
+//      is not a function of the value has no digest that means anything. No
+//      output-side check can repair
 //      that: scanning the produced bytes validates ONE draw, and the next draw
 //      is a different one. Only refusing the input closes it.
 //   2. THE DEPTH CEILING IS EVADED, and fails DIRTY rather than refusing: a
@@ -603,7 +514,7 @@ function assertNoToJsonOverride(value: unknown): void {
           entry.containersAbove === 0
             ? "the top-level value"
             : `a value nested ${String(entry.containersAbove)} containers deep`
-        } carries a callable toJSON, which canonicalize@3.0.0 invokes and serializes INSTEAD of the value — so the bytes hashed into row_hash and signed as daemon_signature would come from a tree none of this module's guards inspected, and a stateful toJSON makes two canonicalizations of one value produce DIFFERENT bytes, which no verifier recomputing row_hash can survive. Apply the conversion explicitly and pass the converted plain-JSON value instead. The property path is withheld: this entry point also canonicalizes PII plaintext.`,
+        } carries a callable toJSON, which canonicalize@3.0.0 invokes and serializes INSTEAD of the value — so the canonical bytes would come from a tree none of this module's guards inspected, and a stateful toJSON makes two canonicalizations of one value produce DIFFERENT bytes, which no consumer re-canonicalizing the value can reproduce. Apply the conversion explicitly and pass the converted plain-JSON value instead. The property path is withheld: this entry point also canonicalizes PII plaintext.`,
       );
     }
     // Container-filtered pushes and the `Object.values` cast, both for the
@@ -635,12 +546,12 @@ function assertNoToJsonOverride(value: unknown): void {
 // ill-formed UTF-16. The output is therefore VALID JSON TEXT — it round-trips
 // through `JSON.parse` and reports `isWellFormed()` — which is exactly what
 // makes the defect quiet: nothing downstream looks wrong. What it is not is
-// CONFORMING. A conforming independent verifier handed the same event
-// terminates rather than producing bytes, so this module would brand, chain,
-// and sign a byte string no conforming implementation will ever agree is the
-// canonical form of that event — the precise failure names when it says two
-// honest implementations that diverge here "produce incompatible hashes and
-// signatures for identical events".
+// CONFORMING. A conforming independent implementation handed the same value
+// terminates rather than producing bytes, so this module would brand a byte
+// string no conforming implementation will ever agree is the canonical form of
+// that value — the precise failure the header names when it says two honest
+// implementations that diverge here "produce different bytes for identical
+// values".
 //
 // REACHABLE, NOT HYPOTHETICAL — and this is where it parts company with the
 // library's other three refusals. The header notes that the untrusted path
@@ -703,8 +614,7 @@ const LONE_SURROGATE_PATTERN =
  * data if it were written the obvious way. The `normalizeOccurredAt` refusals DO
  * quote their input, but no `piiPayload` call reaches them. The code unit, its
  * index, and whether it sat in a property name or a value locate the defect
- * precisely without quoting the value — the same trade `signer.ts` makes for key
- * material.
+ * precisely without quoting the value.
  */
 function assertNoLoneSurrogate(text: string, positionDescription: string): void {
   const match = LONE_SURROGATE_PATTERN.exec(text);
@@ -716,7 +626,7 @@ function assertNoLoneSurrogate(text: string, positionDescription: string): void 
   // `u`-flagged: this reports at the level.
   const codeUnit = text.charCodeAt(match.index);
   throw new Error(
-    `RFC 8785 canonicalization refused: ${positionDescription} carries an unpaired UTF-16 surrogate (U+${codeUnit.toString(16).toUpperCase().padStart(4, "0")}) at index ${String(match.index)}. RFC 8785 section 3.2.2.2 requires a compliant JCS implementation to terminate on lone surrogates, but canonicalize@3.0.0 escapes them through JSON.stringify and keeps going — so these bytes would be hashed and signed here while any conforming verifier refuses to produce them at all, breaking the cross-implementation byte agreement. The string itself is withheld: this entry point also canonicalizes PII plaintext.`,
+    `RFC 8785 canonicalization refused: ${positionDescription} carries an unpaired UTF-16 surrogate (U+${codeUnit.toString(16).toUpperCase().padStart(4, "0")}) at index ${String(match.index)}. RFC 8785 section 3.2.2.2 requires a compliant JCS implementation to terminate on lone surrogates, but canonicalize@3.0.0 escapes them through JSON.stringify and keeps going — so these bytes would be produced here while any conforming implementation refuses to produce them at all, breaking the cross-implementation byte agreement. The string itself is withheld: this entry point also canonicalizes PII plaintext.`,
   );
 }
 
@@ -810,7 +720,7 @@ export function canonicalizeJson(value: unknown): CanonicalBytes {
     // so a top-level value with no JSON representation (`undefined`, a function,
     // a symbol) yields no output instead of throwing — and
     // `TextEncoder.encode(undefined)` encodes the empty string, which would hand
-    // the signer zero canonical bytes for an input it silently could not
+    // a consumer zero canonical bytes for an input it silently could not
     // represent. It does NOT follow `JSON.stringify`'s contract wholesale: it
     // THROWS on `NaN` / `Infinity` where `JSON.stringify` emits `null` (two of
     // the three library-originated refusals the header inventories), which is
@@ -840,9 +750,8 @@ export function canonicalizeJson(value: unknown): CanonicalBytes {
  * as an IEEE-754 binary64 double, which holds integers faithfully only to 2^53
  * − 1. Past that, distinct integers collapse onto one double —
  * `9007199254740992 === 9007199254740993` is `true`. Two genuinely different
- * events then canonicalize to IDENTICAL bytes, hash to an identical
- * `row_hash`, and collide inside the very chain builds to make tampering
- * detectable. This function is the last place that collision can be caught:
+ * events then canonicalize to IDENTICAL bytes and share one replay key. This
+ * function is the last place that collision can be caught:
  * one line later the two inputs are indistinguishable — the same number — and
  * RFC 8785 correctly serializes the collapsed value with no way to know two
  * different events produced it.
@@ -898,14 +807,14 @@ function assertRepresentableSequence(sequence: number): void {
     // input — `String(9007199254740993)` renders "9007199254740992" — which is
     // the failure itself made visible, not a reporting defect.
     throw new Error(
-      `RFC 8785 canonicalization refused: sequence ${String(sequence)} is not a safe integer (|value| must be at most ${String(Number.MAX_SAFE_INTEGER)}, and it must be an integer). Outside that range distinct sequences collapse onto the same IEEE-754 double, so two different events would produce identical canonical bytes and an identical row_hash — a collision in the chain that.`,
+      `RFC 8785 canonicalization refused: sequence ${String(sequence)} is not a safe integer (|value| must be at most ${String(Number.MAX_SAFE_INTEGER)}, and it must be an integer). Outside that range distinct sequences collapse onto the same IEEE-754 double, so two different events would produce identical canonical bytes and share one replay key.`,
     );
   }
 }
 
 /**
- * Canonicalizes an {@link EventEnvelope} to the byte string that hashes into
- * `row_hash` and signs as `daemon_signature`.
+ * Canonicalizes an {@link EventEnvelope} — the byte string the append path holds
+ * to `EVENT_CANONICAL_BYTES_MAX`.
  *
  * Projects the canonical eleven-member set explicitly — a member the envelope
  * happens to carry at runtime but the spec does not name is not serialized, and
@@ -918,9 +827,9 @@ function assertRepresentableSequence(sequence: number): void {
  * three-state in the envelope (absent / `null` / string) while two-state in
  * storage: `session_events.actor` is a nullable TEXT column and
  * `AppendableEvent.actor` is `string | null`, so both envelope no-value states
- * collapse onto one row. Signing an envelope whose `actor` is ABSENT, for a row
- * that will persist SQL NULL, therefore emits bytes a verifier rehydrating that
- * row cannot reproduce — an untampered row failing verification.
+ * collapse onto one row. Canonicalizing an envelope whose `actor` is ABSENT, for
+ * a row that will persist SQL NULL, therefore measures bytes a reader
+ * rehydrating that row cannot reproduce.
  * `correlationId` / `causationId` are two-state in storage too but carry no
  * such hazard: the envelope types them non-nullable (`string | undefined`), so
  * every storage → envelope mapping is type-FORCED to `undefined` symmetrically
@@ -929,8 +838,8 @@ function assertRepresentableSequence(sequence: number): void {
  * That three-state → two-state narrowing belongs to the append path — the
  * `EventLogService.append`, the sole append path, which is handed the envelope
  * and owns the row it writes. Collapsing absent → `null` HERE would silently
- * rewrite signed bytes — the same class of error the sub-millisecond branch
- * above refuses loudly.
+ * rewrite the caller's value — the same class of error the sub-millisecond
+ * branch above refuses loudly.
  *
  * REFUSAL ORDER is observable, so it is fixed here rather than left to
  * evaluation order: {@link assertRepresentableSequence} runs FIRST, ahead of
@@ -941,25 +850,26 @@ function assertRepresentableSequence(sequence: number): void {
  * well-formedness, the last three inherited from {@link canonicalizeJson} and
  * ordered there.
  *
- * This entry point is the integrity boundary for BOTH write paths: the PII
- * codec builds its own member literal but routes through this function, so the
- * sequence guard covers the PII path structurally, with no second call site.
+ * This entry point is the canonicalization boundary for BOTH write paths: the
+ * PII codec builds its own member literal but routes through this function, so
+ * the sequence guard covers the PII path structurally, with no second call
+ * site.
  */
 export function canonicalizeEvent(envelope: EventEnvelope): CanonicalBytes {
   // Ahead of everything else — see REFUSAL ORDER above. The wire schema bounds
   // `sequence` at the parse boundary, but `canonicalizeEvent` does not parse:
   // an in-process caller constructing an `EventEnvelope` literal reaches the
-  // hash chain having met no schema at all, and that caller is precisely who
+  // log having met no schema at all, and that caller is precisely who
   // this guard is for.
   assertRepresentableSequence(envelope.sequence);
 
   // The canonical set is exactly these eleven members. The value-typed mapped
   // annotation is the drift guard, and it pins BOTH halves: `-?` makes every
   // member required, so a twelfth envelope member added in contracts breaks
-  // this literal at compile time instead of silently vanishing from the signed
-  // bytes (TS2741), and `EventEnvelope[MemberName]` pins each value's type, so
-  // a cross-wired `sequence: envelope.id` is a compile error (TS2322) rather
-  // than silently signed bytes. `Record<keyof EventEnvelope, unknown>` would
+  // this literal at compile time instead of silently vanishing from the
+  // canonical bytes (TS2741), and `EventEnvelope[MemberName]` pins each value's
+  // type, so a cross-wired `sequence: envelope.id` is a compile error (TS2322)
+  // rather than silently wrong bytes. `Record<keyof EventEnvelope, unknown>` would
   // catch only the first — every value being `unknown`.
   //
   // The mapped form compiles here BECAUSE of repo-wide
@@ -1009,8 +919,5 @@ export function canonicalizeEvent(envelope: EventEnvelope): CanonicalBytes {
     if (memberValue !== undefined) presentMembers[memberName] = memberValue;
   }
 
-  // The `pii_ciphertext_digest` standing in for it rides inside `payload`,
-  // embedded by the codec before this function is called — so it needs no
-  // envelope field, no parameter, and no special case on this side.
   return canonicalizeJson(presentMembers);
 }

@@ -341,7 +341,7 @@ export type WorkspaceServiceInvariantKind =
   /**
    * The on-read floor derived a stale transition but could not make it
    * durable — the `UPDATE` or its `workspace.stale` append failed (a locked
-   * database, a full disk, a signing-key read that threw). The ROW is not the
+   * database, a full disk, a size refusal). The ROW is not the
    * defect here and inspecting it will show nothing wrong; the write path is.
    * Kept distinct from `workspace_row_unprojectable` for exactly that reason.
    */
@@ -513,7 +513,7 @@ export function truncateWorkspaceLastError(detail: string): string {
  * is `wireFreeFormString`, which requires `.min(1)`, at least one `\S`, and no
  * NUL. Persisting an empty or whitespace-only value would make the very list
  * response that reports the failure unrepresentable — the asymmetry the cap
- * comment in `packages/contracts/src/repo.ts` is written against. Recording no
+ * comment in `packages/contracts/src/workspace.ts` is written against. Recording no
  * detail loses information; recording an illegal one loses the whole response.
  *
  * That emptiness test runs on the SCRUBBED value, before truncation, and the
@@ -776,7 +776,7 @@ export class WorkspaceService {
     // mode, so nothing downstream could persist it.
     //
     // `lastError` is cleared HERE as well as at completion, and the redundancy
-    // is deliberate — do not delete either. `packages/contracts/src/repo.ts`
+    // is deliberate — do not delete either. `packages/contracts/src/workspace.ts`
     // makes `lastError` "present iff the workspace went `stale` from a recorded
     // failure" an EMITTER obligation on this module, and the documented retry
     // path is `failRootPreparation -> beginRootPreparation`: without this clause the

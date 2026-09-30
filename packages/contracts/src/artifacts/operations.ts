@@ -1,5 +1,6 @@
 // The request and reply shapes for listing a session's artifacts and reading one
-// of them.
+// of them, the one reading of an inline payload's bytes, and the refusal codes
+// the artifact calls answer with.
 import { z } from "zod";
 
 import { ArtifactIdSchema, type ArtifactId } from "../provider-driver.js";
@@ -90,3 +91,61 @@ export const ArtifactReadResponseSchema: z.ZodType<ArtifactReadResponse> = z.uni
     })
     .strict(),
 ]);
+
+/**
+ * An inline payload read as text, or why it is not text. A payload that does not
+ * decode is an answer, not an error: base64 that will not decode and bytes that
+ * are not UTF-8 are each named.
+ */
+export type ArtifactPayloadText =
+  | { status: "text"; text: string }
+  | { status: "opaque"; reason: "not-utf8" | "undecodable" };
+
+/**
+ * Reads an inline payload by the encoding the reply sent beside it, never by
+ * sniffing the bytes. A `utf8` payload is already text; a `base64` payload is
+ * decoded and then read as strict UTF-8, because the lenient decoder answers with
+ * replacement characters a reader would draw as content.
+ */
+export function decodeArtifactPayloadText(
+  payload: string,
+  encoding: ArtifactPayloadEncoding,
+): ArtifactPayloadText {
+  if (encoding === "utf8") {
+    return { status: "text", text: payload };
+  }
+  let binary: string;
+  try {
+    binary = atob(payload);
+  } catch {
+    return { status: "opaque", reason: "undecodable" };
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  try {
+    return { status: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+  } catch {
+    return { status: "opaque", reason: "not-utf8" };
+  }
+}
+
+const ARTIFACT_REFUSAL_CODE_VALUES = [
+  "artifact.not_found",
+  "artifact.too_large",
+  "artifact.too_many_attachments",
+  "artifact.unsupported_media_type",
+  "artifact.scanner_rejected",
+  "artifact.ingest_capacity_exhausted",
+  "artifact.ingest_stream_invalid",
+  "artifact.hash_mismatch",
+  "artifact.relay_expired",
+  "artifact.fetch_unauthorized",
+  "artifact.no_access_key",
+] as const;
+
+/** A refusal an artifact call answers with. */
+export type ArtifactRefusalCode = (typeof ARTIFACT_REFUSAL_CODE_VALUES)[number];
+/** Every {@link ArtifactRefusalCode}. */
+export const ARTIFACT_REFUSAL_CODES: readonly ArtifactRefusalCode[] = ARTIFACT_REFUSAL_CODE_VALUES;

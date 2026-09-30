@@ -100,6 +100,8 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
+import type { MethodDescriptor } from "./method-descriptor.js";
+import { defineMethodDescriptors } from "./method-descriptor.js";
 import { wireFreeFormString, SessionIdSchema, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -1012,10 +1014,9 @@ export type RecoveryCondition = (typeof RECOVERY_CONDITIONS)[number];
 // when their owning plans author them — the `RecoveryStatusReadResponse` and the
 // `FailureDetailReadResponse`, which binds to IMPORT this symbol rather than redeclare it.
 //
-// `z.ZodType` rather than the `z.ZodEnum<...>` form `VerifierFailureModeSchema`
-// carries: no consumer derives from the enum surface here, and the narrower
-// annotation is that symbol's own stated default. The value set is reachable
-// through `RECOVERY_CONDITIONS`, which is the single source either way.
+// `z.ZodType` rather than a `z.ZodEnum<...>` annotation: no consumer derives from
+// the enum surface here. The value set is reachable through `RECOVERY_CONDITIONS`,
+// which is the single source either way.
 export const RecoveryConditionSchema: z.ZodType<RecoveryCondition, RecoveryCondition> =
   z.enum(RECOVERY_CONDITIONS);
 
@@ -1711,8 +1712,8 @@ export const DriverTranscriptReplayResultSchema: z.ZodType<
   // universal non-emptiness rule would delete it. What `applied` does NOT keep is
   // `conversation_history_summarized` — see the inverse rule below.
   // `.superRefine()` returns `this`, so the envelope stays a `ZodObject` and the
-  // Output/Input annotation above still holds — the same Zod-4 property the
-  // `audit_integrity_failed` arm in event.ts records.
+  // Output/Input annotation above still holds — the same Zod-4 property
+  // `withEpochStamp` in event.ts records.
   //
   // The two rules together make the kind an EXACT witness of the arm rather than
   // a one-way requirement. A one-way rule leaves `{status: 'applied',
@@ -2772,17 +2773,11 @@ export const DriverSubscribeEventsParamsSchema: z.ZodType<
 // `InterruptRunParamsSchema` comment records against the globally-unique run
 // id's single-key shape.
 
-// The agent identifier member. `AgentId`'s canonical brand + schema home is the
-// `packages/contracts/src/orchestration.ts`, which is UNSHIPPED at this task's
-// landing — and minting the brand here instead would be exactly the second
-// single branded-UUID source of truth the `RunIdSchema` doctrine at the top of
-// this file forbids, plus a barrel collision on the day exports the canonical
-// symbol. So the member is typed `string` and UUID-shape-validated at the seam
-// (the `clientIdempotencyKey` precedent: an unbranded caller-supplied UUID,
-// validated where it crosses). `string` is assignable FROM the future branded
-// `AgentId` at every call site, so the one-line narrowing of this member and its
-// validator is owed to — and lands compatibly with — the swap that ships
-// orchestration.ts.
+// The agent identifier member. `AgentId`'s brand and schema live in
+// `agent-definition.ts`, which imports this file at load, so this file cannot
+// import them back without a load cycle. The member is typed `string` and
+// checked as a UUID where it crosses; a branded `AgentId` is assignable to it at
+// every call site.
 
 // `driver.compactContext` — the user-triggered compaction request.
 //
@@ -2878,3 +2873,115 @@ export const ProviderCommandListResultSchema: z.ZodType<
     bindings: z.array(ProviderCommandBindingGroupSchema).min(1),
   })
   .strict();
+
+// --------------------------------------------------------------------------
+// The method table
+// --------------------------------------------------------------------------
+//
+// `driver.subscribeEvents` is in `driver-event.ts`'s table: its emission is the
+// session event, and naming that schema here would import the event module,
+// which itself imports this file.
+
+/** The driver methods a client calls, each a query or a mutation. */
+export interface DriverMethodDescriptors {
+  readonly "driver.listCapabilities": MethodDescriptor<
+    "driver.listCapabilities",
+    DriverReadParams,
+    ListCapabilitiesResult
+  >;
+  readonly "driver.listModels": MethodDescriptor<
+    "driver.listModels",
+    DriverReadParams,
+    ListModelsResult
+  >;
+  readonly "driver.listModes": MethodDescriptor<
+    "driver.listModes",
+    DriverReadParams,
+    ListModesResult
+  >;
+  readonly "driver.interruptRun": MethodDescriptor<
+    "driver.interruptRun",
+    InterruptRunParams,
+    DriverAckResult
+  >;
+  readonly "driver.applyIntervention": MethodDescriptor<
+    "driver.applyIntervention",
+    ApplyInterventionParams,
+    DriverInterventionResult
+  >;
+  readonly "driver.respondToRequest": MethodDescriptor<
+    "driver.respondToRequest",
+    RespondToRequestParams,
+    DriverAckResult
+  >;
+  readonly "driver.compactContext": MethodDescriptor<
+    "driver.compactContext",
+    CompactContextRequest,
+    DriverCompactionResult
+  >;
+  readonly "driver.listProviderCommands": MethodDescriptor<
+    "driver.listProviderCommands",
+    ListProviderCommandsRequest,
+    ProviderCommandListResult
+  >;
+}
+
+/** The driver methods a client calls: their names, how each answers, and their shapes. */
+export const DRIVER_METHOD_DESCRIPTORS: DriverMethodDescriptors = defineMethodDescriptors({
+  "driver.listCapabilities": {
+    method: "driver.listCapabilities",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: DriverReadParamsSchema,
+    responseSchema: ListCapabilitiesResultSchema,
+  },
+  "driver.listModels": {
+    method: "driver.listModels",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: DriverReadParamsSchema,
+    responseSchema: ListModelsResultSchema,
+  },
+  "driver.listModes": {
+    method: "driver.listModes",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: DriverReadParamsSchema,
+    responseSchema: ListModesResultSchema,
+  },
+  "driver.interruptRun": {
+    method: "driver.interruptRun",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: InterruptRunParamsSchema,
+    responseSchema: DriverAckResultSchema,
+  },
+  "driver.applyIntervention": {
+    method: "driver.applyIntervention",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ApplyInterventionParamsSchema,
+    responseSchema: DriverInterventionResultSchema,
+  },
+  "driver.respondToRequest": {
+    method: "driver.respondToRequest",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RespondToRequestParamsSchema,
+    responseSchema: DriverAckResultSchema,
+  },
+  "driver.compactContext": {
+    method: "driver.compactContext",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: CompactContextRequestSchema,
+    responseSchema: DriverCompactionResultSchema,
+  },
+  "driver.listProviderCommands": {
+    method: "driver.listProviderCommands",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: ListProviderCommandsRequestSchema,
+    responseSchema: ProviderCommandListResultSchema,
+  },
+});

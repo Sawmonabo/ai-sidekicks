@@ -1,52 +1,45 @@
 // Per-session append mutex — the serialization primitive under the whole append
 // path.
 //
-// DEPENDENCY LEAF. This module imports neither of its siblings
-// (`event-log-service.ts`, `ingest-halt-source.ts`) — only contracts types. That
-// is structural, not stylistic: `IngestHaltRegistry` needs the lock to publish
-// its set mutations, and `EventLogService` needs both the lock AND a value-import
-// of `NeverHaltedIngestHaltSource`. With the lock at the bottom of the graph
-// those edges form a tree; if the lock imported either sibling they would form
-// an eager ESM cycle whose module-initialization order decides whether the
-// module-singleton state below is initialized before its first reader — a
-// failure that reproduces only under some import orders.
+// DEPENDENCY LEAF. This module imports none of its consumers
+// (`event-log-service.ts`, `session-purge.ts`, `session-content-key-store.ts`)
+// — only contracts. That is structural, not stylistic: with the lock at the
+// bottom of the graph those edges form a tree; if the lock imported a consumer
+// they could form an eager ESM cycle whose module-initialization order decides
+// whether the module-singleton state below is initialized before its first
+// reader — a failure that reproduces only under some import orders.
 //
 // ----------------------------------------------------------------------------
 // Why a mutex at all
 // ----------------------------------------------------------------------------
 //
-// `session_events` is a HASH CHAIN partitioned by `session_id`: each row's
-// `prev_hash` is the previous row's `row_hash`, and its `sequence` is the
-// previous row's plus one. Producing a row therefore means READ the chain head,
-// then WRITE the successor — and the append path is unavoidably ASYNC between
-// those two steps (unsealing the daemon signing key can await a WebAuthn
-// ceremony; PII encryption is async). Two concurrent appends on one session
-// would both read the same head and both derive the same `(sequence, prev_hash)`
-// pair: one loses to `UNIQUE(session_id, sequence)` (a spurious hard failure on
-// a legitimate write) and, worse, a chain FORK becomes representable the moment
-// any future writer does not hold that unique constraint. better-sqlite3's
-// synchronous transactions cannot help — a transaction cannot span an `await`.
+// `session_events` is sequenced per `session_id`: each row's `sequence` is the
+// previous row's plus one. Producing a row therefore means READ the head, then
+// WRITE the successor — and the append path is unavoidably ASYNC between those
+// two steps (resolving a session content key can await a WebAuthn ceremony; PII
+// encryption is async). Two concurrent appends on one session would both read
+// the same head and both derive the same `sequence`: one loses to
+// `UNIQUE(session_id, sequence)`, a spurious hard failure on a legitimate write.
+// better-sqlite3's synchronous transactions cannot help — a transaction cannot
+// span an `await`.
 //
-// Scope is per-SESSION, not global: chains are independent across sessions, so
-// serializing them against each other would convert an unrelated session's slow
-// key ceremony into head-of-line blocking for every other session.
+// Scope is per-SESSION, not global: sequences are independent across sessions,
+// so serializing them against each other would convert an unrelated session's
+// slow key ceremony into head-of-line blocking for every other session.
 //
 // HONEST LIMIT: this lock is PROCESS-LOCAL. It orders appends within one daemon
 // process; it does not order two daemon processes against the same file. That
 // residual is covered at the storage layer by `UNIQUE(session_id, sequence)`,
 // which turns a cross-process interleave into a loud constraint violation rather
-// than a silent fork. Nothing here should be read as a distributed lock.
+// than a silent duplicate. Nothing here should be read as a distributed lock.
 //
 // ----------------------------------------------------------------------------
 // Owner-scoped reentrancy, and why a plain mutex would deadlock
 // ----------------------------------------------------------------------------
 //
-// Callers legitimately NEST. Phase 4's key-reuse observer runs its whole
-// halt-and-record sequence inside one `withSessionAppendLock` hold and calls
-// `IngestHaltRegistry.halt()` from within it — and `halt()` takes the same lock
-// to publish its mutation. Producers do the same shape: a `guard-swap-append`
-// wrap holds the lock across a read-decide-write and calls `append()` inside it.
-// Under a plain mutex every one of those self-deadlocks.
+// Callers legitimately NEST. A producer's `guard-swap-append` wrap holds the
+// lock across a read-decide-write and calls `append()` inside it, and
+// `append()` takes the same lock. Under a plain mutex that self-deadlocks.
 //
 // So the hold is carried in an `AsyncLocalStorage` context (`node:async_hooks`)
 // keyed by session: a frame running INSIDE a hold on session S reuses that hold
@@ -57,7 +50,7 @@
 //
 // The store is a MAP of holds, not a single token, because nesting crosses
 // sessions: a hold on A that nests an append on B must genuinely ACQUIRE B (B is
-// a different chain with its own head), and a further nested append on A must
+// a different session with its own head), and a further nested append on A must
 // still be recognized as reentrant. A boolean or single-session token satisfies
 // the one-session reading of the rule and deadlocks on A→B→A.
 //
@@ -113,8 +106,8 @@ const heldSessionAppendLocks = new AsyncLocalStorage<
  *
  *   * ACQUIRING frame — a rejecting `critical` releases the hold in a `finally`
  *     and the rejection propagates UNCHANGED. Without the `finally` a single
- *     failed append (a halt refusal, a constraint violation, a key-unseal error)
- *     would wedge that session's chain permanently, converting a recoverable
+ *     failed append (a size refusal, a constraint violation, a key-unseal error)
+ *     would wedge that session's appends permanently, converting a recoverable
  *     write failure into a session-lifetime outage. The hold must be released on
  *     the failure path for the same reason it is released on the success path,
  *     and the error must NOT be wrapped: callers branch on typed
@@ -128,7 +121,7 @@ const heldSessionAppendLocks = new AsyncLocalStorage<
  *     a waiter interleave into the middle of the outer critical section. Whoever
  *     acquired the hold releases it — nobody else.
  *
- * @param sessionId The chain partition to serialize on. Per-session, so an
+ * @param sessionId The session to serialize on. Per-session, so an
  *   unrelated session's slow append never blocks this one.
  * @param critical The critical section. Runs at most once per call.
  */

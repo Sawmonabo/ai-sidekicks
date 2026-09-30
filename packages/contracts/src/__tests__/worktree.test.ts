@@ -61,6 +61,7 @@ import {
   WORKTREE_REUSE_REASON_MAX_LEN,
   WorktreeIdSchema,
   WorktreeLifecyclePayloadSchema,
+  WorktreeRetireConflictDetailsSchema,
   WorktreeRetireRequestSchema,
   WorktreeRetireResponseSchema,
   WorktreeReuseCheckRequestSchema,
@@ -646,7 +647,7 @@ const buildWorktreeReuseCheckResponse = () => ({
   compatible: true,
 });
 
-const buildWorktreeRetireRequest = () => ({ worktreeId: WORKTREE_ID });
+const buildWorktreeRetireRequest = () => ({ worktreeId: WORKTREE_ID, discard: false });
 const buildWorktreeRetireResponse = () => ({ worktreeId: WORKTREE_ID, state: "retired" });
 
 // The worktree record carries RUN provenance and no cleanup stamp — a live
@@ -1205,4 +1206,79 @@ describe("index.ts re-exports wire surfaces", () => {
     void statusRead;
   };
   void barrelWireTypePin;
+});
+
+// --------------------------------------------------------------------------
+// Removing a worktree: keep or discard, and carrying uncommitted work.
+// --------------------------------------------------------------------------
+
+const REMOVED_WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f22";
+
+describe("repo.worktreeRetire: keep or discard, and the refusal when it cannot go", () => {
+  it("makes the person choose keep or discard, and names the kept copy", () => {
+    expect(
+      WorktreeRetireRequestSchema.safeParse({ worktreeId: WORKTREE_ID, discard: true }).success,
+    ).toBe(true);
+    expect(WorktreeRetireRequestSchema.safeParse({ worktreeId: WORKTREE_ID }).success).toBe(false);
+    expect(
+      WorktreeRetireResponseSchema.safeParse({
+        ...buildWorktreeRetireResponse(),
+        kept: { removedWorktreeId: REMOVED_WORKTREE_ID },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("says why the tree cannot go: another chat's root, or work it would lose", () => {
+    const risks = {
+      uncommittedFileCount: 3,
+      ignoredFileCount: 1,
+      unpushedCommitCount: 2,
+      occupyingSessionIds: [SESSION_ID],
+    };
+    expect(
+      WorktreeRetireConflictDetailsSchema.safeParse({
+        reason: "root_busy",
+        worktreeId: WORKTREE_ID,
+        holdingWorkspaceId: WORKSPACE_ID,
+      }).success,
+    ).toBe(true);
+    expect(
+      WorktreeRetireConflictDetailsSchema.safeParse({
+        reason: "has_changes",
+        worktreeId: WORKTREE_ID,
+        risks,
+      }).success,
+    ).toBe(true);
+    expect(
+      WorktreeRetireConflictDetailsSchema.safeParse({
+        reason: "has_changes",
+        worktreeId: WORKTREE_ID,
+        holdingWorkspaceId: WORKSPACE_ID,
+      }).success,
+    ).toBe(false);
+    expect(
+      WorktreeRetireConflictDetailsSchema.safeParse({
+        reason: "locked",
+        worktreeId: WORKTREE_ID,
+        risks,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("repo.executionRootPrepare carrying uncommitted work", () => {
+  it("takes the carry switch and nothing else new", () => {
+    expect(
+      ExecutionRootPrepareRequestSchema.safeParse({
+        ...buildExecutionRootPrepareRequest(),
+        carryUncommitted: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      ExecutionRootPrepareRequestSchema.safeParse({
+        ...buildExecutionRootPrepareRequest(),
+        carryUncommitted: "yes",
+      }).success,
+    ).toBe(false);
+  });
 });
