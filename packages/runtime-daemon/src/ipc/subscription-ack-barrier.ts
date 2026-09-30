@@ -18,6 +18,8 @@
 //   synchronous `socket.write`. The wire-frame-ordering tests in `handlers/__tests__` catch a
 //   change that adds one.
 
+import { cancelAfterDetachedFailure } from "./streaming-primitive.js";
+
 /**
  * The producer surface a barrier drives: `LocalSubscriptionProducer<EmissionType>` narrowed to
  * emitting, cancelling and naming the subscription in diagnostics.
@@ -81,8 +83,8 @@ export function createSubscriptionAckBarrier<EmissionType>(
     try {
       action();
     } catch (err) {
-      producer.cancel();
-      console.error(
+      cancelAfterDetachedFailure(
+        producer,
         `[${methodName}] ${failureKind} event validation/emission failed for subscriptionId=${producer.subscriptionId}; subscription canceled`,
         err,
       );
@@ -112,8 +114,8 @@ export function createSubscriptionAckBarrier<EmissionType>(
             action();
           }
         } catch (err) {
-          producer.cancel();
-          console.error(
+          cancelAfterDetachedFailure(
+            producer,
             `[${methodName}] replay event validation/emission failed for subscriptionId=${producer.subscriptionId}; subscription canceled`,
             err,
           );

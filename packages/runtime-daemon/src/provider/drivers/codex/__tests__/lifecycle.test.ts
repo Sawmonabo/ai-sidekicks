@@ -20,7 +20,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { bindCallbackToolsForSpawn, CallbackToolHost } from "../../../callback-tool-host.js";
-import { createCallbackToolAskResponder } from "../../../callback-tool-ask-responder.js";
+import { createCallbackToolAskResponder } from "../callback-tool-ask-responder.js";
 import {
   DriverDiagnosticsEmitter,
   type DriverDiagnosticRecord,

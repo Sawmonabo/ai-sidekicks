@@ -3,7 +3,7 @@
  * terminal-emission gate to the Claude frame type.
  */
 
-import { TerminalEmissionGate, type TerminalRunFrame } from "../../terminal-emission-gate.js";
+import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
 import {
   UNRECOGNIZED_TURN_EVIDENCE,
   observedTurnEvidence,
@@ -17,9 +17,6 @@ import { CLAUDE_WIRE_FRAME_KINDS } from "./event-normalizer.js";
 // `closeSession` signals before disposing the channel, so the `result/*` it provokes is a clean
 // shutdown, not a crash. Only a frame routed to the session's own thread settles a run, so a
 // subagent's `result/*` never settles the parent's.
-
-/** The Claude leg's binding for the shared emission gate, whose suppression rule lives once. */
-export type ClaudeTerminalRunFrame = TerminalRunFrame;
 
 /** The Claude terminal-emission gate, one per provider session; empty, like Codex's subclass. */
 export class ClaudeTerminalEmissionGate extends TerminalEmissionGate {}

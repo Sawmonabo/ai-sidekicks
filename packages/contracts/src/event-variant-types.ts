@@ -26,8 +26,6 @@ import type {
   AssistantThinkingUpdateEvent,
   EventCompactedEvent,
   MachineContentDescriptor,
-  RepoAttachedEvent,
-  RepoDetachedEvent,
   SessionCreatedEvent,
   ToolErrorEvent,
   ToolInvokedEvent,
@@ -532,8 +530,6 @@ export type BackupRestoredEvent = SessionEventVariant<
 /** Every session event with a registered payload variant, discriminated on `type`. */
 export type SessionEvent =
   | SessionCreatedEvent
-  | RepoAttachedEvent
-  | RepoDetachedEvent
   | WorkspacePreparingEvent
   | WorkspaceReadyEvent
   | WorkspaceStaleEvent

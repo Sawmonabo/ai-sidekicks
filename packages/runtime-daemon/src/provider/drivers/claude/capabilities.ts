@@ -30,10 +30,10 @@ import type {
   DriverCapabilityDeclarationSink,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
 import type { ReplayTargetReadbackReader } from "../../transcript/replay-assertion.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
+import { CLAUDE_DRIVER_DESCRIPTOR } from "./claude-driver-descriptor.js";
 import { getClaudeToolMetadata } from "./tools.js";
 import type {
   CanonicalTranscriptTurn,
@@ -85,12 +85,6 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     // available (the binding holds what the provider declared).
     output_speed: true,
   });
-
-/**
- * Claude's settable output-speed levels, from a static table because the provider's declared state
- * costs a turn-bearing request. Shared with the capability cache's hydration path.
- */
-export const CLAUDE_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_LEVELS.claude;
 
 // Separate from `SeededTranscriptFrame` so a surface cannot mutate what it is checked against.
 interface ClaudeTranscriptSeedFrame {
@@ -237,7 +231,7 @@ export class ClaudeCapabilityReporter {
       // A fresh array per reply: the freeze blocks in-place edits of the constant, the copy stays
       // mutable for the consumer.
       ...(CLAUDE_CAPABILITY_FLAGS.output_speed
-        ? { outputSpeedLevels: [...CLAUDE_OUTPUT_SPEED_LEVELS] }
+        ? { outputSpeedLevels: [...CLAUDE_DRIVER_DESCRIPTOR.outputSpeedLevels] }
         : {}),
     };
   }
@@ -289,7 +283,7 @@ const CLAUDE_PINNED_EFFORT_LEVELS: readonly string[] = Object.freeze([
  * Ids, names and effort levels are what Claude Code 2.1.251 answered, alias rows collapsed as
  * {@link normalizeClaudeModelCatalog} does; effort levels are per model (Haiku has none).
  */
-export const CLAUDE_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
+const CLAUDE_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
   declaredClaudeModel("claude-opus-5[1m]", "Opus (1M context)", true, CLAUDE_PINNED_EFFORT_LEVELS),
   declaredClaudeModel("claude-fable-5", "Fable", false, CLAUDE_PINNED_EFFORT_LEVELS),
   declaredClaudeModel("claude-sonnet-5", "Sonnet", false, CLAUDE_PINNED_EFFORT_LEVELS),

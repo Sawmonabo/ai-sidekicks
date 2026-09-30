@@ -4,40 +4,37 @@
 // - The reported version is the version that spawned: the executable is resolved to an exact build
 //   path (a launcher's `--version` names the launcher's current build, measurably not the one a
 //   path-addressed spawn runs) and the version is read in-band from that process.
-// - Claude answers `get_binary_version` with `{ version, buildTime }`, adopted as-is. Codex's
-//   `initialize` returns a composite `userAgent` that also carries the caller's name and version,
-//   so the version is extracted under a stated rule. `server/diagnostics` needs `experimentalApi`
-//   and carries no version (measured at Codex `0.149.1`), so there is no structured fallback.
+// - Each provider's descriptor reads its version out of the handshake reply
+//   (`ProviderDriverDescriptor.readReportedVersion`) and declares its floor.
 // - The transport is an injected seam with no default (each driver's `lifecycle.ts` owns process
-//   talk); its implementer owns the deadline (`driver.timeout`). Floor values live in
-//   `./capability-refresh.js`.
+//   talk); its implementer owns the deadline (`driver.timeout`).
 import { constants as filesystemConstants } from "node:fs";
 import { access, realpath as realpathFromFilesystem, stat } from "node:fs/promises";
 import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "node:path";
+
+import type { ProviderName } from "@ai-sidekicks/contracts";
 
 import {
   DriverCliVersionUnparseableError,
   assertCliVersionMeetsFloor,
   parseCliVersionReport,
-  type FlooredDriverName,
 } from "./capability-refresh.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
-import { PROVIDER_AUTO_UPDATE_OPT_OUT_ENV } from "./spawn-env.js";
 import type { DriverCliVersionReport } from "./provider-driver.js";
-
-// Literals rather than driver-tree imports, which would invert the import direction.
-const CLAUDE_DRIVER: FlooredDriverName = "claude";
-const CODEX_DRIVER: FlooredDriverName = "codex";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
 
 /**
  * Composes the handshake child's environment with the auto-update opt-out applied last, so an
  * inherited `DISABLE_AUTOUPDATER=0` cannot re-enable it. Sessions use `buildProviderSpawnEnv`.
  */
 export function composeProviderChildEnvironment(
-  driverName: FlooredDriverName,
+  driverName: ProviderName,
   baseEnvironment: Readonly<Record<string, string | undefined>>,
 ): Record<string, string | undefined> {
-  return { ...baseEnvironment, ...PROVIDER_AUTO_UPDATE_OPT_OUT_ENV[driverName] };
+  return {
+    ...baseEnvironment,
+    ...PROVIDER_DRIVER_DESCRIPTORS[driverName].autoUpdateOptOutEnvironment,
+  };
 }
 
 /**
@@ -47,12 +44,12 @@ export function composeProviderChildEnvironment(
 export class ProviderExecutableUnresolvableError extends Error {
   readonly code = "driver.unavailable" as const;
   readonly fields: {
-    readonly driverName: FlooredDriverName;
+    readonly driverName: ProviderName;
     readonly requestedCommand: string;
     readonly reason: string;
   };
 
-  constructor(driverName: FlooredDriverName, requestedCommand: string, reason: string) {
+  constructor(driverName: ProviderName, requestedCommand: string, reason: string) {
     super("Provider driver is currently unavailable");
     this.name = "ProviderExecutableUnresolvableError";
     this.fields = { driverName, requestedCommand, reason };
@@ -130,7 +127,7 @@ function windowsCandidateNames(command: string, pathExtensions: readonly string[
  * {@link ProviderExecutableUnresolvableError} when nothing resolves.
  */
 export async function resolveProviderExecutable(
-  driverName: FlooredDriverName,
+  driverName: ProviderName,
   requestedCommand: string,
   dependencies: Partial<ProviderExecutableResolverDependencies> = {},
 ): Promise<ResolvedProviderExecutable> {
@@ -201,19 +198,19 @@ export async function resolveProviderExecutable(
 }
 
 /**
- * The `clientInfo.name` sent at the Codex `initialize` handshake; no `/` or whitespace, or version
- * extraction is ambiguous.
+ * The client name sent at the version handshake; no `/` or whitespace, since a provider that
+ * echoes it beside its own version is read by the text after it.
  */
 export const DEFAULT_PROVIDER_VERSION_CLIENT_NAME: string = "ai-sidekicks-daemon";
 
 /** What the transport needs in order to run one zero-turn version handshake. */
 export interface ProviderVersionHandshakeRequest {
-  readonly driverName: FlooredDriverName;
+  readonly driverName: ProviderName;
   /** Absolute, symlink-dereferenced; spawn this, never the configured name. */
   readonly resolvedExecutablePath: string;
   /** Auto-update suppression already applied ({@link composeProviderChildEnvironment}). */
   readonly environment: Readonly<Record<string, string | undefined>>;
-  /** The `clientInfo.name` to send; one value for the transport and the extractor to compare. */
+  /** The client name to send; one value for the transport and the version reader to compare. */
   readonly clientName: string;
 }
 
@@ -222,67 +219,12 @@ export interface ProviderVersionHandshakeRequest {
 // `request.resolvedExecutablePath` with `request.environment`.
 type ProviderVersionHandshake = (request: ProviderVersionHandshakeRequest) => Promise<unknown>;
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-/**
- * Reads the version out of a Claude `get_binary_version` reply, adopted as-is. Throws
- * `DriverCliVersionUnparseableError` when the reply is not an object or `version` is not a string.
- */
-export function extractClaudeReportedVersion(payload: unknown): string {
-  const reply = asRecord(payload);
-  const version = reply?.["version"];
-  if (typeof version !== "string") {
-    throw new DriverCliVersionUnparseableError(CLAUDE_DRIVER, "");
-  }
-  return version;
-}
-
-/**
- * Extracts the version from a Codex `initialize` `userAgent`, which also carries the caller's own
- * version: only the token after `<clientName>/` counts, and it must be canonical semver (the
- * parser finds `X.Y.Z` anywhere). Throws `DriverCliVersionUnparseableError` otherwise.
- */
-export function extractCodexReportedVersion(payload: unknown, clientName: string): string {
-  if (clientName === "" || clientName.includes("/") || /\s/.test(clientName)) {
-    throw new Error(
-      "Codex version extraction requires a daemon-supplied clientInfo.name carrying no '/' and no whitespace",
-    );
-  }
-  const reply = asRecord(payload);
-  const userAgent = reply?.["userAgent"];
-  if (typeof userAgent !== "string") {
-    throw new DriverCliVersionUnparseableError(CODEX_DRIVER, "");
-  }
-
-  const firstSlashIndex = userAgent.indexOf("/");
-  if (firstSlashIndex === -1 || userAgent.slice(0, firstSlashIndex) !== clientName) {
-    throw new DriverCliVersionUnparseableError(CODEX_DRIVER, userAgent);
-  }
-  const versionToken = /^\S*/.exec(userAgent.slice(firstSlashIndex + 1))?.[0] ?? "";
-
-  let parsed: DriverCliVersionReport;
-  try {
-    parsed = parseCliVersionReport(CODEX_DRIVER, versionToken);
-  } catch {
-    // Reports the whole `userAgent`, not the carved fragment.
-    throw new DriverCliVersionUnparseableError(CODEX_DRIVER, userAgent);
-  }
-  if (parsed.semver !== versionToken) {
-    throw new DriverCliVersionUnparseableError(CODEX_DRIVER, userAgent);
-  }
-  return versionToken;
-}
-
 /**
  * One spawned-build reading: the resolved executable and what the process started at that path
  * reported. Never cached across spawns, so a refresh detects a mid-lifetime replacement.
  */
 export interface SpawnedProviderVersionReading {
-  readonly driverName: FlooredDriverName;
+  readonly driverName: ProviderName;
   /** Absolute, symlink-dereferenced: the build that answered the handshake. */
   readonly resolvedExecutablePath: string;
   /** At or above the driver's floor by construction. */
@@ -291,7 +233,7 @@ export interface SpawnedProviderVersionReading {
 
 /** Everything one spawned-version reading needs. */
 export interface SpawnedProviderVersionReadRequest {
-  readonly driverName: FlooredDriverName;
+  readonly driverName: ProviderName;
   /** The configured provider command: a bare name, or a path. */
   readonly requestedCommand: string;
   /** The transport that spawns and performs the handshake; it has no default. */
@@ -329,18 +271,12 @@ export async function readSpawnedProviderVersion(
     clientName,
   });
 
-  // Exhaustive over `FlooredDriverName`, so a new driver needs an in-band channel here.
-  let raw: string;
-  switch (driverName) {
-    case "claude":
-      raw = extractClaudeReportedVersion(payload);
-      break;
-    case "codex":
-      raw = extractCodexReportedVersion(payload, clientName);
-      break;
+  const reading = PROVIDER_DRIVER_DESCRIPTORS[driverName].readReportedVersion(payload, clientName);
+  if ("unreadableReply" in reading) {
+    throw new DriverCliVersionUnparseableError(driverName, reading.unreadableReply);
   }
 
-  const report = parseCliVersionReport(driverName, raw);
+  const report = parseCliVersionReport(driverName, reading.version);
   assertCliVersionMeetsFloor(driverName, report);
   return { driverName, resolvedExecutablePath: resolved.resolvedExecutablePath, report };
 }

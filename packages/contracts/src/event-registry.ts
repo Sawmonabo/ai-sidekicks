@@ -95,8 +95,6 @@ export type SessionEventType =
   | "session.restore_finished"
   | "agent.provider_binding_changed"
   | "agent.provider_binding_change_failed"
-  | "repo.attached"
-  | "repo.detached"
   | "workspace.preparing"
   | "workspace.ready"
   | "workspace.stale"
@@ -206,8 +204,6 @@ export type SessionEventType =
  */
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
-  "repo.attached",
-  "repo.detached",
   "workspace.preparing",
   "workspace.ready",
   "workspace.stale",
@@ -388,8 +384,6 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "session.restore_finished",
   "agent.provider_binding_changed",
   "agent.provider_binding_change_failed",
-  "repo.attached",
-  "repo.detached",
   "workspace.preparing",
   "workspace.ready",
   "workspace.stale",

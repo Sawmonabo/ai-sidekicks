@@ -13,11 +13,14 @@
 //   * A re-declaration reporting `changed` invalidates through an injected subscription. Without
 //     one, the caller must call `invalidate()` wherever it re-declares.
 
-import type { DriverCapabilities, DriverCapabilityReport } from "@ai-sidekicks/contracts";
+import type {
+  DriverCapabilities,
+  DriverCapabilityReport,
+  ProviderName,
+} from "@ai-sidekicks/contracts";
 
 import type { DriverCapabilityHydrationResult } from "./driver-capabilities-writer.js";
-import { builtInToolsFor } from "./driver-built-in-tools.js";
-import { declaredOutputSpeedLevelsFor } from "./driver-output-speed.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
 import { DriverUnavailableError } from "./provider-registry.js";
 
 /** Dependencies this cache reads through, so it holds no database handle, driver or timer. */
@@ -26,17 +29,16 @@ export interface DriverCapabilityCacheDeps {
    * Reads a driver's snapshot from the durable cache, normally `DriverCapabilitiesWriter.hydrate`.
    * Synchronous and touches no driver process; a miss makes the read refuse.
    */
-  readonly hydrateDurableCapabilities: (driverName: string) => DriverCapabilityHydrationResult;
-
-  /** Resolves a driver's output-speed vocabulary; defaults to `declaredOutputSpeedLevelsFor`. */
-  readonly resolveOutputSpeedLevels?: ((driverName: string) => readonly string[]) | undefined;
+  readonly hydrateDurableCapabilities: (
+    driverName: ProviderName,
+  ) => DriverCapabilityHydrationResult;
 
   /**
    * Subscribes to capability changes for any driver, returning an unsubscribe handle; the cache
    * drops the named driver's entry so the next read re-hydrates.
    */
   readonly subscribeToCapabilityUpdates?:
-    | ((onCapabilityUpdated: (driverName: string) => void) => () => void)
+    | ((onCapabilityUpdated: (driverName: ProviderName) => void) => () => void)
     | undefined;
 }
 
@@ -47,16 +49,16 @@ interface CachedCapabilityEntry {
 
 /** Serves `driver.listCapabilities` reports from memory, hydrating from the durable cache. */
 export class DriverCapabilityCache {
-  readonly #hydrateDurableCapabilities: (driverName: string) => DriverCapabilityHydrationResult;
-  readonly #resolveOutputSpeedLevels: (driverName: string) => readonly string[];
-  readonly #entries: Map<string, CachedCapabilityEntry> = new Map();
+  readonly #hydrateDurableCapabilities: (
+    driverName: ProviderName,
+  ) => DriverCapabilityHydrationResult;
+  readonly #entries: Map<ProviderName, CachedCapabilityEntry> = new Map();
 
   // Cleared by `close()` so a second call cannot unsubscribe twice.
   #unsubscribeFromCapabilityUpdates: (() => void) | undefined;
 
   constructor(deps: DriverCapabilityCacheDeps) {
     this.#hydrateDurableCapabilities = deps.hydrateDurableCapabilities;
-    this.#resolveOutputSpeedLevels = deps.resolveOutputSpeedLevels ?? declaredOutputSpeedLevelsFor;
 
     // At construction, not lazily: an update before the first read would leave a stale entry.
     if (deps.subscribeToCapabilityUpdates !== undefined) {
@@ -73,26 +75,27 @@ export class DriverCapabilityCache {
    * @throws DriverUnavailableError (`driver.unavailable`) on a durable miss: with no declared
    * capability set, a client must not be told a capability is available.
    */
-  read(driverName: string): DriverCapabilityReport {
+  read(driverName: ProviderName): DriverCapabilityReport {
     const capabilities = this.#capabilitiesFor(driverName);
+    const descriptor = PROVIDER_DRIVER_DESCRIPTORS[driverName];
 
     // `!== true` is the fail-closed comparison `ProviderRegistry.checkCapability` makes. Without
     // `output_speed` the member is absent (an empty array would claim a settable axis with no
-    // values). The arrays are copied because the shared tables are frozen.
-    const builtInTools = [...builtInToolsFor(driverName)];
+    // values). The arrays are copied because the descriptors are frozen.
+    const builtInTools = [...descriptor.builtInTools];
     if (capabilities.flags.output_speed !== true) {
       return { driverName, capabilities, builtInTools };
     }
     return {
       driverName,
       capabilities,
-      outputSpeedLevels: [...this.#resolveOutputSpeedLevels(driverName)],
+      outputSpeedLevels: [...descriptor.outputSpeedLevels],
       builtInTools,
     };
   }
 
-  /** Drops one driver's entry; the next `read` re-hydrates. An unknown name is a no-op. */
-  invalidate(driverName: string): void {
+  /** Drops one driver's entry; the next `read` re-hydrates. A driver never read is a no-op. */
+  invalidate(driverName: ProviderName): void {
     this.#entries.delete(driverName);
   }
 
@@ -111,7 +114,7 @@ export class DriverCapabilityCache {
     this.#entries.clear();
   }
 
-  #capabilitiesFor(driverName: string): DriverCapabilities {
+  #capabilitiesFor(driverName: ProviderName): DriverCapabilities {
     const cached = this.#entries.get(driverName);
     if (cached !== undefined) {
       return { ...cached.capabilities, flags: { ...cached.capabilities.flags } };

@@ -4,9 +4,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DRIVER_CLI_VERSION_FLOORS, type FlooredDriverName } from "../capability-refresh.js";
+import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts";
+
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
 import {
-  PROVIDER_AUTO_UPDATE_OPT_OUT_ENV,
   ProviderSpawnEnvConflictError,
   ProviderSpawnEnvNameMatchMismatchError,
   buildProviderSpawnEnv,
@@ -14,12 +15,6 @@ import {
   type CredentialEnvPolicy,
   type SpawnEnvPair,
 } from "../spawn-env.js";
-
-// Derived from the floors table so a driver added to the union without an opt-out decision
-// fails a test.
-const ALL_DRIVERS: readonly FlooredDriverName[] = Object.keys(
-  DRIVER_CLI_VERSION_FLOORS,
-) as FlooredDriverName[];
 
 const CURATED_BASE: readonly SpawnEnvPair[] = [
   ["HOME", "/home/agent"],
@@ -41,8 +36,8 @@ function occurrencesOf(env: readonly SpawnEnvPair[], name: string): number {
 describe("provider spawn environment — auto-update suppression", () => {
   it("realizes each driver's declared opt-out, across the whole driver union", () => {
     // The table is total, but the builder could still read it for one driver and not another.
-    const realized = new Map<FlooredDriverName, readonly SpawnEnvPair[]>();
-    for (const driverName of ALL_DRIVERS) {
+    const realized = new Map<ProviderName, readonly SpawnEnvPair[]>();
+    for (const driverName of PROVIDER_NAMES) {
       realized.set(
         driverName,
         buildProviderSpawnEnv({
@@ -53,10 +48,12 @@ describe("provider spawn environment — auto-update suppression", () => {
       );
     }
 
-    expect([...realized.keys()].sort()).toStrictEqual([...ALL_DRIVERS].sort());
-    for (const driverName of ALL_DRIVERS) {
+    expect([...realized.keys()].sort()).toStrictEqual([...PROVIDER_NAMES].sort());
+    for (const driverName of PROVIDER_NAMES) {
       const built = realized.get(driverName) ?? [];
-      const declared = Object.entries(PROVIDER_AUTO_UPDATE_OPT_OUT_ENV[driverName]);
+      const declared = Object.entries(
+        PROVIDER_DRIVER_DESCRIPTORS[driverName].autoUpdateOptOutEnvironment,
+      );
       for (const [name, value] of declared) {
         expect(valueOf(built, name)).toBe(value);
       }
@@ -290,7 +287,7 @@ describe("bound-account child environment carries no ambient credential inherita
       PATH: "/usr/bin:/bin",
       HOME: "/var/empty",
       CLAUDE_CONFIG_DIR: BOUND_ACCOUNT_CREDENTIAL_HOME,
-      ...PROVIDER_AUTO_UPDATE_OPT_OUT_ENV.claude,
+      ...PROVIDER_DRIVER_DESCRIPTORS.claude.autoUpdateOptOutEnvironment,
     });
     // The ambient credential existed while the environment was composed and reached no child.
     expect(ambientDuringBuild).toBeDefined();
@@ -300,9 +297,7 @@ describe("bound-account child environment carries no ambient credential inherita
   it("never reads the daemon's own environment for either provider", () => {
     // Total over the driver union. An empty base yields exactly the mandated pairs, so any leak
     // would show here.
-    for (const driverName of Object.keys(
-      PROVIDER_AUTO_UPDATE_OPT_OUT_ENV,
-    ) as readonly FlooredDriverName[]) {
+    for (const driverName of PROVIDER_NAMES) {
       const composed = withAmbientCredential(() =>
         buildProviderSpawnEnv({
           driverName,
@@ -311,7 +306,7 @@ describe("bound-account child environment carries no ambient credential inherita
         }),
       );
       expect(Object.fromEntries(composed)).toStrictEqual({
-        ...PROVIDER_AUTO_UPDATE_OPT_OUT_ENV[driverName],
+        ...PROVIDER_DRIVER_DESCRIPTORS[driverName].autoUpdateOptOutEnvironment,
       });
     }
   });

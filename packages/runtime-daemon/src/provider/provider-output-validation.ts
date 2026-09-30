@@ -20,7 +20,7 @@ export const RESUME_HANDLE_MAX_LEN = 4096;
 export const CLI_VERSION_RAW_MAX_LEN = 128;
 
 /** Maximum length of `DriverCliVersionReport.semver`; equals the SQL CHECK bound. */
-export const CLI_VERSION_SEMVER_MAX_LEN = 64;
+const CLI_VERSION_SEMVER_MAX_LEN = 64;
 
 /**
  * Thrown when a provider-declared output field fails write-seam validation. It has no dotted

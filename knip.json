@@ -236,7 +236,10 @@
     "packages/runtime-daemon": {
       // Loaded by `import()` of a specifier held in a variable (`pty/node-pty-host.ts`), which
       // knip cannot follow; it is a hard runtime dependency.
-      "ignoreDependencies": ["node-pty"]
+      "ignoreDependencies": ["node-pty"],
+      // The machine's `presence.read` binding, which nothing registers until Remote Control
+      // reports the devices connected to this machine.
+      "ignoreFiles": ["src/ipc/handlers/presence-read.ts"]
     }
   }
 }

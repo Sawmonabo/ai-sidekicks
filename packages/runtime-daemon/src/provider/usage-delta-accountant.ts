@@ -28,7 +28,9 @@
 //     unsubtracted with a diagnostic. Cache-read and cache-write stay on the diagnostic band,
 //     because the `usage_telemetry` payload has no per-cache-axis member.
 
-import { type DriverDiagnosticsEmitter, type DriverProviderName } from "./driver-diagnostics.js";
+import type { ProviderName } from "@ai-sidekicks/contracts";
+
+import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 
 // --------------------------------------------------------------------------
 // Axes and readings.
@@ -123,7 +125,7 @@ export interface CumulativeUsageReading {
  * payload has no member for.
  */
 export interface MeteredUsageDelta {
-  readonly provider: DriverProviderName;
+  readonly provider: ProviderName;
   readonly threadId: string;
   readonly attributedTurnId: string | null;
   /** Per-axis deltas against the thread's stream-ordered base registers. */
@@ -151,13 +153,13 @@ export type ThreadBaseEstablishment =
  * thread. Bad entries and inconsistent readings go to the diagnostics emitter, never to spend.
  */
 export class UsageDeltaAccountant {
-  readonly #provider: DriverProviderName;
+  readonly #provider: ProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
   /** One base register per (thread, axis), advanced in stream order. */
   readonly #baseRegistersByThreadId = new Map<string, Map<UsageTokenAxis, number>>();
 
   constructor(options: {
-    readonly provider: DriverProviderName;
+    readonly provider: ProviderName;
     readonly diagnostics: DriverDiagnosticsEmitter;
   }) {
     this.#provider = options.provider;
@@ -426,7 +428,7 @@ export type CostUpdateResolution =
  * branches on `costSource`.
  */
 export function resolveCostUpdateProvenance(options: {
-  readonly provider: DriverProviderName;
+  readonly provider: ProviderName;
   /** The provider's own cost in micro-dollars, converted from its reported unit, or null. */
   readonly providerReportedCostUsdMicros: number | null;
   /** The pricing-table derivation, or null for an unpriceable model. */

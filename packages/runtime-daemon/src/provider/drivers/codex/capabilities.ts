@@ -26,9 +26,9 @@ import type {
   DriverCapabilityDeclarationSink,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
+import { CODEX_DRIVER_DESCRIPTOR } from "./codex-driver-descriptor.js";
 import { getCodexToolMetadata } from "./tools.js";
 import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../provider-driver.js";
 
@@ -39,7 +39,7 @@ export const CODEX_DRIVER_NAME = "codex" as const;
  * Capability-contract semver the writer compares to detect change; it moves whenever the shape of
  * what this driver advertises changes.
  */
-export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
+const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
 
 /** A flag is `true` only where the driver delivers the capability at its own boundary. */
 export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
@@ -65,7 +65,7 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     rollback: true,
     // Durable per-thread goal set/clear operations exist on the wire.
     session_goals: true,
-    // Daemon-registered tools can be surfaced to the model and dispatched back for execution.
+    // The daemon's tools reach the model through its per-session MCP `url` entry.
     callback_tools: true,
     // Peer agents can be spawned, messaged, and closed from within a turn.
     subagents: true,
@@ -80,12 +80,6 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     // per-turn `serviceTier` override and a runtime per-model tier catalog.
     output_speed: false,
   });
-
-/**
- * Empty, like the `false` `output_speed` flag: a caller carrying an `outputSpeed` is refused
- * instead of forwarding an unvalidated value.
- */
-export const CODEX_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_LEVELS.codex;
 
 /**
  * Composes the `getCapabilities()` report from the build `reading` and probe `detection`; the
@@ -126,7 +120,7 @@ export function getCodexCapabilities(
     detectionSource: { ...detection.detectionSource },
     // Present only when the flag is true, which it never is for this driver.
     ...(CODEX_CAPABILITY_FLAGS.output_speed
-      ? { outputSpeedLevels: [...CODEX_OUTPUT_SPEED_LEVELS] }
+      ? { outputSpeedLevels: [...CODEX_DRIVER_DESCRIPTOR.outputSpeedLevels] }
       : {}),
   };
 }

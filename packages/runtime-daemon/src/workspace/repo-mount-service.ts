@@ -37,13 +37,9 @@ import {
   RepoMountNotFoundError,
 } from "./repo-errors.js";
 import { RepoRootResolver } from "./repo-root-resolver.js";
-import {
-  DEFAULT_DIRECTORY_READABILITY_PROBE,
-  type DirectoryReadabilityProbe,
-} from "./trust-envelope.js";
 import type { WorkspaceEventEmitter } from "./workspace-event-emitter.js";
 import { computeRepoMountHealth, type FilesystemPathProbe } from "./workspace-projector.js";
-import type { FilesystemPathProbeFn } from "./workspace-row-guards.js";
+import { createDefaultPathProbe, type FilesystemPathProbeFn } from "./workspace-row-guards.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 /**
@@ -570,23 +566,3 @@ function isConstraintViolation(error: unknown): boolean {
   const code: unknown = (error as Error & { code?: unknown }).code;
   return typeof code === "string" && code.startsWith("SQLITE_CONSTRAINT");
 }
-
-/**
- * Reads the clock before measuring, so `checkedAt` is never newer than the observation. A twin of
- * the helper in `workspace-service.ts`.
- */
-function createDefaultPathProbe(): FilesystemPathProbeFn {
-  return async (path: string): Promise<FilesystemPathProbe> => {
-    const checkedAt = new Date().toISOString();
-    let reachable = true;
-    try {
-      await readDirectory(path);
-    } catch {
-      reachable = false;
-    }
-    return { probedPath: path, reachable, checkedAt };
-  };
-}
-
-// Indirection so the default probe shares the trust envelope's readability primitive.
-const readDirectory: DirectoryReadabilityProbe = DEFAULT_DIRECTORY_READABILITY_PROBE;

@@ -19,7 +19,7 @@ import { randomUUID } from "node:crypto";
 export type OutboundFrameOrigin = "human_text" | "driver_command" | "system_narration";
 
 /** The closed origin set, for exhaustiveness checks and membership tests. */
-export const OUTBOUND_FRAME_ORIGINS: readonly OutboundFrameOrigin[] = Object.freeze([
+const OUTBOUND_FRAME_ORIGINS: readonly OutboundFrameOrigin[] = Object.freeze([
   "human_text",
   "driver_command",
   "system_narration",
@@ -56,7 +56,7 @@ export type TextNeutralizationRefusalCode = typeof TEXT_NEUTRALIZATION_REFUSAL_C
 export const OUTBOUND_TEXT_NEUTRALIZATION_SENTINEL = "\n";
 
 /** Composes a trip's `providerFailureDetail`; the form is fixed because a consumer parses it. */
-export function composeTextNeutralizationFailureDetail(origin: TripwireDetailOrigin): string {
+function composeTextNeutralizationFailureDetail(origin: TripwireDetailOrigin): string {
   return `${TEXT_NEUTRALIZATION_REFUSAL_CODE} origin=${origin}`;
 }
 

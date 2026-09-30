@@ -1,14 +1,14 @@
-// Repo-mount and workspace lifecycle event emission: the one seam every mount and workspace state
-// transition appends its event through. It owns `repo.attached`, `repo.detached`,
-// `workspace.preparing`, `workspace.ready`, `workspace.stale` and `workspace.archived` (which also
-// carries the repo mount whose detach caused it).
+// Workspace lifecycle event emission: the one seam every workspace state transition appends its
+// event through. It owns `workspace.preparing`, `workspace.ready`, `workspace.stale` and
+// `workspace.archived` (which also carries the repo mount whose detach caused it). A mount's
+// attach and detach are project changes, not session events, so nothing here records them.
 //
 // Each method builds one envelope and appends exactly once (no retry, no fan-out). Workspace `busy`
-// and mount `archived` have no emit method.
+// has no emit method.
 //
 //   * No sequence number, chain hash or signature: the append path owns them.
 //   * No caller-supplied `state`: each type names exactly one post-transition state, so a
-//     `repo.attached` carrying `state: "detached"` (which parses clean) cannot be written.
+//     `workspace.ready` carrying `state: "archived"` (which parses clean) cannot be written.
 //   * The append receipt is returned as is, not examined.
 
 import {
@@ -17,9 +17,6 @@ import {
   SESSION_EVENT_CATEGORY_BY_TYPE,
   type EventCategory,
   type EventEnvelopeVersion,
-  type RepoAttachedEvent,
-  type RepoDetachedEvent,
-  type RepoMountState,
   type RepoWorkspaceLifecyclePayload,
   type WorkspaceArchivedEvent,
   type WorkspacePreparingEvent,
@@ -37,22 +34,11 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // Event names come from indexed access on the registered contracts variants (contracts exports no
 // union), so a rename there fails this compile.
-type RepoMountEventName = RepoAttachedEvent["type"] | RepoDetachedEvent["type"];
-
 type WorkspaceEventName =
   | WorkspacePreparingEvent["type"]
   | WorkspaceReadyEvent["type"]
   | WorkspaceStaleEvent["type"]
   | WorkspaceArchivedEvent["type"];
-
-type RepoWorkspaceEventName = RepoMountEventName | WorkspaceEventName;
-
-// One table per half, so each is total over its event names and confined to its own state
-// vocabulary (a single table would accept `"workspace.ready": "detached"`).
-const MOUNT_STATE_BY_EVENT_NAME = {
-  "repo.attached": "attached",
-  "repo.detached": "detached",
-} as const satisfies Record<RepoMountEventName, RepoMountState>;
 
 const WORKSPACE_STATE_BY_EVENT_NAME = {
   "workspace.preparing": "preparing",
@@ -114,11 +100,6 @@ interface WorkspaceEventEmitBase {
   readonly transactionalPrelude?: () => void;
 }
 
-/** Input for the two repo-mount lifecycle events. */
-export interface EmitRepoMountEventInput extends WorkspaceEventEmitBase {
-  readonly repoMountId: string;
-}
-
 /** Input for the four workspace lifecycle events. */
 export interface EmitWorkspaceEventInput extends WorkspaceEventEmitBase {
   readonly workspaceId: string;
@@ -134,7 +115,7 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 }
 
 /**
- * Appends repo-mount and workspace lifecycle events, one envelope per call. Each method resolves
+ * Appends workspace lifecycle events, one envelope per call. Each method resolves
  * to the append receipt, so a producer reads the `sequence` the append path assigned.
  */
 export class WorkspaceEventEmitter {
@@ -148,19 +129,6 @@ export class WorkspaceEventEmitter {
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
     this.#now = deps.now ?? (() => new Date().toISOString());
     this.#newEventId = deps.newEventId ?? mintUuidV7;
-  }
-
-  /** Emit `repo.attached`: a local path was admitted as a durable repo mount. */
-  async emitRepoAttached(input: EmitRepoMountEventInput): Promise<EventLogAppendReceipt> {
-    return this.#appendRepoMountEvent("repo.attached", input);
-  }
-
-  /**
-   * Emit `repo.detached`: the mount left the active set. The cascade's dependent
-   * `workspace.archived` events are separate emits the producer makes; this appends one event.
-   */
-  async emitRepoDetached(input: EmitRepoMountEventInput): Promise<EventLogAppendReceipt> {
-    return this.#appendRepoMountEvent("repo.detached", input);
   }
 
   /** Emit `workspace.preparing` — the workspace's materialization began. */
@@ -189,19 +157,6 @@ export class WorkspaceEventEmitter {
     return this.#appendWorkspaceEvent("workspace.archived", input);
   }
 
-  async #appendRepoMountEvent(
-    type: RepoMountEventName,
-    input: EmitRepoMountEventInput,
-  ): Promise<EventLogAppendReceipt> {
-    const payload: RepoWorkspaceLifecyclePayload = RepoWorkspaceLifecyclePayloadSchema.parse({
-      sessionId: input.sessionId,
-      repoMountId: input.repoMountId,
-      state: MOUNT_STATE_BY_EVENT_NAME[type],
-      actor: input.actor ?? null,
-    });
-    return this.#appendLifecycleEvent(type, input, payload);
-  }
-
   async #appendWorkspaceEvent(
     type: WorkspaceEventName,
     input: EmitWorkspaceEventInput,
@@ -218,7 +173,7 @@ export class WorkspaceEventEmitter {
   }
 
   async #appendLifecycleEvent(
-    type: RepoWorkspaceEventName,
+    type: WorkspaceEventName,
     base: WorkspaceEventEmitBase,
     payload: RepoWorkspaceLifecyclePayload,
   ): Promise<EventLogAppendReceipt> {
@@ -227,7 +182,7 @@ export class WorkspaceEventEmitter {
     const category: EventCategory | undefined = SESSION_EVENT_CATEGORY_BY_TYPE.get(type);
     if (category === undefined) {
       throw new Error(
-        `No category is registered for event type "${type}": the repo-mount / workspace ` +
+        `No category is registered for event type "${type}": the workspace ` +
           "lifecycle types must be present in SESSION_EVENT_CATEGORY_BY_TYPE for the strict " +
           "layer to interpret what this emitter writes.",
       );

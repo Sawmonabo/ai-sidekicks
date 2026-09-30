@@ -1,7 +1,6 @@
-// The write seam for the MCP Tasks durable recovery handle: both drivers' observation halves
-// (`observeMcpTaskAcceptance`) write through this sink, the only writer of
-// `command_receipts.mcp_task_id`. It sits in `provider/` because the drivers differ in how they
-// observe an acceptance, not in what a stored handle means.
+// The write seam for the MCP Tasks durable recovery handle: the observation half
+// (`observeMcpTaskAcceptance` in `./mcp-tool-calls.ts`) writes through this sink, the only writer
+// of `command_receipts.mcp_task_id`.
 //
 // Nothing in the daemon yet hands it an acceptance response (the provider CLIs are the MCP clients
 // and the daemon is not on the MCP wire), so only this module's tests construct the recorder.
@@ -16,7 +15,10 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
-import type { DriverDiagnosticsEmitter, DriverProviderName } from "./driver-diagnostics.js";
+import type { ProviderName } from "@ai-sidekicks/contracts";
+
+import type { DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
+import type { McpTaskHandleObservation, McpTaskHandleSink } from "./mcp-tool-calls.js";
 
 /**
  * The maximum stored length of an MCP `taskId`, in Unicode code points as SQLite's `length()`
@@ -44,17 +46,6 @@ export type McpTaskHandleRecordOutcome =
   | { readonly status: "already-recorded" }
   | { readonly status: "refused"; readonly reason: McpTaskHandleRefusalReason }
   | { readonly status: "storage-failed"; readonly sqliteCode: string | null };
-
-/**
- * One task-augmented MCP dispatch's acceptance. `commandId` (`command_receipts.command_id`)
- * addresses the row; the `(serverName, toolName)` pair names none.
- */
-export interface McpTaskHandleObservationRecord {
-  readonly commandId: string;
-  readonly serverName: string;
-  readonly toolName: string;
-  readonly mcpTaskId: string;
-}
 
 interface HandleScan {
   /** Code points consumed; the exact length only for a clean scan, else where the walk stopped. */
@@ -135,7 +126,7 @@ interface StoredHandleRow {
 
 /** The sole writer of `command_receipts.mcp_task_id`; one per driver binding (attribution). */
 export class McpTaskHandleRecorder {
-  readonly #provider: DriverProviderName;
+  readonly #provider: ProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #claimHandleStatement: Statement<[string, string]>;
   readonly #readStoredHandleStatement: Statement<[string]>;
@@ -143,7 +134,7 @@ export class McpTaskHandleRecorder {
   constructor(
     database: Database,
     options: {
-      readonly provider: DriverProviderName;
+      readonly provider: ProviderName;
       readonly diagnostics: DriverDiagnosticsEmitter;
     },
   ) {
@@ -164,7 +155,7 @@ export class McpTaskHandleRecorder {
    * Offers one observed handle to its receipt row. Never throws (a driver turn must not fail over
    * a recovery optimization): every failure is a typed outcome that leaves the column NULL.
    */
-  record(observation: McpTaskHandleObservationRecord): McpTaskHandleRecordOutcome {
+  record(observation: McpTaskHandleObservation): McpTaskHandleRecordOutcome {
     const boundsRefusal = classifyMcpTaskIdRefusal(observation.mcpTaskId);
     if (boundsRefusal !== undefined) {
       return this.#refuse(observation, boundsRefusal);
@@ -196,15 +187,15 @@ export class McpTaskHandleRecorder {
     }
   }
 
-  /** The recorder as the drivers' `McpTaskHandleSink`; {@link record} diagnoses failures. */
-  asSink(): (observation: McpTaskHandleObservationRecord) => void {
-    return (observation: McpTaskHandleObservationRecord): void => {
+  /** The recorder as the `McpTaskHandleSink`; {@link record} diagnoses failures. */
+  asSink(): McpTaskHandleSink {
+    return (observation: McpTaskHandleObservation): void => {
       this.record(observation);
     };
   }
 
   #refuse(
-    observation: McpTaskHandleObservationRecord,
+    observation: McpTaskHandleObservation,
     reason: McpTaskHandleRefusalReason,
   ): McpTaskHandleRecordOutcome {
     this.#diagnostics.emit({
@@ -228,7 +219,7 @@ export class McpTaskHandleRecorder {
   // A separate kind from a refusal: a refusal is the peer's malformed handle, a storage failure is
   // a local fault (lock past `busy_timeout`, read-only or full disk, schema drift).
   #reportStorageFailure(
-    observation: McpTaskHandleObservationRecord,
+    observation: McpTaskHandleObservation,
     thrown: unknown,
   ): McpTaskHandleRecordOutcome {
     // The `SqliteError` code (`SQLITE_BUSY`, ...) is the diagnosis; `message` is not carried

@@ -15,11 +15,11 @@ import {
   type DriverDiagnosticRecord,
 } from "../../../driver-diagnostics.js";
 import {
-  DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
 } from "../../../capability-refresh.js";
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
+import { CLAUDE_DRIVER_DESCRIPTOR } from "../claude-driver-descriptor.js";
 import {
   CLAUDE_CAPABILITY_CONTRACT_VERSION,
   CLAUDE_CAPABILITY_FLAGS,
@@ -146,7 +146,7 @@ describe("Claude CLI-version floor", () => {
     expect(error.fields).toStrictEqual({
       driverName: "claude",
       reportedSemver: "2.1.198",
-      floor: DRIVER_CLI_VERSION_FLOORS.claude,
+      floor: CLAUDE_DRIVER_DESCRIPTOR.cliVersionFloor,
     });
 
     // The refresh path goes through the same gate, so the writer never sees the declaration.

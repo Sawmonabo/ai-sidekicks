@@ -7,16 +7,16 @@ import { isPositiveFiniteNumber } from "./turn-evidence.js";
 import type { ProviderUsageLimitSignal } from "../../provider-driver.js";
 
 /** The `type` of the retry frame. */
-export const CLAUDE_API_RETRY_FRAME_TYPE = "system" as const;
+const CLAUDE_API_RETRY_FRAME_TYPE = "system" as const;
 
 /** The `subtype` of the retry frame. */
-export const CLAUDE_API_RETRY_FRAME_SUBTYPE = "api_retry" as const;
+const CLAUDE_API_RETRY_FRAME_SUBTYPE = "api_retry" as const;
 
 /**
  * The one `api_retry` error member that names a spent allowance. `billing_error` is excluded: a
  * human fixes a payment fault, so parking a run on it would wait for a boundary that never comes.
  */
-export const CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER = "rate_limit" as const;
+const CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER = "rate_limit" as const;
 
 /**
  * Classifies a Claude `system/api_retry` frame for a spent usage allowance, or `null`. Typed-only:

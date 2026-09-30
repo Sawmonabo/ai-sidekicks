@@ -192,8 +192,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "session.restore_finished": "session_lifecycle",
   "agent.provider_binding_changed": "session_lifecycle",
   "agent.provider_binding_change_failed": "session_lifecycle",
-  "repo.attached": "session_lifecycle",
-  "repo.detached": "session_lifecycle",
   "workspace.preparing": "session_lifecycle",
   "workspace.ready": "session_lifecycle",
   "workspace.stale": "session_lifecycle",
@@ -705,23 +703,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       payload: SessionCreatedPayloadSchema,
     })
     .strict(),
-  // The six repo and workspace arms share repo.ts's payload schema; none takes the epoch stamp.
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("repo.attached"),
-      category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
-    })
-    .strict(),
-  z
-    .object({
-      ...buildCommonShape(),
-      type: z.literal("repo.detached"),
-      category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
-    })
-    .strict(),
+  // The four workspace arms share repo.ts's payload schema; none takes the epoch stamp.
   z
     .object({
       ...buildCommonShape(),

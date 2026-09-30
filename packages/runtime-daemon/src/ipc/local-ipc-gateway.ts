@@ -31,6 +31,13 @@ import {
 
 import { assertLoadedForBind } from "../bootstrap/index.js";
 import { SecureDefaults } from "../bootstrap/secure-defaults.js";
+import {
+  CONTENT_LENGTH_HEADER,
+  FramingError,
+  HEADER_BODY_SEPARATOR,
+  parseFrame,
+  type ParseFrameResult,
+} from "./content-length-framing.js";
 import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
 
 // --------------------------------------------------------------------------
@@ -40,8 +47,8 @@ import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
 /**
  * The largest accepted or emitted frame body, in bytes. The value lives in
  * `@ai-sidekicks/contracts` so a producer sizing a reply shares it with the framer; enforcement is
- * only here: `parseFrame` rejects an oversized declared length and `encodeFrame` refuses to emit
- * an oversized body.
+ * only here: the gateway hands it to `parseFrame` as the body limit, and `encodeFrame` refuses to
+ * emit an oversized body.
  */
 export { MAX_MESSAGE_BYTES };
 
@@ -54,12 +61,6 @@ export { MAX_MESSAGE_BYTES };
  * into an error frame that cannot be sent.
  */
 export { JSON_RPC_ID_MAX_BYTES };
-
-/** The framing header name: matched case-insensitively on receive, emitted in this casing. */
-const CONTENT_LENGTH_HEADER = "Content-Length";
-
-/** Ends the header section (CRLFCRLF, as in LSP framing). */
-const HEADER_BODY_SEPARATOR = "\r\n\r\n";
 
 // --------------------------------------------------------------------------
 // Supervision surface
@@ -100,97 +101,6 @@ export interface SupervisionHooks {
   onError(transport: SupervisionTransport, err: unknown): void;
 }
 
-// --------------------------------------------------------------------------
-// Framing parser (exported for direct test)
-// --------------------------------------------------------------------------
-
-/**
- * Result of one `parseFrame` call against a connection's accumulating buffer. `frame !== null`
- * is a complete body, and `consumed` bytes must be dropped from the head of the accumulator.
- * `frame === null` with `consumed === 0` means the buffer holds no complete frame yet: a normal
- * case on a stream transport, not an error. Framing violations throw `FramingError` instead.
- */
-export interface ParseFrameResult {
-  /** The body bytes, or `null` until a whole frame has arrived. */
-  readonly frame: Buffer | null;
-  /** Bytes to drop from the buffer head when `frame !== null`, else 0. */
-  readonly consumed: number;
-}
-
-/**
- * A framing or envelope violation. `code` is a stable string that `mapJsonRpcError` turns into the
- * numeric code and `data.type`, and the optional `fields` become `data.fields`.
- */
-export class FramingError extends Error {
-  readonly code: string;
-  readonly fields?: Record<string, unknown>;
-  constructor(code: string, message: string, fields?: Record<string, unknown>) {
-    super(message);
-    this.name = "FramingError";
-    this.code = code;
-    if (fields !== undefined) {
-      this.fields = fields;
-    }
-  }
-}
-
-/**
- * Parse one `Content-Length: <bytes>\r\n\r\n<body>` frame from the head of `buffer`. The length
- * counts bytes, not characters, so a multi-byte UTF-8 body is sliced by byte count; the returned
- * slice is the verbatim body and JSON parsing is the caller's job.
- *
- * Returns `{ frame: null, consumed: 0 }` while the header or body is incomplete. Throws
- * `FramingError` for a missing, duplicate or non-numeric `Content-Length`, a declared length over
- * `MAX_MESSAGE_BYTES`, or a header section that breaks the `<name>: <value>` grammar or exceeds
- * 1 KB.
- */
-export function parseFrame(buffer: Buffer): ParseFrameResult {
-  const separatorIndex = buffer.indexOf(HEADER_BODY_SEPARATOR);
-  // The 1 KB header cap applies whether or not the delimiter has arrived. A peer that streams
-  // megabytes of header without CRLFCRLF would otherwise pin the accumulator, and one that sends
-  // megabytes of header followed by CRLFCRLF would otherwise be parsed in full. Real headers are
-  // tens of bytes.
-  if (separatorIndex === -1) {
-    if (buffer.byteLength > 1024) {
-      throw new FramingError(
-        "header_too_long",
-        `parseFrame: header section exceeded 1024 bytes without ${JSON.stringify(HEADER_BODY_SEPARATOR)} (likely framing desync)`,
-      );
-    }
-    return { frame: null, consumed: 0 };
-  }
-  if (separatorIndex > 1024) {
-    throw new FramingError(
-      "header_too_long",
-      `parseFrame: header section is ${separatorIndex} bytes (with delimiter present); exceeds 1024 byte cap`,
-    );
-  }
-
-  const headerBytes = buffer.subarray(0, separatorIndex);
-  const headerText = headerBytes.toString("ascii");
-  const declaredLength = extractContentLength(headerText);
-
-  if (declaredLength > MAX_MESSAGE_BYTES) {
-    // The gateway turns this into an `oversized_body` disconnect; `fields` feed `data.fields`.
-    throw new FramingError(
-      "oversized_body",
-      `parseFrame: declared body length ${declaredLength} exceeds ${MAX_MESSAGE_BYTES} byte limit`,
-      { limit: MAX_MESSAGE_BYTES, observed: declaredLength },
-    );
-  }
-
-  const bodyStart = separatorIndex + Buffer.byteLength(HEADER_BODY_SEPARATOR, "ascii");
-  const bodyEnd = bodyStart + declaredLength;
-  if (buffer.byteLength < bodyEnd) {
-    // The header is here but the body has not fully arrived; the caller keeps accumulating.
-    return { frame: null, consumed: 0 };
-  }
-
-  const body = buffer.subarray(bodyStart, bodyEnd);
-  // Copy: `subarray` is a view, and the caller drops head bytes from the accumulator.
-  return { frame: Buffer.from(body), consumed: bodyEnd };
-}
-
 /**
  * Encode a JSON-RPC envelope as a Content-Length frame; the header carries the body's UTF-8 byte
  * count. Throws `FramingError("oversized_body")` past `MAX_MESSAGE_BYTES`, so the daemon's own
@@ -212,79 +122,6 @@ export function encodeFrame(envelope: JsonRpcMessage): Buffer {
   const header = `${CONTENT_LENGTH_HEADER}: ${declaredLength}${HEADER_BODY_SEPARATOR}`;
   const headerBytes = Buffer.from(header, "ascii");
   return Buffer.concat([headerBytes, bodyBytes]);
-}
-
-/**
- * Extract the `Content-Length` value from the header section: name matched case-insensitively,
- * value a strict decimal integer. Throws `FramingError` when it is missing or duplicate, or when a
- * header line breaks the `<name>: <value>` grammar; any deviation ends in a disconnect, never a
- * best-effort recovery.
- */
-function extractContentLength(headerText: string): number {
-  // Lone-LF line terminators are rejected: lenient parsing would mask peer bugs.
-  if (headerText.length > 0 && headerText.includes("\n") && !headerText.includes("\r\n")) {
-    throw new FramingError(
-      "malformed_header",
-      "parseFrame: header section uses LF line terminator; expected CRLF per LSP framing",
-    );
-  }
-  const lines = headerText.length === 0 ? [] : headerText.split("\r\n");
-  let declaredLength: number | null = null;
-  for (const line of lines) {
-    if (line.length === 0) {
-      // The CRLFCRLF separator ends the headers, so an earlier empty line is malformed.
-      throw new FramingError("malformed_header", "parseFrame: empty line within header section");
-    }
-    const colonIndex = line.indexOf(":");
-    if (colonIndex === -1) {
-      throw new FramingError(
-        "malformed_header",
-        `parseFrame: header line missing ':' separator: ${JSON.stringify(line)}`,
-      );
-    }
-    const name = line.slice(0, colonIndex).trim();
-    const value = line.slice(colonIndex + 1).trim();
-    if (name.length === 0) {
-      throw new FramingError(
-        "malformed_header",
-        `parseFrame: header line has empty name: ${JSON.stringify(line)}`,
-      );
-    }
-    if (name.toLowerCase() === CONTENT_LENGTH_HEADER.toLowerCase()) {
-      // Duplicate Content-Length headers are a request-smuggling shape: taking the last would
-      // slice one length from a buffer carrying the other, and the remainder would be read as a
-      // fresh frame.
-      if (declaredLength !== null) {
-        throw new FramingError(
-          "malformed_content_length",
-          `parseFrame: duplicate ${CONTENT_LENGTH_HEADER} header (request-smuggling shape)`,
-        );
-      }
-      // Digits only: no sign, hex, exponent or inner whitespace.
-      if (!/^\d+$/.test(value)) {
-        throw new FramingError(
-          "malformed_content_length",
-          `parseFrame: Content-Length value ${JSON.stringify(value)} is not a non-negative decimal integer`,
-        );
-      }
-      const parsed = Number.parseInt(value, 10);
-      if (!Number.isFinite(parsed) || parsed < 0) {
-        throw new FramingError(
-          "malformed_content_length",
-          `parseFrame: Content-Length value ${JSON.stringify(value)} is not finite or is negative`,
-        );
-      }
-      declaredLength = parsed;
-    }
-    // Other header names (such as `Content-Type`) are ignored.
-  }
-  if (declaredLength === null) {
-    throw new FramingError(
-      "missing_content_length",
-      `parseFrame: header section did not include ${CONTENT_LENGTH_HEADER}`,
-    );
-  }
-  return declaredLength;
 }
 
 // --------------------------------------------------------------------------
@@ -561,7 +398,7 @@ export class LocalIpcGateway {
     for (;;) {
       let result: ParseFrameResult;
       try {
-        result = parseFrame(state.buffer);
+        result = parseFrame(state.buffer, MAX_MESSAGE_BYTES);
       } catch (err) {
         // The wire is desynced and the peer cannot recover, so send a best-effort error response
         // with id null and then close.

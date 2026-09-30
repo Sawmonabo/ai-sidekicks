@@ -8,7 +8,7 @@
 
 import type { Database, RunResult, Statement } from "better-sqlite3";
 
-import type { AppendableEvent, DaemonSessionSnapshot, StoredEvent } from "./types.js";
+import type { DaemonSessionSnapshot, StoredEvent } from "./types.js";
 import { replay as projectReplay } from "./session-projector.js";
 
 // A row as better-sqlite3 returns it from the replay query. `safeIntegers` applies to every
@@ -122,7 +122,7 @@ export class SessionService {
    * `TestSeedingAppendToken`, and on a duplicate (session, sequence), which the caller must
    * avoid.
    */
-  append(event: AppendableEvent): undefined {
+  append(event: StoredEvent): undefined {
     if (!this.#allowTestSeedingAppend) {
       throw new Error(
         "SessionService.append is guarded: it writes a caller-sequenced row outside the " +

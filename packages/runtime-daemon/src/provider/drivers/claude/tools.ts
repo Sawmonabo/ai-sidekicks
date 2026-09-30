@@ -26,7 +26,7 @@ import {
 import type { McpServerStatusEmission } from "../../provider-driver.js";
 
 /** The class an unannotated tool takes: it halts recovery for operator reconciliation. */
-export const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
+const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
 /** The closed `idempotency_class` vocabulary, for runtime recognition. */
 const RECOGNIZED_IDEMPOTENCY_CLASSES: readonly IdempotencyClass[] = [
@@ -65,7 +65,7 @@ export function closeToolIdempotencyClass(
 }
 
 /** Closes a whole declaration table. See {@link closeToolIdempotencyClass}. */
-export function closeToolIdempotencyClasses(
+function closeToolIdempotencyClasses(
   declarations: readonly ProviderToolMetadata[],
 ): NormalizedProviderToolMetadata[] {
   return declarations.map((declaration) => closeToolIdempotencyClass(declaration));
@@ -89,9 +89,8 @@ export const CLAUDE_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
 
 /**
  * The Claude driver's raw tool declarations, where omitting `idempotency_class` is the normal case.
- * Exported so a test can check the floor on shipped data.
  */
-export const CLAUDE_TOOL_DECLARATIONS: readonly ProviderToolMetadata[] = Object.freeze(
+const CLAUDE_TOOL_DECLARATIONS: readonly ProviderToolMetadata[] = Object.freeze(
   (
     [
       // Pure local reads: nothing observable changes, so repeating after a crash is safe.
@@ -123,88 +122,6 @@ export const CLAUDE_TOOL_CATALOG: readonly NormalizedProviderToolMetadata[] = Ob
 /** A fresh, mutable copy of the catalog, since `GetCapabilitiesResult.tools` is mutable. */
 export function getClaudeToolMetadata(): NormalizedProviderToolMetadata[] {
   return CLAUDE_TOOL_CATALOG.map((tool) => ({ ...tool }));
-}
-
-/** The class of every MCP-discovered tool: equal to the default in value but not in rule. */
-export const MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
-
-/**
- * MCP `ToolAnnotations` self-claims, modeled only so {@link classifyMcpDiscoveredTool} can name
- * what it ignores.
- */
-export interface McpToolAnnotationHints {
-  readonly readOnlyHint?: boolean | undefined;
-  readonly idempotentHint?: boolean | undefined;
-  readonly destructiveHint?: boolean | undefined;
-  readonly openWorldHint?: boolean | undefined;
-}
-
-/**
- * Classifies an MCP-discovered tool: always the floor. `annotations` is ignored because MCP
- * requires clients to treat annotations as untrusted.
- */
-export function classifyMcpDiscoveredTool(
-  annotations?: McpToolAnnotationHints | undefined,
-): IdempotencyClass {
-  // Intentionally unread.
-  void annotations;
-  return MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS;
-}
-
-/**
- * The identity of one task-augmented MCP dispatch. `commandId` is the client-supplied idempotency
- * key on the dispatch's `command_receipts` row; `(serverName, toolName)` names no storable row.
- */
-export interface McpTaskDispatchIdentity {
-  readonly commandId: string;
-  readonly serverName: string;
-  readonly toolName: string;
-}
-
-/** A dispatch whose acceptance carried a receiver-generated `taskId`, ready to be recorded. */
-export interface McpTaskHandleObservation extends McpTaskDispatchIdentity {
-  readonly mcpTaskId: string;
-}
-
-/**
- * Where an observed task handle lands: `McpTaskHandleRecorder.asSink()`, which stores it on the
- * dispatch's `command_receipts` row. Returns `void`: a store failure cannot fail a turn.
- */
-export type McpTaskHandleSink = (observation: McpTaskHandleObservation) => void;
-
-/**
- * Extracts `task.taskId` from a `CreateTaskResult`-shaped acceptance. Anything else yields
- * `undefined`; a handle is never fabricated.
- */
-export function extractMcpTaskId(acceptanceResult: unknown): string | undefined {
-  if (typeof acceptanceResult !== "object" || acceptanceResult === null) {
-    return undefined;
-  }
-  const task = (acceptanceResult as Record<string, unknown>)["task"];
-  if (typeof task !== "object" || task === null) {
-    return undefined;
-  }
-  const taskId = (task as Record<string, unknown>)["taskId"];
-  if (typeof taskId !== "string" || taskId.length === 0) {
-    return undefined;
-  }
-  return taskId;
-}
-
-/**
- * Hands the sink an observation only when the acceptance carries a handle; otherwise recovery keeps
- * the floor's halt. No daemon path issues a task-augmented MCP call yet, so only tests call it.
- */
-export function observeMcpTaskAcceptance(
-  sink: McpTaskHandleSink,
-  dispatch: McpTaskDispatchIdentity,
-  acceptanceResult: unknown,
-): void {
-  const mcpTaskId = extractMcpTaskId(acceptanceResult);
-  if (mcpTaskId === undefined) {
-    return;
-  }
-  sink({ ...dispatch, mcpTaskId });
 }
 
 /**

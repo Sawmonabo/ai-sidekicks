@@ -220,8 +220,9 @@ export function canonicalizeJson(value: unknown): CanonicalBytes {
 /**
  * Refuses an envelope `sequence` that is not a safe integer: past 2^53 - 1 distinct sequences
  * collapse to one double and would share one replay key. Lives here, not in `canonicalizeJson`,
- * because RFC 8785 mandates output for unsafe payload numbers. `EVENT_ENVELOPE_SEQUENCE_MAX` is
- * deliberately not imported, so a test can assert the two boundaries agree.
+ * because RFC 8785 mandates output for unsafe payload numbers. It checks `Number.isSafeInteger`,
+ * the property the bytes need, rather than importing `EVENT_ENVELOPE_SEQUENCE_MAX`: a shared
+ * import would make the two agree even on a wrong value.
  */
 function assertRepresentableSequence(sequence: number): void {
   if (!Number.isSafeInteger(sequence)) {

@@ -2,8 +2,8 @@
 // total mapping from a pinned stream-json or control-channel frame kind to its event family.
 //
 // Rows come from the version-pinned Claude wire census (pin `2.1.251`; vectors in `__fixtures__/`,
-// so a re-pin fails a test) or the disposition contract (`EVENT_DISPOSITION_BY_KIND`). Three of
-// the six families are unreachable from the pin: see {@link CLAUDE_FAMILY_REACHABILITY}.
+// so a re-pin fails a test). A row that names a normalized kind takes its family and event type
+// from `EVENT_DISPOSITION_BY_KIND`; a row with no kind states its own.
 //
 // Left out on purpose, so the diagnostic default branch reports them instead of a guessed row:
 // the `assistant` / `user` message frames (no authless probe records their shape), the subagent
@@ -18,7 +18,7 @@ import {
 } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
-import type { NormalizedEventKind } from "../../event-disposition.js";
+import { resolveAdoptedEventTarget, type NormalizedEventKind } from "../../event-disposition.js";
 
 /**
  * Which channel carried the frame: stdout stream-json, or one half of the control channel. Not a
@@ -78,7 +78,7 @@ export type ClaudeWireFrameKind =
  * Whether a row's target type can be built into an envelope yet: it needs a payload variant in
  * `SessionEventSchema`. `payload-variant-pending` rows feed the diagnostic, never an envelope.
  */
-export type ClaudeEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
+type ClaudeEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
 
 // Derived from `SESSION_EVENT_TYPES`, which is bound to the live schema union at compile time.
 const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set(
@@ -86,9 +86,7 @@ const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = ne
 );
 
 /** Whether `eventType` may be built into a `SessionEvent` envelope today. Pure and total. */
-export function resolveClaudeEmissionReadiness(
-  eventType: SessionEventType,
-): ClaudeEmissionReadiness {
+function resolveClaudeEmissionReadiness(eventType: SessionEventType): ClaudeEmissionReadiness {
   return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)
     ? "envelope-constructible"
     : "payload-variant-pending";
@@ -128,10 +126,36 @@ export type ClaudeFrameNormalization =
   | ClaudeNormalizedFamilyEmission
   | ClaudeNotEventedFrameDisposition;
 
-// A table row before `emissionReadiness` is derived onto it, so no row states a second copy.
+// A table row before its derived members are put on it, so no row states a second copy: a row
+// naming a kind takes `family` and `eventType` from the disposition table, and every row's
+// `emissionReadiness` follows from its event type.
 type ClaudeFrameNormalizationTableRow =
-  | Omit<ClaudeNormalizedFamilyEmission, "emissionReadiness">
+  | (Omit<ClaudeNormalizedFamilyEmission, "emissionReadiness" | "family" | "eventType"> & {
+      readonly normalizedKind: NormalizedEventKind;
+      readonly family?: never;
+      readonly eventType?: never;
+    })
+  | (Omit<ClaudeNormalizedFamilyEmission, "emissionReadiness"> & {
+      readonly normalizedKind: null;
+    })
   | ClaudeNotEventedFrameDisposition;
+
+function composeClaudeFrameNormalization(
+  row: ClaudeFrameNormalizationTableRow,
+): ClaudeFrameNormalization {
+  if (row.disposition === "not-evented") {
+    return row;
+  }
+  const target =
+    row.normalizedKind === null
+      ? { family: row.family, eventType: row.eventType }
+      : resolveAdoptedEventTarget(row.normalizedKind);
+  return {
+    ...row,
+    ...target,
+    emissionReadiness: resolveClaudeEmissionReadiness(target.eventType),
+  };
+}
 
 /**
  * Thrown for a frame kind outside the census. `frameKind` is untrusted provider output, kept
@@ -152,15 +176,13 @@ export class UnknownClaudeWireFrameError extends Error {
 }
 
 // A `satisfies Record<ClaudeWireFrameKind, ...>` literal, not a `switch`: a missing or excess key
-// fails the build. `emissionReadiness` is derived per row when the lookup map is built.
+// fails the build. The derived members are put on each row when the lookup map is built.
 const CLAUDE_FRAME_NORMALIZATION_RECORD = {
   // A forward marker only: `run.*` transitions stay daemon-emitted, not derived from init.
   "system/init": {
     disposition: "normalized",
     frameKind: "system/init",
     channel: "stream",
-    family: "run_lifecycle",
-    eventType: "run.provider_initialized",
     normalizedKind: "init",
   },
   // The typed-error enum members are carried verbatim by the payload layer: a string census
@@ -169,8 +191,6 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     frameKind: "system/api_retry",
     channel: "stream",
-    family: "usage_telemetry",
-    eventType: "usage.api_retry",
     normalizedKind: "api_retry",
   },
   // The census maps `system/api_error` onto `system/api_retry`.
@@ -178,18 +198,15 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     frameKind: "system/api_error",
     channel: "stream",
-    family: "usage_telemetry",
-    eventType: "usage.api_retry",
     normalizedKind: "api_retry",
   },
-  // The one rename: `rate_limit_event` becomes `rate_limits`, an account quota snapshot. It is the
-  // preferred carrier because it is pushed, with no round trip on the experimental `get_usage`.
+  // The rename happens here: the wire's `rate_limit_event` becomes the `rate_limits` kind, an
+  // account quota snapshot. It is the preferred carrier because it is pushed, with no round trip
+  // on the experimental `get_usage`.
   "system/rate_limit_event": {
     disposition: "normalized",
     frameKind: "system/rate_limit_event",
     channel: "stream",
-    family: "usage_telemetry",
-    eventType: "usage.rate_limit_update",
     normalizedKind: "rate_limits",
   },
   // Provider context-window compaction, distinct from the daemon's `event.compacted` pass.
@@ -197,8 +214,6 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     frameKind: "system/compact_boundary",
     channel: "stream",
-    family: "usage_telemetry",
-    eventType: "usage.context_compacted",
     normalizedKind: "compact_boundary",
   },
   // Wire-layer, not a registry key, so `normalizedKind` is `null`. Assumed on the system channel;
@@ -280,40 +295,30 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     frameKind: "result/success",
     channel: "stream",
-    family: "run_lifecycle",
-    eventType: "run.completed",
     normalizedKind: "turn_complete",
   },
   "result/error_max_turns": {
     disposition: "normalized",
     frameKind: "result/error_max_turns",
     channel: "stream",
-    family: "run_lifecycle",
-    eventType: "run.failed",
     normalizedKind: "error",
   },
   "result/error_max_budget_usd": {
     disposition: "normalized",
     frameKind: "result/error_max_budget_usd",
     channel: "stream",
-    family: "run_lifecycle",
-    eventType: "run.failed",
     normalizedKind: "error",
   },
   "result/error_during_execution": {
     disposition: "normalized",
     frameKind: "result/error_during_execution",
     channel: "stream",
-    family: "run_lifecycle",
-    eventType: "run.failed",
     normalizedKind: "error",
   },
   "result/error_max_structured_output_retries": {
     disposition: "normalized",
     frameKind: "result/error_max_structured_output_retries",
     channel: "stream",
-    family: "run_lifecycle",
-    eventType: "run.failed",
     normalizedKind: "error",
   },
 
@@ -325,8 +330,6 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     frameKind: "control_request/can_use_tool",
     channel: "control-request",
-    family: "approval_flow",
-    eventType: "approval.requested",
     normalizedKind: "approval_request",
   },
   // An MCP elicitation, recorded as the same question record the question tool yields.
@@ -334,8 +337,6 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "normalized",
     frameKind: "control_request/elicitation",
     channel: "control-request",
-    family: "interactive_request",
-    eventType: "question.asked",
     normalizedKind: "user_input_request",
   },
   "control_request/request_user_dialog": {
@@ -465,7 +466,7 @@ export const CLAUDE_WIRE_FRAME_KINDS: readonly ClaudeWireFrameKind[] = Object.fr
  * The frame-kind to normalization map. A `Map`, not the record, because the key is composed from
  * untrusted strings and `lookup["__proto__"]` on an object would return a truthy non-value.
  */
-export const CLAUDE_FRAME_NORMALIZATION_BY_KIND: ReadonlyMap<
+const CLAUDE_FRAME_NORMALIZATION_BY_KIND: ReadonlyMap<
   ClaudeWireFrameKind,
   ClaudeFrameNormalization
 > = new Map(
@@ -474,17 +475,7 @@ export const CLAUDE_FRAME_NORMALIZATION_BY_KIND: ReadonlyMap<
     Object.entries(CLAUDE_FRAME_NORMALIZATION_RECORD) as ReadonlyArray<
       [ClaudeWireFrameKind, ClaudeFrameNormalizationTableRow]
     >
-  ).map(([frameKind, normalization]) => [
-    frameKind,
-    Object.freeze(
-      normalization.disposition === "normalized"
-        ? {
-            ...normalization,
-            emissionReadiness: resolveClaudeEmissionReadiness(normalization.eventType),
-          }
-        : normalization,
-    ),
-  ]),
+  ).map(([frameKind, row]) => [frameKind, Object.freeze(composeClaudeFrameNormalization(row))]),
 );
 
 /**
@@ -515,15 +506,14 @@ export function normalizeClaudeWireFrame(frameKind: string): ClaudeFrameNormaliz
 // Claude Code's question tool.
 const CLAUDE_QUESTION_TOOL_NAME = "AskUserQuestion";
 
-const CLAUDE_QUESTION_TOOL_NORMALIZATION: ClaudeNormalizedFamilyEmission = Object.freeze({
-  disposition: "normalized",
-  frameKind: "control_request/can_use_tool",
-  channel: "control-request",
-  family: "interactive_request",
-  eventType: "question.asked",
-  normalizedKind: "user_input_request",
-  emissionReadiness: resolveClaudeEmissionReadiness("question.asked"),
-});
+const CLAUDE_QUESTION_TOOL_NORMALIZATION: ClaudeFrameNormalization = Object.freeze(
+  composeClaudeFrameNormalization({
+    disposition: "normalized",
+    frameKind: "control_request/can_use_tool",
+    channel: "control-request",
+    normalizedKind: "user_input_request",
+  }),
+);
 
 /**
  * Normalizes a `can_use_tool` request by tool name: Claude Code's question tool becomes
@@ -534,93 +524,6 @@ export function normalizeClaudeCanUseToolRequest(toolName: string): ClaudeFrameN
     ? CLAUDE_QUESTION_TOOL_NORMALIZATION
     : normalizeClaudeWireFrame("control_request/can_use_tool");
 }
-
-/** One family's reachability: the frame kinds that reach it, or why no pinned frame does. */
-export interface ClaudeFamilyReachability {
-  readonly family: EventCategory;
-  readonly reachedBy: readonly ClaudeWireFrameKind[];
-  /** Census kinds in this family that no pinned Claude frame kind feeds. */
-  readonly unreachedCensusKinds: readonly NormalizedEventKind[];
-  readonly shortfallReason: string | null;
-}
-
-/**
- * The six required families with their reachability at this pin. `reachedBy` is stated, not
- * computed, so the ledger and the mapping table are independent statements the tests compare.
- */
-export const CLAUDE_FAMILY_REACHABILITY: readonly ClaudeFamilyReachability[] = Object.freeze([
-  Object.freeze({
-    family: "run_lifecycle",
-    reachedBy: Object.freeze([
-      "system/init",
-      "system/worker_shutting_down",
-      "result/success",
-      "result/error_max_turns",
-      "result/error_max_budget_usd",
-      "result/error_during_execution",
-      "result/error_max_structured_output_retries",
-    ] as const),
-    unreachedCensusKinds: Object.freeze(["turn_start", "session_status"] as const),
-    shortfallReason:
-      "`turn_start` (census row 5) would ride a Claude stream-json message frame, whose shape is unobservable without credentials; `session_status` (row 11) is routed to `session_lifecycle`, outside this ledger's six families, and carries the no-fabricated-transition rule besides",
-  }),
-  Object.freeze({
-    family: "usage_telemetry",
-    reachedBy: Object.freeze([
-      "system/api_retry",
-      "system/api_error",
-      "system/rate_limit_event",
-      "system/compact_boundary",
-    ] as const),
-    unreachedCensusKinds: Object.freeze(["token_usage", "model_rerouted"] as const),
-    shortfallReason:
-      "`token_usage` (census row 12) rides a stream-json message frame the pin cannot observe; `model_rerouted` (row 21) has a plausible Claude carrier in `model_refusal_fallback` (its sibling `model_refusal_no_fallback` is a refusal that fails the run), but the pair is recorded only as adjacent subtypes present at the pin (2026-08-25) and no disposition table covers it, so both are excluded uniformly rather than one mapped by inference",
-  }),
-  Object.freeze({
-    family: "interactive_request",
-    reachedBy: Object.freeze(["control_request/elicitation"] as const),
-    unreachedCensusKinds: Object.freeze(["user_input_resolved"] as const),
-    shortfallReason:
-      "`user_input_resolved` (census row 10) is discarded by the registry: the answer is recorded as the person's own `user.message` turn by the call that answered the question, never observed on an inbound frame; `approval_request` and `approval_resolved` route to `approval_flow`, outside this ledger's six families",
-  }),
-  Object.freeze({
-    family: "assistant_output",
-    reachedBy: Object.freeze([] as const),
-    unreachedCensusKinds: Object.freeze([
-      "text_delta",
-      "thinking",
-      "proposed_plan",
-      "content_block_start",
-      "content_block_stop",
-    ] as const),
-    shortfallReason:
-      "every one of these rides a Claude `assistant` stream-json message frame, and no authless protocol probe exists for this provider, so nothing pins a discriminant for those frames; `content_block_start` / `content_block_stop` are `discard` rows besides (census rows 23-24). Closing this family needs an authenticated-leg wire probe, not a mapping decision",
-  }),
-  Object.freeze({
-    family: "tool_activity",
-    reachedBy: Object.freeze([] as const),
-    unreachedCensusKinds: Object.freeze([
-      "tool_start",
-      "tool_complete",
-      "todo_update",
-      "task_create",
-      "task_update",
-      "background_task_terminal",
-      "background_task_notification",
-      "diff",
-      "command_output",
-    ] as const),
-    shortfallReason:
-      "same unobservable `assistant` / `user` message frames as `assistant_output`; the Claude plugin delta family is dispositioned into this category but no wire string is recorded for any plugin frame, so no row can name one. The two Claude subagent-lifecycle kinds that DO land here (`SubagentStart` / `SubagentStop` -> `subagent.started` / `subagent.completed`) arrive through the subagent-lifecycle band (`normalizeClaudeSubagentLifecycle`) rather than through this census, whose rows carry only wire-census-recorded kinds",
-  }),
-  Object.freeze({
-    family: "artifact_publication",
-    reachedBy: Object.freeze([] as const),
-    unreachedCensusKinds: Object.freeze([] as const),
-    shortfallReason:
-      "no census kind targets this family at all, for either provider. The two kinds carrying a file-change capability, `diff` (row 32) and `command_output` (row 33), are both routed to `tool_activity` / `tool.result`, and the `files_persisted` discard reason states that the capability is carried by those rows plus `artifact_publication` — i.e. publication is reached by the daemon's own artifact surface, never by a provider frame crossing this seam. There are no unreached census kinds here because there are no candidate kinds",
-  }),
-]);
 
 /** The census-mapped emission answer, or the frame's routed diagnostic. */
 export type ClaudeFrameEmissionRoute =
@@ -658,7 +561,7 @@ export function resolveClaudeFrameEmissionRoute(
       kind: "payload_variant_pending",
       rawWireType: frameKind,
       dispositionReason:
-        "censused kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction is forbidden without one, so the frame routes to the diagnostic branch",
+        "normalized kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction is forbidden without one, so the frame routes to the diagnostic branch",
       details: { eventType: normalization.eventType },
     };
     diagnostics.emit(record);
@@ -674,7 +577,7 @@ export function resolveClaudeFrameEmissionRoute(
 export const CLAUDE_SUBAGENT_START_SIGNAL = "SubagentStart" as const;
 
 /** Wire name of a Claude subagent stop; see {@link CLAUDE_SUBAGENT_START_SIGNAL}. */
-export const CLAUDE_SUBAGENT_STOP_SIGNAL = "SubagentStop" as const;
+const CLAUDE_SUBAGENT_STOP_SIGNAL = "SubagentStop" as const;
 
 /** One Claude subagent-lifecycle signal, as the driver core read it. */
 export interface ClaudeSubagentLifecycleSignal {

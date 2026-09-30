@@ -6,37 +6,27 @@
 import { readCodexRecord } from "./turn-evidence.js";
 import type { ProviderUsageLimitSignal } from "../../provider-driver.js";
 
-/** The `account/rateLimits/read` method, the pull carrier of a rate-limit snapshot (a reply). */
+/**
+ * The `account/rateLimits/read` method, the pull carrier of a rate-limit snapshot (a reply).
+ *
+ * @consumedBy the Codex driver's account rate-limit reads
+ */
 export const CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD = "account/rateLimits/read" as const;
 
-/** The `account/rateLimits/updated` method, the push carrier of a rate-limit snapshot. */
+/**
+ * The `account/rateLimits/updated` method, the push carrier of a rate-limit snapshot.
+ *
+ * @consumedBy the Codex driver's account rate-limit reads
+ */
 export const CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD = "account/rateLimits/updated" as const;
 
-/**
- * Every `RateLimitReachedType` member of the pin's schema, transcribed by hand from `codex-cli
- * 0.150.1`; re-transcribe it when the pin moves. A test asserts the two dispositions below
- * partition it; an arm the vendor adds later takes the unrecognized path.
- */
-export const CODEX_RATE_LIMIT_REACHED_TYPES: readonly string[] = Object.freeze([
-  "rate_limit_reached",
-  "workspace_owner_credits_depleted",
-  "workspace_member_credits_depleted",
-  "workspace_owner_usage_limit_reached",
-  "workspace_member_usage_limit_reached",
-]);
-
-// Arms meaning a rolling allowance is spent; it clears when the window turns over.
+// Arms meaning a rolling allowance is spent; it clears when the window turns over. The
+// credits-depleted arms produce no signal on purpose: a purchase restores credits, not a window
+// turning over, so there is no reset instant to park a run against.
 const CODEX_PLAN_ALLOWANCE_REACHED_TYPES: ReadonlySet<string> = new Set([
   "rate_limit_reached",
   "workspace_owner_usage_limit_reached",
   "workspace_member_usage_limit_reached",
-]);
-
-// Operator-remediable arms produce no signal on purpose: a purchase restores credits, not a window
-// turning over, so there is no reset instant to park a run against.
-const CODEX_OPERATOR_REMEDIABLE_REACHED_TYPES: ReadonlySet<string> = new Set([
-  "workspace_owner_credits_depleted",
-  "workspace_member_credits_depleted",
 ]);
 
 /**
@@ -137,8 +127,3 @@ export function classifyCodexUsageLimitSignal(
     resetBoundary: { resetsAt, provenance: "provider-stated" },
   };
 }
-
-/** The operator-remediable arms, exported for the partition test only. */
-export const CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES: readonly string[] = Object.freeze([
-  ...CODEX_OPERATOR_REMEDIABLE_REACHED_TYPES,
-]);

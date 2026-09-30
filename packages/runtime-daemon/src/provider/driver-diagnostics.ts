@@ -3,8 +3,7 @@
 // and the bounded reorder buffer. These are operator diagnostics, never `session_events`
 // envelopes; a frame that reaches this channel is never silently dropped.
 
-/** The two pinned provider drivers; defined here because both normalizers import this module. */
-export type DriverProviderName = "codex" | "claude";
+import type { ProviderName } from "@ai-sidekicks/contracts";
 
 /**
  * The closed set of diagnostic kinds. The counter-name map is keyed by it, so a kind added
@@ -107,7 +106,7 @@ export type DriverDiagnosticKind =
  * anything that executes.
  */
 export interface DriverDiagnosticRecord {
-  readonly provider: DriverProviderName;
+  readonly provider: ProviderName;
   readonly kind: DriverDiagnosticKind;
   readonly rawWireType: string | null;
   readonly dispositionReason: string;
@@ -287,7 +286,7 @@ export class NormalizedEventReorderBuffer<TEvent> {
   /** Ledger cap when the caller declares none. */
   static readonly DEFAULT_MAX_SEEN_INITIATION_IDS = 1024;
 
-  readonly #provider: DriverProviderName;
+  readonly #provider: ProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #maxBufferedEvents: number;
   readonly #pairingTimeoutMs: number;
@@ -301,7 +300,7 @@ export class NormalizedEventReorderBuffer<TEvent> {
   readonly #seenInitiationToolCallIds = new Set<string>();
 
   constructor(options: {
-    readonly provider: DriverProviderName;
+    readonly provider: ProviderName;
     readonly diagnostics: DriverDiagnosticsEmitter;
     readonly maxBufferedEvents: number;
     readonly pairingTimeoutMs: number;

@@ -13,12 +13,7 @@ import {
   CRASH_BUDGET_WINDOW_MS,
   type SidecarSpawnFn,
 } from "../sidecar-child-supervisor.js";
-import {
-  ContentLengthParser,
-  MAX_FRAME_BODY_BYTES,
-  MAX_HEADER_BYTES,
-  SidecarFrameDecodeError,
-} from "../sidecar-frame-codec.js";
+import { MAX_FRAME_BODY_BYTES, SidecarFrameDecodeError } from "../sidecar-frame-codec.js";
 import {
   PtyBackendUnavailableError,
   resolveSidecarBinaryPath,
@@ -368,148 +363,62 @@ describe("RustSidecarPtyHost — framing limits", () => {
 });
 
 // ----------------------------------------------------------------------------
-// `ContentLengthParser` driven directly: chunk-boundary reassembly and rejection paths.
-// ----------------------------------------------------------------------------
-
-describe("ContentLengthParser — chunk-boundary reassembly + rejection paths", () => {
-  it("reassembles a frame split mid-header or mid-body across two feed() calls", () => {
-    const body = Buffer.from('{"kind":"ping_response"}', "utf8");
-    const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
-    const full = Buffer.concat([header, body]);
-
-    // Mid-header, the parser cannot yet find the CRLFCRLF terminator; mid-body, the header is
-    // complete but the body is short. Either way it waits for the rest.
-    for (const splitAt of [
-      Math.floor(header.length / 2),
-      header.length + Math.floor(body.length / 2),
-    ]) {
-      const parser = new ContentLengthParser();
-      parser.feed(full.subarray(0, splitAt));
-      expect(parser.nextFrame()).toEqual({ kind: "incomplete" });
-
-      parser.feed(full.subarray(splitAt));
-      const result = parser.nextFrame();
-      expect(result.kind).toBe("frame");
-      if (result.kind === "frame") {
-        expect(result.body.toString("utf8")).toBe('{"kind":"ping_response"}');
-      }
-    }
-  });
-
-  it("drains multiple frames coalesced into a single feed() call", () => {
-    // Several frames arrive in one chunk; `drainParserUntilIncomplete` loops over `nextFrame`,
-    // so the parser must hand them out one at a time without losing or merging any.
-    const parser = new ContentLengthParser();
-    const bodies = [
-      '{"kind":"ping_response"}',
-      '{"kind":"resize_response","session_id":"s-0"}',
-      '{"kind":"write_response","session_id":"s-1"}',
-    ];
-    const chunks = bodies.map((b) => {
-      const body = Buffer.from(b, "utf8");
-      const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
-      return Buffer.concat([header, body]);
-    });
-    parser.feed(Buffer.concat(chunks));
-
-    const decoded: string[] = [];
-    for (;;) {
-      const result = parser.nextFrame();
-      if (result.kind === "incomplete") {
-        break;
-      }
-      if (result.kind === "error") {
-        throw new Error(`unexpected parser error: ${result.message}`);
-      }
-      decoded.push(result.body.toString("utf8"));
-    }
-    expect(decoded).toEqual(bodies);
-  });
-
-  it("rejects a frame missing the Content-Length header", () => {
-    // Without Content-Length the body length is unknown, so the parser returns the error result
-    // that makes the supervisor SIGKILL and respawn the child.
-    const parser = new ContentLengthParser();
-    parser.feed(Buffer.from("Content-Type: text/plain\r\n\r\nbody", "utf8"));
-    const result = parser.nextFrame();
-    expect(result.kind).toBe("error");
-    if (result.kind === "error") {
-      expect(result.message).toMatch(/missing Content-Length header/i);
-    }
-  });
-
-  it("rejects a frame with duplicate Content-Length headers (request-smuggling shape)", () => {
-    // Two Content-Length values are the request-smuggling shape; the Rust framer rejects them too.
-    const parser = new ContentLengthParser();
-    parser.feed(Buffer.from("Content-Length: 4\r\nContent-Length: 8\r\n\r\nbodybody", "utf8"));
-    const result = parser.nextFrame();
-    expect(result.kind).toBe("error");
-    if (result.kind === "error") {
-      expect(result.message).toMatch(/duplicate Content-Length/i);
-    }
-  });
-
-  // Digits only, as HTTP/1.1 `Content-Length = 1*DIGIT`: `parseInt` would read `12junk` and
-  // `12.5` as 12, and `Number` would read `""`, `12e1` and `0x12` as 0, 120 and 18, so the two
-  // sides would slice different lengths. Stricter than the Rust framer, which accepts `+N`; the
-  // sidecar never emits it.
-  describe.each([
-    ["empty string", ""],
-    ["embedded letters", "12junk"],
-    ["fractional", "12.5"],
-    ["scientific notation", "12e1"],
-    ["negative sign", "-12"],
-    ["positive sign", "+12"],
-    ["hex literal", "0x12"],
-  ])("Content-Length strict-grammar rejection — %s (%j)", (_label, raw) => {
-    it("rejects with the strict-grammar error and echoes the offending value JSON-encoded", () => {
-      const parser = new ContentLengthParser();
-      parser.feed(Buffer.from(`Content-Length: ${raw}\r\n\r\n`, "utf8"));
-      const result = parser.nextFrame();
-      expect(result.kind).toBe("error");
-      if (result.kind === "error") {
-        expect(result.message).toMatch(
-          /Content-Length value is not a strict non-negative integer/i,
-        );
-        // The offending value is echoed as a JSON string literal so a peer cannot inject CRLF or
-        // control bytes into logs. The parser trims first, so the assertion uses the trimmed form.
-        expect(result.message).toContain(JSON.stringify(raw.trim()));
-      }
-    });
-  });
-
-  it(`rejects a body length larger than MAX_FRAME_BODY_BYTES (${MAX_FRAME_BODY_BYTES})`, () => {
-    // The cap is checked on the declared length before any body bytes arrive, so no 8 MiB body
-    // is needed.
-    const parser = new ContentLengthParser();
-    parser.feed(Buffer.from(`Content-Length: ${MAX_FRAME_BODY_BYTES + 1}\r\n\r\n`, "utf8"));
-    const result = parser.nextFrame();
-    expect(result.kind).toBe("error");
-    if (result.kind === "error") {
-      expect(result.message).toMatch(/exceeds MAX_FRAME_BODY_BYTES/);
-    }
-  });
-
-  // MAX_HEADER_BYTES stops `feed()` from buffering forever when a peer or a framing desync never
-  // sends `\r\n\r\n`. It matches the per-section cap in `parseFrame` in
-  // `src/ipc/local-ipc-gateway.ts`; the Rust framer instead caps each header line at 1 KiB.
-  it("returns error when buffered bytes exceed MAX_HEADER_BYTES without CRLF CRLF terminator", () => {
-    // A peer or desync streams header bytes that never terminate; the parser must stop
-    // accumulating past MAX_HEADER_BYTES.
-    const parser = new ContentLengthParser();
-    parser.feed(Buffer.from("X".repeat(MAX_HEADER_BYTES + 1), "utf8"));
-    const result = parser.nextFrame();
-    expect(result.kind).toBe("error");
-    if (result.kind === "error") {
-      expect(result.message).toMatch(/header section exceeded 1024 bytes/);
-      expect(result.message).toMatch(/framing desync/i);
-    }
-  });
-});
-
-// ----------------------------------------------------------------------------
 // The parser is reset on child exit so the next sidecar does not inherit a half-read frame.
 // ----------------------------------------------------------------------------
+
+describe("RustSidecarPtyHost — the sidecar's own frame body limit", () => {
+  it("waits for the body when a frame declares exactly MAX_FRAME_BODY_BYTES", async () => {
+    const seq = spawnReturningSequence();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: () => 0,
+    });
+    const spawnPromise = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnPromise;
+    const killMock = seq.latest().child.kill as ReturnType<typeof vi.fn>;
+
+    // The cap is checked on the declared length, so no body bytes are needed.
+    seq.latest().writeStdout(Buffer.from(`Content-Length: ${MAX_FRAME_BODY_BYTES}\r\n\r\n`));
+    await flushMicrotasks();
+    expect(killMock).not.toHaveBeenCalled();
+  });
+
+  it("tears down the child when a frame declares one byte past MAX_FRAME_BODY_BYTES", async () => {
+    const seq = spawnReturningSequence();
+    const host = new RustSidecarPtyHost({
+      resolveBinaryPath: () => "/fake/sidecar",
+      spawn: seq.spawn,
+      nowMs: () => 0,
+    });
+    const spawnPromise = host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: [],
+      env: [],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    await flushMicrotasks();
+    seq.latest().writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+    await spawnPromise;
+
+    seq.latest().writeStdout(Buffer.from(`Content-Length: ${MAX_FRAME_BODY_BYTES + 1}\r\n\r\n`));
+    await flushMicrotasks();
+    expect(seq.latest().child.kill as ReturnType<typeof vi.fn>).toHaveBeenCalledWith("SIGKILL");
+  });
+});
 
 describe("RustSidecarPtyHost — parser reset across respawn", () => {
   it("framing-error self-kill respawns with a fresh parser that decodes a fresh frame correctly", async () => {

@@ -8,6 +8,7 @@ import { mkdir, rm } from "node:fs/promises";
 import {
   DEFAULT_GIT_EXECUTABLE,
   DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
+  GIT_STDIO_MAX_BUFFER_BYTES,
 } from "../workspace/repo-root-resolver.js";
 
 /** Captured stdio from one completed git invocation. */
@@ -52,10 +53,6 @@ export const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
  * seconds would kill a healthy provisioning on a large repository.
  */
 export const DEFAULT_WORKTREE_GIT_TIMEOUT_MS = 120_000;
-
-// Only `status --porcelain` can approach it; an overflow rejects and the cleanliness path refuses,
-// which fails closed.
-const GIT_STDIO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 // Imported from the resolver: two copies of this security list would drift.
 const DISCOVERY_REDIRECTING_GIT_ENV_KEYS_UPPERCASED = new Set(

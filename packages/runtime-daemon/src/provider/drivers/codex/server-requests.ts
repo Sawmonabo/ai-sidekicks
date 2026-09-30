@@ -154,11 +154,6 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
   ],
 ]);
 
-/** The routed method names, for the responder port. */
-export const CODEX_ROUTED_SERVER_REQUEST_METHODS: readonly string[] = Object.freeze([
-  ...CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS.keys(),
-]);
-
 /**
  * Why a Codex session's callback tools are withheld: they reach Codex only as the daemon's
  * per-session MCP `url` entry, never as `ThreadStartParams.dynamicTools`, and this daemon offers

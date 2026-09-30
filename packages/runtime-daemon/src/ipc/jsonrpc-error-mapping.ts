@@ -19,8 +19,9 @@ import type {
 import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { SecureDefaultsValidationError } from "../bootstrap/secure-defaults.js";
+import { FramingError } from "./content-length-framing.js";
 import { DaemonDomainError } from "./domain-error.js";
-import { FramingError, redactPathsFromString, sanitizeErrorMessage } from "./local-ipc-gateway.js";
+import { redactPathsFromString, sanitizeErrorMessage } from "./local-ipc-gateway.js";
 import { NegotiationError } from "./protocol-negotiation.js";
 import { RegistryDispatchError } from "./registry.js";
 import { SessionNotFoundError } from "./session-errors.js";

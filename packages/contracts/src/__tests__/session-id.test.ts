@@ -39,6 +39,7 @@ describe("SessionIdSchema — RFC 9562 text, case-insensitive on every alternati
     ["a 35-character string", "550e8400-e29b-41d4-a716-44665544000"],
     ["a path fragment", "../../etc/passwd"],
     ["an all-f string missing a hyphen", "ffffffffffff-ffff-ffff-ffffffffffff"],
+    ["a valid id followed by trailing text", `${VALID_UUID_V7}/../x`],
   ])("REFUSES %s", (_label, value) => {
     // The widening is case and nothing else: the version and variant nibbles still decide, so
     // the Max UUID is admitted by its own alternative, not by a relaxed general form that would

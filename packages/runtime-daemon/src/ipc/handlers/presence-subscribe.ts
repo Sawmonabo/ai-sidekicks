@@ -22,7 +22,7 @@ import {
   PresenceSubscribeResponseSchema,
 } from "@ai-sidekicks/contracts";
 
-import type { StreamingPrimitive } from "../streaming-primitive.js";
+import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../streaming-primitive.js";
 
 /** What `presence.subscribe`'s handler needs. */
 export interface PresenceSubscribeDeps {
@@ -79,8 +79,8 @@ export function registerPresenceSubscribe(
         try {
           sub.next(update);
         } catch (err) {
-          sub.cancel();
-          console.error(
+          cancelAfterDetachedFailure(
+            sub,
             `[presence.subscribe] live-tail update validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
             err,
           );
@@ -101,8 +101,8 @@ export function registerPresenceSubscribe(
           sub.next(update);
         }
       } catch (err) {
-        sub.cancel();
-        console.error(
+        cancelAfterDetachedFailure(
+          sub,
           `[presence.subscribe] replay update validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
           err,
         );

@@ -47,17 +47,11 @@ import type {
 // become public by accident. From `capabilities.ts` only the model-catalog type is public, because
 // only `listModels` serves it; `tools.ts` is not exported.
 export { type ClaudeModelCatalogExchange } from "./capabilities.js";
-export { ClaudeInterventionDispatcher, CLAUDE_STEER_FALLBACK_ACTION } from "./intervention.js";
+export { ClaudeInterventionDispatcher } from "./intervention.js";
 export { ClaudeSessionLifecycle } from "./lifecycle.js";
-export { ClaudeSessionUnavailableError } from "./session-errors.js";
-export {
-  CLAUDE_CALLBACK_MCP_SERVER_NAME,
-  composeClaudeProviderToolName,
-} from "./spawn-settings.js";
-export { type ClaudeHandshakeDeclaration } from "./session-transport.js";
 
 /** The contract operations this driver implements; the class declaration is checked against it. */
-export type ClaudeDriverOperations = Pick<
+type ClaudeDriverOperations = Pick<
   ProviderDriver,
   | "createSession"
   | "resumeSession"

@@ -43,6 +43,8 @@ export const DPOP_AUTHORIZATION_SCHEME = "DPoP";
 /**
  * The request a credential is minted for. `sessionId` and `nodeId` scope the authority being
  * claimed; `htm` and `htu` are the RFC 9449 section 4.3 proof claims.
+ *
+ * @consumedBy the daemon's control-plane callers, such as the notification publisher
  */
 export interface DaemonCredentialAttempt {
   /** The session this call is about. */
@@ -81,6 +83,8 @@ export interface DaemonCredentialProvider {
  * Refuses every mint with a diagnostic naming the missing signing identity. It throws rather
  * than returning empty headers so the operator sees the real cause here, not a generic 401 from
  * the control plane.
+ *
+ * @consumedBy the daemon's startup wiring, until the daemon holds a signing identity
  */
 export class DeferredDaemonCredentialProvider implements DaemonCredentialProvider {
   mintForAttempt(attempt: DaemonCredentialAttempt): Promise<DaemonCredentialMaterial> {

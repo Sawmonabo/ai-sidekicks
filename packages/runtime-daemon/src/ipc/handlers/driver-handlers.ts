@@ -31,6 +31,7 @@ import type {
   MethodRegistry,
   ProviderCommandBindingGroup,
   ProviderCommandListResult,
+  ProviderName,
   RunId,
   SessionId,
 } from "@ai-sidekicks/contracts";
@@ -70,7 +71,7 @@ export interface DriverCatalogDeps {
  */
 export interface DriverDispatchDeps {
   readonly providerRegistry: Pick<ProviderRegistry, "lookup">;
-  readonly resolveDriverForRun: (runId: RunId) => string | undefined;
+  readonly resolveDriverForRun: (runId: RunId) => ProviderName | undefined;
 }
 
 // The resolution unions never throw: a resolver hands back address and liveness as data so the
@@ -81,14 +82,14 @@ export interface DriverDispatchDeps {
 type RunBindingResolution =
   | { readonly kind: "unknown-run" }
   | { readonly kind: "no-live-binding" }
-  | { readonly kind: "bound"; readonly driverName: string; readonly bindingId: string };
+  | { readonly kind: "bound"; readonly driverName: ProviderName; readonly bindingId: string };
 
 /**
  * One live binding as the daemon resolves it. `providerAccountId` is the daemon's own record
  * (`null`: no account), the baseline the driver-stamped routing pair is verified against.
  */
 interface ResolvedAgentBinding {
-  readonly driverName: string;
+  readonly driverName: ProviderName;
   readonly bindingId: string;
   readonly providerAccountId: string | null;
 }
@@ -175,7 +176,7 @@ async function withDriverErrorTranslation<T>(operation: () => Promise<T>): Promi
 function resolveDriverForRunOrThrow(
   deps: DriverDispatchDeps,
   runId: RunId,
-): { readonly driverName: string; readonly driver: ProviderDriver } {
+): { readonly driverName: ProviderName; readonly driver: ProviderDriver } {
   // Called once: the resolver reads live binding state, so a second call could disagree.
   const driverName = deps.resolveDriverForRun(runId);
   if (driverName === undefined) {
@@ -266,7 +267,9 @@ function refuseAttachmentDeliveryUnsupported(driverName: string): never {
 }
 
 /** Sorted, because registration order depends on bootstrap timing and a list must not reorder. */
-function sortedDriverNames(providerRegistry: Pick<ProviderRegistry, "listAvailable">): string[] {
+function sortedDriverNames(
+  providerRegistry: Pick<ProviderRegistry, "listAvailable">,
+): ProviderName[] {
   return [...providerRegistry.listAvailable()].sort();
 }
 

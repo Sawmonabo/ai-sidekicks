@@ -5,9 +5,10 @@ import type { EventCategory, SessionEventType } from "@ai-sidekicks/contracts";
 
 // The provider drivers normalize both provider wires into a fixed vocabulary of normalized kinds
 // before the taxonomy maps each kind onto a `SessionEventType`. `EVENT_DISPOSITION_BY_KIND` is the
-// machine-readable form of that mapping. Every kind has exactly one disposition: `adopt` and
-// `rename` name an event type, and every `correlate` and `discard` carries a stated reason, so no
-// capability-bearing kind is dropped silently.
+// machine-readable form of that mapping. Every kind has exactly one disposition: `adopt` names an
+// event type, and every `correlate` and `discard` carries a stated reason, so no capability-bearing
+// kind is dropped silently. A provider wire name that differs from its kind is mapped onto the
+// kind in that provider's normalizer; the table names only what a kind becomes.
 //
 // The table covers the census kinds only. Wire-level channel discards and delta families belong
 // to the normalizers' wire layer and are not keys here; a wire kind outside the census is caught
@@ -58,8 +59,8 @@ export type NormalizedEventKind =
   | "background_task_notification"
   | "subagent_notification"
   | "subagent_status"
-  // Codex process and terminal.
-  | "codex_exec_result"
+  // Process and terminal.
+  | "command_exit"
   | "terminal_interaction"
   // Wire echo.
   | "user_text"
@@ -69,63 +70,22 @@ export type NormalizedEventKind =
   | "thinking"
   | "proposed_plan";
 
-/** Every {@link NormalizedEventKind} as an iterable tuple. */
-export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
-  "init",
-  "text_delta",
-  "tool_start",
-  "tool_complete",
-  "turn_start",
-  "turn_complete",
-  "approval_request",
-  "approval_resolved",
-  "user_input_request",
-  "user_input_resolved",
-  "refusal_choice_request",
-  "usage_credits_choice_request",
-  "session_status",
-  "token_usage",
-  "error",
-  "todo_update",
-  "task_create",
-  "task_update",
-  "notification",
-  "api_retry",
-  "compact_boundary",
-  "rate_limits",
-  "model_rerouted",
-  "thread_renamed",
-  "content_block_start",
-  "content_block_stop",
-  "background_task_terminal",
-  "background_task_notification",
-  "subagent_notification",
-  "subagent_status",
-  "codex_exec_result",
-  "terminal_interaction",
-  "user_text",
-  "diff",
-  "command_output",
-  "thinking",
-  "proposed_plan",
-] as const;
-
 /**
- * What a normalized kind becomes. `adopt` and `rename` name a category and an `eventType` (a
- * registered {@link SessionEventType}). `correlate` and `discard` carry only a non-empty
+ * What a normalized kind becomes. `adopt` names a category and an `eventType` (a registered
+ * {@link SessionEventType}). `correlate` and `discard` carry only a non-empty
  * `reason` and no taxonomy target: a correlate folds into an existing row via `correlation_id`,
  * and a discard is consumed transiently. `eventType` names the kind's primary target only;
  * outcome-dependent fan-out (`tool.error`, `approval.rejected` and `approval.canceled`,
  * `subagent.completed`) is the normalizer's business. The `never` members make a `reason` on an
- * adopt or rename, or a target on a correlate or discard, a type error.
+ * adopt, or a target on a correlate or discard, a type error.
  *
  * Every property is `readonly` because {@link EVENT_DISPOSITION_BY_KIND} hands out shared
  * entries: `ReadonlyMap` blocks `.set()` but not property writes on an entry it returned, so a
  * consumer's `entry.category = ...` would otherwise corrupt the table process-wide.
  */
-export type EventKindDisposition =
+type EventKindDisposition =
   | {
-      readonly disposition: "adopt" | "rename";
+      readonly disposition: "adopt";
       readonly category: EventCategory;
       readonly eventType: SessionEventType;
       readonly reason?: never;
@@ -195,14 +155,14 @@ const EVENT_DISPOSITION_RECORD = {
     reason:
       "the answer is recorded as the person's own user.message turn by the call that answered the question; its delivery to the provider is kept in the daemon's log only",
   },
-  // Claude Code's retry-or-edit choice on a refused turn that names a fallback model. Its answer,
+  // The provider's retry-or-edit choice on a refused turn that names a fallback model. Its answer,
   // `run.refusal_choice_resolved`, is appended by the daemon when it answers and is no kind.
   refusal_choice_request: {
     disposition: "adopt",
     category: "run_lifecycle",
     eventType: "run.refusal_choice_requested",
   },
-  // Claude Code's switch-or-credits choice when a Fable turn needs usage credits. How it settles,
+  // The provider's switch-or-credits choice when a turn needs usage credits. How it settles,
   // `run.usage_credits_choice_resolved`, is appended by the daemon and is no kind.
   usage_credits_choice_request: {
     disposition: "adopt",
@@ -228,15 +188,15 @@ const EVENT_DISPOSITION_RECORD = {
   // snapshots.
   task_create: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
   task_update: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  // Generic user-facing notice fed by Codex; Claude's system-channel `notification` subtype is
-  // discarded in the wire layer and is not a key here.
+  // Generic user-facing notice. A provider's own system-channel notice that repeats one is
+  // discarded in its normalizer and is not a key here.
   notification: {
     disposition: "adopt",
     category: "session_lifecycle",
     eventType: "session.notice",
   },
-  // Transient retry record; Claude's `system.api_retry` typed-error enum enriches this same kind,
-  // so it is never dropped.
+  // Transient retry record; a provider's typed retry-error detail enriches this same kind, so it is
+  // never dropped.
   api_retry: { disposition: "adopt", category: "usage_telemetry", eventType: "usage.api_retry" },
   // System, no timeline row.
   // Provider context-window compaction — distinct from the daemon
@@ -246,10 +206,9 @@ const EVENT_DISPOSITION_RECORD = {
     category: "usage_telemetry",
     eventType: "usage.context_compacted",
   },
-  // The Claude wire string `rate_limit_event` RENAMES onto `rate_limits`:
-  // an account-plane quota snapshot, never context-window telemetry.
+  // An account-plane quota snapshot, never context-window telemetry.
   rate_limits: {
-    disposition: "rename",
+    disposition: "adopt",
     category: "usage_telemetry",
     eventType: "usage.rate_limit_update",
   },
@@ -289,7 +248,7 @@ const EVENT_DISPOSITION_RECORD = {
     category: "tool_activity",
     eventType: "tool.result",
   },
-  // Codex detached-child terminal injected into the parent's next turn.
+  // A detached child's terminal notice, injected into the parent's next turn.
   subagent_notification: {
     disposition: "adopt",
     category: "tool_activity",
@@ -302,10 +261,9 @@ const EVENT_DISPOSITION_RECORD = {
     category: "tool_activity",
     eventType: "subagent.started",
   },
-  // Codex process and terminal.
-  // Raw exec-output signal — exited-during-wait vs
-  // yielded-with-resumable-session.
-  codex_exec_result: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
+  // Process and terminal.
+  // A command's exit: exited during the wait, or yielded with a resumable session.
+  command_exit: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
   // Stdin writes to a backgrounded PTY; non-empty stdin redacted from
   // durable metadata.
   terminal_interaction: {
@@ -337,16 +295,33 @@ const EVENT_DISPOSITION_RECORD = {
 
 /**
  * The disposition of each normalized kind: what the taxonomy makes of it, or why it is folded or
- * dropped; the section comment above says what it covers. Each normalizer row that names a
- * census kind names the same target as this table. A
- * `ReadonlyMap`, not a plain object, so `.get()` is safe on untrusted input: a wire kind such as
+ * dropped; the section comment above says what it covers. A normalizer row that names a census
+ * kind takes its target from this table ({@link resolveAdoptedEventTarget}). A `ReadonlyMap`, not
+ * a plain object, so `.get()` is safe on untrusted input: a wire kind such as
  * `__proto__` or `constructor` resolves to `undefined`, never a truthy non-disposition value.
  */
-export const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKindDisposition> =
-  new Map(
-    // Sound by the `satisfies` check above: the record's keys are exactly the
-    // `NormalizedEventKind` literals.
-    Object.entries(EVENT_DISPOSITION_RECORD) as ReadonlyArray<
-      [NormalizedEventKind, EventKindDisposition]
-    >,
-  );
+const EVENT_DISPOSITION_BY_KIND: ReadonlyMap<NormalizedEventKind, EventKindDisposition> = new Map(
+  // Sound by the `satisfies` check above: the record's keys are exactly the
+  // `NormalizedEventKind` literals.
+  Object.entries(EVENT_DISPOSITION_RECORD) as ReadonlyArray<
+    [NormalizedEventKind, EventKindDisposition]
+  >,
+);
+
+/** The session event a normalizer row emits: its category and its registered type. */
+export interface AdoptedEventTarget {
+  readonly family: EventCategory;
+  readonly eventType: SessionEventType;
+}
+
+/**
+ * The target the table adopts `kind` onto, for a normalizer row that names that kind. Throws for
+ * a kind the table correlates or discards: a row that emits one contradicts the table.
+ */
+export function resolveAdoptedEventTarget(kind: NormalizedEventKind): AdoptedEventTarget {
+  const disposition = EVENT_DISPOSITION_BY_KIND.get(kind);
+  if (disposition?.disposition !== "adopt") {
+    throw new Error(`normalized kind '${kind}' is not adopted by the disposition table`);
+  }
+  return { family: disposition.category, eventType: disposition.eventType };
+}

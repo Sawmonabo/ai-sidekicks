@@ -18,6 +18,7 @@ import { __resetSessionAppendLocksForTest } from "../../events/session-append-lo
 import { openDatabase } from "../../session/migration-runner.js";
 import type { DaemonDomainError } from "../../ipc/domain-error.js";
 import { RepoMountNotFoundError } from "../../workspace/repo-errors.js";
+import { captureRejection } from "../../workspace/__tests__/workspace-test-support.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
 import type { EmitWorktreeEventInput } from "../worktree-event-emitter.js";
 import {
@@ -295,15 +296,6 @@ function readEventTypes(): readonly string[] {
     `SELECT type FROM session_events WHERE session_id = ? ORDER BY sequence ASC`,
   );
   return statement.all(SESSION_ID).map((row) => row.type);
-}
-
-async function captureRejection(work: () => Promise<unknown>): Promise<unknown> {
-  try {
-    await work();
-  } catch (rejection) {
-    return rejection;
-  }
-  throw new Error("expected the call to reject, but it resolved");
 }
 
 /** The happy path, reused by the reuse, retire and cleanup blocks; it uses the `refuse` policy. */

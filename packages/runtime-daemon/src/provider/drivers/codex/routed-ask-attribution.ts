@@ -117,7 +117,7 @@ export class CodexRoutedAskAttributor {
 
   /**
    * Records one refused routed ask that named an unresolvable turn. The transport arm takes every
-   * refusal; the censused kind only callback-tool ones, since `callback_tool_invocation_refused`
+   * refusal; the shared diagnostic kind only callback-tool ones, since `callback_tool_invocation_refused`
    * counts those and other refusals would corrupt that count.
    */
   #reportRoutedAskTurnUnresolved(

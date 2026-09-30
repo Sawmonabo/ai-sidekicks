@@ -4,8 +4,8 @@
 // `#887`, `#894`, `openai/codex#13973`). This is the daemon side: it spawns the sidecar, speaks
 // Content-Length framing on its stdio, supervises crashes, and maps `PtyHost` onto wire envelopes.
 //
-// - Framing: a minimal local framer, not `local-ipc-gateway.ts::parseFrame` (built for network
-//   peers). The Rust twin is `framing.rs`; the two are maintained by hand.
+// - Framing: the shared Content-Length `parseFrame` under the sidecar's own body limit. The Rust
+//   twin is `framing.rs`; the two are maintained by hand.
 // - Method shape and lifecycle match `NodePtyHost`, so `PtyHostSelector` can swap the backends.
 // - Effectful primitives are injectable through `RustSidecarPtyHostDeps`.
 
@@ -124,11 +124,6 @@ export class RustSidecarPtyHost implements PtyHost {
         this.handleChildError(child, err);
       },
     });
-  }
-
-  /** The live sidecar child, or `null` before the first spawn and between a crash and the respawn. */
-  private get child(): SidecarChildProcess | null {
-    return this.childProcess.currentChild;
   }
 
   public async spawn(spec: SpawnRequest): Promise<SpawnResponse> {
@@ -627,7 +622,7 @@ export class RustSidecarPtyHost implements PtyHost {
     expectedResponseKind: Envelope["kind"],
   ): Promise<Envelope> {
     return new Promise<Envelope>((resolve, reject) => {
-      const child: SidecarChildProcess | null = this.child;
+      const child: SidecarChildProcess | null = this.childProcess.currentChild;
       if (child === null) {
         reject(new Error("RustSidecarPtyHost.sendRequest: no child process"));
         return;

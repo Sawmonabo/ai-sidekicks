@@ -12,6 +12,7 @@ import {
   type ProviderCommandListResult,
   type ProviderModel,
   type ProviderMode,
+  type ProviderName,
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -44,7 +45,7 @@ import type {
   StartRunParams,
 } from "../provider-driver.js";
 
-const DRIVER_ID: string = "claude";
+const DRIVER_ID: ProviderName = "claude";
 
 /**
  * Builds a complete flag record from a partial override, defaulting every flag to false. The base
@@ -204,16 +205,14 @@ describe("ProviderRegistry — checkCapability gate", () => {
   it("rejects a check against an unregistered driver with driver.unavailable", () => {
     const registry = new ProviderRegistry();
 
-    expect(() => registry.checkCapability("never-registered", "steer")).toThrow(
-      DriverUnavailableError,
-    );
+    expect(() => registry.checkCapability("codex", "steer")).toThrow(DriverUnavailableError);
     try {
-      registry.checkCapability("never-registered", "steer");
+      registry.checkCapability("codex", "steer");
       expect.unreachable("checkCapability should have thrown for an unregistered driver");
     } catch (error) {
       expect(error).toBeInstanceOf(DriverUnavailableError);
       expect((error as DriverUnavailableError).code).toBe("driver.unavailable");
-      expect((error as DriverUnavailableError).fields).toEqual({ driverId: "never-registered" });
+      expect((error as DriverUnavailableError).fields).toEqual({ driverId: "codex" });
     }
   });
 });

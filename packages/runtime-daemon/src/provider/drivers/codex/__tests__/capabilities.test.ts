@@ -12,12 +12,12 @@ import {
 } from "../../../__fixtures__/capability-probe-doubles.js";
 import type { CapabilityDetectionReading } from "../../../capability-probe.js";
 import {
-  DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
 } from "../../../capability-refresh.js";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
+import { CODEX_DRIVER_DESCRIPTOR } from "../codex-driver-descriptor.js";
 import {
   CODEX_CAPABILITY_FLAGS,
   CODEX_DRIVER_NAME,
@@ -126,7 +126,7 @@ describe("Codex CLI-version floor", () => {
     expect(error.fields).toStrictEqual({
       driverName: "codex",
       reportedSemver: "0.140.0",
-      floor: DRIVER_CLI_VERSION_FLOORS.codex,
+      floor: CODEX_DRIVER_DESCRIPTOR.cliVersionFloor,
     });
   });
 

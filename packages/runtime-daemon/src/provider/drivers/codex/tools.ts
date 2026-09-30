@@ -23,7 +23,7 @@ import {
 import type { McpServerStatusEmission } from "../../provider-driver.js";
 
 /** The class an unannotated Codex tool closes to. */
-export const DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
+const DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
 /** Codex's own tools in the names a person picks for an agent's allowlist. */
 export const CODEX_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
@@ -33,7 +33,7 @@ export const CODEX_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
 ]);
 
 /** `ThreadItem.type` arms for an invocation whose crash-recovery disposition matters. */
-export const CODEX_TOOL_NAMES = [
+const CODEX_TOOL_NAMES = [
   "commandExecution",
   "fileChange",
   "collabAgentToolCall",
@@ -110,85 +110,9 @@ export function getCodexToolMetadata(): NormalizedProviderToolMetadata[] {
   return CODEX_TOOL_METADATA.map((tool) => ({ ...tool }));
 }
 
-// MCP idempotency floor, task-handle observation and server-status normalizers.
-//
-// - An MCP-discovered tool is always `manual_reconcile_only`, never derived from annotation hints.
-// - The `taskId` in a task-augmented call's `CreateTaskResult` is the handle recovery polls
-//   instead of halting; this module only observes it, `provider/mcp-task-handle-recorder.ts`
-//   stores it.
-// - Status rows and notifications become the closed `McpServerStatus` enum, bounded because
-//   `serverName` is untrusted. Wire shapes are from codex-cli 0.150.1; `runtimeStatus` is null
-//   when unavailable or the configuration changed.
-
-/** The class of every MCP-discovered tool, whatever its annotations. */
-export const MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
-
-/** MCP `ToolAnnotations` self-claims; modeled so the floor's signature names what it ignores. */
-export interface McpToolAnnotationHints {
-  readonly readOnlyHint?: boolean | undefined;
-  readonly idempotentHint?: boolean | undefined;
-  readonly destructiveHint?: boolean | undefined;
-  readonly openWorldHint?: boolean | undefined;
-}
-
-/** Floor class for an MCP tool; `annotations` are untrusted, so they are ignored by contract. */
-export function classifyMcpDiscoveredTool(
-  annotations?: McpToolAnnotationHints | undefined,
-): IdempotencyClass {
-  void annotations;
-  return MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS;
-}
-
-// Nothing feeds acceptances to `observeMcpTaskAcceptance` yet: the provider CLIs are the MCP
-// clients, so the daemon does not see a `CreateTaskResult` at dispatch (see
-// `provider/mcp-task-handle-recorder.ts`).
-
-/** One task-augmented dispatch; `commandId` keys its `command_receipts` row. */
-export interface McpTaskDispatchIdentity {
-  readonly commandId: string;
-  readonly serverName: string;
-  readonly toolName: string;
-}
-
-/** A dispatch whose acceptance carried a `taskId`, which `McpTaskHandleRecorder` persists. */
-export interface McpTaskHandleObservation extends McpTaskDispatchIdentity {
-  readonly mcpTaskId: string;
-}
-
-/** Where an observed handle lands; returns `void` so a failed store never fails a turn. */
-export type McpTaskHandleSink = (observation: McpTaskHandleObservation) => void;
-
-/**
- * Extracts `task.taskId` from an untrusted acceptance; anything but a non-empty string there
- * yields `undefined`, never an invented handle.
- */
-export function extractMcpTaskId(acceptanceResult: unknown): string | undefined {
-  if (typeof acceptanceResult !== "object" || acceptanceResult === null) {
-    return undefined;
-  }
-  const task = (acceptanceResult as Record<string, unknown>)["task"];
-  if (typeof task !== "object" || task === null) {
-    return undefined;
-  }
-  const taskId = (task as Record<string, unknown>)["taskId"];
-  if (typeof taskId !== "string" || taskId.length === 0) {
-    return undefined;
-  }
-  return taskId;
-}
-
-/** Calls the sink only when a handle exists; a missing or malformed acceptance stores nothing. */
-export function observeMcpTaskAcceptance(
-  sink: McpTaskHandleSink,
-  dispatch: McpTaskDispatchIdentity,
-  acceptanceResult: unknown,
-): void {
-  const mcpTaskId = extractMcpTaskId(acceptanceResult);
-  if (mcpTaskId === undefined) {
-    return;
-  }
-  sink({ ...dispatch, mcpTaskId });
-}
+// MCP server-status normalizers: status rows and notifications become the closed
+// `McpServerStatus` enum, bounded because `serverName` is untrusted. Wire shapes are from
+// codex-cli 0.150.1; `runtimeStatus` is null when unavailable or the configuration changed.
 
 /**
  * `McpServerConnectionStatus` to the unified enum; unlisted is `unknown`. `cancelled` is `failed`
@@ -215,6 +139,8 @@ const CODEX_STARTUP_STATE_MAP: Readonly<Record<string, McpServerStatus>> = {
 /**
  * Normalizes `mcpServerStatus/list` rows; a non-array yields one rejection. A null `runtimeStatus`
  * is `needs-auth` only for `authStatus` `notLoggedIn`, else `unknown` (other modes say nothing).
+ *
+ * @consumedBy the Codex driver's MCP server status reads
  */
 export function normalizeCodexMcpServerStatusList(rawRows: unknown): McpServerStatusIngestResult {
   if (!Array.isArray(rawRows)) {
@@ -254,6 +180,8 @@ export function normalizeCodexMcpServerStatusList(rawRows: unknown): McpServerSt
 /**
  * Normalizes one `mcpServer/startupStatus/updated` notification; a `failed` startup for
  * `reauthenticationRequired` becomes `needs-auth`, the one state a person can fix.
+ *
+ * @consumedBy the Codex driver's MCP server status reads
  */
 export function normalizeCodexMcpServerStatusNotification(
   rawNotification: unknown,

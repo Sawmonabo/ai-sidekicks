@@ -409,7 +409,10 @@ export class TurnSnapshotCaptureSteps {
     }
   }
 
-  /** The recorded OID, or `null` when the ref does not resolve. */
+  /**
+   * The recorded OID, or `null` when the ref does not resolve. A failed read also gives `null`: the
+   * only caller then rethrows the swap's own refusal, so no failure is lost.
+   */
   async #readRefIfPresent(executionRoot: string, ref: string): Promise<string | null> {
     try {
       // `--verify` on a fully-qualified ref: no abbreviation, no search path, no echo on a miss.

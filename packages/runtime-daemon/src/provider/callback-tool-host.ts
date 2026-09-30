@@ -15,8 +15,9 @@ import {
   type RunId,
   type SessionCallbackTool,
   type SessionId,
+  type ProviderName,
 } from "@ai-sidekicks/contracts";
-import type { DriverDiagnosticsEmitter, DriverProviderName } from "./driver-diagnostics.js";
+import type { DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 import {
   DRIVER_TOOL_CALL_ID_MAX_LEN,
   type CallbackToolInvocation,
@@ -139,7 +140,7 @@ interface InstalledCallbackToolRegistry {
 
 /** Construction inputs for {@link CallbackToolHost}. */
 export interface CallbackToolHostOptions {
-  readonly provider: DriverProviderName;
+  readonly provider: ProviderName;
   readonly diagnostics: DriverDiagnosticsEmitter;
   readonly executor: CallbackToolExecutor;
   readonly activitySink: CallbackToolActivitySink;
@@ -155,7 +156,7 @@ export interface CallbackToolHostOptions {
  * spawn failed, `rollbackSpawnRegistry`. Prefer {@link bindCallbackToolsForSpawn}, which does this.
  */
 export class CallbackToolHost {
-  readonly #provider: DriverProviderName;
+  readonly #provider: ProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #executor: CallbackToolExecutor;
   readonly #activitySink: CallbackToolActivitySink;
@@ -704,16 +705,4 @@ export function bindCallbackToolsForSpawn(
       host.rollbackSpawnRegistry(request.sessionId, registryToken);
     },
   };
-}
-
-/**
- * Translates a provider-facing tool name back to the registry name, or returns it unchanged when
- * unknown. The Claude driver hosts the registry as an MCP server, so each tool surfaces as
- * `mcp__<server>__<tool>`; an unknown name passes through so the refusal names the exact string.
- */
-export function resolveRegisteredCallbackToolName(
-  registryNamesByProviderName: ReadonlyMap<string, string>,
-  providerFacingToolName: string,
-): string {
-  return registryNamesByProviderName.get(providerFacingToolName) ?? providerFacingToolName;
 }

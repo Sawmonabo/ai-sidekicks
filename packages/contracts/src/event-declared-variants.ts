@@ -46,42 +46,10 @@ export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
   })
   .strict();
 
-// repo.* and workspace.*: six variants sharing repo.ts's `RepoWorkspaceLifecyclePayloadSchema`,
-// so their payload cannot drift between them. The `worktree.*` variants below use the same
+// workspace.*: four variants sharing repo.ts's `RepoWorkspaceLifecyclePayloadSchema`, so their
+// payload cannot drift between them. The `worktree.*` variants below use the same
 // family shape over their own state vocabulary. None is run-scoped (no `runId`), so none takes
 // the epoch stamp.
-
-/** Emitted when `repo.attach` admits a local path as a durable repo mount. */
-export interface RepoAttachedEvent extends EventEnvelope {
-  type: "repo.attached";
-  category: "session_lifecycle";
-  payload: RepoWorkspaceLifecyclePayload;
-}
-/** Wire schema for {@link RepoAttachedEvent}. */
-export const RepoAttachedEventSchema: z.ZodType<RepoAttachedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("repo.attached"),
-    category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
-  })
-  .strict();
-
-/** Emitted when a mount moves to the terminal `detached` state. */
-export interface RepoDetachedEvent extends EventEnvelope {
-  type: "repo.detached";
-  category: "session_lifecycle";
-  payload: RepoWorkspaceLifecyclePayload;
-}
-/** Wire schema for {@link RepoDetachedEvent}. */
-export const RepoDetachedEventSchema: z.ZodType<RepoDetachedEvent> = z
-  .object({
-    ...buildCommonShape(),
-    type: z.literal("repo.detached"),
-    category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
-  })
-  .strict();
 
 /** Emitted when a workspace's (re)provisioning begins. */
 export interface WorkspacePreparingEvent extends EventEnvelope {

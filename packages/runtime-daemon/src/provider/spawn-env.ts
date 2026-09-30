@@ -1,15 +1,15 @@
 /**
  * The child-environment builder every provider driver spawns through: strips the credential
- * policy's denied names and always sets each provider's auto-update opt-out. The version gate's
- * `composeProviderChildEnvironment` applies the same opt-out table to a record-shaped environment.
+ * policy's denied names and always sets the provider's auto-update opt-out. The version gate's
+ * `composeProviderChildEnvironment` applies the same opt-out to a record-shaped environment.
  *
  * - No `credentialEnvPolicy` (a `trusted` posture) strips nothing; the opt-out always applies.
  * - A policy whose name matching differs from the host's is refused, not reconciled.
  */
 
-import { CLAUDE_UPDATE_SWITCH_NAMES } from "@ai-sidekicks/contracts";
+import type { ProviderName } from "@ai-sidekicks/contracts";
 
-import type { FlooredDriverName } from "./capability-refresh.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
 
 /** One child-environment entry, in the pair shape the PTY spawn surface takes. */
 export type SpawnEnvPair = readonly [name: string, value: string];
@@ -28,23 +28,9 @@ export interface CredentialEnvPolicy {
   readonly envNameMatch: SpawnEnvNameMatch;
 }
 
-/**
- * The auto-update opt-out per provider, required for correctness: a build that updates itself
- * mid-session makes the recorded version and the admitted capability snapshot describe a process
- * no longer running. The Codex entry is empty because codex-cli documents no environment opt-out;
- * the driver pins an exact build path instead (`resolveProviderExecutable`).
- */
-export const PROVIDER_AUTO_UPDATE_OPT_OUT_ENV: Readonly<
-  Record<FlooredDriverName, Readonly<Record<string, string>>>
-> = Object.freeze({
-  // Presence-style gates: the pinned Claude Code build honors them when set.
-  claude: Object.freeze(Object.fromEntries(CLAUDE_UPDATE_SWITCH_NAMES.map((name) => [name, "1"]))),
-  codex: Object.freeze({}),
-});
-
 /** The inputs to {@link buildProviderSpawnEnv} for one provider spawn. */
 export interface ProviderSpawnEnvRequest {
-  readonly driverName: FlooredDriverName;
+  readonly driverName: ProviderName;
   /** The curated base for this child as pairs; never the daemon's own `process.env`. */
   readonly baseEnv: readonly SpawnEnvPair[];
   /** Every fold keys on it, even without a policy, so a base `disable_updates=0` cannot survive. */
@@ -107,7 +93,7 @@ export function buildProviderSpawnEnv(request: ProviderSpawnEnvRequest): readonl
   // One pair per name reaches the child; a second claim on a name is refused, not merged.
   const mandatedByKey = new Map<string, SpawnEnvPair>();
   for (const [name, value] of Object.entries(
-    PROVIDER_AUTO_UPDATE_OPT_OUT_ENV[request.driverName],
+    PROVIDER_DRIVER_DESCRIPTORS[request.driverName].autoUpdateOptOutEnvironment,
   )) {
     mandatedByKey.set(toMatchKey(name, nameMatch), [name, value]);
   }

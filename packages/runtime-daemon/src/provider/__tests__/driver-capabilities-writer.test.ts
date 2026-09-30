@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
+  type ProviderName,
   type ProviderToolMetadata,
 } from "@ai-sidekicks/contracts";
 
@@ -16,11 +17,11 @@ import {
   DriverCapabilitiesWriter,
   type DriverCapabilityHydrationResult,
 } from "../driver-capabilities-writer.js";
-import { DRIVER_OUTPUT_SPEED_LEVELS } from "../driver-output-speed.js";
 import { ProviderOutputValidationError } from "../provider-output-validation.js";
 import type { DriverCliVersionReport, GetCapabilitiesResult } from "../provider-driver.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
 
-const DRIVER_NAME: string = "claude";
+const DRIVER_NAME: ProviderName = "claude";
 const CONTRACT_VERSION: string = "1.2.3";
 
 // The full flag matrix every snapshot must answer, built from `DRIVER_CAPABILITY_FLAGS`: every
@@ -284,7 +285,7 @@ describe("DriverCapabilitiesWriter — a write failing mid-declare", () => {
     expect(readToolNames(DRIVER_NAME)).toEqual(["search"]);
     expect(readContractVersion(DRIVER_NAME)).toBe(CONTRACT_VERSION);
 
-    const freshDriverName: string = "codex";
+    const freshDriverName: ProviderName = "codex";
     await expect(
       writer.declare({ driverName: freshDriverName, result: flippedResult }),
     ).rejects.toThrow("forced driver_tools failure");
@@ -525,7 +526,7 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
   it("returns a MISS with reason 'never_written' for a driver that was never written", () => {
     const writer = makeWriter();
     // The two miss causes need the same caller behavior but must stay distinguishable.
-    expect(writer.hydrate("never-seen")).toEqual({ hit: false, reason: "never_written" });
+    expect(writer.hydrate("codex")).toEqual({ hit: false, reason: "never_written" });
   });
 
   it("misses 'cli_version_missing' on a NULL stored pair, never inventing one", async () => {
@@ -600,6 +601,8 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
     expect(hydrated.capabilities.flags.output_speed).toBe(true);
     expect(Object.hasOwn(hydrated, "outputSpeedLevels")).toBe(true);
     // Compared with the table the live declaration reads, so the two paths cannot drift.
-    expect(hydrated.outputSpeedLevels).toStrictEqual([...DRIVER_OUTPUT_SPEED_LEVELS.claude]);
+    expect(hydrated.outputSpeedLevels).toStrictEqual([
+      ...PROVIDER_DRIVER_DESCRIPTORS.claude.outputSpeedLevels,
+    ]);
   });
 });

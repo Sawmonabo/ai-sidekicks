@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 import { SessionService, TestSeedingAppendToken } from "../session-service.js";
-import type { AppendableEvent } from "../types.js";
+import type { StoredEvent } from "../types.js";
 
 // ----------------------------------------------------------------------------
 // Test fixtures
@@ -22,7 +22,7 @@ import type { AppendableEvent } from "../types.js";
 const SESSION_ID: string = "01J0SE5510NN5J5J5J5J5J5J5J";
 const OWNER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
-function makeCreatedEvent(): AppendableEvent {
+function makeCreatedEvent(): StoredEvent {
   return {
     id: "01J0EV0000NN5J5J5J5J5J5J5J",
     sessionId: SESSION_ID,
@@ -54,7 +54,7 @@ function makeCreatedEvent(): AppendableEvent {
   };
 }
 
-function makeRenamedEvent(sequence: number, monotonicNs: bigint, name: string): AppendableEvent {
+function makeRenamedEvent(sequence: number, monotonicNs: bigint, name: string): StoredEvent {
   return {
     id: `01J0EV0002NN5J5J5J5J5J5J0${sequence.toString()}`,
     sessionId: SESSION_ID,
@@ -124,9 +124,9 @@ describe("SessionService — replay reads events by sequence ASC", () => {
   it("reproduces the snapshot deterministically when events are inserted in scrambled sequence order", () => {
     // UNIQUE(session_id, sequence) tolerates any insert order; the read path's ORDER BY
     // sequence ASC establishes the order.
-    const created: AppendableEvent = makeCreatedEvent();
-    const firstRename: AppendableEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
-    const secondRename: AppendableEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
+    const created: StoredEvent = makeCreatedEvent();
+    const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
+    const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
 
     ctx.service.append(secondRename);
     ctx.service.append(created);
@@ -150,9 +150,9 @@ describe("SessionService — replay uses sequence not monotonic_ns", () => {
   it("orders events by sequence even when monotonic_ns goes backwards across rows", () => {
     // monotonic_ns is in-daemon debug data; sequence is the replay key, so clock skew in
     // monotonic_ns must not reorder replay.
-    const e0: AppendableEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
-    const e1: AppendableEvent = makeRenamedEvent(1, 1_000_000_000n, "Back Room");
-    const e2: AppendableEvent = makeRenamedEvent(2, 3_000_000_000n, "Side Room");
+    const e0: StoredEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
+    const e1: StoredEvent = makeRenamedEvent(1, 1_000_000_000n, "Back Room");
+    const e2: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Side Room");
 
     ctx.service.append(e0);
     ctx.service.append(e1);
@@ -181,7 +181,7 @@ describe("SessionService — replay uses sequence not monotonic_ns", () => {
     // The other fixtures sit below Number.MAX_SAFE_INTEGER, so a `Number(row.monotonic_ns)`
     // regression in `hydrateRow` would not show. 2^53 + 1 is the first value a double cannot hold.
     const BIGINT_BOUNDARY: bigint = 9_007_199_254_740_993n; // 2^53 + 1
-    const created: AppendableEvent = {
+    const created: StoredEvent = {
       ...makeCreatedEvent(),
       monotonicNs: BIGINT_BOUNDARY,
     };
@@ -206,9 +206,9 @@ describe("SessionService — replay uses sequence not monotonic_ns", () => {
 
 describe("SessionService — snapshot survives daemon restart", () => {
   it("yields identical projection after closing and reopening the database file", () => {
-    const created: AppendableEvent = makeCreatedEvent();
-    const firstRename: AppendableEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
-    const secondRename: AppendableEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
+    const created: StoredEvent = makeCreatedEvent();
+    const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
+    const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
 
     ctx.service.append(created);
     ctx.service.append(firstRename);

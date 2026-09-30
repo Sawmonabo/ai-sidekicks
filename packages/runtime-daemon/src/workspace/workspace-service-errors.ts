@@ -10,19 +10,11 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
  * The workspace-scoped codes this module raises; the provisioner's `workspace.*` codes are not
  * listed.
  */
-export type WorkspaceServiceErrorCode =
+type WorkspaceServiceErrorCode =
   | "workspace.not_found"
   | "workspace.mode_unsupported"
   | "workspace.stale"
   | "workspace.busy";
-
-/** Registered `workspace.*` codes raised by this service, in registry order. */
-export const WORKSPACE_SERVICE_ERROR_CODES: readonly WorkspaceServiceErrorCode[] = [
-  "workspace.not_found",
-  "workspace.mode_unsupported",
-  "workspace.stale",
-  "workspace.busy",
-];
 
 /**
  * `workspace.not_found` — the named workspace does not exist (notional HTTP 404). The only

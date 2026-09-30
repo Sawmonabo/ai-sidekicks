@@ -13,7 +13,6 @@ import {
   RecordingDeclarationSink,
 } from "../__fixtures__/capability-probe-doubles.js";
 import {
-  DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
 } from "../capability-refresh.js";
@@ -27,8 +26,6 @@ import {
   DEFAULT_PROVIDER_VERSION_CLIENT_NAME,
   ProviderExecutableUnresolvableError,
   composeProviderChildEnvironment,
-  extractClaudeReportedVersion,
-  extractCodexReportedVersion,
   readSpawnedProviderVersion,
   resolveProviderExecutable,
   toBindingVersionCarriers,
@@ -37,6 +34,7 @@ import {
 } from "../version-gate.js";
 import { CODEX_DRIVER_NAME, refreshCodexCapabilities } from "../drivers/codex/capabilities.js";
 import type { DriverCliVersionReport } from "../provider-driver.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
 
 /**
  * A handshake transport keyed by resolved path, so the fixture can answer differently for a
@@ -263,53 +261,60 @@ describe("provider executable resolution", () => {
 });
 
 describe("in-band version read — Claude get_binary_version", () => {
+  const readClaudeVersion = PROVIDER_DRIVER_DESCRIPTORS.claude.readReportedVersion;
+
   it("adopts the reply's version as-is", () => {
     expect(
-      extractClaudeReportedVersion({ version: "2.1.234", buildTime: "2026-08-17T01:20:38Z" }),
-    ).toBe("2.1.234");
+      readClaudeVersion(
+        { version: "2.1.234", buildTime: "2026-08-17T01:20:38Z" },
+        DEFAULT_PROVIDER_VERSION_CLIENT_NAME,
+      ),
+    ).toEqual({ version: "2.1.234" });
   });
 
-  it("refuses a reply carrying no version string as unparseable", () => {
+  it("reads a reply carrying no version string as unreadable", () => {
     for (const payload of [undefined, null, "2.1.234", { buildTime: "x" }, { version: 2 }]) {
-      expect(() => extractClaudeReportedVersion(payload)).toThrow(DriverCliVersionUnparseableError);
+      expect(readClaudeVersion(payload, DEFAULT_PROVIDER_VERSION_CLIENT_NAME)).toEqual({
+        unreadableReply: "",
+      });
     }
   });
 });
 
 describe("in-band version read — Codex initialize userAgent", () => {
+  const readCodexVersion = PROVIDER_DRIVER_DESCRIPTORS.codex.readReportedVersion;
+
   it("extracts the PROVIDER's version from the composite string", () => {
     // The caller's own version (`0.9.0`) also appears in the string, and a trailing-parenthetical
     // parse would return it.
     const userAgent = codexUserAgent("0.149.1", "0.9.0");
-    expect(extractCodexReportedVersion({ userAgent }, DEFAULT_PROVIDER_VERSION_CLIENT_NAME)).toBe(
-      "0.149.1",
-    );
+    expect(readCodexVersion({ userAgent }, DEFAULT_PROVIDER_VERSION_CLIENT_NAME)).toEqual({
+      version: "0.149.1",
+    });
   });
 
   it("refuses a userAgent whose leading token is not the name the daemon supplied", () => {
     // Shape drift or another client's string: guessing would report another process's version.
     const userAgent = `some-other-client/0.149.1 (macos; aarch64)`;
-    expect(() =>
-      extractCodexReportedVersion({ userAgent }, DEFAULT_PROVIDER_VERSION_CLIENT_NAME),
-    ).toThrow(DriverCliVersionUnparseableError);
+    expect(readCodexVersion({ userAgent }, DEFAULT_PROVIDER_VERSION_CLIENT_NAME)).toEqual({
+      unreadableReply: userAgent,
+    });
   });
 
   it("refuses a token that merely CONTAINS a semver rather than being one", () => {
     for (const token of ["v0.149.1", "0.149.1+meta", "0.149", "nightly-0.149.1-x"]) {
-      expect(() =>
-        extractCodexReportedVersion(
-          { userAgent: `${DEFAULT_PROVIDER_VERSION_CLIENT_NAME}/${token} (macos; aarch64)` },
-          DEFAULT_PROVIDER_VERSION_CLIENT_NAME,
-        ),
-      ).toThrow(DriverCliVersionUnparseableError);
+      const userAgent = `${DEFAULT_PROVIDER_VERSION_CLIENT_NAME}/${token} (macos; aarch64)`;
+      expect(readCodexVersion({ userAgent }, DEFAULT_PROVIDER_VERSION_CLIENT_NAME)).toEqual({
+        unreadableReply: userAgent,
+      });
     }
   });
 
-  it("refuses a reply carrying no userAgent as unparseable", () => {
+  it("reads a reply carrying no userAgent as unreadable", () => {
     for (const payload of [undefined, null, {}, { userAgent: 7 }]) {
-      expect(() =>
-        extractCodexReportedVersion(payload, DEFAULT_PROVIDER_VERSION_CLIENT_NAME),
-      ).toThrow(DriverCliVersionUnparseableError);
+      expect(readCodexVersion(payload, DEFAULT_PROVIDER_VERSION_CLIENT_NAME)).toEqual({
+        unreadableReply: "",
+      });
     }
   });
 });
@@ -368,7 +373,7 @@ describe("the floor gate at the spawn", () => {
     expect((thrown as DriverCliVersionBelowFloorError).fields).toStrictEqual({
       driverName: "codex",
       reportedSemver: "0.140.0",
-      floor: DRIVER_CLI_VERSION_FLOORS.codex,
+      floor: PROVIDER_DRIVER_DESCRIPTORS.codex.cliVersionFloor,
     });
     expect(handshake.requests).toHaveLength(1);
     expect(sink.calls).toHaveLength(0);
@@ -379,12 +384,16 @@ describe("the floor gate at the spawn", () => {
 
   it("admits a build exactly at the floor", async () => {
     const handshake = new RecordingHandshake({
-      [CODEX_EXECUTABLE]: { userAgent: codexUserAgent(DRIVER_CLI_VERSION_FLOORS.codex) },
+      [CODEX_EXECUTABLE]: {
+        userAgent: codexUserAgent(PROVIDER_DRIVER_DESCRIPTORS.codex.cliVersionFloor),
+      },
     });
     const sink = new RecordingDeclarationSink();
     await attachCodex(sink, handshake);
     expect(sink.calls).toHaveLength(1);
-    expect(sink.calls[0]?.result.cliVersion.semver).toBe(DRIVER_CLI_VERSION_FLOORS.codex);
+    expect(sink.calls[0]?.result.cliVersion.semver).toBe(
+      PROVIDER_DRIVER_DESCRIPTORS.codex.cliVersionFloor,
+    );
   });
 
   it("ATTACHES an above-the-pin build — newer-than-measured is not a refusal", async () => {

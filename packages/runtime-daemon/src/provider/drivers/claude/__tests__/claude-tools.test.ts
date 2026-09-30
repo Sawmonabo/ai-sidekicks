@@ -1,6 +1,6 @@
 // Claude tool metadata: only the pure local reads are idempotent, and an absent or unrecognized
-// class or any MCP self-claim floors at `manual_reconcile_only`, because recovery re-executes a
-// tool its class calls safe. MCP task handles and server status come from untrusted output.
+// class floors at `manual_reconcile_only`, because recovery re-executes a tool its class calls
+// safe. MCP server status comes from untrusted output.
 
 import { describe, expect, it } from "vitest";
 
@@ -8,14 +8,10 @@ import type { ProviderToolMetadata } from "@ai-sidekicks/contracts";
 
 import {
   CLAUDE_TOOL_CATALOG,
-  classifyMcpDiscoveredTool,
   closeToolIdempotencyClass,
-  extractMcpTaskId,
   normalizeClaudeMcpListProbeOutput,
   normalizeClaudeMcpServerInitCensus,
-  observeMcpTaskAcceptance,
 } from "../tools.js";
-import type { McpTaskHandleObservation } from "../tools.js";
 
 describe("Claude tool metadata — the conservative default", () => {
   it("floors an absent, undefined, unrecognized or null class and keeps a recognized one", () => {
@@ -64,55 +60,6 @@ describe("Claude tool catalog", () => {
       expect(entry, `${name} must be cataloged`).toBeDefined();
       expect(entry?.idempotency_class, `${name} must floor`).toBe("manual_reconcile_only");
     }
-  });
-});
-
-describe("Claude MCP idempotency floor", () => {
-  it("never lets readOnlyHint or idempotentHint self-claims upgrade the class", () => {
-    expect(
-      classifyMcpDiscoveredTool({
-        readOnlyHint: true,
-        idempotentHint: true,
-        destructiveHint: false,
-        openWorldHint: false,
-      }),
-    ).toBe("manual_reconcile_only");
-  });
-});
-
-describe("Claude durable MCP task-handle seam", () => {
-  it("yields undefined for every non-acceptance shape (the halt default)", () => {
-    expect(extractMcpTaskId(undefined)).toBeUndefined();
-    expect(extractMcpTaskId(null)).toBeUndefined();
-    expect(extractMcpTaskId({})).toBeUndefined();
-    expect(extractMcpTaskId({ task: {} })).toBeUndefined();
-    expect(extractMcpTaskId({ task: { taskId: "" } })).toBeUndefined();
-    expect(extractMcpTaskId({ task: { taskId: 7 } })).toBeUndefined();
-  });
-
-  it("hands the sink the dispatch identity with the handle, and nothing otherwise", () => {
-    // `commandId` reaches the sink verbatim: it names the `command_receipts` row the handle is
-    // written to, which the MCP server and tool names cannot. A dispatch without a handle calls
-    // nothing, so the column stays NULL and the receipt halts as manual_reconcile_only.
-    const observations: McpTaskHandleObservation[] = [];
-    const collectingSink = (observation: McpTaskHandleObservation): void => {
-      observations.push(observation);
-    };
-    const dispatch = {
-      commandId: "command-7",
-      serverName: "filesystem",
-      toolName: "read_file",
-    } as const;
-    observeMcpTaskAcceptance(collectingSink, dispatch, { task: { taskId: "task-9" } });
-    observeMcpTaskAcceptance(collectingSink, dispatch, { task: {} });
-    expect(observations).toEqual([
-      {
-        commandId: "command-7",
-        serverName: "filesystem",
-        toolName: "read_file",
-        mcpTaskId: "task-9",
-      },
-    ]);
   });
 });
 
