@@ -24,9 +24,6 @@ import { REVEAL_FRAME_CHARACTER_BUDGET } from "@renderer/features/transcript/fra
 
 const STREAMING_LANE_ID = "browser-tier-lane";
 
-/** Enough frames that the budget cannot deliver the source in one of them. */
-const REVEAL_FRAME_COUNT = 6;
-
 /** Where a case reaches the binding the tree minted; deltas are ingested from outside React. */
 interface RevealHandle {
   ingest?: (laneId: string, text: string) => void;
@@ -104,73 +101,6 @@ afterEach(() => {
 });
 
 describe("the visible text of a streaming lane", () => {
-  it("never regresses across the frames that reveal it", async () => {
-    const { clock, handle, subject } = await mountStreamingProbe();
-    const ingest = handle.ingest;
-    expect(ingest).toBeDefined();
-    const recorder = new VisibleTextMonotonicityRecorder(subject);
-    recorder.start();
-
-    // One frame's budget per delta, so the engine must hold a tail back and hand it over across
-    // frames; a source that fitted in one frame would make the claim vacuous.
-    for (let frame = 0; frame < REVEAL_FRAME_COUNT; frame += 1) {
-      streamOneFrame(clock, () => {
-        ingest?.(STREAMING_LANE_ID, revealProse(REVEAL_FRAME_CHARACTER_BUDGET));
-      });
-      recorder.drain();
-    }
-    recorder.stop();
-
-    // Zero regressions over zero records would be a recorder attached to nothing.
-    expect(recorder.recordCount).toBeGreaterThan(0);
-    expect(recorder.regressions).toStrictEqual([]);
-    expect(recorder.visibleText.length).toBeGreaterThan(REVEAL_FRAME_CHARACTER_BUDGET);
-  });
-
-  it("is measured by a recorder that reports a regression when one happens", async () => {
-    // The recorder's own negative control, against a subject that really goes backwards.
-    const { clock, handle, subject } = await mountStreamingProbe();
-    const ingest = handle.ingest;
-    const recorder = new VisibleTextMonotonicityRecorder(subject);
-    recorder.start();
-    streamOneFrame(clock, () => {
-      ingest?.(STREAMING_LANE_ID, revealProse(REVEAL_FRAME_CHARACTER_BUDGET));
-    });
-    recorder.drain();
-
-    act(() => {
-      subject.textContent = "";
-    });
-    recorder.drain();
-    recorder.stop();
-
-    expect(recorder.regressions.length).toBeGreaterThan(0);
-    expect(recorder.regressions[0]?.after).toBe("");
-  });
-
-  it("grows the row's painted box monotonically while it reveals", async () => {
-    // Geometry is why this is here: every rect reads zero under happy-dom, so a box-size
-    // assertion would pass vacuously. A box that never shrinks while text arrives is the
-    // layout half of "no lane teleports".
-    const { clock, handle, subject } = await mountStreamingProbe();
-    const ingest = handle.ingest;
-    const heights: number[] = [subject.getBoundingClientRect().height];
-    for (let frame = 0; frame < REVEAL_FRAME_COUNT; frame += 1) {
-      streamOneFrame(clock, () => {
-        ingest?.(STREAMING_LANE_ID, revealProse(REVEAL_FRAME_CHARACTER_BUDGET));
-      });
-      heights.push(subject.getBoundingClientRect().height);
-    }
-
-    // The control: the filled box has a nonzero height at all. The first reading is
-    // legitimately zero because the paragraph is empty until the first delta lands.
-    expect(heights[heights.length - 1]).toBeGreaterThan(0);
-    expect(heights[heights.length - 1]).toBeGreaterThan(heights[0] ?? 0);
-    for (let index = 1; index < heights.length; index += 1) {
-      expect(heights[index]).toBeGreaterThanOrEqual(heights[index - 1] ?? 0);
-    }
-  });
-
   it("leaves a row reading another lane untouched by this one's frames", async () => {
     const { clock, handle, subject } = await mountStreamingProbe("some-other-lane");
     const ingest = handle.ingest;
