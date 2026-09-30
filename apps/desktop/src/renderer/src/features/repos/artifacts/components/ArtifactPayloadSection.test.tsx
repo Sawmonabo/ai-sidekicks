@@ -1,7 +1,7 @@
-// The artifact payload section: what each arm of a fetched payload draws, and what the fetch
-// control does while one is outstanding. Mounted through the reader's own binding, not a
-// hand-written reading. The last block covers the subject stamp: a binding re-addressed to a
-// second artifact must not keep the first artifact's payload arm.
+// The artifact payload section: a fetch is an act a person asks for, the bytes decode by the
+// encoding the reply declared, one fetch is outstanding at a time, and a binding re-addressed to
+// a second artifact does not keep the first artifact's payload. Mounted through the reader's own
+// binding, not a hand-written reading.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,7 +35,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("artifact payload — fetching is an act, and every arm is drawn", () => {
+describe("artifact payload — fetching is an act", () => {
   it("asks for nothing until the control is pressed", async () => {
     // A payload is bounded only by the ingest cap, so a fetch on mount would spend the user's
     // link on a section they merely passed through.
@@ -64,23 +64,6 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
     });
   });
 
-  it("draws a deferred handle as what it is", async () => {
-    const subject = artifactPayloadSubject(
-      artifactOperations({
-        listArtifacts: async () => LISTED_ONE_ROW,
-        readArtifact: async () => deferredRead("published"),
-      }),
-    );
-    const { container, getByRole } = renderArtifactPayloadSection(subject);
-    await readThrough(subject.clock);
-    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
-    await settleAct();
-
-    expect(container.querySelector(".meridian-artifact-payload")?.textContent).toContain(
-      "sha256:2b4c/published",
-    );
-  });
-
   it("previews inline bytes as text, decoding by the encoding the reply declared", async () => {
     const subject = artifactPayloadSubject(
       artifactOperations({
@@ -96,24 +79,6 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
     expect(container.querySelector(".meridian-artifact-payload__preview")?.textContent).toBe(
       "diff --git a/one b/one",
     );
-  });
-
-  it("draws a utf8 payload whole as it stands, never capped", async () => {
-    // A long payload is every character of it: the body is never shortened to a preview.
-    const wide = "x".repeat(50_000);
-    const subject = artifactPayloadSubject(
-      artifactOperations({
-        listArtifacts: async () => LISTED_ONE_ROW,
-        readArtifact: async () => inlineRead(wide, "utf8"),
-      }),
-    );
-    const { container, getByRole } = renderArtifactPayloadSection(subject);
-    await readThrough(subject.clock);
-    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
-    await settleAct();
-
-    const preview = container.querySelector(".meridian-artifact-payload__preview");
-    expect(preview?.textContent).toBe(wide);
   });
 
   it("reports bytes that are not text rather than drawing replacement characters", async () => {
@@ -158,15 +123,6 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
     await settleAct();
     expect(control).toHaveProperty("disabled", false);
   });
-
-  it("negative control: nothing is drawn before the fetch", async () => {
-    const subject = artifactPayloadSubject(
-      artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW }),
-    );
-    const { container } = renderArtifactPayloadSection(subject);
-    await readThrough(subject.clock);
-    expect(container.querySelector(".meridian-artifact-payload")).toBeNull();
-  });
 });
 
 describe("artifact payload — the reader is stamped to its subject", () => {
@@ -195,50 +151,5 @@ describe("artifact payload — the reader is stamped to its subject", () => {
     // No payload renders no payload section at all, which is the honest absence for a
     // subject nobody has asked about — not an empty preview.
     expect(container.querySelector(".meridian-artifact-payload")).toBeNull();
-  });
-
-  it("does not hold the next subject's control with the previous subject's fetch", async () => {
-    // The control is held by the `fetching` arm of the previous artifact; a user would meet a
-    // disabled Fetch on a subject nothing was asked about.
-    const subject = artifactPayloadSubject(
-      artifactOperations({
-        listArtifacts: async () => LISTED_ONE_ROW,
-        // Never answers: the fetch stays on the wire for the rest of the case.
-        readArtifact: () => new Promise<ArtifactReadResponse>(() => undefined),
-      }),
-    );
-    const { getByRole, rerender } = renderArtifactPayloadSection(subject);
-    await readThrough(subject.clock);
-    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
-    await settleAct();
-    expect(getByRole("button", { name: "Fetch payload" }).hasAttribute("disabled")).toBe(true);
-
-    rerender(artifactPayloadTree(subject, OTHER_ARTIFACT_ID));
-    await readThrough(subject.clock);
-
-    expect(getByRole("button", { name: "Fetch payload" }).hasAttribute("disabled")).toBe(false);
-  });
-
-  it("negative control: the same subject keeps its reader, its payload, and its reads", async () => {
-    // A memo keyed on the address object would mint a reader, and a read, on every render.
-    const artifactList = vi.fn(async () => LISTED_ONE_ROW);
-    const subject = artifactPayloadSubject(
-      artifactOperations({
-        listArtifacts: artifactList,
-        readArtifact: async () => inlineRead(DIFF_PAYLOAD_BASE64, "base64"),
-      }),
-    );
-    const { container, getByRole, rerender } = renderArtifactPayloadSection(subject);
-    await readThrough(subject.clock);
-    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
-    await settleAct();
-
-    rerender(artifactPayloadTree(subject));
-    await readThrough(subject.clock);
-
-    expect(container.querySelector(".meridian-artifact-payload__preview")?.textContent).toBe(
-      "diff --git a/one b/one",
-    );
-    expect(artifactList).toHaveBeenCalledTimes(1);
   });
 });

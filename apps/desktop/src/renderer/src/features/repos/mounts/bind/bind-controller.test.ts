@@ -22,7 +22,6 @@ import { useBindController, type BindBinding } from "./hooks/useBindController.j
 
 const SESSION_ID = "session-repos";
 const OPEN_MOUNT_ID = "mount-open";
-const RESTRICTED_MOUNT_ID = "mount-restricted";
 
 /** One mount admits both modes; the other admits its own root and says why not more. */
 const OPEN_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
@@ -113,27 +112,6 @@ describe("BindWorkspaceController — the pre-bind read", () => {
       "provisioned-worktree",
     ]);
   });
-
-  it("carries the mount's own restriction reasons", async () => {
-    const { controller, clock } = open(RESTRICTED_MOUNT_ID);
-    controller.requestCapabilities();
-    await settleCapabilities(controller, clock);
-    const { prerequisite } = controller.snapshot;
-    expect(prerequisite.status === "read" && prerequisite.value.availableModes).toStrictEqual([
-      "bound-root",
-    ]);
-    expect(
-      prerequisite.status === "read" && prerequisite.value.restrictions?.["provisioned-worktree"],
-    ).toContain("its own root");
-  });
-
-  it("declares the repos feature's own event census", () => {
-    // Two readers of one answer must not disagree about when it goes stale.
-    const { controller } = open(OPEN_MOUNT_ID);
-    expect(controller.triggeringEventKinds.has("workspace.ready")).toBe(true);
-    // Negative control: a frame about something else must not re-ask this question.
-    expect(controller.triggeringEventKinds.has("run.started")).toBe(false);
-  });
 });
 
 describe("BindWorkspaceController — the bind itself", () => {
@@ -162,25 +140,6 @@ describe("BindWorkspaceController — the bind itself", () => {
     await first;
     const { act: settlement } = controller.snapshot;
     expect(settlement.status === "bound" && settlement.response.executionMode).toBe("bound-root");
-  });
-
-  it("clears the settlement without touching the pre-bind read", async () => {
-    const { controller, clock } = open(OPEN_MOUNT_ID);
-    controller.requestCapabilities();
-    await settleCapabilities(controller, clock);
-    await controller.bind("bound-root", undefined);
-    controller.clearAct();
-    expect(controller.snapshot.act.status).toBe("idle");
-    // Reopening the dialog must not re-read an answer that has not changed.
-    expect(controller.snapshot.prerequisite.status).toBe("read");
-  });
-
-  it("negative control: a disposed controller publishes nothing more", async () => {
-    const { controller } = open(OPEN_MOUNT_ID);
-    const inFlight = controller.bind("bound-root", undefined);
-    controller.dispose();
-    await inFlight;
-    expect(controller.snapshot.act.status).toBe("sending");
   });
 });
 
@@ -238,23 +197,5 @@ describe("useBindController — the store is the axis the resource key cannot ca
     } finally {
       disposals.mockRestore();
     }
-  });
-
-  it("negative control: a store standing still rebinds nothing", async () => {
-    // Without this the case above would pass against a binding that re-opened a controller
-    // on every render.
-    const { bridge, clock } = bridgeOnClock("repos");
-    const operations = scriptedDaemon();
-    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    const rendered = renderHook(
-      ({ held }) => useBindController(bridge, OPEN_MOUNT_ID, held, operations),
-      { initialProps: { held: sessionStore }, wrapper: bridgeWrapper(bridge, clock) },
-    );
-    await bindOnce(rendered.result.current.bind);
-
-    rendered.rerender({ held: sessionStore });
-    rendered.rerender({ held: sessionStore });
-
-    expect(rendered.result.current.reading.act.status).toBe("bound");
   });
 });

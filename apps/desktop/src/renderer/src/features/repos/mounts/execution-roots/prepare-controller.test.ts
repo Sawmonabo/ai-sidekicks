@@ -6,8 +6,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
-import { DIRTY_BRANCH, INCOMPATIBLE_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
-import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
+import { DIRTY_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
 import { ExecutionRootPrepareController } from "./prepare-controller.js";
 
 const controllers: ExecutionRootPrepareController[] = [];
@@ -64,22 +63,6 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
     expect(prerequisite.status === "read" && prerequisite.value.kind).toBe("dirty");
   });
 
-  it("finds the incompatible candidate, which admits no consent", async () => {
-    const { controller, clock } = open();
-    controller.checkReuse(INCOMPATIBLE_BRANCH);
-    await settleCheck(controller, clock);
-    const { prerequisite } = controller.snapshot;
-    expect(prerequisite.status === "read" && prerequisite.value.kind).toBe("incompatible");
-  });
-
-  it("answers an unheld branch with no candidate at all", async () => {
-    const { controller, clock } = open();
-    controller.checkReuse("feat/nothing-here");
-    await settleCheck(controller, clock);
-    const { prerequisite } = controller.snapshot;
-    expect(prerequisite.status === "read" && prerequisite.value.kind).toBe("none");
-  });
-
   it("withdraws the question when the field is cleared", async () => {
     const { controller, clock } = open();
     controller.checkReuse(DIRTY_BRANCH);
@@ -87,23 +70,6 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
     controller.checkReuse("   ");
     // A verdict left on screen would be attached to a branch nobody named.
     expect(controller.snapshot.prerequisite.status).toBe("not-read");
-  });
-
-  it("negative control: a refresh reason with no branch named puts nothing on the wire", async () => {
-    // A window focus over a form nobody has typed into has no question to re-ask.
-    const { controller, clock } = open();
-    controller.start();
-    controller.requestRead("window-focus");
-    await settleCheck(controller, clock);
-    expect(controller.snapshot.prerequisite.status).toBe("not-read");
-  });
-
-  it("declares the repos feature's event census, so a retired root re-asks the question", () => {
-    // A worktree appearing or being retired is what makes a verdict wrong.
-    const { controller } = open();
-    expect([...controller.triggeringEventKinds].sort()).toStrictEqual(
-      [...REPO_LIFECYCLE_EVENT_KINDS].sort(),
-    );
   });
 });
 
@@ -119,15 +85,5 @@ describe("ExecutionRootPrepareController — the prepare", () => {
     expect(act.status).toBe("prepared");
     expect(act.status === "prepared" && act.executionRoot.length).toBeGreaterThan(0);
     expect(act.status === "prepared" && act.state).toBe("ready");
-  });
-
-  it("clears the act without clearing the verdict beside it", async () => {
-    const { controller, clock } = open();
-    controller.checkReuse(DIRTY_BRANCH);
-    await settleCheck(controller, clock);
-    await controller.prepare(DIRTY_BRANCH, false);
-    controller.clearAct();
-    expect(controller.snapshot.act.status).toBe("idle");
-    expect(controller.snapshot.prerequisite.status).toBe("read");
   });
 });

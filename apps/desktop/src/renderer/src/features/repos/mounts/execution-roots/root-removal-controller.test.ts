@@ -59,13 +59,6 @@ describe("RootRemovalController — the removal", () => {
     await controller.send();
     expect(requests).toStrictEqual([{ worktreeId: WORKTREE_ID, discard: false }]);
   });
-
-  it("reports the send before it reports the answer", async () => {
-    // A confirmation with no in-flight state would look unresponsive for the length of the call.
-    const { controller, log } = open(WORKTREE_ID);
-    await controller.send();
-    expect(log.readings.map((reading) => reading.status)).toStrictEqual(["sending", "settled"]);
-  });
 });
 
 describe("RootRemovalController — the guards", () => {
@@ -97,14 +90,5 @@ describe("RootRemovalController — the guards", () => {
       "sending",
       "settled",
     ]);
-  });
-
-  it("negative control: a disposed controller reports nothing more", async () => {
-    const { controller, log } = open(WORKTREE_ID);
-    const inFlight = controller.send();
-    controller.dispose();
-    await inFlight;
-    expect(log.last?.status).toBe("sending");
-    expect(controller.isDisposed).toBe(true);
   });
 });

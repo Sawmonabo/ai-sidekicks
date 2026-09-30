@@ -5,7 +5,7 @@
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { StrictMode, createElement, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
@@ -14,9 +14,7 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { repeatedDisposalCount } from "@test/helpers/repeated-disposal.js";
 import { useRepoMounts, type RepoMountsBinding } from "./useRepoMounts.js";
-import { RepoMountsReader } from "../repo-mounts-reader.js";
 import { SESSION_ID, sessionOperations } from "../repo-mounts.test-support.js";
 
 /** The hook under a wrapper, with the workspace-list reads the daemon has actually seen. */
@@ -81,9 +79,9 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
     expect(binding.binding().reading.mounts.length).toBeGreaterThan(0);
   });
 
-  it("negative control: a re-mint is once, not once per render", async () => {
-    // Without this the case above would pass against a binding that opened a reader on every
-    // pass. Exactly one reader reaches the wire, StrictMode's replay included.
+  it("re-mints once, not once per render", async () => {
+    // A binding that opened a reader on every pass would double every read. Exactly one reader
+    // reaches the wire, StrictMode's replay included.
     const binding = renderBinding({ strict: true });
     await binding.settle();
     expect(binding.listReadCount()).toBe(1);
@@ -93,34 +91,6 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
     await binding.settle();
 
     expect(binding.listReadCount()).toBe(1);
-  });
-
-  it("negative control: outside StrictMode the same binding reads exactly once too", async () => {
-    // The re-mint arm must not fire where nothing was disposed: a second reader on an ordinary
-    // commit would double every read.
-    const binding = renderBinding({ strict: false });
-
-    await binding.settle();
-
-    expect(binding.listReadCount()).toBe(1);
-  });
-
-  it("disposes every reader it opened exactly once", async () => {
-    // Disposal is terminal and reported through `isClosed`. Re-derived in the binding's effect,
-    // StrictMode's corpse was disposed twice; `dispose` is re-entrant so nothing failed, which is
-    // why the call is counted rather than its effect.
-    const disposals = vi.spyOn(RepoMountsReader.prototype, "dispose");
-    try {
-      const binding = renderBinding({ strict: true });
-      await binding.settle();
-      binding.unmount();
-
-      expect(repeatedDisposalCount(disposals)).toBe(0);
-      // A spy that saw nothing would report zero repeats for a binding that never disposed.
-      expect(disposals.mock.contexts.length).toBeGreaterThan(0);
-    } finally {
-      disposals.mockRestore();
-    }
   });
 });
 

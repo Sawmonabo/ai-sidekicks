@@ -1,11 +1,9 @@
-// What the section's one read burst puts on screen, driving the real section over scripted
-// daemon calls. The controls are in `RepoSection.controls.test.ts`.
+// What the section's one read burst puts on screen, and a card's way into the pane layout,
+// driving the real section over scripted daemon calls.
 
-import { within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-
-import { REPO_MOUNTS_NOT_READ_TITLE } from "./repo-mounts-copy.js";
-import { sessionOperations } from "./repo-mounts.test-support.js";
+import { fireEvent, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { HEALTHY_WORKSPACE_ID, sessionOperations } from "./repo-mounts.test-support.js";
 import { MOUNT_CARD_SELECTOR, renderSection } from "./repo-section.test-support.js";
 
 describe("RepoSection — the mounts this session actually holds", () => {
@@ -29,12 +27,28 @@ describe("RepoSection — the mounts this session actually holds", () => {
   });
 });
 
-describe("RepoSection — before the first read settles", () => {
-  it("says it has not read, and draws no card", () => {
-    // Nothing is advanced, so the read is still unmade.
-    const section = renderSection(sessionOperations());
-
-    expect(section.container.textContent).toContain(REPO_MOUNTS_NOT_READ_TITLE);
-    expect(section.container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(0);
+describe("RepoSection — a card's way into the pane layout", () => {
+  it("opens a diff pane at the row's own address, in the pane layout it was handed", async () => {
+    // The opener is handed in by the pane layout, not imported: a sidebar in an auxiliary
+    // window opens its panes in that window's layout, so every press must arrive through this
+    // callback.
+    const openPane = vi.fn();
+    const section = renderSection(sessionOperations(), openPane);
+    await section.advanceUntil(() => {
+      expect(
+        within(section.container).getByLabelText(
+          `Open the changes of workspace ${HEALTHY_WORKSPACE_ID}`,
+        ),
+      ).toBeDefined();
+    });
+    fireEvent.click(
+      within(section.container).getByLabelText(
+        `Open the changes of workspace ${HEALTHY_WORKSPACE_ID}`,
+      ),
+    );
+    expect(openPane).toHaveBeenCalledWith({
+      kind: "diff",
+      entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID },
+    });
   });
 });

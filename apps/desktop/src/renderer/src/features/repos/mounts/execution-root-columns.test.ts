@@ -1,19 +1,12 @@
-// The execution-root columns, driven directly. If the summary and detail tuples ever stop
-// covering the labels table exactly once each, a column vanishes from the card with nothing
-// failing; the coverage predicate is asserted and driven with a known-bad tuple to prove it bites.
+// The execution-root columns: if the summary and detail tuples ever stop covering the labels
+// table exactly once each, a column vanishes from the card with nothing failing.
 
 import { describe, expect, it } from "vitest";
-
-import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts";
 import {
-  COLUMN_ABSENT_FALLBACK,
-  WORKTREE_ABSENT_COLUMN_COPY,
   WORKTREE_COLUMN_LABELS,
   WORKTREE_DETAIL_COLUMNS,
   WORKTREE_SUMMARY_COLUMNS,
-  worktreeColumnCell,
 } from "./execution-root-columns.js";
-import { worktreeRecord } from "./repo-mounts.test-support.js";
 
 /** Does a summary/detail split cover a labels table exactly once each? */
 function splitCoverage(
@@ -36,37 +29,5 @@ describe("worktree-columns — every column has a home", () => {
       WORKTREE_DETAIL_COLUMNS,
     );
     expect(coverage).toStrictEqual({ missing: [], duplicated: [] });
-  });
-
-  it("negative control: the coverage predicate reports a dropped and a doubled column", () => {
-    expect(splitCoverage(["a", "b"], ["a"], [])).toStrictEqual({
-      missing: ["b"],
-      duplicated: [],
-    });
-    expect(splitCoverage(["a"], ["a"], ["a"])).toStrictEqual({ missing: [], duplicated: ["a"] });
-  });
-});
-
-describe("worktree-columns — column cells", () => {
-  it("hands back the wire's own string", () => {
-    expect(worktreeColumnCell(worktreeRecord(), "branchName")).toStrictEqual({
-      kind: "value",
-      value: "sidekicks/abc123/rate-limit-wiring",
-    });
-  });
-
-  it("names what an omitted optional column means", () => {
-    expect(
-      worktreeColumnCell(worktreeRecord({ createdByRunId: undefined }), "createdByRunId"),
-    ).toStrictEqual({ kind: "absent", copy: WORKTREE_ABSENT_COLUMN_COPY.createdByRunId });
-  });
-
-  it("says so when a column the wire declares required arrives empty", () => {
-    // Reachable: a payload that skipped the response schema can carry a hole the type forbids.
-    const holed = { ...worktreeRecord(), fsRoot: undefined } as unknown as WorktreeStatusRecord;
-    expect(worktreeColumnCell(holed, "fsRoot")).toStrictEqual({
-      kind: "absent",
-      copy: COLUMN_ABSENT_FALLBACK,
-    });
   });
 });

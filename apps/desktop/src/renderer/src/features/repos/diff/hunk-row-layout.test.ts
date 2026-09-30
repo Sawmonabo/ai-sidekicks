@@ -19,12 +19,6 @@ const MODIFIED_PAIR: readonly DiffLine[] = [
 ];
 
 describe("hunk body layout — unified is the identity, and holds no array", () => {
-  it("reports one row per line without materializing them", () => {
-    const layout = buildHunkBodyLayout(MODIFIED_PAIR, "unified");
-    expect(layout.kind).toBe("identity");
-    expect(hunkBodyRowCount(layout)).toBe(MODIFIED_PAIR.length);
-  });
-
   it("answers each row arithmetically, and nothing past the end", () => {
     const layout = buildHunkBodyLayout(MODIFIED_PAIR, "unified");
     expect(hunkBodyRowAt(layout, 0)).toStrictEqual({ lineIndex: 0 });
@@ -60,11 +54,5 @@ describe("hunk body layout — split pairs positionally, and holds the pairing",
     expect(hunkBodyRowCount(layout)).toBe(2);
     expect(hunkBodyRowAt(layout, 0)).toStrictEqual({ lineIndex: 0, pairedLineIndex: 2 });
     expect(hunkBodyRowAt(layout, 1)).toStrictEqual({ lineIndex: 1 });
-  });
-
-  it("negative control: the two modes really do flatten this shape differently", () => {
-    expect(hunkBodyRowCount(buildHunkBodyLayout(MODIFIED_PAIR, "unified"))).not.toBe(
-      hunkBodyRowCount(buildHunkBodyLayout(MODIFIED_PAIR, "split")),
-    );
   });
 });

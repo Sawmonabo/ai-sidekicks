@@ -1,5 +1,5 @@
 // Gap expansion with predecessor retention: what a second press may never take back. The
-// rule (monotonic growth, clamped, never mutating) is checkable without an index; the two
+// rule (monotonic growth, clamped, never mutating) is checkable without an index; the
 // cases that build one show the row count and the gap row follow the value.
 
 import { describe, expect, it } from "vitest";
@@ -68,10 +68,9 @@ describe("hunk virtualization — gap expansion with predecessor retention", () 
     expect(expandGap(exhausted, 0, 0, 3)).toBe(exhausted);
   });
 
-  it("negative control: expanding never mutates the value it was given", () => {
-    // Without this, `expandGap` could mutate in place and return the same reference: every
-    // count above would pass and React would render nothing, since the memo identity never
-    // changes.
+  it("never mutates the value it was given", () => {
+    // An `expandGap` that mutated in place and returned the same reference would leave React
+    // rendering nothing, since the memo identity never changes.
     const before: ReadonlyMap<string, number> = new Map();
     expandGap(before, 0, 0, 10);
     expect(before.size).toBe(0);

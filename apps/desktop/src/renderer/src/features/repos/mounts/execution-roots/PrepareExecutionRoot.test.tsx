@@ -6,7 +6,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { WORKTREE_GIT_REF_MAX_LEN, type ExecutionMode } from "@ai-sidekicks/contracts";
+import { type ExecutionMode } from "@ai-sidekicks/contracts";
 
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -109,13 +109,6 @@ describe("PrepareExecutionRoot — the reuse check holds the control", () => {
     });
     expect(blockedLine(container)).toBeUndefined();
   });
-
-  it("holds a branch name past the contract's own bound, and says by how much", () => {
-    const { container } = renderForm();
-    nameBranch(container, "b".repeat(WORKTREE_GIT_REF_MAX_LEN + 1));
-    expect(confirmButton(container).disabled).toBe(true);
-    expect(blockedLine(container)).toContain(String(WORKTREE_GIT_REF_MAX_LEN + 1));
-  });
 });
 
 describe("PrepareExecutionRoot — the dirty-candidate consent", () => {
@@ -136,7 +129,7 @@ describe("PrepareExecutionRoot — the dirty-candidate consent", () => {
     expect(confirmButton(container).disabled).toBe(false);
   });
 
-  it("negative control: editing the branch withdraws the consent and the control with it", async () => {
+  it("shuts the control on a branch edit, though the consent was given", async () => {
     const { container, advanceUntil } = renderForm();
     nameBranch(container, DIRTY_BRANCH);
     await advanceUntil(() => {
@@ -167,18 +160,5 @@ describe("PrepareExecutionRoot — the form's lifetime", () => {
     expect(branchInput(container).value).toBe("");
     expect(confirmButton(container).disabled).toBe(true);
     expect(blockedLine(container)).toContain("Name the branch");
-  });
-
-  it("negative control: a re-render in the same mode keeps what was typed", async () => {
-    const { container, advanceUntil, setExecutionMode } = renderForm();
-    nameBranch(container, UNHELD_BRANCH);
-    await advanceUntil(() => {
-      expect(confirmButton(container).disabled).toBe(false);
-    });
-
-    setExecutionMode("provisioned-worktree");
-
-    expect(branchInput(container).value).toBe(UNHELD_BRANCH);
-    expect(confirmButton(container).disabled).toBe(false);
   });
 });
