@@ -264,7 +264,7 @@ export class CodexSpawnPosture {
       withheldToolCount,
       reason: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
     });
-    // Both sinks: the local transport arm is this driver's structured record; the censused kind
+    // Both sinks: the local transport arm is this driver's structured record; the shared diagnostic kind
     // is the one the daemon's counters name.
     this.#options.diagnostics.emit({
       provider: "codex",

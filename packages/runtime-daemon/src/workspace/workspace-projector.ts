@@ -135,7 +135,7 @@ export function computeWorkspaceHealth(
       "computeWorkspaceHealth: no probe policy is registered for workspace state " +
         `"${String(workspaceRow.state)}". Every value of the closed WorkspaceState union is ` +
         "either probe-bearing or not; a value outside that vocabulary is a corrupt row, and " +
-        "answering it from either branch would guess at a policy nobody ratified.",
+        "answering it from either branch would guess at a policy no code defines.",
     );
   }
   if (workspaceRow.fsRoot === null) {

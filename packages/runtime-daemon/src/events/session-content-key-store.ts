@@ -111,10 +111,10 @@ export interface SessionContentKeyStoreDeps {
 }
 
 /**
- * Builds the wrap AAD for one `(session, key version)` pair; exported for tests. The concatenation
- * is unambiguous: fixed literal in the middle, decimal suffix, fixed-width UUID session ids.
+ * Builds the wrap AAD for one `(session, key version)` pair. The concatenation is unambiguous:
+ * fixed literal in the middle, decimal suffix, fixed-width UUID session ids.
  */
-export function buildSessionContentWrapAad(sessionId: string, keyVersion: number): Uint8Array {
+function buildSessionContentWrapAad(sessionId: string, keyVersion: number): Uint8Array {
   return new TextEncoder().encode(`${sessionId}${SESSION_CONTENT_WRAP_INFO}${String(keyVersion)}`);
 }
 

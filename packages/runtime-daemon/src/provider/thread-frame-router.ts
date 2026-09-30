@@ -134,7 +134,7 @@ export interface SubagentLifecycleEmission {
 export type ThreadFrameRoute =
   /** The session's own thread: project into the session timeline. */
   | { readonly decision: "project" }
-  /** A censused connection- or account-scoped family: route without identity. */
+  /** A known connection- or account-scoped family: route without identity. */
   | { readonly decision: "route-connection-scoped" }
   /** A registered child's usage frame: meter under the stated attribution. */
   | {

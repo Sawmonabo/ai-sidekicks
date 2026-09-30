@@ -89,9 +89,8 @@ export const CLAUDE_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
 
 /**
  * The Claude driver's raw tool declarations, where omitting `idempotency_class` is the normal case.
- * Exported so a test can check the floor on shipped data.
  */
-export const CLAUDE_TOOL_DECLARATIONS: readonly ProviderToolMetadata[] = Object.freeze(
+const CLAUDE_TOOL_DECLARATIONS: readonly ProviderToolMetadata[] = Object.freeze(
   (
     [
       // Pure local reads: nothing observable changes, so repeating after a crash is safe.

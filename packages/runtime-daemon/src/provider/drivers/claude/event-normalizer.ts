@@ -651,7 +651,7 @@ export function resolveClaudeFrameEmissionRoute(
       kind: "payload_variant_pending",
       rawWireType: frameKind,
       dispositionReason:
-        "censused kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction is forbidden without one, so the frame routes to the diagnostic branch",
+        "normalized kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction is forbidden without one, so the frame routes to the diagnostic branch",
       details: { eventType: normalization.eventType },
     };
     diagnostics.emit(record);

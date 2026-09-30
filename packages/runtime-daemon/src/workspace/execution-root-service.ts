@@ -723,7 +723,7 @@ export class ExecutionRootService {
     const parsed = ExecutionModeSchema.safeParse(workspace.execution_mode);
     if (!parsed.success) {
       throw new ExecutionRootServiceInvariantError(
-        `workspace ${workspace.id} carries an execution mode outside the ratified vocabulary`,
+        `workspace ${workspace.id} carries an execution mode outside the ExecutionMode vocabulary`,
         {
           kind: "unreadable_workspace_row",
           workspaceId: workspace.id,

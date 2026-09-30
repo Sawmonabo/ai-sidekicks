@@ -124,7 +124,7 @@ function buildTurnSnapshotGitEnvironment(
   return environment;
 }
 
-/** The default runner: `execFile` with an argv array, never a shell string. Exported for tests. */
+/** The default runner: `execFile` with an argv array, never a shell string. */
 export const runTurnSnapshotGitWithExecFile: TurnSnapshotGitRunner = (
   argv: readonly string[],
   options: TurnSnapshotGitInvocationOptions,
