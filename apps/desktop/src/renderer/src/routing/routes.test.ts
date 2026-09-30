@@ -9,16 +9,10 @@ import { describe, expect, it } from "vitest";
 
 import { formatRoute, parseRoute, type AppRoute } from "./routes.js";
 
-/** Main-window routes, including the arms that carry an optional segment. */
+/** Main-window routes, including the arm that carries an optional segment. */
 const MAIN_WINDOW_ROUTES: readonly AppRoute[] = [
   { kind: "sessions" },
   { kind: "session", sessionId: "session-1" },
-  // The same arm carrying its optional focus, listed beside the bare session address.
-  {
-    kind: "session",
-    sessionId: "session-1",
-    workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
-  },
   { kind: "workflows" },
   { kind: "settings", page: undefined },
   { kind: "settings", page: "providers" },

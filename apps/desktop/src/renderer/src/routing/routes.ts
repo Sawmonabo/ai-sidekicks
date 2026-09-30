@@ -6,26 +6,7 @@
 /** Where the console currently is. A closed union: every arm renders something. */
 export type AppRoute =
   | { readonly kind: "sessions" }
-  // One arm with an optional focus: a session address always carries its session, so
-  // `{sessionId, workflowPhase}` is writable in full. `#/session/<sid>/workflow/<rid>/phase/<pid>`
-  // is a session address, not a destination, so the rail and the palette scope treat it as the
-  // session. A parked phase needs an address because the places that link to it (a park banner,
-  // a run row, a notification) are often in a window without the run pane.
-  | {
-      readonly kind: "session";
-      readonly sessionId: string;
-      /**
-       * The phase this address is focused on, where it names one.
-       *
-       * Omitted, never set to `undefined`, so the round trip is exact under
-       * `exactOptionalPropertyTypes`. Both ids are opaque wire values: routing owns the grammar
-       * and never checks that they name a live run.
-       */
-      readonly workflowPhase?: {
-        readonly workflowRunId: string;
-        readonly phaseId: string;
-      };
-    }
+  | { readonly kind: "session"; readonly sessionId: string }
   // Bare on purpose: this destination opens the `workflow-builder` pane, which carries its own
   // context, so a definition id here would be a second locator for something not yet defined.
   | { readonly kind: "workflows" }
@@ -75,7 +56,10 @@ export function parseRoute(hash: string): AppRoute {
   }
 
   if (head === "session") {
-    return sessionRoute(hash, rest);
+    const [sessionSegment] = rest;
+    const sessionId =
+      sessionSegment === undefined || rest.length > 1 ? undefined : decodeSegment(sessionSegment);
+    return sessionId === undefined ? notFound(hash) : { kind: "session", sessionId };
   }
 
   if (head === "workflows") {
@@ -124,14 +108,8 @@ export function formatRoute(route: AppRoute): string {
   switch (route.kind) {
     case "sessions":
       return "#/sessions";
-    case "session": {
-      const sessionAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
-      // The `workflow` and `phase` keywords must match `sessionRoute`'s.
-      const { workflowPhase } = route;
-      return workflowPhase === undefined
-        ? sessionAddress
-        : `${sessionAddress}/workflow/${encodeURIComponent(workflowPhase.workflowRunId)}/phase/${encodeURIComponent(workflowPhase.phaseId)}`;
-    }
+    case "session":
+      return `#/session/${encodeURIComponent(route.sessionId)}`;
     case "workflows":
       return "#/workflows";
     case "settings": {
@@ -162,41 +140,6 @@ function decodeSegment(segment: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-/**
- * The two session screen addresses, read from the segments after `session`.
- *
- * The keyword positions are checked before the ids are decoded, so
- * `#/session/s/anything/r/phase/p` is not-found rather than a session address missing its focus.
- */
-function sessionRoute(hash: string, rest: readonly string[]): AppRoute {
-  const [sessionSegment, workflowKeyword, runSegment, phaseKeyword, phaseSegment] = rest;
-  if (sessionSegment === undefined) {
-    return notFound(hash);
-  }
-  const sessionId = decodeSegment(sessionSegment);
-  if (sessionId === undefined) {
-    return notFound(hash);
-  }
-  if (rest.length === 1) {
-    // The key is omitted, not set to `undefined`, so `#/session/<id>` round-trips exactly.
-    return { kind: "session", sessionId };
-  }
-  if (
-    rest.length !== 5 ||
-    workflowKeyword !== "workflow" ||
-    phaseKeyword !== "phase" ||
-    runSegment === undefined ||
-    phaseSegment === undefined
-  ) {
-    return notFound(hash);
-  }
-  const workflowRunId = decodeSegment(runSegment);
-  const phaseId = decodeSegment(phaseSegment);
-  return workflowRunId === undefined || phaseId === undefined
-    ? notFound(hash)
-    : { kind: "session", sessionId, workflowPhase: { workflowRunId, phaseId } };
 }
 
 function notFound(attempted: string): AppRoute {
