@@ -1,90 +1,56 @@
-// One banner per thing that happened, and one identity per banner.
+// One banner per thing a person is told, and one identity per banner.
 //
-// The stack is a fold over raises, so the cases below are about what the fold keeps:
-// a repeat is counted rather than appended, a difference in ANY of the three fields is
-// a different banner, and dismissing one leaves the others exactly as they were —
-// which is what lets the render key on the identity rather than on a position.
+// The column is a fold over raises, so the cases below are about what the fold keeps:
+// a repeat leaves the standing banner as it is, other words are another banner, and
+// dismissing one leaves the others exactly as they were — which is what lets the
+// render key on the identity rather than on a position.
 
 import { describe, expect, it } from "vitest";
 
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
+  PANE_LAYOUT_NOT_SAVED_BANNER,
   dismissSessionBanner,
   raiseSessionBanner,
   sessionBannerKey,
   type SessionBanner,
 } from "./session-banners.js";
 
-const SAVE_FAILED = refuse(
-  "pane-layout",
-  "layout-save-failed",
-  "This window's pane arrangement could not be saved.",
-);
-const STORE_FULL = refuse(
-  "persistence",
-  "quota-exceeded",
-  "The browser storage quota for this window is full.",
-);
+const OTHER_BANNER: SessionBanner = { words: ["Pane layout not saved", "it will save later"] };
 
-// Any console refusal, not one code's: the builder narrows its `code` to the literal
-// it was handed, and every case below deliberately mixes codes.
-function raiseAll(...refusals: readonly Refusal[]): readonly SessionBanner[] {
-  return refusals.reduce<readonly SessionBanner[]>(
-    (current, refusal) => raiseSessionBanner(current, refusal),
+function raiseAll(...banners: readonly SessionBanner[]): readonly SessionBanner[] {
+  return banners.reduce<readonly SessionBanner[]>(
+    (current, banner) => raiseSessionBanner(current, banner),
     [],
   );
 }
 
-describe("the session screen banner stack", () => {
-  it("counts an identical refusal rather than stacking it", () => {
-    // A failing store raises this on every pane the person moves, so a drag used to
+describe("the session screen banner column", () => {
+  it("keeps one banner, unchanged, when the same banner is raised again", () => {
+    // A failing store refuses a save on every pane the person moves, so a drag used to
     // produce a column of identical banners saying one thing.
-    const banners = raiseAll(SAVE_FAILED, SAVE_FAILED, SAVE_FAILED);
+    const raised = raiseAll(PANE_LAYOUT_NOT_SAVED_BANNER, OTHER_BANNER);
 
-    expect(banners).toHaveLength(1);
-    expect(banners[0]?.repeatCount).toBe(3);
+    expect(raiseSessionBanner(raised, PANE_LAYOUT_NOT_SAVED_BANNER)).toBe(raised);
   });
 
-  it("negative control: a refusal differing in any one field is its own banner", () => {
-    // Without this, the case above would pass over a fold that counted every raise as
-    // the same one and showed a person a count where a second fact belonged.
-    const otherDetail = refuse(
-      SAVE_FAILED.origin,
-      SAVE_FAILED.code,
-      "This window's sidebar arrangement could not be saved.",
-    );
-    const otherCode = refuse(SAVE_FAILED.origin, "pane-layout.not_mounted", SAVE_FAILED.detail);
-    const otherOrigin = refuse("persistence", SAVE_FAILED.code, SAVE_FAILED.detail);
-
-    expect(raiseAll(SAVE_FAILED, otherDetail, otherCode, otherOrigin)).toHaveLength(4);
-  });
-
-  it("leaves a standing banner in place when a repeat arrives, and its neighbors untouched", () => {
-    // The render keys on the identity, so a repeat that re-ordered the stack would
-    // move a dismiss control out from under the pointer reaching for it.
-    const raised = raiseAll(SAVE_FAILED, STORE_FULL);
-    const afterRepeat = raiseSessionBanner(raised, SAVE_FAILED);
-
-    expect(afterRepeat.map((banner) => banner.refusal.code)).toStrictEqual([
-      "layout-save-failed",
-      "quota-exceeded",
-    ]);
-    // The neighbor is the same entry, not a rebuilt one carrying the same fields.
-    expect(afterRepeat[1]).toBe(raised[1]);
+  it("negative control: other words are a banner of their own", () => {
+    // Without this, the case above would pass over a fold that took every raise as the
+    // same banner and hid a second thing a person had to be told.
+    expect(raiseAll(PANE_LAYOUT_NOT_SAVED_BANNER, OTHER_BANNER)).toHaveLength(2);
   });
 
   it("dismisses by identity and leaves every other banner as it was", () => {
-    const raised = raiseAll(SAVE_FAILED, STORE_FULL);
-    const remaining = dismissSessionBanner(raised, sessionBannerKey(SAVE_FAILED));
+    const raised = raiseAll(PANE_LAYOUT_NOT_SAVED_BANNER, OTHER_BANNER);
+    const remaining = dismissSessionBanner(raised, sessionBannerKey(PANE_LAYOUT_NOT_SAVED_BANNER));
 
     expect(remaining).toHaveLength(1);
     expect(remaining[0]).toBe(raised[1]);
   });
 
   it("negative control: dismissing an identity nothing carries removes nothing", () => {
-    // Without this, the case above would pass over a dismissal that emptied the stack
+    // Without this, the case above would pass over a dismissal that emptied the column
     // whatever it was handed.
-    const raised = raiseAll(SAVE_FAILED, STORE_FULL);
+    const raised = raiseAll(PANE_LAYOUT_NOT_SAVED_BANNER, OTHER_BANNER);
 
     expect(dismissSessionBanner(raised, "no-such-banner")).toStrictEqual(raised);
   });

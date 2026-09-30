@@ -60,7 +60,8 @@ export interface PaneLayoutPersistenceOptions {
   readonly layout: PaneLayoutStore;
   readonly uiStateStore: UiStateStore;
   readonly sessionId: string | undefined;
-  readonly onSaveRefused: (refusal: Refusal) => void;
+  /** A save failed: the refusal, and the session whose arrangement it carried. */
+  readonly onSaveRefused: (refusal: Refusal, sessionId: string) => void;
 }
 
 /**
@@ -114,17 +115,18 @@ export function usePaneLayoutPersistence(
             snapshot,
           );
           if (result.outcome === "refused") {
-            onSaveRefused(result.refusal);
+            onSaveRefused(result.refusal, partition);
           }
         },
         // A write that rejects is surfaced, not thrown: an unhandled rejection out
         // of a save would take the window down over a layout the person can redraw.
-        onFailed: () => {
+        onFailed: (_error, partition) => {
           onSaveRefused(
             refusePaneLayoutSave(
               "layout-save-failed",
               "This window's pane arrangement could not be saved. It is still on screen, and it will be saved again on the next change.",
             ),
+            partition,
           );
         },
       }),
