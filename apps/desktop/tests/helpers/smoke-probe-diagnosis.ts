@@ -15,7 +15,10 @@ import {
 import type { SpawnResult } from "./smoke-probe-harness.js";
 import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
 
-/** Longest a single at-deadline subprocess reading may run. */
+/**
+ * Longest a single at-deadline subprocess reading may run; healthy readings take under 100 ms, so
+ * this is about 15 times that.
+ */
 export const DIAGNOSTIC_PROBE_TIMEOUT_MS = 1_500;
 
 /**

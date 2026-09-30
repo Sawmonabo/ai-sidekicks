@@ -85,6 +85,8 @@ function readingAfterCompaction(
     usagePercent: percentOf(boundary.postCompactionTokens, superseded.windowMaxTokens),
     windowUsedTokens: boundary.postCompactionTokens,
     windowMaxTokens: superseded.windowMaxTokens,
+    // The provenance travels with the window: dropping it would render an estimated window as if
+    // the provider had reported it.
     windowSource: superseded.windowSource,
     // A compaction ends the state the flag reported.
     exceeded: undefined,
@@ -125,7 +127,9 @@ function newestCompactionBoundary(
 function readContextWindow(event: ProjectedSessionEvent): ContextWindowReading | undefined {
   const windowUsedTokens = wholeCount(event.payload?.["windowUsedTokens"]);
   const windowMaxTokens = wholeCount(event.payload?.["windowMaxTokens"]);
-  // A zero denominator is a window size the row did not state.
+  // A zero denominator is a window size the row did not state. Counts travel as a pair: a row with
+  // only provenance and `exceeded` is not read, as this meter draws a ratio and acting on that
+  // signal is not a bar's job.
   if (windowUsedTokens === undefined || windowMaxTokens === undefined || windowMaxTokens === 0) {
     return undefined;
   }

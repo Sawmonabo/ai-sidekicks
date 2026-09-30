@@ -22,7 +22,10 @@ import {
   targetTurnsCarryMemoMarker,
 } from "./memo-marker-reader.js";
 
-/** The frame handed to the gateway, minted `system_narration`; the driver owns encoding. */
+/**
+ * The frame handed to the gateway, minted `system_narration`; the driver owns encoding. A frame,
+ * not a string, so a gateway cannot send bytes that skipped neutralization and correlation minting.
+ */
 export interface MemoOutboundFrame {
   readonly targetProviderSessionId: string;
   readonly memoIdentityKey: string;

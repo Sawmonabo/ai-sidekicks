@@ -4,7 +4,8 @@
 //   * The budget is a fraction of the target's context window, never an absolute token count.
 //   * Eviction removes whole exchanges only, and the newest tool exchanges are protected.
 //   * The once-only key derives from the raw projection (before the transforms and the budget) and
-//     the target session, and rides as visible ASCII in the memo turn. It leaves out
+//     the target session, so a later change to how the memo is worded, stripped or evicted never
+//     makes a second memo for one switch. It rides as visible ASCII in the memo turn and leaves out
 //     `builtAtPosition`, which moves on any append. Nothing durable is written.
 //   * An ambiguous send stays unconfirmed until the marker appears or an absence is read after the
 //     caller's settlement barrier: a duplicate memo corrupts the conversation, a missing one only

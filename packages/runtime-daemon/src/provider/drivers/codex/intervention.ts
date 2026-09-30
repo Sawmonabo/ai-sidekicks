@@ -12,7 +12,8 @@
  *   it as `clientUserMessageId`); `turn/interrupt` has none, and a minted key would defeat the
  *   `UNIQUE (target_run_id, client_idempotency_key)` dedupe on retry.
  * - `turn/steer` answers `{ turnId }`, so `applied` requires the targeted turn; `turn/interrupt`
- *   answers an empty object, so no JSON-RPC error is the only evidence (no shape check).
+ *   answers an empty object, so no JSON-RPC error is the only evidence. No shape check: the wire is
+ *   additive, and a new member must not degrade every interrupt.
  */
 
 import {

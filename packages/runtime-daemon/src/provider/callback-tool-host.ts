@@ -146,8 +146,9 @@ export interface CallbackToolHostOptions {
 }
 
 /**
- * The daemon-side callback-tool dispatcher; it holds the per-session registries the unknown-tool
- * and argument checks read. Per spawn: `resolveSpawnRegistry` first (`dispatch` refuses a session
+ * The daemon-side callback-tool dispatcher, built only by the composition root (a driver never
+ * constructs or looks one up); it holds the per-session registries the unknown-tool and argument
+ * checks read. Per spawn: `resolveSpawnRegistry` first (`dispatch` refuses a session
  * with no registry), then spawn with the token-bound dispatcher, then `forgetSession` or, if the
  * spawn failed, `rollbackSpawnRegistry`. Prefer {@link bindCallbackToolsForSpawn}, which does this.
  */

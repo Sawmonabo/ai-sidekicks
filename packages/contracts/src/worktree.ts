@@ -200,7 +200,8 @@ export const ExecutionRootPrepareRequestSchema: z.ZodType<
       "ExecutionRootPrepareRequest.branchName",
     ).optional(),
     // Omitted means the mount's current HEAD branch, which the daemon reads; a detached HEAD with
-    // no explicit base is a typed refusal. The daemon refuses a leading-dash value before git.
+    // no explicit base is a typed refusal. Git reads a leading dash as an option even in the
+    // positional slot, so the daemon refuses such a value before git.
     baseRef: wireFreeFormString(
       WORKTREE_GIT_REF_MAX_LEN,
       "ExecutionRootPrepareRequest.baseRef",

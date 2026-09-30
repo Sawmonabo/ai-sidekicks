@@ -57,6 +57,10 @@ export type CodexTransportDiagnostic =
       encodedByteLength: number;
       limit: number;
     }
+  /**
+   * The exit path says the process died, not that this ask went unanswered; its caller may still
+   * be waiting for an answer that never comes.
+   */
   | { kind: "server-request-answer-write-failed"; method: string; detail: string }
   | { kind: "notification-write-failed"; method: string }
   | { kind: "unconsumed-server-notification"; method: string }

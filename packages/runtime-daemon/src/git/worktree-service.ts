@@ -742,7 +742,9 @@ export class WorktreeService {
   async #runGit(argv: readonly string[]): Promise<WorktreeGitInvocationResult> {
     // Created per call: a temp-file reaper that removed it would silently restore the repository's
     // hooks. Checkout filter drivers are not neutralized: their commands come from git config, and
-    // disabling smudge would corrupt LFS.
+    // disabling smudge would corrupt LFS. Probed, no flag needed: uploadpack.packObjectsHook is
+    // honored only from protected config, and core.alternateRefsCommand fires only on receive-pack,
+    // which no verb here engages.
     await this.#filesystem.createDirectory(this.#hookNeutralizationDirectory);
     return this.#git(
       [

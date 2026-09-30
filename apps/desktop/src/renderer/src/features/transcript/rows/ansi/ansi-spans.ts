@@ -2,6 +2,8 @@
 // built from tool output would have to be injected, which the transcript never does.
 // Colors are names (`use_classes: true` reports `ansi-red`), not the tool's RGB values. Blink and
 // conceal are not reproduced; 256-color and true-color runs render in the inherited foreground.
+// Extended colors carry the tool's own palette and the console has no honest mapping onto its
+// twelve-step wheel, so those spans inherit the foreground rather than take a nearest guess.
 
 import Anser from "anser";
 

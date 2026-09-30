@@ -116,6 +116,8 @@ export function McpFixtureBody(props: {
     recordOutcome(key, { kind: "sending", binding });
     void send(mintKey()).then((settled) => {
       recordOutcome(key, settled);
+      // No guard needed: a superseded read is already disposed, and a disposed read refreshes
+      // nothing.
       inventoryRead.refresh("terminal-event");
     });
   };

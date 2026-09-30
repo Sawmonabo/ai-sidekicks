@@ -4,10 +4,12 @@
 // line, so no probe lives in the untrusted renderer.
 //
 // It runs against the smoke bundle (`electron-vite build --mode=smoke`, a dependency of
-// `test:smoke`), never the release bundle, which tree-shakes the probe branch out. Every spawn
-// gets a private profile via `--user-data-dir`: a concurrent default-profile Electron would hold
-// the `SingletonLock`, and this spawn would quit before a window and exit 0 without a probe line
-// (see `spawnElectron()`). `vitest.config.ts` runs the two Electron-spawning files serially.
+// `test:smoke`), never the release bundle, which tree-shakes the probe branch out. The invariants
+// (`desktopBridge` defined; `require`, `process` and `global` undefined) hold identically in the
+// release bundle: the probe only adds the readout to the document a release build loads. Every
+// spawn gets a private profile via `--user-data-dir`: a concurrent default-profile Electron would
+// hold the `SingletonLock`, and this spawn would quit before a window and exit 0 without a probe
+// line (see `spawnElectron()`). `vitest.config.ts` runs the two Electron-spawning files serially.
 // CI exports `$DISPLAY` once one job-level Xvfb signals ready on `-displayfd` (see
 // `.github/workflows/ci.yml`); a Linux contributor without one falls back to `xvfb-run -a`.
 //

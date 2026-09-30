@@ -5,6 +5,8 @@
  * - `/bin/sh -c` spawns the provider (see the prelude): a PTY slave starts canonical with echo on,
  *   and `codex app-server` never calls `tcsetattr`. Canonical mode silently drops an input line
  *   over MAX_CANON (Darwin 1024 bytes; `codex-cli 0.149.1` answered a 1015-byte frame, not 1045).
+ *   Splitting a frame across small writes does not help: the cap is per line, not per write, and
+ *   it performs worse.
  * - A failed resume never becomes a new session: it returns the typed `recovery-needed` failure.
  * - Every spawn or dispose runs inside `#claimSessionSlot` (`establishing`, `live`, `closing`),
  *   held until fully settled, so no owned process exists without a held slot; a `startRun` that
@@ -179,6 +181,8 @@ import {
 import { CODEX_ASK_OPTION_SET_MAX, readCodexAskOptionSet } from "./ask-option-sets.js";
 import { isPlainObject } from "./record-readers.js";
 
+// `turn/start` is believed to answer once the turn is accepted, so this matches the ordinary
+// request deadline. Separate so a wrong reading is a configuration change, not a code change.
 const DEFAULT_TURN_START_TIMEOUT_MS = 60_000;
 
 /**
@@ -191,6 +195,8 @@ export class CodexLifecycleManager {
   readonly #options: CodexLifecycleOptions;
   readonly #newBindingId: () => string;
   readonly #turnStartTimeoutMs: number;
+  // The only composer of provider-bound text on this leg: `turn/start` and `turn/steer` take their
+  // input from a frame it minted.
   readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #runtimeBindingQuarantine = new RuntimeBindingQuarantine();
@@ -300,6 +306,7 @@ export class CodexLifecycleManager {
         ...this.#composeThreadEstablishmentLegs(params.executionPosture, params.subagentPolicy),
         // Defense in depth: no config or profile override may select an auto-review path that
         // bypasses the approval pipeline. The per-turn pin in `#requestTurnStart` is needed too.
+        // Present on ThreadStartParams at codex-cli 0.150.1.
         approvalsReviewer: "user",
       });
       const thread = readThread(response, "thread/start");
@@ -695,7 +702,8 @@ export class CodexLifecycleManager {
       input: [{ type: "text", text: openingFrame.wireText, text_elements: [] }],
       // The pin that carries the security property: `approvalsReviewer` on a turn overrides routing
       // for it and later turns, so a config-selected `auto_review` would otherwise win.
-      // `turn/steer` creates no turn and needs none.
+      // `turn/steer` creates no turn and needs none. Present on TurnStartParams at codex-cli
+      // 0.150.1, unchanged back to the 0.141.0 floor.
       approvalsReviewer: "user",
       // The run's posture wins and the session's spawn posture is the floor, so a turn never goes
       // out with no policy; both send the roots the thread-level selector cannot carry.
@@ -1153,6 +1161,8 @@ export class CodexLifecycleManager {
       return held;
     }
     const readEpoch = this.#providerCommandEnumerationEpochFor(sessionId);
+    // Empty params on purpose: an empty `cwds` means this connection's spawn cwd and follows the
+    // provider if it scans more. No `forceReload`: freshness comes from `skills/changed`.
     const response = await record.connection.request(CODEX_SKILLS_LIST_METHOD, {});
     const reading = readCodexProviderCommandEntries(response, providerAccountId);
     for (const rejection of reading.rejections) {
@@ -1209,8 +1219,9 @@ export class CodexLifecycleManager {
   /** Unsubscribes and tears down the process. Idempotent: an unknown session resolves. */
   async closeSession(params: CloseSessionParams): Promise<void> {
     // Claiming a free slot would refuse a concurrent create, hence the early return. A close during
-    // establishment chains behind it. The latch comes first so every later terminal counts as
-    // clean.
+    // establishment chains behind it; the wait cannot deadlock, as no establishment path calls
+    // `closeSession` and each closes its own connection directly. The latch comes first so every
+    // later terminal counts as clean.
     this.#intendedCloseGateFor(params.sessionId).signalIntendedClose();
     if (this.#describeSlotHolder(params.sessionId) === undefined) {
       // No session: drop the latch just set rather than accumulate one per redundant close.
@@ -1688,6 +1699,9 @@ export class CodexLifecycleManager {
   /**
    * Whether a terminal on `record` can still rule a frame correlated to `turnId`: the turn has
    * not settled and `record` is still the session's record (identity, not presence).
+   * Residual: an ack naming a turn that settled before the steer and was since pruned reads as
+   * live; no finite memory closes it. Route maps are not consulted: a provider may ack a turn this
+   * leg never routed.
    */
   #canStillRuleFrameOnTurn(record: CodexSessionRecord, turnId: string): boolean {
     if (this.#sessions.get(record.sessionId) !== record) {
@@ -1757,7 +1771,9 @@ export class CodexLifecycleManager {
 
   /**
    * Claims the session slot in one state and runs the transition behind any predecessor. The only
-   * way a slot is taken.
+   * way a slot is taken. Reads the predecessor and publishes the claim in one synchronous run: an
+   * `await` between them lets two same-tick callers both see an empty slot and run their
+   * transitions concurrently.
    */
   async #claimSessionSlot<TSettled>(
     sessionId: SessionId,
@@ -1881,7 +1897,9 @@ export class CodexLifecycleManager {
 
   /**
    * The spawn-time posture legs (`sandbox`, `approvalPolicy`), plus the diagnostic for the one
-   * axis this provider cannot express.
+   * axis this provider cannot express. Presets are expanded daemon-side, so the profile name is not
+   * forwarded; the credential deny-list is realized in the child environment, so no credential
+   * axis is read here.
    */
   #composeSpawnPostureParams(posture: ExecutionPosture | undefined): Record<string, unknown> {
     if (posture === undefined) {

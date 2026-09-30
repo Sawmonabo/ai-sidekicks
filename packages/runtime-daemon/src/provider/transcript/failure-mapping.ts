@@ -14,7 +14,8 @@
 /**
  * How far a failed request's bytes got, as the transport can place them. `unsent` is a positive
  * claim that the failure landed ahead of the first byte; only `consumed-and-refused` can carry a
- * refusal shape; `indeterminate` alone never justifies a retry.
+ * refusal shape (Claude never reports it: its user-text write is one-way stdin and the provider
+ * answers a turn, not the write); `indeterminate` alone never justifies a retry.
  */
 export type ProviderRequestDeliveryClass = "unsent" | "consumed-and-refused" | "indeterminate";
 

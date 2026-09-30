@@ -79,7 +79,9 @@ function cutUnitFor(row: TimelineRow): string {
  * Whether two projections of one row are equal member for member, by identity. Compares the
  * candidate's own keys, not a list written here, so a member added to `TimelineRow` cannot be
  * forgotten and make a changed row compare equal (a stale card). `payload` is the delivered
- * envelope's own object, held by the store across revisions.
+ * envelope's own object, held by the store across revisions. A row whose envelope has no payload
+ * gets a fresh `{}` each pass, so it takes a new identity and redraws each time; that is correct,
+ * and it costs one row.
  */
 function hasSameMembers(previous: TimelineRow, candidate: TimelineRow): boolean {
   const previousMembers = previous as unknown as Record<string, unknown>;

@@ -512,7 +512,8 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
 /**
  * One quota reading for one limit of one account. `limitId` is the key and `windowMins` is an
  * attribute: a provider can publish several limits that share a window length, so keying on
- * window length would collapse them.
+ * window length would collapse them. The pinned Claude surface has three limit ids on one
+ * 10080-minute window, so a window-length key would keep whichever arrived last.
  */
 export interface ProviderAccountUsageWindow {
   /** Required because the list reply is one flat array over all accounts. */

@@ -207,7 +207,10 @@ const CODEX_SUBAGENT_CONCURRENCY_FLOOR = 1;
 /** The depth ceiling that admits no child thread at all. */
 const CODEX_SUBAGENT_DEPTH_NONE = 0;
 
-/** Normalizes a cap into the provider's `i32`; fractions round down, never below `floor`. */
+/**
+ * Normalizes a cap into the provider's `i32`; fractions round down, never below `floor`. The
+ * provider rejects a non-integer with a type error that fails the whole spawn.
+ */
 function normalizeCodexSubagentCap(value: number, floor: number): number {
   if (!Number.isFinite(value)) {
     return floor;

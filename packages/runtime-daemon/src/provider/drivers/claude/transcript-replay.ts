@@ -34,7 +34,8 @@ export async function readReplayTargetSafely(
 
 /**
  * Parses one exported transcript frame for the Claude replay leg, failing closed: skipping an
- * unreadable frame would be an undeclared loss that falsifies the `applied` arm's loss list.
+ * unreadable frame would be an undeclared loss that falsifies the `applied` arm's loss list. A
+ * sibling of the Codex parser, not shared: the driver trees stay independent of each other.
  */
 export function readRenderedTranscriptFrameForClaudeReplay(frame: unknown): SeededTranscriptFrame {
   if (typeof frame !== "object" || frame === null || Array.isArray(frame)) {

@@ -9,7 +9,8 @@
  * - The gate is skipped inside an open bracket: `assertWritable` refuses `preparing`, and every
  *   first bind is born `preparing`.
  * - `bound-root` inserts one row per prepare (no index arbitrates it) and anchors `base_branch`
- *   to the head branch, since it cuts nothing.
+ *   to the head branch, since it cuts nothing. Rows accumulate because refreshing one in place
+ *   would destroy the previous binding's base and head branches, which no other row records.
  */
 
 import { join } from "node:path";
@@ -145,7 +146,10 @@ export interface PrepareExecutionRootInput {
   readonly workspaceId: string;
   /** Required unless {@link runId} is given; neither refuses `workspace.branch_name_required`. */
   readonly branchName?: string;
-  /** The worktree base. Worktree-scoped, so `bound-root` mode ignores it. */
+  /**
+   * The worktree base. Worktree-scoped, so `bound-root` mode ignores it; reusing it there would
+   * give one field two meanings depending on a mode the caller may not know.
+   */
   readonly baseRef?: string;
   /** EXPLICIT reuse only: a candidate binds by being named. */
   readonly reuseWorktreeId?: string;

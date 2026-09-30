@@ -136,12 +136,12 @@ export const EVENT_ENVELOPE_SEQUENCE_MAX: number = Number.MAX_SAFE_INTEGER;
 
 /**
  * Append-time ceiling on `canonical_bytes(row)`: 32 KiB. The event log re-publishes canonical
- * bytes base64-encoded in a chunk that rides one relay frame with no fragmentation, so a larger
- * row could never travel. The append path enforces it (`daemon.event_canonical_bytes_exceeded`),
- * and so does the purge when it builds stubs. Unlike the sequence ceiling this is a policy knob:
- * payloads carry lengths and references, never inline bulk content, so the value is headroom over
- * every cataloged shape. Raise it by changing the payload corpus first, then this value, then
- * both enforcement sites.
+ * bytes base64-encoded in a chunk on one 64 KB relay frame with no fragmentation (32 KiB is about
+ * 43.7 KB of base64 plus overhead), so a larger row could never travel. The append path enforces
+ * it (`daemon.event_canonical_bytes_exceeded`), and so does the purge when it builds stubs. Unlike
+ * the sequence ceiling this is a policy knob: payloads carry lengths and references, never inline
+ * bulk content, so the value is headroom over every cataloged shape. Raise it by changing the
+ * payload corpus first, then this value, then both enforcement sites.
  */
 export const EVENT_CANONICAL_BYTES_MAX: number = 32768;
 

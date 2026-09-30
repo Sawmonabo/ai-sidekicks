@@ -2,6 +2,10 @@
 // geometry sample, then reveal work, so a write never lands against a height that reveal work
 // just changed. Tasks coalesce by key per phase; work for a phase that already ran waits for the
 // next frame; a throwing task is quarantined and reported on the diagnostic channel.
+//
+// A late task waits because draining it now is the out-of-order write this prevents, and looping
+// until empty lets one lane's re-arm hold the frame open; a throw is contained so delivery does
+// not depend on submission order.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
