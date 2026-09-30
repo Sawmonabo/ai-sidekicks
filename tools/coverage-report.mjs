@@ -75,8 +75,7 @@ function main() {
   const lines = [
     "## Coverage (informational)",
     "",
-    "Measurement substrate only — no thresholds are enforced. Per BL-123 exit criteria (b)-(d)",
-    "the per-package floors are derived from a >=5-PR sample before any number gates a merge.",
+    "Measurement only: no threshold is enforced, and no number here gates a merge.",
     "",
     "| Package | Statements | Branches | Functions | Lines | Files |",
     "| --- | --- | --- | --- | --- | --- |",
