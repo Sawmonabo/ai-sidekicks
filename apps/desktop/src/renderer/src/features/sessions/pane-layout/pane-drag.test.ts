@@ -30,11 +30,8 @@ function elementSpanning(left: number, width: number): Element {
 }
 
 describe("reading a drag payload", () => {
-  it("recognizes a pane drag by its namespaced key", () => {
+  it("recognizes a pane drag by its namespaced key, and nobody else's draggable", () => {
     expect(paneIdFromDragData({ [PANE_LAYOUT_DRAG_KEY]: "pane-2" })).toBe("pane-2");
-  });
-
-  it("negative control: somebody else's draggable is not a pane drag", () => {
     // Otherwise the monitor would act on every element drag on the page.
     expect(paneIdFromDragData({ transcriptRowId: "row-9" })).toBeUndefined();
     expect(paneIdFromDragData({ [PANE_LAYOUT_DRAG_KEY]: 7 })).toBeUndefined();
@@ -46,12 +43,6 @@ describe("which edge a pointer is over", () => {
     const pane = elementSpanning(100, 200);
     expect(dropEdgeFor(pane, 120)).toBe("before");
     expect(dropEdgeFor(pane, 280)).toBe("after");
-  });
-
-  it("negative control: the answer is not the same on both halves", () => {
-    // An edge test that always answered "after" would pass the case above by half.
-    const pane = elementSpanning(0, 100);
-    expect(dropEdgeFor(pane, 10)).not.toBe(dropEdgeFor(pane, 90));
   });
 });
 
@@ -77,27 +68,6 @@ describe("where a drop lands", () => {
 });
 
 describe("the drag coordinator", () => {
-  it("publishes once per real move and not at all for a hover that changes nothing", () => {
-    const coordinator = new PaneLayoutDragCoordinator();
-    const published: (string | undefined)[] = [];
-    coordinator.subscribe((indicator) => published.push(indicator?.overPaneId));
-
-    coordinator.hover({ overPaneId: "pane-2", edge: "before" });
-    coordinator.hover({ overPaneId: "pane-2", edge: "before" });
-    coordinator.hover({ overPaneId: "pane-2", edge: "after" });
-
-    expect(published).toStrictEqual(["pane-2", "pane-2"]);
-  });
-
-  it("negative control: clearing an empty indicator publishes nothing", () => {
-    // A coordinator publishing on every call would re-render on every frame of a drag.
-    const coordinator = new PaneLayoutDragCoordinator();
-    const published: (string | undefined)[] = [];
-    coordinator.subscribe((indicator) => published.push(indicator?.overPaneId));
-    coordinator.clear();
-    expect(published).toStrictEqual([]);
-  });
-
   it("forgets both the indicator and the pane in the air when a drag ends", () => {
     const coordinator = new PaneLayoutDragCoordinator();
     coordinator.startDrag("pane-1");

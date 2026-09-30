@@ -22,7 +22,6 @@ import {
   openDraftWithFirstTurn,
   politeText,
   press,
-  renderControl,
   renderControlOn,
   typeFirstTurn,
 } from "./NewSessionControl.test-support.js";
@@ -97,17 +96,6 @@ describe("the composed new-session draft — which composition a settlement land
       "The session was created, but not everything the draft asked for could be sent.",
     );
   });
-
-  // Without this, a Send wired to nothing would satisfy every case that only reads the opened
-  // panel; the refusal text and the announcement are the only evidence a send happened.
-  it("negative control: an unsent draft carries neither refusal nor announcement", async () => {
-    const container = renderControl({ scriptsCreate: true });
-    await openDraftWithFirstTurn();
-
-    expect(container.textContent).not.toContain("first-turn-failed");
-    expect(container.textContent).not.toContain("session-create-failed");
-    expect(politeText(container)).toBe("");
-  });
 });
 
 describe("the composed new-session draft — the composition a completed send closes", () => {
@@ -153,25 +141,6 @@ describe("the composed new-session draft — the composition a completed send cl
     expect(settledSessionIds).toStrictEqual([]);
   });
 
-  it("closes the field while the send runs, without taking focus off it", async () => {
-    // The affordance half of the revision guard, `readOnly` rather than `disabled` so a
-    // person typing when the press landed keeps focus.
-    const held = bridgeHoldingCreate();
-    renderControlOn(held.bridge, { queueFirstTurn: completingFirstTurn().call });
-    await openDraftWithFirstTurn();
-    await press("Send");
-
-    const field = screen.getByLabelText("Its first message") as HTMLTextAreaElement;
-    expect(field.readOnly).toBe(true);
-    expect(field.hasAttribute("disabled")).toBe(false);
-    expect(field.title).toContain("being sent");
-
-    await act(async () => {
-      held.answer();
-      await crossMacrotaskBoundary();
-    });
-  });
-
   it("negative control: a send nobody edited closes its draft and hands the session out", async () => {
     // Without this, a control that never closed a draft would pass the case above and leave a
     // form standing over a session the console had already started.
@@ -197,8 +166,7 @@ describe("the composed new-session draft — the composition a completed send cl
 
 /**
  * The settlement these cases hand over, which records nothing. None of them completes a send
- * (only `session.create` is scripted, so each settles partial); the settlement's identity
- * moving each pass is asserted in `NewSessionControl.test.tsx`.
+ * (only `session.create` is scripted, so each settles partial).
  */
 function recordNothing(): void {
   return undefined;

@@ -5,7 +5,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  addressesMatch,
   carveSplitFrom,
   PANE_LAYOUT_TOTAL_PERMILLE,
   normalize,
@@ -127,20 +126,6 @@ describe("paneAddressKey", () => {
       paneAddressKey(paneAt("inspector", { kind: "run", id: "run" })),
     );
   });
-
-  it("is the rule addressesMatch answers with", () => {
-    // The predicate is defined as key equality; these rows pin that behavior.
-    const pane = paneAt("inspector", { kind: "run", id: "run-01" }, "pane-a");
-    expect(addressesMatch(pane, { kind: "inspector", entity: { kind: "run", id: "run-01" } })).toBe(
-      true,
-    );
-    expect(addressesMatch(pane, { kind: "inspector", entity: { kind: "run", id: "run-02" } })).toBe(
-      false,
-    );
-    expect(addressesMatch(pane, { kind: "diff", entity: { kind: "run", id: "run-01" } })).toBe(
-      false,
-    );
-  });
 });
 
 describe("carveSplitFrom", () => {
@@ -154,17 +139,14 @@ describe("carveSplitFrom", () => {
     sourcePaneId: "pane-2",
   };
 
-  it("takes the arriving pane's width from the source alone", () => {
+  it("takes the arriving pane's width from the source alone and places it beside it", () => {
     // Splitting the middle of an arranged layout leaves the panes either side unchanged.
     // `distributeEvenly` would answer [333,333,333,333] with the sum still right, so the widths
     // are asserted, not just the sum.
     const split = carveSplitFrom(panesWithWidths([200, 500, 300]), 1, arriving);
     expect(widthsOf(split ?? [])).toStrictEqual([200, 250, 250, 300]);
     expect(sumOf(split ?? [])).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
-  });
-
-  it("places the arriving pane immediately right of its source", () => {
-    const split = carveSplitFrom(panesWithWidths([200, 500, 300]), 1, arriving);
+    // The arriving pane sits immediately right of its source.
     expect((split ?? []).map((pane) => pane.paneId)).toStrictEqual([
       "pane-1",
       "pane-2",

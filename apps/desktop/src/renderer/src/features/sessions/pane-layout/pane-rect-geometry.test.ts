@@ -15,11 +15,8 @@ const MEASURED_PANE: TrackedRect = {
 };
 
 describe("rectKey", () => {
-  it("ignores a sub-pixel difference no one can see", () => {
+  it("ignores a sub-pixel difference no one can see, and never a change in visibility", () => {
     expect(rectKey({ ...MEASURED_PANE, width: 400.2 })).toBe(rectKey(MEASURED_PANE));
-  });
-
-  it("negative control: visibility is part of the key", () => {
     expect(rectKey({ ...MEASURED_PANE, isVisible: false })).not.toBe(rectKey(MEASURED_PANE));
   });
 });

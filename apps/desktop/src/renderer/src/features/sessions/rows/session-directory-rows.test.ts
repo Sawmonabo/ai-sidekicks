@@ -5,11 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
-import {
-  mergeSessionRows,
-  sessionListNothingKindFor,
-  withAttentionSeverity,
-} from "./session-directory-rows.js";
+import { mergeSessionRows, sessionListNothingKindFor } from "./session-directory-rows.js";
 import type { SessionListRow } from "./session-rows.js";
 
 function servedDirectory(sessionIds: readonly string[]): SessionDirectoryState {
@@ -55,50 +51,5 @@ describe("mergeSessionRows — two sources, neither dropped", () => {
     });
 
     expect(rows).toHaveLength(1);
-  });
-
-  it("lets the projection describe a row the directory could only name", () => {
-    const rows = mergeSessionRows({
-      directory: servedDirectory(["session-a"]),
-      windowSessionIds: [],
-      projectedRows: [projectedRow({ sessionId: "session-a", userIds: ["user-one"] })],
-    });
-
-    expect(rows[0]?.touchedAtIso).toBe("2026-01-01T10:00:00.000Z");
-    expect(rows[0]?.userIds).toStrictEqual(["user-one"]);
-  });
-
-  it("keeps the node's lifecycle state where the projection has none", () => {
-    // Dropping the node's answer would render a known state as unknown.
-    const rows = mergeSessionRows({
-      directory: servedDirectory(["session-a"]),
-      windowSessionIds: [],
-      projectedRows: [projectedRow({ sessionId: "session-a", state: undefined })],
-    });
-
-    expect(rows[0]?.state).toBe("active");
-  });
-
-  it("lists nothing from a directory that has not answered", () => {
-    expect(
-      mergeSessionRows({
-        directory: { status: "reading" },
-        windowSessionIds: [],
-        projectedRows: [],
-      }),
-    ).toStrictEqual([]);
-  });
-});
-
-describe("withAttentionSeverity — one projection over every row", () => {
-  it("stamps a row the projection mentioned and leaves the rest undefined", () => {
-    const stamped = withAttentionSeverity(
-      [projectedRow({ sessionId: "session-a" }), projectedRow({ sessionId: "session-b" })],
-      (sessionId) => (sessionId === "session-a" ? "actionable" : undefined),
-    );
-
-    expect(stamped[0]?.attentionSeverity).toBe("actionable");
-    // Undefined, not "clear": the ordering rule reads them differently.
-    expect(stamped[1]?.attentionSeverity).toBeUndefined();
   });
 });

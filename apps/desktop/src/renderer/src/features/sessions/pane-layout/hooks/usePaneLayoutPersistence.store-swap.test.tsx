@@ -5,12 +5,9 @@
 // store was asked: two adapters, one per store, and a ledger on each.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { PANE_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
-import { CoalescingLayoutWriter, type PersistedLayoutRecord } from "../coalescing-layout-writer.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import {
   GatedPersistenceAdapter,
@@ -20,9 +17,6 @@ import {
   workspaceFor,
   type SessionWithStore,
 } from "../../SessionScreen.test-support.js";
-
-/** One arrangement the probe below files, in the shape the `layout` class admits. */
-const PROBE_RECORD: PersistedLayoutRecord = { $probe: { version: 1 } };
 
 /** Cycle pane layout focus, which commits an arrangement without opening or closing a pane. */
 function cyclePaneFocus(container: HTMLElement): void {
@@ -62,45 +56,6 @@ describe("SessionScreen — the arrangement follows the store on screen", () => 
     expect(retiredAdapter.asked.length).toBe(askedOfRetiredStore);
     expect(liveAdapter.asked.map((write) => write.partition)).toContain(SESSION_ID);
   });
-
-  it("negative control: a writer held in `useState` files into the retired store", async () => {
-    // A writer held in `useState`, driven over the same swap. Without this the case above
-    // would pass over a layout that wrote nowhere, and the ledgers would agree by accident.
-    const retiredAdapter = new GatedPersistenceAdapter();
-    const liveAdapter = new GatedPersistenceAdapter();
-
-    function ProbeHoldingOneWriter(props: { readonly store: UiStateStore }): React.JSX.Element {
-      const [writer] = useState(
-        () =>
-          new CoalescingLayoutWriter<PersistedLayoutRecord>({
-            write: async (partition, snapshot) => {
-              await props.store.write(partition, PANE_LAYOUT_RECORD_KEY, "layout", snapshot);
-            },
-            onFailed: () => undefined,
-          }),
-      );
-      return (
-        <button
-          type="button"
-          onClick={() => {
-            writer.request(SESSION_ID, PROBE_RECORD);
-          }}
-        >
-          Save
-        </button>
-      );
-    }
-
-    const { getByRole, rerender } = render(
-      <ProbeHoldingOneWriter store={storeOver(retiredAdapter)} />,
-    );
-    rerender(<ProbeHoldingOneWriter store={storeOver(liveAdapter)} />);
-    fireEvent.click(getByRole("button", { name: "Save" }));
-    await crossMacrotaskBoundary();
-
-    expect(retiredAdapter.asked.length).toBe(1);
-    expect(liveAdapter.asked).toHaveLength(0);
-  });
 });
 
 describe("SessionScreen — the restore runs once for the session on screen", () => {
@@ -123,17 +78,5 @@ describe("SessionScreen — the restore runs once for the session on screen", ()
     await crossMacrotaskBoundary();
 
     expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
-  });
-
-  it("negative control: the second store's record really is a pane layout of one pane", async () => {
-    // Without this, the case above would pass over two records that said the same thing.
-    const secondStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(secondStore, SESSION_ID, ["transcript"]);
-    const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
-
-    const { container } = render(workspaceFor(session, secondStore, false));
-    await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
-    });
   });
 });

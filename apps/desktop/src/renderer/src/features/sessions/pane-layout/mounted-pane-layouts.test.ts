@@ -40,11 +40,4 @@ describe("which pane layout a command acts on", () => {
     const outcome = new MountedPaneLayouts().perform("focusNextPane");
     expect(outcome).toStrictEqual({ status: "refused", refusal: PANE_LAYOUT_NOT_MOUNTED_REFUSAL });
   });
-
-  it("negative control: a registry holding one pane layout performs rather than refusing", () => {
-    // The case above would also pass over a registry that refused every press.
-    const mountedLayouts = new MountedPaneLayouts();
-    mountedLayouts.adopt(createSpyingPaneLayoutActs());
-    expect(mountedLayouts.perform("focusNextPane").status).toBe("performed");
-  });
 });

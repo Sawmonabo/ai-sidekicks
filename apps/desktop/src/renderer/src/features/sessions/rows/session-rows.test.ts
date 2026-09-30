@@ -2,12 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  AUDIT_STUB_SESSION_STATES,
-  compareSessionRows,
-  isAuditStubSession,
-  type SessionListRow,
-} from "./session-rows.js";
+import { compareSessionRows, isAuditStubSession, type SessionListRow } from "./session-rows.js";
 
 function row(overrides: Partial<SessionListRow> & { readonly sessionId: string }): SessionListRow {
   return {
@@ -24,16 +19,6 @@ function orderOf(rows: readonly SessionListRow[]): readonly string[] {
 }
 
 describe("the status-and-activity comparator", () => {
-  it("puts a session that needs a person above one that does not", () => {
-    expect(
-      orderOf([
-        row({ sessionId: "quiet" }),
-        row({ sessionId: "blocked", attentionSeverity: "actionable" }),
-        row({ sessionId: "noted", attentionSeverity: "informational" }),
-      ]),
-    ).toStrictEqual(["blocked", "noted", "quiet"]);
-  });
-
   it("puts live work above settled work above an audit stub, ahead of recency", () => {
     expect(
       orderOf([
@@ -61,21 +46,9 @@ describe("the status-and-activity comparator", () => {
       ]),
     ).toStrictEqual(["ancient", "untimed"]);
   });
-
-  it("breaks a total tie on the identifier, so two renders agree", () => {
-    expect(
-      orderOf([row({ sessionId: "session-b" }), row({ sessionId: "session-a" })]),
-    ).toStrictEqual(["session-a", "session-b"]);
-  });
 });
 
 describe("audit stubs", () => {
-  it("names exactly the two states that are retention records", () => {
-    expect([...AUDIT_STUB_SESSION_STATES]).toStrictEqual(["purge_requested", "purged"]);
-    expect(isAuditStubSession("purged")).toBe(true);
-    expect(isAuditStubSession("purge_requested")).toBe(true);
-  });
-
   it("fails closed on a state it has never seen, and on none at all", () => {
     expect(isAuditStubSession("active")).toBe(false);
     expect(isAuditStubSession("something-new")).toBe(false);

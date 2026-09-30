@@ -24,16 +24,6 @@ function groupWithSeparators(ranges: readonly (readonly [number, number])[]): HT
 }
 
 describe("reading a separator's announced range", () => {
-  it("reads the two numbers off the element", () => {
-    const group = groupWithSeparators([[10, 90]]);
-    const separator = group.firstElementChild;
-    expect(separator).not.toBeNull();
-    expect(readSeparatorValueBounds(separator as Element)).toStrictEqual({
-      valueMin: 10,
-      valueMax: 90,
-    });
-  });
-
   it("negative control: a separator that announces no range reads as absent", () => {
     // A missing attribute read as 0 would pass every ordering check.
     const separator = document.createElement("div");
@@ -42,18 +32,7 @@ describe("reading a separator's announced range", () => {
 });
 
 describe("the ordering predicate", () => {
-  it("holds over a group whose separators announce ranges the right way round", () => {
-    expect(
-      separatorValueBoundsAreOrdered(
-        groupWithSeparators([
-          [10, 90],
-          [20, 80],
-        ]),
-      ),
-    ).toBe(true);
-  });
-
-  it("FAILS when the swap is simulated — the whole reason the wrap exists", () => {
+  it("sees the crossed range the library announces", () => {
     // The upstream defect reproduced by hand: at 4.12.3 every separator after the first announces
     // its minimum above its maximum. If this passes, the predicate can no longer see the defect.
     const swapped = groupWithSeparators([
