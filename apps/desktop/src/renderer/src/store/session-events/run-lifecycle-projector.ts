@@ -65,11 +65,10 @@
 // no-second-spelling case fails until the entry here is deleted.
 //
 // THE TWO SHAPES ARE NOT ONE SHAPE, and the exclusions are where that is stated. That
-// module says so itself: the `run.subscribeState` projection is deliberately distinct
-// from the durable run-lifecycle payload (`{sessionId, runId, runVersion,
-// previousState, newState, ...}`), where the canonical wire member is
-// `currentState` on the stream and `newState` on the durable row. `sessionId` and
-// `timestamp` are excluded because the envelope already carries both —
+// module says so itself: the `run.subscribeState` projection carries no `sessionId`,
+// which its subscription's scope names, while the durable run-lifecycle payload
+// (`{sessionId, runId, runVersion, previousState, newState, ...}`) does; both spell
+// the state the run entered `newState`. `sessionId` and `timestamp` are excluded because the envelope already carries both —
 // `event.sessionId` and `event.occurredAt`, the latter stored as `touchedAt` — and
 // `runId` because it is the entity's own id. `agentId` is the one member no registered
 // shape names: `run.queued` carries it for orchestration-created runs.

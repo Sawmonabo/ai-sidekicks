@@ -87,8 +87,6 @@ import {
   DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
-  DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
-  DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
   RECOVERY_CONDITIONS,
   RECOVERY_SPAN_CLASSIFICATIONS,
@@ -549,21 +547,21 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
     const cappedStart: StartRunParams = {
       runId: RUN_ID,
       agentConfig: {},
-      admittedCostCapCents: 2500,
+      admittedCostCapUsdMicros: 25_000_000,
     };
     const cappedResume: ResumeSessionParams = {
       sessionId: SESSION_ID,
       resumeHandle: "resume-handle-opaque",
-      admittedCostCapCents: 2500,
+      admittedCostCapUsdMicros: 25_000_000,
     };
     const cappedCreate: CreateSessionParams = {
       sessionId: SESSION_ID,
       config: {},
-      admittedCostCapCents: 2500,
+      admittedCostCapUsdMicros: 25_000_000,
     };
-    expect(cappedStart.admittedCostCapCents).toBe(2500);
-    expect(cappedResume.admittedCostCapCents).toBe(2500);
-    expect(cappedCreate.admittedCostCapCents).toBe(2500);
+    expect(cappedStart.admittedCostCapUsdMicros).toBe(25_000_000);
+    expect(cappedResume.admittedCostCapUsdMicros).toBe(25_000_000);
+    expect(cappedCreate.admittedCostCapUsdMicros).toBe(25_000_000);
   });
 });
 
@@ -1826,9 +1824,9 @@ describe("McpServerStatusEmissionSchema — MCP status producer seam", () => {
 // ===========================================================================
 //
 // The union is the intervention VOCABULARY; `ApplyInterventionParams`' arm set is
-// the DISPATCH surface, one arm per member.
+// the DISPATCH surface, one arm per intervention a driver applies.
 
-describe("InterventionType — three members, three dispatch arms", () => {
+describe("InterventionType — the vocabulary and the three dispatch arms", () => {
   it("accepts every member of the type", () => {
     // `Record<InterventionType, true>` fails to compile if a type member is
     // missing or extra, and the schema's `z.ZodType<InterventionType>`
@@ -1838,6 +1836,7 @@ describe("InterventionType — three members, three dispatch arms", () => {
       steer: true,
       interrupt: true,
       cancel: true,
+      faster_model_retry: true,
     };
     for (const member of Object.keys(interventionTypeMembers)) {
       expect(InterventionTypeSchema.safeParse(member).success).toBe(true);
@@ -3361,62 +3360,7 @@ describe("ApplyInterventionParamsSchema — three arms, and the fourth is a pars
     }
   });
 
-  it("bounds steer content, its attachment count, and the turn handle", () => {
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: { content: "x".repeat(DRIVER_WIRE_STEER_CONTENT_MAX_LEN + 1) },
-      }).success,
-    ).toBe(false);
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: {
-          content: "ok",
-          // VALID `ArtifactId` elements, so the count ceiling is the only
-          // constraint that can fail. Before the 2026-09-08 element typing this
-          // fixture carried `{}` elements, which under the typed arm would
-          // refuse on the ELEMENT and leave the cap unproven.
-          attachments: Array.from(
-            { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX + 1 },
-            () => AN_ARTIFACT_ID,
-          ),
-        },
-      }).success,
-    ).toBe(false);
-    // Positive control for the same bound: the ceiling itself is admissible, so
-    // the refusal above is the `+ 1` and not the array's presence.
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: {
-          content: "ok",
-          attachments: Array.from(
-            { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX },
-            () => AN_ARTIFACT_ID,
-          ),
-        },
-      }).success,
-    ).toBe(true);
-    // The element type itself: a non-id element is refused outright, which is
-    // what the pre- `unknown[]` arm admitted.
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: { content: "ok", attachments: [{ kind: "blob" }] },
-      }).success,
-    ).toBe(false);
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: { content: "ok", attachments: ["../../etc/passwd"] },
-      }).success,
-    ).toBe(false);
+  it("bounds the steer's turn handle", () => {
     expect(
       ApplyInterventionParamsSchema.safeParse({
         ...base,

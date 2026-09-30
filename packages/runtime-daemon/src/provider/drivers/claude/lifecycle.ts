@@ -607,7 +607,7 @@ export interface ClaudeSessionChannel {
 // rather than a discipline the two call sites are asked to remember.
 export interface ClaudeSpawnBoundLegs {
   readonly sessionId: SessionId;
-  readonly admittedCostCapCents: number | undefined;
+  readonly admittedCostCapUsdMicros: number | undefined;
   readonly executionPosture: ExecutionPosture | undefined;
   readonly callbackTools: SessionCallbackTool[] | undefined;
   /**
@@ -2024,7 +2024,7 @@ interface ClaudeSessionRoutingBand {
 }
 
 interface ClaudeSpawnBinding {
-  readonly admittedCostCapCents: number | undefined;
+  readonly admittedCostCapUsdMicros: number | undefined;
   // The COMPLETE posture the process was spawned under, retained so every axis
   // can be compared. Storing a projection is what let axes drift unchecked.
   readonly executionPosture: ExecutionPosture | undefined;
@@ -4574,7 +4574,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     const callbackToolServer = this.#resolveCallbackToolServer(params);
     return {
       sessionId: params.sessionId,
-      admittedCostCapCents: params.admittedCostCapCents,
+      admittedCostCapUsdMicros: params.admittedCostCapUsdMicros,
       executionPosture: posture,
       sandboxSettings: posture === undefined ? undefined : composeClaudeSandboxSettings(posture),
       // The registry the PROVIDER is offered is the one the descriptor serves,
@@ -4687,7 +4687,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   #buildSpawnBinding(params: CreateSessionParams | ResumeSessionParams): ClaudeSpawnBinding {
     const outputSchema = params.outputSchema;
     return {
-      admittedCostCapCents: params.admittedCostCapCents,
+      admittedCostCapUsdMicros: params.admittedCostCapUsdMicros,
       executionPosture: params.executionPosture,
       outputSchemaDigest: outputSchema === undefined ? undefined : digestOutputSchema(outputSchema),
     };

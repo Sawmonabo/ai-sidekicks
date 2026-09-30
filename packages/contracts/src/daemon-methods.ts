@@ -4,7 +4,7 @@
 //
 // Left out on purpose: the methods the desktop's main process answers for the daemon
 // (the page host's table) and the control plane's own procedures, which travel inside
-// `controlPlane.call`. The run methods join when their contract lands.
+// `controlPlane.call`.
 import type {
   AnyMethodDescriptor,
   MethodEmissionOf,
@@ -47,6 +47,7 @@ import type { QuestionMethodDescriptors } from "./question.js";
 import type { RelayMethodDescriptors } from "./relay.js";
 import type { RepoMethodDescriptors } from "./repo-methods.js";
 import type { ReviewNoteMethodDescriptors } from "./review-note.js";
+import type { RunControlMethodDescriptors } from "./run-control.js";
 import type { SessionControlMethodDescriptors } from "./session-controls.js";
 import type { SessionDirectoryMethodDescriptors } from "./session-directory.js";
 import type { SessionDraftMethodDescriptors } from "./session-draft.js";
@@ -104,6 +105,7 @@ export type DaemonMethodDescriptors = AgentMethodDescriptors &
   RelayMethodDescriptors &
   RepoMethodDescriptors &
   ReviewNoteMethodDescriptors &
+  RunControlMethodDescriptors &
   SessionControlMethodDescriptors &
   SessionDirectoryMethodDescriptors &
   SessionDraftMethodDescriptors &

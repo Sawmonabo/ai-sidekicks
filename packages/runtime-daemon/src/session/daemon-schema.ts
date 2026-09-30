@@ -383,7 +383,7 @@ CREATE TABLE interventions (
   id                      TEXT PRIMARY KEY,
   target_run_id           TEXT NOT NULL,
   type                    TEXT NOT NULL
-                          CHECK(type IN ('steer', 'interrupt', 'cancel')),
+                          CHECK(type IN ('steer', 'interrupt', 'cancel', 'faster_model_retry')),
   state                   TEXT NOT NULL DEFAULT 'requested'
     CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   -- JSON, non-PII fields only; a steer's text is in pii_payload

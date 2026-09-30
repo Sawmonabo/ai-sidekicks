@@ -115,7 +115,7 @@ describe("the registered payload members the body carries", () => {
           trigger: "budget_exhausted",
           parentRunId: "run-0",
           internalHelper: false,
-          admittedUnpricedCapCents: 500,
+          admittedUnpricedCapUsdMicros: 5_000_000,
           admittedModelFamily: "claude",
         }),
       ),
@@ -124,7 +124,7 @@ describe("the registered payload members the body carries", () => {
       trigger: "budget_exhausted",
       parentRunId: "run-0",
       internalHelper: false,
-      admittedUnpricedCapCents: 500,
+      admittedUnpricedCapUsdMicros: 5_000_000,
       admittedModelFamily: "claude",
     });
   });
@@ -161,7 +161,6 @@ describe("the registered payload members the body carries", () => {
         runId: "run-1",
         newState: "starting",
         speculativeMember: "should-not-travel",
-        currentState: "starting",
         // Spelled explicitly, and equal to the envelope's: the claim is that the
         // body copies no member the shapes exclude, and a beat naming ANOTHER
         // session is refused before a body is ever read.
@@ -278,7 +277,7 @@ describe("the registered payload members the body carries", () => {
           trigger: "idle_timeout",
           parentRunId: "run-0",
           internalHelper: false,
-          admittedUnpricedCapCents: 500,
+          admittedUnpricedCapUsdMicros: 5_000_000,
           admittedModelFamily: "claude",
         }),
       ),
@@ -307,7 +306,7 @@ describe("the registered payload members the body carries", () => {
         runId: "run-1",
         newState: "running",
         executionPosture: ["not", "an", "object"],
-        admittedUnpricedCapCents: Number.NaN,
+        admittedUnpricedCapUsdMicros: Number.NaN,
         internalHelper: "true",
       }),
     );

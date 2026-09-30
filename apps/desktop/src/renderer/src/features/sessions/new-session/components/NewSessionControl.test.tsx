@@ -307,7 +307,7 @@ describe("the composed new-session draft — the axis it does not offer", () => 
     // The defect: this control rendered a three-way posture picker, and the value it
     // collected reached no wire at all: the two calls the send makes carry no posture
     // member to send it on. `SessionCreateRequest` is `{ config?, metadata? }` and
-    // `QueueItemCreateRequest` is `{ sessionId, workspaceId?, priority?, payload }`,
+    // `QueueItemCreateRequest` carries the message, its files and where it goes,
     // both `.strict()`.
     // A control whose choice cannot be honored is not offered.
     renderControl({ scriptsCreate: true });

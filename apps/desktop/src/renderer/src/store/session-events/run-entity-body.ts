@@ -25,15 +25,13 @@ type RegisteredRunMemberName = keyof RunStateChangeEvent | keyof RunRolledBackEv
 /**
  * Every member the DURABLE `run_lifecycle` payload carries.
  *
- * The registered key union minus the four the durable row does not carry under
- * those names, plus the two it carries alone. Each exclusion is named rather than
+ * The registered key union minus the three the durable row does not carry under
+ * those names, plus the one it carries alone. Each exclusion is named rather than
  * dropped silently, so a reader can check the subtraction: `runId` is the run
- * entity's own id, `sessionId` and `timestamp` ride the envelope, and
- * `currentState` is the stream's spelling of the durable `newState`.
+ * entity's own id, and `sessionId` and `timestamp` ride the envelope.
  */
 type DurableRunMemberName =
-  | Exclude<RegisteredRunMemberName, "runId" | "sessionId" | "timestamp" | "currentState">
-  | "newState"
+  | Exclude<RegisteredRunMemberName, "runId" | "sessionId" | "timestamp">
   | "agentId";
 
 /** How one member is read out of an untyped payload. */
@@ -61,6 +59,8 @@ const RUN_BODY_MEMBER_READERS = {
   /** The turn-boundary anchor a rollback landed at, off `run.rolled_back`. */
   targetPosition: "number",
   failureCategory: "string",
+  /** Why a provider refused the run, carried whole on a failed run's beat. */
+  failureCause: "object",
   recoveryCondition: "string",
   recoverySpanClassification: "string",
   providerFailureDetail: "string",
@@ -72,7 +72,7 @@ const RUN_BODY_MEMBER_READERS = {
   trigger: "string",
   parentRunId: "string",
   internalHelper: "boolean",
-  admittedUnpricedCapCents: "number",
+  admittedUnpricedCapUsdMicros: "number",
   admittedModelFamily: "string",
 } as const satisfies Readonly<Record<DurableRunMemberName, WireMemberReaderName>>;
 

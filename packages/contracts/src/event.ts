@@ -123,6 +123,10 @@ import { QuestionAskedPayloadSchema, type QuestionAskedPayload } from "./questio
 import { RelayPinRefusedPayloadSchema, type RelayPinRefusedPayload } from "./relay.js";
 import { RepoWorkspaceLifecyclePayloadSchema, type RepoWorkspaceLifecyclePayload } from "./repo.js";
 import {
+  RunRecoveryResolvedPayloadSchema,
+  type RunRecoveryResolvedPayload,
+} from "./run-control.js";
+import {
   ModerationReviewFlaggedPayloadSchema,
   RunSafetyBufferingUpdatedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
@@ -1843,6 +1847,11 @@ export type RunSafetyBufferingUpdatedEvent = SessionEventVariant<
   "run_lifecycle",
   RunSafetyBufferingUpdatedPayload
 >;
+export type RunRecoveryResolvedEvent = SessionEventVariant<
+  "run.recovery_resolved",
+  "run_lifecycle",
+  RunRecoveryResolvedPayload
+>;
 export type SessionGoalUpdatedEvent = SessionEventVariant<
   "session.goal_updated",
   "session_lifecycle",
@@ -2174,6 +2183,11 @@ const runSafetyBufferingUpdatedVariantSchema = buildSessionEventVariantSchema(
   "run_lifecycle",
   RunSafetyBufferingUpdatedPayloadSchema,
 );
+const runRecoveryResolvedVariantSchema = buildSessionEventVariantSchema(
+  "run.recovery_resolved",
+  "run_lifecycle",
+  RunRecoveryResolvedPayloadSchema,
+);
 const sessionGoalUpdatedVariantSchema = buildSessionEventVariantSchema(
   "session.goal_updated",
   "session_lifecycle",
@@ -2397,6 +2411,7 @@ export type SessionEvent =
   | ApprovalDenialOverriddenEvent
   | RunStepLimitReachedEvent
   | RunSafetyBufferingUpdatedEvent
+  | RunRecoveryResolvedEvent
   | SessionGoalUpdatedEvent
   | SessionRenamedEvent
   | PtyControlChangedEvent
@@ -2620,6 +2635,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   approvalDenialOverriddenVariantSchema,
   runStepLimitReachedVariantSchema,
   runSafetyBufferingUpdatedVariantSchema,
+  runRecoveryResolvedVariantSchema,
   sessionGoalUpdatedVariantSchema,
   sessionRenamedVariantSchema,
   ptyControlChangedVariantSchema,
@@ -2676,6 +2692,7 @@ export type SessionEventType =
   | "run.running"
   | "run.waiting_for_approval"
   | "run.waiting_for_input"
+  | "run.pausing"
   | "run.paused"
   | "run.completed"
   | "run.interrupted"
@@ -2686,6 +2703,7 @@ export type SessionEventType =
   | "run.worker_shutdown"
   | "run.step_limit_reached"
   | "run.safety_buffering_updated"
+  | "run.recovery_resolved"
   | "assistant.message"
   | "assistant.thinking_update"
   // tool_activity — two recovery rows, two subagent-lifecycle
@@ -2925,6 +2943,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "approval.denial_overridden",
   "run.step_limit_reached",
   "run.safety_buffering_updated",
+  "run.recovery_resolved",
   "session.goal_updated",
   "session.renamed",
   "pty.control_changed",
@@ -2963,6 +2982,7 @@ export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "run.running",
   "run.waiting_for_approval",
   "run.waiting_for_input",
+  "run.pausing",
   "run.paused",
   "run.completed",
   "run.interrupted",
@@ -2973,6 +2993,7 @@ export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "run.worker_shutdown",
   "run.step_limit_reached",
   "run.safety_buffering_updated",
+  "run.recovery_resolved",
 ] as const;
 
 export const ASSISTANT_OUTPUT_EVENT_TYPES: readonly SessionEventType[] = [
@@ -3199,6 +3220,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "run.running": "run_lifecycle",
   "run.waiting_for_approval": "run_lifecycle",
   "run.waiting_for_input": "run_lifecycle",
+  "run.pausing": "run_lifecycle",
   "run.paused": "run_lifecycle",
   "run.completed": "run_lifecycle",
   "run.interrupted": "run_lifecycle",
@@ -3209,6 +3231,7 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "run.worker_shutdown": "run_lifecycle",
   "run.step_limit_reached": "run_lifecycle",
   "run.safety_buffering_updated": "run_lifecycle",
+  "run.recovery_resolved": "run_lifecycle",
   // assistant_output
   "assistant.message": "assistant_output",
   "assistant.thinking_update": "assistant_output",

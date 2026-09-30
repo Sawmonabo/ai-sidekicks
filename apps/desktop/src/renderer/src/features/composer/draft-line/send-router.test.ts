@@ -25,7 +25,8 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
     expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
-      payload: { content: "ship the fix" },
+      clientIdempotencyKey: PINNED_REQUEST_UUID,
+      content: "ship the fix",
     });
   });
 
@@ -89,7 +90,8 @@ describe("ComposerSendRouter — the slash prefix", () => {
     expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
-      payload: { content: "/compact now" },
+      clientIdempotencyKey: PINNED_REQUEST_UUID,
+      content: "/compact now",
     });
   });
 
@@ -107,7 +109,8 @@ describe("ComposerSendRouter — the slash prefix", () => {
 
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
-      payload: { content: "//not-a-command  \n" },
+      clientIdempotencyKey: PINNED_REQUEST_UUID,
+      content: "//not-a-command  \n",
     });
   });
 });
@@ -181,7 +184,8 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
 
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
-      payload: { content: INDENTED_BODY },
+      clientIdempotencyKey: PINNED_REQUEST_UUID,
+      content: INDENTED_BODY,
     });
   });
 
@@ -215,7 +219,8 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
     expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
-      payload: { content: "  /help me read this" },
+      clientIdempotencyKey: PINNED_REQUEST_UUID,
+      content: "  /help me read this",
     });
   });
 

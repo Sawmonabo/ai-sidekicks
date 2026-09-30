@@ -1,5 +1,5 @@
 // Plus the three shapes no Phase-1 task names — the `run-control.ts`
-// contract surface: queue items, the intervention request union, the
+// contract surface: the intervention request union, the
 // state-split intervention response, the run-state change event, the
 // forward rolled-back event, the pause/resume triggers, the two
 // `run.subscribe*` request shapes, and the run-read accessor shape.
@@ -35,41 +35,29 @@ import { describe, expect, it } from "vitest";
 
 import * as contracts from "../index.js";
 import type { InterventionType } from "../provider-driver.js";
-import {
-  DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
-  RECOVERY_CONDITIONS,
-  RECOVERY_SPAN_CLASSIFICATIONS,
-} from "../provider-driver.js";
+import { RECOVERY_CONDITIONS, RECOVERY_SPAN_CLASSIFICATIONS } from "../provider-driver.js";
 import {
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
   InterventionStateSchema,
-  QueueItemCancelRequestSchema,
-  QueueItemCancelResponseSchema,
-  QueueItemCreateRequestSchema,
-  QueueItemCreateResponseSchema,
-  QueueItemListRequestSchema,
-  QueueItemListResponseSchema,
-  QueueItemStateSchema,
-  QueueItemSummarySchema,
   RunControlAckSchema,
   RunFailureCategorySchema,
   RunPauseRequestSchema,
-  RunQueueSubscribeRequestSchema,
   RunReadSnapshotSchema,
+  RunRecoveryResolvedPayloadSchema,
+  RunRecoveryResolveRequestSchema,
   RunResumeRequestSchema,
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
   RunStateSchema,
   RunStateSubscribeRequestSchema,
   type InterventionState,
-  type QueueItemState,
   type RunFailureCategory,
   type RunState,
 } from "../run-control.js";
+import { RunQueueSubscribeRequestSchema } from "../run-queue.js";
 
 const SESSION_ID = "0f2b4d5e-1111-4111-8111-111111111111";
-const WORKSPACE_ID = "0f2b4d5e-3333-4333-8333-333333333333";
 const QUEUE_ITEM_ID = "0f2b4d5e-4444-4444-8444-444444444444";
 const INTERVENTION_ID = "0f2b4d5e-5555-4555-8555-555555555555";
 const RUN_ID = "0f2b4d5e-6666-4666-8666-666666666666";
@@ -86,22 +74,6 @@ const TIMESTAMP = "2026-08-31T12:00:00.000Z";
 // --------------------------------------------------------------------------
 
 describe("run-control shared enums", () => {
-  const queueItemStates: ReadonlyArray<QueueItemState> = [
-    "queued",
-    "admitted",
-    "superseded",
-    "canceled",
-    "not_delivered",
-  ];
-  it.each(queueItemStates)("admits the queue-item state %s", (state) => {
-    expect(QueueItemStateSchema.parse(state)).toBe(state);
-  });
-
-  it("rejects a queue-item state outside the five", () => {
-    // The British spelling is the realistic drift, not a random string.
-    expect(() => QueueItemStateSchema.parse("cancelled")).toThrow();
-  });
-
   const interventionStates: ReadonlyArray<InterventionState> = [
     "requested",
     "accepted",
@@ -124,6 +96,7 @@ describe("run-control shared enums", () => {
     "running",
     "waiting_for_approval",
     "waiting_for_input",
+    "pausing",
     "paused",
     "completed",
     "interrupted",
@@ -133,7 +106,7 @@ describe("run-control shared enums", () => {
     expect(RunStateSchema.parse(state)).toBe(state);
   });
 
-  it("rejects a run state outside the nine", () => {
+  it("rejects a run state outside the ten", () => {
     expect(() => RunStateSchema.parse("cancelled")).toThrow();
   });
 
@@ -158,121 +131,6 @@ describe("run-control shared enums", () => {
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 
-describe("QueueItemCreateRequest", () => {
-  const minimal = { sessionId: SESSION_ID, payload: {} };
-
-  it("parses with only the two required members", () => {
-    expect(QueueItemCreateRequestSchema.parse(minimal)).toEqual(minimal);
-  });
-
-  it("parses with every optional member supplied", () => {
-    const full = {
-      sessionId: SESSION_ID,
-      workspaceId: WORKSPACE_ID,
-      priority: 7,
-      payload: { kind: "user-send", position: 4 },
-    };
-    expect(QueueItemCreateRequestSchema.parse(full)).toEqual(full);
-  });
-
-  it("admits a negative priority and refuses a fractional one", () => {
-    // "higher = more urgent", so a negative priority is a meaningful
-    // de-prioritization; a float would round on the way into the INTEGER
-    // column and silently reorder the drain.
-    expect(QueueItemCreateRequestSchema.parse({ ...minimal, priority: -5 }).priority).toBe(-5);
-    expect(() => QueueItemCreateRequestSchema.parse({ ...minimal, priority: 1.5 })).toThrow();
-  });
-
-  it("refuses a missing payload, a non-UUID session id, and an unknown key", () => {
-    expect(() => QueueItemCreateRequestSchema.parse({ sessionId: SESSION_ID })).toThrow();
-    expect(() => QueueItemCreateRequestSchema.parse({ ...minimal, sessionId: "s-1" })).toThrow();
-    expect(() => QueueItemCreateRequestSchema.parse({ ...minimal, targetRunId: RUN_ID })).toThrow();
-  });
-});
-
-describe("QueueItemCreateResponse", () => {
-  const valid = { queueItemId: QUEUE_ITEM_ID, state: "queued", createdAt: TIMESTAMP };
-
-  it("parses a well-formed response", () => {
-    expect(QueueItemCreateResponseSchema.parse(valid)).toEqual(valid);
-  });
-
-  it("refuses a timestamp without an offset and an out-of-set state", () => {
-    expect(() =>
-      QueueItemCreateResponseSchema.parse({ ...valid, createdAt: "2026-08-31 12:00:00" }),
-    ).toThrow();
-    expect(() => QueueItemCreateResponseSchema.parse({ ...valid, state: "draining" })).toThrow();
-  });
-});
-
-describe("QueueItemList", () => {
-  it("parses the request with and without its state filter", () => {
-    expect(QueueItemListRequestSchema.parse({ sessionId: SESSION_ID })).toEqual({
-      sessionId: SESSION_ID,
-    });
-    const filtered = { sessionId: SESSION_ID, state: "admitted" };
-    expect(QueueItemListRequestSchema.parse(filtered)).toEqual(filtered);
-  });
-
-  it("refuses an unknown filter rather than silently ignoring it", () => {
-    // A dropped filter would return MORE rows than the caller asked for, which
-    // is the failure a permissive shape makes invisible.
-    expect(() =>
-      QueueItemListRequestSchema.parse({ sessionId: SESSION_ID, priority: 1 }),
-    ).toThrow();
-  });
-
-  it("parses a response whose items carry every summary member", () => {
-    const response = {
-      items: [
-        {
-          id: QUEUE_ITEM_ID,
-          state: "queued",
-          priority: 0,
-          createdAt: TIMESTAMP,
-          updatedAt: TIMESTAMP,
-        },
-      ],
-    };
-    expect(QueueItemListResponseSchema.parse(response)).toEqual(response);
-    expect(QueueItemListResponseSchema.parse({ items: [] })).toEqual({ items: [] });
-  });
-
-  it("propagates summary strictness through the array", () => {
-    const summary = {
-      id: QUEUE_ITEM_ID,
-      state: "queued",
-      priority: 0,
-      createdAt: TIMESTAMP,
-      updatedAt: TIMESTAMP,
-    };
-    // Positive control: the summary itself is valid, so the array refusal
-    // below is the smuggled key and not a malformed fixture.
-    expect(QueueItemSummarySchema.parse(summary)).toEqual(summary);
-    expect(() =>
-      QueueItemListResponseSchema.parse({ items: [{ ...summary, payload: {} }] }),
-    ).toThrow();
-  });
-});
-
-describe("QueueItemCancel", () => {
-  it("parses the request and closes the response state at the single terminal", () => {
-    expect(QueueItemCancelRequestSchema.parse({ queueItemId: QUEUE_ITEM_ID })).toEqual({
-      queueItemId: QUEUE_ITEM_ID,
-    });
-    const response = { queueItemId: QUEUE_ITEM_ID, state: "canceled" };
-    expect(QueueItemCancelResponseSchema.parse(response)).toEqual(response);
-    // A cancel that reports any other lifecycle state is reporting an outcome
-    // it did not produce.
-    expect(() =>
-      QueueItemCancelResponseSchema.parse({ queueItemId: QUEUE_ITEM_ID, state: "not_delivered" }),
-    ).toThrow();
-  });
-});
-
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 const guards = {
   targetRunId: RUN_ID,
   expectedRunVersion: 4,
@@ -282,8 +140,14 @@ const guards = {
 describe("InterventionRequestPayload", () => {
   const armPayloads: Record<InterventionType, Record<string, unknown>> = {
     steer: { ...guards, type: "steer", content: "please use the async client" },
-    interrupt: { ...guards, type: "interrupt", reason: "wrong branch" },
+    interrupt: { ...guards, type: "interrupt", pending: "nextTurn", reason: "wrong branch" },
     cancel: { ...guards, type: "cancel" },
+    faster_model_retry: {
+      ...guards,
+      type: "faster_model_retry",
+      expectedTurnId: "turn-7",
+      model: "faster-model",
+    },
   };
   const arms: ReadonlyArray<[InterventionType, Record<string, unknown>]> = (
     Object.entries(armPayloads) as Array<[InterventionType, Record<string, unknown>]>
@@ -316,6 +180,15 @@ describe("InterventionRequestPayload", () => {
         clientIdempotencyKey: "k1",
       }),
     ).toThrow();
+  });
+
+  it("refuses a faster-model retry that names no turn or no model", () => {
+    // Without the turn the daemon could not refuse a retry of a turn that has
+    // moved on; without the model it would resend on the model that was held.
+    const { expectedTurnId: _turn, ...withoutTurn } = armPayloads.faster_model_retry;
+    const { model: _model, ...withoutModel } = armPayloads.faster_model_retry;
+    expect(() => InterventionRequestPayloadSchema.parse(withoutTurn)).toThrow();
+    expect(() => InterventionRequestPayloadSchema.parse(withoutModel)).toThrow();
   });
 
   it("refuses a fractional or negative expectedRunVersion", () => {
@@ -361,6 +234,36 @@ describe("InterventionRequestPayload", () => {
       expectedTurnId: "turn-19",
     };
     expect(InterventionRequestPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  describe("the interrupt's pending messages", () => {
+    const interrupt = { ...guards, type: "interrupt" };
+
+    it("says where the waiting messages go: the next turn or back to the draft", () => {
+      for (const pending of ["nextTurn", "returnToDraft"]) {
+        expect(InterventionRequestPayloadSchema.safeParse({ ...interrupt, pending }).success).toBe(
+          true,
+        );
+      }
+      expect(InterventionRequestPayloadSchema.safeParse(interrupt).success).toBe(false);
+    });
+
+    it("delivers a named message first only when the rest go as the next turn", () => {
+      expect(
+        InterventionRequestPayloadSchema.safeParse({
+          ...interrupt,
+          pending: "nextTurn",
+          deliverFirst: QUEUE_ITEM_ID,
+        }).success,
+      ).toBe(true);
+      expect(
+        InterventionRequestPayloadSchema.safeParse({
+          ...interrupt,
+          pending: "returnToDraft",
+          deliverFirst: QUEUE_ITEM_ID,
+        }).success,
+      ).toBe(false);
+    });
   });
 
   describe("the steer attachments element type", () => {
@@ -414,26 +317,6 @@ describe("InterventionRequestPayload", () => {
           }
         ).attachments,
       ).toEqual(ordered);
-    });
-
-    it("REFUSES a carrier past the seam's coarse count ceiling", () => {
-      // Elements are all VALID ids, so the count bound is the only constraint
-      // that can fail here — without that the assertion would pass on the
-      // element type and prove nothing about the cap. The POLICY bound
-      // (`max_attachments_per_carrier`, operator-tunable) is the daemon's at
-      // carrier acceptance and is deliberately not this parse's.
-      const overCount = Array.from(
-        { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX + 1 },
-        () => FIRST_ARTIFACT_ID,
-      );
-      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying(overCount))).toThrow();
-      const atCeiling = Array.from(
-        { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX },
-        () => FIRST_ARTIFACT_ID,
-      );
-      expect(InterventionRequestPayloadSchema.parse(steerCarrying(atCeiling))).toEqual(
-        steerCarrying(atCeiling),
-      );
     });
   });
 });
@@ -495,7 +378,7 @@ const minimalRunStateChange = {
   runId: RUN_ID,
   runVersion: 3,
   previousState: "running",
-  currentState: "paused",
+  newState: "paused",
   timestamp: TIMESTAMP,
 } as const;
 
@@ -507,7 +390,7 @@ describe("RunStateChangeEvent", () => {
   it("parses every optional member this module can type", () => {
     const full = {
       ...minimalRunStateChange,
-      currentState: "failed",
+      newState: "failed",
       failureCategory: "provider failure",
       recoveryCondition: "reauth-required",
       recoverySpanClassification: "irreversible",
@@ -518,7 +401,7 @@ describe("RunStateChangeEvent", () => {
       trigger: "workflow_phase_canceled",
       parentRunId: PARENT_RUN_ID,
       internalHelper: false,
-      admittedUnpricedCapCents: 500,
+      admittedUnpricedCapUsdMicros: 5_000_000,
       admittedModelFamily: "claude-opus",
     };
     expect(RunStateChangeEventSchema.parse(full)).toEqual(full);
@@ -538,7 +421,7 @@ describe("RunStateChangeEvent", () => {
       for (const recoverySpanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
         const stateChange = {
           ...minimalRunStateChange,
-          currentState: "failed",
+          newState: "failed",
           failureCategory: "provider failure",
           recoveryCondition,
           recoverySpanClassification,
@@ -562,7 +445,7 @@ describe("RunStateChangeEvent", () => {
       expect(
         RunStateChangeEventSchema.safeParse({
           ...minimalRunStateChange,
-          currentState: "failed",
+          newState: "failed",
           [member]: "retry-later",
         }).success,
       ).toBe(false);
@@ -607,6 +490,44 @@ describe("RunStateChangeEvent", () => {
         internalHelper: true,
       }).parentRunId,
     ).toBe(PARENT_RUN_ID);
+  });
+
+  describe("a turn the provider refused", () => {
+    const refusal = {
+      cause: "refused",
+      model: "claude-opus-4-1",
+      explanation: "This request looks like it could help with a cyberattack.",
+      safetyCategory: "cyber",
+    };
+
+    it("rides the transition into failed with the refusing model", () => {
+      const failed = { ...minimalRunStateChange, newState: "failed", failureCause: refusal };
+      expect(RunStateChangeEventSchema.parse(failed)).toEqual(failed);
+    });
+
+    it("is refused on any other transition and without the refusing model", () => {
+      expect(
+        RunStateChangeEventSchema.safeParse({ ...minimalRunStateChange, failureCause: refusal })
+          .success,
+      ).toBe(false);
+      const { model: _omitted, ...withoutModel } = refusal;
+      expect(
+        RunStateChangeEventSchema.safeParse({
+          ...minimalRunStateChange,
+          newState: "failed",
+          failureCause: withoutModel,
+        }).success,
+      ).toBe(false);
+    });
+  });
+
+  it("stamps the admitted cap in whole micro-dollars", () => {
+    expect(
+      RunStateChangeEventSchema.safeParse({
+        ...minimalRunStateChange,
+        admittedUnpricedCapUsdMicros: 2.5,
+      }).success,
+    ).toBe(false);
   });
 
   describe("the executionPosture member", () => {
@@ -755,7 +676,7 @@ describe("RunRolledBackEvent", () => {
       RunRolledBackEventSchema.parse({
         ...minimalRolledBack,
         previousState: "running",
-        currentState: "paused",
+        newState: "paused",
       }),
     ).toThrow();
   });
@@ -768,6 +689,26 @@ describe("RunRolledBackEvent", () => {
     expect(RunStateChangeEventSchema.parse(minimalRunStateChange)).toEqual(minimalRunStateChange);
     expect(() => RunStateChangeEventSchema.parse(minimalRolledBack)).toThrow();
     expect(() => RunRolledBackEventSchema.parse(minimalRunStateChange)).toThrow();
+  });
+});
+
+describe("the recovery question after a restart", () => {
+  it("takes each of the four choices and records it on the event", () => {
+    for (const choice of ["keep_provider", "undo_to_agreed", "continue_provider", "hand_over"]) {
+      expect(RunRecoveryResolveRequestSchema.safeParse({ runId: RUN_ID, choice }).success).toBe(
+        true,
+      );
+      expect(
+        RunRecoveryResolvedPayloadSchema.safeParse({ sessionId: SESSION_ID, runId: RUN_ID, choice })
+          .success,
+      ).toBe(true);
+    }
+  });
+
+  it("refuses a choice the question does not offer", () => {
+    expect(
+      RunRecoveryResolveRequestSchema.safeParse({ runId: RUN_ID, choice: "replay" }).success,
+    ).toBe(false);
   });
 });
 
@@ -801,11 +742,10 @@ describe("run pause and resume", () => {
     expect(() => schema.parse({ ...request, type: "interrupt" })).toThrow();
   });
 
-  it("acks with the post-transition state and the advanced comparand", () => {
-    const ack = { runId: RUN_ID, currentState: "paused", runVersion: 7 };
+  it("acks a pause with the state the run is in while its step finishes", () => {
+    const ack = { runId: RUN_ID, newState: "pausing", runVersion: 7 };
     expect(RunControlAckSchema.parse(ack)).toEqual(ack);
-    expect(() => RunControlAckSchema.parse({ ...ack, currentState: "pausing" })).toThrow();
-    expect(() => RunControlAckSchema.parse({ runId: RUN_ID, currentState: "paused" })).toThrow();
+    expect(() => RunControlAckSchema.parse({ runId: RUN_ID, newState: "paused" })).toThrow();
   });
 });
 
@@ -862,7 +802,7 @@ describe("RunReadSnapshot", () => {
 
   it("refuses an unknown member and an out-of-set state", () => {
     expect(() => RunReadSnapshotSchema.parse({ ...snapshot, runId: RUN_ID })).toThrow();
-    expect(() => RunReadSnapshotSchema.parse({ ...snapshot, state: "pausing" })).toThrow();
+    expect(() => RunReadSnapshotSchema.parse({ ...snapshot, state: "resuming" })).toThrow();
   });
 });
 

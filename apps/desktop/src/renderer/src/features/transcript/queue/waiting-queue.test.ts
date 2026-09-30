@@ -35,6 +35,8 @@ function rowInState(
     id,
     state,
     priority: 0,
+    content: "Also run the linter",
+    ...(state === "not_delivered" ? { notDeliveredReason: "The run ended first." } : {}),
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt: "2026-09-02T09:00:00.000Z",
   };

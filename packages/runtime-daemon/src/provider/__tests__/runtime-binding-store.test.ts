@@ -136,7 +136,7 @@ const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
   ],
   subagentPolicy: { enabled: false },
   outputSchema: { type: "object", properties: { answer: { type: "string" } } },
-  admittedCostCapCents: 2500,
+  admittedCostCapUsdMicros: 25_000_000,
   providerAccountId: "acct-01J0ND0000NN5J5J5J5J5J5J",
   resolvedExecutablePath: "/opt/homebrew/bin/claude",
   outputSpeed: "on",
@@ -1056,10 +1056,10 @@ describe("RuntimeBindingStore — spawn_config", () => {
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
-      spawnConfig: { admittedCostCapCents: 100, providerAccountId: undefined },
+      spawnConfig: { admittedCostCapUsdMicros: 1_000_000, providerAccountId: undefined },
     });
 
-    expect(created.spawnConfig).toStrictEqual({ admittedCostCapCents: 100 });
+    expect(created.spawnConfig).toStrictEqual({ admittedCostCapUsdMicros: 1_000_000 });
     expect("providerAccountId" in created.spawnConfig).toBe(false);
     expect(created.spawnConfig).toStrictEqual(store.findById(created.id)?.spawnConfig);
   });
@@ -1072,7 +1072,11 @@ describe("RuntimeBindingStore — spawn_config", () => {
     { label: "an unknown member", raw: '{"executionPostures":{"mode":"trusted"}}' },
     { label: "a string where an object belongs", raw: '{"executionPosture":"trusted"}' },
     { label: "an object where an array belongs", raw: '{"callbackTools":{}}' },
-    { label: "a string where a number belongs", raw: '{"admittedCostCapCents":"2500"}' },
+    { label: "a string where a number belongs", raw: '{"admittedCostCapUsdMicros":"25000000"}' },
+    {
+      label: "a fractional amount where whole micro-dollars belong",
+      raw: '{"admittedCostCapUsdMicros":2500.5}',
+    },
     { label: "a number where a string belongs", raw: '{"resolvedExecutablePath":42}' },
     { label: "a null-valued known member", raw: '{"providerAccountId":null}' },
   ];
@@ -1633,7 +1637,7 @@ describe("composeResumeSessionParams (R4)", () => {
       callbackTools: FULL_SPAWN_CONFIG.callbackTools,
       subagentPolicy: FULL_SPAWN_CONFIG.subagentPolicy,
       outputSchema: FULL_SPAWN_CONFIG.outputSchema,
-      admittedCostCapCents: 2500,
+      admittedCostCapUsdMicros: 25_000_000,
       providerAccountId: FULL_SPAWN_CONFIG.providerAccountId,
       outputSpeed: "on",
       onCallbackToolCall: undefined,
@@ -1720,7 +1724,7 @@ describe("composeResumeSessionParams (R4)", () => {
 
     expect(params.executionPosture).toBeUndefined();
     expect(params.outputSchema).toBeUndefined();
-    expect(params.admittedCostCapCents).toBeUndefined();
+    expect(params.admittedCostCapUsdMicros).toBeUndefined();
     expect(params.outputSpeed).toBeUndefined();
   });
 
@@ -1787,7 +1791,7 @@ describe("provider-account identity at spawn and resume", () => {
     const store = makeStore();
     const preAmendmentSpawnConfig: RuntimeBindingSpawnConfig = {
       executionPosture: EXECUTION_POSTURE,
-      admittedCostCapCents: 2500,
+      admittedCostCapUsdMicros: 25_000_000,
     };
     const binding = store.create({
       runId: RUN_ID,

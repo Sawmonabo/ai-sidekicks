@@ -16,7 +16,7 @@
 // choice cannot be honored is worse than an absent one, because it reports success for
 // a decision nothing acted on. The two calls the send makes carry nowhere to put it: the
 // registered `SessionCreateRequest` is `{ config?, metadata? }` and
-// `QueueItemCreateRequest` is `{ sessionId, workspaceId?, priority?, payload }`, both
+// `QueueItemCreateRequest` carries the message, its files and where it goes, both
 // `.strict()`.
 //
 // AND A PARTIAL SEND NAMES WHAT LANDED, not only what did not. Both of the

@@ -10,8 +10,8 @@
 // `run.starting`; a fixture that recognized only ONE stream name delivered
 // nothing at all to the two `run.*` streams the daemon serves, which reads
 // exactly like a quiet session; a fixture that delivered the envelope to those
-// two streams sent a frame with no `currentState` on a wire whose whole payload
-// is one; and a fixture that delivered the AUTHORING RECORD to the streams that
+// two streams sent a frame with no top-level `newState` on a wire whose whole
+// payload is one; and a fixture that delivered the AUTHORING RECORD to the streams that
 // do carry an envelope sent a frame carrying `kind` and `actorId`
 // where the wire carries `type` and `actor`, which is how the console's decode
 // boundary came to read fixture-local names and refuse every live delivery with
@@ -62,7 +62,7 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * `run-stream-projection.ts` builds one from the beat. Handing those two the
  * envelope would train every run-stream subscriber on a frame the
  * live bridge cannot send: no `kind`, no `sequence`, no nested `payload`, and
- * `currentState` where the envelope has `payload.newState`.
+ * a top-level `newState` where the envelope has `payload.newState`.
  *
  * AND WHEN IT REACHES THE HANDLER, for the one arm where that is a second question.
  * `session.subscribe` is registered replay-then-tail, so a subscriber that attaches

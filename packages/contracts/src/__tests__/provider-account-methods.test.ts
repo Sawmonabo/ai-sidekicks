@@ -35,6 +35,7 @@ import {
   ProviderAccountUpdateRequestSchema,
   ProviderAccountUpdateResponseSchema,
   ProviderAccountUsageReadRequestSchema,
+  ProviderAccountUsageReadResponseSchema,
 } from "../provider-account-methods.js";
 import {
   PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS,
@@ -647,6 +648,15 @@ describe("the account switch, the memory import, the usage read and their refusa
         scope: { provider: "claude" },
         groupBy: "week",
       }).success,
+    ).toBe(false);
+  });
+
+  it("answers usage in whole micro-dollars, refusing a fraction of one", () => {
+    const row = { model: "claude-opus-4-1", tokens: 1200, costUsdMicros: 18_450 };
+    expect(ProviderAccountUsageReadResponseSchema.safeParse({ rows: [row] }).success).toBe(true);
+    expect(
+      ProviderAccountUsageReadResponseSchema.safeParse({ rows: [{ ...row, costUsdMicros: 0.5 }] })
+        .success,
     ).toBe(false);
   });
 

@@ -18,7 +18,14 @@ const QUEUE_ITEM_C = "3c4d5e6f-7081-4293-84a5-b6c7d8e9f001";
 
 /** One row of the registered shape, at one state and one `updatedAt`. */
 function row(id: string, state: string, updatedAt: string): Record<string, unknown> {
-  return { id, state, priority: 0, createdAt: "2026-09-02T09:00:00.000Z", updatedAt };
+  return {
+    id,
+    state,
+    priority: 0,
+    content: "Also run the linter",
+    createdAt: "2026-09-02T09:00:00.000Z",
+    updatedAt,
+  };
 }
 
 /** The same row, through the registered parse the fold's callers perform. */

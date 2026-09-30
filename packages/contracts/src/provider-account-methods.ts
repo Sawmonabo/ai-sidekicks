@@ -100,6 +100,7 @@ import {
   type ProviderAccountResetCredentialHomeRequest,
   type ProviderAccountResetCredentialHomeResponse,
 } from "./provider-account-sign-in.js";
+import { UsdMicrosSchema } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -433,7 +434,7 @@ export const ProviderAccountUsageReadRequestSchema: z.ZodType<
   .strict();
 
 /**
- * One figure: the tokens and what they cost, in cents. `day` is set on a row
+ * One figure: the tokens and what they cost, in whole micro-dollars. `day` is set on a row
  * grouped by day (`YYYY-MM-DD`) and `model` on a row grouped by model, the
  * model id as the provider names it.
  */
@@ -441,7 +442,7 @@ export interface ProviderAccountUsageRow {
   day?: string | undefined;
   model?: string | undefined;
   tokens: number;
-  costCents: number;
+  costUsdMicros: number;
 }
 
 export interface ProviderAccountUsageReadResponse {
@@ -459,7 +460,7 @@ export const ProviderAccountUsageReadResponseSchema: z.ZodType<ProviderAccountUs
             "ProviderAccountUsageRow.model",
           ).optional(),
           tokens: z.number().int().min(0),
-          costCents: z.number().min(0),
+          costUsdMicros: UsdMicrosSchema,
         })
         .strict(),
     ),

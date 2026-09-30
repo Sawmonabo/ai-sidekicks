@@ -326,14 +326,14 @@ describe("resolveCostUpdateProvenance", () => {
   }
   const ladderDefaults = {
     provider: "codex" as const,
-    absurdityCeilingCents: 100_000,
+    absurdityCeilingUsdMicros: 100_000,
     grossDivergenceFactor: 10,
   };
 
-  it("CONFORMANCE: the native-cap path emits exactly { costStatus: 'unpriced', costSource: 'unpriced_native_cap' } with costCents absent", () => {
+  it("CONFORMANCE: the native-cap path emits exactly { costStatus: 'unpriced', costSource: 'unpriced_native_cap' } with costUsdMicros absent", () => {
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
-      providerReportedCostCents: null,
+      providerReportedCostUsdMicros: null,
       derivedQuote: null,
       nativeCapAdmitted: true,
       diagnostics: makeDiagnostics(),
@@ -343,14 +343,14 @@ describe("resolveCostUpdateProvenance", () => {
       costStatus: "unpriced",
       costSource: "unpriced_native_cap",
     });
-    expect("costCents" in resolved).toBe(false);
+    expect("costUsdMicros" in resolved).toBe(false);
   });
 
   it("a sane provider-emitted cost resolves provider_reported", () => {
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
-      providerReportedCostCents: 42,
-      derivedQuote: { costCents: 40, familyMatch: "exact" },
+      providerReportedCostUsdMicros: 42,
+      derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
       nativeCapAdmitted: false,
       diagnostics: makeDiagnostics(),
     });
@@ -358,7 +358,7 @@ describe("resolveCostUpdateProvenance", () => {
       resolution: "cost-update",
       costStatus: "priced",
       costSource: "provider_reported",
-      costCents: 42,
+      costUsdMicros: 42,
     });
   });
 
@@ -366,25 +366,25 @@ describe("resolveCostUpdateProvenance", () => {
     const diagnostics = makeDiagnostics();
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
-      providerReportedCostCents: 5_000,
-      derivedQuote: { costCents: 40, familyMatch: "exact" },
+      providerReportedCostUsdMicros: 5_000,
+      derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
       nativeCapAdmitted: false,
       diagnostics,
     });
     expect(resolved.resolution).toBe("cost-update");
     if (resolved.resolution === "cost-update") {
       expect(resolved.costSource).toBe("provider_reported");
-      expect(resolved.costCents).toBe(5_000);
+      expect(resolved.costUsdMicros).toBe(5_000);
     }
     expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toHaveLength(1);
   });
 
   it("an absurd or malformed reported cost falls through to derivation", () => {
-    for (const badReportedCents of [Number.NaN, Number.POSITIVE_INFINITY, -1, 200_000]) {
+    for (const badReportedUsdMicros of [Number.NaN, Number.POSITIVE_INFINITY, -1, 200_000]) {
       const resolved = resolveCostUpdateProvenance({
         ...ladderDefaults,
-        providerReportedCostCents: badReportedCents,
-        derivedQuote: { costCents: 40, familyMatch: "exact" },
+        providerReportedCostUsdMicros: badReportedUsdMicros,
+        derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
         nativeCapAdmitted: false,
         diagnostics: makeDiagnostics(),
       });
@@ -392,7 +392,7 @@ describe("resolveCostUpdateProvenance", () => {
         resolution: "cost-update",
         costStatus: "priced",
         costSource: "derived_exact",
-        costCents: 40,
+        costUsdMicros: 40,
       });
     }
   });
@@ -401,8 +401,8 @@ describe("resolveCostUpdateProvenance", () => {
     const diagnostics = makeDiagnostics();
     resolveCostUpdateProvenance({
       ...ladderDefaults,
-      providerReportedCostCents: Number.NaN,
-      derivedQuote: { costCents: 40, familyMatch: "exact" },
+      providerReportedCostUsdMicros: Number.NaN,
+      derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
       nativeCapAdmitted: false,
       diagnostics,
     });
@@ -417,8 +417,8 @@ describe("resolveCostUpdateProvenance", () => {
     const diagnostics = makeDiagnostics();
     resolveCostUpdateProvenance({
       ...ladderDefaults,
-      providerReportedCostCents: null,
-      derivedQuote: { costCents: 40, familyMatch: "exact" },
+      providerReportedCostUsdMicros: null,
+      derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
       nativeCapAdmitted: false,
       diagnostics,
     });
@@ -428,8 +428,8 @@ describe("resolveCostUpdateProvenance", () => {
   it("family-prefix fallback resolves derived_family_prefix", () => {
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
-      providerReportedCostCents: null,
-      derivedQuote: { costCents: 33, familyMatch: "prefix" },
+      providerReportedCostUsdMicros: null,
+      derivedQuote: { costUsdMicros: 33, familyMatch: "prefix" },
       nativeCapAdmitted: false,
       diagnostics: makeDiagnostics(),
     });
@@ -437,14 +437,14 @@ describe("resolveCostUpdateProvenance", () => {
       resolution: "cost-update",
       costStatus: "priced",
       costSource: "derived_family_prefix",
-      costCents: 33,
+      costUsdMicros: 33,
     });
   });
 
   it("a genuinely unpriceable model without native-cap admission fails closed to the budget-warning arm", () => {
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
-      providerReportedCostCents: null,
+      providerReportedCostUsdMicros: null,
       derivedQuote: null,
       nativeCapAdmitted: false,
       diagnostics: makeDiagnostics(),

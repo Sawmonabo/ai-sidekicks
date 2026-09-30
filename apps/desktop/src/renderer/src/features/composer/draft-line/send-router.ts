@@ -214,7 +214,8 @@ export class ComposerSendRouter {
     }
     const request = readQueueItemCreateRequest({
       sessionId,
-      payload: { content: body },
+      clientIdempotencyKey: this.#mintIdempotencyKey(),
+      content: body,
     } satisfies QueueItemCreateRequest);
     if (request === undefined) {
       return { outcome: "refused", refusal: unparseableIdentifier("this message") };

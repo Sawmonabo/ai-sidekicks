@@ -8,8 +8,8 @@
 // The defect this guards: a fixture that handed every subscriber the renderer-local
 // envelope would give a subscriber to `run.subscribeState` `{id, sessionId, sequence,
 // kind, occurredAt, payload}` where the wire sends `RunStateChangeEvent` — no `kind`,
-// no `sequence`, no nested `payload`, and `currentState` where the envelope has
-// `payload.newState`. Nothing reads those members yet, so no screen would show the
+// no `sequence`, no nested `payload`, and a top-level `newState` where the envelope
+// has `payload.newState`. Nothing reads those members yet, so no screen would show the
 // difference until something does.
 //
 // The projector's OWN behavior — which subscriptions it answers for at all, and
@@ -111,9 +111,9 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     expect(
       CONCURRENT_STREAMING_SCENARIO.beats.some((beat) => beat.event.kind === "run.queued"),
     ).toBe(true);
-    expect(parsed.map((event) => event.currentState)).not.toContain("queued");
+    expect(parsed.map((event) => event.newState)).not.toContain("queued");
     // The first transition the script plays, member by member.
-    expect(parsed[0]?.currentState).toBe("starting");
+    expect(parsed[0]?.newState).toBe("starting");
     expect(parsed[0]?.previousState).toBe("queued");
     // Sourced from the beat's own envelope, which is the only place the instant
     // lives — and not from the scenario's start, which is what a projection
@@ -144,7 +144,7 @@ describe("run streams — the registered payload reaches the subscriber", () => 
       expect(delivery["kind"]).toBeUndefined();
       expect(delivery["sequence"]).toBeUndefined();
       expect(delivery["payload"]).toBeUndefined();
-      expect(delivery["currentState"]).toBeDefined();
+      expect(delivery["newState"]).toBeDefined();
     }
   });
 

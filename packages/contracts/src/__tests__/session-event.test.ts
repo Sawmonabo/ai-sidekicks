@@ -1823,8 +1823,12 @@ const OWNED_VARIANT_FAMILIES: ReadonlyArray<
     ownedVariantEvent("session.restore_finished", "session_lifecycle", {
       sessionId: SESSION_ID,
       target: { kind: "snapshot", snapshotId: "turn-7" },
-      result: { outcome: "restore-finished", requested: "files", restored: "files" },
-      files: { restoredFileCount: 3, restoredLineCount: 41, skipped: [] },
+      result: {
+        outcome: "restore-finished",
+        requested: "files",
+        restored: "files",
+        files: { restoredFileCount: 3, restoredLineCount: 41, skipped: [] },
+      },
     }),
     ownedVariantEvent("session.restore_finished", "session_lifecycle", {
       sessionId: SESSION_ID,

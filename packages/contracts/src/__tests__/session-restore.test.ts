@@ -75,14 +75,34 @@ describe("session.restore", () => {
     expect(SessionRestoreRequestSchema.safeParse(withoutKey).success).toBe(false);
   });
 
-  it("accepts an undo whose files went back and whose conversation did not", () => {
+  const filesOutcome = {
+    restoredFileCount: 3,
+    restoredLineCount: 41,
+    skipped: [{ path: "vendor/link", reason: "symbolic_link" }],
+  };
+
+  it("accepts an undo whose files went back, with their own figures, and whose conversation did not", () => {
     const result = {
       outcome: "restore-finished",
       requested: "conversation-and-files",
       restored: "files",
+      files: filesOutcome,
       failures: { conversation: { reason: "The provider refused the cut." } },
     };
     expect(SessionRestoreResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  it("refuses files that went back with no figures, and figures where no files went back", () => {
+    const withoutFigures = { outcome: "restore-finished", requested: "files", restored: "files" };
+    expect(SessionRestoreResultSchema.safeParse(withoutFigures).success).toBe(false);
+    const figuresWithoutFiles = {
+      outcome: "restore-finished",
+      requested: "conversation-and-files",
+      restored: "conversation",
+      files: filesOutcome,
+      failures: { files: { reason: "A file is locked." } },
+    };
+    expect(SessionRestoreResultSchema.safeParse(figuresWithoutFiles).success).toBe(false);
   });
 
   it("refuses a restored part outside the three and nothing", () => {
@@ -90,15 +110,15 @@ describe("session.restore", () => {
     expect(SessionRestoreResultSchema.safeParse(result).success).toBe(false);
   });
 
-  it("accepts the settled event with the files part's own figures", () => {
+  it("accepts the settled event carrying the undo's result", () => {
     const payload = {
       sessionId: SESSION_ID,
       target: SNAPSHOT_TARGET,
-      result: { outcome: "restore-finished", requested: "files", restored: "files" },
-      files: {
-        restoredFileCount: 3,
-        restoredLineCount: 41,
-        skipped: [{ path: "vendor/link", reason: "symbolic_link" }],
+      result: {
+        outcome: "restore-finished",
+        requested: "files",
+        restored: "files",
+        files: filesOutcome,
       },
     };
     expect(SessionRestoreFinishedPayloadSchema.safeParse(payload).success).toBe(true);

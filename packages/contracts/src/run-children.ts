@@ -1,0 +1,179 @@
+// A child's own controls. A child here is a provider's own helper inside a run,
+// named by `childHandle` from the daemon's parent-to-child index; a child the
+// daemon bridges runs as its own run and takes that run's verbs. Each control but
+// the subtree stop carries the parent run's comparand and a requester key, as the
+// lead's interventions do. The `run.*` method table that serves these shapes is in
+// `run-control.ts`.
+//
+// Request schemas use the double-T `z.ZodType<T, T>` form and response schemas the
+// single-T `z.ZodType<T>` form, matching `session.ts`.
+import { z } from "zod";
+
+import {
+  AgentTreeMemberSchema,
+  ChildHandleSchema,
+  type AgentTreeMember,
+  type ChildHandle,
+} from "./agent.js";
+import { countSchema } from "./internal/wire-scalars.js";
+import {
+  DRIVER_WIRE_REASON_MAX_LEN,
+  DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
+  RunIdSchema,
+  type RunId,
+} from "./provider-driver.js";
+import { wireFreeFormString } from "./session.js";
+
+/**
+ * Sends a message onto one child's own queue, where it waits for the child's next
+ * step as a pending row the lead's queue verbs reach with `childHandle`. It
+ * answers as `run.queueCreate` does.
+ */
+export interface ChildSteerRequest {
+  targetRunId: RunId;
+  childHandle: ChildHandle;
+  content: string;
+  expectedRunVersion: number;
+  clientIdempotencyKey: string;
+}
+export const ChildSteerRequestSchema: z.ZodType<ChildSteerRequest, ChildSteerRequest> = z
+  .object({
+    targetRunId: RunIdSchema,
+    childHandle: ChildHandleSchema,
+    content: wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, "ChildSteerRequest.content"),
+    expectedRunVersion: countSchema,
+    clientIdempotencyKey: z.uuid(),
+  })
+  .strict();
+
+/** Interrupts one child, and only that child; its pending messages go as its next turn. */
+export interface ChildInterruptRequest {
+  targetRunId: RunId;
+  childHandle: ChildHandle;
+  expectedRunVersion: number;
+  clientIdempotencyKey: string;
+}
+export const ChildInterruptRequestSchema: z.ZodType<ChildInterruptRequest, ChildInterruptRequest> =
+  z
+    .object({
+      targetRunId: RunIdSchema,
+      childHandle: ChildHandleSchema,
+      expectedRunVersion: countSchema,
+      clientIdempotencyKey: z.uuid(),
+    })
+    .strict();
+
+/** What an interrupt did: the child was interrupted, or it had already ended. */
+export interface ChildInterruptResponse {
+  childHandle: ChildHandle;
+  outcome: "interrupted" | "already_ended";
+}
+export const ChildInterruptResponseSchema: z.ZodType<ChildInterruptResponse> = z
+  .object({ childHandle: ChildHandleSchema, outcome: z.enum(["interrupted", "already_ended"]) })
+  .strict();
+
+/** Pauses one child (`paused: true`) or continues it (`paused: false`): the toggle's two presses. */
+export interface ChildPauseSetRequest {
+  targetRunId: RunId;
+  childHandle: ChildHandle;
+  paused: boolean;
+  expectedRunVersion: number;
+  clientIdempotencyKey: string;
+}
+export const ChildPauseSetRequestSchema: z.ZodType<ChildPauseSetRequest, ChildPauseSetRequest> = z
+  .object({
+    targetRunId: RunIdSchema,
+    childHandle: ChildHandleSchema,
+    paused: z.boolean(),
+    expectedRunVersion: countSchema,
+    clientIdempotencyKey: z.uuid(),
+  })
+  .strict();
+
+/**
+ * Where the child stands after the set. `holdLost` says the hold that paused it
+ * was gone before the continue reached it (the provider cancelled the held
+ * call): the child is not paused, and it was not released by the person.
+ */
+export interface ChildPauseSetResponse {
+  childHandle: ChildHandle;
+  paused: boolean;
+  holdLost?: true | undefined;
+}
+export const ChildPauseSetResponseSchema: z.ZodType<ChildPauseSetResponse> = z
+  .object({
+    childHandle: ChildHandleSchema,
+    paused: z.boolean(),
+    holdLost: z.literal(true).optional(),
+  })
+  .strict()
+  .refine((response) => response.holdLost === undefined || !response.paused, {
+    path: ["holdLost"],
+    message: "A lost hold leaves the child not paused.",
+  });
+
+/**
+ * Stops every running child of a run at every depth: the daemon walks its own
+ * index, one stop per child, never relayed through the lead.
+ */
+export interface ChildrenStopRequest {
+  runId: RunId;
+}
+export const ChildrenStopRequestSchema: z.ZodType<ChildrenStopRequest, ChildrenStopRequest> = z
+  .object({ runId: RunIdSchema })
+  .strict();
+
+/** One child's stop: stopped, already ended, or failed with the daemon's reason. */
+export interface ChildStopOutcome {
+  child: AgentTreeMember;
+  outcome: "stopped" | "already_ended" | "failed";
+  reason?: string | undefined;
+}
+/** Every child the stop reached, each with its own outcome; nothing is atomic. */
+export interface ChildrenStopResponse {
+  children: ChildStopOutcome[];
+}
+export const ChildrenStopResponseSchema: z.ZodType<ChildrenStopResponse> = z
+  .object({
+    children: z.array(
+      z
+        .object({
+          child: AgentTreeMemberSchema,
+          outcome: z.enum(["stopped", "already_ended", "failed"]),
+          reason: wireFreeFormString(
+            DRIVER_WIRE_REASON_MAX_LEN,
+            "ChildStopOutcome.reason",
+          ).optional(),
+        })
+        .strict()
+        .refine((row) => (row.outcome === "failed") === (row.reason !== undefined), {
+          path: ["reason"],
+          message: "A failed stop carries its reason, and only a failed one does.",
+        }),
+    ),
+  })
+  .strict();
+
+/**
+ * The refusal of a child control: the daemon's index names no such child, the
+ * child has ended, or the provider refused the act. A hold lost before a
+ * continue is a result, never this refusal.
+ */
+export const RUN_CHILD_CONTROL_REFUSED_CODE = "run.child_control_refused" as const;
+/** The type of {@link RUN_CHILD_CONTROL_REFUSED_CODE}. */
+export type RunChildControlRefusedCode = typeof RUN_CHILD_CONTROL_REFUSED_CODE;
+
+/** Why a child control was refused. */
+export type RunChildControlRefusedReason = "child_unknown" | "child_ended" | "provider_refused";
+/** Every {@link RunChildControlRefusedReason}. */
+export const RUN_CHILD_CONTROL_REFUSED_REASONS: readonly RunChildControlRefusedReason[] =
+  Object.freeze(["child_unknown", "child_ended", "provider_refused"]);
+
+/** The details a `run.child_control_refused` refusal carries. */
+export interface RunChildControlRefusedDetails {
+  reason: RunChildControlRefusedReason;
+}
+/** Parses {@link RunChildControlRefusedDetails}. */
+export const RunChildControlRefusedDetailsSchema: z.ZodType<RunChildControlRefusedDetails> = z
+  .object({ reason: z.enum(RUN_CHILD_CONTROL_REFUSED_REASONS) })
+  .strict();

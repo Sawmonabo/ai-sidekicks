@@ -61,6 +61,7 @@
 
 import {
   RunIdSchema,
+  RunRecoveryResolvedPayloadSchema,
   RunSafetyBufferingUpdatedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
   SessionIdSchema,
@@ -156,8 +157,9 @@ const runIdentityShape = {
  * written. A strict schema would refuse beats the daemon does emit, which is the
  * opposite of this file's job. Refusing an INVENTED member is `beat-shape.ts`'s
  * strict-layer leg, and that leg reaches exactly the kinds the contracts package
- * registers a variant for — which is none of those four. The step bound and the
- * safety hold are registered, so their rows are the contract's own payload schemas.
+ * registers a variant for — which is none of those four. The step bound, the safety
+ * hold and the recovery answer are registered, so their rows are the contract's own
+ * payload schemas.
  */
 const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecycleKind, ZodType>> =
   Object.freeze({
@@ -184,6 +186,7 @@ const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecyc
     "run.worker_shutdown": z.object({ ...runIdentityShape, reason: z.string().optional() }),
     "run.step_limit_reached": RunStepLimitReachedPayloadSchema,
     "run.safety_buffering_updated": RunSafetyBufferingUpdatedPayloadSchema,
+    "run.recovery_resolved": RunRecoveryResolvedPayloadSchema,
   } satisfies Record<UnprojectedRunLifecycleKind, ZodType>);
 
 /**
