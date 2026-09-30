@@ -1,14 +1,10 @@
-// Every standing permission: listable, attributable, revocable, and never mysterious.
+// Every rule in force on the session: what it does, to what, and how far, each revocable.
 //
-// FOUR PROPERTIES THIS LIST KEEPS, EACH ONE ITS OWN because no committed document
-// states them — the corpus registers the `approval.ruleList` / `approval.ruleRevoke`
-// pair and the `RememberedScope` shape, and settles nothing about how they read:
+// Each row reads the rule the way its label did when it was made — `Allow pnpm test ·
+// this session`, `Block api.example.com · this project` — from the `approval.ruleList`
+// reply, which holds only rules in force, so every row on screen offers `Revoke`. The
+// properties this list keeps:
 //
-//   • **Only rules in force are drawn.** A rule carrying `revokedAt` has ended and
-//     draws no row, so every row on screen offers `Revoke`.
-//   • **The grantor is a grantor.** `userId` is an audit key, never a match key —
-//     the copy says whose grant it is and never implies it covers anyone else's
-//     direction.
 //   • **Revoke is two-step, and only the confirming click mutates.** Canceling
 //     returns to idle with zero mutations, which is a property of this component
 //     rather than a promise about it: the mutation call sits on one handler. The
@@ -19,30 +15,25 @@
 //     the row and the button are offered on one reading rather than two that agree.
 //   • **No per-row "remembered today" chip.** The auto-approval resolves inside the
 //     daemon-internal permission gate before any request exists, so no `approval.*`
-//     event carries the match and no per-row carrier exists. The list shows the
-//     grant and the revocation moments and says nothing about individual matched
-//     rows, because saying anything would be inventing the carrier.
-//
-// The scope-kind is rendered from the ratified enum and never as free text; a value
-// outside it renders verbatim under an unrecognized treatment rather than being
-// asserted into a member.
+//     event carries the match and no per-row carrier exists. The list says nothing
+//     about individual matched asks, because saying anything would be inventing the
+//     carrier.
 //
 // AND AN EMPTY LIST IS TWO DIFFERENT FACTS, WHICH IS WHY THE ARMS ARE ORDERED. A
 // reply whose rows all failed the parse produces the same `rules: []` a session with
-// no standing permission produces, and the reassuring sentence — that every request
-// is answered one at a time — is the SAFEST possible claim, so a list that reached
-// it while grants were in force would hide the one thing a person opens this panel
-// to check. The unreadable count is therefore read FIRST: rows this build could not
+// no standing permission produces, and `No rules yet` is the reassuring claim, so a
+// list that reached it while rules were in force would hide the one thing a person
+// opens this panel to check. The unreadable count is therefore read FIRST: rows this build could not
 // read are rows whose existence is unknown, never rows known to be absent, and only
 // a reply that was fully readable and carried nothing may say nothing is in force.
 
+import type { RememberedRule } from "@ai-sidekicks/contracts";
 import { useState } from "react";
-import { Chip } from "@renderer/components/Chip/Chip.js";
+
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
-import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
-import { asRememberedScopeKind, describeRuleScope } from "@renderer/lib/approval-vocabulary.js";
+import { RULE_SCOPE_LABELS, RULE_SENSE_LABELS } from "@renderer/lib/approval-vocabulary.js";
 import { RevokeRuleControl } from "./RevokeRuleControl.js";
 import { offersRevoke } from "../contributions/revoke-rule-commands.js";
 import { useRevokeRuleCommands } from "../hooks/useRevokeRuleCommands.js";
@@ -62,14 +53,13 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
   // Ahead of the two absence arms below, because a hook may not run behind a branch.
   // With no readable rule there is nothing revocable and the contribution is empty,
   // which is the same answer the arms give on screen.
-  const rulesInForce = props.rules.filter((rule) => rule.revokedAt === undefined);
   useRevokeRuleCommands({
-    rules: rulesInForce,
+    rules: props.rules,
     revokingRuleIds: props.revokingRuleIds,
     onAskToRevoke: setConfirmingRuleId,
   });
 
-  if (rulesInForce.length === 0) {
+  if (props.rules.length === 0) {
     return props.unreadableCount > 0 ? (
       <Nothing
         kind="error"
@@ -78,12 +68,7 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
         detail={`The background service answered, and all ${formatCount(props.unreadableCount)} of the rows it carried were shaped in a way this build cannot read. Whether any permission is in force is unknown from here — it is not known to be none.`}
       />
     ) : (
-      <Nothing
-        kind="empty"
-        placement="block"
-        title="No standing permission is in force."
-        detail="Every request is answered one at a time, which is the safest state this list can be in. A permission appears here only after someone approves a request and asks for it to be remembered."
-      />
+      <Nothing kind="empty" placement="block" title="No rules yet" />
     );
   }
 
@@ -96,44 +81,19 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
         </p>
       ) : null}
       <ul className="meridian-remembered-rules__list">
-        {rulesInForce.map((rule) => (
+        {props.rules.map((rule) => (
           <li className="meridian-remembered-rules__row" key={rule.ruleId}>
             <div className="meridian-remembered-rules__line">
-              <Chip mono label={rule.category} />
-              <Chip
-                label={describeRuleScope(rule.scope.kind)}
-                tone={asRememberedScopeKind(rule.scope.kind) === undefined ? "failure" : "neutral"}
-              />
-              <span className="meridian-remembered-rules__grantor">
-                granted by <WireFigure value={rule.userId} />
-              </span>
-              <WireFigure value={rule.grantedAt} />
-            </div>
-            <div className="meridian-remembered-rules__detail">
-              {rule.scope.pattern === undefined ? (
-                <span className="meridian-remembered-rules__pattern">
-                  No pattern, so this covers the whole category inside that boundary.
-                </span>
-              ) : (
-                <span className="meridian-remembered-rules__pattern">
-                  Pattern <WireFigure value={rule.scope.pattern} />
-                </span>
-              )}
-              {rule.runId === undefined ? null : (
-                <span className="meridian-remembered-rules__run">
-                  Run <WireFigure value={rule.runId} />
-                </span>
-              )}
-              <span className="meridian-remembered-rules__node">
-                Node <WireFigure value={rule.nodeId} />
+              <span>
+                {RULE_SENSE_LABELS[rule.scope.sense]} <WireFigure value={rule.scope.pattern} /> ·{" "}
+                {RULE_SCOPE_LABELS[rule.scope.kind]}
               </span>
             </div>
             <RevokeRuleControl
               isConfirming={confirmingRuleId === rule.ruleId}
-              // The palette's own reading, read from the same function: every drawn
-              // rule is live, so "not offered" is exactly "a revocation is already
-              // settling" — which is what the control says instead of offering a
-              // second press.
+              // The palette's own reading, read from the same function: "not offered"
+              // is exactly "a revocation is already settling", which is what the
+              // control says instead of offering a second press.
               isRevoking={!offersRevoke(rule, props.revokingRuleIds)}
               onAsk={() => {
                 setConfirmingRuleId(rule.ruleId);

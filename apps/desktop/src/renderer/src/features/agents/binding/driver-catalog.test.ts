@@ -55,7 +55,7 @@ describe("driver catalog — effort is per model", () => {
 
 describe("driver catalog — the output-speed vocabulary and its gate", () => {
   it("answers the declaring driver's list", () => {
-    expect(outputSpeedLevelsFor(DRIVER_CATALOG_FIXTURE, "claude")).toEqual(["standard", "fast"]);
+    expect(outputSpeedLevelsFor(DRIVER_CATALOG_FIXTURE, "claude")).toEqual(["off", "on"]);
   });
 
   it("answers undefined for a driver that declares no speed axis", () => {

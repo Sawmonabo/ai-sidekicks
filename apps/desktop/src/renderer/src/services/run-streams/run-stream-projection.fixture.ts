@@ -11,13 +11,15 @@
 // registered PROJECTIONS and carry nothing of the sort: `run.subscribeState` streams
 // `RunStateChangeEvent | RunRolledBackEvent` and `run.subscribeQueue` streams
 // `QueueItemSummary`, none of which has a `kind`, a `sequence`, or a nested `payload`,
-// and all of which name members the envelope does not. So a runs view built against a
+// and all of which name members the envelope does not. The state stream's third
+// delivery, Codex's safety hold, is a live frame with no session row, so no beat
+// projects to it here. So a runs view built against a
 // fixture that handed over the envelope would read `event.payload.newState` where the
-// wire sends `currentState`, and every screenshot, geometry reading, and end-to-end
-// result taken against it would be about a frame no daemon produces.
+// wire sends a top-level `newState`, and every screenshot, geometry reading, and
+// end-to-end result taken against it would be about a frame no daemon produces.
 //
 // WHERE THE MEMBERS COME FROM. Each one is sourced and nothing is composed:
-// `newState` becomes `currentState`, the envelope's `occurredAt` becomes the
+// `newState` is carried as the payload names it, the envelope's `occurredAt` becomes the
 // state-change `timestamp` and the queue row's `updatedAt`, and the beat's own KIND
 // supplies the queue state through the same table that routed it here. A beat that
 // cannot supply a required member is REFUSED — loudly, by name, through the
@@ -26,8 +28,8 @@
 // blank and a reviewer reads as working.
 //
 // THE QUEUE STREAM HAS A SECOND SOURCE, AND HAS TO. `QueueItemSummary` is a
-// projection of the `queue_items` ROW, so it requires `priority` and `createdAt`,
-// which the registered queue payload does not carry — every queue event's payload is
+// projection of the `queue_items` ROW, so it requires `priority`, `content` and
+// `createdAt`, which the registered queue payload does not carry — every queue event's payload is
 // `{sessionId, queueItemId, state}`. So a beat is never asked for those two:
 // the row comes from the caller's lookup by the beat's own queue item id, as the row
 // the daemon projects the summary from.
@@ -68,7 +70,7 @@ import {
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
 } from "@ai-sidekicks/contracts";
-import type { RunStateChangeEvent } from "@ai-sidekicks/contracts";
+import type { QueueItemSummary, RunStateChangeEvent } from "@ai-sidekicks/contracts";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
@@ -106,12 +108,13 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   Record<
     Exclude<
       keyof RunStateChangeEvent,
-      "runId" | "runVersion" | "previousState" | "currentState" | "timestamp"
+      "runId" | "runVersion" | "previousState" | "newState" | "timestamp"
     >,
     true
   >
 > = {
   failureCategory: true,
+  failureCause: true,
   recoveryCondition: true,
   recoverySpanClassification: true,
   providerFailureDetail: true,
@@ -119,10 +122,26 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   intendedClose: true,
   executionPosture: true,
   trigger: true,
-  parentRunId: true,
-  internalHelper: true,
-  admittedUnpricedCapCents: true,
-  admittedModelFamily: true,
+};
+
+/**
+ * The optional `QueueItemSummary` members the queue row carries through, where
+ * the row names them: the message's files, the child whose queue holds it, and
+ * the daemon's reason once its delivery failed. Keyed by the derived member union
+ * for the reason the table above is.
+ */
+const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
+  Record<
+    Exclude<
+      keyof QueueItemSummary,
+      "id" | "state" | "priority" | "content" | "createdAt" | "updatedAt"
+    >,
+    true
+  >
+> = {
+  attachments: true,
+  childHandle: true,
+  notDeliveredReason: true,
 };
 
 /**
@@ -197,10 +216,7 @@ function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
   const announcedState = runStateForTransitionKind(event.kind);
   const statedState = payload["newState"];
   if (statedState === undefined) {
-    return unprojectableFor(
-      event,
-      "names no `newState` to project into the registered `currentState`",
-    );
+    return unprojectableFor(event, "names no `newState` for the run state it announces");
   }
   if (statedState !== announcedState) {
     return unprojectableFor(
@@ -215,9 +231,7 @@ function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
     runId: payload["runId"],
     runVersion: payload["runVersion"],
     previousState: payload["previousState"],
-    // The one rename in this module: the durable payload spells the run's new state
-    // `newState`, and the registered stream member is `currentState`.
-    currentState: statedState,
+    newState: statedState,
     timestamp: event.occurredAt,
   });
 }
@@ -290,15 +304,17 @@ function projectRunQueueStreamBeat(
   }
   // The row, not the beat. `QueueItemSummary` is a projection of `queue_items` and
   // carries members the registered queue payload does not; a beat asked for
-  // `priority` is a beat asked for something no daemon puts on one.
+  // `priority` or the message's words is a beat asked for something no daemon puts
+  // on one.
   const queueRow = queueRowFor(queueItemId);
   if (queueRow === undefined) {
     return unprojectableFor(
       event,
-      `is about queue item "${queueItemId}", for which no queue row was found — and the row is where \`priority\` and \`createdAt\` live`,
+      `is about queue item "${queueItemId}", for which no queue row was found — and the row is where \`priority\`, \`content\` and \`createdAt\` live`,
     );
   }
   return projectThroughRegisteredShape(QueueItemSummarySchema, event, {
+    ...carriedOptionalMembers(queueRow, QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS),
     id: queueItemId,
     state: announcedState,
     // Row members, carried through untouched — the daemon reads them off the row and
@@ -306,6 +322,7 @@ function projectRunQueueStreamBeat(
     // `z.number().int()` with no `.nonnegative()`, because the column reads "higher
     // = more urgent" and a negative priority is a deliberate de-prioritization.
     priority: queueRow["priority"],
+    content: queueRow["content"],
     createdAt: queueRow["createdAt"],
     // This beat IS the row's newest change, so the moment it occurred is the
     // moment the row was last updated. Sourced, not stamped from a clock.

@@ -2,7 +2,7 @@
 //
 // The session core:
 //   • session.ts — branded ID schemas, shared enums + projection types,
-//     SessionCreate / SessionRead / SessionSubscribe payloads
+//     SessionRead / SessionSubscribe payloads
 //   • event.ts   — the SessionEvent discriminated union, seeded with the
 //                 session creation event; the live roster is
 //                 whatever `SESSION_EVENT_TYPES` enumerates, grown additively
@@ -74,12 +74,17 @@ export * from "./repo-git-reads.js";
 export * from "./repo-methods.js";
 export * from "./repo.js";
 export * from "./review-note.js";
+export * from "./run-children.js";
 export * from "./run-control.js";
+export * from "./run-queue.js";
+export * from "./run-queued.js";
+export * from "./run-state.js";
 export * from "./runtime-node.js";
 export * from "./service-place.js";
 export * from "./session-controls.js";
 export * from "./session-convert.js";
 export * from "./session-cost.js";
+export * from "./session-created.js";
 export * from "./session-directory.js";
 export * from "./session-draft.js";
 export * from "./session-goal.js";

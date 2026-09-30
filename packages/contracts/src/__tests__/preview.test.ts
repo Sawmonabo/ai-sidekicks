@@ -12,22 +12,25 @@ import {
   PreviewPageReorderRequestSchema,
   PreviewZoomRequestSchema,
   type PreviewPage,
+  type PreviewPageId,
 } from "../preview.js";
+import { MAX_MESSAGE_BYTES } from "../jsonrpc.js";
 import { webAddressFault } from "../web-address.js";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
-const PAGE_ID = "page-1";
+const PAGE_ID = "page-1" as PreviewPageId;
 
 const PAGE: PreviewPage = {
   pageId: PAGE_ID,
   address: "http://localhost:5173/",
   host: "localhost:5173",
   title: "",
-  label: null,
-  isLoading: true,
-  loadProgress: null,
+  favicon: null,
+  loadState: { kind: "loading", progress: null },
   backDepth: 0,
   forwardDepth: 0,
+  zoomFactor: 1,
+  released: false,
 };
 
 describe("preview.pageOpen", () => {
@@ -92,6 +95,30 @@ describe("preview.pageList frames", () => {
     expect(PreviewPageListFrameSchema.safeParse({ pages: [PAGE], activeIndex: 0 }).success).toBe(
       true,
     );
+  });
+
+  it("carries a released page with its icon, its zoom and a load that failed", () => {
+    const released = {
+      ...PAGE,
+      favicon: { mediaType: "image/png", data: "iVBORw0KGgo=" },
+      loadState: { kind: "failed" },
+      zoomFactor: 1.25,
+      released: true,
+    };
+    expect(
+      PreviewPageListFrameSchema.safeParse({ pages: [released], activeIndex: 0 }).success,
+    ).toBe(true);
+  });
+
+  it("refuses an icon past one message frame, and one that is not an image", () => {
+    const oversized = "A".repeat(MAX_MESSAGE_BYTES + 4);
+    const tooLarge = { ...PAGE, favicon: { mediaType: "image/png", data: oversized } };
+    const notAnImage = { ...PAGE, favicon: { mediaType: "text/html", data: "iVBORw0KGgo=" } };
+    for (const page of [tooLarge, notAnImage]) {
+      expect(PreviewPageListFrameSchema.safeParse({ pages: [page], activeIndex: 0 }).success).toBe(
+        false,
+      );
+    }
   });
 
   it("refuses an active index past the end of the list", () => {

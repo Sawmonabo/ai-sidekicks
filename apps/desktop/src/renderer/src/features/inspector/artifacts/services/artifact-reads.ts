@@ -2,21 +2,19 @@
 //
 // The reader owns who asked and when; this file owns what a served list means.
 
-import type { ArtifactManifest, ArtifactReadResponse } from "@ai-sidekicks/contracts";
+import type {
+  ArtifactManifest,
+  ArtifactReadRequest,
+  ArtifactReadResponse,
+} from "@ai-sidekicks/contracts";
 
 import { artifactManifestRowFrom, type ArtifactsSectionState } from "../artifact-model.js";
 
 /** The call that lists a session's artifact manifests, supplied by whoever mounts the pane. */
 export type ListArtifacts = (sessionId: string) => Promise<readonly ArtifactManifest[]>;
 
-/** What one artifact read asks for: the manifest alone, or the manifest with its bytes. */
-export interface ReadArtifactRequest {
-  readonly artifactId: string;
-  readonly includePayload?: true;
-}
-
 /** The call that reads one artifact, supplied by whoever mounts the pane. */
-export type ReadArtifact = (request: ReadArtifactRequest) => Promise<ArtifactReadResponse>;
+export type ReadArtifact = (request: ArtifactReadRequest) => Promise<ArtifactReadResponse>;
 
 /** Both calls the pane makes. */
 export interface ArtifactOperations {

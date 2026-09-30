@@ -5,19 +5,17 @@
 // carries. THAT THE REMEMBERING POLICY IS VISIBLE BEFORE THE ANSWER IS GIVEN is this
 // component's own rule, because no committed document states it: an opt-in whose
 // consequence is disclosed after the click is not an opt-in. Three properties this
-// component keeps that are worth naming because each one is a Never:
+// component keeps:
 //
-//   • **Two answers, no third.** `APPROVAL_DECISIONS` is closed at two and there is
-//     no amend control, because `ApprovalResolveRequest` carries nothing that edits
-//     the requested action. The absence is structural, not a TODO.
-//   • **The opt-in is off, and an untouched control sends nothing.** A remembered
-//     scope is valid only on an `approved` decision, so the disclosure is absent on
-//     the reject path and `rememberedScope` is omitted from the payload entirely
-//     rather than sent as a falsy member. The control that composes it is
-//     `RememberDecision.tsx`, co-located: it is a second responsibility, and this
-//     file is at the size the package splits at.
-//   • **Scope is never widened.** The effective scope offered is the requested one;
-//     this card renders no control that could broaden it.
+//   • **Two answers.** The contract's decision is `approved` or `rejected`, and
+//     the card sends one of the two.
+//   • **The opt-in is off, and an untouched control sends nothing.** The remembered
+//     rule rides the approve path only, and `rememberedScope` is omitted from the
+//     payload entirely rather than sent as a falsy member. Where the ask may not carry
+//     a standing allow the control is absent. The control that composes it is
+//     `RememberDecision.tsx`, co-located: it is a second responsibility.
+//   • **Scope is never widened.** The answer names no scope of its own, so the daemon
+//     applies the one the ask was raised with.
 //
 // The action row is a `toolbar` walked with arrows and with `h`/`l`, and both suppress
 // the page scroll they would otherwise cause. Base UI supplies the disclosure under
@@ -25,6 +23,11 @@
 // CSS; the row itself is two ordinary buttons, because a library button would add
 // weight without adding behavior a `<button>` does not already have.
 
+import type {
+  ApprovalDecision,
+  ApprovalProjectionRow,
+  ApprovalResolveRequest,
+} from "@ai-sidekicks/contracts";
 import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { ACCENT_FILL_CLASS } from "../../accent-fill.js";
@@ -33,19 +36,13 @@ import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWit
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "@renderer/lib/wire-figures.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
-import { isApprovalAnswerable } from "../approval-offer.js";
+import { approvalAnswer, isApprovalAnswerable } from "../approval-offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import {
   APPROVAL_CATEGORY_LABELS,
   APPROVAL_STATE_LABELS,
-  asApprovalCategory,
-  asApprovalState,
 } from "@renderer/lib/approval-vocabulary.js";
 import { APPROVAL_STATE_TONES } from "../approval-state-tones.js";
-import {
-  type ApprovalRecord,
-  type ApprovalResolveRequest,
-} from "@renderer/services/approvals/approval-records.js";
 import {
   IDLE_REMEMBERED_RULE_INTENT,
   RememberDecision,
@@ -55,7 +52,7 @@ import {
 import "./ApprovalCard.css";
 
 export interface ApprovalCardProps {
-  readonly record: ApprovalRecord;
+  readonly record: ApprovalProjectionRow;
   /** True while this record's own resolve call is in flight. */
   readonly isResolving: boolean;
   /** The refusal this record's last answer came back with, if any. */
@@ -123,8 +120,6 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   const actionRowRef = useRef<HTMLDivElement>(null);
   const [rememberedGrantIntent, setRememberedGrantIntent] = useState(IDLE_REMEMBERED_RULE_INTENT);
 
-  const state = asApprovalState(record.state);
-  const category = asApprovalCategory(record.category);
   // The one offer reading, shared with this pane's palette rows: a refusal that
   // SETTLED this request takes the two actions off the card rather than leaving them
   // pressable, and takes the same two rows out of the palette in the same breath.
@@ -132,19 +127,16 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   const answerable = isApprovalAnswerable(record, props.refusal);
 
   const answer = useCallback(
-    (decision: "approved" | "rejected") => {
+    (decision: ApprovalDecision) => {
       // The opt-in rides the approve path only, and an untouched control omits the
       // member rather than sending one the daemon would have to interpret.
       const remembered =
-        decision === "approved" ? rememberedScopeFor(rememberedGrantIntent) : undefined;
-      onResolve({
-        approvalRequestId: record.approvalRequestId,
-        decision,
-        effectiveScope: record.requestedScope,
-        ...(remembered === undefined ? {} : { rememberedScope: remembered }),
-      });
+        decision === "approved"
+          ? rememberedScopeFor(rememberedGrantIntent, record.subject)
+          : undefined;
+      onResolve(approvalAnswer(record, decision, remembered));
     },
-    [onResolve, record.approvalRequestId, record.requestedScope, rememberedGrantIntent],
+    [onResolve, record, rememberedGrantIntent],
   );
 
   const onActionKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -168,16 +160,16 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
       // The written form of `APPROVAL_CARD_ID_ATTRIBUTE` above; a JSX attribute
       // name is syntax and cannot be the constant itself. The pane's focus test
       // fails the moment the two stop agreeing, which is what holds them together.
-      data-approval-id={record.approvalRequestId}
+      data-approval-id={record.id}
     >
       <header className="meridian-approval-card__head">
         <h3 className="meridian-approval-card__title" id={titleId}>
-          {category === undefined ? "Unrecognized category" : APPROVAL_CATEGORY_LABELS[category]}
+          {APPROVAL_CATEGORY_LABELS[record.category]}
         </h3>
-        <Chip mono label={record.category} tone={category === undefined ? "failure" : "neutral"} />
+        <Chip mono label={record.category} tone="neutral" />
         <Chip
-          label={state === undefined ? record.state : APPROVAL_STATE_LABELS[state]}
-          tone={state === undefined ? "failure" : APPROVAL_STATE_TONES[state]}
+          label={APPROVAL_STATE_LABELS[record.state]}
+          tone={APPROVAL_STATE_TONES[record.state]}
         />
       </header>
 
@@ -197,7 +189,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
         <div className="meridian-approval-card__fact">
           <dt>Requested scope</dt>
           <dd>
-            <WireFigure value={record.requestedScope} />
+            <WireFigure value={record.scope} />
           </dd>
         </div>
         <div className="meridian-approval-card__fact">
@@ -229,7 +221,13 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
       {answerable ? (
         <>
-          <RememberDecision intent={rememberedGrantIntent} onChange={setRememberedGrantIntent} />
+          {record.standingAllowOffered ? (
+            <RememberDecision
+              intent={rememberedGrantIntent}
+              subject={record.subject}
+              onChange={setRememberedGrantIntent}
+            />
+          ) : null}
 
           <div
             className="meridian-approval-card__actions"

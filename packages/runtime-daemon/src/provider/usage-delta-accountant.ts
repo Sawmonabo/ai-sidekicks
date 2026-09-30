@@ -452,11 +452,11 @@ type UsageCostSource =
   | "derived_family_prefix"
   | "unpriced_native_cap";
 
-/** A pricing-table answer: cents derived from the provider's full breakdown,
+/** A pricing-table answer: whole micro-dollars derived from the provider's full breakdown,
  * plus whether the model family matched exactly or by prefix fallback. The
  * lookup is injected — this module owns provenance, never the price list. */
 export interface DerivedCostQuote {
-  readonly costCents: number;
+  readonly costUsdMicros: number;
   readonly familyMatch: "exact" | "prefix";
 }
 
@@ -465,9 +465,9 @@ export interface DerivedCostQuote {
  * for a genuinely unpriceable model is NOT a `usage.cost_update` shape — the
  * ladder's arm (d) emits `usage.budget_warning { reason: 'unpriced-model' }`
  * instead, so the union separates the two emissions rather than smuggling a
- * fifth `costSource` value past the closed enum. `costCents` is structurally
+ * fifth `costSource` value past the closed enum. `costUsdMicros` is structurally
  * absent on the unpriced arm: no per-update value is derivable there, and
- * the USD bound lives on the `run.queued` `admittedUnpricedCapCents`, never
+ * the USD bound lives on the `run.queued` `admittedUnpricedCapUsdMicros`, never
  * on per-update rows.
  *
  * Both arms are stated as partitions of enums above rather than as re-spelled
@@ -479,13 +479,13 @@ export type CostUpdateResolution =
       readonly resolution: "cost-update";
       readonly costStatus: Extract<UsageCostStatus, "priced">;
       readonly costSource: Exclude<UsageCostSource, "unpriced_native_cap">;
-      readonly costCents: number;
+      readonly costUsdMicros: number;
     }
   | {
       readonly resolution: "cost-update";
       readonly costStatus: Extract<UsageCostStatus, "unpriced">;
       readonly costSource: Extract<UsageCostSource, "unpriced_native_cap">;
-      readonly costCents?: never;
+      readonly costUsdMicros?: never;
     }
   | { readonly resolution: "budget-warning"; readonly reason: "unpriced-model" };
 
@@ -497,7 +497,7 @@ export type CostUpdateResolution =
  * daemon-derived from the provider's full breakdown × the per-model-family
  * pricing table → `derived_exact` / `derived_family_prefix`; (c) an
  * owner-admitted native-cap run is unpriced BY PROVENANCE → `{ costStatus:
- * 'unpriced', costSource: 'unpriced_native_cap' }`, `costCents` absent; (d)
+ * 'unpriced', costSource: 'unpriced_native_cap' }`, `costUsdMicros` absent; (d)
  * else fail-closed for a genuinely unpriceable model — the budget-warning
  * arm, never a fabricated price and never the surveyed fail-open zero-cost
  * terminal, which is deliberately not ported. The producer never halts and
@@ -506,30 +506,31 @@ export type CostUpdateResolution =
  */
 export function resolveCostUpdateProvenance(options: {
   readonly provider: DriverProviderName;
-  /** The wire's own cost figure, or null where the frame carries none. */
-  readonly providerReportedCostCents: number | null;
+  /** The provider's own cost figure in micro-dollars, converted from the unit the
+   * provider reports, or null where the frame carries none. */
+  readonly providerReportedCostUsdMicros: number | null;
   /** The pricing-table derivation, or null for an unpriceable model. */
   readonly derivedQuote: DerivedCostQuote | null;
   /** Whether this run was owner-admitted under a native cap. */
   readonly nativeCapAdmitted: boolean;
-  readonly absurdityCeilingCents: number;
+  readonly absurdityCeilingUsdMicros: number;
   /** Reported-vs-derived ratio beyond which divergence is diagnosed. */
   readonly grossDivergenceFactor: number;
   readonly diagnostics: DriverDiagnosticsEmitter;
 }): CostUpdateResolution {
-  const reportedCents = options.providerReportedCostCents;
-  if (reportedCents !== null) {
+  const reportedUsdMicros = options.providerReportedCostUsdMicros;
+  if (reportedUsdMicros !== null) {
     if (
-      Number.isFinite(reportedCents) &&
-      reportedCents >= 0 &&
-      reportedCents < options.absurdityCeilingCents
+      Number.isFinite(reportedUsdMicros) &&
+      reportedUsdMicros >= 0 &&
+      reportedUsdMicros < options.absurdityCeilingUsdMicros
     ) {
-      const derivedCents = options.derivedQuote?.costCents ?? null;
+      const derivedUsdMicros = options.derivedQuote?.costUsdMicros ?? null;
       if (
-        derivedCents !== null &&
-        derivedCents > 0 &&
-        (reportedCents > derivedCents * options.grossDivergenceFactor ||
-          reportedCents * options.grossDivergenceFactor < derivedCents)
+        derivedUsdMicros !== null &&
+        derivedUsdMicros > 0 &&
+        (reportedUsdMicros > derivedUsdMicros * options.grossDivergenceFactor ||
+          reportedUsdMicros * options.grossDivergenceFactor < derivedUsdMicros)
       ) {
         options.diagnostics.emit({
           provider: options.provider,
@@ -538,8 +539,8 @@ export function resolveCostUpdateProvenance(options: {
           dispositionReason:
             "provider-reported cost grossly diverges from the derivable estimate; the reported provenance is kept and the divergence surfaced",
           details: {
-            providerReportedCostCents: reportedCents,
-            derivedEstimateCents: derivedCents,
+            providerReportedCostUsdMicros: reportedUsdMicros,
+            derivedEstimateUsdMicros: derivedUsdMicros,
             grossDivergenceFactor: options.grossDivergenceFactor,
           },
         });
@@ -548,7 +549,7 @@ export function resolveCostUpdateProvenance(options: {
         resolution: "cost-update",
         costStatus: "priced",
         costSource: "provider_reported",
-        costCents: reportedCents,
+        costUsdMicros: reportedUsdMicros,
       };
     }
     // The wire declared a cost and the sanity bound refused it. Falling through
@@ -562,9 +563,11 @@ export function resolveCostUpdateProvenance(options: {
       dispositionReason:
         "provider-reported cost failed the sanity bound (non-finite, negative, or at/above the absurdity ceiling); discarded in favor of the derivation ladder and surfaced rather than dropped",
       details: {
-        providerReportedCostCents: Number.isFinite(reportedCents) ? reportedCents : null,
-        reportedCostIsFinite: Number.isFinite(reportedCents),
-        absurdityCeilingCents: options.absurdityCeilingCents,
+        providerReportedCostUsdMicros: Number.isFinite(reportedUsdMicros)
+          ? reportedUsdMicros
+          : null,
+        reportedCostIsFinite: Number.isFinite(reportedUsdMicros),
+        absurdityCeilingUsdMicros: options.absurdityCeilingUsdMicros,
       },
     });
   }
@@ -574,7 +577,7 @@ export function resolveCostUpdateProvenance(options: {
       costStatus: "priced",
       costSource:
         options.derivedQuote.familyMatch === "exact" ? "derived_exact" : "derived_family_prefix",
-      costCents: options.derivedQuote.costCents,
+      costUsdMicros: options.derivedQuote.costUsdMicros,
     };
   }
   if (options.nativeCapAdmitted) {

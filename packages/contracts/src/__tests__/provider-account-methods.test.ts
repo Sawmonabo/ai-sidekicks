@@ -25,7 +25,6 @@ import * as providerAccountModule from "../provider-account.js";
 import {
   PROVIDER_ACCOUNT_WIRE_SHAPES,
   ProviderAccountInUseDetailsSchema,
-  ProviderAccountMemoryImportResponseSchema,
   ProviderAccountProbeRequestSchema,
   ProviderAccountProbeResponseSchema,
   ProviderAccountRemoveRequestSchema,
@@ -35,6 +34,7 @@ import {
   ProviderAccountUpdateRequestSchema,
   ProviderAccountUpdateResponseSchema,
   ProviderAccountUsageReadRequestSchema,
+  ProviderAccountUsageReadResponseSchema,
 } from "../provider-account-methods.js";
 import {
   PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS,
@@ -68,8 +68,12 @@ function validAccount(overrides: Record<string, unknown> = {}): Record<string, u
     healthObservedAt: TIMESTAMP,
     observedAuthMode: "oauth_subscription",
     loggedInAt: TIMESTAMP,
+    lastRefreshObservedAt: null,
     expectedReloginAtEstimate: null,
     probeEnabled: true,
+    windowStartEnabled: true,
+    wakeForWindowStartEnabled: false,
+    memoryImport: null,
     ...overrides,
   };
 }
@@ -605,27 +609,6 @@ describe("the account switch, the memory import, the usage read and their refusa
     ).toBe(false);
   });
 
-  it("settles a memory import as a count and a time, or as nothing to import", () => {
-    expect(
-      ProviderAccountMemoryImportResponseSchema.safeParse({
-        outcome: "imported",
-        count: 14,
-        importedAt: TIMESTAMP,
-      }).success,
-    ).toBe(true);
-    expect(
-      ProviderAccountMemoryImportResponseSchema.safeParse({ outcome: "nothingToImport" }).success,
-    ).toBe(true);
-    // An import that copied nothing is `nothingToImport`, never `imported` with zero.
-    expect(
-      ProviderAccountMemoryImportResponseSchema.safeParse({
-        outcome: "imported",
-        count: 0,
-        importedAt: TIMESTAMP,
-      }).success,
-    ).toBe(false);
-  });
-
   it("reads usage for one account or one provider, never both", () => {
     expect(
       ProviderAccountUsageReadRequestSchema.safeParse({
@@ -647,6 +630,15 @@ describe("the account switch, the memory import, the usage read and their refusa
         scope: { provider: "claude" },
         groupBy: "week",
       }).success,
+    ).toBe(false);
+  });
+
+  it("answers usage in whole micro-dollars, refusing a fraction of one", () => {
+    const row = { model: "claude-opus-4-1", tokens: 1200, costUsdMicros: 18_450 };
+    expect(ProviderAccountUsageReadResponseSchema.safeParse({ rows: [row] }).success).toBe(true);
+    expect(
+      ProviderAccountUsageReadResponseSchema.safeParse({ rows: [{ ...row, costUsdMicros: 0.5 }] })
+        .success,
     ).toBe(false);
   });
 

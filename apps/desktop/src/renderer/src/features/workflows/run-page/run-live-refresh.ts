@@ -1,6 +1,6 @@
 // When the run this pane is showing has moved under the answer it is holding.
 //
-// The run lifecycle is evented — twenty-one `workflow.*` types across four categories. A
+// The run lifecycle is evented: every `workflow.*` type in the session event census. A
 // pane that read its snapshot once and re-read only when an operator at this keyboard
 // performed a served control would go stale whenever the run moved another way: the
 // engine advancing a phase, a park arming a resume, a second window's cancel or gate
@@ -31,7 +31,7 @@
 // places to decide whether an answer still counts.
 //
 // AND IT IS SCOPED TO ONE RUN. A session runs many workflows, and every one of the
-// twenty-one types is emitted for whichever run the engine advanced — so a reading that
+// `workflow.*` types is emitted for whichever run the engine advanced — so a reading that
 // matched on KIND alone answered "something workflow-shaped happened in this session",
 // which is true while another run is progressing and this one is not. Every pane in the
 // window then re-read, once per frame, for as long as anything anywhere in the session
@@ -40,19 +40,12 @@
 // seam, and both of the console's trigger wirings consult it through one predicate so
 // the two cannot come to disagree about when an answer goes stale.
 //
-// ARMING AGAINST THE KINDS IS SAFE. `packages/contracts` registers none of the twenty-one
-// types, so `bridge/wire-shapes/workflow-events.ts` declares the set and
-// `ReadTriggerTarget` takes it as the `ReadonlySet<string>` it is. A kind no daemon emits
-// never matches, so this reading refreshes on the other two reasons and on the
-// operator's own acts, and on these kinds when a daemon sends them. The same wire is why
-// run scoping is a refusal of NAMED frames rather than a requirement for one: no
-// registered payload guarantees the run id, and a reading that demanded it would go
-// quiet on frames that omit it.
+// A FRAME THAT NAMES NO RUN IS ADMITTED. Some census types have no registered payload,
+// so nothing guarantees their frames carry the run id, and a reading that demanded it
+// would go quiet on exactly those frames.
 
-import {
-  WORKFLOW_EVENT_TYPES,
-  workflowRunIdOfEventPayload,
-} from "@renderer/services/wire-shapes/workflow-events.js";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
+
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
@@ -112,7 +105,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
    * whichever run the engine advanced, so this set alone is "something workflow-shaped
    * happened somewhere in this session" — true of a run this pane is not showing.
    */
-  public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(WORKFLOW_EVENT_TYPES);
+  public readonly triggeringEventKinds: ReadonlySet<string> = WORKFLOW_EVENT_TYPES;
 
   readonly #scheduler: RefreshScheduler;
   /** Absent with no session: there is nothing to observe and nothing to detach. */
@@ -185,9 +178,9 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
    * other. A frame carrying none is not attributable at all, and this reading cannot
    * rule it out, so it is admitted and the pane re-reads.
    *
-   * The asymmetry is deliberate. No registered payload guarantees the run id on the
-   * frame, so a reading that demanded one would go quiet on every frame that omits it and
-   * leave the pane stale. Admitting the unattributable frame gives up only the saving of
+   * The asymmetry is deliberate. A census type with no registered payload does not
+   * guarantee the run id on its frame, so a reading that demanded one would go quiet on
+   * every frame that omits it and leave the pane stale. Admitting the unattributable frame gives up only the saving of
    * skipping a read, and only for frames nobody could attribute.
    *
    * WITH NO RUN ADDRESSED every named frame names a different run and is refused, which
@@ -239,4 +232,20 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
     this.#round += 1;
     this.#changes.emit(this.#round);
   }
+}
+
+/** Every `workflow.*` type in the session event census. */
+const WORKFLOW_EVENT_TYPES: ReadonlySet<string> = new Set(
+  [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter((type) => type.startsWith("workflow.")),
+);
+
+/**
+ * Which run a workflow frame's payload names, if it names one. Every workflow payload
+ * names a run `workflowRunId`; a frame without that member answers `undefined`.
+ */
+function workflowRunIdOfEventPayload(
+  payload: Readonly<Record<string, unknown>> | undefined,
+): string | undefined {
+  const named = payload?.["workflowRunId"];
+  return typeof named === "string" ? named : undefined;
 }

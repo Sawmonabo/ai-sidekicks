@@ -81,6 +81,14 @@
   white-space: nowrap;
 }
 
+/* The page's own icon, sized from the tab's text so it scales with it. */
+.meridian-preview-tab__favicon {
+  flex: none;
+  inline-size: 1em;
+  block-size: 1em;
+  object-fit: contain;
+}
+
 .meridian-preview-tab__spinner {
   color: var(--meridian-accent-text);
 }

@@ -6,9 +6,14 @@
 import { z } from "zod";
 
 import { AgentIdSchema, type AgentId } from "./agent-definition.js";
+import { countSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import { REPO_PATH_MAX_LEN } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "./session.js";
 import {
   WorkflowContentHashSchema,
   WorkflowDefinitionIdSchema,
@@ -397,14 +402,13 @@ export interface WorkflowVersionChangeCounts {
   edgesAdded: number;
   edgesRemoved: number;
 }
-const count = z.number().int().nonnegative();
 const WorkflowVersionChangeCountsSchema: z.ZodType<WorkflowVersionChangeCounts> = z
   .object({
-    nodesAdded: count,
-    nodesRemoved: count,
-    nodesChanged: count,
-    edgesAdded: count,
-    edgesRemoved: count,
+    nodesAdded: countSchema,
+    nodesRemoved: countSchema,
+    nodesChanged: countSchema,
+    edgesAdded: countSchema,
+    edgesRemoved: countSchema,
   })
   .strict();
 
@@ -525,7 +529,7 @@ export const WorkflowDefinitionDeleteResponseSchema: z.ZodType<WorkflowDefinitio
   .object({
     definitionId: WorkflowDefinitionIdSchema,
     deleted: z.literal(true),
-    retainedRunCount: count,
+    retainedRunCount: countSchema,
   })
   .strict();
 
@@ -533,7 +537,7 @@ export const WorkflowDefinitionDeleteResponseSchema: z.ZodType<WorkflowDefinitio
 // workflow.definitionExport and workflow.definitionImport
 // --------------------------------------------------------------------------
 
-const filePathSchema = wireFreeFormString(REPO_PATH_MAX_LEN, "filePath");
+const filePathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "filePath");
 
 /**
  * The `workflow.definitionExport` input. The daemon writes one version's canonical file,

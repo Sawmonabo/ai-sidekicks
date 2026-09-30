@@ -287,6 +287,7 @@ describe("ClaudeDriver model catalog", () => {
         name: "Future",
         capabilities: [],
         effortLevels: ["low", "ludicrous"],
+        fast: false,
       },
     ]);
   });

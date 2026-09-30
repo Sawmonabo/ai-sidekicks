@@ -1,27 +1,20 @@
-// The attachment bounds, held to their registered wire sources and to each other.
+// The stream ceiling, held to its registered wire source, and the stall disclosure held
+// inside it.
 //
-// Three of them are not the renderer's decisions at all: the daemon enforces them, and the
-// wire registers each with a default and the range an operator may move it inside. A copy
-// that drifted LOOSER than its source is the failure that matters — it would admit an upload
-// the daemon then refuses, spending a person's bytes to earn a refusal the renderer could
-// have explained first — so each is held to its registered source rather than to itself.
+// The ceiling is not the renderer's decision: the daemon enforces it, and the wire
+// registers it with a default and the range an operator may move it inside. A copy that
+// drifted LOOSER than its source is the failure that matters — it would promise a stream
+// the daemon then ends — so it is held to its registered source rather than to itself.
 
-import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  ATTACHMENT_BYTE_CAP_DEFAULT,
-  ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT,
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
 } from "./attachment-caps.js";
 
 /** One bound, and the registered range its wire source admits, inclusive. */
 const WIRE_MIRRORED_BOUNDS: readonly (readonly [string, number, number, number])[] = [
-  // `max_attachment_ingest_bytes`: default 100 MB, operator-tunable 1 MB – 1 GB.
-  ["ATTACHMENT_BYTE_CAP_DEFAULT", ATTACHMENT_BYTE_CAP_DEFAULT, 1024 * 1024, 1024 * 1024 * 1024],
-  // `max_attachments_per_carrier`: default 10, operator-tunable 1 – 50.
-  ["ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT", ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT, 1, 50],
   // `max_ingest_stream_lifetime`: default 6 h, operator-tunable 1 – 24 h.
   [
     "INGEST_STREAM_LIFETIME_CEILING_MS",
@@ -54,13 +47,5 @@ describe("attachment caps — against their wire sources", () => {
     // is still time to act. At or above the ceiling it would fire on a stream the
     // daemon has already terminated, which is a disclosure with nothing to disclose.
     expect(INGEST_STALL_DISCLOSURE_MS).toBeLessThan(INGEST_STREAM_LIFETIME_CEILING_MS);
-  });
-});
-
-describe("the ingest chunk against the payload", () => {
-  it("keeps a chunk no larger than the whole payload a stream may carry", () => {
-    // A chunk cap above the payload cap would describe a chunk no admissible stream
-    // could ever fill, and the bounded slice would stop bounding anything.
-    expect(ATTACHMENT_INGEST_CHUNK_MAX_BYTES).toBeLessThanOrEqual(ATTACHMENT_BYTE_CAP_DEFAULT);
   });
 });

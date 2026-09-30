@@ -38,21 +38,15 @@ import { projectedPayload } from "@renderer/store/session-events/wire-payload.js
 import { SubagentAnchorIndex } from "./subagent-anchors.js";
 
 /**
- * The wire types that mean work changed hands.
+ * The wire types that mean work changed hands: a child run taking a piece of it.
  *
- * An agent joining or leaving the session, and a child run taking a piece of it.
  * Typed as the wire union rather than as bare strings, so a member the contract does
  * not register fails to compile here instead of silently matching no row. Declared
  * here because this directory holds the console's one handoff renderer, so the
  * vocabulary and the treatment that spends it are one module — the shape
  * `apps/desktop/AGENTS.md` asks for ("two sides of one seam share a module").
  */
-export const HANDOFF_WIRE_TYPES: readonly SessionEventType[] = [
-  "agent.attached",
-  "agent.detached",
-  "subagent.started",
-  "subagent.completed",
-];
+const HANDOFF_WIRE_TYPES: readonly SessionEventType[] = ["subagent.started", "subagent.completed"];
 
 /** One row that carries a summarized child run. */
 export interface ChildRunEntry {

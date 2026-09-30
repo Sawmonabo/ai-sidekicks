@@ -41,14 +41,15 @@ export type RunTerminalEventType = (typeof RUN_TERMINAL_EVENT_TYPES)[number];
  * reading the old ending, and every row appended after the rewind would sit behind a
  * receipt for something that did not happen.
  *
- * WHY THESE SEVEN AND NOT EVERY RUN ROW. `@ai-sidekicks/contracts` registers
- * thirteen `run_lifecycle` types: the nine run-state-machine states, the forward
- * non-terminal rollback event, and three rows that report no state at all
- * (`run.provider_initialized`, `run.turn_started`, `run.worker_shutdown`). These are
- * the six non-terminal STATES plus the rollback — every row that says the run is in
- * a state other than ended. The three non-state rows are deliberately absent: a
- * worker shutting down after a completion says nothing about the run, and reading it
- * as a reopening would unfold every finished run group in the session.
+ * WHY THESE AND NOT EVERY RUN ROW. `@ai-sidekicks/contracts` registers one
+ * `run_lifecycle` type per run state, the forward non-terminal rollback event, and
+ * rows that report no state at all (`run.provider_initialized`, `run.turn_started`,
+ * `run.worker_shutdown` and the rest). These are the non-terminal STATES plus the
+ * rollback — every row that says the run is in a state other than ended, `pausing`
+ * among them, because a run finishing its step before it pauses has not ended. The
+ * non-state rows are deliberately absent: a worker shutting down after a completion
+ * says nothing about the run, and reading it as a reopening would unfold every
+ * finished run group in the session.
  */
 export const RUN_REOPENING_EVENT_TYPES = [
   "run.queued",
@@ -56,6 +57,7 @@ export const RUN_REOPENING_EVENT_TYPES = [
   "run.running",
   "run.waiting_for_approval",
   "run.waiting_for_input",
+  "run.pausing",
   "run.paused",
   "run.rolled_back",
 ] as const;

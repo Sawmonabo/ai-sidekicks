@@ -185,6 +185,7 @@ describe("SessionEventSubscriber — the opens that failed, and what one returni
     const releaseNodeTail = subscribeNodeDaemon(
       bridge,
       PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
+      {},
       () => undefined,
     );
 
@@ -214,6 +215,7 @@ describe("SessionEventSubscriber — the opens that failed, and what one returni
     const releaseFirstTail = subscribeNodeDaemon(
       bridge,
       PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
+      {},
       () => undefined,
     );
     expect(binder.retriedBindCount).toBe(1);
@@ -221,6 +223,7 @@ describe("SessionEventSubscriber — the opens that failed, and what one returni
     const releaseSecondTail = subscribeNodeDaemon(
       bridge,
       PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
+      {},
       () => undefined,
     );
 
@@ -285,7 +288,7 @@ describe("SessionEventSubscriber — the opens that failed, and what one returni
     // which is a returning edge delivered back into the same method. One pass is what
     // a returning edge is worth, so the still-failing session waits for the next one
     // rather than being re-attempted inside this one.
-    const secondSessionId = `${SESSION_ID}-second`;
+    const secondSessionId = "019b79ee-0280-75e5-8510-ada11a5a22b5";
     const { registry, binder, bridge } = createOutageHarness(3);
     binder.attach();
     registry.open(SESSION_ID);

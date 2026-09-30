@@ -99,6 +99,10 @@ export const RUN_ATTRIBUTION_BY_PAYLOAD_KEY: Readonly<
   runId: "this-run",
   targetRunId: "this-run",
   parentRunId: "another-run",
+  // A workflow run, which is not one of the session's runs.
+  workflowRunId: "another-run",
+  // The run holding a terminal: the row is about the terminal, not that run.
+  holderRunId: "another-run",
 };
 
 /** The decided members that attribute, as the lookup below asks them. */

@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { MAX_MESSAGE_BYTES } from "./jsonrpc.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
@@ -25,11 +26,14 @@ import { WEB_ADDRESS_FAULTS, type WebAddressFault } from "./web-address.js";
 
 /** The longest page id the daemon mints. */
 export const PREVIEW_PAGE_ID_MAX_LEN = 256;
-/** Parses a page id: the daemon's own handle for one page, opaque to every client. */
-export const PreviewPageIdSchema: z.ZodType<string, string> = z
+/** The daemon's own handle for one page. Opaque to every client. */
+export type PreviewPageId = string & { readonly __brand: "PreviewPageId" };
+/** Parses a {@link PreviewPageId}: a non-empty string up to {@link PREVIEW_PAGE_ID_MAX_LEN}. */
+export const PreviewPageIdSchema: z.ZodType<PreviewPageId, PreviewPageId> = z
   .string()
   .min(1)
-  .max(PREVIEW_PAGE_ID_MAX_LEN);
+  .max(PREVIEW_PAGE_ID_MAX_LEN)
+  .brand<"PreviewPageId">() as unknown as z.ZodType<PreviewPageId, PreviewPageId>;
 
 /** The longest address Preview takes: Chromium's own limit on a URL's length. */
 export const PREVIEW_ADDRESS_MAX_LEN: number = 2 * 1024 * 1024;
@@ -94,30 +98,67 @@ export const PreviewAddressRefusedDetailsSchema: z.ZodType<PreviewAddressRefused
 // ---------------------------------------------------------------------------
 
 /**
+ * A page's own icon, as the image's bytes rather than its address. The console
+ * draws only images it holds (its content policy admits `data:` and nothing
+ * remote), another device cannot reach an icon a loopback page serves, and a
+ * released page keeps its icon in the strip while nothing is loaded. The encoded
+ * icon is held to one message frame, the most any single member can carry.
+ */
+export interface PreviewFavicon {
+  mediaType: string;
+  data: string;
+}
+const PreviewFaviconSchema: z.ZodType<PreviewFavicon, PreviewFavicon> = z
+  .object({
+    mediaType: z.string().regex(/^image\/[a-z0-9.+-]+$/u, "mediaType must be an image type"),
+    data: z.base64().min(1).max(MAX_MESSAGE_BYTES),
+  })
+  .strict();
+
+/**
+ * Where a page's load stands: loading, with the fraction the engine reports or
+ * `null` when it reports none (the surface then draws an indeterminate mark); loaded;
+ * or failed, which the pane reads as `<host> did not answer.` with a try-again.
+ */
+export type PreviewPageLoadState =
+  | { kind: "loading"; progress: number | null }
+  | { kind: "loaded" }
+  | { kind: "failed" };
+const PreviewPageLoadStateSchema: z.ZodType<PreviewPageLoadState, PreviewPageLoadState> =
+  z.discriminatedUnion("kind", [
+    z
+      .object({ kind: z.literal("loading"), progress: z.number().min(0).max(1).nullable() })
+      .strict(),
+    z.object({ kind: z.literal("loaded") }).strict(),
+    z.object({ kind: z.literal("failed") }).strict(),
+  ]);
+
+/**
  * One open page in a session's Preview pane.
  *
  * `title` is the page's own title and may be empty; a surface that labels the page
  * shows `host` in its place, so the host is carried rather than re-parsed from the
- * address at every call site. `label` is `null` where no agent named the page, and
- * a surface shows the label where there is one and the title otherwise.
+ * address at every call site. `favicon` is `null` where the page has none.
  *
  * `backDepth` and `forwardDepth` are how far the page's history reaches either way:
  * the back and forward controls act when theirs is above zero.
  *
- * `loadProgress` is required and nullable. `null` means the engine reports no
- * fraction while loading, so the surface draws an indeterminate bar; an optional
- * member would read as "not answered yet" instead.
+ * `zoomFactor` is the page's own, applied on the machine that runs it. `released` is
+ * a page whose view was destroyed to free memory, or one brought back after a restart:
+ * its address, order and zoom are kept, main destroys its view, and it reloads when
+ * shown.
  */
 export interface PreviewPage {
-  pageId: string;
+  pageId: PreviewPageId;
   address: string;
   host: string;
   title: string;
-  label: string | null;
-  isLoading: boolean;
-  loadProgress: number | null;
+  favicon: PreviewFavicon | null;
+  loadState: PreviewPageLoadState;
   backDepth: number;
   forwardDepth: number;
+  zoomFactor: number;
+  released: boolean;
 }
 /** Parses a {@link PreviewPage}. */
 export const PreviewPageSchema: z.ZodType<PreviewPage> = z
@@ -126,11 +167,12 @@ export const PreviewPageSchema: z.ZodType<PreviewPage> = z
     address: PreviewAddressSchema,
     host: z.string(),
     title: z.string(),
-    label: z.string().nullable(),
-    isLoading: z.boolean(),
-    loadProgress: z.number().min(0).max(1).nullable(),
+    favicon: PreviewFaviconSchema.nullable(),
+    loadState: PreviewPageLoadStateSchema,
     backDepth: z.number().int().nonnegative(),
     forwardDepth: z.number().int().nonnegative(),
+    zoomFactor: PreviewZoomFactorSchema,
+    released: z.boolean(),
   })
   .strict();
 
@@ -198,10 +240,10 @@ export const PreviewPageOpenRequestSchema: z.ZodType<
  * `movedFrom` is the dev server's own port where the page loads on another one
  * because that number was taken on the side the page runs, so the address line can
  * read `127.0.0.1:5174 (5173 was in use)`. It is required and `null` where the port
- * did not move, for the same reason `loadProgress` is.
+ * did not move.
  */
 export interface PreviewPageOpenResponse {
-  pageId: string;
+  pageId: PreviewPageId;
   address: string;
   movedFrom: number | null;
 }
@@ -217,7 +259,7 @@ export const PreviewPageOpenResponseSchema: z.ZodType<PreviewPageOpenResponse> =
 /** Names one page of one session: close it, or make it the one the pane shows. */
 export interface PreviewPageRequest {
   sessionId: SessionId;
-  pageId: string;
+  pageId: PreviewPageId;
 }
 /** Parses a {@link PreviewPageRequest}. */
 export const PreviewPageRequestSchema: z.ZodType<PreviewPageRequest, PreviewPageRequest> = z
@@ -235,7 +277,7 @@ export const PreviewPageCloseResponseSchema: z.ZodType<PreviewPageCloseResponse>
 
 /** The page the pane now shows. Activating the active page answers the same. */
 export interface PreviewPageActivateResponse {
-  activePageId: string;
+  activePageId: PreviewPageId;
 }
 /** Parses a {@link PreviewPageActivateResponse}. */
 export const PreviewPageActivateResponseSchema: z.ZodType<PreviewPageActivateResponse> = z
@@ -251,7 +293,7 @@ export const PreviewPageActivateResponseSchema: z.ZodType<PreviewPageActivateRes
  */
 export interface PreviewPageReorderRequest {
   sessionId: SessionId;
-  pageId: string;
+  pageId: PreviewPageId;
   toIndex: number;
 }
 /** Parses a {@link PreviewPageReorderRequest}. */
@@ -272,7 +314,7 @@ export const PreviewPageReorderRequestSchema: z.ZodType<
  * order unchanged.
  */
 export interface PreviewPageReorderResponse {
-  pageIds: string[];
+  pageIds: PreviewPageId[];
 }
 /** Parses a {@link PreviewPageReorderResponse}. */
 export const PreviewPageReorderResponseSchema: z.ZodType<PreviewPageReorderResponse> = z
@@ -302,7 +344,7 @@ export const PreviewNavigationTargetSchema: z.ZodType<
 /** Navigate one page. */
 export interface PreviewNavigateRequest {
   sessionId: SessionId;
-  pageId: string;
+  pageId: PreviewPageId;
   to: PreviewNavigationTarget;
 }
 /** Parses a {@link PreviewNavigateRequest}. */
@@ -322,7 +364,7 @@ export const PreviewNavigateRequestSchema: z.ZodType<
  * `movedFrom` as on {@link PreviewPageOpenResponse}, and its history depths.
  */
 export interface PreviewNavigateResponse {
-  pageId: string;
+  pageId: PreviewPageId;
   address: string;
   movedFrom: number | null;
   backDepth: number;
@@ -345,7 +387,7 @@ export const PreviewNavigateResponseSchema: z.ZodType<PreviewNavigateResponse> =
  */
 export interface PreviewZoomRequest {
   sessionId: SessionId;
-  pageId: string;
+  pageId: PreviewPageId;
   zoomFactor: number;
 }
 /** Parses a {@link PreviewZoomRequest}. */
@@ -359,7 +401,7 @@ export const PreviewZoomRequestSchema: z.ZodType<PreviewZoomRequest, PreviewZoom
 
 /** The factor the page now has. */
 export interface PreviewZoomResponse {
-  pageId: string;
+  pageId: PreviewPageId;
   zoomFactor: number;
 }
 /** Parses a {@link PreviewZoomResponse}. */
@@ -541,7 +583,7 @@ const PreviewMarksPictureSchema: z.ZodType<PreviewMarksPicture, PreviewMarksPict
  */
 export interface PreviewMarksSendRequest {
   sessionId: SessionId;
-  pageId: string;
+  pageId: PreviewPageId;
   picture: PreviewMarksPicture;
   marks: PreviewMark[];
   address: string;
@@ -581,7 +623,7 @@ export const PreviewMarksSendResponseSchema: z.ZodType<PreviewMarksSendResponse>
 /** The page whose live picture another device watches while it has the pane open. */
 export interface PreviewScreencastSubscribeRequest {
   sessionId: SessionId;
-  pageId: string;
+  pageId: PreviewPageId;
 }
 /** Parses a {@link PreviewScreencastSubscribeRequest}. */
 export const PreviewScreencastSubscribeRequestSchema: z.ZodType<
@@ -596,7 +638,7 @@ export const PreviewScreencastSubscribeRequestSchema: z.ZodType<
  * unacknowledged stream stalls after a few frames in flight.
  */
 export interface PreviewScreencastFrame {
-  pageId: string;
+  pageId: PreviewPageId;
   imageData: string;
   metadata: {
     offsetTop: number;

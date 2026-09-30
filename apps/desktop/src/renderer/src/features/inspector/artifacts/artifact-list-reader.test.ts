@@ -239,13 +239,12 @@ describe("artifact reader — the frames this section re-reads on", () => {
 
   it("negative control: neither the whole category nor the whole census", () => {
     // Two over-reaches at once. Selecting `artifact_publication` — the category the
-    // artifact kinds live in — also takes three frames about other entities, and the
-    // pane would re-read on a pull request it does not draw. Selecting nothing at all
+    // artifact kinds live in — also takes frames about other entities, and the pane
+    // would re-read on a diff or a git settlement it does not draw. Selecting nothing at all
     // would make it re-read on every run frame and every token count, which is
     // interval polling with extra steps.
     expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("diff.created");
-    expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("pr.prepared");
-    expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("pr.submitted");
+    expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("git.settled");
     expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("run.queued");
     expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("session.created");
   });

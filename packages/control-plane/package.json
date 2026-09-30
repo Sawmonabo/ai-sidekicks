@@ -31,10 +31,7 @@
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
     "@trpc/server": "^11.17.0",
-    "pg": "^8.20.0",
-    "y-protocols": "^1.0.7",
-    "yjs": "^13.6.30",
-    "zod": "^4.3.6"
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.4.4",

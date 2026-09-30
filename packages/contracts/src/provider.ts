@@ -31,8 +31,8 @@ import {
   type ProviderAccountId,
   type ProviderName,
 } from "./provider-account.js";
-import { REPO_PATH_MAX_LEN, RepoMountIdSchema, type RepoMountId } from "./repo.js";
-import { wireFreeFormString } from "./session.js";
+import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Length caps
@@ -110,11 +110,16 @@ export interface ProviderAutoCompactBound {
   highest: number;
 }
 
-const percentSchema = z.number().int().min(0).max(100);
+// A whole-number percent: the auto-compact stops sit on whole steps.
+const wholePercentSchema = z.number().int().min(0).max(100);
 
 /** Parses a {@link ProviderAutoCompactBound}; the value sits on a step of five within the stops. */
 export const ProviderAutoCompactBoundSchema: z.ZodType<ProviderAutoCompactBound> = z
-  .object({ value: percentSchema.multipleOf(5), lowest: percentSchema, highest: percentSchema })
+  .object({
+    value: wholePercentSchema.multipleOf(5),
+    lowest: wholePercentSchema,
+    highest: wholePercentSchema,
+  })
   .strict()
   .superRefine((bound, context) => {
     if (bound.value < bound.lowest || bound.value > bound.highest) {
@@ -208,7 +213,7 @@ export interface CodexProviderSettings extends ProviderSettingsCommon {
   terminalSessionsReachable: boolean;
 }
 
-const commandPathSchema = wireFreeFormString(REPO_PATH_MAX_LEN, "provider command path");
+const commandPathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "provider command path");
 const helpersAtOnceSchema = z.number().int().min(0);
 
 const providerSettingsCommonShape = {
@@ -329,7 +334,7 @@ export const ProviderUpdateRequestSchema: z.ZodType<ProviderUpdateRequest, Provi
       commandPath: commandPathSchema.nullable().optional(),
       availableForNewSessions: z.boolean().optional(),
       helpersAtOnce: helpersAtOnceSchema.optional(),
-      autoCompactPercent: percentSchema.multipleOf(5).optional(),
+      autoCompactPercent: wholePercentSchema.multipleOf(5).optional(),
       outputStyle: outputStyleNameSchema.optional(),
       terminalSessionsReachable: z.boolean().optional(),
     })
@@ -397,7 +402,7 @@ export type ProviderProtectedPath =
   | { pattern: string; source: "project"; sourcePath: string; repoMountId: RepoMountId };
 
 const rulePatternSchema = wireFreeFormString(PROVIDER_RULE_TEXT_MAX_LEN, "provider rule text");
-const sourcePathSchema = wireFreeFormString(REPO_PATH_MAX_LEN, "provider rule source path");
+const sourcePathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "provider rule source path");
 
 /** Parses a {@link ProviderProtectedPath}. */
 export const ProviderProtectedPathSchema: z.ZodType<ProviderProtectedPath> = z.discriminatedUnion(

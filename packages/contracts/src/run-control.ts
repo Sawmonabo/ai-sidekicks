@@ -1,18 +1,19 @@
-// Run-control contracts: the message queue, interventions on a running run
-// (steer, interrupt, cancel), pause and resume, what an undo reports, the run
-// state stream and the run read.
+// Run-control contracts: interventions on a running run, pause and resume, the
+// recovery question after a restart, the run state stream, the run read, and the
+// `run.*` method table, which also serves the queue (`run-queue.ts`) and a child's
+// own controls (`run-children.ts`).
 //
-// This module owns the branded `QueueItemId` and `InterventionId`, and it
-// declares four closed sets that every other module imports from here rather
-// than restating: `RunState`, `RunFailureCategory`, `QueueItemState` and
-// `InterventionState`.
+// This module owns the branded `InterventionId` and two closed sets every other
+// module imports from here rather than restating: `RunFailureCategory` and
+// `InterventionState`. `RunState` is in `./run-state.js`, below the run modules.
 //
 // It imports downward only. The shapes below compose `./provider-driver.js`,
-// `./session.js` and `./repo.js`, each an eager module-scope Zod initializer,
-// so a back-import from any of them would throw `ReferenceError` at import
-// time rather than fail to compile (the `repo.ts` header works the case). Its
-// one in-package consumer is `./timeline/`, which takes `RunState` and
-// `RunRolledBackEventSchema` from here and which nothing here imports.
+// `./run-children.js`, `./run-queue.js`, `./run-state.js`,
+// `./session-controls.js` and `./session.js`, each an eager module-scope Zod
+// initializer, so a back-import from any of them would throw `ReferenceError` at
+// import time rather than fail to compile. The same reason keeps the message
+// bounds (`DRIVER_WIRE_STEER_*`) in `./provider-driver.js`: its `SteerPayload`
+// applies them and cannot import from here.
 //
 // Request schemas use the double-T `z.ZodType<T, T>` form and response and
 // event schemas the single-T `z.ZodType<T>` form, matching `session.ts`: only
@@ -20,6 +21,13 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
+import { countSchema } from "./internal/wire-scalars.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
 import {
   ArtifactIdSchema,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
@@ -27,6 +35,7 @@ import {
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
+  DRIVER_WIRE_TOKEN_MAX_LEN,
   InterventionTypeSchema,
   RecoveryConditionSchema,
   RecoverySpanClassificationSchema,
@@ -38,47 +47,75 @@ import {
   type RecoverySpanClassification,
   type RunId,
 } from "./provider-driver.js";
-import { WorkspaceIdSchema, type WorkspaceId } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  ChildInterruptRequestSchema,
+  ChildInterruptResponseSchema,
+  ChildPauseSetRequestSchema,
+  ChildPauseSetResponseSchema,
+  ChildrenStopRequestSchema,
+  ChildrenStopResponseSchema,
+  ChildSteerRequestSchema,
+  type ChildInterruptRequest,
+  type ChildInterruptResponse,
+  type ChildPauseSetRequest,
+  type ChildPauseSetResponse,
+  type ChildrenStopRequest,
+  type ChildrenStopResponse,
+  type ChildSteerRequest,
+} from "./run-children.js";
+import {
+  QueueItemCancelRequestSchema,
+  QueueItemCancelResponseSchema,
+  QueueItemCreateRequestSchema,
+  QueueItemCreateResponseSchema,
+  QueueItemIdSchema,
+  QueueItemListRequestSchema,
+  QueueItemListResponseSchema,
+  QueueItemSummarySchema,
+  QueueReorderRequestSchema,
+  RunQueueSubscribeRequestSchema,
+  type QueueItemCancelRequest,
+  type QueueItemCancelResponse,
+  type QueueItemCreateRequest,
+  type QueueItemCreateResponse,
+  type QueueItemId,
+  type QueueItemListRequest,
+  type QueueItemListResponse,
+  type QueueItemSummary,
+  type QueueReorderRequest,
+  type RunQueueSubscribeRequest,
+} from "./run-queue.js";
+import { RunStateSchema, type RunState } from "./run-state.js";
+import {
+  RunSafetyBufferingUpdatedPayloadSchema,
+  type RunSafetyBufferingUpdatedPayload,
+} from "./session-controls.js";
+import {
+  FILE_PATH_MAX_LEN,
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+} from "./session.js";
 
 // --------------------------------------------------------------------------
 // Branded identifiers
 // --------------------------------------------------------------------------
-
-export type QueueItemId = string & { readonly __brand: "QueueItemId" };
-export const QueueItemIdSchema: z.ZodType<QueueItemId, QueueItemId> =
-  brandedUuidIdSchema<QueueItemId>("QueueItemId");
 
 export type InterventionId = string & { readonly __brand: "InterventionId" };
 export const InterventionIdSchema: z.ZodType<InterventionId, InterventionId> =
   brandedUuidIdSchema<InterventionId>("InterventionId");
 
 // --------------------------------------------------------------------------
+// Closed sets
 // --------------------------------------------------------------------------
 //
-// Membership is verbatim. `RunFailureCategory`'s values carry a space by
-// design — they are the canonical wire literals, not identifiers, and
-// normalizing them to kebab- or snake-case here would silently fork the wire
-// contract from the doc.
+// `RunFailureCategory`'s values carry a space by design: they are the wire
+// literals, not identifiers.
 //
-// All four are typed double-T (`z.ZodType<T, T>`) rather than the single-T
-// form `session.ts` uses for its enums. A `z.enum` genuinely has Input ===
-// Output, and `QueueItemStateSchema` composes into `QueueItemListRequest` — a
-// tRPC-consumed request schema, which loses Standard Schema V1 input inference
-// the moment any member's Input degrades to `unknown` (see
-// `./internal/branded.ts`). Declaring the honest Input on all four keeps the
-// four consistent instead of splitting them by current call site.
-
-/** Where a queued message stands: waiting, sent to the run, replaced, canceled, or never sent. */
-export type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
-/** Validates a {@link QueueItemState}. */
-export const QueueItemStateSchema: z.ZodType<QueueItemState, QueueItemState> = z.enum([
-  "queued",
-  "admitted",
-  "superseded",
-  "canceled",
-  "not_delivered",
-]);
+// Both are typed double-T (`z.ZodType<T, T>`), as `QueueItemState` is: a
+// set that composes into a request schema loses Standard Schema V1 input
+// inference the moment its input degrades to `unknown` (see
+// `./internal/branded.ts`), and the sets stay alike.
 
 export type InterventionState =
   | "requested"
@@ -96,28 +133,6 @@ export const InterventionStateSchema: z.ZodType<InterventionState, InterventionS
   "expired",
 ]);
 
-export type RunState =
-  | "queued"
-  | "starting"
-  | "running"
-  | "waiting_for_approval"
-  | "waiting_for_input"
-  | "paused"
-  | "completed"
-  | "interrupted"
-  | "failed";
-export const RunStateSchema: z.ZodType<RunState, RunState> = z.enum([
-  "queued",
-  "starting",
-  "running",
-  "waiting_for_approval",
-  "waiting_for_input",
-  "paused",
-  "completed",
-  "interrupted",
-  "failed",
-]);
-
 export type RunFailureCategory =
   | "provider failure"
   | "transport failure"
@@ -133,152 +148,42 @@ export const RunFailureCategorySchema: z.ZodType<RunFailureCategory, RunFailureC
 // --------------------------------------------------------------------------
 // Shared field parsers
 // --------------------------------------------------------------------------
-//
-// `z.ZodType<T, T>` — see `./internal/branded.ts` for rationale (preserves
-// Input inference when this composes into a tRPC-consumed request schema).
-const RecordOfUnknownSchema: z.ZodType<Record<string, unknown>, Record<string, unknown>> = z.record(
-  z.string(),
-  z.unknown(),
-);
 
-// A run's optimistic-concurrency comparand and every normalized session
-// position. `.int()` and `.nonnegative()` are both load-bearing rather than
-// decorative — the same reasoning `ApplyInterventionParamsSchema` records for
-// `expectedRunVersion`: a float or a negative compares unequal to every stored
-// value and turns a concurrency or boundary check into an unconditional
-// refusal that reads as a conflict.
-const runCounterSchema: z.ZodNumber = z.number().int().nonnegative();
-
-// Filesystem path entries: the execution posture's `writableRoots`
-// (recurring across all four posture arms).
-//
-// Deliberately NOT `wireFreeFormString`: that helper rejects whitespace-only
-// values, and a directory named with a single space is legal on POSIX. The
-// only guard that CANNOT falsely refuse is applied instead — NUL rejection (no
-// filesystem admits a NUL in a path component).
-//
-// Length is deliberately UNBOUNDED: a per-path ceiling would make a valid
-// extended-length Windows path (\\?\ prefix — no 260/4096 bound) or a deep
-// POSIX tree fail parse. Byte bounds belong to the framework layer's
-// body-size limit.
+// Filesystem path entries: the execution posture's `writableRoots`. Not
+// `wireFreeFormString`, which refuses whitespace-only values although a
+// directory named with a single space is legal on POSIX; NUL is refused because
+// no filesystem admits it in a path.
 const filesystemPathSchema: z.ZodString = z
   .string()
   .min(1)
+  .max(FILE_PATH_MAX_LEN)
   .refine((value) => !value.includes("\0"), {
     message: "Filesystem path MUST NOT contain a NUL byte.",
   });
 
 // --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
-export interface QueueItemCreateRequest {
-  sessionId: SessionId;
-  // Repo-bound run binding (run setup data; absent = non-repo run) — repo-bound
-  // audit.
-  workspaceId?: WorkspaceId | undefined;
-  priority?: number | undefined;
-  payload: Record<string, unknown>;
-}
-export const QueueItemCreateRequestSchema: z.ZodType<
-  QueueItemCreateRequest,
-  QueueItemCreateRequest
-> = z
-  .object({
-    sessionId: SessionIdSchema,
-    workspaceId: WorkspaceIdSchema.optional(),
-    // `.int()` mirrors the `queue_items.priority INTEGER NOT NULL DEFAULT 0`
-    // column: a float would round on the way into SQLite and silently reorder
-    // the drain. NOT `.nonnegative()` — the column's own comment reads
-    // "higher = more urgent", so a negative priority is a meaningful
-    // de-prioritization rather than an error.
-    priority: z.number().int().optional(),
-    payload: RecordOfUnknownSchema,
-  })
-  .strict();
-
-export interface QueueItemCreateResponse {
-  queueItemId: QueueItemId;
-  state: QueueItemState;
-  createdAt: string;
-}
-export const QueueItemCreateResponseSchema: z.ZodType<QueueItemCreateResponse> = z
-  .object({
-    queueItemId: QueueItemIdSchema,
-    state: QueueItemStateSchema,
-    createdAt: z.iso.datetime({ offset: true }),
-  })
-  .strict();
-
-export interface QueueItemListRequest {
-  sessionId: SessionId;
-  state?: QueueItemState | undefined;
-}
-export const QueueItemListRequestSchema: z.ZodType<QueueItemListRequest, QueueItemListRequest> = z
-  .object({
-    sessionId: SessionIdSchema,
-    state: QueueItemStateSchema.optional(),
-  })
-  .strict();
-
-export interface QueueItemSummary {
-  id: QueueItemId;
-  state: QueueItemState;
-  priority: number;
-  createdAt: string;
-  updatedAt: string;
-}
-export const QueueItemSummarySchema: z.ZodType<QueueItemSummary> = z
-  .object({
-    id: QueueItemIdSchema,
-    state: QueueItemStateSchema,
-    priority: z.number().int(),
-    createdAt: z.iso.datetime({ offset: true }),
-    updatedAt: z.iso.datetime({ offset: true }),
-  })
-  .strict();
-
-export interface QueueItemListResponse {
-  items: QueueItemSummary[];
-}
-export const QueueItemListResponseSchema: z.ZodType<QueueItemListResponse> = z
-  .object({ items: z.array(QueueItemSummarySchema) })
-  .strict();
-
-export interface QueueItemCancelRequest {
-  queueItemId: QueueItemId;
-}
-export const QueueItemCancelRequestSchema: z.ZodType<
-  QueueItemCancelRequest,
-  QueueItemCancelRequest
-> = z.object({ queueItemId: QueueItemIdSchema }).strict();
-
-export interface QueueItemCancelResponse {
-  queueItemId: QueueItemId;
-  // Narrowed to the single terminal a cancel can reach: the response type is
-  // not a place to restate the whole lifecycle enum.
-  state: "canceled";
-}
-export const QueueItemCancelResponseSchema: z.ZodType<QueueItemCancelResponse> = z
-  .object({
-    queueItemId: QueueItemIdSchema,
-    state: z.literal("canceled"),
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
+// Interventions on the lead's run
 // --------------------------------------------------------------------------
 //
-// `expectedRunVersion` is the MANDATORY optimistic-concurrency comparand
-// (fail-closed): an absent comparand is rejected, never applied — an optional
-// field would let a caller bypass the stale-replay guard by omitting it.
-// `clientIdempotencyKey` is the orthogonal second guard: a
-// requester-generated UUID persisted on the `interventions` row under
-// `UNIQUE(target_run_id, client_idempotency_key)`, so an identical retry
-// replays the recorded outcome. The UUID shape is validated here rather than
-// left to caller discipline because a non-UUID key lands in a durable receipt
-// as an unbounded caller-chosen string.
+// `expectedRunVersion` is the MANDATORY optimistic-concurrency comparand: an
+// absent comparand is refused, never applied. `clientIdempotencyKey` is the
+// second guard: a requester-generated UUID stored on the intervention under
+// `UNIQUE(target_run_id, client_idempotency_key)`, so an identical retry replays
+// the recorded outcome.
+//
+// The interrupt's `pending` says what happens to the messages still waiting:
+// `nextTurn` sends them at once as the next turn (the lead's own interrupt), and
+// `returnToDraft` drops them back into the draft (interrupting everything).
+// `deliverFirst` names the waiting message `Send now` delivers ahead of the rest.
+//
+// The faster-model retry is the person's `Stop and retry` while Codex holds a turn
+// for a safety check and names a faster model: the daemon stops that turn and
+// sends the same message again on `model`, which then stays the session's model.
+// `expectedTurnId` is required on it, so a retry aimed at a turn that is no longer
+// the latest, or whose reply has started, is refused as `rejected` with a
+// `rejectionReason`.
 
-/** A caller's request to steer, interrupt, or cancel a run, one arm per intervention type. */
+/** A caller's request to steer, interrupt, cancel or retry a run, one arm per intervention type. */
 export type InterventionRequestPayload =
   | {
       type: "steer";
@@ -286,15 +191,6 @@ export type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       content: string;
-      // TYPED `ArtifactId[]` (2026-09-08 discharge) — the SAME element type and
-      // the SAME order-preserving, never-silently-dropped delivery rule the
-      // driver-boundary `SteerPayload.attachments` carries, imported from its
-      // home in `./provider-driver.js` rather than restated here, because this
-      // arm and that payload are two ends of one carrier and a second
-      // declaration would let them drift. The rule and both bounds — this seam's
-      // coarse `DRIVER_WIRE_STEER_ATTACHMENTS_MAX` count ceiling and the
-      // operator-tunable `max_attachments_per_carrier` the daemon enforces at
-      // carrier acceptance — are stated once, on that declaration.
       attachments?: ArtifactId[] | undefined;
       expectedTurnId?: string | undefined;
     }
@@ -303,6 +199,8 @@ export type InterventionRequestPayload =
       targetRunId: RunId;
       expectedRunVersion: number;
       clientIdempotencyKey: string;
+      pending: "nextTurn" | "returnToDraft";
+      deliverFirst?: QueueItemId | undefined;
       reason?: string | undefined;
     }
   | {
@@ -311,105 +209,89 @@ export type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       reason?: string | undefined;
+    }
+  | {
+      type: "faster_model_retry";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      expectedTurnId: string;
+      model: string;
     };
 
 export const InterventionRequestPayloadSchema: z.ZodType<
   InterventionRequestPayload,
   InterventionRequestPayload
-> = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("steer"),
-      targetRunId: RunIdSchema,
-      expectedRunVersion: runCounterSchema,
-      clientIdempotencyKey: z.uuid(),
-      content: wireFreeFormString(
-        DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-        "InterventionRequestPayload.content",
-      ),
-      // `ArtifactId` elements: a non-id element is refused at this seam, and
-      // the `.max()` beside it is the coarse frame-abuse count ceiling. The
-      // operator-tunable `max_attachments_per_carrier` is the daemon's
-      // admission check, not this parse's — see `SteerPayload`.
-      attachments: z.array(ArtifactIdSchema).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
-      expectedTurnId: wireFreeFormString(
-        DRIVER_WIRE_HANDLE_MAX_LEN,
-        "InterventionRequestPayload.expectedTurnId",
-      ).optional(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("interrupt"),
-      targetRunId: RunIdSchema,
-      expectedRunVersion: runCounterSchema,
-      clientIdempotencyKey: z.uuid(),
-      reason: wireFreeFormString(
-        DRIVER_WIRE_REASON_MAX_LEN,
-        "InterventionRequestPayload.reason",
-      ).optional(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("cancel"),
-      targetRunId: RunIdSchema,
-      expectedRunVersion: runCounterSchema,
-      clientIdempotencyKey: z.uuid(),
-      reason: wireFreeFormString(
-        DRIVER_WIRE_REASON_MAX_LEN,
-        "InterventionRequestPayload.reason",
-      ).optional(),
-    })
-    .strict(),
-]);
+> = z
+  .discriminatedUnion("type", [
+    z
+      .object({
+        type: z.literal("steer"),
+        targetRunId: RunIdSchema,
+        expectedRunVersion: countSchema,
+        clientIdempotencyKey: z.uuid(),
+        content: wireFreeFormString(
+          DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
+          "InterventionRequestPayload.content",
+        ),
+        attachments: z.array(ArtifactIdSchema).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
+        expectedTurnId: wireFreeFormString(
+          DRIVER_WIRE_HANDLE_MAX_LEN,
+          "InterventionRequestPayload.expectedTurnId",
+        ).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("interrupt"),
+        targetRunId: RunIdSchema,
+        expectedRunVersion: countSchema,
+        clientIdempotencyKey: z.uuid(),
+        pending: z.enum(["nextTurn", "returnToDraft"]),
+        deliverFirst: QueueItemIdSchema.optional(),
+        reason: wireFreeFormString(
+          DRIVER_WIRE_REASON_MAX_LEN,
+          "InterventionRequestPayload.reason",
+        ).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("cancel"),
+        targetRunId: RunIdSchema,
+        expectedRunVersion: countSchema,
+        clientIdempotencyKey: z.uuid(),
+        reason: wireFreeFormString(
+          DRIVER_WIRE_REASON_MAX_LEN,
+          "InterventionRequestPayload.reason",
+        ).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("faster_model_retry"),
+        targetRunId: RunIdSchema,
+        expectedRunVersion: countSchema,
+        clientIdempotencyKey: z.uuid(),
+        expectedTurnId: wireFreeFormString(
+          DRIVER_WIRE_HANDLE_MAX_LEN,
+          "InterventionRequestPayload.expectedTurnId",
+        ),
+        model: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "InterventionRequestPayload.model"),
+      })
+      .strict(),
+  ])
+  .refine(
+    (request) =>
+      request.type !== "interrupt" ||
+      request.deliverFirst === undefined ||
+      request.pending === "nextTurn",
+    {
+      path: ["deliverFirst"],
+      message: "A message delivered first goes as the next turn, never back to the draft.",
+    },
+  );
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// What an undo reports. A person asks to put back the conversation and the
-// files together, the conversation alone, or the files alone, and one undo
-// has one result: what was asked, what went back, and the daemon's reason for
-// each asked-for part that did not. An undo can land in part — the
-// conversation cut can apply while the files cannot go back, or the reverse —
-// and `restored: "nothing"` means the conversation and the files are as they
-// were.
-//
-// Edit and resend is the same undo followed by a send, as one operation. When
-// the undo applied and the send did not, the result says so, with the send's
-// reason, so the conversation is never left cut with nothing sent unremarked.
-
-/** What an undo is asked to put back. */
-export type SessionRestoreScope = "conversation-and-files" | "conversation" | "files";
-
-/** One part an undo puts back on its own. */
-export type SessionRestorePart = Exclude<SessionRestoreScope, "conversation-and-files">;
-
-/** Why one asked-for part did not go back, in the daemon's words. */
-export interface SessionRestoreFailure {
-  reason: string;
-}
-
-/** A finished undo: what was asked, what went back, and why each other asked-for part did not. */
-export interface SessionRestoreFinished {
-  outcome: "restore-finished";
-  requested: SessionRestoreScope;
-  restored: SessionRestoreScope | "nothing";
-  failures?: { [Part in SessionRestorePart]?: SessionRestoreFailure | undefined } | undefined;
-}
-
-/** An edit and resend whose undo applied and whose send failed, with the send's reason. */
-export interface SessionResendUnapplied {
-  outcome: "resend-unapplied";
-  reason: string;
-}
-
-/** What an undo, or an edit and resend, reports. */
-export type SessionRestoreResult = SessionRestoreFinished | SessionResendUnapplied;
-
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
 // The daemon's answer to an intervention. A refused intervention is a normal
 // response with state `rejected` and a machine-readable cause in
 // `rejectionReason`, not a JSON-RPC error.
@@ -417,11 +299,10 @@ export type SessionRestoreResult = SessionRestoreFinished | SessionResendUnappli
 export interface InterventionResponseBase {
   interventionId: InterventionId;
   state: InterventionState;
-  // Post-application run counter — the caller threads this into the next
-  // intervention's `expectedRunVersion`. Carried on the response because an
-  // applied native steer advances the run version WITHOUT a `run.*` state
-  // change, so for that path this is the only place the fresh comparand can be
-  // read.
+  // The run counter after the intervention, which the caller threads into its
+  // next `expectedRunVersion`. An applied steer advances the run version with no
+  // state change, so on that path this is the only place the fresh comparand can
+  // be read.
   runVersion: number;
   rejectionReason?: string | undefined;
 }
@@ -436,44 +317,28 @@ export type InterventionRequestResponse = InterventionResponseBase & {
 export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestResponse> = z
   .object({
     interventionId: InterventionIdSchema,
-    runVersion: runCounterSchema,
+    runVersion: countSchema,
     rejectionReason: wireFreeFormString(
       DRIVER_WIRE_HANDLE_MAX_LEN,
       "InterventionResponseBase.rejectionReason",
     ).optional(),
     interventionType: InterventionTypeSchema,
     state: InterventionStateSchema,
-    result: RecordOfUnknownSchema.optional(),
+    result: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
 // --------------------------------------------------------------------------
+// The run state stream
 // --------------------------------------------------------------------------
 //
-// TWO of the three now carry exported parsers there, and this file imports
-// them instead of mirroring their values: a carrier that restates a hoisted
-// vocabulary is the drift exists to remove, and the symbol names are claimed
-// from its own file rather than minted in this one.
-//
-// `ExecutionPosture` keeps its module-private parser below. Its
-// `z.ZodType<ExecutionPosture>` annotation pins the parser's output to the
-// imported declaration, which fails the build if that type NARROWS — but a
-// WIDENING of it still compiles, because `ZodType` is covariant in its output.
-// The annotation is a partial guard, not a mirror-drift guard, and that
-// asymmetry is exactly why the two recovery vocabularies are single-sourced
-// upstream instead of annotated here.
-//
-// TWO MEMBERS OF THE CANONICAL SHAPE ARE DELIBERATELY OMITTED: `agentId` and
-// `effectiveRunConfig`.
-//
-// The consequence is deliberate and must be understood before lands:
-// `.strict()` means a producer emitting `agentId` FAILS PARSE.
+// `ExecutionPosture` keeps a module-private parser. Its `z.ZodType<ExecutionPosture>`
+// annotation fails the build if that type narrows, though a widening still
+// compiles, because `ZodType` is covariant in its output.
 
-// `ExecutionPostureNetwork` types `allowedDomains` as `[string, ...string[]]`,
-// so the parser must produce a non-empty TUPLE and not merely a checked array:
-// Zod v4's `.nonempty()` enforces the length but leaves the inferred type
-// `string[]`, which the `z.ZodType<ExecutionPosture>` annotation below then
-// refuses. The variadic-rest tuple form carries both the check and the type.
+// `allowedDomains` is `[string, ...string[]]`, so the parser produces a non-empty
+// tuple: Zod v4's `.nonempty()` checks the length but leaves the inferred type
+// `string[]`, which the annotation below refuses.
 const allowedDomainsSchema: z.ZodType<[string, ...string[]], [string, ...string[]]> = z.tuple(
   [wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ExecutionPosture.allowedDomains")],
   wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ExecutionPosture.allowedDomains"),
@@ -536,38 +401,63 @@ const executionPostureSchema: z.ZodType<ExecutionPosture> = z.union([
     .strict(),
 ]);
 
-// The subscription server projects the durable row into this shape:
-// `sessionId` is carried by the subscription scope
-// (`RunStateSubscribeRequest`), not repeated per event, and the canonical
-// wire member is `currentState`. The durable payload is NOT expected to
-// validate through this schema.
+/**
+ * A turn the provider's safety check refused with no other model to take it, on
+ * `run.failed`: the refusing model, and the provider's own sentence, explanation
+ * and check category when it sends them.
+ */
+export interface RunRefusedCause {
+  cause: "refused";
+  model: string;
+  sentence?: string | undefined;
+  explanation?: string | undefined;
+  safetyCategory?: string | undefined;
+}
+const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
+  .object({
+    cause: z.literal("refused"),
+    model: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "RunRefusedCause.model"),
+    sentence: wireFreeFormString(
+      DRIVER_FAILURE_DETAIL_MAX_LEN,
+      "RunRefusedCause.sentence",
+    ).optional(),
+    explanation: wireFreeFormString(
+      DRIVER_FAILURE_DETAIL_MAX_LEN,
+      "RunRefusedCause.explanation",
+    ).optional(),
+    safetyCategory: wireFreeFormString(
+      DRIVER_WIRE_HANDLE_MAX_LEN,
+      "RunRefusedCause.safetyCategory",
+    ).optional(),
+  })
+  .strict();
+
+// The subscription server projects the stored row into this shape. `sessionId`
+// is carried by the subscription's scope (`RunStateSubscribeRequest`), not
+// repeated per event; `newState` is the stored row's own spelling.
 /** One run state transition as `run.subscribeState` delivers it, with its new run version. */
 export interface RunStateChangeEvent {
   runId: RunId;
-  // Run-progression counter: the optimistic-concurrency comparand clients
-  // read via `run.subscribeState` and pass back as `expectedRunVersion`.
-  // Distinct from the immutable `EventEnvelope.version` wire-contract semver
-  // — this is the run aggregate's concurrency token.
+  // The run's progression counter: the comparand clients read here and pass back
+  // as `expectedRunVersion`.
   runVersion: number;
   previousState: RunState;
-  currentState: RunState;
+  newState: RunState;
   failureCategory?: RunFailureCategory | undefined;
+  failureCause?: RunRefusedCause | undefined;
   recoveryCondition?: RecoveryCondition | undefined;
   recoverySpanClassification?: RecoverySpanClassification | undefined;
-  // Two producers, one field: free-form prose from the resume-failure
-  // producer, and one fixed `<registered code> origin=<arm>` form from the
-  // outbound-frame neutralization tripwire. A consumer reads the cause as the
-  // substring before the first space and MUST NOT assume the whole value is
-  // prose.
+  // Two producers, one field: free-form prose from the resume-failure producer,
+  // and one fixed `<registered code> origin=<arm>` form from the outbound-frame
+  // neutralization tripwire. A consumer reads the cause as the substring before
+  // the first space and never assumes the whole value is prose.
   providerFailureDetail?: string | undefined;
   completionKind?: "turn" | "task" | undefined;
-  // Daemon-initiated `closeSession` clean-terminal discriminator: present only
-  // on that path, absent on every other terminal. Consumers MUST NOT classify
-  // such a terminal as a crash.
+  // Present only on a terminal the daemon itself closed; such a terminal is never
+  // a crash.
   intendedClose?: true | undefined;
-  // Stamped only on `run.running` — the post-setup-gate spawn-success
-  // transition, where the resolved workspace root and effective posture are
-  // final. Optionality is for pre-amendment history and non-running rows only.
+  // Stamped only on `run.running`, where the resolved workspace root and the
+  // effective posture are final.
   executionPosture?: ExecutionPosture | undefined;
   trigger?:
     | "turn_limit"
@@ -575,23 +465,17 @@ export interface RunStateChangeEvent {
     | "idle_timeout"
     | "workflow_phase_canceled"
     | undefined;
-  parentRunId?: RunId | undefined;
-  internalHelper?: boolean | undefined;
-  // Path-independent admission stamps — NOT part of the orchestration linkage
-  // block: `run.queued` carries these for EVERY provider run, whichever
-  // admission path created it. Never client-suppliable.
-  admittedUnpricedCapCents?: number | undefined;
-  admittedModelFamily?: string | undefined;
   timestamp: string;
 }
 
 export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
   .object({
     runId: RunIdSchema,
-    runVersion: runCounterSchema,
+    runVersion: countSchema,
     previousState: RunStateSchema,
-    currentState: RunStateSchema,
+    newState: RunStateSchema,
     failureCategory: RunFailureCategorySchema.optional(),
+    failureCause: RunRefusedCauseSchema.optional(),
     recoveryCondition: RecoveryConditionSchema.optional(),
     recoverySpanClassification: RecoverySpanClassificationSchema.optional(),
     providerFailureDetail: wireFreeFormString(
@@ -604,52 +488,31 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     trigger: z
       .enum(["turn_limit", "budget_exhausted", "idle_timeout", "workflow_phase_canceled"])
       .optional(),
-    parentRunId: RunIdSchema.optional(),
-    internalHelper: z.boolean().optional(),
-    admittedUnpricedCapCents: z.number().int().nonnegative().optional(),
-    admittedModelFamily: wireFreeFormString(
-      DRIVER_WIRE_HANDLE_MAX_LEN,
-      "RunStateChangeEvent.admittedModelFamily",
-    ).optional(),
     timestamp: z.iso.datetime({ offset: true }),
   })
-  .strict();
+  .strict()
+  .refine((event) => event.failureCause === undefined || event.newState === "failed", {
+    path: ["failureCause"],
+    message: "A failure cause rides only a transition into `failed`.",
+  });
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-//
-// The forward, NON-STATE rollback event. Registered and homed here rather than
-// under a Phase-1 task, because no Phase-1 task names it: produces the forward
-// emission, and the shape rides `run.subscribeState` alongside
-// `RunStateChangeEvent`.
-//
-// Deliberately NO `previousState` / `currentState`: a rollback is not a state
-// transition, and fabricating one would corrupt the transition stream
-// consumers replay. It is non-terminal, so it has zero interaction with the
-// at-most-once terminal backstop. The two arms therefore share one stream
-// with no wire tag and stay unambiguous STRUCTURALLY, which is what
-// `.strict()` buys on both: a state-change object fails here for want of
-// `sessionId` / `targetPosition`, and this shape fails there for want of
-// `previousState` / `currentState` / `timestamp`.
-//
-// `sessionId` — which the sibling state-change shape does not carry — is
-// present because this same payload is the durable `run.rolled_back` row
-// timeline consumes, where the boundary entry refines `runId ===
-// payload.runId`, `sessionId === payload.sessionId`, and `position ===
-// payload.targetPosition`, so outer attribution and payload cannot disagree.
+// The forward rollback event: not a state transition, so it carries no
+// `previousState` / `newState`, and inventing one would corrupt the transition
+// stream consumers replay. It shares `run.subscribeState` with the state change
+// and carries no tag: `.strict()` on both keeps them apart, since each fails the
+// other's required members. `sessionId` is present because this is also the
+// stored `run.rolled_back` payload the timeline reads.
 
 /** A run rewound to an earlier turn boundary, carried on `run.subscribeState`. */
 export interface RunRolledBackEvent {
   sessionId: SessionId;
   runId: RunId;
-  // The POST-rollback progression value — the rollback application advanced
-  // it. The rewind records no transition of its own, so this event is what
-  // keeps a `run.subscribeState` subscriber from being blind to it.
+  // The run counter after the rollback, which advanced it.
   runVersion: number;
-  // The turn-boundary rewind anchor the run LANDED at (normalized session
-  // position). Equal to the request's `targetPosition` on the confirmed path;
-  // a confirmed-floor mismatch degrade records the driver-confirmed landing
-  // position instead — the event never lies about where the run came to rest.
+  // The turn boundary the run landed at, as a session position. It equals the
+  // request's target on the confirmed path; where the driver confirmed a
+  // different landing it is that landing, so the event never misstates where the
+  // run came to rest.
   targetPosition: number;
 }
 
@@ -657,22 +520,35 @@ export const RunRolledBackEventSchema: z.ZodType<RunRolledBackEvent> = z
   .object({
     sessionId: SessionIdSchema,
     runId: RunIdSchema,
-    runVersion: runCounterSchema,
-    targetPosition: runCounterSchema,
+    runVersion: countSchema,
+    targetPosition: countSchema,
   })
   .strict();
 
+/**
+ * One delivery on `run.subscribeState`: a state change, a rollback, or Codex's
+ * safety hold on the run's turn. The hold is a live detail of the run's working
+ * status and the stream is its only carrier: it is not written to the session's
+ * history, so a re-opened session does not replay it. Like the rollback it carries
+ * no tag; `.strict()` on all three keeps them apart, since each lacks the others'
+ * required members.
+ */
+export type RunStateStreamEvent =
+  | RunStateChangeEvent
+  | RunRolledBackEvent
+  | RunSafetyBufferingUpdatedPayload;
+const RunStateStreamEventSchema: z.ZodType<RunStateStreamEvent> = z.union([
+  RunStateChangeEventSchema,
+  RunRolledBackEventSchema,
+  RunSafetyBufferingUpdatedPayloadSchema,
+]);
+
 // --------------------------------------------------------------------------
-// Pause / resume triggers
+// Pause and resume
 // --------------------------------------------------------------------------
 //
-// `pause` and `resume` are SEPARATE REQUEST TYPES, not `InterventionType`
-// members: they are orchestration-layer verbs and hold no membership in `steer
-// | interrupt | cancel` by design, so the client needs a typed
-// trigger distinct from `applyIntervention`. Both carry the MANDATORY
-// `expectedRunVersion` guard with the same fail-closed semantics as
-// `InterventionRequestPayload` — as deliberately extended to these two verbs,
-// not as inherited from its original intervention-only scope.
+// Separate requests, not `InterventionType` members, each with the same
+// mandatory `expectedRunVersion` as an intervention.
 
 export interface RunPauseRequest {
   targetRunId: RunId;
@@ -681,7 +557,7 @@ export interface RunPauseRequest {
 export const RunPauseRequestSchema: z.ZodType<RunPauseRequest, RunPauseRequest> = z
   .object({
     targetRunId: RunIdSchema,
-    expectedRunVersion: runCounterSchema,
+    expectedRunVersion: countSchema,
   })
   .strict();
 
@@ -692,51 +568,77 @@ export interface RunResumeRequest {
 export const RunResumeRequestSchema: z.ZodType<RunResumeRequest, RunResumeRequest> = z
   .object({
     targetRunId: RunIdSchema,
-    expectedRunVersion: runCounterSchema,
+    expectedRunVersion: countSchema,
   })
   .strict();
 
-// Shared pause/resume ack: echoes the post-transition run state plus the
-// advanced `runVersion`, so the caller threads the fresh comparand into its
-// next guarded request without a round-trip to `run.subscribeState`.
+// The run-control ack: the run's state after the call and its advanced
+// `runVersion`, so the caller threads the fresh comparand into its next guarded
+// request without a round-trip to `run.subscribeState`.
 export interface RunControlAck {
   runId: RunId;
-  currentState: RunState;
+  newState: RunState;
   runVersion: number;
 }
 export const RunControlAckSchema: z.ZodType<RunControlAck> = z
   .object({
     runId: RunIdSchema,
-    currentState: RunStateSchema,
-    runVersion: runCounterSchema,
+    newState: RunStateSchema,
+    runVersion: countSchema,
   })
   .strict();
 
 // --------------------------------------------------------------------------
+// Recovery after a restart
 // --------------------------------------------------------------------------
 //
-// Both `run.subscribe*` requests carry `{sessionId}` and nothing else, and both
-// are homed here on the same basis as `RunRolledBackEvent` above: registers them,
-// no Phase-1 task names them, and the Phase-4 client-SDK and renderer tasks
-// consume them — naming the shipped `subscribePresence → {sessionId}` shape as
-// the precedent these two follow.
-//
-// SESSION-SCOPED BY DESIGN, not for want of a filter: the canonical event
-// stream is per-session and makes the session the authorization unit, so a
-// caller subscribes within a session it participates in and fans out per run
-// CLIENT-side via `RunStateChangeEvent.runId`. A `runId` member would be a
-// second, weaker scope over an authorization decision the session already
-// settles.
-//
-// NO replay-cursor member, unlike `SessionSubscribeRequest`'s `afterCursor`:
-// the `run.*` namespace is local-IPC JSON-RPC — the posture
-// `PresenceSubscribeRequest` records for itself — so the absence here is a
-// decision, and adding a cursor is a doc edit first.
-//
-// Structurally identical today and DISTINCT types on purpose: the doc
-// registers two, and separate types let either surface gain a member later
-// with zero churn on the other.
+// After a restart the daemon compares each resumed conversation with its own
+// record. A read-only surplus on the provider's side is added with no question;
+// any other mismatch halts the run on a question with two choices, and the
+// person's answer is `run.recoveryResolve`. Where the provider is ahead:
+// `keep_provider` keeps what it did, `undo_to_agreed` cuts back to the last point
+// both records agree on. Where the service is ahead: `continue_provider`
+// continues from the provider's record, `hand_over` continues in a new
+// conversation with the hand-over brief.
 
+/** The person's answer to the recovery question. */
+export type RunRecoveryChoice =
+  | "keep_provider"
+  | "undo_to_agreed"
+  | "continue_provider"
+  | "hand_over";
+const RunRecoveryChoiceSchema: z.ZodType<RunRecoveryChoice, RunRecoveryChoice> = z.enum([
+  "keep_provider",
+  "undo_to_agreed",
+  "continue_provider",
+  "hand_over",
+]);
+
+/** Answers the recovery question a restart left a run halted on. */
+export interface RunRecoveryResolveRequest {
+  runId: RunId;
+  choice: RunRecoveryChoice;
+}
+export const RunRecoveryResolveRequestSchema: z.ZodType<
+  RunRecoveryResolveRequest,
+  RunRecoveryResolveRequest
+> = z.object({ runId: RunIdSchema, choice: RunRecoveryChoiceSchema }).strict();
+
+/** The payload of `run.recovery_resolved`: which choice settled the question. */
+export interface RunRecoveryResolvedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  choice: RunRecoveryChoice;
+}
+export const RunRecoveryResolvedPayloadSchema: z.ZodType<RunRecoveryResolvedPayload> = z
+  .object({ sessionId: SessionIdSchema, runId: RunIdSchema, choice: RunRecoveryChoiceSchema })
+  .strict();
+
+/**
+ * Opens a session's run state stream: every run in the session, the lead and each
+ * child, which the caller fans out by `runId`. Session-scoped, with no replay
+ * cursor.
+ */
 export interface RunStateSubscribeRequest {
   sessionId: SessionId;
 }
@@ -745,33 +647,15 @@ export const RunStateSubscribeRequestSchema: z.ZodType<
   RunStateSubscribeRequest
 > = z.object({ sessionId: SessionIdSchema }).strict();
 
-export interface RunQueueSubscribeRequest {
-  sessionId: SessionId;
-}
-export const RunQueueSubscribeRequestSchema: z.ZodType<
-  RunQueueSubscribeRequest,
-  RunQueueSubscribeRequest
-> = z.object({ sessionId: SessionIdSchema }).strict();
-
 // --------------------------------------------------------------------------
+// The run read
 // --------------------------------------------------------------------------
 //
-// Phase 3 authors the engine-side read
-// (`runtime-daemon/src/session/run-engine.ts`); this file
-// deliberately creates no daemon module.
-//
-// `sessionId` and `state` are derived projection; there is no standalone
-// runs table.
-//
-// TOTAL BY CONTRACT. The accessor returns a snapshot or THROWS; it does not
-// return null or undefined for an unknown run. That is what makes the guard
-// fail closed — a nullish return would let a caller reach for `?.version`,
-// compare `undefined` against a supplied comparand, and route an unknown run
-// into whichever branch the falsy comparison happens to select. The signature
-// encodes the contract; it does not invent behavior the plan leaves open.
-//
-// SYNCHRONOUS, mirroring the plan's `getRun(runId): { version, sessionId,
-// state }`. The projection read it fronts is a synchronous SQLite read.
+// The engine-side read the daemon's guards take. `sessionId` and `state` are a
+// derived projection; there is no runs table. The accessor returns a snapshot or
+// throws, never null for an unknown run, so a guard fails closed rather than
+// comparing `undefined` against a comparand. Synchronous, because the projection
+// read it fronts is a synchronous SQLite read.
 
 export interface RunReadSnapshot {
   version: number;
@@ -780,10 +664,186 @@ export interface RunReadSnapshot {
 }
 export const RunReadSnapshotSchema: z.ZodType<RunReadSnapshot> = z
   .object({
-    version: runCounterSchema,
+    version: countSchema,
     sessionId: SessionIdSchema,
     state: RunStateSchema,
   })
   .strict();
 
 export type RunReadAccessor = (runId: RunId) => RunReadSnapshot;
+
+// --------------------------------------------------------------------------
+// Methods
+// --------------------------------------------------------------------------
+
+/** The run-control methods, keyed by method name. */
+export interface RunControlMethodDescriptors {
+  readonly "run.queueCreate": MethodDescriptor<
+    "run.queueCreate",
+    QueueItemCreateRequest,
+    QueueItemCreateResponse
+  >;
+  readonly "run.queueList": MethodDescriptor<
+    "run.queueList",
+    QueueItemListRequest,
+    QueueItemListResponse
+  >;
+  readonly "run.queueCancel": MethodDescriptor<
+    "run.queueCancel",
+    QueueItemCancelRequest,
+    QueueItemCancelResponse
+  >;
+  readonly "run.queueReorder": MethodDescriptor<
+    "run.queueReorder",
+    QueueReorderRequest,
+    QueueItemListResponse
+  >;
+  readonly "run.subscribeQueue": SubscriptionMethodDescriptor<
+    "run.subscribeQueue",
+    RunQueueSubscribeRequest,
+    SubscribeAckResponse,
+    QueueItemSummary
+  >;
+  readonly "run.intervene": MethodDescriptor<
+    "run.intervene",
+    InterventionRequestPayload,
+    InterventionRequestResponse
+  >;
+  readonly "run.pause": MethodDescriptor<"run.pause", RunPauseRequest, RunControlAck>;
+  readonly "run.resume": MethodDescriptor<"run.resume", RunResumeRequest, RunControlAck>;
+  readonly "run.subscribeState": SubscriptionMethodDescriptor<
+    "run.subscribeState",
+    RunStateSubscribeRequest,
+    SubscribeAckResponse,
+    RunStateStreamEvent
+  >;
+  readonly "run.childSteer": MethodDescriptor<
+    "run.childSteer",
+    ChildSteerRequest,
+    QueueItemCreateResponse
+  >;
+  readonly "run.childInterrupt": MethodDescriptor<
+    "run.childInterrupt",
+    ChildInterruptRequest,
+    ChildInterruptResponse
+  >;
+  readonly "run.childPauseSet": MethodDescriptor<
+    "run.childPauseSet",
+    ChildPauseSetRequest,
+    ChildPauseSetResponse
+  >;
+  readonly "run.childrenStop": MethodDescriptor<
+    "run.childrenStop",
+    ChildrenStopRequest,
+    ChildrenStopResponse
+  >;
+  readonly "run.recoveryResolve": MethodDescriptor<
+    "run.recoveryResolve",
+    RunRecoveryResolveRequest,
+    RunControlAck
+  >;
+}
+
+/** The run-control methods, each with its schemas. */
+export const RUN_CONTROL_METHOD_DESCRIPTORS: RunControlMethodDescriptors = defineMethodDescriptors({
+  "run.queueCreate": {
+    method: "run.queueCreate",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: QueueItemCreateRequestSchema,
+    responseSchema: QueueItemCreateResponseSchema,
+  },
+  "run.queueList": {
+    method: "run.queueList",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: QueueItemListRequestSchema,
+    responseSchema: QueueItemListResponseSchema,
+  },
+  "run.queueCancel": {
+    method: "run.queueCancel",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: QueueItemCancelRequestSchema,
+    responseSchema: QueueItemCancelResponseSchema,
+  },
+  "run.queueReorder": {
+    method: "run.queueReorder",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: QueueReorderRequestSchema,
+    responseSchema: QueueItemListResponseSchema,
+  },
+  "run.subscribeQueue": {
+    method: "run.subscribeQueue",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: RunQueueSubscribeRequestSchema,
+    responseSchema: SubscribeAckResponseSchema,
+    emissionSchema: QueueItemSummarySchema,
+  },
+  "run.intervene": {
+    method: "run.intervene",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: InterventionRequestPayloadSchema,
+    responseSchema: InterventionRequestResponseSchema,
+  },
+  "run.pause": {
+    method: "run.pause",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RunPauseRequestSchema,
+    responseSchema: RunControlAckSchema,
+  },
+  "run.resume": {
+    method: "run.resume",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RunResumeRequestSchema,
+    responseSchema: RunControlAckSchema,
+  },
+  "run.subscribeState": {
+    method: "run.subscribeState",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: RunStateSubscribeRequestSchema,
+    responseSchema: SubscribeAckResponseSchema,
+    emissionSchema: RunStateStreamEventSchema,
+  },
+  "run.childSteer": {
+    method: "run.childSteer",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ChildSteerRequestSchema,
+    responseSchema: QueueItemCreateResponseSchema,
+  },
+  "run.childInterrupt": {
+    method: "run.childInterrupt",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ChildInterruptRequestSchema,
+    responseSchema: ChildInterruptResponseSchema,
+  },
+  "run.childPauseSet": {
+    method: "run.childPauseSet",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ChildPauseSetRequestSchema,
+    responseSchema: ChildPauseSetResponseSchema,
+  },
+  "run.childrenStop": {
+    method: "run.childrenStop",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: ChildrenStopRequestSchema,
+    responseSchema: ChildrenStopResponseSchema,
+  },
+  "run.recoveryResolve": {
+    method: "run.recoveryResolve",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RunRecoveryResolveRequestSchema,
+    responseSchema: RunControlAckSchema,
+  },
+});

@@ -9,7 +9,7 @@
 //
 //   * `append()` refuses on a default-constructed service; reads need
 //     no opt-in. The `beforeEach` fixture opts in explicitly
-//     (`allowUnsignedPlaceholderAppend`) so the D2/D3/D4 blocks can
+//     (`allowTestSeedingAppend`) so the D2/D3/D4 blocks can
 //     seed rows; see the append-guard describe block.
 //
 // Migration runner coverage:
@@ -42,7 +42,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
-import { SessionService, UnsignedPlaceholderAppendToken } from "../session-service.js";
+import { SessionService, TestSeedingAppendToken } from "../session-service.js";
 import type { AppendableEvent } from "../types.js";
 
 // ----------------------------------------------------------------------------
@@ -62,7 +62,22 @@ function makeCreatedEvent(): AppendableEvent {
     category: "session_lifecycle",
     type: "session.created",
     actor: OWNER_ID,
-    payload: { sessionId: SESSION_ID, name: "test-session" },
+    payload: {
+      sessionId: SESSION_ID,
+      shape: "chat",
+      mainAgent: {
+        agentId: "44444444-4444-4444-8444-444444444444",
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: "2026-04-27T12:00:00.000Z",
+      },
+    },
     correlationId: null,
     causationId: null,
     version: "1.0",
@@ -120,7 +135,7 @@ beforeEach(() => {
     // D2/D3/D4 blocks seed rows through it (the append-guard
     // describe block pins the refusal on a default-constructed service).
     service: new SessionService(db, {
-      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+      allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly(),
     }),
     dbPath,
     tmpDir,
@@ -888,7 +903,7 @@ describe("SessionService — append guard (test-seeding writes are opt-in)", () 
     // the diagnostic is the contract, not just the throw.
     expect(() => guardedService.append(makeCreatedEvent())).toThrow(/EventLogService\.append/);
     expect(() => guardedService.append(makeCreatedEvent())).toThrow(
-      /allowUnsignedPlaceholderAppend.*UnsignedPlaceholderAppendToken\.forTestsOnly\(\)/s,
+      /allowTestSeedingAppend.*TestSeedingAppendToken\.forTestsOnly\(\)/s,
     );
     // The refusal happens before any INSERT — nothing was persisted.
     expect(guardedService.readEvents(SESSION_ID)).toHaveLength(0);
@@ -901,10 +916,10 @@ describe("SessionService — append guard (test-seeding writes are opt-in)", () 
     // closes that: deserialized or hand-built data can never BE the
     // singleton, so even a cast-through structural lookalike still throws.
     const forgedToken = Object.freeze({
-      brand: "unsigned-placeholder-append-test-only",
-    }) as unknown as UnsignedPlaceholderAppendToken;
+      brand: "test-seeding-append",
+    }) as unknown as TestSeedingAppendToken;
     const forgedService: SessionService = new SessionService(ctx.db, {
-      allowUnsignedPlaceholderAppend: forgedToken,
+      allowTestSeedingAppend: forgedToken,
     });
     expect(() => forgedService.append(makeCreatedEvent())).toThrow(
       /SessionService\.append is guarded/,

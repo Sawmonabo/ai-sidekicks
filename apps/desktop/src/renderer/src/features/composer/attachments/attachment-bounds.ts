@@ -1,10 +1,10 @@
 // The shipped attachment bounds, and where a staged list and one file stand against them.
 //
 // This module renders nothing, calls nothing, and holds no copy about a refusal. The byte
-// bound is `attachment-caps.ts`'s `ATTACHMENT_BYTE_CAP_DEFAULT`. No read of
+// bound is the contract's `SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT`. No read of
 // the deployment's own bound is made anywhere, so every view reads the shipped default.
 
-import { ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT } from "./attachment-caps.js";
+import { SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT } from "@ai-sidekicks/contracts";
 
 /**
  * How full a staged list is against the count bound, as a figure and never as a gate.
@@ -24,7 +24,7 @@ export interface StagedAttachmentsFill {
 
 /** Where this staged list stands against the count bound. Total over any count. */
 export function stagedAttachmentsFill(attachedCount: number): StagedAttachmentsFill {
-  return { attached: attachedCount, allowance: ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT };
+  return { attached: attachedCount, allowance: SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT };
 }
 
 /**

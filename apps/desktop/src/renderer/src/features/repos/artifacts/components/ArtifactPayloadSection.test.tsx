@@ -12,7 +12,6 @@ import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "@renderer/store/artifacts/artifact-payload.js";
 import { handAnsweredCall } from "@test/helpers/held-calls.js";
 import {
   LISTED_ONE_ROW,
@@ -104,8 +103,9 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
     );
   });
 
-  it("takes a utf8 payload as it stands, and truncates past the preview cap", async () => {
-    const wide = "x".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP + 50);
+  it("draws a utf8 payload whole as it stands, never capped", async () => {
+    // A long payload is every character of it: the body is never shortened to a preview.
+    const wide = "x".repeat(50_000);
     const subject = artifactPayloadSubject(
       artifactOperations({
         listArtifacts: async () => LISTED_ONE_ROW,
@@ -118,11 +118,7 @@ describe("artifact payload — fetching is an act, and every arm is drawn", () =
     await settleAct();
 
     const preview = container.querySelector(".meridian-artifact-payload__preview");
-    expect(preview?.textContent).toHaveLength(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP);
-    // Never silently shortened: the truncation is stated beside what was drawn.
-    expect(container.querySelector(".meridian-artifact-payload")?.textContent).toContain(
-      "continues past them",
-    );
+    expect(preview?.textContent).toBe(wide);
   });
 
   it("reports bytes that are not text rather than drawing replacement characters", async () => {

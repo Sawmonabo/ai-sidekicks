@@ -45,21 +45,10 @@
 // Pure classification lives in `classifyNavigation`, which touches no Electron
 // API, so every arm of the matrix is unit-testable without a window.
 
+import { webAddressFault } from "@ai-sidekicks/contracts/web-address";
 import { app, shell, type BrowserWindow } from "electron";
 
 import { RENDERER_HOST, RENDERER_SCHEME } from "../services/renderer-scheme.js";
-
-/**
- * Schemes a refused in-window navigation may be handed to the OS browser under.
- *
- * `http:` rides beside `https:` because a self-hosted control plane or relay on
- * a LAN is a supported deployment, and its console links are plain HTTP. The
- * browser, not this process, is the
- * security boundary for what happens after the handoff; what this list is for is
- * making sure the handoff is to a BROWSER and not to whatever the OS has
- * registered for `ms-msdt:` this week.
- */
-export const EXTERNAL_URL_SCHEME_ALLOWLIST: readonly string[] = ["https:", "http:"];
 
 /**
  * One in-window origin: a scheme and an authority.
@@ -90,9 +79,12 @@ const EXTERNAL: NavigationVerdict = { kind: "external" };
  * within.
  *
  * Fail-closed at every step: an unparseable target, a credentialed authority, or
- * any scheme outside the two lists is `refused`. Nothing here echoes the target
- * back into the verdict — a refusal reason names the CLASS, so a diagnostic
- * cannot become the log line that carries an attacker's string.
+ * any scheme that is neither an in-window origin nor a web address is `refused`.
+ * The two web-address rules (`http:` or `https:` only, never a username or a
+ * password) are the ones every web address the app opens is held to; the
+ * in-window arm is this process's own. Nothing here echoes the target back into
+ * the verdict: a refusal reason names the CLASS, so a diagnostic cannot become the
+ * log line that carries an attacker's string.
  */
 export function classifyNavigation(
   targetUrl: string,
@@ -105,9 +97,10 @@ export function classifyNavigation(
     return { kind: "refused", reason: "unparseable navigation target" };
   }
 
+  const fault = webAddressFault(parsedUrl);
   // Credentials in the authority are a phishing shape (`https://app@evil.test`)
-  // and no legitimate console target carries them.
-  if (parsedUrl.username !== "" || parsedUrl.password !== "") {
+  // and no legitimate console target carries them, in the window or outside it.
+  if (fault === "credentials") {
     return { kind: "refused", reason: "navigation target carries credentials" };
   }
 
@@ -120,7 +113,7 @@ export function classifyNavigation(
     }
   }
 
-  if (EXTERNAL_URL_SCHEME_ALLOWLIST.includes(protocol)) {
+  if (fault === null) {
     return EXTERNAL;
   }
 
@@ -128,37 +121,41 @@ export function classifyNavigation(
 }
 
 /**
- * Hands an allowlisted external target to the OS browser.
+ * Hands a web address to the OS browser, and rejects when it may not be handed.
  *
  * Deferred by one turn: `setWindowOpenHandler` runs synchronously inside
  * Chromium's window-open path, and Electron's own security guidance opens
  * externally from a deferred callback rather than re-entering the browser
  * process from inside that call. `setImmediate` is a one-shot callback, not a
- * repeating timer — nothing here keeps the event loop alive past the open.
+ * repeating timer: nothing here keeps the event loop alive past the open.
  *
- * The scheme is re-checked here rather than trusted from the caller's verdict.
+ * The target is classified here rather than trusted from the caller's verdict.
  * This function is the single place a URL reaches `shell.openExternal`, and a
  * guard that only holds when the caller remembered to classify first is not a
- * guard.
+ * guard. The rejection names the refusal's class, never the target.
  */
-export function openExternalUrl(targetUrl: string): void {
+export async function openExternalUrl(targetUrl: string): Promise<void> {
   const verdict = classifyNavigation(targetUrl, []);
   if (verdict.kind !== "external") {
-    console.error(
-      `[ai-sidekicks/desktop] refused to open an external URL: ${
+    throw new Error(
+      `Refused to open an outside address: ${
         verdict.kind === "refused" ? verdict.reason : "target is an in-window origin"
-      }`,
+      }.`,
     );
-    return;
   }
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+  await shell.openExternal(targetUrl);
+}
 
-  setImmediate(() => {
-    shell.openExternal(targetUrl).catch((error: unknown) => {
-      // The OS declined to open it. Nothing to retry and nothing to fall back
-      // to; structured logging will route through Sentry in main once that is
-      // wired, and until then this is the record.
-      console.error("[ai-sidekicks/desktop] shell.openExternal failed:", error);
-    });
+/**
+ * Opens a link the window itself asked for, from a seam that has no caller to hand a
+ * failure to: the refusal or the OS's failure is logged, and that log is the record.
+ */
+function openExternalFromWindow(targetUrl: string): void {
+  openExternalUrl(targetUrl).catch((error: unknown) => {
+    console.error("[ai-sidekicks/desktop] an outside address was not opened:", error);
   });
 }
 
@@ -208,7 +205,7 @@ function decideNavigation(event: Electron.Event, targetUrl: string, seam: string
   event.preventDefault();
 
   if (verdict.kind === "external") {
-    openExternalUrl(targetUrl);
+    openExternalFromWindow(targetUrl);
     return;
   }
   console.warn(`[ai-sidekicks/desktop] refused an in-window ${seam}: ${verdict.reason}`);
@@ -236,7 +233,7 @@ export function installNavigationPolicy(browserWindow: BrowserWindow): void {
     // nothing here reviewed.
     const verdict = classifyNavigation(url, inWindowOrigins());
     if (verdict.kind === "external") {
-      openExternalUrl(url);
+      openExternalFromWindow(url);
     } else if (verdict.kind === "refused") {
       console.warn(`[ai-sidekicks/desktop] refused a popup: ${verdict.reason}`);
     }

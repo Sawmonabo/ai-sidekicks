@@ -31,7 +31,12 @@ import {
   DRIVER_TOOL_NAME_MAX_LEN,
   type McpServerStatus,
 } from "./provider-driver.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  FILE_PATH_MAX_LEN,
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+} from "./session.js";
 
 /** A server's name as a binding and an event carry it. */
 export const McpServerNameSchema: z.ZodString = wireFreeFormString(
@@ -116,13 +121,13 @@ const userBindingShape = {
 const projectBindingShape = {
   provider: ProviderNameSchema,
   scope: z.literal("project"),
-  scopeRef: z.string().min(1),
+  scopeRef: z.string().min(1).max(FILE_PATH_MAX_LEN),
   serverName: McpServerNameSchema,
 };
 const localBindingShape = {
   provider: ProviderNameSchema,
   scope: z.literal("local"),
-  scopeRef: z.string().min(1),
+  scopeRef: z.string().min(1).max(FILE_PATH_MAX_LEN),
   serverName: McpServerNameSchema,
 };
 

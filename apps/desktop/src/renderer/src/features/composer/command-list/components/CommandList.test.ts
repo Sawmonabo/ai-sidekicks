@@ -15,7 +15,7 @@ import {
   UNMATCHED_PREFIX,
   agentPane,
   bridgeHoldingTheEnumeration,
-  composerAgentIds,
+  composerLeadAgentId,
   mountComposer,
   optionNames,
   refusingEnumerationBridge,
@@ -31,7 +31,7 @@ describe("CommandList", () => {
   it("stays closed until a leading slash is typed", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     expect(mounted.container.querySelector('[role="listbox"]')).toBeNull();
@@ -44,7 +44,7 @@ describe("CommandList", () => {
   it("lists the addressed agent's enumerated commands and skills", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/");
@@ -55,7 +55,7 @@ describe("CommandList", () => {
   it("filters by the typed prefix", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/rev");
@@ -67,7 +67,7 @@ describe("CommandList", () => {
     const recorded: RecordedDaemonCall[] = [];
     const mounted = await mountComposer({
       bridge: recordingBridge(recorded),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     await typeIntoLine(mounted.line, "/");
     expect(optionNames(mounted.container)).toEqual(expect.arrayContaining(["compact"]));
@@ -106,7 +106,7 @@ describe("CommandList", () => {
   it("renders a refused enumeration under the daemon's own code", async () => {
     const mounted = await mountComposer({
       bridge: refusingEnumerationBridge(),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/");
@@ -124,7 +124,7 @@ describe("CommandList", () => {
     // finished search beside a line saying the provider half was still being read.
     const mounted = await mountComposer({
       bridge: bridgeHoldingTheEnumeration(),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, UNMATCHED_PREFIX);
@@ -140,7 +140,7 @@ describe("CommandList", () => {
   it("says nothing matches once the enumeration has been served and matched nothing", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, UNMATCHED_PREFIX);
@@ -153,7 +153,7 @@ describe("CommandList", () => {
   it("renders a refused enumeration's own code instead of an empty result", async () => {
     const mounted = await mountComposer({
       bridge: refusingEnumerationBridge(),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, UNMATCHED_PREFIX);
@@ -175,7 +175,7 @@ describe("CommandList", () => {
     registeredIds.push(TEST_COMMAND_ID);
     const mounted = await mountComposer({
       bridge: bridgeHoldingTheEnumeration(),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID}`);
@@ -192,7 +192,7 @@ describe("CommandList", () => {
     const recorded: RecordedDaemonCall[] = [];
     const mounted = await mountComposer({
       bridge: recordingBridge(recorded),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/compact");
@@ -217,7 +217,7 @@ describe("CommandList", () => {
     registeredIds.push(TEST_COMMAND_ID);
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID}`);
@@ -236,7 +236,7 @@ describe("CommandList", () => {
   it("reads the command registry when the command list opens, not when the composer mounted", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     // Registered AFTER the mount, exactly as the frame registers this window's own
@@ -256,7 +256,7 @@ describe("CommandList", () => {
   it("steps into the list on ArrowDown and moves the active option with the arrows", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     await typeIntoLine(mounted.line, "/");
     const list = mounted.container.querySelector('[role="listbox"]');
@@ -283,7 +283,7 @@ describe("CommandList", () => {
   it("returns focus to the line when the list is dismissed from inside it", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     await typeIntoLine(mounted.line, "/");
     const list = mounted.container.querySelector('[role="listbox"]');
@@ -307,7 +307,7 @@ describe("CommandList", () => {
   it("closes on Escape without touching what was typed", async () => {
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     await typeIntoLine(mounted.line, "/rev");
 
@@ -332,7 +332,7 @@ describe("MessageComposer — the enumeration it owns has a lifetime", () => {
     const closed = vi.spyOn(ProviderCommandEnumeration.prototype, "close");
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
     // Opened, so there is something to release: a holder that never read has nothing
     // outstanding and would close silently whether the disposal ran or not.

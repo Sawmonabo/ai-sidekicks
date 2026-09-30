@@ -7,33 +7,26 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
 import { partitionApprovalRecords } from "./approval-partition.js";
+import { pendingRecord } from "./approval-record.test-support.js";
 
-/** A record in the state named, in the shape the console holds. */
-function record(approvalRequestId: string, state: ApprovalRecord["state"]): ApprovalRecord {
-  return {
-    approvalRequestId,
-    runId: "019b7a33-3300-740e-8110-d1a4c1150511",
-    requestedBy: "019b7a33-3300-7a6e-8110-d1a4c1150501",
-    category: "file_write",
-    requestedScope: "run",
-    resourceDescriptor: { path: "packages/contracts/src/approval.ts" },
-    state,
-    createdAt: "2026-01-01T13:30:00.900Z",
-    updatedAt: "2026-01-01T13:30:00.900Z",
-  };
-}
+const FIRST = "019b7a33-3300-7f01-8110-d1a4c11505a1";
+const SECOND = "019b7a33-3300-7f01-8110-d1a4c11505a2";
+const THIRD = "019b7a33-3300-7f01-8110-d1a4c11505a3";
 
 describe("partitionApprovalRecords — one answered read, split in two", () => {
   it("puts every returned record in exactly one list", () => {
     const partitioned = partitionApprovalRecords({
       status: "answered",
-      rows: [record("a", "pending"), record("b", "approved"), record("c", "pending")],
+      rows: [
+        pendingRecord({ id: FIRST }),
+        pendingRecord({ id: SECOND, state: "canceled" }),
+        pendingRecord({ id: THIRD }),
+      ],
       unreadableCount: 0,
     });
-    expect(partitioned.pending.map((row) => row.approvalRequestId)).toStrictEqual(["a", "c"]);
-    expect(partitioned.history.map((row) => row.approvalRequestId)).toStrictEqual(["b"]);
+    expect(partitioned.pending.map((row) => row.id)).toStrictEqual([FIRST, THIRD]);
+    expect(partitioned.history.map((row) => row.id)).toStrictEqual([SECOND]);
   });
 
   it("answers empty while the read has not answered", () => {

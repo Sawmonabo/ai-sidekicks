@@ -46,6 +46,10 @@ export function account(overrides: Partial<ProviderAccount> = {}): ProviderAccou
     loggedInAt: null,
     expectedReloginAtEstimate: null,
     probeEnabled: true,
+    lastRefreshObservedAt: null,
+    windowStartEnabled: true,
+    wakeForWindowStartEnabled: false,
+    memoryImport: null,
     ...overrides,
   };
 }

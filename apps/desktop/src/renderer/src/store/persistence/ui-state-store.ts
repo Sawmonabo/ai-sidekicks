@@ -247,7 +247,7 @@ export class UiStateStore {
     return { outcome: "written" };
   }
 
-  /** Write a window-wide preference (scheme, keybindings) rather than a session one. */
+  /** Write a window-wide preference (the color scheme) rather than a session one. */
   public async writeGlobal(
     key: string,
     valueClass: PersistedValueClass,

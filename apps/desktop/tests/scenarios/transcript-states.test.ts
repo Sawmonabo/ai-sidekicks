@@ -126,14 +126,14 @@ describe("the three lanes", () => {
 });
 
 describe("the folded bodies", () => {
-  it("summarizes the architect's child run, and marks it incomplete", () => {
+  it("summarizes the architect's child run as whole across its compaction", () => {
     const entries = new ChildRunIndex(transcriptStatesRows()).childRunEntries();
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.summary.runId).toBe(RUN_ARCHITECT_CHILD);
-    // The compaction inside the child is what makes the count a floor, and it is the
-    // one incompleteness cause a log can state on its own.
-    expect(entries[0]?.summary.completeness.state).toBe("incomplete");
+    // The compaction inside the child folds the provider's context, not the log, so
+    // the child's rows are all still there to count.
+    expect(entries[0]?.summary.completeness.state).toBe("complete");
     // Anchored at the birth row and re-summarized nowhere: the child's later rows say
     // nothing about a parent, so filing them as re-summarizations would be a claim the
     // wire did not make.
@@ -155,11 +155,8 @@ describe("the folded bodies", () => {
     expect(subagentHandoffs).toHaveLength(1);
     expect(subagentHandoffs[0]?.wireType).toBe("subagent.started");
     expect(subagentHandoffs[0]?.rowId).toBe(subagentRowIds[0]);
-    // Four in all: the three agent attachments this session always carried, each
-    // naming no subagent identity and so anchored by nothing, plus the one anchor the
-    // pair above draws. The attachments are why a handoff row was reachable from this
-    // scenario before it carried a subagent — what was not reachable was suppression.
-    expect(handoffs).toHaveLength(4);
+    // One in all: the anchor the pair above draws, and nothing else in the log is a handoff.
+    expect(handoffs).toHaveLength(1);
   });
 
   it("names the subagent's identity, without which the pair could not be keyed", () => {

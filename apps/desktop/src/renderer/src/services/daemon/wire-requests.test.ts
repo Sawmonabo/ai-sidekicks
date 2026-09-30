@@ -42,8 +42,11 @@ describe("the composed-request readers", () => {
 
   it("reads a queue create and an interrupt in their registered shapes", () => {
     expect(
-      readQueueItemCreateRequest({ sessionId: SESSION_ID, payload: { content: "ship it" } })
-        ?.sessionId,
+      readQueueItemCreateRequest({
+        sessionId: SESSION_ID,
+        clientIdempotencyKey: IDEMPOTENCY_KEY,
+        content: "ship it",
+      })?.sessionId,
     ).toBe(SESSION_ID);
     expect(readInterruptRunParams({ runId: RUN_ID })?.runId).toBe(RUN_ID);
   });

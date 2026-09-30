@@ -23,8 +23,8 @@
 // computed from the daemon's stamped deadline against a clock the MOUNT supplies —
 // this card holds no timer, starts no interval, and reaches zero without changing
 // the ask's state. At zero it says the card is waiting for the daemon, which is a
-// statement about the console and not about the ask: an input ask that expires parks
-// its run, and only the `driver_ask.expired` row may say that it did.
+// statement about the console and not about the ask: only a row the daemon writes
+// settles it.
 //
 // ONE COMPONENT HERE, AND THE FREE-TEXT ARM IS THE OTHER. Every part of this card
 // but one is a branch of a single render over the ask it was handed, so each is a
@@ -273,9 +273,8 @@ function renderDelivery(delivery: AnswerDelivery): React.ReactNode {
  * What the settled row itself says, and nothing more.
  *
  * Each sentence is keyed to the row's own event type. `responded` shows the answer
- * that was delivered — verbatim, in the wire's own figure — and the other two say
- * which of the two things happened, because "expired" and "canceled" are different
- * events with different causes and a card that said only "closed" would collapse them.
+ * that was delivered — verbatim, in the wire's own figure — and `canceled` says the
+ * ask closed unanswered.
  */
 function renderTerminal(ask: QuestionReading): React.ReactNode {
   if (ask.state === "responded") {
@@ -295,11 +294,7 @@ function renderTerminal(ask: QuestionReading): React.ReactNode {
     <Nothing
       kind="empty"
       placement="block"
-      title={
-        ask.state === "expired"
-          ? "This ask expired before it was answered."
-          : "This ask was canceled before it was answered."
-      }
+      title="This ask was canceled before it was answered."
       detail="The run's own rows say what happened to it next."
     />
   );

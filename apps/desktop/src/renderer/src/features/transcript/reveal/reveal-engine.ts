@@ -32,7 +32,7 @@
 //
 // WHAT THIS ENGINE IS NOT. It publishes TEXT and says how much of it is safe to
 // show. Turning that text into blocks — the incremental lex, the memoized block
-// parse, the settled-block subtree, the highlight cache — is the card layer's, and
+// parse, the settled-block subtree, the code blocks' span cache — is the card layer's, and
 // a parser here would be a second one.
 //
 // WHAT IT NO LONGER DECLARES. The two closed sets and the four published shapes —

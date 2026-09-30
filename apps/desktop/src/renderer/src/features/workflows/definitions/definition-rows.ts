@@ -6,7 +6,7 @@
 // reader of `WorkflowDefinitionRow` imports it from here, and no component module
 // re-exports it, which is what keeps one shape from having two apparent homes.
 
-import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 
 /**
  * One definition, as the enumeration carries it.

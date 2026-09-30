@@ -17,7 +17,8 @@ import {
   approvalCommandRows,
   type ApprovalCommandInput,
 } from "../contributions/approval-commands.js";
-import { pendingRecord, renderCard } from "./approval-card.test-support.js";
+import { pendingRecord } from "../approval-record.test-support.js";
+import { renderCard } from "./approval-card.test-support.js";
 
 const ALREADY_RESOLVED: Refusal = refuse(
   "approvals",
@@ -32,7 +33,7 @@ function rowsFor(refusalForRecord: Refusal): ApprovalCommandInput {
   return {
     pending: [record],
     resolvingApprovalIds: new Set<string>(),
-    resolveRefusalByApprovalId: new Map([[record.approvalRequestId, refusalForRecord]]),
+    resolveRefusalByApprovalId: new Map([[record.id, refusalForRecord]]),
     resolve: () => undefined,
   };
 }

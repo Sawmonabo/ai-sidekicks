@@ -3,8 +3,13 @@
 // session event union imports the payload, and the directory imports that union.
 import { z } from "zod";
 
-import { REPO_PATH_MAX_LEN, RepoMountIdSchema, type RepoMountId } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "./session.js";
 
 // --------------------------------------------------------------------------
 // session.convert
@@ -24,7 +29,7 @@ export const SessionConvertRequestSchema: z.ZodType<SessionConvertRequest, Sessi
   z
     .object({
       sessionId: SessionIdSchema,
-      path: wireFreeFormString(REPO_PATH_MAX_LEN, "SessionConvertRequest.path"),
+      path: wireFreeFormString(FILE_PATH_MAX_LEN, "SessionConvertRequest.path"),
       clientIdempotencyKey: z.uuid(),
     })
     .strict();
@@ -41,7 +46,7 @@ export interface SessionConvertResponse {
 const sessionConvertOutcomeFields = {
   copiedCount: z.number().int().nonnegative(),
   skippedPaths: z.array(
-    wireFreeFormString(REPO_PATH_MAX_LEN, "SessionConvertResponse.skippedPaths"),
+    wireFreeFormString(FILE_PATH_MAX_LEN, "SessionConvertResponse.skippedPaths"),
   ),
 };
 export const SessionConvertResponseSchema: z.ZodType<SessionConvertResponse> = z

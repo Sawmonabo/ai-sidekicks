@@ -2,10 +2,10 @@
 // decisions rather than as prose, plus the two rules this console owns outright.
 //
 // The PIPELINE lives under `markdown/`: the segmenter, the parse, the mapper, the
-// footnote registry, the highlighter. This module is the policy that pipeline obeys,
-// and it is separate for one reason — every rule below is a claim about what the
-// console may and may not render, and a claim that lives inside the machinery that
-// implements it can only be checked by reading the machinery. Here it is a value a
+// footnote registry, the code block's color spans. This module is the policy that
+// pipeline obeys, and it is separate for one reason — every rule below is a claim about
+// what the console may and may not render, and a claim that lives inside the machinery
+// that implements it can only be checked by reading the machinery. Here it is a value a
 // test can assert against and a mapper can be handed.
 //
 // THE FIVE RULES, EACH WITH ITS OWN CONSEQUENCE.

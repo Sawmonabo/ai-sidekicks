@@ -13,19 +13,20 @@
 // the phase sequence would bury a security rule inside a shape reader.
 //
 // THE THREE ARMS ARE READ AS THREE ARMS. `McpServerBindingRef` is a discriminated
-// union, not one shape with two optional members — `user` carries no `scopeRef` at all
-// and `local` is admissible only with `claude` — so the reader dispatches on the scope
-// and composes the arm it landed on. A flat read would admit the `(codex, local)`
-// combination the union rejects at the schema layer, which is precisely the shape the
-// contracts document says a restatement must not create.
+// union on the scope: `user` carries no `scopeRef` at all, and `project` and `local`
+// require one. Every scope exists on both providers, so the reader dispatches on the
+// scope and composes the arm it landed on.
 
 import {
-  MCP_BINDING_PROVIDERS,
-  MCP_BINDING_SCOPES,
-  firstUnadmittedKey,
-  readVocabularyMember,
+  MCP_CONFIG_SCOPES,
+  PROVIDER_NAMES,
   type McpServerBindingRef,
   type WorkflowToolBinding,
+} from "@ai-sidekicks/contracts";
+
+import {
+  firstUnadmittedKey,
+  readVocabularyMember,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
@@ -137,11 +138,11 @@ function readBindingReference(value: unknown, bindingProse: string): McpServerBi
     // a definition carrying one is refused rather than imported and ignored.
     return `${bindingProse} carries \`${facet}\`, which is the node operator's setting and never a definition's.`;
   }
-  const provider = readVocabularyMember(value["provider"], MCP_BINDING_PROVIDERS);
+  const provider = readVocabularyMember(value["provider"], PROVIDER_NAMES);
   if (provider === undefined) {
     return `${bindingProse} names no provider this console knows in \`provider\`.`;
   }
-  const scope = readVocabularyMember(value["scope"], MCP_BINDING_SCOPES);
+  const scope = readVocabularyMember(value["scope"], MCP_CONFIG_SCOPES);
   if (scope === undefined) {
     return `${bindingProse} names no binding scope this console knows in \`scope\`.`;
   }
@@ -167,12 +168,5 @@ function readBindingReference(value: unknown, bindingProse: string): McpServerBi
   if (serverName === undefined) {
     return `${bindingProse} names no server in \`serverName\`.`;
   }
-  if (scope === "project") {
-    return { provider, scope, scopeRef, serverName };
-  }
-  // The one combination the union rejects, refused by name rather than by a shape
-  // check that would leave the reader guessing which half was wrong.
-  return provider === "claude"
-    ? { provider, scope, scopeRef, serverName }
-    : `${bindingProse} is \`local\`-scoped under \`${provider}\`, and only \`claude\` carries local bindings.`;
+  return { provider, scope, scopeRef, serverName };
 }

@@ -19,8 +19,8 @@ import {
   type MachineSettings,
   type MachineSettingsChange,
   type MachineSettingsReading,
-  type MachineSettingsRepair,
-  type MachineSettingsRepairCause,
+  type SettingsFileRepair,
+  type SettingsFileRepairCause,
 } from "@ai-sidekicks/contracts";
 
 /** Hears each reading the file takes on: after a change, and after a repair. */
@@ -45,7 +45,7 @@ export class MachineSettingsFile {
   readonly #filePath: string;
   readonly #now: () => Date;
   readonly #listeners = new Set<MachineSettingsListener>();
-  #repair: MachineSettingsRepair | undefined;
+  #repair: SettingsFileRepair | undefined;
   #pending: Promise<unknown> = Promise.resolve();
 
   public constructor(options: MachineSettingsFileOptions) {
@@ -118,7 +118,7 @@ export class MachineSettingsFile {
     return this.#readingOf(parsed.data);
   }
 
-  async #repairWithDefaults(cause: MachineSettingsRepairCause): Promise<MachineSettingsReading> {
+  async #repairWithDefaults(cause: SettingsFileRepairCause): Promise<MachineSettingsReading> {
     await this.#writeAtomically(MACHINE_SETTINGS_DEFAULTS);
     this.#repair = { repairedAt: this.#now().toISOString(), cause };
     const reading = this.#readingOf(MACHINE_SETTINGS_DEFAULTS);

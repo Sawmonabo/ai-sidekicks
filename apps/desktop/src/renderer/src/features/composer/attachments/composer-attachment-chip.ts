@@ -18,6 +18,8 @@
 // the upload is still attempted, so a color there would report a verdict the console
 // has not been given.
 
+import { SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT } from "@ai-sidekicks/contracts";
+
 import { exceedsAttachmentByteAllowance } from "./attachment-bounds.js";
 import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./attachment-policy.js";
 import { isIngestStalled } from "./attachment-presentation.js";
@@ -27,14 +29,13 @@ import {
   attachmentNameReading,
 } from "./attachment-provenance.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
-import { ATTACHMENT_BYTE_CAP_DEFAULT } from "./attachment-caps.js";
 import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import { type ChipTone } from "@renderer/components/Chip/Chip.js";
 
 /** What one chip renders, and which acts it offers. */
 export interface ComposerAttachmentChipModel {
   readonly localId: string;
-  /** The name this entry goes by — `normalizedName` once the daemon has minted one. */
+  /** The name this entry goes by — `fileName` once the daemon has minted one. */
   readonly name: string;
   /** True while the name is still the caller's own claim rather than the manifest's. */
   readonly nameIsDeclared: boolean;
@@ -94,7 +95,7 @@ export function composerAttachmentChip(
   // The DERIVED length once one exists, because that is what the daemon found; the
   // declaration is what it was before, and a chip that kept showing the claim after a
   // finding arrived would report the caller's word as the manifest's.
-  const byteLength = entry.derived?.derivedSizeBytes ?? entry.declared.byteLength;
+  const byteLength = entry.derived?.sizeBytes ?? entry.declared.byteLength;
   const sizeFigure = formatByteQuantity(byteLength);
   return {
     localId: entry.declared.localId,
@@ -113,7 +114,7 @@ export function composerAttachmentChip(
     isStalled: isIngestStalled(entry, publishedAtMilliseconds),
     isPastByteAllowance: exceedsAttachmentByteAllowance(
       entry.declared.byteLength,
-      ATTACHMENT_BYTE_CAP_DEFAULT,
+      SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT,
     ),
     refusal:
       entry.refusal === undefined

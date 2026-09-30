@@ -37,6 +37,10 @@ function account(overrides: Partial<ProviderAccount> = {}): ProviderAccount {
     loggedInAt: null,
     expectedReloginAtEstimate: null,
     probeEnabled: true,
+    lastRefreshObservedAt: null,
+    windowStartEnabled: true,
+    wakeForWindowStartEnabled: false,
+    memoryImport: null,
     ...overrides,
   };
 }

@@ -1,10 +1,9 @@
 // The binding one agent is running under right now.
 //
 // The refusals, stated where they are enforced below: `observedOutputSpeed` absence is
-// never rendered as "off" and `outputSpeed` is never substituted for it, the resolved
+// never rendered as "off" and `outputSpeed` is never substituted for it, and the resolved
 // configuration is never re-read from the definition registry — the registry row may
-// already have moved — and a configuration naming NO definition is never attributed to
-// one.
+// already have moved.
 //
 // THE TOOL GRANT IS A LINE OF ITS OWN, above the resolved-configuration disclosure
 // rather than inside it. The allowlist is the per-agent control over every tool source
@@ -25,15 +24,15 @@
 // inputs and reach no caller at all.
 //
 // `createdAt` IS RENDERED, AND IN THE HEAD RATHER THAN THE EFFECTIVE LINE. It is part
-// of the identity and lifecycle the roster reply carries: a roster of several agents
-// gives no other way to tell the one created this morning from the one that has been
-// in the session since it opened. It is deliberately NOT on the effective line, whose
+// of the identity every roster row carries: a roster of several agents gives no other
+// way to tell the one created this morning from the one that has been in the session
+// since it opened. It is deliberately NOT on the effective line, whose
 // members are all provider axes: an instant sitting among them would read as one more
 // axis of the binding.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "@renderer/lib/wire-figures.js";
-import { type AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
+import { type AgentListEntry } from "@ai-sidekicks/contracts";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
 import { ObservedOutputSpeed } from "./ObservedOutputSpeed.js";
@@ -48,40 +47,34 @@ export interface AgentBindingCardProps {
 /** One agent: its identity, the binding it runs under, and the tool grant it holds. */
 export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Element {
   const { agent } = props;
-  const label = agent.name ?? agent.agentId;
+  const { binding } = agent;
   const toolGrant = agentToolAllowlistPosition(agent);
 
   return (
-    <article className="meridian-agent-card" aria-label={`Agent ${label}`}>
+    <article className="meridian-agent-card" aria-label={`Agent ${agent.name}`}>
       <header className="meridian-agent-card__head">
-        <h4 className="meridian-agent-card__name">{label}</h4>
-        {agent.createdAt === undefined ? null : (
-          <span className="meridian-agent-card__created">
-            <span className="meridian-agent-card__line-label">Created</span>{" "}
-            <WireFigure value={formatDateTime(agent.createdAt)} title={agent.createdAt} />
-          </span>
-        )}
+        <h4 className="meridian-agent-card__name">{agent.name}</h4>
+        <span className="meridian-agent-card__created">
+          <span className="meridian-agent-card__line-label">Created</span>{" "}
+          <WireFigure value={formatDateTime(agent.createdAt)} title={agent.createdAt} />
+        </span>
       </header>
 
       <p className="meridian-agent-card__effective">
         <span className="meridian-agent-card__line-label">Running under</span>{" "}
-        <BindingAxis label="provider" value={agent.driverName} />
-        <BindingAxis label="model" value={agent.modelId} />
+        <BindingAxis label="provider" value={binding.driverName} />
+        <BindingAxis label="model" value={binding.modelId} />
         <BindingAxis
           label="account"
-          value={agent.config?.providerAccountId}
-          absenceMeaning="the provider's registered default"
+          value={binding.providerAccountId}
+          absenceMeaning="the provider's current account"
         />
         <BindingAxis
           label="effort"
-          value={agent.config?.effort}
+          value={binding.effort}
           absenceMeaning="the provider's default for this model"
         />
-        <BindingAxis
-          label="output speed"
-          value={agent.config?.outputSpeed}
-          absenceMeaning="never set"
-        />
+        <BindingAxis label="output speed" value={binding.outputSpeed} absenceMeaning="never set" />
       </p>
 
       <ObservedOutputSpeed agent={agent} />
@@ -92,11 +85,7 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
           <summary className="meridian-agent-card__disclosure-summary">
             Resolved configuration
           </summary>
-          <ResolvedConfiguration
-            resolved={agent.resolvedConfiguration}
-            definitionId={agent.resolvedFromDefinitionId}
-            toolGrant={toolGrant}
-          />
+          <ResolvedConfiguration resolved={agent.resolvedConfiguration} toolGrant={toolGrant} />
         </details>
       )}
     </article>

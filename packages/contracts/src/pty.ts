@@ -8,17 +8,19 @@
 // terminal id alone never reaches another session's shell.
 //
 // The lease is one per shell. It is held by one of the user's devices, or by an
-// agent's run on this machine; a run's hold carries the machine's own device id
-// and the run's id, so a screen can tell "this device holds it", "another device
-// holds it" and "a run holds it" apart. There is no release: a hold ends when
+// agent's running command on this machine; a run's hold carries the machine's own
+// device id, the run's id and the holding command's id, so a screen can tell "this
+// device holds it", "another device holds it" and "a run holds it" apart, and can
+// stop the command that holds it. There is no release: a hold ends when
 // another device takes the shell, when the holding connection ends, or when the
 // holding run leaves its running state.
 import { z } from "zod";
 
+import { CommandIdSchema, type CommandId } from "./command.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
-import { DEVICE_ID_MAX_LEN } from "./presence.js";
+import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
@@ -38,17 +40,37 @@ const holderDeviceIdSchema = wireFreeFormString(DEVICE_ID_MAX_LEN, "holderDevice
 
 /**
  * Who holds one shell's control lease. `holderDeviceId` is the holding device;
- * while an agent's run holds the shell it is this machine's own device and
- * `holderRunId` names the run, whose agent the screen reads from the run.
+ * while an agent's running command holds the shell it is this machine's own
+ * device, `holderRunId` names the run, whose agent the screen reads from the run,
+ * and `holderCommandId` names the command, which is what stopping the hold stops.
  */
 export interface TerminalControlHolder {
   holderDeviceId: string;
   holderRunId?: RunId | undefined;
+  holderCommandId?: CommandId | undefined;
 }
-/** Parses a {@link TerminalControlHolder}. */
+
+// A run holds a shell only through one of its running commands, so a hold names
+// both or neither: a run without its command leaves nothing to stop, and a command
+// without its run leaves no agent to name.
+const runHoldNamesItsCommand = (holder: {
+  holderRunId?: RunId | undefined;
+  holderCommandId?: CommandId | undefined;
+}): boolean => (holder.holderRunId === undefined) === (holder.holderCommandId === undefined);
+const RUN_HOLD_NAMES_ITS_COMMAND = {
+  message: "a run's hold names the run and its holding command together",
+  path: ["holderCommandId"],
+};
+
+/** Parses a {@link TerminalControlHolder}; a run's hold names its command. */
 export const TerminalControlHolderSchema: z.ZodType<TerminalControlHolder> = z
-  .object({ holderDeviceId: holderDeviceIdSchema, holderRunId: RunIdSchema.optional() })
-  .strict();
+  .object({
+    holderDeviceId: holderDeviceIdSchema,
+    holderRunId: RunIdSchema.optional(),
+    holderCommandId: CommandIdSchema.optional(),
+  })
+  .strict()
+  .refine(runHoldNamesItsCommand, RUN_HOLD_NAMES_ITS_COMMAND);
 
 // --------------------------------------------------------------------------
 // pty.list — the session's shells, live
@@ -395,13 +417,15 @@ export interface PtyControlChangedPayload {
   terminalId: TerminalId;
   holderDeviceId: string | null;
   holderRunId?: RunId | undefined;
+  holderCommandId?: CommandId | undefined;
   previousHolderDeviceId: string | null;
   reason: PtyControlChangedReason;
 }
 /**
  * Parses a {@link PtyControlChangedPayload}. A take that names no holder, or a
  * release that names one, contradicts itself and is refused. A forced take is a
- * device's, never a run's, and always moves the shell off another device.
+ * device's, never a run's, and always moves the shell off another device. A run's
+ * take names its holding command.
  */
 export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload> = z
   .object({
@@ -409,10 +433,12 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
     terminalId: TerminalIdSchema,
     holderDeviceId: holderDeviceIdSchema.nullable(),
     holderRunId: RunIdSchema.optional(),
+    holderCommandId: CommandIdSchema.optional(),
     previousHolderDeviceId: holderDeviceIdSchema.nullable(),
     reason: z.enum(PTY_CONTROL_CHANGED_REASONS),
   })
   .strict()
+  .refine(runHoldNamesItsCommand, RUN_HOLD_NAMES_ITS_COMMAND)
   .refine(
     (payload) =>
       payload.reason === "taken" || payload.reason === "taken_by_force"
@@ -440,21 +466,23 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
 /**
  * A take, a close or a resize refused because someone else holds the shell. The
  * details name the holder, so the screen can tell a run's hold, which only stopping
- * the run ends, from another device's, which a forced take or close moves.
+ * its command ends, from another device's, which a forced take or close moves.
  */
 export const PTY_CONTROL_HELD_BY_OTHER_CODE = "pty.control_held_by_other" as const;
 export type PtyControlHeldByOtherCode = typeof PTY_CONTROL_HELD_BY_OTHER_CODE;
 export interface PtyControlHeldByOtherDetails extends TerminalControlHolder {
   terminalId: TerminalId;
 }
-/** Parses a {@link PtyControlHeldByOtherDetails}. */
+/** Parses a {@link PtyControlHeldByOtherDetails}; a run's hold names its command. */
 export const PtyControlHeldByOtherDetailsSchema: z.ZodType<PtyControlHeldByOtherDetails> = z
   .object({
     terminalId: TerminalIdSchema,
     holderDeviceId: holderDeviceIdSchema,
     holderRunId: RunIdSchema.optional(),
+    holderCommandId: CommandIdSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(runHoldNamesItsCommand, RUN_HOLD_NAMES_ITS_COMMAND);
 
 /** A write to a shell the writing device does not hold; it takes the shell first. */
 export const PTY_CONTROL_NOT_HELD_CODE = "pty.control_not_held" as const;

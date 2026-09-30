@@ -38,11 +38,9 @@ import { reuseVerdictFor, type ReuseVerdict } from "./prepare-form.js";
 export type PrepareOperations = Pick<RepoOperations, "checkWorktreeReuse" | "prepareExecutionRoot">;
 
 /** What a finished prepare carries: the root on disk, and the state it is in. */
-export interface PrepareSettlement {
-  readonly status: "prepared";
-  readonly executionRoot: string;
-  readonly state: string;
-}
+export type PrepareSettlement = { readonly status: "prepared" } & Readonly<
+  Pick<ExecutionRootPrepareResponse, "executionRoot" | "state">
+>;
 
 /** Both halves, published together so a form renders one consistent frame. */
 export type PrepareReading = ActReading<ReuseVerdict, PrepareSettlement>;

@@ -94,7 +94,6 @@ import {
   type DriverCapabilityFlag,
   type DriverInterventionResult,
   type InterruptRunParams,
-  type InterventionType,
   type RunId,
 } from "@ai-sidekicks/contracts";
 import {
@@ -112,11 +111,11 @@ export const CODEX_INTERVENTION_FALLBACK_ACTION: string = "queue_and_interrupt";
 /**
  * Capability flag governing each intervention type this driver dispatches.
  *
- * A closed record over the three-armed `ApplyInterventionParams` union. `null`
+ * A closed record over the `ApplyInterventionParams` arms. `null`
  * means "no flag gates this type" (see the header).
  */
 export const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
-  Record<InterventionType, DriverCapabilityFlag | null>
+  Record<ApplyInterventionParams["type"], DriverCapabilityFlag | null>
 > = {
   steer: "steer",
   interrupt: null,

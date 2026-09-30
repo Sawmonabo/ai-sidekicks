@@ -8,9 +8,9 @@
 // class hands itself. This class owns the read and that one owns when.
 //
 // The roots come from their own read, and it is the only one that names a worktree. A
-// workspace row carries no worktree id, so the session-scoped worktree status read is what
-// says which roots a session is running in. It is one call for the whole session rather
-// than one per mount.
+// workspace row carries no worktree id, so the worktree status read is what says which
+// worktrees exist. That read is keyed by the project's folder, so it is one call per
+// mount the session has bound, and the rows are listed mount by mount.
 //
 // The read order is forced by the wire. There is no mount list call, so the session's
 // mounts are learned from its workspaces: every workspace names its mount, so the roster
@@ -37,6 +37,7 @@ import type {
   RepoMountReadResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceId,
+  WorktreeStatusRecord,
 } from "@ai-sidekicks/contracts";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
@@ -256,7 +257,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
 
   /**
    * The section's whole reading: a workspace roster, one mount read per distinct
-   * mount, the worktree roster, and one capability read per workspace.
+   * mount, one worktree read per mount, and one capability read per workspace.
    *
    * Serial, and so the most worth abandoning. The round's signal reaches each read, so a
    * pass abandoned because the section was left costs `callDaemon`'s pre-send check per
@@ -286,9 +287,13 @@ export class RepoMountsReader implements ReadTriggerTarget {
       }
     }
 
-    const roots = await this.#operations.readWorktreeStatus(this.#sessionId, round.signal);
-    if (this.#isAbandoned(round)) {
-      return;
+    const worktrees: WorktreeStatusRecord[] = [];
+    for (const mount of mounts) {
+      const roots = await this.#operations.readWorktreeStatus(mount.id, round.signal);
+      if (this.#isAbandoned(round)) {
+        return;
+      }
+      worktrees.push(...roots.worktrees);
     }
 
     const capabilitiesByWorkspaceId: Record<
@@ -309,7 +314,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
       status: "read",
       mounts,
       workspaces,
-      worktrees: roots.worktrees,
+      worktrees,
       readAtMilliseconds: this.#clock.now(),
       capabilitiesByWorkspaceId,
       // Spread forward, never rebuilt. A switch the daemon has not answered is still on the

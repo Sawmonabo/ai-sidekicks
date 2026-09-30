@@ -1,41 +1,23 @@
 // Presence contract schema tests.
 //
-// Backstops the `PresenceHeartbeat` payload: 2 outer fields
-// `{deviceId, activityState}` plus the 4 required metadata fields
-// `{deviceType, focusedSessionId, lastActivityAt, appVisible}`.
-//
-// Test surface enumerated (the "what" each block pins):
-//   * PresenceStateSchema wire-form pin — exactly the 4 canonical literals
-//     `{online, idle, reconnecting, offline}`. `"away"` / `"busy"` rejected.
-//   * PresenceHeartbeatSchema happy path — all 2 outer + 4 metadata fields
-//     parse cleanly.
-//   * PresenceHeartbeatSchema required-field guards — outer 2 each required
-//     (deviceId, activityState); ALL 4 metadata fields each
-//     required-key-at-parse (deviceType, focusedSessionId, lastActivityAt,
-//     appVisible). focusedSessionId additionally accepts explicit `null` as
-//     its value (.nullable() shape); `undefined` is rejected to pin against
-//     future drift to `.nullish()`.
-//   * PresenceHeartbeatSchema .strict() anti-leakage — unknown top-level OR
-//     unknown `metadata.*` key rejected.
-//   * PresenceUpdateSchema happy path — `{sessionId, awarenessState}` with
-//     real Uint8Array parses; non-Uint8Array (string, plain array,
-//     ArrayBuffer) rejected. Node `Buffer` (subclass) accepted.
-//   * PresenceReadRequestSchema + PresenceReadResponseSchema happy paths —
-//     the read reply is the one user's DEVICE list, not a roster of people.
-//   * UUID composability — branded UUID guards reject malformed strings on
-//     every UUID-typed field.
+// What each block holds:
+//   * PresenceStateSchema — the four liveness states; anything else refused.
+//   * PresenceHeartbeatSchema — the 2 outer and 4 metadata fields, each
+//     required; `focusedSessionId` is `null`, never absent; unknown keys
+//     refused at both levels; the device-id and device-type bounds.
+//   * The two requests — empty; a request naming a session is refused.
+//   * MachinePresenceSchema — the devices connected to this machine.
 
 import { describe, expect, it } from "vitest";
 
+import { DEVICE_ID_MAX_LEN } from "../trust-statement.js";
 import {
-  DEVICE_ID_MAX_LEN,
   DEVICE_TYPE_MAX_LEN,
+  MachinePresenceSchema,
   PresenceHeartbeatSchema,
   PresenceReadRequestSchema,
-  PresenceReadResponseSchema,
   PresenceStateSchema,
-  PresenceUpdateSchema,
-  SessionIdSchema,
+  PresenceSubscribeRequestSchema,
   type PresenceState,
 } from "../presence.js";
 
@@ -49,7 +31,6 @@ const SECOND_DEVICE_ID = "device-9b1c-1b7c-7c4a";
 const DEVICE_TYPE = "desktop";
 const SECOND_DEVICE_TYPE = "mobile";
 const LAST_ACTIVITY_AT = "2026-05-22T14:30:00.000Z";
-const LAST_SEEN = "2026-05-22T14:29:45.000Z";
 
 // Fixture returns a wire-shaped object without per-field brand casts —
 // safeParse accepts plain UUID strings and brands them on the way out.
@@ -67,24 +48,6 @@ const buildHeartbeatPayload = () => ({
 });
 
 // =============================================================================
-// Re-exports from session.ts — branded UUID guards
-// =============================================================================
-//
-// Anti-cosmetic: a typo in the `export { SessionIdSchema, ... }` line
-// would otherwise only surface as a downstream consumer typecheck failure
-// at PR review time.
-
-describe("SessionIdSchema (re-exported from session.ts)", () => {
-  it("parses a valid UUID", () => {
-    expect(SessionIdSchema.parse(SESSION_ID)).toBe(SESSION_ID);
-  });
-
-  it("rejects a malformed UUID", () => {
-    expect(SessionIdSchema.safeParse("not-a-uuid").success).toBe(false);
-  });
-});
-
-// =============================================================================
 // PresenceStateSchema — canonical lifecycle enum
 // =============================================================================
 //
@@ -93,12 +56,6 @@ describe("SessionIdSchema (re-exported from session.ts)", () => {
 
 describe("PresenceStateSchema (wire form is exactly {online, idle, reconnecting, offline})", () => {
   const EXPECTED_STATES = ["online", "idle", "reconnecting", "offline"] as const;
-
-  it("enumerates exactly four canonical states (no more, no less)", () => {
-    const schemaInternals = PresenceStateSchema as unknown as { options: readonly string[] };
-    expect(schemaInternals.options).toHaveLength(4);
-    expect([...schemaInternals.options].sort()).toEqual([...EXPECTED_STATES].sort());
-  });
 
   it.each(EXPECTED_STATES)("accepts canonical state: %s", (state) => {
     expect(PresenceStateSchema.safeParse(state).success).toBe(true);
@@ -285,8 +242,7 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
   // ----------------------------------------------------------------------
   //
   // Pin both the inclusive accept (= MAX_LEN) and the strict reject
-  // (= MAX_LEN + 1) for each cap. Mirrors the convention in
-  // session-create.test.ts:207-216. Guards
+  // (= MAX_LEN + 1) for each cap. Guards
   // against silent widening — a future PR that bumps either constant
   // without intent will fail these tests.
 
@@ -408,135 +364,50 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
 });
 
 // =============================================================================
-// PresenceUpdateSchema — JSON-RPC local IPC daemon → client push
+// Requests — presence is the machine's, so neither request names a session
 // =============================================================================
-//
-// Exact wire shape:
-//   `{sessionId: SessionId, awarenessState: Uint8Array}`
 
-describe("PresenceUpdateSchema (JSON-RPC local IPC, daemon → client push)", () => {
-  it("accepts a well-formed update with sessionId + Uint8Array awarenessState", () => {
-    const payload = {
-      sessionId: SESSION_ID,
-      awarenessState: new Uint8Array([1, 2, 3, 4, 5]),
-    };
-    const parsed = PresenceUpdateSchema.parse(payload);
-    expect(parsed.sessionId).toBe(SESSION_ID);
-    expect(parsed.awarenessState).toBeInstanceOf(Uint8Array);
-    expect(parsed.awarenessState).toHaveLength(5);
+describe.each([
+  ["PresenceReadRequestSchema", PresenceReadRequestSchema],
+  ["PresenceSubscribeRequestSchema", PresenceSubscribeRequestSchema],
+] as const)("%s", (_name, schema) => {
+  it("accepts the empty request", () => {
+    expect(schema.safeParse({}).success).toBe(true);
   });
 
-  it("accepts an empty Uint8Array (the Yjs encoder may emit zero-length frames)", () => {
-    const payload = { sessionId: SESSION_ID, awarenessState: new Uint8Array(0) };
-    expect(PresenceUpdateSchema.safeParse(payload).success).toBe(true);
-  });
-
-  it("accepts a Node Buffer (Buffer extends Uint8Array — daemon producers emit Buffer)", () => {
-    // Node's `Buffer` is a subclass of `Uint8Array`; `z.instanceof(Uint8Array)`
-    // accepts Buffer instances. Forcing a copy at the wire layer would be
-    // wasteful — daemon-side Yjs encoders frequently emit Buffer directly.
-    const payload = {
-      sessionId: SESSION_ID,
-      awarenessState: Buffer.from([1, 2, 3]),
-    };
-    const result = PresenceUpdateSchema.safeParse(payload);
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects awarenessState as plain array (not a Uint8Array)", () => {
-    const broken = { sessionId: SESSION_ID, awarenessState: [1, 2, 3] };
-    expect(PresenceUpdateSchema.safeParse(broken).success).toBe(false);
-  });
-
-  it("rejects awarenessState as string", () => {
-    const broken = { sessionId: SESSION_ID, awarenessState: "binary-as-string" };
-    expect(PresenceUpdateSchema.safeParse(broken).success).toBe(false);
-  });
-
-  it("rejects awarenessState as bare ArrayBuffer (Uint8Array is the canonical view)", () => {
-    const broken = { sessionId: SESSION_ID, awarenessState: new ArrayBuffer(8) };
-    expect(PresenceUpdateSchema.safeParse(broken).success).toBe(false);
-  });
-
-  it("rejects update missing sessionId", () => {
-    const broken = { awarenessState: new Uint8Array([1]) };
-    expect(PresenceUpdateSchema.safeParse(broken).success).toBe(false);
-  });
-
-  it("rejects update missing awarenessState", () => {
-    const broken = { sessionId: SESSION_ID };
-    expect(PresenceUpdateSchema.safeParse(broken).success).toBe(false);
-  });
-
-  it("rejects malformed sessionId (UUID guard composes)", () => {
-    const broken = { sessionId: "not-a-uuid", awarenessState: new Uint8Array([1]) };
-    expect(PresenceUpdateSchema.safeParse(broken).success).toBe(false);
-  });
-
-  it("rejects extraneous keys (.strict() guard)", () => {
-    const broken = {
-      sessionId: SESSION_ID,
-      awarenessState: new Uint8Array([1]),
-      unexpected: "field",
-    };
-    expect(PresenceUpdateSchema.safeParse(broken).success).toBe(false);
+  it("refuses a request that names a session", () => {
+    expect(schema.safeParse({ sessionId: SESSION_ID }).success).toBe(false);
   });
 });
 
 // =============================================================================
-// PresenceReadRequestSchema — JSON-RPC local IPC client → daemon query
-// =============================================================================
-
-describe("PresenceReadRequestSchema (JSON-RPC local IPC, client → daemon query)", () => {
-  it("accepts a request with sessionId only", () => {
-    const parsed = PresenceReadRequestSchema.parse({ sessionId: SESSION_ID });
-    expect(parsed.sessionId).toBe(SESSION_ID);
-  });
-
-  it("rejects request missing sessionId", () => {
-    expect(PresenceReadRequestSchema.safeParse({}).success).toBe(false);
-  });
-
-  it("rejects request with malformed sessionId (UUID guard composes)", () => {
-    expect(PresenceReadRequestSchema.safeParse({ sessionId: "not-a-uuid" }).success).toBe(false);
-  });
-
-  it("rejects extraneous keys (.strict() guard)", () => {
-    const broken = { sessionId: SESSION_ID, unexpected: "field" };
-    expect(PresenceReadRequestSchema.safeParse(broken).success).toBe(false);
-  });
-});
-
-// =============================================================================
-// PresenceReadResponseSchema — device projection array
+// MachinePresenceSchema — the devices connected to this machine
 // =============================================================================
 //
 // Wire shape:
-//   `{devices: Array<{deviceId, deviceType, appVisible, state, lastSeen}>}`
+//   `{devices: Array<{deviceId, deviceType, appVisible, state}>}`
 //
-// Every element is one DEVICE of the one user — there is no user axis.
+// `presence.read` answers with it and `presence.subscribe` pushes it.
 
 const buildDeviceEntry = () => ({
   deviceId: DEVICE_ID,
   deviceType: DEVICE_TYPE,
   appVisible: true,
   state: "online" as PresenceState,
-  lastSeen: LAST_SEEN,
 });
 
-describe("PresenceReadResponseSchema (device projection)", () => {
+describe("MachinePresenceSchema (the devices connected to this machine)", () => {
   it("accepts a response with one device", () => {
-    const parsed = PresenceReadResponseSchema.parse({ devices: [buildDeviceEntry()] });
+    const parsed = MachinePresenceSchema.parse({ devices: [buildDeviceEntry()] });
     expect(parsed.devices).toHaveLength(1);
     expect(parsed.devices[0]?.deviceId).toBe(DEVICE_ID);
     expect(parsed.devices[0]?.deviceType).toBe(DEVICE_TYPE);
     expect(parsed.devices[0]?.appVisible).toBe(true);
     expect(parsed.devices[0]?.state).toBe("online");
-    expect(parsed.devices[0]?.lastSeen).toBe(LAST_SEEN);
   });
 
-  it("accepts an empty devices array (no device online)", () => {
-    const parsed = PresenceReadResponseSchema.parse({ devices: [] });
+  it("accepts an empty devices array (no device connected)", () => {
+    const parsed = MachinePresenceSchema.parse({ devices: [] });
     expect(parsed.devices).toEqual([]);
   });
 
@@ -549,66 +420,53 @@ describe("PresenceReadResponseSchema (device projection)", () => {
           deviceType: SECOND_DEVICE_TYPE,
           appVisible: false,
           state: "reconnecting" as PresenceState,
-          lastSeen: LAST_SEEN,
         },
       ],
     };
-    const parsed = PresenceReadResponseSchema.parse(payload);
+    const parsed = MachinePresenceSchema.parse(payload);
     expect(parsed.devices).toHaveLength(2);
   });
 
-  it.each(["deviceId", "deviceType", "appVisible", "state", "lastSeen"] as const)(
+  it.each(["deviceId", "deviceType", "appVisible", "state"] as const)(
     "rejects a device element missing required field: %s",
     (field) => {
       const broken = { ...buildDeviceEntry() } as Record<string, unknown>;
       delete broken[field];
-      expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
+      expect(MachinePresenceSchema.safeParse({ devices: [broken] }).success).toBe(false);
     },
   );
 
   it("rejects a device element with a whitespace-only deviceId (wireFreeFormString guard)", () => {
     const broken = { ...buildDeviceEntry(), deviceId: "   " };
-    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
+    expect(MachinePresenceSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
   it("rejects a device element with a NUL byte in deviceType (wireFreeFormString guard)", () => {
     const broken = { ...buildDeviceEntry(), deviceType: "desk\u0000top" };
-    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
+    expect(MachinePresenceSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
   it("rejects a device element with a non-boolean appVisible", () => {
     const broken = { ...buildDeviceEntry(), appVisible: "yes" };
-    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
+    expect(MachinePresenceSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
   it("rejects a device element with unknown state (composes from PresenceStateSchema)", () => {
     const broken = { ...buildDeviceEntry(), state: "away" };
-    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
-  });
-
-  it("rejects a device element with non-ISO lastSeen", () => {
-    const broken = { ...buildDeviceEntry(), lastSeen: "an hour ago" };
-    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
-  });
-
-  it("accepts lastSeen with numeric offset (RFC 3339 section 5.6)", () => {
-    const payload = {
-      devices: [{ ...buildDeviceEntry(), lastSeen: "2026-05-22T08:29:45-04:00" }],
-    };
-    expect(PresenceReadResponseSchema.safeParse(payload).success).toBe(true);
+    expect(MachinePresenceSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 
   it("rejects response missing the devices field", () => {
-    expect(PresenceReadResponseSchema.safeParse({}).success).toBe(false);
+    expect(MachinePresenceSchema.safeParse({}).success).toBe(false);
   });
 
   it("rejects extraneous keys at top level (.strict() guard)", () => {
     const broken = { devices: [], unexpected: "field" };
-    expect(PresenceReadResponseSchema.safeParse(broken).success).toBe(false);
+    expect(MachinePresenceSchema.safeParse(broken).success).toBe(false);
   });
 
-  it("rejects extraneous keys within a device element (.strict() guard)", () => {
-    const broken = { ...buildDeviceEntry(), userId: "leak" };
-    expect(PresenceReadResponseSchema.safeParse({ devices: [broken] }).success).toBe(false);
+  it("rejects a device element that names a session (.strict() guard)", () => {
+    const broken = { ...buildDeviceEntry(), sessionId: SESSION_ID };
+    expect(MachinePresenceSchema.safeParse({ devices: [broken] }).success).toBe(false);
   });
 });

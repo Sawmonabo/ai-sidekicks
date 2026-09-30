@@ -22,7 +22,7 @@ import {
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
 import { ExecutionModeSchema, type ExecutionMode } from "./repo.js";
-import { wireFreeFormString } from "./session.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
 
 /** Where the file sits, relative to the person's home folder. */
 export const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: readonly [
@@ -39,8 +39,6 @@ export const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: readonly [
  * characters, the tightest limit of the three platforms.
  */
 export const ENVIRONMENT_ROW_MAX_LEN = 32_767;
-/** The longest folder path the file keeps. */
-export const MACHINE_SETTINGS_FOLDER_MAX_LEN = 4_096;
 /** The longest editor id or Codex voice name. */
 export const MACHINE_SETTINGS_NAME_MAX_LEN = 256;
 /** The longest branch-name pattern. */
@@ -271,7 +269,7 @@ export interface BackupSettings {
 const BackupSettingsSchema: z.ZodType<BackupSettings, BackupSettings> = z
   .object({
     automatic: z.boolean(),
-    folder: wireFreeFormString(MACHINE_SETTINGS_FOLDER_MAX_LEN, "BackupSettings.folder").nullable(),
+    folder: wireFreeFormString(FILE_PATH_MAX_LEN, "BackupSettings.folder").nullable(),
   })
   .strict();
 
@@ -395,10 +393,7 @@ const MACHINE_SETTINGS_MEMBER_SCHEMAS = {
   environmentRows: z.array(EnvironmentRowSchema),
   backup: BackupSettingsSchema,
   branchNamePattern: BranchNamePatternSchema,
-  cloneFolder: wireFreeFormString(
-    MACHINE_SETTINGS_FOLDER_MAX_LEN,
-    "MachineSettings.cloneFolder",
-  ).nullable(),
+  cloneFolder: wireFreeFormString(FILE_PATH_MAX_LEN, "MachineSettings.cloneFolder").nullable(),
   voice: VoiceSettingsSchema,
 };
 
@@ -480,27 +475,28 @@ export const MachineSettingsChangeSchema: z.ZodType<MachineSettingsChange, Machi
 // The service's verbs
 // --------------------------------------------------------------------------
 
-/** Why the service found the file broken. */
-export type MachineSettingsRepairCause = "unparseable" | "schemaRefused";
-export const MACHINE_SETTINGS_REPAIR_CAUSES: readonly MachineSettingsRepairCause[] = Object.freeze([
+/** Why a settings file was found broken. */
+export type SettingsFileRepairCause = "unparseable" | "schemaRefused";
+export const SETTINGS_FILE_REPAIR_CAUSES: readonly SettingsFileRepairCause[] = Object.freeze([
   "unparseable",
   "schemaRefused",
 ]);
 
 /**
- * The service found the file broken, read the defaults in its place and wrote
- * them back. Carried until the next change is written, so the page can say both
- * happened.
+ * A settings file's repair: its owner found the file broken, read the defaults in
+ * its place and wrote them back. Carried until the next change is written, so the
+ * page can say both happened. The machine settings file and the keyboard map both
+ * carry one.
  */
-export interface MachineSettingsRepair {
+export interface SettingsFileRepair {
   repairedAt: string;
-  cause: MachineSettingsRepairCause;
+  cause: SettingsFileRepairCause;
 }
 
 /** The file as the service last read or wrote it, and the repair it made, if any. */
 export interface MachineSettingsReading {
   settings: MachineSettings;
-  repair?: MachineSettingsRepair | undefined;
+  repair?: SettingsFileRepair | undefined;
 }
 /** Parses a {@link MachineSettingsReading}. */
 export const MachineSettingsReadingSchema: z.ZodType<MachineSettingsReading> = z
@@ -509,7 +505,7 @@ export const MachineSettingsReadingSchema: z.ZodType<MachineSettingsReading> = z
     repair: z
       .object({
         repairedAt: z.iso.datetime({ offset: true }),
-        cause: z.enum(MACHINE_SETTINGS_REPAIR_CAUSES),
+        cause: z.enum(SETTINGS_FILE_REPAIR_CAUSES),
       })
       .strict()
       .optional(),

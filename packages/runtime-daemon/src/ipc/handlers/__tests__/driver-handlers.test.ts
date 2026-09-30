@@ -34,6 +34,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type {
+  AgentId,
   ApplyInterventionParams,
   DriverCapabilityFlag,
   DriverCapabilityReport,
@@ -119,7 +120,7 @@ function capabilityReport(driverName: string): DriverCapabilityReport {
     DriverCapabilityFlag,
     boolean
   >;
-  return { driverName, capabilities: { flags, contractVersion: "1.0.0" } };
+  return { driverName, capabilities: { flags, contractVersion: "1.0.0" }, builtInTools: [] };
 }
 
 /** An `assistant_output` event — one of the seven driver categories. */
@@ -150,8 +151,19 @@ function buildNonDriverEvent(): SessionEvent {
     version: "1.0" as SessionEvent["version"],
     payload: {
       sessionId: TEST_SESSION_ID,
-      config: { resourceLimits: { sessions: 10 } },
-      metadata: { source: "cli" },
+      shape: "chat",
+      mainAgent: {
+        agentId: "44444444-4444-4444-8444-444444444444" as AgentId,
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: "2026-01-22T19:14:35.000Z",
+      },
     },
   };
 }
@@ -543,15 +555,23 @@ describe("driver.listModels and driver.listModes", () => {
       registry,
       catalogDeps({
         codex: driverDouble({
-          listModels: async () => [{ id: "gpt-5.6-luna", name: "Luna", capabilities: [] }],
+          listModels: async () => [
+            { id: "gpt-5.6-luna", name: "Luna", capabilities: [], fast: true },
+          ],
         }),
         claude: driverDouble({
-          listModels: async () => [{ id: "claude-haiku-4-5", name: "Haiku", capabilities: [] }],
+          listModels: async () => [
+            { id: "claude-haiku-4-5", name: "Haiku", capabilities: [], fast: false },
+          ],
         }),
       }),
     );
 
-    const result = (await registry.dispatch("driver.listModels", {}, NO_TRANSPORT)) as {
+    const result = (await registry.dispatch(
+      "driver.listModels",
+      { sessionId: TEST_SESSION_ID },
+      NO_TRANSPORT,
+    )) as {
       drivers: { driverName: string; models: { id: string }[] }[];
     };
 
@@ -593,17 +613,32 @@ describe("driver.listModels and driver.listModes", () => {
     );
 
     const thrown = await registry
-      .dispatch("driver.listModels", {}, NO_TRANSPORT)
+      .dispatch("driver.listModels", { sessionId: TEST_SESSION_ID }, NO_TRANSPORT)
       .then(() => undefined)
       .catch((error: unknown) => error);
 
     expect(wireErrorData(thrown).type).toBe("driver.unavailable");
   });
 
+  it("REFUSES a catalog read that names no session", async () => {
+    // The catalog is the one the asking session can run, so a read with no
+    // session has no catalog to answer; it is refused before any driver is read.
+    const registry = new MethodRegistryImpl();
+    const listModels = vi.fn(async () => []);
+    registerDriverListModels(registry, catalogDeps({ claude: driverDouble({ listModels }) }));
+
+    await expect(registry.dispatch("driver.listModels", {}, NO_TRANSPORT)).rejects.toBeInstanceOf(
+      RegistryDispatchError,
+    );
+    expect(listModels).not.toHaveBeenCalled();
+  });
+
   it("answers an empty roster with an empty group list", async () => {
     const registry = new MethodRegistryImpl();
     registerDriverListModels(registry, catalogDeps({}));
-    await expect(registry.dispatch("driver.listModels", {}, NO_TRANSPORT)).resolves.toStrictEqual({
+    await expect(
+      registry.dispatch("driver.listModels", { sessionId: TEST_SESSION_ID }, NO_TRANSPORT),
+    ).resolves.toStrictEqual({
       drivers: [],
     });
   });

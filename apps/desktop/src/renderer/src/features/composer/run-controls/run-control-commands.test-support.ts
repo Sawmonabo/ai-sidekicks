@@ -26,7 +26,7 @@ export const OTHER_RUN_ID = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";
 /** The acknowledgment every stub call answers with. */
 export const STUB_ACK = {
   runId: RUN_ID,
-  currentState: "paused",
+  newState: "paused",
   runVersion: 7,
 } as RunControlAck;
 

@@ -27,7 +27,6 @@ import { RunIdSchema, type RunId } from "./provider-driver.js";
 import {
   buildRepoWorkspaceLifecyclePayloadSchema,
   ExecutionModeSchema,
-  REPO_PATH_MAX_LEN,
   RepoMountIdSchema,
   WorkspaceIdSchema,
   WorkspaceStateSchema,
@@ -37,7 +36,12 @@ import {
   type WorkspaceId,
   type WorkspaceState,
 } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "./session.js";
 
 // --------------------------------------------------------------------------
 // ExecutionMode — canon, re-exported (type AND schema value).
@@ -234,7 +238,8 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // NO CROSS-FIELD REFINEMENTS on any conditional field below — the reuse
 // check's six optional fields (five describing the candidate, plus the
 // `reason` that explains a negative verdict), the prepare response's
-// `worktreeId`, and the status read's `createdByRunId` / `cleanedAt`. All are
+// `worktreeId`, and the status read's `createdByRunId`, `ahead`, `behind` and
+// `newWorktree`. All are
 // plain-optional, and each conditional relationship is an EMITTER obligation
 // discharged at the `.parse()` boundary of the daemon surface that produces it
 // — the stance repo.ts's workspace half documents at length. Two of them the
@@ -248,9 +253,8 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // Bound on the git ref names these surfaces carry — `branchName` (the head
 // branch of a worktree) and `baseRef` (the worktree base: a branch,
 // tag, or commit-ish). ONE constant for both, because both carry a git ref
-// name and two constants obliged to hold the same value with nothing
-// enforcing the equality is the hazard `WorkspaceBindRequest.directory`
-// declined when it reused `REPO_PATH_MAX_LEN`.
+// name, and two constants obliged to hold the same value with nothing
+// enforcing the equality is a hazard.
 //
 // 256 is this package's IDENTIFIER class (`NODE_ID_MAX_LEN`,
 // `EVENT_FIELD_MAX_LEN`, `DRIVER_BINDING_ID_MAX_LEN`) and NOT the 4096
@@ -308,10 +312,10 @@ export const WORKTREE_GIT_REF_MAX_LEN = 256;
 // `EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN`, which holds the same 512:
 // importing would assert an equality neither contract owes the other, the
 // reasoning that keeps `WORKSPACE_LAST_ERROR_MAX_LEN` from importing
-// `ERROR_MESSAGE_MAX_LEN`. `REPO_PATH_MAX_LEN` is imported and NOT restated
+// `ERROR_MESSAGE_MAX_LEN`. `FILE_PATH_MAX_LEN` is imported and NOT restated
 // for the opposite reason — it mirrors an external platform ceiling
-// (`PATH_MAX`) that both plans read off the same fact, so one constant is the
-// honest source rather than a coincidence of policy.
+// (`PATH_MAX`), so one constant is the honest source rather than a
+// coincidence of policy.
 export const WORKTREE_REUSE_REASON_MAX_LEN = 512;
 
 // --------------------------------------------------------------------------
@@ -474,7 +478,7 @@ export const ExecutionRootPrepareResponseSchema: z.ZodType<ExecutionRootPrepareR
     // mode and no fallback root, so there is no partial success carrying an
     // unresolved root to represent.
     executionRoot: wireFreeFormString(
-      REPO_PATH_MAX_LEN,
+      FILE_PATH_MAX_LEN,
       "ExecutionRootPrepareResponse.executionRoot",
     ),
     // The workspace position after reprovision bracket
@@ -582,12 +586,12 @@ export const WorktreeReuseCheckResponseSchema: z.ZodType<WorktreeReuseCheckRespo
 // requires retirement to be RECORDED even when filesystem deletion happens
 // later, and fixes the order: the row transition and its `worktree.retired`
 // event land before any disk mutation, and the async sweep stamps `cleaned_at`
-// afterwards. That is why this response carries no `cleanedAt` — at the moment
-// it is produced, nothing has been cleaned. The stamp surfaces on the status
-// read below.
+// on the daemon's own record afterwards: when this response is produced, nothing
+// has been cleaned.
 //
-// Metadata and provenance survive retirement: retiring erases nothing, and
-// a retired row stays queryable.
+// Metadata and provenance survive retirement: retiring erases nothing, and the
+// retired record stays in the daemon, though the switcher's read lists only
+// trees still standing.
 
 /**
  * The `repo.worktreeRetire` input. `discard: false` is the ordinary removal: it
@@ -697,102 +701,158 @@ export const WorktreeRetireConflictDetailsSchema: z.ZodType<WorktreeRetireConfli
 // WorktreeStatusRead — `repo.worktreeStatusRead` (query).
 // --------------------------------------------------------------------------
 //
-// The daemon-owned read surface over worktree records with provenance, feeding
-// the execution-mode picker's status view.
+// The worktree switcher's one read, keyed by the project's folder: the repo-root
+// row, every worktree of the project that is still standing, and the figures each
+// row draws. One read rather than a status read beside a separate counts read,
+// because a switcher composing its rows from two answers could draw a tree as
+// free while the other called it occupied, and the trash lock is the control
+// that must never be wrong.
 //
-// NEVER-HIDE: the projection returns EVERY row, `failed` and `retired`
-// included, and the views label rather than filter. The `state` field
-// below therefore carries its full vocabulary; a "live states only"
-// narrowing would make the admit-not-eject contract unrepresentable on the
-// wire, which is the mirror image of the retire `Extract` narrowing above.
+// Only trees still standing are listed: a retired worktree's record keeps its
+// provenance in the daemon, and a copy kept by a discard is listed by
+// `repo.removedWorktreeList`. So a listed row never carries `retired`.
 
-// The item TYPE stays INLINE and unnamed on the response interface below; the
-// SCHEMA is hoisted to a module-local const rather than nested two levels
-// inside a call argument, which would bury a ten-field list. Consumers that
-// need an element type spell
-// `WorktreeStatusReadResponse["worktrees"][number]`.
-const worktreeStatusRecordSchema = z
+/** The state of a listed worktree: every state but `retired`. */
+export type ListedWorktreeState = Exclude<WorktreeState, "retired">;
+
+/**
+ * One listed worktree, as its switcher row draws it.
+ *
+ * `name` is the tree's own name and `baseBranchName` the branch it was cut from
+ * (`off <base>`). `ahead` and `behind` count commits against the branch's
+ * upstream, read against the daemon's latest background fetch, and are absent
+ * when the branch has none. `uncommittedFileCount` and `unpushedCommitCount` are
+ * the same figures the removal confirm names; unpushed means not reachable from
+ * any remote-tracking branch of the folder. `occupyingSessionIds` are the
+ * sessions standing in the tree, and `runningSessionId` names the one whose
+ * agent is running there, which locks the trash.
+ */
+export interface WorktreeStatusRecord {
+  worktreeId: WorktreeId;
+  repoMountId: RepoMountId;
+  name: string;
+  branchName: string;
+  baseBranchName: string;
+  fsRoot: string;
+  state: ListedWorktreeState;
+  ahead?: number | undefined;
+  behind?: number | undefined;
+  uncommittedFileCount: number;
+  unpushedCommitCount: number;
+  occupyingSessionIds: SessionId[];
+  runningSessionId: SessionId | null;
+  createdBySessionId: SessionId;
+  createdByRunId?: RunId | undefined;
+  createdAt: string;
+  updatedAt: string;
+}
+const worktreeStatusRecordSchema: z.ZodType<WorktreeStatusRecord> = z
   .object({
-    // QUALIFIED `worktreeId`, not the bare `id` the mount and workspace read
-    // projections use.
     worktreeId: WorktreeIdSchema,
     repoMountId: RepoMountIdSchema,
-    branchName: wireFreeFormString(
+    name: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusRecord.name"),
+    branchName: wireFreeFormString(WORKTREE_GIT_REF_MAX_LEN, "WorktreeStatusRecord.branchName"),
+    baseBranchName: wireFreeFormString(
       WORKTREE_GIT_REF_MAX_LEN,
-      "WorktreeStatusReadResponse.worktrees[].branchName",
+      "WorktreeStatusRecord.baseBranchName",
     ),
-    // `worktrees.fs_root` — a daemon-provisioned root under the execution-roots
-    // directory, never a path inside the attached checkout. REQUIRED because
-    // the column is NOT NULL: a worktree row exists only once its placement is
-    // decided.
-    fsRoot: wireFreeFormString(REPO_PATH_MAX_LEN, "WorktreeStatusReadResponse.worktrees[].fsRoot"),
-    state: WorktreeStateSchema,
-    // REQUIRED — `worktrees.created_by_session_id` is NOT NULL and makes
-    // creating-session provenance unconditional, so a provenance-less
-    // worktree row is a state the model never produces.
+    // A root under the daemon's worktrees folder, never a path inside the
+    // attached checkout.
+    fsRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusRecord.fsRoot"),
+    state: WorktreeStateSchema.refine(
+      (state): state is ListedWorktreeState => state !== "retired",
+      "A retired worktree is not listed",
+    ),
+    ahead: z.number().int().nonnegative().optional(),
+    behind: z.number().int().nonnegative().optional(),
+    uncommittedFileCount: z.number().int().nonnegative(),
+    unpushedCommitCount: z.number().int().nonnegative(),
+    occupyingSessionIds: z.array(SessionIdSchema),
+    runningSessionId: SessionIdSchema.nullable(),
     createdBySessionId: SessionIdSchema,
-    // OPTIONAL, and the asymmetry with `createdBySessionId` IS the provenance
-    // contract rather than an inconsistency: `created_by_run_id` is nullable
-    // because a pre-run explicit `repo.executionRootPrepare` creates a worktree
-    // with no run to attribute.
+    // Absent for a tree prepared before any run, which has no run to attribute.
     createdByRunId: RunIdSchema.optional(),
     createdAt: z.iso.datetime({ offset: true }),
     updatedAt: z.iso.datetime({ offset: true }),
-    // The async disk-cleanup stamp (`worktrees.cleaned_at`), absent until the
-    // sweep runs. Its absence on a `retired` row is the observable half of the
-    // recorded-then-cleaned ordering — missing information about the world,
-    // not missing data in the row.
-    cleanedAt: z.iso.datetime({ offset: true }).optional(),
   })
-  // The ITEM carries its own `.strict()` as well as the envelope below, so the
-  // wire shape is closed at BOTH levels (the `workspaceListItemSchema`
-  // precedent). A top-level-only guard would let item-level drift through
-  // unnoticed, and outer `.strict()` leaves no compile-time trace to catch it.
   .strict();
 
+/**
+ * `repo.worktreeStatusRead`: the project's folder whose worktrees are listed, and
+ * the session asking, when one is. A session's switcher names itself, so the read
+ * also answers the new-worktree form's suggestion for it.
+ */
 export interface WorktreeStatusReadRequest {
-  sessionId: SessionId;
-  repoMountId?: RepoMountId | undefined;
+  repoMountId: RepoMountId;
+  sessionId?: SessionId | undefined;
 }
-// Bridge-free double-T: `SessionIdSchema` and `RepoMountIdSchema` are both
-// double-T (the `WorkspaceListRequestSchema` shape exactly).
+/** Wire schema for {@link WorktreeStatusReadRequest}. */
 export const WorktreeStatusReadRequestSchema: z.ZodType<
   WorktreeStatusReadRequest,
   WorktreeStatusReadRequest
 > = z
   .object({
-    // SESSION-scoped: the read answers "what roots does this session hold",
-    // and projection reaches the rows through `repo_mounts`.
-    sessionId: SessionIdSchema,
-    // OPTIONAL FILTER, not a second identifier — omission returns the whole
-    // session, presence narrows to one mount's records. No exactly-one
-    // refinement applies (contrast `repo.executionModeCapabilitiesRead`):
-    // `sessionId` alone already identifies the query.
-    repoMountId: RepoMountIdSchema.optional(),
+    repoMountId: RepoMountIdSchema,
+    sessionId: SessionIdSchema.optional(),
   })
   .strict();
 
-/** The `repo.worktreeStatusRead` result: one record per worktree the session can reach. */
+/**
+ * What the new-worktree form opens with, from the same daemon function that
+ * creates the tree and names its folder: the fixed leading part of the name (the
+ * project's branch pattern filled in up to `{title}`), the suggested tail derived
+ * from the session's title, and the folder the tree will get up to that tail.
+ * The form shows the folder as `folderBefore` followed by whatever tail is typed,
+ * so it copies none of the daemon's naming.
+ */
+export interface NewWorktreeSuggestion {
+  fixedPart: string;
+  suggestedTail: string;
+  folderBefore: string;
+}
+
+/**
+ * The `repo.worktreeStatusRead` result.
+ *
+ * `repoRoot` is the project's own checkout and the branch it is on. `worktrees`
+ * lists the project's standing trees, empty when it has none. `countsAsOf` is
+ * present when the last background fetch failed, and says when the ahead and
+ * behind figures were last true. `newWorktree` is present when the request named
+ * the asking session.
+ */
 export interface WorktreeStatusReadResponse {
-  worktrees: Array<{
-    worktreeId: WorktreeId;
-    repoMountId: RepoMountId;
-    branchName: string;
-    fsRoot: string;
-    state: WorktreeState;
-    createdBySessionId: SessionId;
-    createdByRunId?: RunId | undefined;
-    createdAt: string;
-    updatedAt: string;
-    cleanedAt?: string | undefined;
-  }>;
+  repoRoot: { path: string; branchName: string };
+  worktrees: WorktreeStatusRecord[];
+  countsAsOf?: string | undefined;
+  newWorktree?: NewWorktreeSuggestion | undefined;
 }
 /** Wire schema for {@link WorktreeStatusReadResponse}; single-T, since a read is not an input. */
 export const WorktreeStatusReadResponseSchema: z.ZodType<WorktreeStatusReadResponse> = z
   .object({
-    // REQUIRED, with no `.min(1)`: a session that has bound no worktree yet
-    // returns an empty array, which is a lawful answer rather than a
-    // degenerate one.
+    repoRoot: z
+      .object({
+        path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusReadResponse.repoRoot.path"),
+        branchName: wireFreeFormString(
+          WORKTREE_GIT_REF_MAX_LEN,
+          "WorktreeStatusReadResponse.repoRoot.branchName",
+        ),
+      })
+      .strict(),
     worktrees: z.array(worktreeStatusRecordSchema),
+    countsAsOf: z.iso.datetime({ offset: true }).optional(),
+    newWorktree: z
+      .object({
+        fixedPart: z.string().max(WORKTREE_GIT_REF_MAX_LEN),
+        suggestedTail: wireFreeFormString(
+          WORKTREE_GIT_REF_MAX_LEN,
+          "WorktreeStatusReadResponse.newWorktree.suggestedTail",
+        ),
+        folderBefore: wireFreeFormString(
+          FILE_PATH_MAX_LEN,
+          "WorktreeStatusReadResponse.newWorktree.folderBefore",
+        ),
+      })
+      .strict()
+      .optional(),
   })
   .strict();

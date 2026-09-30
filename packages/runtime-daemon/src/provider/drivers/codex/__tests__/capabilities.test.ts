@@ -421,6 +421,9 @@ describe("Codex composition is bound to the spawned build", () => {
  *                per-effort `description` strings are elided because nothing
  *                reads them and their length would bury the levels.
  *   Trust      : Verified at 0.150.1.
+ *   Tiers      : The 0.150.1 copy took no `serviceTiers`. Each row carries the
+ *                one tier the `model/list` reads at 0.155.1 (2026-09-19) and
+ *                0.159.2 (2026-09-30) gave every listed model.
  *
  * Eight rows, `nextCursor: null`, `hidden: false` throughout — and TWO effort
  * vocabularies across them, which is the fact that makes the level list a
@@ -488,6 +491,7 @@ function codexRecordedModel(
     supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort })),
     defaultReasoningEffort: efforts[0],
     inputModalities: ["text"],
+    serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }],
   };
 }
 
@@ -546,6 +550,20 @@ describe("Codex model catalog", () => {
 
     expect(models.map((model) => model.id)).toEqual(["model-x"]);
     expect(models[0] && "effortLevels" in models[0]).toBe(false);
+  });
+
+  it.each([
+    ["a tier list", [{ id: "priority", name: "Fast", description: "1.5x speed" }], true],
+    ["an empty tier list", [], false],
+    ["a null tier list", null, false],
+    ["no tier list", undefined, false],
+  ])("reads %s as fast %s", (_label, serviceTiers, fast) => {
+    const models = normalizeCodexModelCatalog({
+      data: [{ id: "model-x", displayName: "X", serviceTiers }],
+      nextCursor: null,
+    });
+
+    expect(models[0]?.fast).toBe(fast);
   });
 
   it("drops hidden models", () => {
@@ -619,6 +637,14 @@ describe("Codex model catalog", () => {
         nextCursor: null,
       },
       /unreadable `supportedReasoningEfforts`/,
+    ],
+    [
+      "a PRESENT but non-array tier list",
+      {
+        data: [{ id: "model-x", displayName: "A", serviceTiers: "priority" }],
+        nextCursor: null,
+      },
+      /unreadable `serviceTiers`/,
     ],
   ])("refuses %s", (_label, payload, message) => {
     expect(() => normalizeCodexModelCatalog(payload)).toThrow(CodexModelCatalogUnreadableError);
@@ -695,7 +721,7 @@ describe("Codex model catalog", () => {
       nextCursor: null,
     }));
 
-    expect(models).toEqual([{ id: "model-z", name: "Z", capabilities: [] }]);
+    expect(models).toEqual([{ id: "model-z", name: "Z", capabilities: [], fast: false }]);
   });
 
   it("never falls back to the declaration when a bound exchange fails", async () => {

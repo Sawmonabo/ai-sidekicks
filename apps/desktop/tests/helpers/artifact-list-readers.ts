@@ -35,7 +35,7 @@ import { ArtifactListReader } from "@renderer/features/inspector/artifacts/artif
 export const SESSION_ID = "019b7b30-0280-7c11-8420-b1a5c0de2200";
 
 /** A second artifact, so a case can press for bytes the pane is not already fetching. */
-export const OTHER_ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2299";
+export const OTHER_ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2299" as ArtifactId;
 
 // The ids below are spelled out rather than shared through a binding: `isolatedDeclarations`
 // cannot write the type of an exported `as const` object whose property reads another
@@ -61,6 +61,15 @@ export const SERVED_SUMMARY: ArtifactManifest = {
   createdAt: "2026-09-02T07:00:00.000Z",
 };
 
+/**
+ * The version facts every served read of the row above carries: its one version, in view,
+ * written when the row was.
+ */
+export const SERVED_VERSION: Pick<
+  ArtifactReadResponse,
+  "versionNumber" | "versionCount" | "versionWrittenAt"
+> = { versionNumber: 1, versionCount: 1, versionWrittenAt: "2026-09-02T07:00:00.000Z" };
+
 /** One served list of exactly the row above. */
 export const LISTED_ONE_ROW: readonly ArtifactManifest[] = [SERVED_SUMMARY];
 
@@ -71,7 +80,11 @@ export const LISTED_ONE_ROW: readonly ArtifactManifest[] = [SERVED_SUMMARY];
  * deferred arm, which is what a metadata read lands on.
  */
 export function deferredRead(state: ArtifactState): ArtifactReadResponse {
-  return { manifest: { ...SERVED_SUMMARY, state }, payloadHandle: `sha256:2b4c/${state}` };
+  return {
+    manifest: { ...SERVED_SUMMARY, state },
+    ...SERVED_VERSION,
+    payloadHandle: `sha256:2b4c/${state}`,
+  };
 }
 
 /** A served payload read on the inline arm, with the bytes and the encoding to read them by. */
@@ -79,13 +92,14 @@ export function inlineRead(
   payload: string,
   encoding: ArtifactPayloadEncoding,
 ): ArtifactReadResponse {
-  return { manifest: SERVED_SUMMARY, payload, payloadEncoding: encoding };
+  return { manifest: SERVED_SUMMARY, ...SERVED_VERSION, payload, payloadEncoding: encoding };
 }
 
 /** One served inline utf8 payload for a named artifact. */
 export function inlinePayloadRead(artifactId: string, text: string): ArtifactReadResponse {
   return {
     manifest: { ...SERVED_SUMMARY, id: artifactId as ArtifactId },
+    ...SERVED_VERSION,
     payloadHandle: "sha256:2b4c",
     payloadEncoding: "utf8",
     payload: text,

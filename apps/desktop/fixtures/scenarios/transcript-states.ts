@@ -58,8 +58,9 @@ import {
 import type { Scenario } from "../scenario.js";
 import {
   type ScenarioAgent,
-  composeAttachedInstant,
-  composeOpeningEntries,
+  composeOpeningEntry,
+  composeResolvedAgent,
+  composeScenarioInstant,
   findScenarioMember,
 } from "../data/opening-entries.js";
 
@@ -138,21 +139,20 @@ const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
     name: "Architect",
     driverName: "claude",
     modelId: "claude-opus-5[1m]",
-    attachedAtMs: 120,
   },
   {
     agentId: AGENT_IMPLEMENTER,
     name: "Implementer",
     driverName: "claude",
     modelId: "claude-sonnet-5",
-    attachedAtMs: 160,
+    definitionId: "019b793b-7b60-7de1-8120-d1a4c1150122",
   },
   {
     agentId: AGENT_REVIEWER,
     name: "Reviewer",
     driverName: "codex",
     modelId: "gpt-5.6-sol",
-    attachedAtMs: 200,
+    definitionId: "019b793b-7b60-7de1-8130-d1a4c1150123",
   },
 ];
 
@@ -186,7 +186,7 @@ const REVIEWER_TOOL_CALL_ID = "call-reviewer-1";
  * The provider the reviewer's lane runs on, read off the cast rather than restated.
  *
  * A subagent is keyed by `(runId, provider, subagentId)`, so this has to be the same
- * string the reviewer's own attach beat carries — and the cast is where it is stated.
+ * string the reviewer's own runs are bound to — and the cast is where it is stated.
  */
 const REVIEWER_PROVIDER = findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REVIEWER).driverName;
 
@@ -194,10 +194,12 @@ const REVIEWER_PROVIDER = findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REV
 const lane = createRunEntryBuilders(SESSION_ID);
 
 const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
-  ...composeOpeningEntries({
+  composeOpeningEntry({
     sessionId: SESSION_ID,
+    shape: "project",
     openedBy: USER_YOU,
-    cast: TRANSCRIPT_STATES_AGENTS,
+    lead: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_ARCHITECT),
+    createdAt: STARTED_AT_ISO,
   }),
   {
     atMs: 280,
@@ -214,7 +216,11 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 320,
     runVersion: 1,
     newState: "queued",
-    agentId: AGENT_IMPLEMENTER,
+    resolvedAgent: composeResolvedAgent({
+      agent: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_IMPLEMENTER),
+      lead: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_ARCHITECT),
+      resolvedAt: composeScenarioInstant(startedAtMs, 320),
+    }),
     actorId: USER_YOU,
   }),
   lane.transition(RUN_IMPLEMENTER, {
@@ -261,7 +267,11 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 960,
     runVersion: 1,
     newState: "queued",
-    agentId: AGENT_REVIEWER,
+    resolvedAgent: composeResolvedAgent({
+      agent: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REVIEWER),
+      lead: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_ARCHITECT),
+      resolvedAt: composeScenarioInstant(startedAtMs, 960),
+    }),
     actorId: USER_YOU,
   }),
   lane.transition(RUN_REVIEWER, {
@@ -436,12 +446,10 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   }),
   {
     atMs: 2_860,
-    // THE COMPACTION INSIDE THE CHILD, which makes its summary a FLOOR rather than a
-    // total: rows before this one left the child's own transcript, so the count the
-    // summary carries is a lower bound over a history that lost entries — the one
-    // incompleteness cause a log can state on its own. The implementer's lane carries
-    // the session's other compaction seam and says nothing about a child, which is
-    // how a reader sees the marker is scoped to the run it landed in.
+    // THE COMPACTION INSIDE THE CHILD. It folds the provider's context and not the
+    // session's log, so the child's summary stays whole across it. The implementer's
+    // lane carries the session's other compaction seam and says nothing about a child,
+    // which is how a reader sees the seam is scoped to the run it landed in.
     kind: "usage.context_compacted",
     payload: { sessionId: SESSION_ID, runId: RUN_ARCHITECT_CHILD },
   },
@@ -504,7 +512,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
       // extended. Derived from the scenario's own base instant rather than written
       // as a literal, so the countdown and the beat can never disagree about when
       // the ask was raised.
-      expiresAt: composeAttachedInstant(startedAtMs, 3_140 + 600_000),
+      expiresAt: composeScenarioInstant(startedAtMs, 3_140 + 600_000),
     },
   },
 ];
@@ -517,7 +525,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
   purpose:
     "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the run groups and the seams all have something to render.",
   sessionId: SESSION_ID,
-  // Join order IS hue order: the person first, then the agents in attach order,
+  // Join order IS hue order: the person first, then the agents in the order they joined,
   // which is what a real session's join log looks like.
   userIdsInJoinOrder: [USER_YOU, AGENT_ARCHITECT, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the roster this window is. Stated rather than read off the head of the
@@ -547,12 +555,12 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
           {
             sequence: 12,
             content: "The two storage backends differ in who owns the row, not in what it holds.",
-            timestamp: composeAttachedInstant(startedAtMs, 2_500),
+            timestamp: composeScenarioInstant(startedAtMs, 2_500),
           },
           {
             sequence: 13,
             content: "A node-local answer is reversible; a control-plane answer is not.",
-            timestamp: composeAttachedInstant(startedAtMs, 2_520),
+            timestamp: composeScenarioInstant(startedAtMs, 2_520),
           },
         ],
       },
@@ -577,10 +585,9 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
         session: {
           id: SESSION_ID,
           state: "active",
-          config: {},
-          metadata: {},
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T11:05:03.060Z",
+          draft: "",
         },
         // An ACKNOWLEDGED position beside the latest one, which is what makes the
         // resume cycle reachable at all: the store submits whatever a read

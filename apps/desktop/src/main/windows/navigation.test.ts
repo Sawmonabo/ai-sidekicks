@@ -44,12 +44,10 @@ vi.mock("electron", () => ({
   },
 }));
 
-import {
-  classifyNavigation,
-  EXTERNAL_URL_SCHEME_ALLOWLIST,
-  openExternalUrl,
-  type InWindowOrigin,
-} from "./navigation.js";
+import { WEB_ADDRESS_SCHEMES } from "@ai-sidekicks/contracts";
+import { shell } from "electron";
+
+import { classifyNavigation, openExternalUrl, type InWindowOrigin } from "./navigation.js";
 
 const RENDERER_ORIGINS: readonly InWindowOrigin[] = [
   { protocol: "sidekicks-renderer:", host: "app" },
@@ -89,8 +87,8 @@ describe("classifyNavigation", () => {
     });
   });
 
-  it("classifies allowlisted external schemes as external", () => {
-    for (const protocol of EXTERNAL_URL_SCHEME_ALLOWLIST) {
+  it("classifies the web-address schemes as external", () => {
+    for (const protocol of WEB_ADDRESS_SCHEMES) {
       expect(classifyNavigation(`${protocol}//example.test/docs`, RENDERER_ORIGINS)).toEqual({
         kind: "external",
       });
@@ -139,24 +137,32 @@ describe("openExternalUrl", () => {
     shellMock.reset();
   });
 
-  it("opens an allowlisted target", async () => {
-    openExternalUrl("https://example.test/docs");
+  it("opens a web address", async () => {
+    await openExternalUrl("https://example.test/docs");
 
-    await vi.waitFor(() => {
-      expect(shellMock.openedUrls).toEqual(["https://example.test/docs"]);
-    });
+    expect(shellMock.openedUrls).toEqual(["https://example.test/docs"]);
   });
 
   // The re-check is the point: this function is the single place a URL reaches
   // `shell.openExternal`, and a guard that only holds when the caller remembered
   // to classify first is not a guard.
-  it("opens nothing for a target outside the allowlist, even when called directly", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    openExternalUrl("file:///etc/passwd");
-
-    await new Promise((resolve) => setImmediate(resolve));
+  it("rejects and opens nothing for a target that is not a web address", async () => {
+    await expect(openExternalUrl("file:///etc/passwd")).rejects.toThrow(
+      "navigation target is outside every allowed scheme",
+    );
     expect(shellMock.openedUrls).toEqual([]);
-    expect(consoleError).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects and opens nothing for a web address carrying credentials", async () => {
+    await expect(openExternalUrl("https://app@evil.test/looks-like-app")).rejects.toThrow(
+      "navigation target carries credentials",
+    );
+    expect(shellMock.openedUrls).toEqual([]);
+  });
+
+  it("rejects when the operating system fails to open the address", async () => {
+    vi.mocked(shell.openExternal).mockRejectedValueOnce(new Error("no handler"));
+
+    await expect(openExternalUrl("https://example.test/docs")).rejects.toThrow("no handler");
   });
 });

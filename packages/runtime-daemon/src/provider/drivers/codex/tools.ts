@@ -99,6 +99,17 @@ import {
 export const DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
 /**
+ * The tools Codex carries itself, in its own names, as a person picks them for an
+ * agent's tool allowlist. A separate list from {@link CODEX_TOOL_NAMES}, which
+ * names what a transcript reports rather than what an allowlist offers.
+ */
+export const CODEX_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
+  "shell",
+  "apply_patch",
+  "web_search",
+]);
+
+/**
  * The Codex tool-identity namespace: `ThreadItem.type` discriminants for the
  * arms that represent an invocation whose crash-recovery disposition matters.
  *

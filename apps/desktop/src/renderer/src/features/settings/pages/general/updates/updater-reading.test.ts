@@ -43,6 +43,7 @@ function controllableUpdater(): {
         };
       },
       requestCheck: () => Promise.resolve(),
+      requestDownload: () => Promise.resolve(),
       requestRestart: () => Promise.resolve(),
     },
     settleRead: (state) => {

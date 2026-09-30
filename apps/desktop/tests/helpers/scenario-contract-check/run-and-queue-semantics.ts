@@ -1,8 +1,8 @@
 // The rules the shipped schemas do not carry, each read off the module that owns it.
 //
-// `SessionEventSchema` registers no payload variant for any run-lifecycle kind and
-// none for any of the five queue kinds, so every rule about one of those payloads has
-// to come from somewhere the contracts package does not reach. Where a module in this
+// `SessionEventSchema` registers no payload variant for a run's state transitions after
+// its creation, for the forward run rows or for any queue kind, so every rule about one
+// of those payloads has to come from somewhere the contracts package does not reach. Where a module in this
 // tree already owns the rule, it is READ rather than restated; where none does, the
 // rule is written down here ONCE, sourced to the corpus row that fixes it, and this is
 // the only place in the console that carries it:
@@ -12,28 +12,27 @@
 //     `previousState` equal to `newState` is a self-transition, and the table
 //     defines one for no state. It is checked here rather than by either schema
 //     layer because neither can see it — the census knows kinds, the strict layer
-//     registers no variant for the run-lifecycle kinds at all, and the machine is
-//     prose, not code.
-//   • The queue payload's own required member. The five `queue_item.*` kinds are
+//     registers no variant for the state transitions, and the machine is prose, not
+//     code.
+//   • The queue payload's own required member. The `queue_item.*` kinds are
 //     census-only in the strict layer too, so a beat that omits `state` — which
 //     the queue events make required — passes all three schema legs. This
 //     is the leg that refuses it, on the same terms as the transition table: a rule
 //     the shipped schemas do not carry, checked against the one module that owns
 //     the mapping rather than against a second reading of it here.
-//   • The registered payload of a run-lifecycle kind NO stream projects. Four of the
-//     thirteen run rows reach a subscriber only through `session.subscribe` — the
-//     creation row `run.queued` and the three forward, non-state rows
-//     (`run.provider_initialized`, `run.turn_started`, `run.worker_shutdown`) — so
-//     the projection leg below claims none of them, and the strict layer registers no
-//     variant for them either. That left every member of those four payloads
-//     unchecked: `run.queued` with no `runVersion` and no `newState`, and
-//     `run.provider_initialized` with no `provider`, each passed every leg they met
-//     and were then folded into a run entity built out of half a payload. This is the
-//     leg that holds them, and its table is keyed by the census's `run.` root LESS
-//     the kinds `session-event-stream-kinds.ts` puts on a narrowed stream — so a fifth
+//   • The registered payload of a run-lifecycle kind NO stream projects. Some run
+//     rows reach a subscriber only through `session.subscribe` — the creation row
+//     `run.queued`, the forward, non-state rows (`run.provider_initialized`,
+//     `run.turn_started`, `run.worker_shutdown`), the step bound and the recovery
+//     answer — so the projection leg below claims none of them. The strict layer
+//     registers no variant for the forward rows, which left every member of those
+//     payloads unchecked: `run.provider_initialized` with no `provider` passed every
+//     leg it met and was then folded into a run entity built out of half a payload.
+//     This is the leg that holds them, and its table is keyed by the census's `run.` root LESS
+//     the kinds `session-event-stream-kinds.ts` puts on a narrowed stream — so a newly
 //     excluded kind is a compile error here rather than a hole nobody notices.
 //   • The projection the run-lifecycle stream delivers. The strict layer registers no
-//     variant for ANY run-lifecycle kind, so every rule about one of those payloads
+//     variant for the state transitions, so every rule about one of those payloads
 //     has to come from somewhere other than those schemas — and there is exactly
 //     one place it already lives in full: `run-stream-projection.ts`, which is what
 //     the fixture runs to build the `RunStateChangeEvent` or `RunRolledBackEvent` a
@@ -59,7 +58,13 @@
 // than about a beat. The beat-scoped half of the queue rule is the
 // queue leg here; the row-read half belongs where a scenario is actually played.
 
-import { RunIdSchema, SessionIdSchema } from "@ai-sidekicks/contracts";
+import {
+  RunIdSchema,
+  RunQueuedPayloadSchema,
+  RunRecoveryResolvedPayloadSchema,
+  RunStepLimitReachedPayloadSchema,
+  SessionIdSchema,
+} from "@ai-sidekicks/contracts";
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 import { z } from "zod";
 import type { ZodType } from "zod";
@@ -138,29 +143,21 @@ const runIdentityShape = {
 /**
  * The registered payload of each run kind no stream projects.
  *
- * READ OFF the run lifecycle, whose per-type rows are the
- * only place these four shapes exist: the contracts package registers a Zod variant
- * for none of them, and `RunStateChangeEventSchema` is deliberately the `run.subscribeState`
- * WIRE projection rather than the durable payload — that module says so in as many
- * words, and it requires a `previousState` the creation row has no value for.
+ * The forward rows are READ OFF the run lifecycle, whose per-type rows are the only
+ * place those shapes exist: the contracts package registers a Zod variant for none of
+ * them, and `RunStateChangeEventSchema` is deliberately the `run.subscribeState` WIRE
+ * projection rather than the durable payload — that module says so in as many words.
  *
  * NOT `.strict()`, and the looseness is a claim rather than a shortcut. What the spec
- * fixes for these kinds is which members are REQUIRED; the creation row's optional set
- * is openly growing — the orchestration linkage fields, the three admission stamps,
- * the resolved run config — and it grew three times while this console was being
- * written. A strict schema would refuse beats the daemon does emit, which is the
- * opposite of this file's job. Refusing an INVENTED member is `beat-shape.ts`'s
- * strict-layer leg, and that leg reaches exactly the kinds the contracts package
- * registers a variant for — which is none of these four.
+ * fixes for these kinds is which members are REQUIRED. Refusing an INVENTED member is
+ * `beat-shape.ts`'s strict-layer leg, and that leg reaches exactly the kinds the
+ * contracts package registers a variant for — which is none of those. The creation
+ * row, the step bound and the recovery answer are registered, so their rows are the
+ * contract's own payload schemas.
  */
 const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecycleKind, ZodType>> =
   Object.freeze({
-    // The run's CREATION. `newState` is pinned to the state the kind announces, which
-    // is the same kind-is-prefix-plus-state derivation the routing table rests on;
-    // `previousState` is deliberately unconstrained here, because whether a creation
-    // row may name one at all is the self-transition leg's business and the shared
-    // shape's, not this one's.
-    "run.queued": z.object({ ...runIdentityShape, newState: z.literal("queued") }),
+    "run.queued": RunQueuedPayloadSchema,
     // `{sessionId, runId, runVersion, provider, model?}`.
     "run.provider_initialized": z.object({
       ...runIdentityShape,
@@ -176,6 +173,8 @@ const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecyc
     // `{sessionId, runId, runVersion, reason?}` — the sanitized provider-supplied
     // shutdown reason.
     "run.worker_shutdown": z.object({ ...runIdentityShape, reason: z.string().optional() }),
+    "run.step_limit_reached": RunStepLimitReachedPayloadSchema,
+    "run.recovery_resolved": RunRecoveryResolvedPayloadSchema,
   } satisfies Record<UnprojectedRunLifecycleKind, ZodType>);
 
 /**
@@ -245,7 +244,7 @@ function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
  *
  * The queue events fix the queue payload at
  * `{sessionId, queueItemId, state}`, and `SessionEventSchema`
- * registers no variant for any of the five `queue_item.*` kinds — so `state` is
+ * registers no variant for any `queue_item.*` kind — so `state` is
  * required by the wire and enforced by nothing the contracts package ships. A
  * beat without it reads as a real queue event, and the queue stream's projection
  * would then have to take the row's state from the KIND alone, which is a summary
@@ -285,7 +284,7 @@ function describeQueueStateDefect(beat: ScenarioBeat): string | undefined {
  * when the projection builds a delivery out of it.
  *
  * THE COMPLETE REGISTERED SHAPE, AND ONLY ONE READING OF IT. `SessionEventSchema`
- * registers no payload variant for any run-lifecycle kind, so a `run.starting` beat
+ * registers no payload variant for a run's state transitions, so a `run.starting` beat
  * carrying `{newState: "starting"}` and nothing else passes the census, passes the
  * canonical envelope, and takes the strict layer's discriminator escape. What it does
  * not pass is delivery: `run-stream-projection.ts` refuses it as unprojectable for

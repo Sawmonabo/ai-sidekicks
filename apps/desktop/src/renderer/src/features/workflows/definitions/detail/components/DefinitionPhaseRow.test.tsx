@@ -9,13 +9,11 @@
 // component over a hand-built phase, since a definition body with one binding per
 // scope arm never has two that collide, which is exactly the case this pins.
 
+import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import type {
-  McpServerBindingRef,
-  WorkflowPhaseDefinition,
-} from "@renderer/services/wire-shapes/workflow-definition-body.js";
+import type { WorkflowPhaseDefinition } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { schemaFormPreviewBody } from "../../../schema-form/schema-form-mounts.js";
 import { DefinitionPhaseRow } from "./DefinitionPhaseRow.js";
 

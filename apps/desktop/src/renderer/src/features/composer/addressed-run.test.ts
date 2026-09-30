@@ -28,6 +28,7 @@ const WIRE_RUN_STATES = [
   "running",
   "waiting_for_approval",
   "waiting_for_input",
+  "pausing",
   "paused",
   "completed",
   "interrupted",
@@ -53,13 +54,14 @@ describe("RUN_STATE_ADMITS_STEER — total over the contract's own union", () =>
     expect(Object.keys(RUN_STATE_ADMITS_STEER).sort()).toStrictEqual([...WIRE_RUN_STATES].sort());
   });
 
-  it("admits exactly the six non-terminal states", () => {
+  it("admits exactly the seven non-terminal states", () => {
     const admitted = Object.entries(RUN_STATE_ADMITS_STEER)
       .filter(([, admits]) => admits)
       .map(([state]) => state)
       .sort();
     expect(admitted).toStrictEqual([
       "paused",
+      "pausing",
       "queued",
       "running",
       "starting",

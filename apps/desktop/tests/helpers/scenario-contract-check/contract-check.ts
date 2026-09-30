@@ -18,9 +18,9 @@
 //   • `beat-shape.ts`: the census, the canonical envelope, and the strict layer, in
 //     that order, for every beat.
 //   • `run-and-queue-semantics.ts`: the run state machine's transition table, the
-//     queue payload's required member, the registered payloads of the four run kinds
-//     no narrowed stream projects, and the registered projection `run.subscribeState`
-//     delivers for the nine it does.
+//     queue payload's required member, the registered payloads of the run kinds no
+//     narrowed stream projects, and the registered projection `run.subscribeState`
+//     delivers for the ones it does.
 //   • `beat-order.ts`: the tick a beat is due at and the log position it occupies.
 //   • `reply-checks.ts`: one scripted answer per call, and one spendable latency on
 //     that answer.

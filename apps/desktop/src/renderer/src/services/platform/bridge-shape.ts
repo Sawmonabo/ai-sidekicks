@@ -10,7 +10,7 @@
 // "did the preload run" probe, and `bridge-shape.test.ts`.
 //
 // A shape is namespace to member names, and each member carries its `typeof`. Data
-// members count as much as methods: `app` holds four strings and no functions, and
+// members count as much as methods: `app` holds values and no functions, and
 // a bridge that dropped `locale` would be as wrong as one that dropped
 // `daemon.call`. The `typeof` is what separates "the member is missing" from "the
 // member is there and is a string where a function belongs", which is the shape a
@@ -37,6 +37,10 @@ const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<DesktopBridgeNamespace, true>> 
   controlPlane: true,
   native: true,
   update: true,
+  machineSettings: true,
+  keyboardMap: true,
+  window: true,
+  browser: true,
   app: true,
 };
 

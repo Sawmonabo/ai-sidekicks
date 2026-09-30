@@ -330,10 +330,9 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
 
   it("reports a creation beat carrying neither its progression counter nor its state", () => {
     // `run.queued` reaches a subscriber only through `session.subscribe`, so the
-    // projection leg claims it and the strict layer registers no variant for it —
-    // which left every member of its payload unchecked. A beat like this passed the
-    // census, the envelope, and the discriminator escape, and the run-lifecycle
-    // projector then folded it into a run with no version and no state.
+    // projection leg does not claim it; its payload is the contract's registered
+    // creation row. A beat naming neither its counter nor its state must be refused,
+    // or the run-lifecycle projector folds it into a run with no version and no state.
     const defects = findScenarioContractDefects([
       scenarioWithQueuedPayload("creation-names-half-a-payload", {
         sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,

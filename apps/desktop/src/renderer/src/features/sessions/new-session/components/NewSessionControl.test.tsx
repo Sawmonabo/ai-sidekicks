@@ -33,7 +33,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { NewSessionControl } from "./NewSessionControl.js";
-import { CREATED_SESSION_ID } from "../new-session-draft.test-support.js";
+import { CREATED_SESSION_ID, NEW_SESSION_LEAD } from "../new-session-draft.test-support.js";
 import {
   bridgeAnsweringCreateUnreadably,
   bridgeFor,
@@ -228,6 +228,7 @@ describe("the composed new-session draft — what a completed send hands out", (
         <NewSessionControl
           bridge={bridge}
           queueFirstTurn={queueFirstTurn}
+          lead={NEW_SESSION_LEAD}
           onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
           onSessionDirectoryRecheck={recordNoRecheck}
         />
@@ -241,6 +242,7 @@ describe("the composed new-session draft — what a completed send hands out", (
           <NewSessionControl
             bridge={bridge}
             queueFirstTurn={queueFirstTurn}
+            lead={NEW_SESSION_LEAD}
             onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
             onSessionDirectoryRecheck={recordNoRecheck}
           />
@@ -306,9 +308,9 @@ describe("the composed new-session draft — the axis it does not offer", () => 
   it("offers no execution-posture control, because no reachable call would carry one", async () => {
     // The defect: this control rendered a three-way posture picker, and the value it
     // collected reached no wire at all: the two calls the send makes carry no posture
-    // member to send it on. `SessionCreateRequest` is `{ config?, metadata? }` and
-    // `QueueItemCreateRequest` is `{ sessionId, workspaceId?, priority?, payload }`,
-    // both `.strict()`.
+    // member to send it on. `SessionCreateRequest` carries where the session works and
+    // who leads it, and `QueueItemCreateRequest` the message, its files and where it
+    // goes, both `.strict()`.
     // A control whose choice cannot be honored is not offered.
     renderControl({ scriptsCreate: true });
     await press("+ New");

@@ -2,8 +2,8 @@
 //
 // Append path (GUARDED, test-only):
 //   - `append()` refuses to run unless the service was constructed with the
-//     module-private `UnsignedPlaceholderAppendToken` singleton
-//     (`UnsignedPlaceholderAppendToken.forTestsOnly()`). It writes a row with a
+//     module-private `TestSeedingAppendToken` singleton
+//     (`TestSeedingAppendToken.forTestsOnly()`). It writes a row with a
 //     caller-chosen `sequence`, outside the per-session append lock, with no
 //     sealing and no canonical-size ceiling — everything the sole durable
 //     writer, `EventLogService.append`, exists to guarantee — so no production
@@ -89,7 +89,7 @@ interface SessionEventRow {
  *
  * Honest limit: none of the above stops IN-PACKAGE code
  * from gating a genuine `forTestsOnly()` call behind an environment
- * check — `process.env.X ? UnsignedPlaceholderAppendToken.forTestsOnly()
+ * check — `process.env.X ? TestSeedingAppendToken.forTestsOnly()
  * : undefined` returns the real singleton and passes `isGenuine`. The
  * token blocks data-DERIVED enablement, not code that deliberately
  * calls the factory. That residual is closed mechanically by lint:
@@ -99,22 +99,22 @@ interface SessionEventRow {
  * bypass remains expressible — there the loud name is the review
  * signal.
  */
-export class UnsignedPlaceholderAppendToken {
-  static readonly #singleton: UnsignedPlaceholderAppendToken = new UnsignedPlaceholderAppendToken();
+export class TestSeedingAppendToken {
+  static readonly #singleton: TestSeedingAppendToken = new TestSeedingAppendToken();
 
   // Nominal-typing brand: a private field is invisible to structural
   // assignability, so only instances of THIS class satisfy the type.
-  readonly #brand = "unsigned-placeholder-append-test-only" as const;
+  readonly #brand = "test-seeding-append" as const;
 
   private constructor() {}
 
   /** The sole issuance path. TEST-ONLY — see the class doc. */
-  static forTestsOnly(): UnsignedPlaceholderAppendToken {
-    return UnsignedPlaceholderAppendToken.#singleton;
+  static forTestsOnly(): TestSeedingAppendToken {
+    return TestSeedingAppendToken.#singleton;
   }
 
   /** Identity check against the module-private singleton (never structural). */
-  static isGenuine(candidate: UnsignedPlaceholderAppendToken | undefined): boolean {
+  static isGenuine(candidate: TestSeedingAppendToken | undefined): boolean {
     // The singleton identity comparison alone decides the verdict. The
     // trailing `#brand` read is a redundant assertion, NOT a second
     // check — the singleton always carries the brand, so the conjunct
@@ -124,8 +124,8 @@ export class UnsignedPlaceholderAppendToken {
     // consumed.
     return (
       candidate !== undefined &&
-      candidate === UnsignedPlaceholderAppendToken.#singleton &&
-      candidate.#brand === "unsigned-placeholder-append-test-only"
+      candidate === TestSeedingAppendToken.#singleton &&
+      candidate.#brand === "test-seeding-append"
     );
   }
 }
@@ -134,7 +134,7 @@ export class UnsignedPlaceholderAppendToken {
 export interface SessionServiceOptions {
   // TEST-ONLY. Permits `append()`'s test-seeding writes (see the guard
   // rationale in the file header). Takes the nominal
-  // identity-checked `UnsignedPlaceholderAppendToken` — not a boolean —
+  // identity-checked `TestSeedingAppendToken` — not a boolean —
   // so the opt-in can never be MANUFACTURED from data: no config value,
   // env string, or deserialized object is the singleton. Obtaining it
   // requires a literal `forTestsOnly()` call, which lint denies outside
@@ -143,7 +143,7 @@ export interface SessionServiceOptions {
   // in-package code, stopped by the lint gate, not by the type).
   // Production composition roots construct WITHOUT options and get a
   // read-only service (`readEvents`/`replay`).
-  readonly allowUnsignedPlaceholderAppend?: UnsignedPlaceholderAppendToken;
+  readonly allowTestSeedingAppend?: TestSeedingAppendToken;
 }
 
 export class SessionService {
@@ -153,13 +153,13 @@ export class SessionService {
   // of this service instance.
   readonly #insertStmt: Statement;
   readonly #replayStmt: Statement;
-  readonly #allowUnsignedPlaceholderAppend: boolean;
+  readonly #allowTestSeedingAppend: boolean;
 
   constructor(db: Database, options?: SessionServiceOptions) {
     // IDENTITY check against the module-private singleton — a forged or
     // deserialized object (even one cast to the token type) never passes.
-    this.#allowUnsignedPlaceholderAppend = UnsignedPlaceholderAppendToken.isGenuine(
-      options?.allowUnsignedPlaceholderAppend,
+    this.#allowTestSeedingAppend = TestSeedingAppendToken.isGenuine(
+      options?.allowTestSeedingAppend,
     );
     this.#insertStmt = db.prepare(
       `INSERT INTO session_events (
@@ -192,20 +192,20 @@ export class SessionService {
    * sequence) violations (the caller must coordinate sequence assignment).
    *
    * GUARDED (precondition): throws unless the service was constructed with
-   * the genuine `UnsignedPlaceholderAppendToken` — see the file header, the
+   * the genuine `TestSeedingAppendToken` — see the file header, the
    * token's class doc, and `SessionServiceOptions`.
    *
    * Returns `undefined` (not `void`): the tests that seed rows call it
    * directly.
    */
   append(event: AppendableEvent): undefined {
-    if (!this.#allowUnsignedPlaceholderAppend) {
+    if (!this.#allowTestSeedingAppend) {
       throw new Error(
         "SessionService.append is guarded: it writes a caller-sequenced row outside the " +
           "append lock, with no sealing and no size ceiling. Durable production writes belong " +
           "to EventLogService.append. Tests seeding rows opt in explicitly with the " +
           "identity-checked capability token: new SessionService(db, " +
-          "{ allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly() }).",
+          "{ allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly() }).",
       );
     }
     const result: RunResult = this.#insertStmt.run({

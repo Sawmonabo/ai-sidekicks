@@ -1,7 +1,7 @@
 // The session directory as a client reads and moves it: the live sessions list and its
-// entries, what a new session starts from (where it works and who leads it), converting a
-// chat to a project (its shapes in `session-convert.ts`), forking a session, moving its working folder, and the `session.*` method
-// table for these verbs and for `session.subscribe`.
+// entries, creating a session (where it works and who leads it), converting a chat to a
+// project (its shapes in `session-convert.ts`), forking a session, moving its working folder,
+// and the `session.*` method table for these verbs and for `session.subscribe`.
 //
 // These shapes name repositories, worktrees, providers, agent definitions and the session
 // event union. Every one of those contracts imports `session.ts` at load, so the shapes that
@@ -235,8 +235,7 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
 ) as unknown as z.ZodType<SessionBinding, SessionBinding>;
 
 /**
- * What `session.create` takes once its callers move to it, replacing today's untyped
- * `config` and `metadata`: where the session works and who leads it.
+ * What `session.create` takes: where the session works and who leads it.
  *
  * - `lead` is the lead's provider, model, account and effort, as the app chose them.
  * - `leadDefinitionId` names a saved definition the lead runs under; with `lead` beside it,
@@ -245,14 +244,14 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
  * - `scratch` asks for the definition's scratch session, which the daemon reuses while one is
  *   open, so it needs `leadDefinitionId` and a chat binding: a scratch session has no repo.
  */
-export interface SessionStartRequest {
+export interface SessionCreateRequest {
   clientIdempotencyKey: string;
   binding: SessionBinding;
   lead?: AgentProviderBinding | undefined;
   leadDefinitionId?: AgentDefinitionId | undefined;
   scratch?: true | undefined;
 }
-export const SessionStartRequestSchema: z.ZodType<SessionStartRequest, SessionStartRequest> = z
+export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, SessionCreateRequest> = z
   .object({
     clientIdempotencyKey: z.uuid(),
     binding: SessionBindingSchema,
@@ -285,20 +284,20 @@ export const SessionStartRequestSchema: z.ZodType<SessionStartRequest, SessionSt
         });
       }
     }
-  }) as unknown as z.ZodType<SessionStartRequest, SessionStartRequest>;
+  }) as unknown as z.ZodType<SessionCreateRequest, SessionCreateRequest>;
 
 /**
- * What `session.create` answers once its callers move to it. `resolvedConfiguration` is present
- * exactly when the request named a definition: what the lead was started with, so the caller
- * shows what it got rather than re-reading the definition.
+ * What `session.create` answers. `resolvedConfiguration` is present exactly when the request
+ * named a definition: what the lead was started with, so the caller shows what it got rather
+ * than re-reading the definition.
  */
-export interface SessionStartResponse {
+export interface SessionCreateResponse {
   sessionId: SessionId;
   shape: SessionShape;
   state: SessionState;
   resolvedConfiguration?: AgentResolvedConfiguration | undefined;
 }
-export const SessionStartResponseSchema: z.ZodType<SessionStartResponse> = z
+export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
   .object({
     sessionId: SessionIdSchema,
     shape: SessionShapeSchema,
@@ -391,6 +390,11 @@ export const SessionSetWorkingFolderResponseSchema: z.ZodType<SessionSetWorkingF
 // --------------------------------------------------------------------------
 
 export interface SessionDirectoryMethodDescriptors {
+  readonly "session.create": MethodDescriptor<
+    "session.create",
+    SessionCreateRequest,
+    SessionCreateResponse
+  >;
   readonly "session.list": SubscriptionMethodDescriptor<
     "session.list",
     SessionListRequest,
@@ -422,6 +426,13 @@ export interface SessionDirectoryMethodDescriptors {
 
 export const SESSION_DIRECTORY_METHOD_DESCRIPTORS: SessionDirectoryMethodDescriptors =
   defineMethodDescriptors({
+    "session.create": {
+      method: "session.create",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: SessionCreateRequestSchema,
+      responseSchema: SessionCreateResponseSchema,
+    },
     "session.list": {
       method: "session.list",
       procedureType: "subscription",

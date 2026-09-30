@@ -43,9 +43,10 @@
 // daemon that filtered wrongly ends the subscription loudly instead of handing a
 // driver-typed consumer an approval or audit row.
 //
-// THE THREE READS TAKE NO ARGUMENT. `listCapabilities`, `listModels`, and
-// `listModes` are written no-arg here, matching the `DriverClient` signature
-// `DriverReadParams` empty-object shape registers. Each answers with a GROUP
+// WHAT THE THREE READS TAKE. `listCapabilities` and `listModes` are written
+// no-arg here, matching the `DriverReadParams` empty-object shape, and
+// `listModels` takes the session whose model control asks, because the catalog
+// it answers is the one that session can run. Each answers with a GROUP
 // LIST keyed by driver name rather than a flat merged array, because model ids
 // collide across providers and carry no vendor marker — a flat reply would
 // strip the provenance a caller needs to keep a Claude-published value from
@@ -63,6 +64,7 @@ import type {
   DriverSubscribeEventsParams,
   InterruptRunParams,
   ListCapabilitiesResult,
+  ListModelsRequest,
   ListModelsResult,
   ListModesResult,
   ListProviderCommandsRequest,
@@ -80,6 +82,7 @@ import {
   DriverSubscribeEventsParamsSchema,
   InterruptRunParamsSchema,
   ListCapabilitiesResultSchema,
+  ListModelsRequestSchema,
   ListModelsResultSchema,
   ListModesResultSchema,
   ListProviderCommandsRequestSchema,
@@ -117,7 +120,7 @@ const DRIVER_METHOD_COMPACT_CONTEXT = "driver.compactContext";
 const DRIVER_METHOD_LIST_PROVIDER_COMMANDS = "driver.listProviderCommands";
 
 /**
- * The request value the three no-arg reads send.
+ * The request value the two no-arg reads send.
  *
  * A single frozen module-level constant rather than a fresh empty object per
  * call: the value is immutable by contract (`DriverReadParams` is
@@ -189,8 +192,8 @@ export interface DriverClient {
   /** Answer a provider-raised interactive request. Resolves the empty ack. */
   respondToRequest(params: RespondToRequestParams): Promise<DriverAckResult>;
 
-  /** Read every loaded driver's published model catalog, grouped by driver. */
-  listModels(): Promise<ListModelsResult>;
+  /** Read every loaded driver's model catalog for one session, grouped by driver. */
+  listModels(params: ListModelsRequest): Promise<ListModelsResult>;
 
   /** Read every loaded driver's published mode catalog, grouped by driver. */
   listModes(): Promise<ListModesResult>;
@@ -293,11 +296,11 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
         RespondToRequestParamsSchema,
         DriverAckResultSchema,
       ),
-    listModels: () =>
+    listModels: (params) =>
       client.call(
         DRIVER_METHOD_LIST_MODELS,
-        EMPTY_READ_PARAMS,
-        DriverReadParamsSchema,
+        params,
+        ListModelsRequestSchema,
         ListModelsResultSchema,
       ),
     listModes: () =>

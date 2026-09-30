@@ -47,7 +47,6 @@ import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { bridgeAnswering } from "../helpers/fixture-bridge.js";
-import { SESSION_ID } from "../helpers/daemon-reply-refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
@@ -131,12 +130,7 @@ function openChurnSubject(
       };
     },
     read: async (signal) => {
-      const reply = await callDaemon(
-        underTest.bridge,
-        "presence.read",
-        { sessionId: SESSION_ID },
-        { signal },
-      );
+      const reply = await callDaemon(underTest.bridge, "presence.read", {}, { signal });
       if (reply.status === "refused") {
         tally.callAnswers.push(reply.refusal.code);
         throw new Error(reply.refusal.code);

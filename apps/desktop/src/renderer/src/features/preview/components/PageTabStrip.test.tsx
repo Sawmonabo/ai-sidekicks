@@ -87,7 +87,10 @@ describe("the tab strip's frame", () => {
     renderStrip({
       kind: "served",
       frame: {
-        pages: [page({ pageId: "page-a", isLoading: true }), page({ pageId: "page-b" })],
+        pages: [
+          page({ pageId: "page-a", loadState: { kind: "loading", progress: null } }),
+          page({ pageId: "page-b" }),
+        ],
         activeIndex: 0,
       },
     });
@@ -96,6 +99,25 @@ describe("the tab strip's frame", () => {
     // token for exactly that, which tells a screen reader WHICH kind of current this
     // is rather than only that something is.
     expect(tabFace(0).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("draws a loaded page's own icon from its bytes, and the turning mark in its place while loading", () => {
+    const favicon = { mediaType: "image/png", data: "iVBORw0KGgo=" };
+    renderStrip({
+      kind: "served",
+      frame: {
+        pages: [
+          page({ pageId: "page-a", favicon }),
+          page({ pageId: "page-b", favicon, loadState: { kind: "loading", progress: 0.4 } }),
+        ],
+        activeIndex: 0,
+      },
+    });
+    expect(tabAt(0).querySelector("img")?.getAttribute("src")).toBe(
+      "data:image/png;base64,iVBORw0KGgo=",
+    );
+    expect(tabAt(1).querySelector("img")).toBeNull();
+    expect(tabAt(1).querySelector(".meridian-preview-tab__spinner")).not.toBeNull();
   });
 
   it("marks the selected tab with a class the stylesheet can key on", () => {

@@ -1,4 +1,4 @@
-// The four arms, the tail, and the one control — each rendered as itself.
+// The three arms, the tail, and the one control — each rendered as itself.
 
 import type { EventCursor, ReasoningSurfaceReadResponse, RunId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -43,7 +43,7 @@ function availableReply(bodies: readonly string[]): ReasoningSurfaceReadResponse
   };
 }
 
-describe("the four availability arms", () => {
+describe("the three availability arms", () => {
   it("renders the entries on the available arm", () => {
     const container = renderThinkingRow({
       reading: { status: "read", response: availableReply(["weighed the two branches"]) },
@@ -80,17 +80,6 @@ describe("the four availability arms", () => {
     // the word, which both arms are entitled to use.
     expect(unavailable.textContent).not.toContain("withheld by policy");
     expect(unavailable.textContent).not.toContain("org-policy-7");
-  });
-
-  it("negative control: compacted reasoning is not unavailable reasoning", () => {
-    const compacted = renderThinkingRow({
-      reading: { status: "read", response: { availability: "compacted" } },
-    });
-    const unavailable = renderThinkingRow({
-      reading: { status: "read", response: { availability: "unavailable" } },
-    });
-    expect(compacted.textContent).toContain("compacted");
-    expect(compacted.textContent).not.toBe(unavailable.textContent);
   });
 
   it("says a bounded page has a continuation nobody asked for", () => {

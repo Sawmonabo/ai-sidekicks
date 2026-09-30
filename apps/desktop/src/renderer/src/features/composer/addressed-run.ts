@@ -15,7 +15,7 @@
 // this store touched" answers wrongly the moment a run settles.
 //
 // THE PARTITION IS TOTAL OVER THE CONTRACT'S OWN UNION. `RUN_STATE_ADMITS_STEER`
-// is a `Record<RunState, boolean>` rather than a set of literals, so a tenth run
+// is a `Record<RunState, boolean>` rather than a set of literals, so a run
 // state added to `packages/contracts` fails to compile here rather than falling
 // into whichever half a default happened to pick.
 
@@ -43,6 +43,7 @@ export const RUN_STATE_ADMITS_STEER: Readonly<Record<RunState, boolean>> = {
   running: true,
   waiting_for_approval: true,
   waiting_for_input: true,
+  pausing: true,
   paused: true,
   completed: false,
   interrupted: false,

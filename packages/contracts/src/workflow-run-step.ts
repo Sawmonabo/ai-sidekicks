@@ -12,8 +12,11 @@ import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
 import {
+  WorkflowDefinitionIdSchema,
   WorkflowNodeIdSchema,
   WorkflowStepErrorSchema,
+  WorkflowVersionIdSchema,
+  type WorkflowDefinitionId,
   type WorkflowNodeId,
   type WorkflowStepError,
 } from "./workflow-definition.js";
@@ -435,12 +438,15 @@ export const WorkflowStepSkippedPayloadSchema: z.ZodType<WorkflowStepSkippedPayl
 
 /**
  * `workflow.gate_resolved`: the answer, written with the approval record's entry in
- * one step. `nodeId` names the approval step; a chain's question names none.
- * `deviceId` is the device that answered.
+ * one step. The run is named with the definition and the version it is pinned to.
+ * `nodeId` names the approval step; a chain's question names none. `deviceId` is the
+ * device that answered.
  */
 export interface WorkflowGateResolvedPayload {
   sessionId: SessionId;
   workflowRunId: WorkflowRunId;
+  definitionId: WorkflowDefinitionId;
+  workflowVersionId: string;
   nodeId?: WorkflowNodeId | undefined;
   outcome: ApprovalDecision;
   gateResolutionId: string;
@@ -451,6 +457,8 @@ export const WorkflowGateResolvedPayloadSchema: z.ZodType<WorkflowGateResolvedPa
   .object({
     sessionId: SessionIdSchema,
     workflowRunId: WorkflowRunIdSchema,
+    definitionId: WorkflowDefinitionIdSchema,
+    workflowVersionId: WorkflowVersionIdSchema,
     nodeId: WorkflowNodeIdSchema.optional(),
     outcome: ApprovalDecisionSchema,
     gateResolutionId: z.string().min(1),

@@ -11,8 +11,7 @@ import { z } from "zod";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import { ProjectIdSchema, type ProjectId } from "./project.js";
-import { REPO_PATH_MAX_LEN } from "./repo.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Cloning from a URL — `repo.clone` and its card.
@@ -40,7 +39,7 @@ export interface RepoCloneRequest {
 export const RepoCloneRequestSchema: z.ZodType<RepoCloneRequest, RepoCloneRequest> = z
   .object({
     url: wireFreeFormString(REPO_CLONE_URL_MAX_LEN, "RepoCloneRequest.url"),
-    parentFolder: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoCloneRequest.parentFolder").optional(),
+    parentFolder: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoCloneRequest.parentFolder").optional(),
     projectId: ProjectIdSchema.optional(),
   })
   .strict();
@@ -240,7 +239,7 @@ export interface RepoCloneFolderReadResponse {
 /** Wire schema for {@link RepoCloneFolderReadResponse}. */
 export const RepoCloneFolderReadResponseSchema: z.ZodType<RepoCloneFolderReadResponse> = z
   .object({
-    folder: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoCloneFolderReadResponse.folder"),
+    folder: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoCloneFolderReadResponse.folder"),
     source: z.enum(["setting", "lastProject", "home"]),
   })
   .strict();

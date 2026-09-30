@@ -36,11 +36,14 @@
 //     is a defect in the script rather than in the engine, and it is invisible in
 //     a rendered frame, so it throws here.
 //
-// The payload builders below carry the registered shapes and nothing else.
-// `run.*` and `subagent.*` have no strict variant in `packages/contracts/src/event.ts`
-// and are held to the census and to the per-type payload rows of the taxonomy;
-// `assistant.*` and `tool.*` do have one, and it is `.strict()`, so a member those
-// builders do not name is a member the wire rejects.
+// The payload builders below carry the registered shapes and nothing else. The run
+// transitions after a run's creation and `subagent.*` have no strict variant in
+// `packages/contracts/src/event.ts` and are held to the census and to the per-type
+// payload rows of the taxonomy; `run.queued`, `assistant.*` and `tool.*` do have one,
+// and it is `.strict()`, so a member those builders do not name is a member the wire
+// rejects.
+
+import type { AgentListEntry } from "@ai-sidekicks/contracts";
 
 import type { ScenarioBeat } from "../scenario.js";
 
@@ -106,6 +109,8 @@ interface RunTransitionInput {
   readonly parentRunId?: string;
   /** Whether the child is the parent's own helper rather than a user's run. */
   readonly internalHelper?: boolean;
+  /** The agent this run's creation starts from its saved definition, as the agent list names it. */
+  readonly resolvedAgent?: AgentListEntry;
 }
 
 /**
@@ -142,7 +147,7 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
   });
 }
 
-/** The one transition the orchestration linkage rides. */
+/** The one transition a run's linkage and resolved agent ride. */
 const RUN_BIRTH_STATE = "queued";
 
 /** What one assistant-output beat says. */
@@ -217,12 +222,12 @@ interface RunEntryBuilders {
  * leg sees a registered kind and the strict layer registers no `run.*` variant.
  */
 export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
-  const linkage = orchestrationLinkageMembers(input);
-  if (Object.keys(linkage).length > 0 && input.newState !== RUN_BIRTH_STATE) {
+  const creation = creationRowMembers(input);
+  if (Object.keys(creation).length > 0 && input.newState !== RUN_BIRTH_STATE) {
     throw new RangeError(
-      `a run's orchestration linkage rides its birth beat, and this entry moves ${input.runId} ` +
-        `into "${input.newState}". The taxonomy puts the linkage on \`run.${RUN_BIRTH_STATE}\` ` +
-        "alone, so a second beat carrying it would be a second record of one fact.",
+      `a run's linkage and resolved agent ride its birth beat, and this entry moves ${input.runId} ` +
+        `into "${input.newState}". The taxonomy puts them on \`run.${RUN_BIRTH_STATE}\` ` +
+        "alone, so a second beat carrying them would be a second record of one fact.",
     );
   }
   return {
@@ -236,7 +241,7 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
       ...(input.previousState === undefined ? {} : { previousState: input.previousState }),
       newState: input.newState,
       ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
-      ...linkage,
+      ...creation,
     },
   };
 }
@@ -324,10 +329,11 @@ export function createRunEntryBuilders(sessionId: string): RunEntryBuilders {
   };
 }
 
-/** Whichever of the two linkage members this entry stated, and no key for the rest. */
-function orchestrationLinkageMembers(input: RunTransitionInput): Readonly<Record<string, unknown>> {
+/** Whichever of the creation row's own members this entry stated, and no key for the rest. */
+function creationRowMembers(input: RunTransitionInput): Readonly<Record<string, unknown>> {
   return {
     ...(input.parentRunId === undefined ? {} : { parentRunId: input.parentRunId }),
     ...(input.internalHelper === undefined ? {} : { internalHelper: input.internalHelper }),
+    ...(input.resolvedAgent === undefined ? {} : { resolvedAgent: input.resolvedAgent }),
   };
 }

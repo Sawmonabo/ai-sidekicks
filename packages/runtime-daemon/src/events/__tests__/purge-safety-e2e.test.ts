@@ -217,7 +217,22 @@ async function appendSessionOpener(sessionId: SessionId): Promise<void> {
     category: "session_lifecycle",
     type: "session.created",
     actor: null,
-    payload: { sessionId, config: {}, metadata: { title: "purge end-to-end" } },
+    payload: {
+      sessionId,
+      shape: "chat",
+      mainAgent: {
+        agentId: "44444444-4444-4444-8444-444444444444",
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: "2026-08-01T00:00:00.000Z",
+      },
+    },
     version: ENVELOPE_VERSION,
   });
 }

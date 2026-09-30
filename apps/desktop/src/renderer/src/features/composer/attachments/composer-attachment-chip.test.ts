@@ -35,9 +35,9 @@ describe("the composer attachment chip", () => {
         declaredMediaType: "text/plain",
         byteLength: 400,
         derived: derivedTruth({
-          normalizedName: "meeting-notes.md",
-          derivedMediaType: "text/markdown",
-          derivedSizeBytes: 420,
+          fileName: "meeting-notes.md",
+          mimeType: "text/markdown",
+          sizeBytes: 420,
         }),
       }),
       PUBLISHED_AT,

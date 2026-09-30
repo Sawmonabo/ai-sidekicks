@@ -39,6 +39,7 @@ import type { ReactElement } from "react";
 
 import { renderSettled } from "../app-harness.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../fixtures/scenarios/waiting-for-input.js";
+import { scenarioLeadAgentId } from "../../../fixtures/data/opening-entries.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
@@ -54,25 +55,6 @@ import { MessageComposer } from "@renderer/features/composer/Composer.js";
 import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { type MountedView } from "./mount-queries.js";
-
-/**
- * The composer scenario's own agent, read out of the log rather than restated.
- *
- * A second copy of the UUID here would be a constant that agrees with the scenario
- * only by discipline, and the day the scenario's agent changed this mount would go
- * on addressing an agent nobody attached — resolving the session path and capturing
- * a baseline of the wrong composition under the provider-bound name.
- */
-function composerAgentId(): string {
-  const attached = WAITING_FOR_INPUT_SCENARIO.beats.find(
-    (beat) => beat.event.kind === "agent.attached",
-  );
-  const agentId = attached?.event.payload?.["agentId"];
-  if (typeof agentId !== "string") {
-    throw new Error("the composer scenario attaches no agent, so no provider-bound address exists");
-  }
-  return agentId;
-}
 
 /**
  * A store holding the scenario's beats up to and including the named kind.
@@ -179,7 +161,10 @@ export async function mountComposerSessionDefault(): Promise<MountedView> {
 export async function mountComposerProviderBoundRunning(): Promise<MountedView> {
   return mountComposerAt({
     throughKind: "run.running",
-    focusedPane: { kind: "agents", entity: { kind: "agent", id: composerAgentId() } },
+    focusedPane: {
+      kind: "agents",
+      entity: { kind: "agent", id: scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO) },
+    },
   });
 }
 
@@ -187,7 +172,10 @@ export async function mountComposerProviderBoundRunning(): Promise<MountedView> 
 export async function mountComposerProviderBoundWaiting(): Promise<MountedView> {
   return mountComposerAt({
     throughKind: "run.waiting_for_input",
-    focusedPane: { kind: "agents", entity: { kind: "agent", id: composerAgentId() } },
+    focusedPane: {
+      kind: "agents",
+      entity: { kind: "agent", id: scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO) },
+    },
   });
 }
 

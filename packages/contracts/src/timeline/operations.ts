@@ -1,6 +1,6 @@
-// The four paged and streamed timeline operations' request/response pairs:
-// `TimelineRead`, `TimelineSubscribe`, `ReasoningSurfaceRead`, `ChildRunExpand`,
-// and the frame budget every paged timeline reply shares.
+// The three paged timeline operations' request/response pairs:
+// `TimelineRead`, `ReasoningSurfaceRead`, `ChildRunExpand`, and the frame
+// budget every paged timeline reply shares.
 //
 // This module APPLIES them; it decides nothing.
 //
@@ -8,13 +8,10 @@
 // ONE ROW SCHEMA, TWO CARRIERS
 // ----------------------------------------------------------------------------
 //
-// `TimelineReadResponse.entries`, the `timeline.subscribe` stream, and
-// `ChildRunExpandResponse.entries` are all `TimelineRow` — the SAME
-// `TimelineRowSchema` instance, not three structurally-equal copies. That is
-// the whole of ' "live subscription payloads and replay windows use the same
-// row schema so reconnect recovery does not require projection translation":
-// a replay row and a live row are indistinguishable to a parser because
-// there is only one parser.
+// `TimelineReadResponse.entries` and `ChildRunExpandResponse.entries` are
+// both `TimelineRow` — the SAME `TimelineRowSchema` instance, not two
+// structurally-equal copies. A row from either read is indistinguishable to a
+// parser because there is only one parser.
 //
 // ----------------------------------------------------------------------------
 // EVERY PAGED REPLY IS BOUNDED BY THE FRAME IT WILL BECOME
@@ -40,13 +37,6 @@
 // stop. The producer stops at whichever of the row limit and the byte budget
 // trips first and sets `hasMore` accordingly; the schema is what makes that
 // obligation enforceable rather than merely documented.
-//
-// This bounds the three PAGED replies. It does not bound one
-// `timeline.subscribe` emission, which is a single row on its own
-// `$/subscription/notify` frame: a row large enough to blow a frame by itself
-// is an oversized projected event payload, and `session.subscribe` has carried
-// that exposure since it shipped. Bounding it is a decision about the event
-// envelope and the framer, not one a page budget may make on their behalf.
 //
 // ----------------------------------------------------------------------------
 // The `ReasoningSurfaceReadRequest` principal: no wire member, by design
@@ -75,9 +65,8 @@
 import { z } from "zod";
 
 import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc-streaming.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { RunStateSchema, type RunState } from "../run-control.js";
+import { RunStateSchema, type RunState } from "../run-state.js";
 import {
   EventCursorSchema,
   SessionIdSchema,
@@ -343,9 +332,9 @@ export const TimelineReadRequestSchema: z.ZodType<TimelineReadRequest, TimelineR
  * THE CURSOR IS PERMITTED, NOT FORBIDDEN, ON THE TERMINAL ARM. The two members
  * answer different questions — `hasMore` says whether unread rows remain,
  * `nextCursor` says where this window ended — and they are not contradictory
- * on a final page. also requires `TimelineSubscribe` to "support live append
- * plus replay recovery", and a client that has just read to the end and now
- * wants to subscribe from exactly there needs precisely that position.
+ * on a final page. A client that has just read to the end and now opens the
+ * session's live stream from exactly there (`session.subscribe` with
+ * `afterCursor`) needs precisely that position.
  * Forbidding it would make a caller re-derive the position from the last row,
  * or re-read the final window, to recover something the producer already held.
  */
@@ -410,48 +399,6 @@ export const TimelineReadResponseSchema: z.ZodType<TimelineReadResponse> = z
   });
 
 // ---------------------------------------------------------------------------
-// TimelineSubscribe
-// ---------------------------------------------------------------------------
-
-/**
- * A live subscription with replay catch-up from `afterCursor` ("if live
- * delivery gaps occur, the client must request replay from the canonical event
- * source").
- *
- * Resumption is by `afterCursor` alone; the stream carries no `lastEventId`.
- */
-export interface TimelineSubscribeRequest {
-  sessionId: SessionId;
-  afterCursor?: EventCursor | undefined;
-}
-
-export const TimelineSubscribeRequestSchema: z.ZodType<
-  TimelineSubscribeRequest,
-  TimelineSubscribeRequest
-> = z
-  .object({
-    sessionId: SessionIdSchema,
-    afterCursor: EventCursorSchema.optional(),
-  })
-  .strict();
-
-/**
- * `timeline.subscribe`'s init ack — an ALIAS SEAM over the canonical generic
- * `SubscribeAckResponse`, the same shape `SessionSubscribeResponse` takes and
- * for the same reason: today the ack is exactly `{ subscriptionId }`, and the
- * seam exists so a future timeline-specific divergence stays localized here.
- *
- * The ack is what the method's registered result schema validates; the ROW
- * union is what each emission carries. The canonical registry table's response
- * column names the emission type (`TimelineRow`) because that is the wire fact
- * a client cares about — see `TIMELINE_METHOD_DESCRIPTORS` in `./methods.js`,
- * where both are bound to the method side by side.
- */
-export type TimelineSubscribeResponse = SubscribeAckResponse;
-export const TimelineSubscribeResponseSchema: z.ZodType<TimelineSubscribeResponse> =
-  SubscribeAckResponseSchema;
-
-// ---------------------------------------------------------------------------
 // ReasoningSurfaceRead
 // ---------------------------------------------------------------------------
 
@@ -506,17 +453,9 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
   .strict();
 
 /**
- * The closed four-state reasoning-availability reply.
- *
- * The prior shape was `available: boolean` with two free optionals, which
- * serialized the available / unavailable / compacted / policy-redacted cases
- * IDENTICALLY and left the distinguish-the-cases requirement unrepresentable.
- * It was replaced in place rather than
- * compatibility-extending it: the shape predated that PR as canonical-doc text
- * only, with no shipped emitter or parser, so the deployed-skew rules — which
- * guard from the first shipped parser onward — impose no legacy boolean arm.
- * This module is that first shipped parser, and it ships with NO tolerant
- * fallback arm: the legacy boolean shape fails parse.
+ * The closed three-state reasoning-availability reply. Each state is its own
+ * arm, so the available, unavailable and policy-redacted cases never
+ * serialize alike, and a bare `available: boolean` fails parse.
  *
  * Per-state field rules, each enforced by `.strict()` on its own arm rather
  * than narrated:
@@ -525,10 +464,11 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
  *     on the continuing arm, the `nextCursor` to continue from.
  *   * `policy_redacted` REQUIRES `policyReason` and admits no entries — the
  *     redaction renders as an explicit surface, never as absence.
- *   * `unavailable` and `compacted` carry NEITHER; the client renders the
- *     placeholder from the state itself. `compacted` names WHY expansion is
- *     empty, and neither state erases the durable summary or the policy marker
- *     that remain canonical on the summary-first surface.
+ *   * `unavailable` carries NEITHER; the client renders the placeholder from
+ *     the state itself, and the state does not erase the durable summary or
+ *     the policy marker that remain canonical on the summary-first surface.
+ *     Reasoning that was captured is kept whole for as long as the session's
+ *     events are kept, so no state says it was captured and then discarded.
  *
  * No two states serialize identically, so a state-inconsistent field set is a
  * parse failure rather than a rendering ambiguity.
@@ -537,7 +477,7 @@ export const ReasoningEntrySchema: z.ZodType<ReasoningEntry> = z
  * for the same reason: a bounded surface that cannot say where it stopped has
  * no continuation. The union nests — outer on `availability`, inner on
  * `hasMore` — rather than flattening, so `availability` keeps selecting one
- * option and the four states stay four.
+ * option and the three states stay three.
  */
 export type ReasoningSurfaceReadResponse =
   | {
@@ -553,7 +493,6 @@ export type ReasoningSurfaceReadResponse =
       nextCursor?: EventCursor | undefined;
     }
   | { availability: "unavailable" }
-  | { availability: "compacted" }
   | { availability: "policy_redacted"; policyReason: string };
 
 // NON-EMPTY ON THE CONTINUING ARM, and there alone.
@@ -562,15 +501,14 @@ export type ReasoningSurfaceReadResponse =
 // exists and then shows nothing, which renders identically to `unavailable`
 // while asserting the opposite — the collapse the distinguish-the-cases
 // requirement forbids, and which forbids in the redaction direction. A
-// producer with no entries to serve at all has three honest arms to choose
+// producer with no entries to serve at all has two honest arms to choose
 // from and must pick one.
 //
 // A CONTINUATION is a different question with a different honest answer. A
 // caller re-asking from an `afterCursor` that already sat at the end of the
 // surface has reached the end of something that does exist, and every other
 // arm misstates that: `unavailable` says no reasoning was captured,
-// `compacted` says it was captured and discarded, `policy_redacted` says it
-// was withheld. The true statement is `available`, `hasMore: false`, nothing
+// `policy_redacted` says it was withheld. The true statement is `available`, `hasMore: false`, nothing
 // further — so the terminal arm carries no floor.
 //
 // The two rules split cleanly by arm only because `hasMore: true` is the one
@@ -622,7 +560,6 @@ export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadR
   z.discriminatedUnion("availability", [
     reasoningAvailableArmSchema,
     z.object({ availability: z.literal("unavailable") }).strict(),
-    z.object({ availability: z.literal("compacted") }).strict(),
     z
       .object({
         availability: z.literal("policy_redacted"),
@@ -640,12 +577,11 @@ export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadR
  * contract — the mechanism behind the "every non-`available` state produces a
  * visible explanation surface".
  *
- * FOUR VALUES, FIVE TYPE ARMS: `available` splits on `hasMore` for its
- * continuation, which is a paging distinction and not a fifth state, so it
- * contributes one entry here.
+ * `available` splits on `hasMore` for its continuation, which is a paging
+ * distinction and not another state, so it contributes one entry here.
  */
 export const REASONING_AVAILABILITY_STATES: readonly ReasoningSurfaceReadResponse["availability"][] =
-  Object.freeze(["available", "unavailable", "compacted", "policy_redacted"] as const);
+  Object.freeze(["available", "unavailable", "policy_redacted"] as const);
 
 // ---------------------------------------------------------------------------
 // ChildRunExpand
@@ -674,7 +610,7 @@ export interface ChildRunExpandResponseBase {
   parentRunId: RunId;
   state: RunState;
   /**
-   * The SAME `TimelineRow` union the read window and the live stream carry — a
+   * The SAME `TimelineRow` union the read window carries — a
    * child run's rows are timeline rows, not a third shape a consumer would
    * have to translate.
    */

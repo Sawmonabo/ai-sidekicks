@@ -18,6 +18,8 @@ import "./PreviewPaneContent.css";
 
 import { useCallback, useId } from "react";
 
+import type { PreviewPageId } from "@ai-sidekicks/contracts";
+
 import type { PageHost } from "../geometry/page-host.js";
 import {
   addressFieldSubmission,
@@ -54,9 +56,9 @@ export interface BrowserChromeActs {
   readonly goForward: () => void;
   readonly reload: () => void;
   readonly stopLoading: () => void;
-  readonly selectPage: (pageId: string) => void;
-  readonly closePage: (pageId: string) => void;
-  readonly reorderPage: (pageId: string, toIndex: number) => void;
+  readonly selectPage: (pageId: PreviewPageId) => void;
+  readonly closePage: (pageId: PreviewPageId) => void;
+  readonly reorderPage: (pageId: PreviewPageId, toIndex: number) => void;
 }
 
 /** What the pane's content draws from, beside the pane layout's context. */
@@ -146,7 +148,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
     [setAddressField],
   );
 
-  const isLoading = reported?.isLoading ?? false;
+  const isLoading = reported?.loadState.kind === "loading";
 
   return (
     // The chord claim rides the frame's own section, so it covers the head the frame

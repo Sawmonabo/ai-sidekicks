@@ -12,12 +12,13 @@
 // WHERE THE ROWS COME FROM. Each list is read off the subscription's own
 // registration rather than chosen here:
 //
-//   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`.
-//     The first arm is one event per canonical run state the machine can transition
-//     INTO, so its kinds are the registered `RunState` union under the `run.` root
-//     less the initial state; the second arm is the forward, non-state
-//     `run.rolled_back` row that the same registration names as riding the same
-//     stream.
+//   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`
+//     and Codex's safety hold. The first arm is one event per canonical run state
+//     the machine can transition INTO, so its kinds are the registered `RunState`
+//     union under the `run.` root less the initial state; the second arm is the
+//     forward, non-state `run.rolled_back` row that the same registration names as
+//     riding the same stream. The hold is a live frame with no session row, so no
+//     event kind names it and this table holds no row for it.
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection, which is
 //     what each `queue_item.*` row announces, so its kinds are that root within
 //     the registered census.

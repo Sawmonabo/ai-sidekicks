@@ -4,6 +4,7 @@
 // truth must displace the declaration rather than sit beside it, and the unresolved
 // marker must name a cause and a remedy rather than a generic failure.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -131,10 +132,10 @@ describe("attachment card — the derived truth displaces the declaration", () =
           kind: "resolved",
           attachmentId: "artifact-9",
           derived: {
-            artifactId: "artifact-9",
-            normalizedName: "passwd.txt",
-            derivedMediaType: "text/plain",
-            derivedSizeBytes: 300,
+            artifactId: "artifact-9" as ArtifactId,
+            fileName: "passwd.txt",
+            mimeType: "text/plain",
+            sizeBytes: 300,
           },
         }}
         nowMilliseconds={NOW_MILLISECONDS}
@@ -153,10 +154,10 @@ describe("attachment card — the derived truth displaces the declaration", () =
           kind: "resolved",
           attachmentId: "artifact-9",
           derived: {
-            artifactId: "artifact-9",
-            normalizedName: "passwd.txt",
-            derivedMediaType: "text/plain",
-            derivedSizeBytes: 300,
+            artifactId: "artifact-9" as ArtifactId,
+            fileName: "passwd.txt",
+            mimeType: "text/plain",
+            sizeBytes: 300,
           },
         }}
         nowMilliseconds={NOW_MILLISECONDS}
@@ -193,10 +194,10 @@ describe("attachment card — the unresolved marker", () => {
 
 describe("attachment card — the media type is shown from either reading", () => {
   const derivedTruth = {
-    artifactId: "artifact-1",
-    normalizedName: "screenshot.png",
-    derivedMediaType: "image/png",
-    derivedSizeBytes: 300,
+    artifactId: "artifact-1" as ArtifactId,
+    fileName: "screenshot.png",
+    mimeType: "image/png",
+    sizeBytes: 300,
   };
 
   function renderCard(subject: AttachmentIngestEntry): string {
@@ -263,17 +264,17 @@ describe("attachment card — the media type is shown from either reading", () =
 
 describe("attachment card — the label and the face name one artifact", () => {
   /** A completed ingest: still the in-flight arm of the reading, with derived truth on it. */
-  function completedEntry(normalizedName: string): AttachmentIngestEntry {
+  function completedEntry(fileName: string): AttachmentIngestEntry {
     return {
       declared: entry().declared,
       state: "complete",
       receivedBytes: 300,
       ingestId: "ingest-1",
       derived: {
-        artifactId: "artifact-9",
-        normalizedName,
-        derivedMediaType: "text/plain",
-        derivedSizeBytes: 300,
+        artifactId: "artifact-9" as ArtifactId,
+        fileName,
+        mimeType: "text/plain",
+        sizeBytes: 300,
       },
       refusal: undefined,
       disposition: undefined,

@@ -51,6 +51,7 @@ const INTERVENTION_TYPES: Record<InterventionType, true> = {
   steer: true,
   interrupt: true,
   cancel: true,
+  faster_model_retry: true,
 };
 
 const INTERVENTION_STATES: Record<InterventionState, true> = {

@@ -1,6 +1,6 @@
 // The supervisor states the main-process suites drive over.
 
-import type { DaemonConnection } from "@renderer/store/window/main-process-state.js";
+import type { DaemonConnection } from "@shared/daemon-status-topic.js";
 
 /**
  * Every arm a supervisor actually reports, `unreported` excluded.

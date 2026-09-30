@@ -3,8 +3,8 @@
 // What the rows may and may not claim is the whole of this file's difficulty, and
 // four rules carry it:
 //
-//   • **No invented name.** `SessionSnapshot` has `config` and `metadata` bags and
-//     no name column, so a session renders by its identifier and its users.
+//   • **No invented name.** `SessionSnapshot` has no name column, so a session
+//     renders by its identifier and its users.
 //     The identifier is a wire figure and wears the mono provenance signature; a
 //     console-composed title beside it would be prose paraphrasing a figure.
 //   • **State verbatim.** The chip carries the wire's own string in mono. The

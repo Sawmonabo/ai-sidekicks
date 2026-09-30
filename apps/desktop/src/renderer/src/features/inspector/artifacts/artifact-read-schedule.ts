@@ -51,8 +51,8 @@ const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
  * THE SELECTOR IS THE NAMESPACE AND NOT THE CATEGORY, which is the question this section
  * is actually asking. Both of its reads are about artifacts, so any frame that names
  * one changes what one of them would answer — while `artifact_publication`, the
- * category the three live in, also holds `diff.created`, `pr.prepared`, and
- * `pr.submitted`, which are publications of other entities and change neither read. It
+ * category the three live in, also holds `diff.created` and `git.settled`, which are
+ * publications of other entities and change neither read. It
  * deliberately does not infer a category from the prefix either, which
  * `packages/contracts/src/event.ts` warns against: a type's category is the registry's
  * to state, and this set never reads one.

@@ -383,7 +383,7 @@ CREATE TABLE interventions (
   id                      TEXT PRIMARY KEY,
   target_run_id           TEXT NOT NULL,
   type                    TEXT NOT NULL
-                          CHECK(type IN ('steer', 'interrupt', 'cancel')),
+                          CHECK(type IN ('steer', 'interrupt', 'cancel', 'faster_model_retry')),
   state                   TEXT NOT NULL DEFAULT 'requested'
     CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   -- JSON, non-PII fields only; a steer's text is in pii_payload
@@ -484,6 +484,8 @@ CREATE TABLE provider_accounts (
   observed_account_email    TEXT,
   observed_account_org_id   TEXT,
   observed_account_org_name TEXT,
+  -- The plan id exactly as the provider sends it.
+  observed_account_plan     TEXT,
   -- Removal marks this first, then destroys the sealed token, then deletes the
   -- row: SQLite and the keystore commit separately, so a crash strands a row
   -- marked unusable, never a live secret. Admission refuses a marked account.
@@ -493,11 +495,31 @@ CREATE TABLE provider_accounts (
   -- validation still write the pair.
   probe_enabled             INTEGER NOT NULL DEFAULT 1
                             CHECK(probe_enabled IN (0, 1)),
+  -- Start each usage window as it opens; does nothing while probe_enabled is 0.
+  window_start_enabled      INTEGER NOT NULL DEFAULT 1
+                            CHECK(window_start_enabled IN (0, 1)),
+  -- Wake the machine for a window that resets while it sleeps; does nothing
+  -- while window_start_enabled is 0.
+  wake_for_window_start_enabled INTEGER NOT NULL DEFAULT 0
+                            CHECK(wake_for_window_start_enabled IN (0, 1)),
+  -- The one memory import: NULL until it runs, then 'imported' with its count
+  -- and time, or 'nothingToImport' with neither.
+  memory_import_outcome     TEXT
+    CHECK(memory_import_outcome IS NULL
+      OR memory_import_outcome IN ('imported', 'nothingToImport')),
+  memory_import_count       INTEGER
+    CHECK(memory_import_count IS NULL
+      OR (typeof(memory_import_count) = 'integer' AND memory_import_count >= 1)),
+  memory_imported_at        TEXT,
   created_at                TEXT NOT NULL,
   updated_at                TEXT NOT NULL,
   -- The observation is a pair: a reading without its time, or a time without a
   -- reading, is refused.
-  CHECK((health_state IS NULL) = (health_observed_at IS NULL))
+  CHECK((health_state IS NULL) = (health_observed_at IS NULL)),
+  -- An import that copied something has its count and time; no other outcome has either.
+  CHECK((memory_import_outcome IS 'imported')
+    = (memory_import_count IS NOT NULL AND memory_imported_at IS NOT NULL)),
+  CHECK((memory_import_count IS NULL) = (memory_imported_at IS NULL))
 ) STRICT;
 
 -- One default per provider. Two concurrent set-default calls would each see no
@@ -533,8 +555,9 @@ CREATE TABLE provider_account_usage_windows (
   observed_credential_generation INTEGER NOT NULL
     CHECK(typeof(observed_credential_generation) = 'integer'
       AND observed_credential_generation >= 1),
-  -- The deliberate probe verb or real traffic. The background observer is not a
-  -- source: reading quota there would trigger a proactive credential refresh.
+  -- The account's own limits read ('probe', whoever asked for it: the probe verb,
+  -- the five-minute read, the turn-end read), which replaces the stored set, or
+  -- what the provider pushes during a turn ('run'), which is merged.
   source        TEXT NOT NULL
                 CHECK(source IN ('probe', 'run')),
   PRIMARY KEY (account_id, limit_id)

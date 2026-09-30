@@ -6,7 +6,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
+import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts";
+
 import { findApprovalCardAction } from "../components/ApprovalCard.js";
 
 /** The composer's root class. Focus moves to a new card only from inside it. */
@@ -27,15 +28,15 @@ const COMPOSER_ROOT_SELECTOR = ".meridian-composer";
  * @consumedBy the approval card's arrival focus
  */
 export function useApprovalArrivalAnnouncement(
-  pending: readonly ApprovalRecord[],
+  pending: readonly ApprovalProjectionRow[],
   cardRootRef: React.RefObject<HTMLElement | null>,
 ): string {
   const [announcement, setAnnouncement] = useState("");
   const seenIdsRef = useRef<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
-    const currentIds = new Set(pending.map((record) => record.approvalRequestId));
-    const arrived = pending.filter((record) => !seenIdsRef.current.has(record.approvalRequestId));
+    const currentIds = new Set(pending.map((record) => record.id));
+    const arrived = pending.filter((record) => !seenIdsRef.current.has(record.id));
     seenIdsRef.current = currentIds;
     if (arrived.length === 0) {
       return;
@@ -58,7 +59,7 @@ export function useApprovalArrivalAnnouncement(
     }
     // Scoped to this pane, because a pane layout may hold a second one and its cards are
     // no more this arrival's than an older card of this pane's is.
-    const action = findApprovalCardAction(cardRootRef.current ?? document, first.approvalRequestId);
+    const action = findApprovalCardAction(cardRootRef.current ?? document, first.id);
     action?.focus();
   }, [pending, cardRootRef]);
 

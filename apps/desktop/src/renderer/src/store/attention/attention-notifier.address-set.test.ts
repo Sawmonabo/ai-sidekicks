@@ -39,12 +39,17 @@ const FILLER_SESSION_ID = "session-filling-the-cap";
 function itemFor(sessionId: string, id: string): AttentionItem {
   return {
     id,
+    momentId: "moment-1",
     sessionId,
     trigger: "pending_approval",
     severity: "actionable",
+    displayName: "Fix the login flow",
+    stateWord: "Waiting on you",
     summary: "An approval is waiting.",
     sourceEventId: `event-for-${id}`,
     createdAt: "2026-01-01T10:00:00.000Z",
+    bannerState: "pending",
+    seen: false,
   };
 }
 

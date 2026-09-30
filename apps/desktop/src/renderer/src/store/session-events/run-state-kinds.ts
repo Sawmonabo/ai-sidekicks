@@ -30,6 +30,7 @@ const RUN_STATE_BY_KIND: Readonly<Record<RunStateKind, RunState>> = Object.freez
   "run.running": "running",
   "run.waiting_for_approval": "waiting_for_approval",
   "run.waiting_for_input": "waiting_for_input",
+  "run.pausing": "pausing",
   "run.paused": "paused",
   "run.completed": "completed",
   "run.interrupted": "interrupted",

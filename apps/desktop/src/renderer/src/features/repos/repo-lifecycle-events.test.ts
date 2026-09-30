@@ -37,6 +37,6 @@ describe("repo lifecycle events — the frames this feature watches", () => {
     // every run frame and every token count — interval polling with extra steps.
     expect(REPO_LIFECYCLE_EVENT_KINDS).not.toContain("run.queued");
     expect(REPO_LIFECYCLE_EVENT_KINDS).not.toContain("session.created");
-    expect(REPO_LIFECYCLE_EVENT_KINDS).not.toContain("agent.attached");
+    expect(REPO_LIFECYCLE_EVENT_KINDS).not.toContain("agent.provider_binding_changed");
   });
 });

@@ -10,20 +10,20 @@ import type {
   DaemonMethod,
   DaemonParams,
   DaemonResult,
+  DaemonSubscribeParams,
 } from "@ai-sidekicks/contracts";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { DaemonWire, Unsubscribe } from "@shared/preload-api.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
 import { assertScriptedReplyOnContract, resolveScriptedReply } from "./scripted-reply.fixture.js";
 import { subscribeToScenario } from "./scenario-subscriptions.fixture.js";
 
 /** The daemon namespace answered from one scenario's engine. */
-export function createFixtureDaemon(scenarioEngine: ScenarioEngine): PlatformBridge["daemon"] {
+export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire {
   return {
-    // `DaemonResult<M>` is a stub that resolves to `unknown`, so the assertion narrows nothing
-    // today; when the daemon lands the real method-to-result mapping, this line is the one
-    // place the fixture proves its scripted replies match the wire. Until then the check
-    // beside it does that job for every method the corpus has registered.
+    // A scenario scripts its replies as untyped data, so the reply is cast to the method's
+    // `DaemonResult<M>` here, the one place the fixture claims a type for it. The check it
+    // passes through holds every method the console calls to that method's registered
+    // response schema; a method the console does not call passes unchecked.
     call: async <MethodName extends DaemonMethod>(
       method: MethodName,
       params: DaemonParams<MethodName>,
@@ -32,10 +32,16 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): PlatformBri
         method,
         await resolveScriptedReply(scenarioEngine, method, params),
       ) as DaemonResult<MethodName>,
+    // A scenario plays one session from its start, so the subscription's request is taken
+    // and not read: every stream it serves is already that session's, from its first beat.
     subscribe: <EventName extends DaemonEvent>(
       event: EventName,
+      _params: DaemonSubscribeParams<EventName>,
       handler: (payload: DaemonEventPayload<EventName>) => void,
     ): Unsubscribe =>
+      // The scenario composes each delivery from its authored beats as untyped data, so the
+      // payload is cast to the subscription's `DaemonEventPayload<E>`; the console parses
+      // every delivery at its own boundary, as it does the live bridge's.
       subscribeToScenario(scenarioEngine, event, (delivered) => {
         handler(delivered as DaemonEventPayload<EventName>);
       }),

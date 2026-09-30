@@ -15,7 +15,7 @@
 // provider-bound send path refuses outright; it is not a rule about completing the
 // argument of a command the runtime itself intercepts.
 
-import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
 import { workflowDefinitionCandidates } from "../definition-match.js";

@@ -90,37 +90,6 @@ describe("the row projection's child-run summaries", () => {
     expect(summaries.get(birth.id)?.eventCount).toBe(2);
   });
 
-  it("marks the summary incomplete at the child's first compaction", () => {
-    const birth = childBirth(1, { parentRunId: PARENT_RUN });
-    const firstCompaction = event(2, "usage.context_compacted", {
-      sessionId: SESSION_ID,
-      runId: CHILD_RUN,
-    });
-    const summaries = deriveChildRunSummaries([
-      birth,
-      firstCompaction,
-      event(3, "usage.context_compacted", { sessionId: SESSION_ID, runId: CHILD_RUN }),
-    ]);
-
-    // The FIRST one, because that is when the transcript stopped being whole; a
-    // later compaction changes nothing about the claim.
-    expect(summaries.get(birth.id)?.completeness).toStrictEqual({
-      state: "incomplete",
-      cause: "compacted",
-      observedAt: firstCompaction.occurredAt,
-    });
-  });
-
-  it("reports a parent's compaction as nothing at all about the child", () => {
-    const birth = childBirth(1, { parentRunId: PARENT_RUN });
-    const summaries = deriveChildRunSummaries([
-      birth,
-      event(2, "usage.context_compacted", { sessionId: SESSION_ID, runId: PARENT_RUN }),
-    ]);
-
-    expect(summaries.get(birth.id)?.completeness).toStrictEqual({ state: "complete" });
-  });
-
   it("summarizes no run that named itself as its own parent", () => {
     // A self-parenting summary makes the lineage graph cyclic and every walk of it
     // non-terminating, so a malformed creation row produces no summary at all rather

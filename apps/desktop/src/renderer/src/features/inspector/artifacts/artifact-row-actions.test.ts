@@ -18,6 +18,7 @@ import {
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ID,
   SERVED_SUMMARY,
+  SERVED_VERSION,
   SESSION_ID,
   readThrough,
 } from "@test/helpers/artifact-list-readers.js";
@@ -58,7 +59,11 @@ function readerWithHeldManifestReads(clock: ManualClock): {
 
 /** One served manifest re-read, carrying a digest a case can tell from its sibling. */
 function servedManifest(digest: string): ArtifactReadResponse {
-  return { manifest: { ...SERVED_SUMMARY, digest }, payloadHandle: "sha256:2b4c" };
+  return {
+    manifest: { ...SERVED_SUMMARY, digest },
+    ...SERVED_VERSION,
+    payloadHandle: "sha256:2b4c",
+  };
 }
 
 /** What the row on the reading currently says its digest is. */

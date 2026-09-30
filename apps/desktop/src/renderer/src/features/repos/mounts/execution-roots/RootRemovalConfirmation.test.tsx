@@ -32,7 +32,7 @@ function daemonHoldingTheCall(): RepoOperations {
 /** A daemon that records the removal, so a settlement lands on the card. */
 function daemonAnsweringTheCall(): RepoOperations {
   return scriptedRepoOperations({
-    retireWorktree: (worktreeId) => Promise.resolve({ worktreeId, state: "retired" }),
+    retireWorktree: ({ worktreeId }) => Promise.resolve({ worktreeId, state: "retired" }),
   });
 }
 

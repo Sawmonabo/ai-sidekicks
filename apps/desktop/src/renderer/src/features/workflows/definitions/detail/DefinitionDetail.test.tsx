@@ -9,7 +9,7 @@
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { PROBE_SESSION_ID, settle } from "../../workflows-probe.test-support.js";
+import { PROBE_SESSION_ID, settle, versionChainEntry } from "../../workflows-probe.test-support.js";
 import { DefinitionDetail } from "./DefinitionDetail.js";
 import {
   DEFINITION_ID,
@@ -33,10 +33,7 @@ const SERVED: Extract<WorkflowDefinitionDetailState, { status: "served" }> = {
     chain: {
       status: "served",
       versions: [
-        {
-          workflowVersionId: RELEASE_CHECKS_BODY.workflowVersionId,
-          versionNumber: RELEASE_CHECKS_BODY.versionNumber,
-        },
+        versionChainEntry(RELEASE_CHECKS_BODY.workflowVersionId, RELEASE_CHECKS_BODY.versionNumber),
       ],
     },
   },

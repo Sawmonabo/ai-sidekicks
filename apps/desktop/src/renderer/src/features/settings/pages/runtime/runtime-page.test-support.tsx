@@ -9,10 +9,8 @@ import type { ReactNode } from "react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
-import {
-  UNREPORTED_MAIN_PROCESS_STATE,
-  type MainProcessState,
-} from "@renderer/store/window/main-process-state.js";
+import type { MainProcessState } from "@shared/daemon-status-topic.js";
+import { UNREPORTED_MAIN_PROCESS_STATE } from "@renderer/store/window/main-process-state.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
 import { DaemonOperationsBlocks, RuntimePage } from "./RuntimePage.js";
 import type { DaemonOperations } from "./hooks/useDaemonStatus.js";

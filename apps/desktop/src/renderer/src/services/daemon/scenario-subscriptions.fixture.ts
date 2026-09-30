@@ -10,8 +10,8 @@
 // `run.starting`; a fixture that recognized only ONE stream name delivered
 // nothing at all to the two `run.*` streams the daemon serves, which reads
 // exactly like a quiet session; a fixture that delivered the envelope to those
-// two streams sent a frame with no `currentState` on a wire whose whole payload
-// is one; and a fixture that delivered the AUTHORING RECORD to the streams that
+// two streams sent a frame with no top-level `newState` on a wire whose whole
+// payload is one; and a fixture that delivered the AUTHORING RECORD to the streams that
 // do carry an envelope sent a frame carrying `kind` and `actorId`
 // where the wire carries `type` and `actor`, which is how the console's decode
 // boundary came to read fixture-local names and refuse every live delivery with
@@ -34,30 +34,36 @@ import { FixtureBridgeError } from "./refusal.fixture.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { projectRunStreamDelivery } from "../run-streams/run-stream-projection.fixture.js";
 import { ScenarioEngine } from "./engine.fixture.js";
-import { composeScenarioEventEnvelope } from "./event-envelope.fixture.js";
+import {
+  composeScenarioEventEnvelope,
+  composeScenarioSessionFrames,
+} from "./event-envelope.fixture.js";
 import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-event-streams.js";
 
 /**
  * Deliver a scenario's beats to one subscriber, filtered by what it subscribed to.
  *
- * `daemon.subscribe(name, handler)` names either a registered stream or one event
+ * `daemon.subscribe(name, request, handler)` names either a registered stream or one event
  * type, and `session-event-streams.ts` owns which names are which and what each
  * stream carries. This function performs no routing of its own — a fixture that
  * kept a second reading of the seam would answer a `run.*` stream with silence
  * while the binder above it was passing a name the daemon serves.
  *
  * WHAT REACHES THE HANDLER depends on which arm the name is, because the corpus
- * registers two different answers. `session.subscribe` is the replay-then-tail
- * stream of the whole log and a bare event-type name carries only itself, so both
- * deliver the canonical `EventEnvelope` that `scenario-envelope.ts` composes from
- * the beat — the wire's own shape rather than the console's authoring record, so
- * the decode boundary above is exercised here exactly as the live bridge exercises
- * it. The two `run.*` streams are registered PROJECTIONS —
+ * registers different answers. `session.subscribe` is the replay-then-tail stream of
+ * the whole log, delivered in FRAMES: each batch of beats the engine hands over goes
+ * out as the frames `event-envelope.fixture.ts` composes, every change carrying the
+ * canonical `EventEnvelope` and its cursor, exactly as the live daemon sends it. A
+ * bare event-type name carries only itself, one envelope per beat. Both are the
+ * wire's own shape rather than the console's authoring record, so the decode boundary
+ * above is exercised here exactly as the live bridge exercises it. The two `run.*`
+ * streams are registered PROJECTIONS —
  * `RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary` — and
- * `run-stream-projection.ts` builds one from the beat. Handing those two the
+ * `run-stream-projection.ts` builds one from the beat. The state stream's live
+ * safety hold has no session row, so no beat delivers one. Handing those two the
  * envelope would train every run-stream subscriber on a frame the
  * live bridge cannot send: no `kind`, no `sequence`, no nested `payload`, and
- * `currentState` where the envelope has `payload.newState`.
+ * a top-level `newState` where the envelope has `payload.newState`.
  *
  * AND WHEN IT REACHES THE HANDLER, for the one arm where that is a second question.
  * `session.subscribe` is registered replay-then-tail, so a subscriber that attaches
@@ -75,11 +81,11 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * afterwards, so one scenario's authoring error surfaces to whoever advanced the
  * clock without silencing the other subscribers on that beat.
  *
- * AND ONE REGISTERED NAME IS NOT AN EVENT FEED AT ALL. The Awareness subscription
- * delivers a payload-free change SIGNAL rather than frames, so a walk over beats
- * cannot serve it however the kinds are routed. The fixture holds no room that moves,
- * so the subscription is accepted and never delivers — which is what the stream row's
- * scope discriminates, rather than letting the name match as a bare event type.
+ * AND ONE REGISTERED NAME IS NOT AN EVENT FEED AT ALL. The presence subscription
+ * delivers the machine's device list rather than frames, so a walk over beats cannot
+ * serve it however the kinds are routed. The fixture scripts no device, so the
+ * subscription is accepted and never delivers — which is what the stream row's scope
+ * discriminates, rather than letting the name match as a bare event type.
  */
 export function subscribeToScenario(
   engine: ScenarioEngine,
@@ -92,34 +98,41 @@ export function subscribeToScenario(
   // represents the whole log is the one a subscriber can join late and expect the log
   // from, while the two narrowed run streams and every bare event type are live.
   const stream = sessionEventStreamFor(subscriptionName);
-  if (stream?.scope === "awareness-signal") {
+  if (stream?.scope === "machine-presence") {
     return () => undefined;
   }
-  return engine.subscribe(
-    (events) => {
-      for (const event of events) {
-        if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
-          continue;
+  if (stream?.scope === "whole-session") {
+    return engine.subscribe(
+      (events) => {
+        for (const frame of composeScenarioSessionFrames(events)) {
+          deliver(frame);
         }
-        // The queue stream's payload is a projection of the queue ROW, and the
-        // scenario's stand-in for the daemon's row read is the reply it scripts for
-        // that read. Resolved per beat, so a scenario replaced mid-subscription is
-        // read afresh.
-        const projection = projectRunStreamDelivery(subscriptionName, event, (queueItemId) =>
-          scriptedQueueRowFor(engine, queueItemId),
-        );
-        if (projection === undefined) {
-          deliver(composeScenarioEventEnvelope(event));
-          continue;
-        }
-        if (projection.status === "unprojectable") {
-          throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
-        }
-        deliver(projection.delivery);
+      },
+      { replayDeliveredPrefix: true },
+    );
+  }
+  return engine.subscribe((events) => {
+    for (const event of events) {
+      if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
+        continue;
       }
-    },
-    { replayDeliveredPrefix: stream?.scope === "whole-session" },
-  );
+      // The queue stream's payload is a projection of the queue ROW, and the
+      // scenario's stand-in for the daemon's row read is the reply it scripts for
+      // that read. Resolved per beat, so a scenario replaced mid-subscription is
+      // read afresh.
+      const projection = projectRunStreamDelivery(subscriptionName, event, (queueItemId) =>
+        scriptedQueueRowFor(engine, queueItemId),
+      );
+      if (projection === undefined) {
+        deliver(composeScenarioEventEnvelope(event));
+        continue;
+      }
+      if (projection.status === "unprojectable") {
+        throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
+      }
+      deliver(projection.delivery);
+    }
+  });
 }
 
 /**

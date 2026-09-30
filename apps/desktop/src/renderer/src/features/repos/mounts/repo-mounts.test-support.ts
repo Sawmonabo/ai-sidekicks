@@ -14,6 +14,7 @@ import type {
   RepoMountReadResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorktreeId,
+  WorktreeStatusRecord,
 } from "@ai-sidekicks/contracts";
 
 import { ManualClock } from "@renderer/lib/clock.js";
@@ -25,7 +26,6 @@ import { scriptedRepoOperations } from "../repo-operations.test-support.js";
 import type { PrepareOperations } from "./execution-roots/prepare-controller.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
-import type { WorktreeStatusRecord } from "./execution-root-model.js";
 
 const trackedReaders: RepoMountsReader[] = [];
 
@@ -115,6 +115,9 @@ export function buildMount(
     state: "attached",
     health: { status: "healthy", checkedAt: "2026-01-01T09:05:01.000Z" },
     attachedAt: "2026-01-01T09:05:00.200Z",
+    origin: { kind: "attached", repoMountId: "mount-sidekicks", projectId: "project-sidekicks" },
+    displayName: "ai-sidekicks",
+    usedBy: [{ sessionId: SESSION_ID }],
     ...overrides,
   } as RepoMountReadResponse;
 }
@@ -143,9 +146,15 @@ export function worktreeRecord(
   return {
     worktreeId: "worktree-01",
     repoMountId: "mount-sidekicks",
+    name: "abc123-rate-limit-wiring",
     branchName: "sidekicks/abc123/rate-limit-wiring",
+    baseBranchName: "main",
     fsRoot: "/Users/dev/.desktopBridge/roots/worktree-01",
     state: "ready",
+    uncommittedFileCount: 0,
+    unpushedCommitCount: 0,
+    occupyingSessionIds: [],
+    runningSessionId: null,
     createdBySessionId: "session-repos",
     createdByRunId: "run-01",
     createdAt: "2026-01-01T09:00:00.000Z",
@@ -211,9 +220,13 @@ export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOpe
       return Promise.resolve(found);
     },
     readWorkspaceExecutionModes: () => Promise.resolve(ALL_MODES_CAPABILITIES),
-    readWorktreeStatus: () =>
+    readWorktreeStatus: (repoMountId) =>
       Promise.resolve({
-        worktrees: [worktreeRecord(), worktreeRecord({ worktreeId: "worktree-02" })],
+        repoRoot: { path: CANONICAL_ROOT, branchName: "main" },
+        worktrees:
+          repoMountId === HEALTHY_MOUNT_ID
+            ? [worktreeRecord(), worktreeRecord({ worktreeId: "worktree-02" })]
+            : [],
       }),
     ...script,
   });

@@ -13,7 +13,6 @@
 // list as their read-only plugin origin; those lists, not this file, carry them.
 import { z } from "zod";
 
-import { AGENT_FILE_PATH_MAX_LEN } from "./agent-definition.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
 import {
   ProviderAccountIdSchema,
@@ -22,7 +21,7 @@ import {
   type ProviderName,
 } from "./provider-account.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 /** A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace. */
 const pluginTokenSchema = (label: string): z.ZodString =>
@@ -185,7 +184,7 @@ export interface PluginSource {
 export const PluginSourceSchema: z.ZodType<PluginSource> = z
   .object({
     marketplace: pluginTokenSchema("PluginSource.marketplace"),
-    repository: wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, "PluginSource.repository").optional(),
+    repository: wireFreeFormString(FILE_PATH_MAX_LEN, "PluginSource.repository").optional(),
     commit: pluginTokenSchema("PluginSource.commit").optional(),
   })
   .strict()
@@ -282,7 +281,7 @@ export const PluginMarketplaceAddRequestSchema: z.ZodType<
 > = z
   .object({
     provider: ProviderNameSchema,
-    source: wireFreeFormString(AGENT_FILE_PATH_MAX_LEN, "PluginMarketplaceAddRequest.source"),
+    source: wireFreeFormString(FILE_PATH_MAX_LEN, "PluginMarketplaceAddRequest.source"),
   })
   .strict();
 

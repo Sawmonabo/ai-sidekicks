@@ -64,7 +64,6 @@ export const PERSISTED_VALUE_CLASSES = [
   "pin",
   "expansion",
   "scheme",
-  "keybinding",
   "preference",
 ] as const;
 
@@ -232,13 +231,6 @@ const SHAPE_VALIDATORS: Readonly<Record<PersistedValueClass, ShapeValidator>> = 
     isSchemePreference(value)
       ? undefined
       : invalid(`scheme is one of ${SCHEME_PREFERENCES.join(", ")}`),
-  keybinding: recordOf(
-    (value) =>
-      value === null || typeof value === "string"
-        ? undefined
-        : invalid("a binding is a chord identifier or null for explicitly unbound"),
-    "keybinding",
-  ),
   /**
    * A settings record: identifier-named switches to booleans, and nothing else.
    *

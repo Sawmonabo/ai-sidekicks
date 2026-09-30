@@ -12,7 +12,7 @@ import {
   activeRow,
   agentPane,
   bridgeEnumerating,
-  composerAgentIds,
+  composerLeadAgentId,
   mountComposer,
   optionNames,
   pressOnList,
@@ -70,7 +70,7 @@ describe("CommandListPopover — the list is two labeled groups", () => {
     registerConsoleCommand();
     const mounted = await mountComposer({
       bridge: bridgeEnumerating(await scenarioBindingGroups()),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/");
@@ -85,7 +85,7 @@ describe("CommandListPopover — the list is two labeled groups", () => {
     registerConsoleCommand();
     const mounted = await mountComposer({
       bridge: bridgeEnumerating(await scenarioBindingGroups()),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/");
@@ -108,7 +108,7 @@ describe("CommandListPopover — the list is two labeled groups", () => {
     // catalog does not have.
     const mounted = await mountComposer({
       bridge: bridgeEnumerating(await scenarioBindingGroups()),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/zzz-nothing-begins-with-this");
@@ -120,7 +120,7 @@ describe("CommandListPopover — the list is two labeled groups", () => {
     registerConsoleCommand();
     const mounted = await mountComposer({
       bridge: bridgeEnumerating(await scenarioBindingGroups()),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/");

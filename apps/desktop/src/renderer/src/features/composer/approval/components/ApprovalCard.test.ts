@@ -1,10 +1,10 @@
-// The card's three hard claims: two answers and no third, a remember opt-in that
-// sends nothing until it is engaged, and an action row a keyboard can walk.
+// The card's hard claims: two answers, a remember opt-in that sends nothing until it is
+// engaged and is absent where the ask may not carry a standing allow, an answer the
+// contract accepts, and an action row a keyboard can walk.
 //
-// The fourth claim — that a refusal SETTLING the request withdraws both answers, and
-// withdraws the pane's palette rows with them — is `ApprovalCard.settled.test.tsx`
-// beside this file. It is a different subject (one offer reading behind the card and the palette)
-// and it is what took this file past the length the package splits at.
+// The claim that a refusal SETTLING the request withdraws both answers, and withdraws
+// the pane's palette rows with them, is `ApprovalCard.settled.test.tsx` beside this
+// file.
 //
 // The payload assertions drive the REAL `onResolve` the component calls, so what is
 // checked is the request that would go on the wire rather than a re-derivation of
@@ -14,7 +14,8 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ACCENT_FILL_CLASS } from "../../accent-fill.js";
-import { pendingRecord, renderCard } from "./approval-card.test-support.js";
+import { isAcceptedAnswer, pendingRecord } from "../approval-record.test-support.js";
+import { renderCard } from "./approval-card.test-support.js";
 
 /**
  * Engage the remember opt-in the way a person does — by clicking its label.
@@ -25,29 +26,7 @@ import { pendingRecord, renderCard } from "./approval-card.test-support.js";
  */
 function engageRememberOptIn(): void {
   fireEvent.click(screen.getByRole("button", { name: "Remember this answer" }));
-  fireEvent.click(screen.getByText("Remember my approval for this category"));
-}
-
-/** The optional narrowing field, by its label rather than by its markup. */
-function patternField(): HTMLInputElement {
-  const field = screen.getByLabelText("Narrow it to a pattern (optional)");
-  if (!(field instanceof HTMLInputElement)) {
-    throw new Error("the narrowing control is not a text field");
-  }
-  return field;
-}
-
-/**
- * Whether a sentence promises a matching grammar the corpus has not registered.
- *
- * The registered contract says one thing about the pattern — it is matched against
- * the resource within the boundary — and registers no per-category syntax, so copy
- * that names one is copy making a promise the daemon never made.
- */
-function namesAMatchingSyntax(copy: string): boolean {
-  return ["glob", "wildcard", "regex", "prefix", "*", "://"].some((token) =>
-    copy.toLowerCase().includes(token),
-  );
+  fireEvent.click(screen.getByText("Remember my approval"));
 }
 
 describe("the two answers", () => {
@@ -61,7 +40,15 @@ describe("the two answers", () => {
   it("offers no answer at all on a resolved record", () => {
     // Negative control for the case above: the toolbar has to be absent here, or
     // "exactly two" would be a claim about a row that is always rendered.
-    renderCard(pendingRecord({ state: "approved" }));
+    renderCard(
+      pendingRecord({
+        state: "approved",
+        decision: "approved",
+        resolvedAt: "2026-01-01T13:31:00.000Z",
+        approverId: "019b7a33-3300-7b01-8110-d1a4c1150561",
+        effectiveScope: "session",
+      }),
+    );
     expect(screen.queryByRole("toolbar", { name: "Answer this request" })).toBeNull();
   });
 
@@ -94,17 +81,46 @@ describe("the two answers", () => {
   });
 });
 
-describe("the remembered-scope opt-in", () => {
-  it("omits `rememberedScope` entirely when the control was never engaged", () => {
+describe("what an answer sends", () => {
+  it("sends an answer the contract accepts, naming no scope of its own", () => {
     const requests = renderCard(pendingRecord());
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(requests).toHaveLength(1);
+    expect(isAcceptedAnswer(requests[0])).toBe(true);
     expect(requests[0]).toStrictEqual({
-      approvalRequestId: "approval-01",
+      approvalRequestId: pendingRecord().id,
       decision: "approved",
-      effectiveScope: "session",
+      clientResolutionId: expect.any(String),
     });
+  });
+
+  it("mints a fresh client resolution id for every press", () => {
+    // The id is what tells the answering device from every other device showing the
+    // card, so two presses sharing one would be two answers the daemon cannot tell apart.
+    const requests = renderCard(pendingRecord());
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    expect(requests[0]?.clientResolutionId).not.toBe(requests[1]?.clientResolutionId);
+  });
+});
+
+describe("the remembered-rule opt-in", () => {
+  it("omits `rememberedScope` entirely when the control was never engaged", () => {
+    const requests = renderCard(pendingRecord());
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(requests[0] && "rememberedScope" in requests[0]).toBe(false);
+  });
+
+  it("sends an allow on the ask's own subject, at this session, once engaged", () => {
+    const requests = renderCard(pendingRecord({ subject: "pnpm test" }));
+    engageRememberOptIn();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(requests[0]?.rememberedScope).toStrictEqual({
+      kind: "session",
+      pattern: "pnpm test",
+      sense: "allow",
+    });
+    expect(isAcceptedAnswer(requests[0])).toBe(true);
   });
 
   it("never sends a remembered scope on the reject path", () => {
@@ -116,69 +132,11 @@ describe("the remembered-scope opt-in", () => {
     expect(requests[0]?.rememberedScope).toBeUndefined();
   });
 
-  it("sends the ratified scope kind once the opt-in is engaged and approved", () => {
-    const requests = renderCard(pendingRecord());
-    engageRememberOptIn();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    expect(requests[0]?.rememberedScope).toStrictEqual({ kind: "run" });
-  });
-
-  it("omits `pattern` entirely when the field was left empty", () => {
-    const requests = renderCard(pendingRecord());
-    engageRememberOptIn();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    const remembered = requests[0]?.rememberedScope;
-    expect(remembered).toStrictEqual({ kind: "run" });
-    // The key has to be ABSENT rather than falsy: an absent pattern means
-    // category-wide on the wire and an empty string means nothing at all there.
-    expect(remembered !== undefined && "pattern" in remembered).toBe(false);
-  });
-
-  it("sends what was typed verbatim, whitespace included", () => {
-    const requests = renderCard(pendingRecord());
-    engageRememberOptIn();
-    fireEvent.change(patternField(), { target: { value: "  packages/contracts  " } });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    // Trimming would send the daemon something other than what was typed, and what
-    // a pattern matches is the daemon's to decide.
-    expect(requests[0]?.rememberedScope).toStrictEqual({
-      kind: "run",
-      pattern: "  packages/contracts  ",
-    });
-  });
-
-  it("never sends a pattern on the reject path", () => {
-    const requests = renderCard(pendingRecord());
-    engageRememberOptIn();
-    fireEvent.change(patternField(), { target: { value: "packages/contracts" } });
-    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
-    expect(requests[0]?.rememberedScope).toBeUndefined();
-  });
-
-  it("leaves the pattern unreachable until the opt-in is engaged", () => {
-    renderCard(pendingRecord());
-    fireEvent.click(screen.getByRole("button", { name: "Remember this answer" }));
-    // Negative control on the assertion above: the field exists and is refused,
-    // rather than being absent and vacuously unreachable.
-    expect(patternField().disabled).toBe(true);
-    fireEvent.click(screen.getByText("Remember my approval for this category"));
-    expect(patternField().disabled).toBe(false);
-  });
-
-  it("promises no matching syntax anywhere in its copy", () => {
-    renderCard(pendingRecord());
-    fireEvent.click(screen.getByRole("button", { name: "Remember this answer" }));
-    const note = screen.getByText(/matched against the resource/u);
-    expect(namesAMatchingSyntax(note.textContent ?? "")).toBe(false);
-    // Negative control on the checker itself: copy that DOES promise a grammar has
-    // to be caught, or the assertion above passes on any string at all.
-    expect(namesAMatchingSyntax("Use a glob like packages/**")).toBe(true);
-  });
-
-  it("never widens the scope beyond what was requested", () => {
-    const requests = renderCard(pendingRecord({ requestedScope: "run" }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    expect(requests[0]?.effectiveScope).toBe("run");
+  it("is absent where the ask may not carry a standing allow", () => {
+    renderCard(pendingRecord({ standingAllowOffered: false }));
+    expect(screen.queryByRole("button", { name: "Remember this answer" })).toBeNull();
+    // Negative control: the answers themselves stay.
+    expect(screen.getByRole("button", { name: "Approve" })).not.toBeNull();
   });
 });
 

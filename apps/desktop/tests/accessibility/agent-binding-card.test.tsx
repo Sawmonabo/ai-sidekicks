@@ -25,23 +25,22 @@ import {
 import "@renderer/features/agents/index.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { AgentBindingCard } from "@renderer/features/agents/pane/components/AgentBindingCard.js";
-import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
+import {
+  agentEntry,
+  resolvedConfiguration,
+} from "@renderer/features/agents/pane/components/agent-binding-column.test-support.js";
 
 /** An agent whose echo fills every row the card can draw, including the tail. */
-const AGENT_WITH_FULL_ECHO: AgentListEntry = {
-  agentId: "agent-scout",
-  name: "Scout",
-  driverName: "claude",
-  modelId: "claude-sonnet",
-  config: { effort: "high", outputSpeed: "fast" },
-  resolvedFromDefinitionId: "definition-scout",
-  resolvedConfiguration: {
-    executionPostureMode: "worktree",
-    toolAllowlist: ["read", "write", "search"],
-    instructions: "Read before writing.",
-    goal: "Survey the repository",
+const AGENT_WITH_FULL_ECHO = agentEntry({
+  binding: {
+    driverName: "claude",
+    modelId: "claude-sonnet",
+    providerAccountId: null,
+    effort: "high",
+    outputSpeed: "fast",
   },
-};
+  resolvedConfiguration: resolvedConfiguration({ toolAllowlist: ["read", "write", "search"] }),
+});
 
 /** The echo lives behind a disclosure, and a closed one renders no list to audit. */
 function openEveryDisclosure(container: HTMLElement): void {

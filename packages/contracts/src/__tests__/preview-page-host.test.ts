@@ -7,8 +7,9 @@ import {
   PreviewPageDebuggerMessageRequestSchema,
   PreviewPageSiteDataClearRequestSchema,
 } from "../preview-page-host.js";
+import type { PreviewPageId } from "../preview.js";
 
-const PAGE_ID = "page-1";
+const PAGE_ID = "page-1" as PreviewPageId;
 
 describe("the page host's debugger link", () => {
   it("carries a command, its reply, an error and an event", () => {

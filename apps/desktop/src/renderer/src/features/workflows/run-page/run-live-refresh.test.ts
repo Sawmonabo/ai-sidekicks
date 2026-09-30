@@ -232,10 +232,10 @@ describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
   });
 
   it("advances on a frame that names no run", async () => {
-    // The taxonomy is unregistered — `packages/contracts` admits none of these kinds —
-    // so nothing establishes that a payload carries the run at all. A frame that does
-    // not say which run it is about is a frame this reading cannot rule out, and
-    // refusing it would make a pane silently stale rather than merely over-read.
+    // `workflow.phase_progressed` has no registered payload, so nothing establishes that
+    // its frame carries the run at all. A frame that does not say which run it is about
+    // is a frame this reading cannot rule out, and refusing it would make a pane silently
+    // stale rather than merely over-read.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore, { workflowRunId: RUN_ON_SCREEN });

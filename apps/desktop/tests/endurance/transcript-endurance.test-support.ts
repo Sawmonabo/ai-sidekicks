@@ -29,7 +29,11 @@
 // a cheaper synthetic row would be measuring a rendering path the product does not
 // have.
 
-import { composeOpeningEntries } from "../../fixtures/data/opening-entries.js";
+import {
+  composeOpeningEntry,
+  composeResolvedAgent,
+  composeScenarioInstant,
+} from "../../fixtures/data/opening-entries.js";
 import {
   assistantOutputEntry,
   runTransitionEntry,
@@ -80,17 +84,19 @@ const ENDURANCE_AGENTS = [
     name: "Implementer",
     driverName: "claude",
     modelId: "claude-sonnet-5",
+    definitionId: `${ENDURANCE_ID_PREFIX}-7de1-8120-d1a4c1150222`,
   },
   {
     agentId: `${ENDURANCE_ID_PREFIX}-7a6e-8130-d1a4c1150203`,
     name: "Reviewer",
     driverName: "codex",
     modelId: "gpt-5.6-sol",
+    definitionId: `${ENDURANCE_ID_PREFIX}-7de1-8130-d1a4c1150223`,
   },
 ] as const;
 
-/** The opening beats every generated session shares: the room, then the cast. */
-const OPENING_BEAT_COUNT = 1 + ENDURANCE_AGENTS.length;
+/** The opening beat every generated session shares: the room, born with its lead. */
+const OPENING_BEAT_COUNT = 1;
 
 /** Beats one run spends on its own lifecycle: queued, starting, running, completed. */
 const RUN_LIFECYCLE_BEAT_COUNT = 4;
@@ -144,15 +150,12 @@ export function createTranscriptEnduranceFixture(
   const at = (): number => entries.length * ENDURANCE_BEAT_INTERVAL_MS;
 
   entries.push(
-    ...composeOpeningEntries({
+    composeOpeningEntry({
       sessionId: SESSION_ID,
+      shape: "project",
       openedBy: USER_YOU,
-      cast: ENDURANCE_AGENTS.map((agent, agentIndex) => ({
-        ...agent,
-        // One beat precedes the cast — the room itself — so the first agent lands on
-        // the tick after it and the walk below picks up where these leave off.
-        attachedAtMs: (1 + agentIndex) * ENDURANCE_BEAT_INTERVAL_MS,
-      })),
+      lead: ENDURANCE_AGENTS[0],
+      createdAt: STARTED_AT_ISO,
     }),
   );
 
@@ -162,15 +165,28 @@ export function createTranscriptEnduranceFixture(
     if (agent === undefined) {
       throw new RangeError("the endurance cast is empty, so no run can be attributed.");
     }
+    const queuedAtMs = at();
+    // An agent other than the lead enters the session with its first run, started from
+    // its saved definition.
+    const startsItsAgent = runIndex > 0 && runIndex < ENDURANCE_AGENTS.length;
     entries.push(
       runTransitionEntry({
-        atMs: at(),
+        atMs: queuedAtMs,
         sessionId: SESSION_ID,
         runId,
         runVersion: 1,
         newState: "queued",
-        agentId: agent.agentId,
         actorId: USER_YOU,
+        // A run names an agent already in the session, or brings one in; never both.
+        ...(startsItsAgent
+          ? {
+              resolvedAgent: composeResolvedAgent({
+                agent,
+                lead: ENDURANCE_AGENTS[0],
+                resolvedAt: composeScenarioInstant(startedAtMs, queuedAtMs),
+              }),
+            }
+          : { agentId: agent.agentId }),
       }),
     );
     entries.push(
@@ -230,12 +246,11 @@ export function createTranscriptEnduranceFixture(
           session: {
             id: SESSION_ID,
             state: "active",
-            config: {},
-            metadata: {},
             createdAt: STARTED_AT_ISO,
             updatedAt: new Date(
               startedAtMs + entries.length * ENDURANCE_BEAT_INTERVAL_MS,
             ).toISOString(),
+            draft: "",
           },
           timelineCursors: { latest: `transcript-endurance-cursor-${String(entries.length)}` },
         },

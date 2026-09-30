@@ -60,7 +60,6 @@ describe("readQuestion", () => {
     expect(readQuestion(askRow("driver_ask.responded", { response: "develop" }))?.state).toBe(
       "responded",
     );
-    expect(readQuestion(askRow("driver_ask.expired", {}))?.state).toBe("expired");
     expect(readQuestion(askRow("driver_ask.canceled", {}))?.state).toBe("canceled");
   });
 
@@ -149,13 +148,13 @@ describe("applyQuestionSettlement", () => {
     });
   });
 
-  it("negative control: an expiry does not blank the question the request carried", () => {
+  it("negative control: a cancellation does not blank the question the request carried", () => {
     // Without the member-wise merge, taking the terminal reading whole would replace a
     // prompt the reader is looking at with the card's "this ask carried no question".
     const request = readAsk(askRow("driver_ask.requested", { prompt: "Which branch?" }));
-    const settled = applyQuestionSettlement(request, readAsk(askRow("driver_ask.expired", {})));
+    const settled = applyQuestionSettlement(request, readAsk(askRow("driver_ask.canceled", {})));
     expect(settled.prompt).toBe("Which branch?");
-    expect(settled.state).toBe("expired");
+    expect(settled.state).toBe("canceled");
     expect(settled.deliveredAnswer).toBeUndefined();
   });
 

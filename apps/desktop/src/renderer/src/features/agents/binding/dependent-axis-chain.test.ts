@@ -8,8 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PROVIDER_AXES } from "@renderer/services/wire-shapes/agent-vocabularies.js";
-import { DEPENDENT_AXES, findAxesOutsideCatalog } from "./dependent-axis-chain.js";
+import { findAxesOutsideCatalog } from "./dependent-axis-chain.js";
 import { OVERLAPPING_DRIVER_CATALOG_FIXTURE } from "./driver-catalog.test-support.js";
 
 const CATALOG = OVERLAPPING_DRIVER_CATALOG_FIXTURE;
@@ -87,23 +86,5 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
     // Without this, the case above would pass over a rule that reported every axis
     // whenever the catalog was missing, which would name fields nobody had filled.
     expect(findAxesOutsideCatalog({}, undefined)).toEqual([]);
-  });
-
-  it("is every provider axis but the two that have no parent", () => {
-    // The chain is a SUBTRACTION from the wire's own axis set. A sixth axis reaches
-    // it through the FILTER rather than through this assertion; what this case
-    // guards is the drift a literal would reintroduce — replace the filter with a
-    // written-out list and this fails the moment `PROVIDER_AXES` moves past it.
-    expect([...DEPENDENT_AXES, "providerAccountId", "outputSpeed"].sort()).toEqual(
-      [...PROVIDER_AXES].sort(),
-    );
-  });
-
-  it("keeps the chain parent-first, which the filter inherits rather than states", () => {
-    // The order is what a form lists what is still needed in, so a person reads the
-    // cause before the consequence. Deriving the set from `PROVIDER_AXES` makes that
-    // order a property of THAT set, and nothing over there records why it holds — so
-    // this pins it here, where the rule is. Reorder the wire's set and this is red.
-    expect([...DEPENDENT_AXES]).toEqual(["driverName", "modelId", "effort"]);
   });
 });

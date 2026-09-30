@@ -139,7 +139,7 @@ describe("peakConcurrentStreamingRuns", () => {
 });
 
 describe("the concurrent-streaming script", () => {
-  it("has one streaming lane per attached agent, all at once", () => {
+  it("has one streaming lane per agent of its cast, all at once", () => {
     expect(
       peakConcurrentStreamingRuns(
         CONCURRENT_STREAMING_SCENARIO.beats,

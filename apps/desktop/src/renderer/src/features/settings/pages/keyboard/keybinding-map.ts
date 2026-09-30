@@ -32,7 +32,7 @@ import {
   type CommandDefinition,
   type Keybinding,
 } from "@renderer/registries/commands/command-types.js";
-import { type KeybindingOverrideMap } from "@renderer/registries/keybindings/keybinding-overrides.js";
+import type { KeyboardMap } from "@shared/preload-api.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
 
@@ -131,7 +131,7 @@ export function composeKeybindingRows(options: {
    * argument would produce exactly that silently.
    */
   readonly shippedBindings: readonly Keybinding[];
-  readonly overrides?: KeybindingOverrideMap;
+  readonly overrides?: KeyboardMap;
   readonly platform?: ChordPlatform;
 }): readonly KeybindingRow[] {
   const platform = options.platform ?? HOST_CHORD_PLATFORM;

@@ -9,7 +9,7 @@
 // rules, so this module never normalizes a path, never joins one, never decides whether
 // two spellings name one place, and never asks whether a path exists. What it does is
 // refuse to put a request on the wire that the contract's own parser would reject unread
-// — an entry with no non-whitespace character, and one past `REPO_PATH_MAX_LEN` — because
+// — an entry with no non-whitespace character, and one past `FILE_PATH_MAX_LEN` — because
 // a refusal a person can act on beats a schema failure that names a member path.
 //
 // AND IT SENDS WHAT WAS TYPED, BYTE FOR BYTE. The emptiness guard READS a trimmed copy
@@ -18,7 +18,7 @@
 // different directory from the one that was named — silently, and only for the paths
 // where it matters.
 
-import { REPO_PATH_MAX_LEN } from "@ai-sidekicks/contracts";
+import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts";
 
 /** What the dialog holds while it is open: the path, exactly as typed. */
 export interface AttachFormState {
@@ -60,10 +60,10 @@ function attachVerdictFor(form: AttachFormState): AttachFormVerdict {
   if (form.localPath.trim().length === 0) {
     return { status: "incomplete", because: "Name the repository's path." };
   }
-  if (form.localPath.length > REPO_PATH_MAX_LEN) {
+  if (form.localPath.length > FILE_PATH_MAX_LEN) {
     return {
       status: "incomplete",
-      because: `That path is ${String(form.localPath.length)} characters. The wire accepts ${String(REPO_PATH_MAX_LEN)}.`,
+      because: `That path is ${String(form.localPath.length)} characters. The wire accepts ${String(FILE_PATH_MAX_LEN)}.`,
     };
   }
   return { status: "sendable", localPath: form.localPath };

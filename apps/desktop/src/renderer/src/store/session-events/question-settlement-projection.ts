@@ -2,7 +2,7 @@
 // admits.
 //
 // A question and its answer are separate events: the request stays where it was asked,
-// and the answer, the expiry or the cancellation arrives later as an event of its own.
+// and the answer or the cancellation arrives later as an event of its own.
 // The card reads the request, so it needs this fold to learn the question is settled,
 // including when the answer came from another window or device.
 //
@@ -45,15 +45,11 @@ interface SettledQuestionRecord {
   readonly deliveredAnswer?: string;
 }
 
-/** The three states a terminal names, in the order the body members are read. */
-const SETTLED_QUESTION_STATES: readonly SettledQuestionState[] = [
-  "responded",
-  "expired",
-  "canceled",
-];
+/** The two states a terminal names, in the order the body members are read. */
+const SETTLED_QUESTION_STATES: readonly SettledQuestionState[] = ["responded", "canceled"];
 
 /**
- * The fold's projector table: the three terminal kinds, each folded the same way.
+ * The fold's projector table: the two terminal kinds, each folded the same way.
  *
  * The request kind is not claimed, so an open question reaches no entity.
  */

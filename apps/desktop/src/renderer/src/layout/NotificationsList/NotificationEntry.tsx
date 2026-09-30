@@ -1,4 +1,4 @@
-import type { AttentionItem, AttentionTrigger } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "@renderer/lib/wire-figures.js";
@@ -11,6 +11,12 @@ import { formatDateTime } from "@renderer/lib/wire-figures.js";
  * scope reads off `runId` exactly as the projection discriminates it: an item
  * carrying one is that run's, an item without one is the session's aggregate,
  * and the console labels which without recomputing either.
+ *
+ * The chip reads the item's state word as the projection wrote it: `Waiting on you`,
+ * `Finished`, `Failed`, or a workflow's Notify step's own text. The banner main
+ * posts says the same words, so the list keeps no wording of its own for them.
+ * Exactly one trigger earns red and a glyph, the one that names a failure, so the
+ * two-hue rule holds: amber means a person is needed, red means something failed.
  *
  * THE INSTANT CARRIES ITS DAY. Rows are grouped by SESSION and by nothing else —
  * there is no day divider anywhere in this list — so a clock-only reading would make
@@ -29,11 +35,11 @@ export function NotificationEntry(props: {
     <>
       <span className="meridian-attention__row-head">
         {item.trigger === "run_failed" ? (
-          <Chip tone="failure" label={TRIGGER_LABELS[item.trigger]} glyph="alert" />
+          <Chip tone="failure" label={item.stateWord} glyph="alert" />
         ) : (
           <Chip
             tone={item.severity === "actionable" ? "attention" : "neutral"}
-            label={TRIGGER_LABELS[item.trigger]}
+            label={item.stateWord}
           />
         )}
         <WireFigure value={formatDateTime(item.createdAt)} title={item.createdAt} />
@@ -63,22 +69,3 @@ export function NotificationEntry(props: {
     </button>
   );
 }
-
-/**
- * How one trigger reads. Total over the closed six by construction, so a seventh
- * fails to compile here before it can reach a view that renders it namelessly.
- *
- * The label is the console's own reading of a wire value; the item's `summary` is
- * the projection's own text and is rendered beside it verbatim. Exactly one of the
- * five earns red and a glyph — the one that names a failure — so the two-hue rule
- * holds: amber means a person is needed, red means something failed, and every
- * other trigger carries whichever of those its severity says and no color of its
- * own.
- */
-const TRIGGER_LABELS: Readonly<Record<AttentionTrigger, string>> = {
-  pending_approval: "Waiting on an approval",
-  pending_input: "Waiting on your input",
-  run_completed: "A run finished",
-  run_failed: "A run failed",
-  mention: "You were mentioned",
-};

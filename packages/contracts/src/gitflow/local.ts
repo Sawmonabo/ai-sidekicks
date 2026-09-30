@@ -10,9 +10,15 @@
 import { z } from "zod";
 
 import { uuidTextFormSchema } from "../internal/branded.js";
+import { countSchema } from "../internal/wire-scalars.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN, RunIdSchema, type RunId } from "../provider-driver.js";
 import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
+import {
+  FILE_PATH_MAX_LEN,
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+} from "../session.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow-run.js";
 import {
   ChangeRequestSummarySchema,
@@ -24,7 +30,6 @@ import {
 } from "./hosting.js";
 import {
   ChangeRequestNumberSchema,
-  countSchema,
   GitRefNameSchema,
   GitShortObjectIdSchema,
   HostingAddressSchema,
@@ -270,8 +275,8 @@ export interface DiffFile {
 }
 const DiffFileSchema: z.ZodType<DiffFile> = z
   .object({
-    path: z.string().min(1),
-    oldPath: z.string().min(1).optional(),
+    path: z.string().min(1).max(FILE_PATH_MAX_LEN),
+    oldPath: z.string().min(1).max(FILE_PATH_MAX_LEN).optional(),
     kind: z.enum(DIFF_FILE_KINDS),
     modeChanged: z.boolean().optional(),
     binary: z.boolean().optional(),

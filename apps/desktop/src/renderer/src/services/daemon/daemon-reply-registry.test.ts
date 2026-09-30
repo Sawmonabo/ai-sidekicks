@@ -6,11 +6,8 @@
 
 import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts";
 
-import {
-  REGISTERED_DAEMON_METHODS,
-  DAEMON_METHOD_BINDINGS,
-  daemonMethodBindingFor,
-} from "./daemon-reply-registry.js";
+import { REGISTERED_DAEMON_METHODS } from "./daemon-method-contract.js";
+import { DAEMON_METHOD_BINDINGS, daemonMethodBindingFor } from "./daemon-reply-registry.js";
 
 describe("the console daemon-method registry", () => {
   it("has a set to check at all", () => {

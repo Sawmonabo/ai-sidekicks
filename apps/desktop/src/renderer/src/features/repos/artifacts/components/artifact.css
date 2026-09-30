@@ -19,7 +19,7 @@
   color: var(--meridian-text-muted);
 }
 
-/* The bounded text preview.
+/* The payload text, whole.
 
    A `pre` because a payload's own line breaks and indentation are part of what it
    is, and `overflow` rather than wrapping because a diff or a log read wrapped is a

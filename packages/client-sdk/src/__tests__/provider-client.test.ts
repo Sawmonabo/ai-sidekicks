@@ -49,6 +49,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  AgentId,
   ApplyInterventionParams,
   CompactContextRequest,
   JsonRpcNotification,
@@ -415,7 +416,7 @@ describe("driver.* — a capability refusal surfaces as its registered code", ()
 
     let caught: unknown = null;
     try {
-      await client.listModels();
+      await client.listModels({ sessionId: TEST_SESSION_ID });
     } catch (error) {
       caught = error;
     }
@@ -432,7 +433,7 @@ describe("driver.* — a capability refusal surfaces as its registered code", ()
 // ----------------------------------------------------------------------------
 
 describe("DriverClient — the ratified client-facing surface", () => {
-  it("sends the registered empty request on all three reads rather than an invented per-driver selector", async () => {
+  it("sends each read's registered request rather than an invented per-driver selector", async () => {
     const emptyRoster = { drivers: [] };
     const { client, daemon } = buildDriverClient({
       [METHOD_LIST_CAPABILITIES]: { result: emptyRoster },
@@ -441,22 +442,19 @@ describe("DriverClient — the ratified client-facing surface", () => {
     });
 
     await client.listCapabilities();
-    await client.listModels();
+    await client.listModels({ sessionId: TEST_SESSION_ID });
     await client.listModes();
 
-    // `DriverReadParams` is the empty object and the schema is strict, so a
-    // `{ driverName }` selector would contradict the ratified no-arg signature
-    // AND fail the daemon's own request parse. Asserting the wire shape is what
-    // keeps the two facts from drifting apart.
-    expect(daemon.sentEnvelopes.length).toBe(3);
-    expect(daemon.sentEnvelopes.map((envelope) => envelope.method)).toStrictEqual([
-      METHOD_LIST_CAPABILITIES,
-      METHOD_LIST_MODELS,
-      METHOD_LIST_MODES,
+    // Both request schemas are strict, so a `{ driverName }` selector would fail
+    // the daemon's own request parse. Asserting the wire shape is what keeps the
+    // two facts from drifting apart.
+    expect(
+      daemon.sentEnvelopes.map((envelope) => [envelope.method, envelope.params]),
+    ).toStrictEqual([
+      [METHOD_LIST_CAPABILITIES, {}],
+      [METHOD_LIST_MODELS, { sessionId: TEST_SESSION_ID }],
+      [METHOD_LIST_MODES, {}],
     ]);
-    for (const envelope of daemon.sentEnvelopes) {
-      expect(envelope.params).toStrictEqual({});
-    }
   });
 
   it("exposes exactly the nine ratified methods and none of the four lifecycle operations", () => {
@@ -593,8 +591,19 @@ function buildNonDriverEvent(): SessionEvent {
     version: EVENT_VERSION,
     payload: {
       sessionId: TEST_SESSION_ID,
-      config: {},
-      metadata: {},
+      shape: "chat",
+      mainAgent: {
+        agentId: "00000000-0000-4000-8000-000000000044" as AgentId,
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: "2026-01-22T19:14:35.000Z",
+      },
     },
   };
 }

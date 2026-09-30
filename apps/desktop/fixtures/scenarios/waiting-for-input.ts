@@ -12,9 +12,9 @@
 // (`SessionEventSchema`), both in `packages/contracts/src/event.ts`. Three consequences a reader
 // will notice first:
 //
-//   • **`agent.attached` carries `name`.** `displayName` is not a member of that
-//     payload anywhere. The agent lifecycle registers the full persona, so the
-//     `agents` projection rebuilds from the log alone.
+//   • **`session.created` carries the lead.** The lead is born with the session, named
+//     as the live agent list names it, so the `agents` projection rebuilds from the
+//     log alone. The reviewer takes part only when a run names it.
 //   • **A `run.*` beat is a STATE TRANSITION.** Its payload is
 //     `{sessionId, runId, runVersion, previousState, newState, …}` and not a bare
 //     `{runId}` — `previousState` is absent only on `run.queued`, where the run is
@@ -37,15 +37,18 @@
 // command zone's own unit, over a bridge whose scenario refuses this call.
 
 import {
+  AgentIdSchema,
   UserIdSchema,
   RunIdSchema,
   SessionIdSchema,
+  type AgentId,
   type UserId,
   type RunId,
   type SessionId,
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts";
+import { type ScenarioAgent, composeSessionCreatedPayload } from "../data/opening-entries.js";
 import type { Scenario } from "../scenario.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 
@@ -58,60 +61,20 @@ import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fix
 // where a fixture chooses the bytes, and a cast asserts a brand without checking it —
 // so a malformed id surfaced at the first `.strict()` reply that carried it, which
 // takes the whole reply down and names the reply rather than the value. Parsing at
-// declaration fails the module instead, naming the constant. `AGENT_*` stays
-// unbranded: the corpus registers no `AgentId` brand to mint one through.
+// declaration fails the module instead, naming the constant.
 const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a11-1100-75e5-8510-ada11a5a33a5");
 const USER_YOU: UserId = UserIdSchema.parse("019b7a11-1100-79a4-8110-cca0117a0310");
-const AGENT_IMPLEMENTER = "019b7a11-1100-7a6e-8110-d1a4c1150301";
-const AGENT_REVIEWER = "019b7a11-1100-7a6e-8120-d1a4c1150302";
+const AGENT_IMPLEMENTER: AgentId = AgentIdSchema.parse("019b7a11-1100-7a6e-8110-d1a4c1150301");
+const AGENT_REVIEWER: AgentId = AgentIdSchema.parse("019b7a11-1100-7a6e-8120-d1a4c1150302");
 const RUN_ID: RunId = RunIdSchema.parse("019b7a11-1100-740e-8110-d1a4c1150311");
 
-/**
- * The two agents, as one table feeding the `agent.attached` beats.
- *
- * The drivers are mixed on purpose — a composer whose whole cast runs one provider
- * cannot show what a two-provider target chip looks like, and that is the chip this
- * scenario is for.
- *
- * `eventId` is the daemon's opaque row id for the attach event the entry produces —
- * carried here rather than composed at the beat, so the two beats the map emits are
- * distinct rows rather than one id repeated.
- */
-interface ComposerAgentFixture {
-  readonly agentId: string;
-  readonly name: string;
-  readonly driverName: string;
-  readonly modelId: string;
-  /** When the attach beat plays, on the frozen clock. */
-  readonly attachedAtMs: number;
-  readonly attachedAtIso: string;
-  /** The daemon's opaque row id for the attach event this entry produces. */
-  readonly eventId: string;
-}
-
-const COMPOSER_AGENTS: readonly ComposerAgentFixture[] = [
-  {
-    agentId: AGENT_IMPLEMENTER,
-    name: "Implementer",
-    driverName: "claude",
-    modelId: "claude-sonnet-5",
-    attachedAtMs: 120,
-    attachedAtIso: "2026-01-01T11:05:00.120Z",
-    eventId: "019b7a11-1100-7e00-8110-e5e0c1150003",
-  },
-  {
-    agentId: AGENT_REVIEWER,
-    name: "Reviewer",
-    driverName: "codex",
-    modelId: "gpt-5.6-sol",
-    attachedAtMs: 180,
-    attachedAtIso: "2026-01-01T11:05:00.180Z",
-    eventId: "019b7a11-1100-7e00-8120-e5e0c1150004",
-  },
-];
-
-/** The sequence the first `agent.attached` beat takes. One beat precedes it. */
-const FIRST_AGENT_SEQUENCE: number = 2;
+/** The session's lead, born with it. */
+const COMPOSER_LEAD: ScenarioAgent = {
+  agentId: AGENT_IMPLEMENTER,
+  name: "Implementer",
+  driverName: "claude",
+  modelId: "claude-sonnet-5",
+};
 
 // What the scenario ANSWERS, as opposed to what it plays.
 //
@@ -192,8 +155,8 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
     // `runId` is the run this scenario plays, which is the one live run on this
     // binding — the arm the contract says answers with THAT run rather than with
     // `null`. `providerAccountId` is `null`, the positive statement that this
-    // fixture binds no provider account: the composer scenario attaches agents and
-    // registers no account, and a synthesized placeholder would make the routing
+    // fixture binds no provider account: the composer scenario registers no
+    // account, and a synthesized placeholder would make the routing
     // pair compare equal where it must not.
     //
     // The two entries differ in what the provider published, deliberately: the
@@ -242,15 +205,14 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
   },
   {
     // The first half of the driver catalog the target chip's axis popover renders.
-    // Armed by the chip rail on every composer mount, so it is scripted whether or
-    // not anybody opens the popover — an unscripted call is the fixture's authoring
-    // error, and a refusal pinned into every composer reference would be a statement
-    // about a read this scenario never meant to refuse.
+    // Scripted whether or not anybody opens the popover: an unscripted call is the
+    // fixture's authoring error, and a refusal pinned into every composer reference
+    // would be a statement about a read this scenario never meant to refuse.
     //
-    // TWO DRIVERS, BECAUSE THE CAST RUNS TWO. `COMPOSER_AGENTS` mixes `claude` and
-    // `codex` so the chip has a real target choice, and a catalog carrying only one
-    // of them would hold the popover's actions back on the agent whose own driver the
-    // catalog could not vouch for.
+    // TWO DRIVERS, BECAUSE THE NODE RUNS TWO. The lead runs on `claude` and the
+    // reviewer on `codex`, so the chip has a real target choice, and a catalog
+    // carrying only one of them would hold the popover's actions back on the agent
+    // whose own driver the catalog could not vouch for.
     call: "driver.listModels",
     result: {
       drivers: [
@@ -262,12 +224,14 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
               name: "Sonnet 5",
               capabilities: ["reasoning", "tool_calls"],
               effortLevels: ["low", "medium", "high", "xhigh", "max"],
+              fast: false,
             },
             {
               id: "claude-opus-5[1m]",
               name: "Opus 5 (1M)",
               capabilities: ["reasoning", "tool_calls"],
               effortLevels: ["low", "medium", "high", "xhigh", "max"],
+              fast: true,
             },
           ],
         },
@@ -279,6 +243,7 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
               name: "GPT-5.6 Sol",
               capabilities: ["reasoning", "tool_calls"],
               effortLevels: ["low", "medium", "high", "xhigh"],
+              fast: true,
             },
           ],
         },
@@ -297,11 +262,23 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
         {
           driverName: "claude",
           capabilities: { flags: declaredFlags(CLAUDE_FLAGS), contractVersion: "1.0" },
-          outputSpeedLevels: ["standard", "fast"],
+          outputSpeedLevels: ["off", "on"],
+          builtInTools: [
+            "Read",
+            "Edit",
+            "Write",
+            "Bash",
+            "Glob",
+            "Grep",
+            "WebFetch",
+            "WebSearch",
+            "Agent",
+          ],
         },
         {
           driverName: "codex",
           capabilities: { flags: declaredFlags(CODEX_FLAGS), contractVersion: "1.0" },
+          builtInTools: ["shell", "apply_patch", "web_search"],
         },
       ],
     },
@@ -315,7 +292,7 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
     "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",
   sessionId: SESSION_ID,
   // Join order IS hue order: the person who joined, then the agents in the order they
-  // were attached.
+  // joined.
   userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the three this window is. Stated rather than read off the head of the
   // join order — that entry is whoever opened the session, on whichever machine, and
@@ -333,39 +310,24 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
         kind: "session.created",
         occurredAt: "2026-01-01T11:05:00.000Z",
         actorId: USER_YOU,
-        // The registered shape, verbatim. A session's display name reaches the
-        // console from the session read; the creation event carries no title, and
-        // its `.strict()` payload rejects one.
-        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
+        // The registered shape: the session's shape and the lead born with it. A
+        // session's name reaches the console from the sessions list; the creation
+        // event carries no title, and its `.strict()` payload rejects one.
+        payload: composeSessionCreatedPayload({
+          sessionId: SESSION_ID,
+          shape: "project",
+          openedBy: USER_YOU,
+          lead: COMPOSER_LEAD,
+          createdAt: "2026-01-01T11:05:00.000Z",
+        }),
       },
     },
-    ...COMPOSER_AGENTS.map((agent, agentIndex) => ({
-      atMs: agent.attachedAtMs,
-      event: {
-        id: agent.eventId,
-        sessionId: SESSION_ID,
-        sequence: FIRST_AGENT_SEQUENCE + agentIndex,
-        kind: "agent.attached",
-        occurredAt: agent.attachedAtIso,
-        // The person who attached the agent, not the agent. An agent does not attach
-        // itself, and the envelope actor is who acted.
-        actorId: USER_YOU,
-        payload: {
-          sessionId: SESSION_ID,
-          agentId: agent.agentId,
-          name: agent.name,
-          driverName: agent.driverName,
-          modelId: agent.modelId,
-          actor: USER_YOU,
-        },
-      },
-    })),
     {
       atMs: 260,
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150003",
         sessionId: SESSION_ID,
-        sequence: 4,
+        sequence: 2,
         kind: "run.queued",
         occurredAt: "2026-01-01T11:05:00.260Z",
         actorId: USER_YOU,
@@ -384,7 +346,7 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150004",
         sessionId: SESSION_ID,
-        sequence: 5,
+        sequence: 3,
         kind: "run.starting",
         occurredAt: "2026-01-01T11:05:00.320Z",
         // No actor: the daemon moves a run out of `queued`, and a user id
@@ -403,7 +365,7 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150005",
         sessionId: SESSION_ID,
-        sequence: 6,
+        sequence: 4,
         kind: "run.running",
         occurredAt: "2026-01-01T11:05:00.400Z",
         payload: {
@@ -420,7 +382,7 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150006",
         sessionId: SESSION_ID,
-        sequence: 7,
+        sequence: 5,
         // Waiting is not pausing: this run is blocked on someone, and the composer
         // is where that someone answers.
         kind: "run.waiting_for_input",
@@ -439,18 +401,19 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
       event: {
         id: "019b7a11-1100-7e00-8110-e5e0c1150007",
         sessionId: SESSION_ID,
-        sequence: 8,
-        // The session's one goal, as the log carries it — there is no goal store, so
-        // this event IS the goal and the sidebar's line is a fold over it. A person
-        // set it, so the beat carries an actor.
+        sequence: 6,
+        // The implementer's goal, as the log carries it — there is no goal store, so
+        // this event IS the goal. A person set it, so the beat carries an actor.
         kind: "session.goal_updated",
         occurredAt: "2026-01-01T11:05:00.540Z",
         actorId: USER_YOU,
         payload: {
           sessionId: SESSION_ID,
+          agentId: AGENT_IMPLEMENTER,
           goal: {
             text: "Land the rate-limit wiring behind the enforcement legs, then close the backlog items it names.",
           },
+          status: "active",
         },
       },
     },

@@ -105,7 +105,7 @@ export class SingleFlightAct<TRequest, TAnswer> {
       return refuse(
         IMPORT_REFUSAL_ORIGIN,
         ACT_IN_FLIGHT_CODE,
-        `${this.#describeWhat} was not put: the last one is still running, and only one runs at a time. Wait for it to settle, then press again.`,
+        `${this.#describeWhat} was not put: the last press is still waiting for its answer. Wait for it to settle, then press again.`,
       );
     }
     this.#publish({ status: "running" });

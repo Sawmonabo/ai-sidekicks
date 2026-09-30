@@ -56,6 +56,10 @@ const WORK_ACCOUNT: ProviderAccount = {
   loggedInAt: "2025-12-02T09:00:00.000Z",
   expectedReloginAtEstimate: "2026-01-01T09:00:00.000Z",
   probeEnabled: true,
+  lastRefreshObservedAt: null,
+  windowStartEnabled: true,
+  wakeForWindowStartEnabled: false,
+  memoryImport: null,
 };
 
 /** An account nothing has ever observed. */
@@ -72,6 +76,10 @@ const PERSONAL_ACCOUNT: ProviderAccount = {
   loggedInAt: null,
   expectedReloginAtEstimate: null,
   probeEnabled: true,
+  lastRefreshObservedAt: null,
+  windowStartEnabled: true,
+  wakeForWindowStartEnabled: false,
+  memoryImport: null,
 };
 
 /** An account whose credential has moved on since its stored quota readings were taken. */

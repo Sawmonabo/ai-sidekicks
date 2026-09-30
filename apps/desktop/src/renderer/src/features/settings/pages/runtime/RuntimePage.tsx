@@ -35,10 +35,10 @@ import { useCallback, useState, type ReactNode } from "react";
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import type { MainProcessState } from "@shared/daemon-status-topic.js";
 import {
   UNREPORTED_DAEMON_NOTICE,
   describeDaemonConnection,
-  type MainProcessState,
 } from "@renderer/store/window/main-process-state.js";
 import type { SettingsPageContext } from "../../types.js";
 import {

@@ -1,16 +1,19 @@
 import { RESOLVED_PROSE_INLINE_CAP } from "../../agents-caps.js";
 
-/** One labeled row of an agent's resolved configuration, its prose clamped at the named bound. */
+/**
+ * One labeled row of an agent's resolved configuration, its prose clamped at the named
+ * bound. `null` and an empty string are both prose nobody wrote, and say so.
+ */
 export function ProseRow(props: {
   readonly label: string;
-  readonly text: string | undefined;
+  readonly text: string | null;
 }): React.JSX.Element {
   return (
     <div className="meridian-agent-card__resolved-row">
       <dt>{props.label}</dt>
       <dd>
-        {props.text === undefined ? (
-          <span className="meridian-agent-card__axis-absent">not reported</span>
+        {props.text === null || props.text.length === 0 ? (
+          <span className="meridian-agent-card__axis-absent">none</span>
         ) : (
           clampProse(props.text)
         )}

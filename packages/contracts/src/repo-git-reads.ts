@@ -8,8 +8,13 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
-import { REPO_PATH_MAX_LEN, RepoMountIdSchema, type RepoMountId } from "./repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "./session.js";
 import { WORKTREE_GIT_REF_MAX_LEN, WorktreeIdSchema, type WorktreeId } from "./worktree.js";
 
 /**
@@ -79,7 +84,7 @@ export const RepoBranchListResponseSchema: z.ZodType<RepoBranchListResponse> = z
             .object({
               worktreeId: WorktreeIdSchema,
               name: wireFreeFormString(
-                REPO_PATH_MAX_LEN,
+                FILE_PATH_MAX_LEN,
                 "RepoBranchListResponse.branches[].heldBy.name",
               ),
             })
@@ -119,7 +124,7 @@ export interface RepoFileReadRequest {
 export const RepoFileReadRequestSchema: z.ZodType<RepoFileReadRequest, RepoFileReadRequest> = z
   .object({
     sessionId: SessionIdSchema,
-    path: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoFileReadRequest.path"),
+    path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFileReadRequest.path"),
     blobId: GitObjectIdSchema.optional(),
     side: z.enum(["committed", "working-tree"]).optional(),
     lines: z
@@ -155,7 +160,7 @@ export const RepoFileReadResponseSchema: z.ZodType<RepoFileReadResponse> = z.dis
     z
       .object({
         outcome: z.literal("lines"),
-        path: wireFreeFormString(REPO_PATH_MAX_LEN, "RepoFileReadResponse.path"),
+        path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFileReadResponse.path"),
         lines: z.array(z.string()),
         firstLine: z.number().int().positive(),
         totalLines: z.number().int().nonnegative(),

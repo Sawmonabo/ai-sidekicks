@@ -1,4 +1,4 @@
-// The updater doubles both updates-block suites drive the five arms with.
+// The updater doubles both updates-block suites drive the updater's arms with.
 //
 // Hoisted because the suite splits on the block's own seam — what it reads, and what
 // its controls do — and both halves need the same updater doubles and the same settled
@@ -13,10 +13,7 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { politeText } from "@test/helpers/live-region.js";
-import {
-  NOTHING_CHOSEN,
-  effectivePreference,
-} from "../../../machine-settings/machine-settings-snapshot.js";
+import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts";
 import { UpdatesBlock, type UpdatesBlockProps } from "./UpdatesBlock.js";
 import type { UpdaterCalls } from "./updater-reading.js";
 
@@ -29,12 +26,13 @@ import type { UpdaterCalls } from "./updater-reading.js";
  */
 export function updaterReporting(
   state: UpdateState,
-  controls: { requestCheck?: () => Promise<void>; requestRestart?: () => Promise<void> } = {},
+  controls: Partial<Pick<UpdaterCalls, "requestCheck" | "requestDownload" | "requestRestart">> = {},
 ): UpdaterCalls {
   return {
     getState: () => Promise.resolve(state),
     subscribe: () => () => undefined,
     requestCheck: controls.requestCheck ?? (() => Promise.resolve()),
+    requestDownload: controls.requestDownload ?? (() => Promise.resolve()),
     requestRestart: controls.requestRestart ?? (() => Promise.resolve()),
   };
 }
@@ -58,6 +56,7 @@ export function updaterPushing(initial: UpdateState): {
       return () => undefined;
     },
     requestCheck: () => Promise.resolve(),
+    requestDownload: () => Promise.resolve(),
     requestRestart: () => Promise.resolve(),
   };
   return {
@@ -93,6 +92,7 @@ export function updaterHoldingItsRead(): {
       return () => undefined;
     },
     requestCheck: () => Promise.resolve(),
+    requestDownload: () => Promise.resolve(),
     requestRestart: () => Promise.resolve(),
   };
   return {
@@ -114,19 +114,19 @@ export function preferencesAtDefaults(
   choose: UpdatesBlockProps["preferences"]["choose"] = () => undefined,
 ): UpdatesBlockProps["preferences"] {
   return {
-    isEnabled: (key) => effectivePreference(NOTHING_CHOSEN, key),
+    settings: MACHINE_SETTINGS_DEFAULTS,
     isPending: () => false,
     choose,
   };
 }
 
-/** Press the block's restart control, which asks for no confirmation. */
-export async function pressRestart(block: HTMLElement): Promise<void> {
-  const restart = [...block.querySelectorAll("button")].find(
-    (button) => button.textContent === "Restart to apply",
+/** Press the block's control with this label, which asks for no confirmation. */
+export async function pressControl(block: HTMLElement, label: string): Promise<void> {
+  const control = [...block.querySelectorAll("button")].find(
+    (button) => button.textContent === label,
   );
   await act(async () => {
-    restart?.click();
+    control?.click();
     await crossMacrotaskBoundary();
     await crossMacrotaskBoundary();
   });

@@ -205,7 +205,7 @@
 // handing the resolver `path.win32`. Keyed off the real platform instead, the
 // branch that matters most on an V1 tier would be exercised only on a Windows
 // runner. The rule as a whole is the "cross-platform absoluteness rule"
-// `packages/contracts/src/repo.ts` assigns to this resolver when it explains why
+// `packages/contracts/src/repo-folders.ts` assigns to this resolver when it explains why
 // the WIRE schema stays permissive.
 //
 // Ordering is what makes the gate worth having. `realpath` would happily

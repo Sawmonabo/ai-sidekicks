@@ -6,24 +6,17 @@
 // and the one caution. Splitting the two is what keeps a reader of the table away from
 // the payload reads, and a reader of the payload reads away from the table.
 //
-// THE CENSUS IS ASKED, NEVER HAND-COPIED. The classifier reads the registered event
-// census off the contract's own map, so a seam's registration is the contract's answer
-// rather than a second list making a claim the contract never checks. A row whose type
-// is not in the census still classifies if one arrives — `TimelineRow.type` is
-// free-form by contract — and the seam says on its line that the type is unregistered.
-//
 // THE OTHER HALF OF THE DESIGN'S RULE — superseded turns stay present but visibly past
 // — is `superseded-bands.ts`. It asks a different question of a different subject
 // (a whole window, ranked against the rollback cutoffs inside it) and shares no
 // table with the classifier below, so the two grow apart without colliding.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE, type TimelineRow } from "@ai-sidekicks/contracts";
+import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import {
   SYSTEM_MESSAGE_KINDS,
   SYSTEM_MESSAGE_BINDINGS,
   type SystemMessageKind,
-  type WireTypeRegistration,
 } from "./system-message-kinds.js";
 
 /**
@@ -46,7 +39,6 @@ export interface SystemMessageReading {
   readonly actorId: string | undefined;
   /** The event type this seam was read from, verbatim. */
   readonly wireType: string;
-  readonly wireRegistration: WireTypeRegistration;
   /**
    * The boundary position, for the two seams that carry one: the rollback's
    * confirmed rewind floor, read through the boundary arm's typed payload, and the
@@ -65,16 +57,15 @@ export interface SystemMessageReading {
 }
 
 /**
- * The seam classifier and the registered-census reader.
+ * The seam classifier.
  *
- * A class because it holds two derived tables — wire type to seam kind, and the
- * set of types the contract registers — and both are wasteful to rebuild per row.
- * Module-level tables would be module-level mutable state, which this tree does
- * not keep; an instance built once per transcript is the same table with an owner.
+ * A class because it holds a derived table — wire type to seam kind — that is
+ * wasteful to rebuild per row. A module-level table would be module-level mutable
+ * state, which this tree does not keep; an instance built once per transcript is the
+ * same table with an owner.
  */
 export class SystemMessageClassifier {
   readonly #kindByWireType: ReadonlyMap<string, SystemMessageKind>;
-  readonly #registeredWireTypes: ReadonlySet<string>;
 
   public constructor() {
     const kindByWireType = new Map<string, SystemMessageKind>();
@@ -84,10 +75,6 @@ export class SystemMessageClassifier {
       }
     }
     this.#kindByWireType = kindByWireType;
-    // Asked of the contract rather than hand-copied. The census map is keyed by
-    // the registered union, so its keys ARE the registered census — a second list
-    // here would be a claim about the contract that the contract never checks.
-    this.#registeredWireTypes = new Set<string>(SESSION_EVENT_CATEGORY_BY_TYPE.keys());
   }
 
   /** One row's seam, or `undefined` when the row is not a seam. */
@@ -109,7 +96,6 @@ export class SystemMessageClassifier {
       runId,
       actorId: row.actor,
       wireType: row.type,
-      wireRegistration: this.#registeredWireTypes.has(row.type) ? "registered" : "unregistered",
       // THE COMPACTION BOUNDARY IS THE ROW'S OWN POSITION, not a payload member.
       // `usage.context_compacted` registers no payload variant in
       // `@ai-sidekicks/contracts` and names no boundary member anywhere in it, so a
@@ -177,7 +163,6 @@ function rollbackSeamOf(
     runId: row.runId,
     actorId: row.actor,
     wireType: row.type,
-    wireRegistration: "registered",
     boundaryPosition: row.payload.targetPosition,
     epoch: row.epoch,
     continuity: undefined,

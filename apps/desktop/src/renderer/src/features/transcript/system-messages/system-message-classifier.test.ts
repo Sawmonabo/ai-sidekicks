@@ -1,19 +1,14 @@
 // The epoch rule, held to the reads that fail silently.
 //
-// Every case here pins something whose violation still renders: a registration
-// answered from a hand-copied list still draws, and a boundary read off the wrong
-// member still draws a seam at some position. None of it throws, so each clean assertion is
+// Every case here pins something whose violation still renders: a boundary read off
+// the wrong member still draws a seam at some position. None of it throws, so each clean assertion is
 // paired with a negative control that fails when the rule is removed.
 //
 // TWO SIBLINGS DRIVE THE REST OF THIS DIRECTORY. `system-message-kinds.test.ts` drives the
 // closed table this classifies into, and `superseded-bands.test.ts` drives the other
 // half of the design's rule — superseded turns stay present but visibly past.
 
-import {
-  AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-  SESSION_EVENT_CATEGORY_BY_TYPE,
-  type TimelineRow,
-} from "@ai-sidekicks/contracts";
+import { AGENT_PROVIDER_BINDING_CHANGED_EVENT, type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
@@ -40,7 +35,6 @@ describe("seams — one row's classification", () => {
     );
     expect(seam.kind).toBe("rollback");
     expect(seam.boundaryPosition).toBe(2);
-    expect(seam.wireRegistration).toBe("registered");
   });
 
   it("reads a compaction's boundary off the row's own run-scoped position", () => {
@@ -60,9 +54,6 @@ describe("seams — one row's classification", () => {
     );
     expect(seam.kind).toBe("compaction");
     expect(seam.boundaryPosition).toBe(7);
-    // Asked of the contract's census, which carries this type.
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.has("usage.context_compacted")).toBe(true);
-    expect(seam.wireRegistration).toBe("registered");
   });
 
   it("negative control: a payload member of that name is not what is read", () => {
@@ -106,8 +97,6 @@ describe("seams — one row's classification", () => {
       "turn_content_truncated",
       "a_kind_this_console_has_never_heard_of",
     ]);
-    // The census does not register the switch settlement yet, and the seam says so.
-    expect(seam.wireRegistration).toBe("unregistered");
   });
 
   it("negative control: an ordinary row is not a seam", () => {

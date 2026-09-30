@@ -1,6 +1,6 @@
 // Scalars the git-flow contract's modules share: git's short object ids and ref names,
 // addresses on the hosting service, timestamps, change-request numbers, the host's
-// own handles and counts. Private to `gitflow/`: the barrel does not re-export
+// own handles. Private to `gitflow/`: the barrel does not re-export
 // this module, because each value is a building block of a public schema, not a
 // contract of its own.
 import { z } from "zod";
@@ -30,6 +30,3 @@ export const ChangeRequestNumberSchema: z.ZodType<number, number> = z.number().i
 
 /** An id the hosting service minted (a thread, a comment, a check). Opaque to every client. */
 export const HostHandleSchema: z.ZodType<string, string> = z.string().min(1);
-
-/** A count of files, commits or bytes. */
-export const countSchema: z.ZodType<number, number> = z.number().int().nonnegative();

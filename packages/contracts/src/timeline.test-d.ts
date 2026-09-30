@@ -141,8 +141,9 @@ type _ContinuingWindowRequiresCursor = AssertExtends<
  * On the terminal arm it is OPTIONAL — present as a key, never required.
  *
  * Both halves are load-bearing and neither implies the other. The key must
- * exist, because a final page is exactly where a client switches to
- * `timeline.subscribe` and needs the position it stopped at. It must not be
+ * exist, because a final page is exactly where a client opens the session's
+ * live stream (`session.subscribe` with `afterCursor`) and needs the position
+ * it stopped at. It must not be
  * required, because a producer that has nothing more to say is not obliged to
  * mint one.
  */
@@ -189,13 +190,16 @@ type _ContinuingReasoningRequiresCursor = AssertExtends<
 >;
 
 /**
- * The three non-`available` reasoning states carry no continuation at all —
+ * The non-`available` reasoning states carry no continuation at all —
  * `hasMore` on a state that returns no entries would be a promise of more of
  * nothing. Structurally absent rather than optional-and-always-missing.
  */
 type _UnpagedReasoningStatesHaveNoContinuation = AssertNever<
   Extract<
-    keyof Extract<ReasoningSurfaceReadResponse, { availability: "unavailable" | "compacted" }>,
+    keyof Extract<
+      ReasoningSurfaceReadResponse,
+      { availability: "unavailable" | "policy_redacted" }
+    >,
     "hasMore" | "nextCursor" | "reasoningEntries"
   >
 >;
@@ -233,18 +237,15 @@ type _CompleteArmHasNoCause = AssertNever<Extract<keyof CompleteArm, "cause" | "
  * A consumer reaches the cause only after narrowing, so there is no arm on
  * which `cause` is `undefined` to guard against.
  */
-export function retryabilityOf(summary: ChildRunSummary): "n/a" | "retryable" | "terminal" {
+export function retryabilityOf(summary: ChildRunSummary): "n/a" | "retryable" {
   if (summary.completeness.state === "complete") {
     return "n/a";
   }
   switch (summary.completeness.cause) {
     case "detail_fetch_failed":
       return "retryable";
-    case "compacted":
-      // Terminal: no retry recovers a compacted row.
-      return "terminal";
     default: {
-      // Exhaustiveness: a third cause added without a case here fails to compile.
+      // Exhaustiveness: a cause added without a case here fails to compile.
       const unreachable: never = summary.completeness.cause;
       return unreachable;
     }

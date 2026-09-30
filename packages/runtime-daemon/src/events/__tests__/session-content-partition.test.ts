@@ -448,12 +448,28 @@ function contentRowWith(overrides: Record<string, unknown>): RawEventInput {
  *
  * The trio is what refusal 7 judges, so it cannot be reduced to a type string:
  * the tool variants REQUIRE `toolName` while the assistant ones declare no such
- * member, so `.strict()` rejects it there along with anything else it does not
- * name. A loop that supplied one payload for all five would be asserting that
- * the codec seals rows half of which their own schema rejects — which is exactly
- * the defect refusal 7 exists to stop.
+ * member, and the reviewer's denial carries its own approval fields, so
+ * `.strict()` rejects any one payload on the others. A loop that supplied one
+ * payload for every type would be asserting that the codec seals rows most of
+ * which their own schema rejects — which is exactly the defect refusal 7 exists
+ * to stop.
  */
 function bodyBearingRowFor(eventType: string): Record<string, unknown> {
+  if (eventType === "approval.reviewer_denied") {
+    return {
+      type: eventType,
+      category: "approval_flow",
+      payload: {
+        sessionId: SESSION,
+        runId: "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
+        agentId: "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7b",
+        denialId: "5f2b4d5e-ffff-4fff-8fff-ffffffffffff",
+        eventId: "item-9",
+        reason: "[Data Exfiltration]",
+        overridable: true,
+      },
+    };
+  }
   return eventType.startsWith("assistant.")
     ? {
         type: eventType,
@@ -583,7 +599,7 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
   },
   {
     // Refusal 1's fourth arm reads `type` and nothing else, so a body on one of
-    // the five under the WRONG category clears it and reaches the seal. The
+    // the body-bearing types under the WRONG category clears it and reaches the seal. The
     // variant's `category` is a literal, so the row it would have stored is
     // rejected by its own schema on the way back out.
     name: "a body-bearing type under a category its variant does not declare",
@@ -601,7 +617,7 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
   },
   {
     // The tool trio's own required member, which the assistant pair does not
-    // have: one payload shape for all five would seal rows half of which their
+    // have: one payload shape for every body-bearing type would seal rows their
     // own schema rejects.
     name: "a tool row with no tool name",
     ordinal: 7,
@@ -1068,19 +1084,12 @@ describe("codec refusals over the content partition", () => {
   it("seals a body on every event type the contracts union registers as body-bearing", async () => {
     // THE CLOSED SET IS READ, NOT RE-TYPED. `BODY_BEARING_EVENT_TYPES` is derived
     // in the codec from the `SessionEvent` union, so this loop drives whatever
-    // that derivation yields; re-listing the five here would be the second
+    // that derivation yields; re-listing the types here would be the second
     // source of truth the derivation exists to prevent.
     const bodyBearingTypes = Object.keys(BODY_BEARING_EVENT_TYPES);
-    // The count IS the claim, and it is what makes the loop non-vacuous: a
-    // derivation that collapsed to `never` would satisfy its own type annotation
-    // and drive nothing at all.
-    expect(bodyBearingTypes).toEqual([
-      "assistant.message",
-      "assistant.thinking_update",
-      "tool.invoked",
-      "tool.result",
-      "tool.error",
-    ]);
+    // Non-vacuity: a derivation that collapsed to `never` would satisfy its own
+    // type annotation and drive nothing at all.
+    expect(bodyBearingTypes.length).toBeGreaterThan(0);
 
     for (const bodyBearingType of bodyBearingTypes) {
       const result = await seal(

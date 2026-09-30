@@ -182,7 +182,6 @@ describe("a record's ADDRESS passes the same chokepoint as its value", () => {
     expect(validatePersistedAddress("global", "scheme")).toBeUndefined();
     expect(validatePersistedAddress("01H8XG2M4Q6R8T0V2X4Z6B8D0F", "layout")).toBeUndefined();
     expect(validatePersistedAddress("session-01H8", "scroll-position")).toBeUndefined();
-    expect(validatePersistedAddress("global", "keybinding.overrides")).toBeUndefined();
   });
 });
 

@@ -1,4 +1,5 @@
-// Whether one approval can still be answered. One reading, two consumers.
+// Whether one approval can still be answered, and the answer it sends. One reading and
+// one request, two consumers.
 //
 // The card and the palette row offer the same act, and every operator
 // action is in the palette — so a row the pane has withdrawn is a row that answers a
@@ -20,10 +21,15 @@
 // refusal; what this answers is narrower — whether this console has already been
 // told, in an answer it is holding, that the act is over.
 
+import type {
+  ApprovalDecision,
+  ApprovalProjectionRow,
+  ApprovalResolveRequest,
+  RememberedScope,
+} from "@ai-sidekicks/contracts";
+
 import { refusalRemedyFor } from "@renderer/lib/refusal-remedies.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
-import { asApprovalState } from "@renderer/lib/approval-vocabulary.js";
-import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
 
 /**
  * Whether this record's two answers are still offered.
@@ -34,11 +40,34 @@ import { type ApprovalRecord } from "@renderer/services/approvals/approval-recor
  * projection read drops the record entirely.
  */
 export function isApprovalAnswerable(
-  record: ApprovalRecord,
+  record: ApprovalProjectionRow,
   refusal: Refusal | undefined,
 ): boolean {
-  if (asApprovalState(record.state) !== "pending") {
+  if (record.state !== "pending") {
     return false;
   }
   return refusalRemedyFor(refusal?.code ?? "")?.settled !== true;
+}
+
+/**
+ * The answer one press sends.
+ *
+ * It names no `effectiveScope`, so the daemon applies the scope the ask was raised with
+ * and the console holds no control that could widen it. Each press mints its own
+ * `clientResolutionId`, which the daemon echoes on the resolution event, so the
+ * device that answered draws nothing and every other device showing the card learns
+ * it was answered elsewhere. `rememberedScope` is present only where the person chose
+ * to remember the answer.
+ */
+export function approvalAnswer(
+  record: ApprovalProjectionRow,
+  decision: ApprovalDecision,
+  rememberedScope: RememberedScope | undefined,
+): ApprovalResolveRequest {
+  return {
+    approvalRequestId: record.id,
+    decision,
+    clientResolutionId: crypto.randomUUID(),
+    ...(rememberedScope === undefined ? {} : { rememberedScope }),
+  };
 }

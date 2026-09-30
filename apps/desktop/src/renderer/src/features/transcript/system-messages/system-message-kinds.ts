@@ -11,11 +11,8 @@
 // prose: the parts are laid out on one line by the transcript frame, and a producer
 // that composed a sentence here would have decided the layout.
 //
-// WIRE TRUTH. Each binding carries the wire types it reads verbatim. The two switch
-// settlements are the contract's own constants; the event census does not register them
-// yet, so whether a type is registered is asked of the contract by
-// `system-message-classifier.ts` rather than hand-copied here, and a switch row that
-// arrives before the registration says so on its line.
+// WIRE TRUTH. Each binding carries the wire types it reads verbatim, and the two switch
+// settlements are the contract's own constants.
 //
 // WHAT THIS MODULE IS NOT. It classifies nothing. `system-message-classifier.ts` holds
 // the epoch rule — which rows are seams, and what one row's seam reads — and takes the
@@ -46,15 +43,6 @@ export const SYSTEM_MESSAGE_KINDS = [
 ] as const;
 
 export type SystemMessageKind = (typeof SYSTEM_MESSAGE_KINDS)[number];
-
-/**
- * Whether the wire type a seam reads is in the registered event census.
- *
- * Rendered, never inferred: a view showing a seam vocabulary owes the operator
- * the difference between "this has not happened" and "the daemon cannot say this
- * yet".
- */
-export type WireTypeRegistration = "registered" | "unregistered";
 
 /** What one seam kind reads, and how it is drawn. */
 export interface SystemMessageBinding {

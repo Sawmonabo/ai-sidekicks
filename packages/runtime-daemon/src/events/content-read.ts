@@ -67,7 +67,7 @@ export interface StoredEventContentRow {
   readonly envelope: EventEnvelope;
   /** `session_events.content_payload`, verbatim. */
   readonly contentPayload: unknown;
-  /** `session_events.retention_class`, verbatim. Non-NULL means compacted. */
+  /** `session_events.retention_class`, verbatim. Non-NULL means purged. */
   readonly retentionClass: unknown;
 }
 
@@ -168,11 +168,11 @@ export class SessionContentReader {
   /**
    * THE CLASSIFICATION ORDER, which is load-bearing top to bottom.
    *
-   * 1. COMPACTED FIRST. A compacted row has a NULL column, so it is
+   * 1. PURGED FIRST. A purged row has a NULL column, so it is
    *    indistinguishable at step 2 from a row that never had a body — and
-   *    `absent` would then report a destroyed body as one that never existed.
-   *    Compaction is a fact this daemon recorded; it gets named, even for a
-   *    compacted row whose column somehow still holds bytes.
+   *    `absent` would then report a deleted body as one that never existed.
+   *    The purge is a fact this daemon recorded; it gets named, even for a
+   *    purged row whose column somehow still holds bytes.
    * 2. ABSENT. A NULL column: the ordinary body-less row.
    * 3. A column value that is not bytes cannot be opened, and is reported as
    *    `decrypt_failed` rather than trusted or skipped.
@@ -184,7 +184,7 @@ export class SessionContentReader {
     keys: Map<SessionId, Promise<ResolvedSessionContentKey>>,
   ): Promise<HydratedSessionEventContent> {
     if (row.retentionClass != null) {
-      return unavailable("compacted");
+      return unavailable("purged");
     }
     if (row.contentPayload == null) {
       return unavailable("absent");

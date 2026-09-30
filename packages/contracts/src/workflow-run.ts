@@ -12,6 +12,7 @@ import {
   type AgentId,
   type AgentResolvedConfiguration,
 } from "./agent-definition.js";
+import { brandedUuidIdSchema } from "./internal/branded.js";
 import { jsonUtf8ByteLength } from "./jsonrpc.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
@@ -37,13 +38,11 @@ import {
 // Ids
 // --------------------------------------------------------------------------
 
-/** A workflow run's id. The daemon mints it; a client passes it through and never parses it. */
+/** A workflow run's id: a UUID the daemon mints. A client passes it through and never builds one. */
 export type WorkflowRunId = string & { readonly __brand: "WorkflowRunId" };
 /** Wire schema for {@link WorkflowRunId}. */
-export const WorkflowRunIdSchema: z.ZodType<WorkflowRunId, WorkflowRunId> = z
-  .string()
-  .min(1)
-  .brand<"WorkflowRunId">() as unknown as z.ZodType<WorkflowRunId, WorkflowRunId>;
+export const WorkflowRunIdSchema: z.ZodType<WorkflowRunId, WorkflowRunId> =
+  brandedUuidIdSchema<WorkflowRunId>("WorkflowRunId");
 
 // --------------------------------------------------------------------------
 // Closed vocabularies

@@ -38,6 +38,10 @@ const REGISTERED: ProviderAccountRegisterResponse = {
     loggedInAt: null,
     expectedReloginAtEstimate: null,
     probeEnabled: true,
+    lastRefreshObservedAt: null,
+    windowStartEnabled: true,
+    wakeForWindowStartEnabled: false,
+    memoryImport: null,
   },
 };
 

@@ -20,7 +20,12 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import {
+  FILE_PATH_MAX_LEN,
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+} from "./session.js";
 
 /** The longest cloud task id the daemon accepts. */
 export const CLOUD_TASK_ID_MAX_LEN = 256;
@@ -92,8 +97,8 @@ export const CodexCloudBringBackSchema: z.ZodType<CodexCloudBringBack> = z.discr
     z
       .object({
         outcome: z.literal("partial"),
-        skippedPaths: z.array(z.string().min(1)),
-        conflictingPaths: z.array(z.string().min(1)),
+        skippedPaths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
+        conflictingPaths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
       })
       .strict(),
     z.object({ outcome: z.literal("error"), message: z.string().min(1) }).strict(),

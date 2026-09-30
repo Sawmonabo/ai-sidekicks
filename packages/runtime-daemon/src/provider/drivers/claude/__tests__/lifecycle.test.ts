@@ -213,7 +213,7 @@ describe("ClaudeSessionLifecycle.createSession", () => {
     await harness.lifecycle.createSession({
       sessionId: TEST_SESSION_ID,
       config: { model: "claude-sonnet-4-5" },
-      admittedCostCapCents: 500,
+      admittedCostCapUsdMicros: 5_000_000,
       executionPosture: SANDBOXED_POSTURE,
       callbackTools: [{ name: "ask", description: "ask", inputSchema: {} }],
       subagentPolicy: { enabled: false },
@@ -222,7 +222,7 @@ describe("ClaudeSessionLifecycle.createSession", () => {
     });
 
     const request = harness.transport.spawnRequests[0];
-    expect(request?.admittedCostCapCents).toBe(500);
+    expect(request?.admittedCostCapUsdMicros).toBe(5_000_000);
     expect(request?.executionPosture).toStrictEqual(SANDBOXED_POSTURE);
     expect(request?.callbackTools).toHaveLength(1);
     expect(request?.subagentPolicy).toStrictEqual({ enabled: false });
@@ -284,7 +284,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     await harness.lifecycle.resumeSession({
       sessionId: TEST_SESSION_ID,
       resumeHandle: "provider-session-earlier",
-      admittedCostCapCents: 750,
+      admittedCostCapUsdMicros: 7_500_000,
       executionPosture: SANDBOXED_POSTURE,
       outputSchema: { type: "object" },
       subagentPolicy: { enabled: false },
@@ -292,7 +292,7 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
 
     const request = harness.transport.resumeRequests[0];
     expect(request?.resumeHandle).toBe("provider-session-earlier");
-    expect(request?.admittedCostCapCents).toBe(750);
+    expect(request?.admittedCostCapUsdMicros).toBe(7_500_000);
     expect(request?.executionPosture).toStrictEqual(SANDBOXED_POSTURE);
     expect(request?.outputSchema).toStrictEqual({ type: "object" });
     expect(request?.subagentPolicy).toStrictEqual({ enabled: false });

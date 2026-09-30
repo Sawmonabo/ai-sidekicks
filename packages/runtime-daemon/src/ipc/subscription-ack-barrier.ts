@@ -1,20 +1,17 @@
-// Shared subscribe-init ordering barrier for streaming JSON-RPC handlers.
+// The subscribe-init ordering barrier `session.subscribe` sends its frames
+// through (`handlers/session-subscribe.ts`, its one user).
 //
-// Ownership: this file sits at the `ipc/` substrate root rather than under
-// `handlers/` because it is shared substrate — two namespaces bind streaming
-// handlers through it, and a copy per namespace is exactly the drift this
-// module exists to prevent. owns the directory and the streaming primitive;
-// this module is authored and hoisted on its second consumer, per the repo's
-// structure rule that a helper needed by a second module is extracted at
-// that second use rather than duplicated.
+// It sits at the `ipc/` root beside the streaming primitive because what it
+// orders is the gateway's init response against the first notify frame, which
+// is the substrate's concern rather than the session handler's.
 //
 // Invariant it implements (canonical text):
 //   * The subscribe-init response `{ subscriptionId }` reaches the wire
 //     BEFORE the first `$/subscription/notify` frame for that subscription.
 //
-// WHY A BARRIER IS REQUIRED RATHER THAN A CONVENTION. A subscribe handler's
-// upstream may replay history SYNCHRONOUSLY inside the handler body —
-// projector contract permits replay-then-live-tail — so its emit callback can
+// WHY A BARRIER IS REQUIRED RATHER THAN A CONVENTION. The session stream's
+// upstream may replay history SYNCHRONOUSLY inside the handler body — it
+// replays, then tails live — so its emit callback can
 // fire before the handler has even returned. The gateway writes the init
 // response synchronously inside the dispatch promise's `.then` microtask, so
 // an emission routed straight to the producer lands on the socket AHEAD of the
@@ -91,7 +88,7 @@ export interface SubscriptionAckBarrier<EmissionType> {
  * Build a barrier over `producer`.
  *
  * `methodName` prefixes the diagnostic a failed emission logs. It is the wire
- * method name (`session.subscribe`, `timeline.subscribe`) so an operator
+ * method name (`session.subscribe`) so an operator
  * reading the daemon's output can tell which surface produced the bad value.
  *
  * FAILURE POSTURE, IDENTICAL ON BOTH SIDES OF THE GATE. `producer.next` throws

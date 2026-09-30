@@ -6,21 +6,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  SESSION_EVENT_CATEGORY_BY_TYPE,
-  type ChildRunSummary,
-  type RunId,
-  type SessionEventType,
-  type TimelineRow,
-} from "@ai-sidekicks/contracts";
+import { type ChildRunSummary, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
-import {
-  ChildRunIndex,
-  HANDOFF_WIRE_TYPES,
-  deriveChildRunEntries,
-  deriveHandoffEntries,
-} from "./child-run-entries.js";
+import { ChildRunIndex, deriveChildRunEntries, deriveHandoffEntries } from "./child-run-entries.js";
 
 /** When a later observation saw the child's transcript lose entries. */
 const OBSERVED_AT = "2026-09-02T10:04:00.000Z";
@@ -42,36 +31,6 @@ function rowCarryingChildRun(id: string, sequence: number, summary: ChildRunSumm
     childRunSummary: summary,
   } as TimelineRow;
 }
-
-describe("the handoff wire vocabulary — every member is a type the daemon can emit", () => {
-  it("names four registered wire types, each in the category the contract files it under", () => {
-    // The whole set against the whole expectation, rather than a `has` per member: the
-    // member type is `SessionEventType`, so a per-member truth check passes for every
-    // value that compiles and passes VACUOUSLY over a vocabulary a member was dropped
-    // from. Reading the category back names what each member is and fails on a
-    // dropped one, an added one, and one the contract stopped registering alike.
-    const categoryByWireType = Object.fromEntries(
-      HANDOFF_WIRE_TYPES.map((wireType) => [
-        wireType,
-        SESSION_EVENT_CATEGORY_BY_TYPE.get(wireType),
-      ]),
-    );
-    expect(categoryByWireType).toStrictEqual({
-      "agent.attached": "session_lifecycle",
-      "agent.detached": "session_lifecycle",
-      "subagent.started": "tool_activity",
-      "subagent.completed": "tool_activity",
-    });
-  });
-
-  it("negative control: a type the contract does not register is absent from the census", () => {
-    // Cast because the census is keyed by the wire union and this value is deliberately
-    // outside it — which is the whole point: without this the case above would pass over
-    // a census that answered `true` for everything.
-    const unregistered = "agent.definitely_not_a_wire_type" as SessionEventType;
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(unregistered)).toBe(false);
-  });
-});
 
 describe("child-run entries — one card per child, at the row that first named it", () => {
   it("carries the summary, the actor and the timestamp off the row", () => {
@@ -156,7 +115,7 @@ describe("handoff entries — the three members, each read as itself", () => {
       runRow({
         id: "h1",
         sequence: 1,
-        type: "agent.attached",
+        type: "subagent.started",
         runId: "run-a",
         position: 1,
         payload: {
@@ -167,7 +126,7 @@ describe("handoff entries — the three members, each read as itself", () => {
       }),
     ]);
     expect(entries[0]).toMatchObject({
-      wireType: "agent.attached",
+      wireType: "subagent.started",
       fromActor: "user-ana",
       toActor: "agent-reviewer",
       reason: "review requested",
@@ -179,7 +138,7 @@ describe("handoff entries — the three members, each read as itself", () => {
       runRow({
         id: "h1",
         sequence: 1,
-        type: "agent.detached",
+        type: "subagent.started",
         runId: "run-a",
         position: 1,
         actor: "agent-reviewer",
@@ -247,7 +206,7 @@ describe("handoff entries — the three members, each read as itself", () => {
     const entries = deriveHandoffEntries([
       {
         ...rollbackBoundaryRow({ id: "rb", sequence: 1, runId: "run-a", position: 3 }),
-        type: "agent.attached",
+        type: "subagent.started",
       } as TimelineRow,
     ]);
     expect(entries[0]?.fromActor).toBeUndefined();
@@ -261,7 +220,7 @@ describe("the index — one pass, two lookups", () => {
       runRow({
         id: "handoff",
         sequence: 2,
-        type: "agent.attached",
+        type: "subagent.started",
         runId: "run-parent",
         position: 2,
         payload: { toActor: "agent-reviewer" },

@@ -61,7 +61,7 @@ import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts";
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
+import { SessionService, TestSeedingAppendToken } from "../../session/session-service.js";
 import { RepoMountService } from "../repo-mount-service.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
 import { WorkspaceService, WorkspaceStaleError } from "../workspace-service.js";
@@ -251,7 +251,7 @@ function buildDaemonStack(database: DatabaseType, now: () => string): DaemonStac
   // sources run, and every assertion below names ids by identity or set
   // membership rather than by position in a pool.
   const sessions = new SessionService(database, {
-    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly(),
   });
   const workspaces = new WorkspaceService({ database, events: emitter, sessions, now });
   return {

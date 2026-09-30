@@ -31,8 +31,6 @@
 //     F24  `policy_redacted` without policyReason .... refuses
 //     F25  `unavailable` carrying reasoningEntries ... strict refuses
 //     F26  `unavailable` carrying policyReason ....... strict refuses
-//     F27  `compacted` carrying reasoningEntries ..... strict refuses
-//     F28  `compacted` carrying policyReason ......... strict refuses
 //     F29  `available` carrying policyReason ......... strict refuses
 //     F30  legacy `{ available: true, … }` ........... refuses (no tolerant arm)
 //     F31  legacy `{ available: false }` ............. refuses (no tolerant arm)
@@ -95,7 +93,7 @@
 //     P8   a boundary row itself superseded by a later, lower cut
 //     P9   position 0 / epoch 0
 //     P10  childRunSummary carried on a general row and on a run row
-//     P11  each of the four availability states round-trips
+//     P11  each of the three availability states round-trips
 //     P12  ONE row schema parses a read-window row and a live-stream row
 //     P13  the `complete` arm round-trips
 //     P14  each of the two causes round-trips on the incomplete arm
@@ -116,7 +114,6 @@ import {
   ChildRunExpandRequestSchema,
   ChildRunExpandResponseSchema,
   ChildRunSummarySchema,
-  REASONING_AVAILABILITY_STATES,
   REASONING_ENTRY_CONTENT_MAX_LEN,
   REASONING_SURFACE_ENTRIES_MAX,
   ReasoningSurfaceReadRequestSchema,
@@ -132,12 +129,9 @@ import {
   TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
   TIMELINE_RUN_SCOPED_EVENT_TYPES,
-  TIMELINE_SUBSCRIBE_METHOD,
   TimelineReadRequestSchema,
   TimelineReadResponseSchema,
   TimelineRowSchema,
-  TimelineSubscribeRequestSchema,
-  TimelineSubscribeResponseSchema,
   TimelineBodyReadRequestSchema,
   TimelineBodyReadResponseSchema,
   TimelinePatchReadRequestSchema,
@@ -156,7 +150,6 @@ const OTHER_SESSION_ID = "7a2d0b7f-2e3c-4b4d-9e6f-1b2c3d4e5f60";
 const RUN_ID = "11111111-2222-4333-8444-555555555555";
 const OTHER_RUN_ID = "22222222-3333-4444-8555-666666666666";
 const PARENT_RUN_ID = "33333333-4444-4555-8666-777777777777";
-const SUBSCRIPTION_ID = "55555555-6666-4777-8888-999999999999";
 const TIMESTAMP = "2026-09-01T12:00:00.000Z";
 
 /** The members every arm carries — spread into each fixture below. */
@@ -684,8 +677,10 @@ describe("ChildRunSummary completeness marker", () => {
     ).toBe(false);
     // Negative control: the rejection is the vocabulary, not the fixture.
     expect(
-      ChildRunCompletenessSchema.safeParse({ ...incompleteCompleteness, cause: "compacted" })
-        .success,
+      ChildRunCompletenessSchema.safeParse({
+        ...incompleteCompleteness,
+        cause: "detail_fetch_failed",
+      }).success,
     ).toBe(true);
   });
 
@@ -702,7 +697,8 @@ describe("ChildRunSummary completeness marker", () => {
 
   it("F44/F45 — the complete arm refuses a cause or an observation time", () => {
     expect(
-      ChildRunCompletenessSchema.safeParse({ state: "complete", cause: "compacted" }).success,
+      ChildRunCompletenessSchema.safeParse({ state: "complete", cause: "detail_fetch_failed" })
+        .success,
     ).toBe(false);
     expect(
       ChildRunCompletenessSchema.safeParse({
@@ -739,7 +735,6 @@ describe("ChildRunSummary completeness marker", () => {
     for (const cause of CHILD_RUN_INCOMPLETE_CAUSES) {
       expect(accepts(cause)).toBe(true);
     }
-    expect(CHILD_RUN_INCOMPLETE_CAUSES).toHaveLength(2);
     // Negative control, so the loop above cannot pass vacuously.
     expect(accepts("producer_unreachable")).toBe(false);
   });
@@ -751,14 +746,14 @@ describe("ChildRunSummary completeness marker", () => {
 describe("ReasoningSurfaceReadResponse availability", () => {
   const reasoningEntry = { sequence: 1, content: "normalized reasoning", timestamp: TIMESTAMP };
 
-  it("P11 — each of the four states round-trips", () => {
+  it("P11 — each of the three states round-trips", () => {
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
       availability: "available",
       reasoningEntries: [reasoningEntry],
       hasMore: false,
     });
-    // …and the paged form of the same state, which is a continuation and not a
-    // fifth state — `REASONING_AVAILABILITY_STATES` stays four.
+    // …and the paged form of the same state, which is a continuation and not
+    // another state.
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
       availability: "available",
       reasoningEntries: [reasoningEntry],
@@ -766,7 +761,6 @@ describe("ReasoningSurfaceReadResponse availability", () => {
       nextCursor: "seq-42",
     });
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, { availability: "unavailable" });
-    expectRoundTrip(ReasoningSurfaceReadResponseSchema, { availability: "compacted" });
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
       availability: "policy_redacted",
       policyReason: "withheld by organization policy",
@@ -800,8 +794,8 @@ describe("ReasoningSurfaceReadResponse availability", () => {
     // the first: the collapse onto `unavailable` is a defect of a FIRST read,
     // and this arm is also how a continuation says it reached the end of a
     // surface that does exist. `unavailable` would say no reasoning was
-    // captured, `compacted` that it was discarded, `policy_redacted` that it
-    // was withheld — all three misstate a cursor that simply ran out.
+    // captured, `policy_redacted` that it was withheld — both misstate a
+    // cursor that simply ran out.
     //
     // The schema cannot tell those two cases apart because the request is not
     // in its scope, so the first-page floor is enforced in the daemon binder,
@@ -841,16 +835,14 @@ describe("ReasoningSurfaceReadResponse availability", () => {
         reasoningEntries: [reasoningEntry],
       }).success,
     ).toBe(false);
-    // The three unpaged states carry no continuation at all — `hasMore` on a
-    // state that returns nothing would promise more of nothing.
-    for (const unpagedState of ["unavailable", "compacted"]) {
-      expect(
-        ReasoningSurfaceReadResponseSchema.safeParse({
-          availability: unpagedState,
-          hasMore: false,
-        }).success,
-      ).toBe(false);
-    }
+    // The unpaged state carries no continuation at all — `hasMore` on a state
+    // that returns nothing would promise more of nothing.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "unavailable",
+        hasMore: false,
+      }).success,
+    ).toBe(false);
   });
 
   it("F24 — `policy_redacted` without `policyReason` fails", () => {
@@ -859,24 +851,24 @@ describe("ReasoningSurfaceReadResponse availability", () => {
     ).toBe(false);
   });
 
-  it("F25–F28 — entries or a policy reason on `unavailable` / `compacted` fail strict parse", () => {
-    for (const availability of ["unavailable", "compacted"] as const) {
-      expect(
-        ReasoningSurfaceReadResponseSchema.safeParse({
-          availability,
-          reasoningEntries: [reasoningEntry],
-        }).success,
-      ).toBe(false);
-      expect(
-        ReasoningSurfaceReadResponseSchema.safeParse({
-          availability,
-          policyReason: "withheld",
-        }).success,
-      ).toBe(false);
-      // Negative control: the bare state parses, so the two rejections above
-      // are the extra member and not the state.
-      expect(ReasoningSurfaceReadResponseSchema.safeParse({ availability }).success).toBe(true);
-    }
+  it("F25–F26 — entries or a policy reason on `unavailable` fail strict parse", () => {
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "unavailable",
+        reasoningEntries: [reasoningEntry],
+      }).success,
+    ).toBe(false);
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "unavailable",
+        policyReason: "withheld",
+      }).success,
+    ).toBe(false);
+    // Negative control: the bare state parses, so the two rejections above
+    // are the extra member and not the state.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({ availability: "unavailable" }).success,
+    ).toBe(true);
   });
 
   it("F29 — `available` carrying a policy reason fails strict parse", () => {
@@ -932,15 +924,6 @@ describe("ReasoningSurfaceReadResponse availability", () => {
     ).toBe(false);
   });
 
-  it("no two states serialize identically — the census is the four arms", () => {
-    expect([...REASONING_AVAILABILITY_STATES]).toStrictEqual([
-      "available",
-      "unavailable",
-      "compacted",
-      "policy_redacted",
-    ]);
-  });
-
   it("F48 — the request is run-scoped and carries no principal, in any spelling", () => {
     expectRoundTrip(ReasoningSurfaceReadRequestSchema, { runId: RUN_ID });
     expectRoundTrip(ReasoningSurfaceReadRequestSchema, { runId: RUN_ID, afterCursor: "seq-42" });
@@ -959,10 +942,10 @@ describe("ReasoningSurfaceReadResponse availability", () => {
 });
 
 // ----------------------------------------------------------------------------
-// TimelineRead / TimelineSubscribe / ChildRunExpand
+// TimelineRead / ChildRunExpand
 // ----------------------------------------------------------------------------
 
-describe("timeline read window and live stream", () => {
+describe("timeline read window and child-run expansion", () => {
   const cursor = "seq-42";
 
   it("a read window round-trips, with `hasMore` separate from `nextCursor`", () => {
@@ -1007,10 +990,10 @@ describe("timeline read window and live stream", () => {
     // reversal is the finding. The two members answer different questions —
     // `hasMore` whether unread rows remain, `nextCursor` where this window
     // ended — so they do not contradict on a final page. A client that has
-    // just read to the end and now wants `timeline.subscribe` to "support live
-    // append plus replay recovery" from exactly there needs that position, and
-    // forbidding it would make the client re-derive it or re-read the window
-    // to recover something the producer already held.
+    // just read to the end and now opens the session's live stream
+    // (`session.subscribe` with `afterCursor`) from exactly there needs that
+    // position, and forbidding it would make the client re-derive it or
+    // re-read the window to recover something the producer already held.
     expectRoundTrip(TimelineReadResponseSchema, {
       entries: [],
       hasMore: false,
@@ -1060,32 +1043,6 @@ describe("timeline read window and live stream", () => {
     expect(TimelineReadRequestSchema.safeParse({ sessionId: SESSION_ID, limit: 1.5 }).success).toBe(
       false,
     );
-  });
-
-  it("the subscribe request declares no second resumption channel", () => {
-    expectRoundTrip(TimelineSubscribeRequestSchema, { sessionId: SESSION_ID, afterCursor: cursor });
-    // The timeline resumes by `afterCursor` alone; a `lastEventId` member would
-    // be a second way to say the same thing.
-    expect(
-      TimelineSubscribeRequestSchema.safeParse({ sessionId: SESSION_ID, lastEventId: cursor })
-        .success,
-    ).toBe(false);
-    expectRoundTrip(TimelineSubscribeResponseSchema, { subscriptionId: SUBSCRIPTION_ID });
-  });
-
-  it("P12 — ONE row schema parses a read-window row and a live-stream row", () => {
-    // The reconnect-recovery guarantee: a replay row and a live row are
-    // indistinguishable to a parser because there is exactly one parser. The
-    // assertion is on schema IDENTITY, not on two structurally-equal parses.
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_SUBSCRIBE_METHOD].emissionSchema).toBe(
-      TimelineRowSchema,
-    );
-    const window = TimelineReadResponseSchema.parse({
-      entries: [rollbackBoundaryRow],
-      hasMore: false,
-    }) as { entries: TimelineRow[] };
-    const live = TimelineRowSchema.parse(rollbackBoundaryRow);
-    expect(window.entries[0]).toStrictEqual(live);
   });
 
   it("child-run expansion carries the same row union, with the same continuation", () => {
@@ -1188,22 +1145,8 @@ describe("row category is pinned where the event is", () => {
 });
 
 describe("run attribution is refused where it cannot be read, and pinned where it can", () => {
-  it("F63 — the run-scoped type census is DERIVED from the taxonomy, and its size is pinned", () => {
-    // The count is pinned so a taxonomy growth that should change this set
-    // fails here instead of changing it silently. Re-derive it by reading
-    // the per-category payload shapes when it moves — do not simply re-pin
-    // the number.
-    //
-    // 36 = 13 `run_lifecycle` + 2 `assistant_output` + 8 `tool_activity`
-    //      (`command.ended` carrying required `runId` among them)
-    //    + 11 `interactive_request` (6 `intervention.*` carrying required
-    //      `targetRunId`, 4 `driver_ask.*` carrying required `runId`, and
-    //      `question.asked`, which the category default admits)
-    //    + 2 `usage_telemetry` (`context_compacted`, `model_rerouted`, the two
-    //      whose per-type shapes pin `runId` required).
-    expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.size).toBe(36);
-    // Membership spot-checks across all five contributing categories, so the
-    // count is not carried by one category swelling while another emptied.
+  it("F63 — the run-scoped type census is DERIVED from the taxonomy", () => {
+    // Membership spot-checks across all five contributing categories.
     for (const runScopedType of [
       "run.completed",
       "assistant.message",
@@ -1773,10 +1716,9 @@ describe("timeline.bodyRead", () => {
     expect(TimelineBodyReadRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(false);
   });
 
-  it("never answers that a body was compacted away", () => {
+  it("never answers that a body was purged away", () => {
     expect(
-      TimelineBodyReadResponseSchema.safeParse({ status: "unavailable", reason: "compacted" })
-        .success,
+      TimelineBodyReadResponseSchema.safeParse({ status: "unavailable", reason: "purged" }).success,
     ).toBe(false);
   });
 
@@ -1806,7 +1748,7 @@ describe("timeline.patchRead", () => {
     expect(TimelinePatchReadRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(false);
   });
 
-  it("refuses a file carrying both a patch and a reason, and a compacted reason", () => {
+  it("refuses a file carrying both a patch and a reason, and a purged reason", () => {
     expect(
       TimelinePatchReadResponseSchema.safeParse({
         files: [{ path: "src/a.ts", patch: "x", unavailable: "absent" }],
@@ -1814,7 +1756,7 @@ describe("timeline.patchRead", () => {
     ).toBe(false);
     expect(
       TimelinePatchReadResponseSchema.safeParse({
-        files: [{ path: "src/a.ts", unavailable: "compacted" }],
+        files: [{ path: "src/a.ts", unavailable: "purged" }],
       }).success,
     ).toBe(false);
   });

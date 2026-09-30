@@ -3,11 +3,14 @@
 // Split from `TerminalPane.tsx` because the store hook below may only be called when
 // there IS a store; the split makes that condition a mount rather than a branch.
 //
-// A session has one shared terminal, so the session id is the terminal's identity. The
-// lease line states the holder from the session's log and draws no claim control, and
-// the emulator mounts with nothing to show.
+// The pane shows one of the session's shells, named by the session's id as the emulator
+// names it, until the pane reads the session's shell list. The lease line states that
+// shell's holder from the session's log and draws no claim control, and the emulator
+// mounts with nothing to show.
 
 import { useMemo } from "react";
+
+import type { TerminalId } from "@ai-sidekicks/contracts";
 
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -46,8 +49,12 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
   // Derivation under `useMemo`: the selector returns the stored array and the fold runs
   // only when that array's identity changes.
   const lease: TerminalLeaseState = useMemo(
-    () => projectTerminalLease(timeline, { thisDeviceId: undefined }),
-    [timeline],
+    () =>
+      projectTerminalLease(timeline, {
+        terminalId: sessionId as TerminalId,
+        thisDeviceId: undefined,
+      }),
+    [sessionId, timeline],
   );
 
   return (

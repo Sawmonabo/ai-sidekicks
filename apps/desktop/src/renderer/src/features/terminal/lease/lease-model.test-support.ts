@@ -1,7 +1,8 @@
-// The two users and the two event builders every lease suite shares.
+// The two devices, the shell, the run and its command, and the two event builders every lease suite
+// shares.
 //
-// The directory's one home for both, and it has to be one: the reader, the fold, the
-// line, and the acquisition rule all name the same two users, and every suite
+// The directory's one home for them, and it has to be one: the reader, the fold, the
+// line, and the acquisition rule all name the same two devices, and every suite
 // that drives the reader or the fold authors a `pty.control_changed` event. Written
 // per suite, the cast came out under three spellings for two identities — one file's
 // `OTHER` was the neighboring file's `HOLDER` — and the builder came out twice with
@@ -15,22 +16,39 @@
 // raw one rather than beside it, and there is a single answer to what an event's id,
 // session, and instant look like.
 
+import {
+  PTY_CONTROL_CHANGED_EVENT,
+  type CommandId,
+  type RunId,
+  type TerminalId,
+} from "@ai-sidekicks/contracts";
+
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { TERMINAL_SCENARIO_ROLES } from "../../../../../../fixtures/scenarios/terminal-lease.js";
+import {
+  TERMINAL_LEASE_SCENARIO,
+  TERMINAL_SCENARIO_ROLES,
+} from "../../../../../../fixtures/scenarios/terminal-lease.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
-import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
 
 /**
- * Two users, taken from the scenario rather than written down.
+ * Two devices, taken from the scenario rather than written down.
  *
- * The fold treats a user id as an opaque string, so a readable placeholder
- * would pass every case — and would be the one user id in the terminal tests that no
- * daemon could ever emit, sitting beside beats the scenario deliberately moved onto
- * wire-declared UUIDs. Reading them off the join log keeps the terminal tests' fixtures saying
- * one thing about what a user id is.
+ * The fold treats a device id as an opaque string, so a readable placeholder would
+ * pass every case — and would be the one holder in the terminal tests that no daemon
+ * could ever emit. Reading them off the scenario keeps the terminal tests' fixtures
+ * saying one thing about what a holder is.
  */
 export const THIS_DEVICE_ID: string = TERMINAL_SCENARIO_ROLES.owner;
 export const OTHER_DEVICE_ID: string = TERMINAL_SCENARIO_ROLES.otherDevice;
+
+/** The shell every transition below names unless a case names another. */
+export const SHELL_ID = "shell-1" as TerminalId;
+/** A second shell of the same session, for the cases about which shell a move names. */
+export const OTHER_SHELL_ID = "shell-2" as TerminalId;
+/** An agent's run, for the cases where a run holds the shell. */
+export const RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0199" as RunId;
+/** The run's command that holds the shell; a run's hold names both. */
+export const COMMAND_ID = "command-1" as CommandId;
 
 /**
  * A `pty.control_changed` carrying exactly the payload a case hands it.
@@ -47,7 +65,7 @@ export function leaseEventWithPayload(
     // The console's one admitted-event builder, plus the member it does not take: the
     // actor a lease move is attributed to. Spread over it rather than spelled again, on
     // `store/session/failure-modes.test-support.ts`'s precedent.
-    ...eventOfKind("session-terminal", TERMINAL_LEASE_EVENT_KIND, sequence, payload),
+    ...eventOfKind(TERMINAL_LEASE_SCENARIO.sessionId, PTY_CONTROL_CHANGED_EVENT, sequence, payload),
     ...(actorId === undefined ? {} : { actorId }),
   };
 }
@@ -61,9 +79,30 @@ export function leaseEventWithPayload(
 export function transitionEvent(
   sequence: number,
   reason: string,
-  holderUserId: string | null,
-  previousHolderUserId: string | null = null,
-  actorId: string | undefined = holderUserId ?? undefined,
+  holderDeviceId: string | null,
+  previousHolderDeviceId: string | null = null,
+  options: TransitionEventOptions = {},
 ): ProjectedSessionEvent {
-  return leaseEventWithPayload(sequence, { holderUserId, previousHolderUserId, reason }, actorId);
+  return leaseEventWithPayload(
+    sequence,
+    {
+      sessionId: TERMINAL_LEASE_SCENARIO.sessionId,
+      terminalId: options.terminalId ?? SHELL_ID,
+      holderDeviceId,
+      ...(options.holderRunId === undefined ? {} : { holderRunId: options.holderRunId }),
+      ...(options.holderCommandId === undefined
+        ? {}
+        : { holderCommandId: options.holderCommandId }),
+      previousHolderDeviceId,
+      reason,
+    },
+    holderDeviceId ?? undefined,
+  );
+}
+
+/** What a well-formed transition may vary beyond its reason and holders. */
+interface TransitionEventOptions {
+  readonly terminalId?: TerminalId;
+  readonly holderRunId?: RunId;
+  readonly holderCommandId?: CommandId;
 }

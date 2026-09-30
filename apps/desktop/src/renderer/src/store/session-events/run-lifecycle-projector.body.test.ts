@@ -113,20 +113,9 @@ describe("the registered payload members the body carries", () => {
           runId: "run-1",
           newState: "interrupted",
           trigger: "budget_exhausted",
-          parentRunId: "run-0",
-          internalHelper: false,
-          admittedUnpricedCapCents: 500,
-          admittedModelFamily: "claude",
         }),
       ),
-    ).toStrictEqual({
-      newState: "interrupted",
-      trigger: "budget_exhausted",
-      parentRunId: "run-0",
-      internalHelper: false,
-      admittedUnpricedCapCents: 500,
-      admittedModelFamily: "claude",
-    });
+    ).toStrictEqual({ newState: "interrupted", trigger: "budget_exhausted" });
   });
 
   it("negative control: the old four-member body would fail every case above", () => {
@@ -140,16 +129,10 @@ describe("the registered payload members the body carries", () => {
         newState: "running",
         executionPosture: { mode: "trusted", networkAccess: "full", writableRoots: [] },
         trigger: "idle_timeout",
-        admittedModelFamily: "codex",
       }),
     );
 
-    expect(Object.keys(body).sort()).toStrictEqual([
-      "admittedModelFamily",
-      "executionPosture",
-      "newState",
-      "trigger",
-    ]);
+    expect(Object.keys(body).sort()).toStrictEqual(["executionPosture", "newState", "trigger"]);
   });
 
   it("copies no member the registered shapes do not name", () => {
@@ -161,7 +144,6 @@ describe("the registered payload members the body carries", () => {
         runId: "run-1",
         newState: "starting",
         speculativeMember: "should-not-travel",
-        currentState: "starting",
         // Spelled explicitly, and equal to the envelope's: the claim is that the
         // body copies no member the shapes exclude, and a beat naming ANOTHER
         // session is refused before a body is ever read.
@@ -173,10 +155,10 @@ describe("the registered payload members the body carries", () => {
     expect(body).toStrictEqual({ newState: "starting" });
   });
 
-  it("carries the creation row's provenance, run config, and paying account", () => {
-    // The three members `run.queued` registers that neither `run.subscribeState`
-    // shape declares. A body derived from those two shapes alone drops all three,
-    // so the run a pane reads names no provenance, no admitted config, and no
+  it("carries the creation row's linkage, run config, and admission stamps", () => {
+    // The members `run.queued` registers that neither `run.subscribeState` shape
+    // declares. A body derived from those two shapes alone drops them all, so the
+    // run a pane reads names no parent, no provenance, no admitted config, and no
     // account it will be billed against.
     expect(
       bodyOf(
@@ -185,8 +167,12 @@ describe("the registered payload members the body carries", () => {
           runVersion: 1,
           newState: "queued",
           agentId: "agent-1",
+          parentRunId: "run-0",
+          internalHelper: false,
           reachedBy: "provider_subagent",
-          effectiveRunConfig: { turnLimit: 8 },
+          effectiveRunConfig: { tokenLimit: 200_000 },
+          admittedUnpricedCapUsdMicros: 5_000_000,
+          admittedModelFamily: "claude",
           admittedProviderAccountId: "provider-account-1",
         }),
       ),
@@ -194,10 +180,30 @@ describe("the registered payload members the body carries", () => {
       runVersion: 1,
       newState: "queued",
       agentId: "agent-1",
+      parentRunId: "run-0",
+      internalHelper: false,
       reachedBy: "provider_subagent",
-      effectiveRunConfig: { turnLimit: 8 },
+      effectiveRunConfig: { tokenLimit: 200_000 },
+      admittedUnpricedCapUsdMicros: 5_000_000,
+      admittedModelFamily: "claude",
       admittedProviderAccountId: "provider-account-1",
     });
+  });
+
+  it("binds a run to the agent its creation starts from a saved definition", () => {
+    // Such a creation row names its agent inside `resolvedAgent` and carries no
+    // `agentId`, so a body that read only `agentId` would leave the run bound to no
+    // agent and its controls ungated.
+    expect(
+      bodyOf(
+        runEvent("run.queued", {
+          runId: "run-1",
+          runVersion: 1,
+          newState: "queued",
+          resolvedAgent: { agentId: "agent-2", name: "Reviewer" },
+        }),
+      ),
+    ).toStrictEqual({ runVersion: 1, newState: "queued", agentId: "agent-2" });
   });
 
   it("carries each forward, non-state row's own registered members", () => {
@@ -247,7 +253,10 @@ describe("the registered payload members the body carries", () => {
         position: 17,
         reason: "not this row's member",
         reachedBy: "bridge_run",
+        parentRunId: "run-0",
+        admittedModelFamily: "claude",
         admittedProviderAccountId: "provider-account-1",
+        resolvedAgent: { agentId: "agent-2" },
       }),
     );
 
@@ -256,7 +265,7 @@ describe("the registered payload members the body carries", () => {
 
   it("negative control: no per-type member is a second spelling of a derived one", () => {
     // The gate on the two tables staying disjoint. The derived table is the two
-    // registered shapes' own key union, so the day a contracts shape declares
+    // stream shapes' own key union, so the day a stream shape declares
     // `reachedBy` — or any other member below — this case fails and the per-type
     // entry is deleted rather than left to shadow the derivation it duplicates.
     const derivedMembers = Object.keys(
@@ -276,10 +285,6 @@ describe("the registered payload members the body carries", () => {
           intendedClose: true,
           executionPosture: SANDBOXED_POSTURE,
           trigger: "idle_timeout",
-          parentRunId: "run-0",
-          internalHelper: false,
-          admittedUnpricedCapCents: 500,
-          admittedModelFamily: "claude",
         }),
       ),
     );
@@ -287,6 +292,10 @@ describe("the registered payload members the body carries", () => {
     // Non-empty, or the intersection below is a claim about nothing.
     expect(derivedMembers.length).toBeGreaterThan(0);
     for (const perTypeMember of [
+      "parentRunId",
+      "internalHelper",
+      "admittedUnpricedCapUsdMicros",
+      "admittedModelFamily",
       "reachedBy",
       "effectiveRunConfig",
       "admittedProviderAccountId",
@@ -303,15 +312,16 @@ describe("the registered payload members the body carries", () => {
     // Absence has to be absence: the store merges a body by spread, so a
     // present-but-undefined key erases what an earlier event established.
     const body = bodyOf(
-      runEvent("run.running", {
+      runEvent("run.queued", {
         runId: "run-1",
-        newState: "running",
+        newState: "queued",
         executionPosture: ["not", "an", "object"],
-        admittedUnpricedCapCents: Number.NaN,
+        admittedUnpricedCapUsdMicros: Number.NaN,
         internalHelper: "true",
+        resolvedAgent: { agentId: 7 },
       }),
     );
 
-    expect(body).toStrictEqual({ newState: "running" });
+    expect(body).toStrictEqual({ newState: "queued" });
   });
 });

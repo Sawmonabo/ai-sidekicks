@@ -476,7 +476,22 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
 
 describe("EventLogService — the plain branch parses what it stores", () => {
   /** A `session.created` payload its own registered variant accepts. */
-  const validSessionCreatedPayload = { sessionId: SESSION, config: {}, metadata: {} };
+  const validSessionCreatedPayload = {
+    sessionId: SESSION,
+    shape: "chat",
+    mainAgent: {
+      agentId: "44444444-4444-4444-8444-444444444444",
+      name: "Implementer",
+      binding: {
+        driverName: "claude",
+        modelId: "claude-sonnet-5",
+        providerAccountId: null,
+        effort: null,
+      },
+      ancestry: [],
+      createdAt: "2026-08-01T00:00:00.000Z",
+    },
+  };
 
   it("refuses a REGISTERED type whose payload its own variant rejects", async () => {
     const { service } = buildService();
@@ -559,7 +574,22 @@ describe("EventLogService — the plain branch parses what it stores", () => {
 // those members rather than recomputing them, so the refusal is at the write.
 
 describe("EventLogService — codec-owned content keys are refused before the branch", () => {
-  const validSessionCreatedPayload = { sessionId: SESSION, config: {}, metadata: {} };
+  const validSessionCreatedPayload = {
+    sessionId: SESSION,
+    shape: "chat",
+    mainAgent: {
+      agentId: "44444444-4444-4444-8444-444444444444",
+      name: "Implementer",
+      binding: {
+        driverName: "claude",
+        modelId: "claude-sonnet-5",
+        providerAccountId: null,
+        effort: null,
+      },
+      ancestry: [],
+      createdAt: "2026-08-01T00:00:00.000Z",
+    },
+  };
 
   const forgeableMembers: ReadonlyArray<readonly [string, unknown]> = [
     [CONTENT_LENGTH_PAYLOAD_KEY, 4096],

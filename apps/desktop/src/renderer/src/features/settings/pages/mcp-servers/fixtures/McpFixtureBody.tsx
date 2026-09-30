@@ -41,9 +41,9 @@ import {
   type ListMcpInventory,
   type SubscribeMcpInventoryChanges,
 } from "./mcp-inventory-reading.js";
+import { mcpBindingKeyOf } from "../mcp-binding-key.js";
 import {
   IDLE_MCP_MUTATION,
-  mcpBindingKeyOf,
   mintIdempotencyKey,
   setBindingEnabled,
   setBindingTrust,

@@ -14,10 +14,11 @@
 //
 // AND THE POSTURE PICKER IS GONE FOR THE SHARPER VERSION OF THAT RULE: a control whose
 // choice cannot be honored is worse than an absent one, because it reports success for
-// a decision nothing acted on. The two calls the send makes carry nowhere to put it: the
-// registered `SessionCreateRequest` is `{ config?, metadata? }` and
-// `QueueItemCreateRequest` is `{ sessionId, workspaceId?, priority?, payload }`, both
-// `.strict()`.
+// a decision nothing acted on. The two calls the send makes carry nowhere to put it:
+// `SessionCreateRequest` carries where the session works and who leads it, and
+// `QueueItemCreateRequest` the message, its files and where it goes, both `.strict()`.
+// The lead is the mounting composition's, through the props, because a model and an
+// effort are choices this control does not offer.
 //
 // AND A PARTIAL SEND NAMES WHAT LANDED, not only what did not. Both of the
 // draft's calls are reachable, so a send that stops part way leaves a real session

@@ -47,9 +47,9 @@ export const AUDIT_STUB_SESSION_STATES: readonly SessionState[] = ["purge_reques
  *
  * `state` is the wire's own string and stays one: it is rendered verbatim, never
  * re-parsed into a richer value, and `undefined` where the wire named none. There
- * is deliberately no `title` — `SessionSnapshot` carries `config` and `metadata`
- * bags and no name column, so an unnamed session renders by its identifier and its
- * users and never by an invented one.
+ * is deliberately no `title` — `SessionSnapshot` carries no name column, so an
+ * unnamed session renders by its identifier and its users and never by an invented
+ * one.
  */
 export interface SessionListRow {
   readonly sessionId: string;

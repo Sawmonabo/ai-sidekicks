@@ -9,13 +9,21 @@
 // The macrotask wait the settling cases use is a timing helper, so it lives in
 // `macrotask-boundary.ts`.
 
-import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
+import type {
+  DaemonEvent,
+  DaemonMethod,
+  DaemonParams,
+  DaemonSubscribeParams,
+  EventEnvelope,
+  SessionStreamFrame,
+} from "@ai-sidekicks/contracts";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { Scenario, ScenarioBeat } from "../../fixtures/scenario.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
+import { SESSION_EVENT_STREAM } from "@renderer/services/daemon/session-event-streams.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /** The scripted latency both settling suites spend. Longer than one tick. */
@@ -90,29 +98,61 @@ export function createFixture(
 }
 
 /**
- * Subscribe through the bridge exactly as a view would.
+ * Subscribe through the bridge exactly as a view would, scoped to the session the scenario
+ * plays: the whole-session stream and both run streams are session-scoped, and a bare event
+ * type is the fixture's own arm, which takes the same request.
  *
- * The event name is cast to the `DaemonEvent` brand and the payload left `unknown` — the same
- * single brand bypass the shipped renderer makes, because `DaemonEvent` is a `never`-shaped stub
- * and a tighter payload type here would be a fiction.
+ * The event name is cast to `DaemonEvent` and the payload left `unknown`: the suites name
+ * streams by string, including the bare event types the daemon's method map does not list,
+ * and each names what it expects to receive through the type parameter below.
  *
- * The delivered type is a PARAMETER because the answer depends on the name: the
- * whole-session stream and a bare event type deliver the canonical `EventEnvelope`,
- * and the two narrowed run streams deliver the registered projection. Defaulting it
- * to the envelope lets every caller on the unprojected arms assert through the
- * wire's own shape — `type`, not the console's `kind` — while the run-stream suite
- * names what it actually receives instead of asserting through a type that is wrong
- * for it.
+ * The delivered type is a PARAMETER because the answer depends on the name: a bare
+ * event type delivers the canonical `EventEnvelope`, the whole-session stream
+ * delivers frames of them (read those through {@link subscribeToSessionStream}), and
+ * the two narrowed run streams deliver the registered projection. Defaulting it to
+ * the envelope lets every caller on a bare event type assert through the wire's own
+ * shape — `type`, not the console's `kind` — while the run-stream suite names what it
+ * actually receives instead of asserting through a type that is wrong for it.
  */
 export function subscribeThroughBridge<Delivered = EventEnvelope>(
   fixture: FixtureUnderTest,
   eventName: string,
 ): readonly Delivered[] {
   const received: Delivered[] = [];
-  fixture.bridge.daemon.subscribe(eventName as DaemonEvent, (payload: unknown) => {
-    received.push(payload as Delivered);
-  });
+  const request = { sessionId: fixture.engine.scenario.sessionId };
+  fixture.bridge.daemon.subscribe(
+    eventName as DaemonEvent,
+    request as DaemonSubscribeParams<DaemonEvent>,
+    (payload: unknown) => {
+      received.push(payload as Delivered);
+    },
+  );
   return received;
+}
+
+/** What a whole-session stream subscriber was handed: the frames, and their events in order. */
+export interface SessionStreamReceipt {
+  readonly frames: readonly SessionStreamFrame<EventEnvelope>[];
+  /** Every change's event across the frames received so far, in delivery order. */
+  events(): readonly EventEnvelope[];
+}
+
+/**
+ * Subscribe to the whole-session stream through the bridge, as the session binder does.
+ *
+ * The frames are kept as delivered, so a case can assert the framing itself, and the
+ * events are read off them on demand, so a case about which beats arrived asserts
+ * over the log rather than over how it was batched.
+ */
+export function subscribeToSessionStream(fixture: FixtureUnderTest): SessionStreamReceipt {
+  const frames = subscribeThroughBridge<SessionStreamFrame<EventEnvelope>>(
+    fixture,
+    SESSION_EVENT_STREAM,
+  );
+  return {
+    frames,
+    events: () => frames.flatMap((frame) => frame.changes.map((change) => change.event)),
+  };
 }
 
 /**
@@ -120,14 +160,16 @@ export function subscribeThroughBridge<Delivered = EventEnvelope>(
  *
  * The raw call, written once. {@link callThroughBridge} is the fixture-shaped caller
  * and a suite holding a WRAPPED bridge — the answer arm below — has one too, so the
- * cast to the `DaemonMethod` brand lives here rather than at each of them.
+ * casts live here rather than at each of them. The suites that use it test the fixture's
+ * reply seam, which answers by method name whatever the request carries, so a request
+ * that does not match the method's contract (or none at all) is part of what they send.
  */
 export function callBridge(
   bridge: PlatformBridge,
   method: string,
   params?: unknown,
 ): Promise<unknown> {
-  return bridge.daemon.call(method as DaemonMethod, params);
+  return bridge.daemon.call(method as DaemonMethod, params as DaemonParams<DaemonMethod>);
 }
 
 export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
@@ -192,24 +234,39 @@ export function withDaemonCall(
  *
  * `open` receives the pass-through so a case can refuse the first attempt and hold
  * the next, which is the shape the shipped stub preload puts a console in: every
- * daemon method throws until a build with a real one is installed.
+ * daemon method throws until a build with a real one is installed. It receives the
+ * subscriber's handler too, so a case can deliver what no scenario plays — a frame
+ * carrying the daemon's drop mark — and the request the subscription was opened with.
  */
 export function withDaemonSubscribe(
   bridge: PlatformBridge,
-  open: (passThrough: () => Unsubscribe) => Unsubscribe,
+  open: (
+    passThrough: () => Unsubscribe,
+    handler: (payload: unknown) => void,
+    request: unknown,
+  ) => Unsubscribe,
 ): PlatformBridge {
   // Bound before the spread, so the pass-through reaches the bridge this helper
   // WRAPPED rather than the arm it is building — which would call itself forever.
   const wrappedSubscribe = bridge.daemon.subscribe.bind(bridge.daemon) as (
     event: string,
+    request: unknown,
     handler: (payload: unknown) => void,
   ) => Unsubscribe;
   return {
     ...bridge,
     daemon: {
       ...bridge.daemon,
-      subscribe: ((event: string, handler: (payload: unknown) => void): Unsubscribe =>
-        open(() => wrappedSubscribe(event, handler))) as PlatformBridge["daemon"]["subscribe"],
+      subscribe: ((
+        event: string,
+        request: unknown,
+        handler: (payload: unknown) => void,
+      ): Unsubscribe =>
+        open(
+          () => wrappedSubscribe(event, request, handler),
+          handler,
+          request,
+        )) as PlatformBridge["daemon"]["subscribe"],
     },
   };
 }

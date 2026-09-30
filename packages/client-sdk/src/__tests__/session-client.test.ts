@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  AgentId,
   EventCursor,
   JsonRpcNotification,
   JsonRpcRequest,
@@ -34,7 +35,22 @@ function sessionCreated(sequence: number): SessionEvent {
     type: "session.created",
     actor: null,
     version: "1.0" as SessionEvent["version"],
-    payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
+    payload: {
+      sessionId: SESSION_ID,
+      shape: "chat",
+      mainAgent: {
+        agentId: "00000000-0000-4000-8000-000000000044" as AgentId,
+        name: "Implementer",
+        binding: {
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          providerAccountId: null,
+          effort: null,
+        },
+        ancestry: [],
+        createdAt: "2026-01-22T19:14:35.000Z",
+      },
+    },
   };
 }
 

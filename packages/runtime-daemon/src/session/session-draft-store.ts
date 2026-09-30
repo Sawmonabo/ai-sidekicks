@@ -2,7 +2,7 @@
 //
 // One row per session in `session_drafts`. Writing a draft replaces the one held,
 // and writing an empty draft deletes the row, which is how Send clears it. The last
-// write wins, so a retried save needs no key.
+// write wins, so a retried save needs no key. `session.read` reads the draft back.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -16,6 +16,7 @@ export class SessionDraftStore {
   readonly #sessionExists: Statement<[string]>;
   readonly #upsertDraft: Statement<[string, string, string]>;
   readonly #deleteDraft: Statement<[string]>;
+  readonly #selectDraft: Statement<[string], { text: string }>;
 
   constructor(database: Database, now: () => Date = () => new Date()) {
     this.#database = database;
@@ -28,6 +29,12 @@ export class SessionDraftStore {
        ON CONFLICT (session_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at`,
     );
     this.#deleteDraft = database.prepare("DELETE FROM session_drafts WHERE session_id = ?");
+    this.#selectDraft = database.prepare("SELECT text FROM session_drafts WHERE session_id = ?");
+  }
+
+  /** The session's held draft, or the empty string when none is held. */
+  read(sessionId: SessionId): string {
+    return this.#selectDraft.get(sessionId)?.text ?? "";
   }
 
   /**

@@ -28,11 +28,6 @@ function payloadsOfKind(kind: string): readonly Readonly<Record<string, unknown>
     .map((beat) => (beat.event.payload ?? {}) as Readonly<Record<string, unknown>>);
 }
 
-/** The scripted answer to one call, or `undefined`. */
-function replyTo(call: string): unknown {
-  return CONCURRENT_STREAMING_SCENARIO.replies.find((reply) => reply.call === call)?.result;
-}
-
 describe("the concurrent-streaming frame — the approval it asks and grants", () => {
   it("carries the approval pair and the run pair, both", () => {
     // Four beats about one moment, and neither pair is derivable from the other: a
@@ -94,13 +89,5 @@ describe("the concurrent-streaming frame — the park, counting down", () => {
     const parkPosition = SCRIPTED_KINDS.indexOf("run.paused");
 
     expect(SCRIPTED_KINDS.slice(parkPosition + 1).length).toBeGreaterThan(0);
-  });
-});
-
-describe("the concurrent-streaming frame — its name", () => {
-  it("names itself, so the identity is more than an id", () => {
-    const read = replyTo("session.read") as { session?: { metadata?: { title?: string } } };
-
-    expect(read.session?.metadata?.title).toBeDefined();
   });
 });

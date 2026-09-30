@@ -11,6 +11,7 @@
 // metadata and nowhere else. Both the card's visible face and its accessible label read
 // this one function, which is what stops them from answering the same question two ways.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { attachmentMediaTypeReadings, attachmentNameReading } from "./attachment-provenance.js";
@@ -19,7 +20,7 @@ import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-s
 describe("attachment media type — which readings the card is given", () => {
   function ingestEntry(
     declaredMediaType: string | undefined,
-    derivedMediaType: string | undefined,
+    mimeType: string | undefined,
   ): AttachmentIngestEntry {
     return {
       ...attachmentSourceFrom({
@@ -32,13 +33,13 @@ describe("attachment media type — which readings the card is given", () => {
       receivedBytes: 0,
       ingestId: "ingest-1",
       derived:
-        derivedMediaType === undefined
+        mimeType === undefined
           ? undefined
           : {
-              artifactId: "artifact-1",
-              normalizedName: "screenshot.png",
-              derivedMediaType,
-              derivedSizeBytes: 4,
+              artifactId: "artifact-1" as ArtifactId,
+              fileName: "screenshot.png",
+              mimeType,
+              sizeBytes: 4,
             },
       refusal: undefined,
       disposition: undefined,
@@ -81,27 +82,24 @@ describe("attachment media type — which readings the card is given", () => {
 
 describe("attachment name — the derived name replaces the declaration", () => {
   /** One entry declaring a name, with the daemon's finding present or not. */
-  function namedEntry(
-    declaredName: string,
-    normalizedName: string | undefined,
-  ): AttachmentIngestEntry {
+  function namedEntry(declaredName: string, fileName: string | undefined): AttachmentIngestEntry {
     return {
       ...attachmentSourceFrom({
         localId: "attachment-1",
         declaredName,
         payload: new Blob([new Uint8Array(8)]),
       }),
-      state: normalizedName === undefined ? "ingesting" : "complete",
+      state: fileName === undefined ? "ingesting" : "complete",
       receivedBytes: 8,
       ingestId: "ingest-1",
       derived:
-        normalizedName === undefined
+        fileName === undefined
           ? undefined
           : {
-              artifactId: "artifact-1",
-              normalizedName,
-              derivedMediaType: "text/plain",
-              derivedSizeBytes: 8,
+              artifactId: "artifact-1" as ArtifactId,
+              fileName,
+              mimeType: "text/plain",
+              sizeBytes: 8,
             },
       refusal: undefined,
       disposition: undefined,

@@ -5,9 +5,8 @@
 //
 // Both answer with the stored text or a closed reason it cannot be read. The
 // reasons are the ones a sealed body has: the body never existed, or this
-// daemon cannot open it, or the stored bytes do not match what was signed.
-// Background compaction keeps every body the transcript draws, so "compacted"
-// is not a reason either read can give.
+// daemon cannot open it. A deleted session's rows are stubs no transcript
+// draws, so "purged" is not a reason either read can give.
 import { z } from "zod";
 
 import {
@@ -17,20 +16,23 @@ import {
   type HydratedSessionEventContent,
 } from "../event.js";
 import { jsonUtf8ByteLength } from "../jsonrpc.js";
-import { REPO_PATH_MAX_LEN } from "../repo.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  FILE_PATH_MAX_LEN,
+} from "../session.js";
 
 import { TIMELINE_PAGE_MAX_BYTES } from "./operations.js";
 
 /** Why stored text cannot be read back. */
-export type StoredContentUnavailableReason = Exclude<HydratedContentUnavailableReason, "compacted">;
+export type StoredContentUnavailableReason = Exclude<HydratedContentUnavailableReason, "purged">;
 
 /** Every {@link StoredContentUnavailableReason}. */
 export const STORED_CONTENT_UNAVAILABLE_REASONS = [
   "absent",
   "master_key_unavailable",
   "wrapped_key_missing",
-  "digest_unbound",
   "decrypt_failed",
 ] as const;
 
@@ -148,7 +150,7 @@ export interface TimelinePatchReadResponse {
   files: TimelinePatchFile[];
 }
 
-const patchPathSchema = wireFreeFormString(REPO_PATH_MAX_LEN, "TimelinePatchFile.path");
+const patchPathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "TimelinePatchFile.path");
 
 /** Parses a {@link TimelinePatchReadResponse}. */
 export const TimelinePatchReadResponseSchema: z.ZodType<TimelinePatchReadResponse> = z

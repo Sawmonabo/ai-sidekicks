@@ -60,19 +60,22 @@
 // node's provider-account tail coming back is a returning edge, and it is one a window
 // with no bindable session can still observe.
 //
-// WHAT THE WIRE ACTUALLY OFFERS, AND WHAT THIS DOES ABOUT IT
+// WHAT THE WIRE OFFERS, AND WHAT THIS DOES WITH IT
 //
-// The preload contract declares `daemon.subscribe(event, handler)`: it names an
-// EVENT and carries no parameter object, so there is nowhere on the call to put a
-// session id. The session filter is therefore applied here, at the delivery
-// boundary, against the session this subscription was opened for. One subscription
-// per session is kept anyway rather than one shared subscription with a routing
-// table, because the per-session subscription is what a parameter-carrying
-// `session.subscribe` will need: when the wire grows a request shape, this call
-// gains an argument and nothing else about the lifecycle moves.
+// Each session gets its own subscription, opened with `session.subscribe`'s registered
+// request: the session it follows. Its deliveries are still checked against that
+// session at the delivery boundary, because the stream comes from another process and
+// an event for any other session has no store here to go to.
 //
-// Reading a delivered payload is a different job (`services/daemon/session-event-payload.ts`): this
-// module owns WHICH sessions are bound, that one owns WHAT a payload looks like. The four reads
+// Each delivery is a FRAME: a batch of the session's events, oldest first, or the
+// caught-up frame with none. The daemon never waits for a slow screen; when it drops
+// changes for this connection, the next frame carries the drop mark, and the screen
+// repairs from the daemon's record. The repair this class asks for is the session's
+// own re-read, through the registry, which also shows the catching-up line until the
+// read lands and is what clears the store's gap mark.
+//
+// Reading a delivered frame is a different job (`services/daemon/session-event-payload.ts`): this
+// module owns WHICH sessions are bound, that one owns WHAT a frame looks like. The four reads
 // the endurance tier makes (`session-diagnostics-handle.ts`) are composed here, three off this
 // class's own state and one from the floor's registry, and handed out as `diagnostics`; the
 // window's registry hook gives them to the fixture composition, which alone writes the page.
@@ -83,8 +86,9 @@ import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-dia
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
+import { readSessionId } from "../daemon/wire-identifiers.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
-import { readProjectedSessionEvent } from "../daemon/session-event-payload.js";
+import { readSessionStreamFrame } from "../daemon/session-event-payload.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { type SessionDiagnostics } from "./session-diagnostics-handle.js";
 import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
@@ -208,7 +212,9 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * Deliveries whose payload was not a session event this console can read.
+   * What of the stream this console could not read: one for each delivered frame it
+   * refused whole, and one for each event inside a readable frame whose type the
+   * census pairs with another category.
    *
    * Counted and not reported on the tripwire, which is a deliberate split. A
    * tripwire is a detector for CONSOLE invariants; a payload shape is a WIRE fact,
@@ -274,18 +280,32 @@ export class SessionEventSubscriber {
    * The store's cause is sticky until a completed re-pull clears it, which is exactly
    * right here — the retry asks for that re-pull, so a session that comes back stops
    * being degraded because it was re-read and not because it was re-subscribed.
+   *
+   * A session id the daemon does not admit — a route address typed by hand — has no
+   * stream to open and never will, so it is marked `subscription-closed` and not
+   * retained for a retry.
    */
   #bindSession(sessionId: string): void {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
       return;
     }
-    const subscribe = this.#bridge.daemon.subscribe as SessionStreamSubscribe;
+    const wireSessionId = readSessionId(sessionId);
+    if (wireSessionId === undefined) {
+      this.#registry.markDegraded(sessionId, "subscription-closed");
+      return;
+    }
     let release: Unsubscribe;
     try {
       release = openObservedSubscription(this.#bridge.transportReconnect, () =>
-        subscribe(SESSION_EVENT_STREAM, (payload) => {
-          this.#deliver(sessionId, payload);
-        }),
+        // The handler takes the frame as `unknown`: the bridge's type is a claim about
+        // another process, and `readSessionStreamFrame` is the check of it.
+        this.#bridge.daemon.subscribe(
+          SESSION_EVENT_STREAM,
+          { sessionId: wireSessionId },
+          (frame: unknown) => {
+            this.#deliver(sessionId, frame);
+          },
+        ),
       );
     } catch (subscriptionFailure: unknown) {
       this.#retry.retain(sessionId);
@@ -324,7 +344,14 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * One delivered payload, on the subscription opened for one session.
+   * One delivered frame, on the subscription opened for one session.
+   *
+   * THE DROP MARK IS ACTED ON BEFORE THE FRAME'S EVENTS ARE QUEUED. It says changes
+   * before this frame never arrived, so the store is marked short of rows — which is
+   * what the catching-up line under the session header reads — and the session's
+   * re-read is asked for, the one repair that clears the mark. A caught-up frame
+   * carries the mark and no events, so without this a session that went quiet right
+   * after a drop would stay short with nothing on screen saying so.
    *
    * The close race is real rather than theoretical and is why the refusal arm
    * exists: emission iterates a SNAPSHOT of the subscribers, so a listener that
@@ -334,19 +361,28 @@ export class SessionEventSubscriber {
    * case, and a throw here would break the wire's own subscription for every other
    * session on it.
    */
-  #deliver(sessionId: string, payload: unknown): void {
-    const event = readProjectedSessionEvent(payload);
-    if (event === undefined) {
+  #deliver(sessionId: string, delivered: unknown): void {
+    const frame = readSessionStreamFrame(delivered);
+    if (frame === undefined) {
       this.#unreadableDeliveryCount += 1;
       return;
     }
-    if (event.sessionId !== sessionId) {
-      // Another session's row, seen because the wire subscription carries no
-      // session filter. Not a fault and not counted: the subscription opened for
-      // THAT session is the one delivering it.
+    this.#unreadableDeliveryCount += frame.unreadableEventCount;
+    if (frame.dropped) {
+      // A refusal means the session closed during this delivery: nothing is left to
+      // repair, and the close-race arm below reports a frame that still carried events.
+      if (this.#registry.markDegraded(sessionId, "sequence-gap") === undefined) {
+        this.#registry.requestRefresh(sessionId, "gap-repull");
+      }
+    }
+    // Only this session's events reach its store. The daemon scopes the stream to the
+    // session it was opened for, and an event naming any other session is not counted
+    // as unreadable: it is dropped here because this subscription has no store for it.
+    const events = frame.events.filter((event) => event.sessionId === sessionId);
+    if (events.length === 0) {
       return;
     }
-    const refusal = this.#registry.enqueue(sessionId, [event]);
+    const refusal = this.#registry.enqueue(sessionId, events);
     if (refusal !== undefined) {
       this.#droppedAfterCloseCount += 1;
       reportTripwire(
@@ -356,7 +392,10 @@ export class SessionEventSubscriber {
       );
       return;
     }
-    this.#appliedEventCountBySessionId.set(sessionId, this.appliedEventCountFor(sessionId) + 1);
+    this.#appliedEventCountBySessionId.set(
+      sessionId,
+      this.appliedEventCountFor(sessionId) + events.length,
+    );
   }
 
   #buildDiagnostics(): SessionDiagnostics {
@@ -369,17 +408,3 @@ export class SessionEventSubscriber {
     });
   }
 }
-
-/**
- * The subscribe call, with the one brand bypass this module makes.
- *
- * The bridge declares `daemon.subscribe<E extends DaemonEvent>(event: E, handler:
- * (payload: DaemonEventPayload<E>) => void): Unsubscribe`, where the event name is
- * a `never`-shaped brand and the payload resolves to `unknown` — both stubs until
- * the daemon's event union lands. The event name is pinned to `string` (the
- * genuinely untypeable half) and the payload left `unknown`, which is honest: a
- * tighter payload type here would be a fiction, and `readProjectedSessionEvent`
- * (`services/daemon/session-event-payload.ts`) is what turns the `unknown` into something the
- * store may hold.
- */
-type SessionStreamSubscribe = (event: string, handler: (payload: unknown) => void) => Unsubscribe;

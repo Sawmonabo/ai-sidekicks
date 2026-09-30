@@ -21,7 +21,7 @@
 // served resume moves it — which is the run read's own re-arm reaching this one
 // through the value it answers with, and not a cadence this module arms.
 
-import type { WorkflowVersionChainEntry } from "@renderer/services/wire-shapes/workflow-projection.js";
+import type { WorkflowVersionChainEntry } from "@ai-sidekicks/contracts";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
 import type { WorkflowVersionChoice } from "../run-controls.js";

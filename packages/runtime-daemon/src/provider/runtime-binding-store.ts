@@ -120,7 +120,7 @@ export interface RuntimeBindingSpawnConfig {
   readonly callbackTools?: SessionCallbackTool[] | undefined;
   readonly subagentPolicy?: SubagentPolicy | undefined;
   readonly outputSchema?: Record<string, unknown> | undefined;
-  readonly admittedCostCapCents?: number | undefined;
+  readonly admittedCostCapUsdMicros?: number | undefined;
   // Owner: — provider-account identity bound at spawn, and a RESUME LEG (see
   // the disposition table below). A run's paying account is bound for the
   // run's LIFETIME, so a resume that re-resolved "whichever account is
@@ -380,9 +380,9 @@ const SPAWN_CONFIG_MEMBER_CHECKS = {
   callbackTools: (value) => Array.isArray(value),
   subagentPolicy: isPlainObject,
   outputSchema: isPlainObject,
-  // JSON has no NaN/Infinity — both serialize to `null`, which fails this check
-  // rather than round-tripping as a number, so a nonsense cap cannot survive.
-  admittedCostCapCents: (value) => typeof value === "number",
+  // The cap is whole micro-dollars. JSON has no NaN/Infinity — both serialize to
+  // `null` — so this check also refuses a nonsense cap rather than resuming on it.
+  admittedCostCapUsdMicros: (value) => Number.isSafeInteger(value) && (value as number) >= 0,
   providerAccountId: (value) => typeof value === "string",
   resolvedExecutablePath: (value) => typeof value === "string",
   outputSpeed: (value) => typeof value === "string",
@@ -455,7 +455,7 @@ const SPAWN_CONFIG_RESUME_DISPOSITION = {
   callbackTools: "resume-leg",
   subagentPolicy: "resume-leg",
   outputSchema: "resume-leg",
-  admittedCostCapCents: "resume-leg",
+  admittedCostCapUsdMicros: "resume-leg",
   // The disposition follows the PARAMETER OBJECT rather than the consumer count:
   // a member the driver is handed is a resume leg even when the relaunch reads
   // it too. Composing it is what keeps a resumed run bound to the account it was
@@ -539,7 +539,7 @@ export function composeResumeSessionParams(
     callbackTools: spawnConfig.callbackTools,
     subagentPolicy: spawnConfig.subagentPolicy,
     outputSchema: spawnConfig.outputSchema,
-    admittedCostCapCents: spawnConfig.admittedCostCapCents,
+    admittedCostCapUsdMicros: spawnConfig.admittedCostCapUsdMicros,
     // Read back VERBATIM from the durable record, never re-resolved.
     providerAccountId: spawnConfig.providerAccountId,
     outputSpeed: spawnConfig.outputSpeed,

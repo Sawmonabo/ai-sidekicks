@@ -223,14 +223,14 @@ export interface EventLogAppendOptions {
    * with no key source wired fails LOUD rather than silently dropping the prose
    * or writing it into the plaintext `payload` column.
    *
-   * ADMITTED ONLY ON THE FIVE BODY-BEARING EVENT TYPES, and enforced by the
+   * ADMITTED ONLY ON THE BODY-BEARING EVENT TYPES, and enforced by the
    * CODEC rather than by this type. `BODY_BEARING_EVENT_TYPES` in
    * `pii-indirection.ts` derives that closed set from the contracts union, and
    * `writeEventWithPii` refuses any other type before spending a nonce.
    *
    * NOT EXPRESSIBLE HERE, which is worth saying rather than leaving as an
    * apparent omission. Two shapes were available and both are worse. Restating
-   * the five types on this surface would be a second registration of a decision
+   * those types on this surface would be a second registration of a decision
    * contracts already made — the exact drift the derivation exists to prevent.
    * Threading a generic from `envelope.type` through `append` would type-check
    * only for a caller whose `type` is a literal, and

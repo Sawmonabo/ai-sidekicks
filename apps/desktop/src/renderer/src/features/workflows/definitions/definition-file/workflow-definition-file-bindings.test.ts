@@ -2,14 +2,14 @@
 // rule: a definition carries a REFERENCE to a configured server and never the governance
 // posture that server runs under.
 //
-// The three arms are checked as three, because the identity is a discriminated union —
-// `user` carries no scope reference at all and `local` exists only under `claude` — and
-// a reader that took one flat shape would admit a binding the schema layer rejects.
+// The three arms are checked as three, because the identity is a discriminated union:
+// `user` carries no scope reference at all, and `project` and `local` require one.
 
 import { describe, expect, it } from "vitest";
 
+import type { WorkflowToolBinding } from "@ai-sidekicks/contracts";
+
 import { readToolBindings, toolBindingFileRecords } from "./workflow-definition-file-bindings.js";
-import type { WorkflowToolBinding } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 
 const PHASE_PROSE = "Phase 1";
 
@@ -71,19 +71,17 @@ describe("tool bindings in the file form", () => {
     }
   });
 
-  it("refuses a local binding under the provider the union does not admit", () => {
-    const reading = readToolBindings(
-      bindingDocumentWith({
-        provider: "codex",
-        scope: "local",
-        scopeRef: "/Users/release/checks",
-        serverName: "scratch",
-      }),
-      PHASE_PROSE,
-    );
+  it("reads a local binding under either provider", () => {
+    const codexLocal = {
+      provider: "codex",
+      scope: "local",
+      scopeRef: "/Users/release/checks",
+      serverName: "scratch",
+    } as const;
 
-    expect(reading).toContain("local");
-    expect(reading).toContain("codex");
+    expect(readToolBindings(bindingDocumentWith(codexLocal), PHASE_PROSE)).toStrictEqual([
+      { binding: codexLocal, toolName: "run_suite" },
+    ]);
   });
 
   it("refuses a scope-qualified binding that names no scope", () => {

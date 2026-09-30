@@ -1,6 +1,6 @@
 // The input ask, read off a row's open payload — and what the card may not decide.
 //
-// WHY THIS IS A READER AND NOT A PARSE. The four `driver_ask.*` types are registered
+// WHY THIS IS A READER AND NOT A PARSE. The `driver_ask.*` types are registered
 // in the event taxonomy and NO payload variant is registered for them, so a timeline
 // row carries the ask as the open `Record<string, unknown>` every projected row
 // carries. `wire-payload.ts` states the discipline for exactly this case: two typed
@@ -13,10 +13,9 @@
 //
 //   • Never settle a terminal locally. The state is read from the row's own event
 //     TYPE, wire-verbatim, and there is no code path here that computes one. A
-//     countdown that reaches zero changes nothing about the state — the card
-//     waits for the `driver_ask.expired` row, because an input ask that expires
-//     parks its run and a card that decided it had timed out could show a park that
-//     never happened.
+//     countdown that reaches zero changes nothing about the state — the card waits
+//     for a row the daemon writes, because a card that decided the ask had timed out
+//     would show a close that never happened.
 //   • Never synthesize `options`. The member is additive-optional and its absence
 //     means the provider offered no choice set the driver could represent. The
 //     reader below drops a malformed entry rather than repairing it, and a set that
@@ -37,27 +36,25 @@ import { type Refusal } from "@renderer/lib/refusal.js";
 import type { RunId, TimelineRow } from "@ai-sidekicks/contracts";
 import { projectedPayload } from "./wire-payload.js";
 
-/** The four event types this card renders, and the only ones it renders. */
+/** The event types this card renders, and the only ones it renders. */
 export const QUESTION_EVENT_TYPES = [
   "driver_ask.requested",
   "driver_ask.responded",
-  "driver_ask.expired",
   "driver_ask.canceled",
 ] as const;
 
 /** One ask state. Derived from the event types, never restated as a second union. */
-export type QuestionState = "requested" | "responded" | "expired" | "canceled";
+export type QuestionState = "requested" | "responded" | "canceled";
 
 /**
- * The state each event type names. Total over the four types by construction, so a
- * fifth type added to the tuple above fails to compile here rather than reaching a
- * card that renders it as a pending ask.
+ * The state each event type names. Total over the types by construction, so a type
+ * added to the tuple above fails to compile here rather than reaching a card that
+ * renders it as a pending ask.
  */
 const STATE_BY_EVENT_TYPE: Readonly<Record<(typeof QUESTION_EVENT_TYPES)[number], QuestionState>> =
   {
     "driver_ask.requested": "requested",
     "driver_ask.responded": "responded",
-    "driver_ask.expired": "expired",
     "driver_ask.canceled": "canceled",
   };
 
@@ -188,7 +185,7 @@ export function readQuestionPayload(
  *
  * THE QUESTION STAYS THE REQUEST'S AND THE DISPOSITION COMES FROM THE TERMINAL. Only
  * `state` and `deliveredAnswer` are taken from the terminal, because those are the
- * only two members a terminal is authoritative about: a `driver_ask.expired` payload
+ * only two members a terminal is authoritative about: a `driver_ask.canceled` payload
  * carries no prompt and no option set, so taking the whole reading would blank the
  * question a reader is looking at and replace it with the card's named absence.
  *

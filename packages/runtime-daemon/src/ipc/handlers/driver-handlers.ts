@@ -43,13 +43,11 @@
 // rather than as a JSON-RPC error: a denied caller was answered, not
 // mis-addressed.
 //
-// THE THREE READS ARE NO-ARG AND REPLY PER DRIVER. `driver.listCapabilities`,
-// `driver.listModels`, and `driver.listModes` take an empty request — the
-// ratified `DriverClient` signature writes them without a parameter while the
-// three run-addressed verbs take one — and answer with a GROUP LIST keyed by
-// driver name. The rosters are sorted by driver name so the reply is stable
-// across daemon restarts, which a renderer that keys list items on position
-// depends on.
+// THE THREE READS REPLY PER DRIVER. `driver.listCapabilities` and
+// `driver.listModes` take an empty request and `driver.listModels` the session
+// whose model control asks; each answers with a GROUP LIST keyed by driver name.
+// The rosters are sorted by driver name so the reply is stable across daemon
+// restarts, which a renderer that keys list items on position depends on.
 //
 // THE THREE RUN VERBS ARE RUN-ADDRESSED, AND RESOLUTION IS INJECTED. A run id is
 // globally unique, so the wire shapes carry no session selector — a second
@@ -123,6 +121,7 @@ import type {
   Handler,
   InterruptRunParams,
   ListCapabilitiesResult,
+  ListModelsRequest,
   ListModelsResult,
   ListModesResult,
   ListProviderCommandsRequest,
@@ -590,9 +589,13 @@ export function registerDriverListCapabilities(
  * which reads to a client as "that driver publishes no models" — a different and
  * false claim, and exactly the omission-versus-empty confusion the output-speed
  * vocabulary doctrine forbids elsewhere in this plan.
+ *
+ * The request names the session whose model control asks. Every driver's whole
+ * catalog is answered today: leaving out the models that session's account cannot
+ * run comes with the per-account availability read.
  */
 export function registerDriverListModels(registry: MethodRegistry, deps: DriverCatalogDeps): void {
-  const handler: Handler<DriverReadParams, ListModelsResult> = async () => {
+  const handler: Handler<ListModelsRequest, ListModelsResult> = async () => {
     const drivers = await withDriverErrorTranslation(async () =>
       Promise.all(
         sortedDriverNames(deps.providerRegistry).map(

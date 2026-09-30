@@ -20,7 +20,7 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
+import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 
 /** The id of one held note, minted by the client, so adding the same note twice makes one note. */
 export type ReviewNoteId = string & { readonly __brand: "ReviewNoteId" };
@@ -77,8 +77,8 @@ interface ReviewNoteLocation {
 }
 const reviewNoteLocationShape = {
   comparison: ReviewNoteComparisonSchema,
-  path: z.string().min(1),
-  oldPath: z.string().min(1).optional(),
+  path: z.string().min(1).max(FILE_PATH_MAX_LEN),
+  oldPath: z.string().min(1).max(FILE_PATH_MAX_LEN).optional(),
   side: z.enum(["added", "removed"]),
   line: z.number().int().positive(),
   startLine: z.number().int().positive().optional(),

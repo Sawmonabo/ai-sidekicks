@@ -63,8 +63,7 @@
 //
 // Idiom: matches the sibling unit tests in this directory — typed-variable
 // assignment as the compile-time proof (session-id.test.ts), `.parse()` /
-// `.safeParse(...).success` for schema units (session-create.test.ts /
-// session-event.test.ts), relative `../provider-driver.js` import. The package
+// `.safeParse(...).success` for schema units (session-event.test.ts), relative `../provider-driver.js` import. The package
 // uses no `expectTypeOf` / `assertType` helper, so the compile-time assertions
 // here are typed-binding + `@ts-expect-error`, exactly as the siblings do.
 //
@@ -87,8 +86,6 @@ import {
   DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
-  DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
-  DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
   RECOVERY_CONDITIONS,
   RECOVERY_SPAN_CLASSIFICATIONS,
@@ -103,6 +100,7 @@ import {
   InterruptRunParamsSchema,
   InterventionTypeSchema,
   ListCapabilitiesResultSchema,
+  ListModelsRequestSchema,
   ListModelsResultSchema,
   ListModesResultSchema,
   ProviderModelSchema,
@@ -264,7 +262,9 @@ class MockProviderDriver implements ProviderDriver {
   }
 
   public listModels(): Promise<ProviderModel[]> {
-    return Promise.resolve([{ id: "model-1", name: "Model One", capabilities: ["tool_calls"] }]);
+    return Promise.resolve([
+      { id: "model-1", name: "Model One", capabilities: ["tool_calls"], fast: false },
+    ]);
   }
 
   public listModes(): Promise<ProviderMode[]> {
@@ -549,21 +549,21 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
     const cappedStart: StartRunParams = {
       runId: RUN_ID,
       agentConfig: {},
-      admittedCostCapCents: 2500,
+      admittedCostCapUsdMicros: 25_000_000,
     };
     const cappedResume: ResumeSessionParams = {
       sessionId: SESSION_ID,
       resumeHandle: "resume-handle-opaque",
-      admittedCostCapCents: 2500,
+      admittedCostCapUsdMicros: 25_000_000,
     };
     const cappedCreate: CreateSessionParams = {
       sessionId: SESSION_ID,
       config: {},
-      admittedCostCapCents: 2500,
+      admittedCostCapUsdMicros: 25_000_000,
     };
-    expect(cappedStart.admittedCostCapCents).toBe(2500);
-    expect(cappedResume.admittedCostCapCents).toBe(2500);
-    expect(cappedCreate.admittedCostCapCents).toBe(2500);
+    expect(cappedStart.admittedCostCapUsdMicros).toBe(25_000_000);
+    expect(cappedResume.admittedCostCapUsdMicros).toBe(25_000_000);
+    expect(cappedCreate.admittedCostCapUsdMicros).toBe(25_000_000);
   });
 });
 
@@ -1826,9 +1826,9 @@ describe("McpServerStatusEmissionSchema — MCP status producer seam", () => {
 // ===========================================================================
 //
 // The union is the intervention VOCABULARY; `ApplyInterventionParams`' arm set is
-// the DISPATCH surface, one arm per member.
+// the DISPATCH surface, one arm per intervention a driver applies.
 
-describe("InterventionType — three members, three dispatch arms", () => {
+describe("InterventionType — the vocabulary and the three dispatch arms", () => {
   it("accepts every member of the type", () => {
     // `Record<InterventionType, true>` fails to compile if a type member is
     // missing or extra, and the schema's `z.ZodType<InterventionType>`
@@ -1838,6 +1838,7 @@ describe("InterventionType — three members, three dispatch arms", () => {
       steer: true,
       interrupt: true,
       cancel: true,
+      faster_model_retry: true,
     };
     for (const member of Object.keys(interventionTypeMembers)) {
       expect(InterventionTypeSchema.safeParse(member).success).toBe(true);
@@ -3063,14 +3064,27 @@ describe("DriverReadParams / DriverAckResult — the two empty envelopes", () =>
     expect(DriverAckResultSchema.parse({})).toEqual({});
   });
 
-  it("REFUSES a driver selector on the read request — the reads are no-arg by ratified signature", () => {
-    // `listCapabilities()` / `listModels()` / `listModes()` no-arg while the
-    // three run-addressed verbs take a param. A `{ driverName }` request would
-    // contradict that signature, and `.strict()` is what makes the
-    // contradiction a refusal instead of a silently ignored key that a caller
-    // would then believe had filtered the reply.
+  it("REFUSES a driver selector on the read request — every reply answers for every driver", () => {
+    // `.strict()` is what makes a `{ driverName }` request a refusal instead of
+    // a silently ignored key that a caller would then believe had filtered the
+    // reply.
     expect(DriverReadParamsSchema.safeParse({ driverName: "claude" }).success).toBe(false);
     expect(DriverAckResultSchema.safeParse({ status: "ok" }).success).toBe(false);
+  });
+});
+
+describe("ListModelsRequest — the catalog is read for one session", () => {
+  const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+
+  it("accepts the session whose model control asks", () => {
+    expect(ListModelsRequestSchema.parse({ sessionId })).toEqual({ sessionId });
+  });
+
+  it("REFUSES a read that names no session, or names a driver", () => {
+    expect(ListModelsRequestSchema.safeParse({}).success).toBe(false);
+    expect(ListModelsRequestSchema.safeParse({ sessionId, driverName: "claude" }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -3126,6 +3140,7 @@ describe("ListCapabilitiesResultSchema — what crosses to a client, and what st
     driverName: "claude",
     capabilities: { flags: { ...allFlagsFalse(), output_speed: true }, contractVersion: "1.0.0" },
     outputSpeedLevels: ["off", "on"],
+    builtInTools: ["Read", "Edit", "Bash"],
   };
 
   it("carries the flags and the output-speed vocabulary", () => {
@@ -3174,6 +3189,24 @@ describe("ListCapabilitiesResultSchema — what crosses to a client, and what st
     ).toBe(false);
   });
 
+  it("carries each driver's built-in tools, and refuses a report without them", () => {
+    // Every driver has tools of its own, so a report without the list is a
+    // composition fault rather than a driver with none.
+    expect(DriverCapabilityReportSchema.parse(report).builtInTools).toEqual([
+      "Read",
+      "Edit",
+      "Bash",
+    ]);
+    const { builtInTools: _tools, ...withoutTools } = report;
+    expect(DriverCapabilityReportSchema.safeParse(withoutTools).success).toBe(false);
+    expect(
+      DriverCapabilityReportSchema.safeParse({
+        ...report,
+        builtInTools: ["x".repeat(DRIVER_WIRE_TOKEN_MAX_LEN + 1)],
+      }).success,
+    ).toBe(false);
+  });
+
   it("REFUSES an empty driverName — the reply quotes the daemon's own registry key", () => {
     expect(
       ListCapabilitiesResultSchema.safeParse({ drivers: [{ ...report, driverName: "" }] }).success,
@@ -3182,13 +3215,21 @@ describe("ListCapabilitiesResultSchema — what crosses to a client, and what st
 });
 
 describe("ListModelsResultSchema / ListModesResultSchema — provenance survives the reply", () => {
-  const claudeModel = { id: "claude-haiku-4-5-20251001", name: "Haiku 4.5", capabilities: [] };
+  const claudeModel = {
+    id: "claude-haiku-4-5-20251001",
+    name: "Haiku 4.5",
+    capabilities: [],
+    fast: false,
+  };
 
   it("groups entries per driver rather than flattening them", () => {
     const parsed = ListModelsResultSchema.parse({
       drivers: [
         { driverName: "claude", models: [claudeModel] },
-        { driverName: "codex", models: [{ id: "gpt-5.6-luna", name: "Luna", capabilities: [] }] },
+        {
+          driverName: "codex",
+          models: [{ id: "gpt-5.6-luna", name: "Luna", capabilities: [], fast: true }],
+        },
       ],
     });
     // The grouping IS the provenance: model ids collide across providers and
@@ -3203,6 +3244,22 @@ describe("ListModelsResultSchema / ListModesResultSchema — provenance survives
     expect(
       ProviderModelSchema.safeParse({ ...claudeModel, effortLevels: ["low", "high"] }).success,
     ).toBe(true);
+  });
+
+  it("REFUSES a model with no fast reading, since no fast mode and no reading must differ", () => {
+    const { fast: _fast, ...withoutFast } = claudeModel;
+    expect(ProviderModelSchema.safeParse(withoutFast).success).toBe(false);
+  });
+
+  it("keeps contextWindow ABSENT until a reading arrives, and takes a whole token count", () => {
+    const parsed = ProviderModelSchema.parse(claudeModel);
+    expect(Object.hasOwn(parsed, "contextWindow")).toBe(false);
+    expect(
+      ProviderModelSchema.parse({ ...claudeModel, contextWindow: 200_000 }).contextWindow,
+    ).toBe(200_000);
+    for (const contextWindow of [0, -1, 200_000.5]) {
+      expect(ProviderModelSchema.safeParse({ ...claudeModel, contextWindow }).success).toBe(false);
+    }
   });
 
   it("bounds model tokens and the per-driver catalog length", () => {
@@ -3361,62 +3418,7 @@ describe("ApplyInterventionParamsSchema — three arms, and the fourth is a pars
     }
   });
 
-  it("bounds steer content, its attachment count, and the turn handle", () => {
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: { content: "x".repeat(DRIVER_WIRE_STEER_CONTENT_MAX_LEN + 1) },
-      }).success,
-    ).toBe(false);
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: {
-          content: "ok",
-          // VALID `ArtifactId` elements, so the count ceiling is the only
-          // constraint that can fail. Before the 2026-09-08 element typing this
-          // fixture carried `{}` elements, which under the typed arm would
-          // refuse on the ELEMENT and leave the cap unproven.
-          attachments: Array.from(
-            { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX + 1 },
-            () => AN_ARTIFACT_ID,
-          ),
-        },
-      }).success,
-    ).toBe(false);
-    // Positive control for the same bound: the ceiling itself is admissible, so
-    // the refusal above is the `+ 1` and not the array's presence.
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: {
-          content: "ok",
-          attachments: Array.from(
-            { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX },
-            () => AN_ARTIFACT_ID,
-          ),
-        },
-      }).success,
-    ).toBe(true);
-    // The element type itself: a non-id element is refused outright, which is
-    // what the pre- `unknown[]` arm admitted.
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: { content: "ok", attachments: [{ kind: "blob" }] },
-      }).success,
-    ).toBe(false);
-    expect(
-      ApplyInterventionParamsSchema.safeParse({
-        ...base,
-        type: "steer",
-        payload: { content: "ok", attachments: ["../../etc/passwd"] },
-      }).success,
-    ).toBe(false);
+  it("bounds the steer's turn handle", () => {
     expect(
       ApplyInterventionParamsSchema.safeParse({
         ...base,

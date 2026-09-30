@@ -5,7 +5,7 @@
 // HELD mid-call — the only way to put an abandonment inside an await and see what the
 // continuation does when it comes back to a ledger that moved underneath it.
 
-import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
+import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 
 import { describe, expect, it } from "vitest";
 
@@ -67,9 +67,7 @@ describe("ingest client — abandonment, including mid-call", () => {
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     const gate = port.holdChunks();
-    client.attach(
-      sourceOver("attachment-three", "capture.bin", ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
-    );
+    client.attach(sourceOver("attachment-three", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
     await crossMacrotaskBoundary();
     expect(port.chunkCalls).toHaveLength(1);
 
@@ -90,9 +88,7 @@ describe("ingest client — abandonment, including mid-call", () => {
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     const gate = port.holdChunks();
-    client.attach(
-      sourceOver("attachment-three", "capture.bin", ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
-    );
+    client.attach(sourceOver("attachment-three", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
     await crossMacrotaskBoundary();
 
     gate.open();
@@ -119,12 +115,8 @@ describe("ingest client — disposal gives every open spool back", () => {
     expect(client.snapshot[0]?.state).toBe("complete");
 
     port.holdChunks();
-    client.attach(
-      sourceOver("attachment-two", "capture.bin", ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
-    );
-    client.attach(
-      sourceOver("attachment-three", "capture.bin", ATTACHMENT_INGEST_CHUNK_MAX_BYTES * 2),
-    );
+    client.attach(sourceOver("attachment-two", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
+    client.attach(sourceOver("attachment-three", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
     await crossMacrotaskBoundary();
     return { port, client };
   }

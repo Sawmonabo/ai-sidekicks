@@ -1,43 +1,32 @@
-// What the git host says about a proposal that already exists there, normalized once.
+// What the git host says about a change request that already exists there, as the
+// console presents it.
 //
-// THREE TRICHOTOMIES AND THE CHECK ROLLUP THEY OPEN ON, fixed here because no committed
-// document states them, and this module is the whole of the console's reading of them.
+// THE VOCABULARIES ARE THE CONTRACT'S, IMPORTED AND NEVER RESTATED. Each table below is
+// a `Record` keyed by a wire union from `@ai-sidekicks/contracts`, so a member added
+// there fails to compile here before it reaches a chip with no meaning. Two absences
+// carry a reading a host-shaped string would lose: an absent `mergeable` means the host
+// has not settled it, never a conflict and never an error, and an absent
+// `reviewDecision` means no decision yet rather than a rejection. Neither has a table
+// row, so neither can be drawn as a value the host never sent.
 //
-// THE THREE TRICHOTOMIES ARE NORMALIZED HERE AND NOWHERE ELSE. Their
-// members are fixed above, and two of them carry a reading a host-shaped string would lose:
-// `mergeable: "unknown"` means the host is still computing and NEVER an error, and an
-// absent `reviewDecision` means no decision yet rather than a rejection. Both facts are
-// in the tables below, so a renderer cannot restate either one differently.
+// THE REQUEST'S DECISION AND A REVIEWER'S VERDICT ARE TWO SETS. A reviewer can comment
+// without deciding, and a request can need a review nobody has given, so each has its
+// own table.
 //
 // NO SECOND HOST ADAPTER. Every value here is the host's own word, arriving as a wire
 // string this module never picks; the hosting adapter owns which host is talked to,
 // and nothing here branches on which one answered.
 
+import type {
+  ChangeRequestCheck,
+  ChangeRequestCheckStatus,
+  ChangeRequestMergeability,
+  ChangeRequestReviewDecision,
+  ChangeRequestState,
+  ReviewerVerdict,
+} from "@ai-sidekicks/contracts";
+
 import type { ChipTone } from "@renderer/components/Chip/Chip.js";
-
-/** Where the proposal stands on the host. */
-export const CHANGE_REQUEST_STATES = ["open", "merged", "closed"] as const;
-
-/** One change-request state. Derived, so the vocabulary is declared exactly once. */
-export type ChangeRequestState = (typeof CHANGE_REQUEST_STATES)[number];
-
-/** Whether the host can merge it. `unknown` is a THIRD reading and never an error. */
-export const MERGEABILITY_READINGS = ["mergeable", "conflicting", "unknown"] as const;
-
-/** One mergeability reading. Derived, so the vocabulary is declared exactly once. */
-export type MergeabilityReading = (typeof MERGEABILITY_READINGS)[number];
-
-/** One check's outcome. */
-export const CHECK_STATUSES = ["pending", "success", "failure"] as const;
-
-/** One check status. Derived, so the vocabulary is declared exactly once. */
-export type CheckStatus = (typeof CHECK_STATUSES)[number];
-
-/** A human's verdict, where one has been given. Absence is "no decision yet". */
-export const REVIEW_DECISIONS = ["approved", "changes-requested", "commented"] as const;
-
-/** One review decision. Derived, so the vocabulary is declared exactly once. */
-export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
 
 /** What a status value means and how loudly it reads. The name itself is the wire's. */
 export interface StatusPresentation {
@@ -47,7 +36,11 @@ export interface StatusPresentation {
   readonly meaning: string;
 }
 
-/** Total over `ChangeRequestState` by construction. */
+/**
+ * Total over `ChangeRequestState` by construction.
+ *
+ * @consumedBy the pull request tab's state pill
+ */
 export const CHANGE_REQUEST_STATE_PRESENTATION: Readonly<
   Record<ChangeRequestState, StatusPresentation>
 > = {
@@ -60,80 +53,84 @@ export const CHANGE_REQUEST_STATE_PRESENTATION: Readonly<
 };
 
 /**
- * Total over `MergeabilityReading` by construction.
+ * Total over `ChangeRequestMergeability` by construction; an unsettled answer is absent.
  *
- * `unknown` is NEUTRAL and its sentence says the host is still working. Toning it as a
- * failure, or wording it as "could not determine", would report a computation in
- * progress as a problem — the one reading this module names explicitly.
+ * @consumedBy the pull request tab's header
  */
-export const MERGEABILITY_PRESENTATION: Readonly<Record<MergeabilityReading, StatusPresentation>> =
-  {
-    mergeable: {
-      tone: "neutral",
-      meaning: "The host reports no conflict against the base branch.",
-    },
-    conflicting: {
-      tone: "attention",
-      meaning:
-        "The host reports a conflict against the base branch. Resolving it is a person's act.",
-    },
-    unknown: {
-      tone: "neutral",
-      meaning: "The host is still computing mergeability. This is not an error and not a conflict.",
-    },
-  };
+export const MERGEABILITY_PRESENTATION: Readonly<
+  Record<ChangeRequestMergeability, StatusPresentation>
+> = {
+  mergeable: {
+    tone: "neutral",
+    meaning: "The host reports no conflict against the base branch.",
+  },
+  conflicting: {
+    tone: "attention",
+    meaning: "The host reports a conflict against the base branch. Resolving it is a person's act.",
+  },
+};
 
-/** Total over `CheckStatus` by construction. */
-export const CHECK_STATUS_PRESENTATION: Readonly<Record<CheckStatus, StatusPresentation>> = {
+/**
+ * Total over `ChangeRequestCheckStatus` by construction.
+ *
+ * @consumedBy the pull request tab's checks
+ */
+export const CHECK_STATUS_PRESENTATION: Readonly<
+  Record<ChangeRequestCheckStatus, StatusPresentation>
+> = {
   pending: { tone: "neutral", meaning: "Still running." },
   success: { tone: "neutral", meaning: "Passed." },
   failure: { tone: "failure", meaning: "Failed." },
 };
 
 /**
- * Total over `ReviewDecision` by construction.
+ * Total over `ChangeRequestReviewDecision` by construction.
  *
  * There is no member for "nobody decided" — that is the absence of a decision and it
  * renders as an absence, not as a fourth value. Adding one here would let the console
  * assert a verdict the host never gave.
+ *
+ * @consumedBy the pull request tab's header
  */
-export const REVIEW_DECISION_PRESENTATION: Readonly<Record<ReviewDecision, StatusPresentation>> = {
-  approved: { tone: "neutral", meaning: "A reviewer approved this proposal." },
-  "changes-requested": {
+export const CHANGE_REQUEST_REVIEW_DECISION_PRESENTATION: Readonly<
+  Record<ChangeRequestReviewDecision, StatusPresentation>
+> = {
+  approved: { tone: "neutral", meaning: "The request has the approval it needs." },
+  changes_requested: {
     tone: "attention",
     meaning: "A reviewer asked for changes.",
   },
-  commented: { tone: "neutral", meaning: "A reviewer commented without deciding." },
+  review_required: {
+    tone: "attention",
+    meaning: "The host requires a review nobody has given yet.",
+  },
 };
 
 /**
- * What the gate says where the host has recorded no review verdict at all.
+ * Total over `ReviewerVerdict` by construction.
  *
- * @consumedBy the mount card's proposal gate
+ * @consumedBy the pull request tab's review list
  */
-export const NO_REVIEW_DECISION_COPY = "No decision yet.";
-
-/** One host check, as the host names it. */
-export interface ProposalCheck {
-  readonly name: string;
-  readonly status: CheckStatus;
-}
+export const REVIEWER_VERDICT_PRESENTATION: Readonly<Record<ReviewerVerdict, StatusPresentation>> =
+  {
+    approved: { tone: "neutral", meaning: "This reviewer approved the request." },
+    changes_requested: {
+      tone: "attention",
+      meaning: "This reviewer asked for changes.",
+    },
+    commented: { tone: "neutral", meaning: "This reviewer commented without deciding." },
+  };
 
 /**
- * Where the proposal stands, once it exists on the host.
+ * What the review list says where no reviewer has given a verdict yet.
  *
- * @consumedBy the mount card's proposal gate
+ * @consumedBy the pull request tab's review list
  */
-export interface ProposalStatusReading {
-  readonly state: ChangeRequestState;
-  readonly mergeable: MergeabilityReading;
-  readonly checks: readonly ProposalCheck[];
-  readonly reviewDecision?: ReviewDecision | undefined;
-}
+export const NO_REVIEWER_VERDICT_COPY = "No review yet";
 
 /** How many checks sit at each status, plus the tone the whole rollup reads at. */
 export interface CheckRollup {
-  readonly countByStatus: Readonly<Record<CheckStatus, number>>;
+  readonly countByStatus: Readonly<Record<ChangeRequestCheckStatus, number>>;
   readonly total: number;
   readonly tone: ChipTone;
 }
@@ -146,8 +143,12 @@ export interface CheckRollup {
  * rollup red and any remaining `pending` takes it neutral rather than amber — a check
  * that is still running needs nobody.
  */
-export function checkRollup(checks: readonly ProposalCheck[]): CheckRollup {
-  const countByStatus: Record<CheckStatus, number> = { pending: 0, success: 0, failure: 0 };
+export function checkRollup(checks: readonly Pick<ChangeRequestCheck, "status">[]): CheckRollup {
+  const countByStatus: Record<ChangeRequestCheckStatus, number> = {
+    pending: 0,
+    success: 0,
+    failure: 0,
+  };
   for (const check of checks) {
     countByStatus[check.status] += 1;
   }

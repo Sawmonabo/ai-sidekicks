@@ -29,7 +29,7 @@
 // indistinguishable from the other.
 //
 // WHAT THE REPLY CARRIES. `GetCapabilitiesResult` carries five members and this
-// report carries two of them plus the driver's name. scopes the client-facing
+// report carries two of them, the driver's name and its built-in tools. scopes the client-facing
 // payload to the flags, and rules that the mechanism grades and `cliVersion` alike
 // stop at the driver-side read — a consumer needing provenance or a version reads it
 // through the daemon rather than off this reply. `tools` is a daemon-side ingress
@@ -39,8 +39,10 @@
 // failed read rather than as leaked provenance — but the composition is where the rule belongs,
 // and the schema is the backstop that proves it held.
 //
-// `outputSpeedLevels` IS RE-DERIVED ON EVERY READ AND IS NEVER STORED — the one
-// rule of this module worth stating twice. The vocabulary is a constant OF THE
+// `outputSpeedLevels` AND `builtInTools` ARE RE-DERIVED ON EVERY READ AND ARE
+// NEVER STORED — the one rule of this module worth stating twice. The tool list
+// is a constant of the driver too (`./driver-built-in-tools.ts`), and what
+// follows holds for it word for word. The vocabulary is a constant OF THE
 // DRIVER (`./driver-output-speed.ts`), not a fact about any reading, so it is
 // always re-derivable from the running build's own table. Storing it in a cache
 // entry would create a second copy that a redeploy could silently stale: the
@@ -68,6 +70,7 @@
 import type { DriverCapabilities, DriverCapabilityReport } from "@ai-sidekicks/contracts";
 
 import type { DriverCapabilityHydrationResult } from "./driver-capabilities-writer.js";
+import { builtInToolsFor } from "./driver-built-in-tools.js";
 import { declaredOutputSpeedLevelsFor } from "./driver-output-speed.js";
 import { DriverUnavailableError } from "./provider-registry.js";
 
@@ -184,19 +187,23 @@ export class DriverCapabilityCache {
     // false or missing gets NO vocabulary member at all, which is the encoding
     // requires: absent means the axis is unsettable, and an empty array would
     // instead assert a settable axis with nothing on it.
+    //
+    // The built-in tools are composed the same way, and on every driver.
+    //
+    // Both arrays are spread into fresh ones: the tables are frozen and shared
+    // process-wide, so handing a frozen array to a wire consumer would make a
+    // downstream mutation throw rather than corrupt — but it would also let a
+    // consumer that merely SORTS the reply fail at a distance. Publishers hand
+    // out copies.
+    const builtInTools = [...builtInToolsFor(driverName)];
     if (capabilities.flags.output_speed !== true) {
-      return { driverName, capabilities };
+      return { driverName, capabilities, builtInTools };
     }
-
-    // Spread into a fresh array: the vocabulary table is deep-frozen and shared
-    // by every reader on both read paths, so handing the frozen array itself to
-    // a wire consumer would make a downstream mutation throw rather than corrupt
-    // — but it would also let a consumer that merely SORTS the reply fail at a
-    // distance. Publishers hand out copies.
     return {
       driverName,
       capabilities,
       outputSpeedLevels: [...this.#resolveOutputSpeedLevels(driverName)],
+      builtInTools,
     };
   }
 

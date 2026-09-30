@@ -56,10 +56,11 @@ export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
  *     build cannot read, so the console cannot say whether a session was created.
  *     NEITHER of the two dispositions beside it is honest: reporting `refused` invites
  *     a second press, which mints a second session where the first one landed, and
- *     reporting `partial` claims a session and an id nothing here holds. The wire
- *     carries no idempotency member for `session.create` anywhere, so a renderer
- *     cannot make the retry safe, and the only safe act left is to go and look. This
- *     arm is terminal for the draft that reached it.
+ *     reporting `partial` claims a session and an id nothing here holds. A second
+ *     press would carry the draft's same idempotency key, so the daemon would answer
+ *     with the session it already made, but in the same reply this build cannot read:
+ *     the retry would name nothing either, and the only act left is to go and look.
+ *     This arm is terminal for the draft that reached it.
  */
 export const NEW_SESSION_SEND_OUTCOMES = [
   "sent",

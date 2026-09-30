@@ -27,12 +27,6 @@
   color: var(--meridian-text);
 }
 
-.meridian-attention__mute {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
 .meridian-attention__groups,
 .meridian-attention__items {
   display: flex;

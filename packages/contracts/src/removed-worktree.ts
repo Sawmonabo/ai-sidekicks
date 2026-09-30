@@ -7,9 +7,8 @@
 import { z } from "zod";
 
 import { ProjectIdSchema, type ProjectId } from "./project.js";
-import { REPO_PATH_MAX_LEN } from "./repo.js";
 import { GitObjectIdSchema, type GitObjectId } from "./repo-git-reads.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 import {
   RemovedWorktreeIdSchema,
   WORKTREE_GIT_REF_MAX_LEN,
@@ -65,7 +64,7 @@ export const RemovedWorktreeListResponseSchema: z.ZodType<RemovedWorktreeListRes
         .object({
           removedWorktreeId: RemovedWorktreeIdSchema,
           projectId: ProjectIdSchema,
-          name: wireFreeFormString(REPO_PATH_MAX_LEN, "RemovedWorktree.name"),
+          name: wireFreeFormString(FILE_PATH_MAX_LEN, "RemovedWorktree.name"),
           branch: wireFreeFormString(WORKTREE_GIT_REF_MAX_LEN, "RemovedWorktree.branch"),
           headCommit: GitObjectIdSchema,
           removedAt: z.iso.datetime({ offset: true }),
@@ -103,7 +102,7 @@ export interface WorktreeRestoreResponse {
 export const WorktreeRestoreResponseSchema: z.ZodType<WorktreeRestoreResponse> = z
   .object({
     worktreeId: WorktreeIdSchema,
-    path: wireFreeFormString(REPO_PATH_MAX_LEN, "WorktreeRestoreResponse.path"),
+    path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeRestoreResponse.path"),
     branch: wireFreeFormString(WORKTREE_GIT_REF_MAX_LEN, "WorktreeRestoreResponse.branch"),
     onNewBranch: z.boolean(),
   })

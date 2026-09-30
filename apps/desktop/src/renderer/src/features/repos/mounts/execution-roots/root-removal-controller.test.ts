@@ -2,6 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { WorktreeRetireRequest } from "@ai-sidekicks/contracts";
+
 import {
   RootRemovalController,
   type RootRemovalOperations,
@@ -14,7 +16,7 @@ const WORKTREE_ID = "worktree-reviewer";
 
 /** The daemon: the call records the transition and answers `retired`. */
 const SCRIPTED_DAEMON: RootRemovalOperations = {
-  retireWorktree: (worktreeId) => Promise.resolve({ worktreeId, state: "retired" }),
+  retireWorktree: ({ worktreeId }) => Promise.resolve({ worktreeId, state: "retired" }),
 };
 
 /** A recorder that keeps every reading it was given, in order. */
@@ -47,6 +49,20 @@ describe("RootRemovalController — the removal", () => {
     expect(log.last?.status === "settled" && log.last.state).toBe("retired");
   });
 
+  it("asks for the ordinary removal, never the discard", async () => {
+    // The discard belongs to its own confirm. This one sends the ordinary removal, which
+    // the daemon refuses when the tree changed since its risks were read.
+    const requests: WorktreeRetireRequest[] = [];
+    const { controller } = open(WORKTREE_ID, {
+      retireWorktree: (request) => {
+        requests.push(request);
+        return Promise.resolve({ worktreeId: request.worktreeId, state: "retired" });
+      },
+    });
+    await controller.send();
+    expect(requests).toStrictEqual([{ worktreeId: WORKTREE_ID, discard: false }]);
+  });
+
   it("reports the send before it reports the answer", async () => {
     // Both moments reach the recorder: a confirmation with no in-flight state would look
     // unresponsive for the length of the call.
@@ -69,7 +85,7 @@ describe("RootRemovalController — the guards", () => {
     let calls = 0;
     const { controller, log } = open(WORKTREE_ID, {
       ...SCRIPTED_DAEMON,
-      retireWorktree: (worktreeId) => {
+      retireWorktree: ({ worktreeId }) => {
         calls += 1;
         return calls === 1
           ? Promise.reject(new Error("The daemon could not be reached."))

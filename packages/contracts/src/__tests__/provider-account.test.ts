@@ -9,11 +9,13 @@ import {
   BILLING_MODES,
   CREDENTIAL_GENERATION_MIN,
   CredentialGenerationSchema,
+  PROVIDER_ACCOUNT_PLAN_MAX_LEN,
   PROVIDER_AUTH_MODES,
   PROVIDER_NAMES,
   PROVIDER_QUOTA_DEFAULT_LIMIT_ID,
   ProviderAccountListRequestSchema,
   ProviderAccountListResponseSchema,
+  ProviderAccountMemoryImportOutcomeSchema,
   ProviderAccountNotificationSchema,
   ProviderAccountSchema,
   ProviderAccountSubscribeRequestSchema,
@@ -41,8 +43,12 @@ function validAccount(overrides: Record<string, unknown> = {}): Record<string, u
     healthObservedAt: TIMESTAMP,
     observedAuthMode: "oauth_subscription",
     loggedInAt: TIMESTAMP,
+    lastRefreshObservedAt: null,
     expectedReloginAtEstimate: null,
     probeEnabled: true,
+    windowStartEnabled: true,
+    wakeForWindowStartEnabled: false,
+    memoryImport: null,
     ...overrides,
   };
 }
@@ -266,6 +272,40 @@ describe("ProviderAccount record", () => {
       ProviderAccountSchema.safeParse(validAccount({ loggedInAt: "2026-08-31T00:00:00+02:00" }))
         .success,
     ).toBe(true);
+  });
+
+  it("carries the account's one memory import: a count and a time, nothing to import, or none yet", () => {
+    for (const memoryImport of [
+      null,
+      { outcome: "imported", count: 14, importedAt: TIMESTAMP },
+      { outcome: "nothingToImport" },
+    ]) {
+      expect(ProviderAccountSchema.safeParse(validAccount({ memoryImport })).success).toBe(true);
+    }
+    // An import that copied nothing is `nothingToImport`, never `imported` with zero.
+    expect(
+      ProviderAccountMemoryImportOutcomeSchema.safeParse({
+        outcome: "imported",
+        count: 0,
+        importedAt: TIMESTAMP,
+      }).success,
+    ).toBe(false);
+    expect(
+      ProviderAccountMemoryImportOutcomeSchema.safeParse({ outcome: "nothingToImport", count: 3 })
+        .success,
+    ).toBe(false);
+  });
+
+  it("carries the plan exactly as the provider sends it, bounded", () => {
+    expect(
+      ProviderAccountSchema.parse(validAccount({ observedAccountPlan: "promax" }))
+        .observedAccountPlan,
+    ).toBe("promax");
+    expect(
+      ProviderAccountSchema.safeParse(
+        validAccount({ observedAccountPlan: "p".repeat(PROVIDER_ACCOUNT_PLAN_MAX_LEN + 1) }),
+      ).success,
+    ).toBe(false);
   });
 
   it("carries no credential-home path", () => {

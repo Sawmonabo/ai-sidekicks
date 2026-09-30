@@ -2,127 +2,71 @@
 //
 // The reader is driveable with a single payload and no session, which is the whole
 // reason it is a module: every case below states what ONE `pty.control_changed`
-// obliges, without a device or an ordering standing between the
-// payload and the answer. The fold's response to a refusal is `lease-model.test.ts`'s
-// — those are two different claims, and asserting the reader only through the fold is
-// what made the second one carry both.
-//
-// Two of the lease line's "never" clauses are properties of THIS module: the holder
-// comes off the wire and nowhere else, and a reason and a holder shape that disagree
-// are not a transition. Each has a negative control, because both would pass against
-// a reader that simply returned the payload it saw.
+// obliges, without a device or an ordering standing between the payload and the
+// answer. The fold's response to a refusal is `lease-model.test.ts`'s, and which
+// holder shapes each reason admits is the contract's own suite; what is here is that
+// the reader reads through that contract and records what it refuses.
 
 import { describe, expect, it } from "vitest";
 
 import {
-  TERMINAL_LEASE_TRANSITION_REASONS,
-  asTerminalLeaseTransitionReason,
+  readTerminalLeaseShell,
   readTerminalLeaseTransition,
   readTerminalLeaseUnreadTransition,
 } from "./lease-transition.js";
 import {
+  COMMAND_ID,
   OTHER_DEVICE_ID,
+  RUN_ID,
+  SHELL_ID,
   THIS_DEVICE_ID,
   leaseEventWithPayload,
+  transitionEvent,
 } from "./lease-model.test-support.js";
 
 /** Every event below sits at the same position; what varies is the payload on it. */
 const READER_EVENT_SEQUENCE = 1;
 
-describe("reading one transition — the holder is the wire's, and both halves agree", () => {
-  it("reads a take, carrying the holder the payload named", () => {
+describe("reading one transition — the holder is the wire's", () => {
+  it("reads a take, carrying the shell and the device the payload named", () => {
     const transition = readTerminalLeaseTransition(
-      leaseEventWithPayload(READER_EVENT_SEQUENCE, {
-        reason: "taken",
-        holderUserId: OTHER_DEVICE_ID,
-        previousHolderUserId: THIS_DEVICE_ID,
-      }),
+      transitionEvent(READER_EVENT_SEQUENCE, "taken", OTHER_DEVICE_ID, THIS_DEVICE_ID),
     );
-    expect(transition?.reason).toBe("taken");
-    expect(transition?.holderUserId).toBe(OTHER_DEVICE_ID);
+    expect(transition).toStrictEqual({
+      terminalId: SHELL_ID,
+      reason: "taken",
+      holderDeviceId: OTHER_DEVICE_ID,
+      holderRunId: undefined,
+      holderCommandId: undefined,
+    });
   });
 
-  it("reads a release as naming nobody, which is the free lease explicitly", () => {
+  it("reads a run's take, carrying the run and its command beside the machine's own device", () => {
     const transition = readTerminalLeaseTransition(
-      leaseEventWithPayload(READER_EVENT_SEQUENCE, {
-        reason: "auto_released_disconnect",
-        holderUserId: null,
-        previousHolderUserId: OTHER_DEVICE_ID,
+      transitionEvent(READER_EVENT_SEQUENCE, "taken", THIS_DEVICE_ID, null, {
+        holderRunId: RUN_ID,
+        holderCommandId: COMMAND_ID,
       }),
     );
-    expect(transition?.holderUserId).toBeNull();
+    expect(transition?.holderRunId).toBe(RUN_ID);
+    expect(transition?.holderCommandId).toBe(COMMAND_ID);
   });
 
   it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {
     // The expensive direction: a shell the daemon has just handed to someone, offered
-    // as one anybody may take.
+    // as one anybody may take. The refusal is the contract's; this case holds that the
+    // reader goes through it.
     expect(
-      readTerminalLeaseTransition(
-        leaseEventWithPayload(READER_EVENT_SEQUENCE, {
-          reason: "taken",
-          holderUserId: null,
-        }),
-      ),
+      readTerminalLeaseTransition(transitionEvent(READER_EVENT_SEQUENCE, "taken", null)),
     ).toBeUndefined();
   });
 
-  it("refuses a release that names a holder, however it was released", () => {
-    // The other expensive direction, in both of its spellings: the user a
-    // release took the shell FROM travels as the previous holder, so a release naming
-    // a holder is a payload contradicting itself.
-    for (const reason of TERMINAL_LEASE_TRANSITION_REASONS.filter(
-      (candidate) => candidate !== "taken",
-    )) {
-      expect(
-        readTerminalLeaseTransition(
-          leaseEventWithPayload(READER_EVENT_SEQUENCE, {
-            reason,
-            holderUserId: THIS_DEVICE_ID,
-          }),
-        ),
-      ).toBeUndefined();
-    }
-  });
-
-  it("refuses a reason outside the closed set, and a payload with no reason at all", () => {
+  it("negative control: a payload without its shell is not a transition", () => {
+    const { terminalId: _terminalId, ...payload } =
+      transitionEvent(READER_EVENT_SEQUENCE, "taken", OTHER_DEVICE_ID).payload ?? {};
     expect(
-      readTerminalLeaseTransition(
-        leaseEventWithPayload(READER_EVENT_SEQUENCE, {
-          reason: "auto_released_timeout",
-          holderUserId: null,
-        }),
-      ),
+      readTerminalLeaseTransition(leaseEventWithPayload(READER_EVENT_SEQUENCE, payload)),
     ).toBeUndefined();
-    expect(
-      readTerminalLeaseTransition(
-        leaseEventWithPayload(READER_EVENT_SEQUENCE, { holderUserId: OTHER_DEVICE_ID }),
-      ),
-    ).toBeUndefined();
-    expect(
-      readTerminalLeaseTransition(leaseEventWithPayload(READER_EVENT_SEQUENCE, undefined)),
-    ).toBeUndefined();
-  });
-
-  it("negative control: a holder member of the wrong TYPE is not a holder", () => {
-    // The tolerant read turned every non-string into the free lease, so a numeric,
-    // empty, or absent holder on a take was the same silent normalization in a second
-    // shape. Without this control the cases above would pass against a reader that
-    // only ever checked the reason.
-    for (const holderUserId of ["", 4, null, undefined]) {
-      expect(
-        readTerminalLeaseTransition(
-          leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "taken", holderUserId }),
-        ),
-      ).toBeUndefined();
-    }
-    expect(
-      readTerminalLeaseTransition(
-        leaseEventWithPayload(READER_EVENT_SEQUENCE, {
-          reason: "taken",
-          holderUserId: OTHER_DEVICE_ID,
-        }),
-      )?.holderUserId,
-    ).toBe(OTHER_DEVICE_ID);
   });
 });
 
@@ -151,18 +95,15 @@ describe("reading the transition it could NOT read", () => {
         .reason,
     ).toBeUndefined();
   });
-});
 
-describe("the reason guard", () => {
-  it("admits every member of the closed set", () => {
-    for (const reason of TERMINAL_LEASE_TRANSITION_REASONS) {
-      expect(asTerminalLeaseTransitionReason(reason)).toBe(reason);
-    }
-  });
-
-  it("negative control: refuses a plausible non-member and a non-string", () => {
-    expect(asTerminalLeaseTransitionReason("auto_released_timeout")).toBeUndefined();
-    expect(asTerminalLeaseTransitionReason(undefined)).toBeUndefined();
-    expect(asTerminalLeaseTransitionReason(4)).toBeUndefined();
+  it("reads the shell an unreadable move names, and none where it names none", () => {
+    expect(
+      readTerminalLeaseShell(
+        leaseEventWithPayload(READER_EVENT_SEQUENCE, { terminalId: SHELL_ID, reason: "seized" }),
+      ),
+    ).toBe(SHELL_ID);
+    expect(
+      readTerminalLeaseShell(leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "seized" })),
+    ).toBeUndefined();
   });
 });

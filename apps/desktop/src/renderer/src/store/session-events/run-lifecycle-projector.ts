@@ -36,40 +36,36 @@
 //
 // So the member list is DERIVED rather than hand-kept. `RunStateChangeEvent` and
 // `RunRolledBackEvent` (`packages/contracts/src/run-control.ts`) are the two
-// registered run shapes, and `DurableRunMemberName` below is their key union
-// minus the four members the durable row does not carry under those names, plus
-// the two the durable payload carries alone. A member added to either registered
+// registered run shapes, and `DurableRunMemberName` in `run-entity-body.ts` is their
+// key union minus the members the durable row does not carry under those names, plus
+// `agentId`, which the durable payload carries alone. A member added to either registered
 // shape lands in that union and fails the reader table's `satisfies` until
 // someone classifies it, which is the whole point: a hand list is how a body
 // silently stops carrying the member a component was built to read.
 //
 // AND THE DERIVATION IS NOT THE WHOLE PAYLOAD, WHICH IS THE SECOND TABLE'S
 // SUBJECT. Those two shapes are both `run.subscribeState` projections, and this
-// projector folds the DURABLE rows off `session.subscribe`. Four of the thirteen
-// kinds register per-type members that neither projection declares and that
-// `packages/contracts` therefore holds no schema for at all — `SessionEventSchema`
-// registers no run-lifecycle payload variant, so there is nothing to derive them
-// from. Treating the two subscription shapes as exhaustive dropped every one of
-// them: the run's creation lost its `reachedBy` provenance (`provider_subagent`,
-// `bridge_run` or `workflow_step`), its admission-resolved `effectiveRunConfig`, and the
-// account it was admitted against, and the
-// three forward, non-state rows lost the whole of what they carry — the provider
-// and model an initialization reports, the position a turn opened at, the reason a
-// worker shut down. Each reached the timeline and none reached the `run` partition
-// a pane reads. `UNDECLARED_RUN_BODY_MEMBER_READERS` is those four rows, keyed by
-// the kind that registers them so the parse is PER TYPE — a member registered on
-// one kind is never read off another — and typed against the census so a
-// misspelled kind fails to compile rather than reading a payload no daemon sends.
-// The day a contracts shape declares one of these members, it enters
-// `DurableRunMemberName`, the base table classifies it, and the co-located test's
-// no-second-spelling case fails until the entry here is deleted.
+// projector folds the DURABLE rows off `session.subscribe`. Some kinds carry
+// per-type members that neither projection declares: the run's creation carries its
+// `reachedBy` provenance, its admission-resolved `effectiveRunConfig` and the account
+// it was admitted against, which the contract's `RunQueuedPayload` declares; the
+// forward, non-state rows carry the provider and model an initialization reports,
+// the position a turn opened at and the reason a worker shut down, which no
+// contracts schema holds. Treating the two subscription shapes as exhaustive would
+// drop every one of them from the `run` partition a pane reads.
+// `PER_TYPE_RUN_BODY_MEMBER_READERS` holds those rows, keyed by the kind that
+// carries them so the parse is PER TYPE — a member registered on one kind is never
+// read off another — and typed against the census so a misspelled kind fails to
+// compile rather than reading a payload no daemon sends. The day a stream shape
+// declares one of these members, it enters `DurableRunMemberName`, the base table
+// classifies it, and the co-located test's no-second-spelling case fails until the
+// entry here is deleted.
 //
 // THE TWO SHAPES ARE NOT ONE SHAPE, and the exclusions are where that is stated. That
-// module says so itself: the `run.subscribeState` projection is deliberately distinct
-// from the durable run-lifecycle payload (`{sessionId, runId, runVersion,
-// previousState, newState, ...}`), where the canonical wire member is
-// `currentState` on the stream and `newState` on the durable row. `sessionId` and
-// `timestamp` are excluded because the envelope already carries both —
+// module says so itself: the `run.subscribeState` projection carries no `sessionId`,
+// which its subscription's scope names, while the durable run-lifecycle payload
+// (`{sessionId, runId, runVersion, previousState, newState, ...}`) does; both spell
+// the state the run entered `newState`. `sessionId` and `timestamp` are excluded because the envelope already carries both —
 // `event.sessionId` and `event.occurredAt`, the latter stored as `touchedAt` — and
 // `runId` because it is the entity's own id. `agentId` is the one member no registered
 // shape names: `run.queued` carries it for orchestration-created runs.

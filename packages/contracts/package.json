@@ -17,6 +17,11 @@
       "@ai-sidekicks/source": "./src/session.ts",
       "types": "./dist/session.d.ts",
       "import": "./dist/session.js"
+    },
+    "./web-address": {
+      "@ai-sidekicks/source": "./src/web-address.ts",
+      "types": "./dist/web-address.d.ts",
+      "import": "./dist/web-address.js"
     }
   },
   "main": "./dist/index.js",

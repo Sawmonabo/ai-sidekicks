@@ -1,16 +1,13 @@
 // The store: an override wins over the shipped chord, a conflict is refused, a reset
-// restores, and what one window wrote another window reads back.
+// restores, and what one window wrote the next one reads back from the keyboard map.
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import type { KeyboardMap, KeyboardMapReading, PreloadApi } from "@shared/preload-api.js";
 import { CommandRegistry } from "../commands/command-registry.js";
 import { type Keybinding } from "../commands/command-types.js";
 import { KeybindingTable } from "./keybinding-table.js";
-import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { KeybindingOverrideStore } from "./keybinding-override-store.js";
-import { KEYBINDING_OVERRIDES_KEY } from "./keybinding-override-types.js";
 
 /**
  * This file's shipped table, authored on `Alt` rather than on `$mod`.
@@ -40,52 +37,60 @@ function overrideStore(): KeybindingOverrideStore {
   });
 }
 
-/** A store over its own memory adapter, on a frozen clock like every other one. */
-function uiStateStore(adapter = new MemoryPersistenceAdapter()): UiStateStore {
-  return new UiStateStore({ adapter, clock: new ManualClock(1_000) });
-}
-
-/** What one durable read answers, taken from the adapter rather than restated. */
-type StoredRecordOrAbsent = Awaited<ReturnType<MemoryPersistenceAdapter["read"]>>;
+type KeyboardMapBridge = PreloadApi["keyboardMap"];
 
 /**
- * A memory adapter whose reads are held open until the case lets them answer.
+ * Main's keyboard map as the bridge answers it, held in memory.
  *
- * Two hydrations can only be in flight at once if the first read has not settled,
- * and nothing behind the real chokepoint is slow on purpose. Held from the moment
- * {@link holdReads} is called rather than from construction, so a case can seed the
- * record it wants read back through the ordinary write path first.
+ * Reads can be held open until a case lets them answer: two hydrations can only be in
+ * flight at once if the first read has not settled. Held from the moment
+ * {@link holdReads} is called, so a case can seed the map it wants read back first.
  */
-class HeldReadAdapter extends MemoryPersistenceAdapter {
+class MemoryKeyboardMap implements KeyboardMapBridge {
+  public stored: KeyboardMap;
+  public repair: KeyboardMapReading["repair"];
+  public failWrites = false;
+  public failReads = false;
   #letReadAnswer: (() => void) | undefined;
   #holdsReads = false;
+
+  public constructor(stored: KeyboardMap = {}) {
+    this.stored = stored;
+  }
 
   public holdReads(): void {
     this.#holdsReads = true;
   }
 
-  public override async read(partition: string, key: string): Promise<StoredRecordOrAbsent> {
+  public async read(): Promise<KeyboardMapReading> {
     if (this.#holdsReads) {
       await new Promise<void>((resolve) => {
         this.#letReadAnswer = resolve;
       });
     }
-    return await super.read(partition, key);
+    if (this.failReads) {
+      throw new Error("Error invoking remote method 'keyboardMap.read': EACCES");
+    }
+    return this.repair === undefined
+      ? { map: this.stored }
+      : { map: this.stored, repair: this.repair };
+  }
+
+  public async write(map: KeyboardMap): Promise<KeyboardMap> {
+    if (this.failWrites) {
+      throw new Error("Error invoking remote method 'keyboardMap.write': ENOSPC");
+    }
+    this.stored = map;
+    this.repair = undefined;
+    return map;
   }
 
   /**
    * Let the held read answer, and let the hydration it belongs to run to its end.
-   *
-   * The read is reached through the chokepoint's own adapter-ready await, so it is
-   * not pending in the turn the caller started it in; this waits for it rather than
-   * assuming it, and RAISES rather than returning quietly when none arrives — a
-   * release that resolved nothing would leave every assertion after it reading the
-   * state from before the read, which is the one thing these cases are about.
+   * RAISES rather than returning quietly when no read is held: a release that resolved
+   * nothing would leave every assertion after it reading the state from before the read.
    */
   public async answer(): Promise<void> {
-    for (let pass = 0; pass < 20 && this.#letReadAnswer === undefined; pass += 1) {
-      await Promise.resolve();
-    }
     if (this.#letReadAnswer === undefined) {
       throw new Error("no read was held open to answer");
     }
@@ -97,18 +102,10 @@ class HeldReadAdapter extends MemoryPersistenceAdapter {
   }
 }
 
-/** One durable store holding one override, with the handle that lets its read answer. */
-interface HeldStore {
-  readonly store: UiStateStore;
-  readonly adapter: HeldReadAdapter;
-}
-
-async function heldStoreHolding(commandId: string, chord: string): Promise<HeldStore> {
-  const adapter = new HeldReadAdapter();
-  const store = uiStateStore(adapter);
-  await store.writeGlobal(KEYBINDING_OVERRIDES_KEY, "keybinding", { [commandId]: chord });
-  adapter.holdReads();
-  return { store, adapter };
+function heldMapHolding(commandId: string, chord: string): MemoryKeyboardMap {
+  const keyboardMap = new MemoryKeyboardMap({ [commandId]: chord });
+  keyboardMap.holdReads();
+  return keyboardMap;
 }
 
 /** A press of `Alt+1`, as the dispatch path receives it. */
@@ -234,41 +231,35 @@ describe("what the store refuses and what it restores", () => {
 });
 
 describe("what one window wrote, the next one reads", () => {
-  it("carries an override through the store and back", async () => {
-    const adapter = new MemoryPersistenceAdapter();
+  it("carries an override through the keyboard map and back", async () => {
+    const keyboardMap = new MemoryKeyboardMap();
     const writer = overrideStore();
-    await writer.hydrateFrom(uiStateStore(adapter));
+    await writer.hydrateFrom(keyboardMap);
     const written = await writer.bind("frame.goToSessions", "$mod+9");
     expect(written.outcome).toBe("bound");
     if (written.outcome === "bound") {
       expect(written.unsaved).toBeUndefined();
     }
+    expect(keyboardMap.stored).toStrictEqual({ "frame.goToSessions": "$mod+9" });
 
     const reader = overrideStore();
-    await reader.hydrateFrom(uiStateStore(adapter));
+    await reader.hydrateFrom(keyboardMap);
     expect(reader.snapshot.bindings[0]?.chord).toBe("$mod+9");
     expect(reader.hydrationRefusals).toHaveLength(0);
   });
 
-  it("negative control: a store that read nothing installs the shipped chords", async () => {
+  it("negative control: a store that read an empty map installs the shipped chords", async () => {
     // Without this the round trip above would pass against a reader that had simply
     // kept the writer's in-memory map, which no second window ever sees.
     const reader = overrideStore();
-    await reader.hydrateFrom(uiStateStore());
+    await reader.hydrateFrom(new MemoryKeyboardMap());
     expect(reader.snapshot.bindings).toStrictEqual(DEFAULTS);
   });
 
   it("declines a stored chord that no longer installs rather than raising on it", async () => {
-    const adapter = new MemoryPersistenceAdapter();
-    const store = uiStateStore(adapter);
-    // Written directly, as a stale profile from an earlier release would be: this
-    // chord now collides with a shipped one.
-    await store.writeGlobal(KEYBINDING_OVERRIDES_KEY, "keybinding", {
-      "frame.goToSessions": "Alt+Digit2",
-    });
-
+    // A map from an earlier release: this chord now collides with a shipped one.
     const reader = overrideStore();
-    await reader.hydrateFrom(uiStateStore(adapter));
+    await reader.hydrateFrom(new MemoryKeyboardMap({ "frame.goToSessions": "Alt+Digit2" }));
     expect(reader.snapshot.bindings).toStrictEqual(DEFAULTS);
     expect(reader.hydrationRefusals.map((declined) => declined.refusal.code)).toStrictEqual([
       "chord-taken",
@@ -276,17 +267,16 @@ describe("what one window wrote, the next one reads", () => {
   });
 
   it("skips an override for an act that no longer exists, and leaves it out of the next write", async () => {
-    const store = uiStateStore();
-    // Written directly, as a profile from a release that still had the two retired
-    // acts would be: one rebound, one explicitly left with no chord.
-    await store.writeGlobal(KEYBINDING_OVERRIDES_KEY, "keybinding", {
+    // A map from a release that still had the two retired acts: one rebound, one
+    // explicitly left with no chord.
+    const keyboardMap = new MemoryKeyboardMap({
       "frame.goToSessions": "$mod+9",
       "retired.openTranscript": "$mod+8",
       "retired.closeTranscript": null,
     });
 
     const reader = overrideStore();
-    await reader.hydrateFrom(store);
+    await reader.hydrateFrom(keyboardMap);
     expect(reader.overrides).toStrictEqual({ "frame.goToSessions": "$mod+9" });
     expect(reader.snapshot.bindings.map((binding) => binding.commandId)).toStrictEqual([
       "frame.goToSessions",
@@ -295,27 +285,26 @@ describe("what one window wrote, the next one reads", () => {
     expect(reader.hydrationRefusals).toHaveLength(0);
 
     await reader.bind("frame.goToWorkflows", "$mod+7");
-    const written = await store.readGlobal(KEYBINDING_OVERRIDES_KEY);
-    expect(written?.value).toStrictEqual({
+    expect(keyboardMap.stored).toStrictEqual({
       "frame.goToSessions": "$mod+9",
       "frame.goToWorkflows": "$mod+7",
     });
   });
 
   it("keeps the newer hydration's overrides when the older one answers last", async () => {
-    // The frame replaces this window's durable store on a bridge or scenario change,
-    // and the read the first store had open does not stop. Answering last, it used to
-    // install the map it read over the map the current store had just supplied — and
-    // the next rebinding then persisted that stale profile into the new store.
-    const replaced = await heldStoreHolding("frame.goToSessions", "Alt+Digit3");
-    const current = await heldStoreHolding("frame.goToWorkflows", "Alt+Digit4");
+    // The frame replaces this window's bridge on a scenario change, and the read the
+    // first map had open does not stop. Answering last, it would install the map it
+    // read over the map the current bridge had just supplied — and the next rebinding
+    // would then write that stale map into the new one.
+    const replaced = heldMapHolding("frame.goToSessions", "Alt+Digit3");
+    const current = heldMapHolding("frame.goToWorkflows", "Alt+Digit4");
     const overrides = overrideStore();
 
-    const first = overrides.hydrateFrom(replaced.store);
-    const second = overrides.hydrateFrom(current.store);
-    await current.adapter.answer();
+    const first = overrides.hydrateFrom(replaced);
+    const second = overrides.hydrateFrom(current);
+    await current.answer();
     await second;
-    await replaced.adapter.answer();
+    await replaced.answer();
     await first;
 
     expect(overrides.overrides).toStrictEqual({ "frame.goToWorkflows": "Alt+Digit4" });
@@ -324,31 +313,54 @@ describe("what one window wrote, the next one reads", () => {
   it("negative control: the newer hydration's overrides do land when it answers last", async () => {
     // Without this the case above would pass over a store that ignored every
     // hydration but the first, which is the same defect pointing the other way.
-    const replaced = await heldStoreHolding("frame.goToSessions", "Alt+Digit3");
-    const current = await heldStoreHolding("frame.goToWorkflows", "Alt+Digit4");
+    const replaced = heldMapHolding("frame.goToSessions", "Alt+Digit3");
+    const current = heldMapHolding("frame.goToWorkflows", "Alt+Digit4");
     const overrides = overrideStore();
 
-    const first = overrides.hydrateFrom(replaced.store);
-    const second = overrides.hydrateFrom(current.store);
-    await replaced.adapter.answer();
+    const first = overrides.hydrateFrom(replaced);
+    const second = overrides.hydrateFrom(current);
+    await replaced.answer();
     await first;
-    await current.adapter.answer();
+    await current.answer();
     await second;
 
     expect(overrides.overrides).toStrictEqual({ "frame.goToWorkflows": "Alt+Digit4" });
   });
 
   it("discloses a refused write rather than reporting a preference that was kept", async () => {
-    // A ceiling one byte under the record: the chord IS bound for this window, and
-    // the store says it will not come back.
+    // The chord IS bound for this window, and the store says it will not come back.
+    const keyboardMap = new MemoryKeyboardMap();
+    keyboardMap.failWrites = true;
     const overrides = overrideStore();
-    await overrides.hydrateFrom(uiStateStore(new MemoryPersistenceAdapter({ capacityBytes: 1 })));
+    await overrides.hydrateFrom(keyboardMap);
     const result = await overrides.bind("frame.goToSessions", "$mod+9");
     expect(result.outcome).toBe("bound");
     if (result.outcome === "bound") {
-      expect(result.unsaved?.origin).toBe("persistence");
+      expect(result.unsaved?.code).toBe("keyboard-map-unsaved");
     }
     expect(overrides.snapshot.bindings[0]?.chord).toBe("$mod+9");
+  });
+
+  it("runs on the shipped chords and says why when the map cannot be read", async () => {
+    const keyboardMap = new MemoryKeyboardMap({ "frame.goToSessions": "$mod+9" });
+    keyboardMap.failReads = true;
+    const overrides = overrideStore();
+    await overrides.hydrateFrom(keyboardMap);
+    expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
+    expect(overrides.readRefusal?.code).toBe("keyboard-map-unread");
+    // The refusal's detail never carries main's message, which can name a path.
+    expect(overrides.readRefusal?.detail).not.toContain("EACCES");
+  });
+
+  it("holds the repair main reports until the next change is written", async () => {
+    const keyboardMap = new MemoryKeyboardMap();
+    keyboardMap.repair = { repairedAt: "2026-09-30T12:00:00.000Z", cause: "unparseable" };
+    const overrides = overrideStore();
+    await overrides.hydrateFrom(keyboardMap);
+    expect(overrides.repair?.cause).toBe("unparseable");
+
+    await overrides.bind("frame.goToSessions", "$mod+9");
+    expect(overrides.repair).toBeUndefined();
   });
 });
 
@@ -424,7 +436,7 @@ describe("the shipped table is read, not captured", () => {
     // and the shipped one is what "changed" is measured against. A page reading the
     // effective table for both would report every row as unchanged.
     const overrides = overrideStore();
-    await overrides.hydrateFrom(uiStateStore());
+    await overrides.hydrateFrom(new MemoryKeyboardMap());
     const result = await overrides.bind("frame.goToSessions", "Alt+Digit9");
     expect(result.outcome).toBe("bound");
 

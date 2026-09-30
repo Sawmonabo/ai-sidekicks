@@ -24,7 +24,7 @@
 //
 import { z } from "zod";
 
-import { wireFreeFormString } from "./session.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Length caps
@@ -46,8 +46,6 @@ export const PROVIDER_ACCOUNT_EMAIL_MAX_LEN = 320;
 export const PROVIDER_ACCOUNT_ORG_ID_MAX_LEN = 256;
 /** Provider-reported organization display name. */
 export const PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN = 256;
-/** Filesystem path bound: POSIX `PATH_MAX` on Linux, and above Windows' extended-length limit. */
-export const PROVIDER_CREDENTIAL_HOME_PATH_MAX_LEN = 4096;
 /** The provider's own first-party sign-in command, carried for DISPLAY only. */
 export const PROVIDER_SIGN_IN_INVOCATION_MAX_LEN = 512;
 /** Opaque daemon-minted correlation key for one brokered sign-in attempt. */
@@ -58,6 +56,8 @@ export const PROVIDER_LOGIN_FAILURE_REASON_MAX_LEN = 512;
 export const PROVIDER_QUOTA_LIMIT_ID_MAX_LEN = 128;
 /** The provider's own display label for a quota window. */
 export const PROVIDER_QUOTA_LABEL_MAX_LEN = 256;
+/** The plan id as the provider sends it. */
+export const PROVIDER_ACCOUNT_PLAN_MAX_LEN = 128;
 
 // --------------------------------------------------------------------------
 // Closed enums
@@ -277,7 +277,7 @@ export const CredentialGenerationSchema: z.ZodType<CredentialGeneration, Credent
 // ProviderAccount — the registry record as projected onto the wire
 // --------------------------------------------------------------------------
 //
-// A PROJECTION, not a row mirror. Four column groups are deliberately absent:
+// A PROJECTION, not a row mirror. Three column groups are deliberately absent:
 //   * `credential_home_path` — the home reaches an operator's screen through
 //     `ProviderSignInRemedy.credentialHomePath` and nowhere else. On every
 //     surface a session user can reach, `credential_home_path` names a
@@ -288,10 +288,33 @@ export const CredentialGenerationSchema: z.ZodType<CredentialGeneration, Credent
 //   * `removal_intent` — the durable half of the cross-store removal protocol.
 //     An intent-marked row is refused at admission and is not a state a client
 //     renders.
-//   * `last_refresh_observed_at` — an input to the re-login estimate, which is
-//     what the wire carries instead.
-// And one member has no column at all: `expectedReloginAtEstimate` is DERIVED,
+// The memory import's three columns project as the one `memoryImport` member,
+// and one member has no column at all: `expectedReloginAtEstimate` is DERIVED,
 // mode-dispatched from `loggedInAt` at read time.
+
+/**
+ * How the account's one memory import went: `imported` counts what was copied and
+ * when, `nothingToImport` found nothing to copy. An account keeps its outcome, so a
+ * repeated import answers it again rather than copying twice.
+ */
+export type ProviderAccountMemoryImportOutcome =
+  | { outcome: "imported"; count: number; importedAt: string }
+  | { outcome: "nothingToImport" };
+
+/** Parses a {@link ProviderAccountMemoryImportOutcome}. */
+export const ProviderAccountMemoryImportOutcomeSchema: z.ZodType<
+  ProviderAccountMemoryImportOutcome,
+  ProviderAccountMemoryImportOutcome
+> = z.discriminatedUnion("outcome", [
+  z
+    .object({
+      outcome: z.literal("imported"),
+      count: z.number().int().positive(),
+      importedAt: z.iso.datetime({ offset: true }),
+    })
+    .strict(),
+  z.object({ outcome: z.literal("nothingToImport") }).strict(),
+]);
 
 export interface ProviderAccount {
   accountId: ProviderAccountId;
@@ -308,6 +331,11 @@ export interface ProviderAccount {
   observedAccountEmail?: string | undefined;
   observedAccountOrgId?: string | undefined;
   observedAccountOrgName?: string | undefined;
+  /**
+   * The plan id exactly as the provider sends it (`promax`, `pro`); the screen
+   * draws the provider's own name for it.
+   */
+  observedAccountPlan?: string | undefined;
   /** Exactly one per provider, enforced by a partial unique index. */
   isDefault: boolean;
   healthState: ProviderAccountHealthState;
@@ -338,6 +366,12 @@ export interface ProviderAccount {
    */
   loggedInAt: string | null;
   /**
+   * When the credential was last seen refreshed. `null` means no refresh has been
+   * observed, never that none was needed; an account signed in with a pasted token
+   * never has one.
+   */
+  lastRefreshObservedAt: string | null;
+  /**
    * An ESTIMATE, and the name says so. Mode-dispatched from `loggedInAt` by the
    * provider's published issuance interval; `null` whenever `loggedInAt` or
    * `observedAuthMode` is null, because an estimate with no anchor is a
@@ -351,6 +385,18 @@ export interface ProviderAccount {
    * because both are acts someone explicitly asked for.
    */
   probeEnabled: boolean;
+  /**
+   * Start each usage window as soon as it opens, with one small turn on the
+   * smallest model. On by default; it does nothing while `probeEnabled` is off.
+   */
+  windowStartEnabled: boolean;
+  /**
+   * Wake this computer for a window that resets while it sleeps. Off by default,
+   * and it does nothing while `windowStartEnabled` is off.
+   */
+  wakeForWindowStartEnabled: boolean;
+  /** The account's one memory import, or `null` until it has run. */
+  memoryImport: ProviderAccountMemoryImportOutcome | null;
 }
 
 export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> = z
@@ -375,6 +421,10 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
       PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN,
       "ProviderAccount.observedAccountOrgName",
     ).optional(),
+    observedAccountPlan: wireFreeFormString(
+      PROVIDER_ACCOUNT_PLAN_MAX_LEN,
+      "ProviderAccount.observedAccountPlan",
+    ).optional(),
     isDefault: z.boolean(),
     healthState: ProviderAccountHealthStateSchema,
     healthObservedAt: z.iso.datetime({ offset: true }).nullable(),
@@ -384,8 +434,12 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
     // "unobserved" and "the producer forgot" the same value on the wire.
     observedAuthMode: ProviderAuthModeSchema.nullable(),
     loggedInAt: z.iso.datetime({ offset: true }).nullable(),
+    lastRefreshObservedAt: z.iso.datetime({ offset: true }).nullable(),
     expectedReloginAtEstimate: z.iso.datetime({ offset: true }).nullable(),
     probeEnabled: z.boolean(),
+    windowStartEnabled: z.boolean(),
+    wakeForWindowStartEnabled: z.boolean(),
+    memoryImport: ProviderAccountMemoryImportOutcomeSchema.nullable(),
   })
   .strict()
   .superRefine((account, ctx) => {
@@ -498,7 +552,7 @@ export const ProviderRemedySchema: z.ZodType<ProviderRemedy, ProviderRemedy> = z
         // daemon's credential-home service, which owns the only context in
         // which they are decidable.
         credentialHomePath: wireFreeFormString(
-          PROVIDER_CREDENTIAL_HOME_PATH_MAX_LEN,
+          FILE_PATH_MAX_LEN,
           "ProviderSignInRemedy.credentialHomePath",
         ),
       })

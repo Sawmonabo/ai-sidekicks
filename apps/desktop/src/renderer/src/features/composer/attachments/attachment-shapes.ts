@@ -5,25 +5,19 @@
 // ingest changes — a state added, a member the ledger has to carry, a rule about which
 // entries may still send. It holds no copy, formats no figure, and performs no
 // arithmetic, so a card's wording and a card's numbers both change without touching it.
-// It rests on `attachment-policy.ts` for the daemon's vocabulary and on nothing else in
-// the attachment modules.
+// It rests on the contract and on `attachment-policy.ts` for the daemon's vocabulary, and
+// on nothing else in the attachment modules.
 //
-// WIRE TRUTH FIRST. `packages/contracts` registers NO attachment type. The nearest
-// thing on the wire is `SteerPayload.attachments`, typed `z.array(z.unknown())` with a
-// count cap of 64 — an UNTYPED arm, and no attachment may be delivered over one. There
-// is no `AttachmentIngestInit` shape, no
-// method string for any leg of the ingest trio, and no manifest type. So the shapes
-// below are CONSOLE VIEW MODELS transcribing the agreed attachment shapes, and the ingest
-// calls that would fill them are supplied by the caller. Nothing here claims the daemon
-// sends it.
+// WHAT THE DAEMON DERIVED IS THE CONTRACT'S `SessionAttachmentSummary`. The ingest calls
+// that fill it are supplied by the caller, and the shapes below are the console's own
+// model of one upload around it.
 //
-// THE DECLARED VALUES ARE ADVISORY AND THE DERIVED ONES ARE THE TRUTH. A caller's
-// `mediaType` and `sizeBytes` are hints that narrow a signature check and never widen
-// acceptance, so `AttachmentDeclaration` holds them as
-// DECLARED and `AttachmentDerivedTruth` is a separate shape that replaces them once the
-// daemon has read the bytes. Two shapes rather than optional fields on one, because a
-// card that showed a declared type where a derived one belongs would be reporting the
-// caller's claim as the server's finding.
+// THE DECLARED VALUES ARE ADVISORY AND THE DERIVED ONES ARE THE TRUTH. A caller's media
+// type and size are hints that narrow a signature check and never widen acceptance, so
+// `AttachmentDeclaration` holds them as DECLARED and the derived summary is a separate
+// shape that replaces them once the daemon has read the bytes. Two shapes rather than
+// optional fields on one, because a card that showed a declared type where a derived one
+// belongs would be reporting the caller's claim as the server's finding.
 //
 // WHAT THIS MODULE REFUSES TO MODEL — its own Never list, because no committed
 // document carries one for attachments:
@@ -41,11 +35,16 @@
 //     payload and the terminal arms carry name, size, media type, and the minted
 //     artifact id and nothing else. Not a rule about remembering to drop it — a
 //     `complete` entry has nowhere to put one.
-//   • No filename rebuilt from the raw input. `normalizedName` is what renders and what
+//   • No filename rebuilt from the raw input. `fileName` is what renders and what
 //     is used; the caller's original string survives as manifest metadata the console
 //     never turns back into a path component.
 
-import type { IngestRefusalDisposition, UnresolvedAttachmentCause } from "./attachment-policy.js";
+import type {
+  SessionAttachmentSummary,
+  SessionAttachmentUnresolvedCause,
+} from "@ai-sidekicks/contracts";
+
+import type { IngestRefusalDisposition } from "./attachment-policy.js";
 
 // --- Ingest states --------------------------------------------------------
 
@@ -116,14 +115,6 @@ export interface AttachmentSourceInput {
   readonly declaredMediaType?: string | undefined;
 }
 
-/** What the daemon found once it had the bytes. This replaces the declaration. */
-export interface AttachmentDerivedTruth {
-  readonly artifactId: string;
-  readonly normalizedName: string;
-  readonly derivedMediaType: string;
-  readonly derivedSizeBytes: number;
-}
-
 /**
  * Mint one source from the payload a user chose.
  *
@@ -176,7 +167,7 @@ export interface AttachmentIngestRecord {
   /** The spooled running total of DECODED bytes the daemon has acknowledged. */
   readonly receivedBytes: number;
   readonly ingestId: string | undefined;
-  readonly derived: AttachmentDerivedTruth | undefined;
+  readonly derived: SessionAttachmentSummary | undefined;
   readonly refusal: { readonly code: string; readonly detail: string } | undefined;
   readonly disposition: IngestRefusalDisposition | undefined;
   /** When the stream opened, for the six-hour ceiling. Absent before it opened. */
@@ -220,12 +211,12 @@ export type AttachmentReading =
   | {
       readonly kind: "resolved";
       readonly attachmentId: string;
-      readonly derived: AttachmentDerivedTruth;
+      readonly derived: SessionAttachmentSummary;
     }
   | {
       readonly kind: "unresolved";
       readonly attachmentId: string;
-      readonly cause: UnresolvedAttachmentCause;
+      readonly cause: SessionAttachmentUnresolvedCause;
     };
 
 /** Whether an entry in this state can still put bytes on a stream. */

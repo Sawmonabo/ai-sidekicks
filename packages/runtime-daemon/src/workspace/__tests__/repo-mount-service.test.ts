@@ -50,7 +50,7 @@ import type { NodeId, RepoMountId, SessionId } from "@ai-sidekicks/contracts";
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
+import { SessionService, TestSeedingAppendToken } from "../../session/session-service.js";
 import {
   RepoAlreadyAttachedError,
   RepoDetachConflictError,
@@ -521,7 +521,7 @@ beforeEach(async () => {
     }),
   });
   const sessions = new SessionService(db, {
-    allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    allowTestSeedingAppend: TestSeedingAppendToken.forTestsOnly(),
   });
   const workspaces = new WorkspaceService({
     database: db,

@@ -94,7 +94,8 @@ const CONTENT_SEAL_KEY_BYTES = 32;
 export interface EventContentInput {
   /**
    * The machine-authored prose — an assistant message body, a reasoning-update
-   * body, or a tool call's arguments / result / error body.
+   * body, a tool call's arguments / result / error body, or the denial a
+   * provider's own reviewer sent when it blocked an action.
    *
    * MAY EXCEED {@link CONTENT_PAYLOAD_PLAINTEXT_MAX}. An over-bound body is
    * truncated at a codepoint boundary rather than refused: refusing the append
@@ -188,7 +189,7 @@ type EventTypeCarryingContentDescriptor<Variant> = Variant extends {
     : never
   : never;
 
-/** The five event types that may carry a machine-authored content partition. */
+/** The event types that may carry a machine-authored content partition. */
 export type BodyBearingEventType = EventTypeCarryingContentDescriptor<SessionEvent>;
 
 /**
@@ -204,6 +205,7 @@ export const BODY_BEARING_EVENT_TYPES: Readonly<Record<BodyBearingEventType, tru
   "tool.invoked": true,
   "tool.result": true,
   "tool.error": true,
+  "approval.reviewer_denied": true,
 };
 
 /**

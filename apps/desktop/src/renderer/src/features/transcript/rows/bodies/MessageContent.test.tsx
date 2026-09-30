@@ -88,21 +88,10 @@ describe("a body that was truncated", () => {
 
 describe("a body that could not be read", () => {
   it("renders the turn at its position with an empty body", () => {
-    const container = renderBody({ status: "unavailable", reason: "compacted" });
+    const container = renderBody({ status: "unavailable", reason: "purged" });
     expect(container.querySelector(".meridian-machine-body__empty")).not.toBeNull();
-    expect(container.textContent).toContain("destroyed when the session was compacted");
+    expect(container.textContent).toContain("This turn's content was deleted with its session.");
     expect(container.textContent).toContain("turn_content_unavailable");
-  });
-
-  it("marks a signature mismatch as a failure and ordinary loss as an absence", () => {
-    // The two-hue rule in one assertion: red is reserved for a failure, and a body
-    // destroyed by retention doing its job is not one.
-    const tampered = renderBody({ status: "unavailable", reason: "digest_unbound" });
-    expect(tampered.querySelector(".meridian-nothing--error")).not.toBeNull();
-
-    const lost = renderBody({ status: "unavailable", reason: "absent" });
-    expect(lost.querySelector(".meridian-nothing--error")).toBeNull();
-    expect(lost.querySelector(".meridian-nothing--empty")).not.toBeNull();
   });
 });
 

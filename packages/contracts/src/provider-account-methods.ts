@@ -67,6 +67,7 @@ import {
   ProviderAccountIdSchema,
   ProviderAccountListRequestSchema,
   ProviderAccountListResponseSchema,
+  ProviderAccountMemoryImportOutcomeSchema,
   ProviderAccountNotificationSchema,
   ProviderAccountSchema,
   ProviderAccountSubscribeRequestSchema,
@@ -78,6 +79,7 @@ import {
   type ProviderAccountId,
   type ProviderAccountListRequest,
   type ProviderAccountListResponse,
+  type ProviderAccountMemoryImportOutcome,
   type ProviderAccountNotification,
   type ProviderAccountSubscribeRequest,
   type ProviderName,
@@ -100,6 +102,7 @@ import {
   type ProviderAccountResetCredentialHomeRequest,
   type ProviderAccountResetCredentialHomeResponse,
 } from "./provider-account-sign-in.js";
+import { UsdMicrosSchema } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
@@ -357,8 +360,8 @@ export const ProviderAccountProbeResponseSchema: z.ZodType<ProviderAccountProbeR
 // press: Claude Code's `~/.claude/projects/*/memory/` (and the person's own agent
 // notes into the service's one agent-memory folder, never overwriting a file
 // already there), Codex's `~/.codex/memories/`. The two homes are never joined.
-// The outcome is kept on the account, so a repeated press answers it again
-// rather than copying twice.
+// It answers with the outcome the account keeps as its `memoryImport`, so a
+// repeated press answers it again rather than copying twice.
 
 export interface ProviderAccountMemoryImportRequest {
   accountId: ProviderAccountId;
@@ -368,23 +371,6 @@ export const ProviderAccountMemoryImportRequestSchema: z.ZodType<
   ProviderAccountMemoryImportRequest,
   ProviderAccountMemoryImportRequest
 > = z.object({ accountId: ProviderAccountIdSchema }).strict();
-
-/** `imported` counts what was copied and when; `nothingToImport` found nothing to copy. */
-export type ProviderAccountMemoryImportResponse =
-  | { outcome: "imported"; count: number; importedAt: string }
-  | { outcome: "nothingToImport" };
-
-export const ProviderAccountMemoryImportResponseSchema: z.ZodType<ProviderAccountMemoryImportResponse> =
-  z.discriminatedUnion("outcome", [
-    z
-      .object({
-        outcome: z.literal("imported"),
-        count: z.number().int().positive(),
-        importedAt: z.iso.datetime({ offset: true }),
-      })
-      .strict(),
-    z.object({ outcome: z.literal("nothingToImport") }).strict(),
-  ]);
 
 // --------------------------------------------------------------------------
 // providerAccount.usageRead
@@ -433,7 +419,7 @@ export const ProviderAccountUsageReadRequestSchema: z.ZodType<
   .strict();
 
 /**
- * One figure: the tokens and what they cost, in cents. `day` is set on a row
+ * One figure: the tokens and what they cost, in whole micro-dollars. `day` is set on a row
  * grouped by day (`YYYY-MM-DD`) and `model` on a row grouped by model, the
  * model id as the provider names it.
  */
@@ -441,7 +427,7 @@ export interface ProviderAccountUsageRow {
   day?: string | undefined;
   model?: string | undefined;
   tokens: number;
-  costCents: number;
+  costUsdMicros: number;
 }
 
 export interface ProviderAccountUsageReadResponse {
@@ -459,7 +445,7 @@ export const ProviderAccountUsageReadResponseSchema: z.ZodType<ProviderAccountUs
             "ProviderAccountUsageRow.model",
           ).optional(),
           tokens: z.number().int().min(0),
-          costCents: z.number().min(0),
+          costUsdMicros: UsdMicrosSchema,
         })
         .strict(),
     ),
@@ -586,11 +572,6 @@ export const PROVIDER_ACCOUNT_WIRE_SHAPES: readonly ProviderAccountWireShape[] =
     schema: ProviderAccountMemoryImportRequestSchema,
   },
   {
-    name: "ProviderAccountMemoryImportResponse",
-    direction: "response",
-    schema: ProviderAccountMemoryImportResponseSchema,
-  },
-  {
     name: "ProviderAccountUsageReadRequest",
     direction: "request",
     schema: ProviderAccountUsageReadRequestSchema,
@@ -671,7 +652,7 @@ export interface ProviderAccountMethodDescriptors {
   readonly "providerAccount.memoryImport": MethodDescriptor<
     "providerAccount.memoryImport",
     ProviderAccountMemoryImportRequest,
-    ProviderAccountMemoryImportResponse
+    ProviderAccountMemoryImportOutcome
   >;
   readonly "providerAccount.usageRead": MethodDescriptor<
     "providerAccount.usageRead",
@@ -759,7 +740,7 @@ export const PROVIDER_ACCOUNT_METHOD_DESCRIPTORS: ProviderAccountMethodDescripto
       procedureType: "mutation",
       mutating: true,
       requestSchema: ProviderAccountMemoryImportRequestSchema,
-      responseSchema: ProviderAccountMemoryImportResponseSchema,
+      responseSchema: ProviderAccountMemoryImportOutcomeSchema,
     },
     "providerAccount.usageRead": {
       method: "providerAccount.usageRead",

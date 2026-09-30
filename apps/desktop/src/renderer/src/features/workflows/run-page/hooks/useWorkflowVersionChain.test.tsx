@@ -4,8 +4,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
-import type { WorkflowVersionChainEntry } from "@renderer/services/wire-shapes/workflow-projection.js";
-import { settle } from "../../workflows-probe.test-support.js";
+import type { WorkflowVersionChainEntry } from "@ai-sidekicks/contracts";
+import { settle, versionChainEntry } from "../../workflows-probe.test-support.js";
 import type { WorkflowVersionChoice } from "../run-controls.js";
 import {
   useWorkflowVersionChain,
@@ -16,9 +16,9 @@ import {
 const PINNED_VERSION = "wfv-03";
 
 const ANSWERED_CHAIN: readonly WorkflowVersionChainEntry[] = [
-  { workflowVersionId: PINNED_VERSION, versionNumber: 3 },
-  { workflowVersionId: "wfv-02", versionNumber: 2 },
-  { workflowVersionId: "wfv-01", versionNumber: 1 },
+  versionChainEntry(PINNED_VERSION, 3),
+  versionChainEntry("wfv-02", 2),
+  versionChainEntry("wfv-01", 1),
 ];
 
 /** A chain read that answers `ANSWERED_CHAIN` and records what it was addressed by. */

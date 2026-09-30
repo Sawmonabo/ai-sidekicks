@@ -3,8 +3,8 @@
 // Its own module for the one-component rule, and the split is where the rule earns
 // its keep: this is the half of the honest-body pair that has to be TOTAL over
 // `HydratedContentUnavailableReason`, and while it sat private inside `MachineBody`
-// the sentence table sat with it — so the six sentences a reader can actually be
-// shown were reachable only through a component that mostly renders bodies that ARE
+// the sentence table sat with it — so the sentences a reader can actually be shown
+// were reachable only through a component that mostly renders bodies that ARE
 // readable.
 //
 // THE MARKER NAME IS A WIRE VALUE, so it renders as a wire figure: mono, verbatim,
@@ -25,27 +25,16 @@ const UNAVAILABLE_LOSS_KIND: DeclaredLossKind = "turn_content_unavailable";
  * renders it as blank space.
  *
  * The sentences say what happened and never what the reader should do about it: three
- * of these six are node-operator conditions and one is a tamper finding, and a card that
- * offered a remedy for any of them would be guessing at a cause it cannot see.
+ * of them are node-operator conditions, and a card that offered a remedy for any of them
+ * would be guessing at a cause it cannot see.
  */
 const REASON_SENTENCES: Readonly<Record<HydratedContentUnavailableReason, string>> = {
   absent: "This turn was recorded without a body.",
-  compacted: "This turn's body was destroyed when the session was compacted.",
+  purged: "This turn's content was deleted with its session.",
   master_key_unavailable: "This turn's body is sealed and the key could not be obtained.",
   wrapped_key_missing: "This turn's body is sealed and this session holds no key for it.",
-  digest_unbound: "This turn's stored body does not match what its signature covers.",
   decrypt_failed: "This turn's body is sealed and did not open.",
 };
-
-/**
- * Which reasons are a failure rather than a loss.
- *
- * `digest_unbound` alone: it means the stored bytes disagree with what the row's
- * signature commits to, which is the two-hue rule's red — an integrity finding a reader
- * must not mistake for retention doing its job.
- */
-const INTEGRITY_FAILURE_REASONS: ReadonlySet<HydratedContentUnavailableReason> =
-  new Set<HydratedContentUnavailableReason>(["digest_unbound"]);
 
 export interface UnavailableBodyProps {
   readonly reason: HydratedContentUnavailableReason;
@@ -66,7 +55,7 @@ export function UnavailableBody(props: UnavailableBodyProps): React.JSX.Element 
           and an absence occupying the body's own region is a block of its own rather
           than a value-adjacent badge. */}
       <Nothing
-        kind={INTEGRITY_FAILURE_REASONS.has(props.reason) ? "error" : "empty"}
+        kind="empty"
         placement="block"
         title={REASON_SENTENCES[props.reason]}
         detail="The turn is shown at its position with an empty body."

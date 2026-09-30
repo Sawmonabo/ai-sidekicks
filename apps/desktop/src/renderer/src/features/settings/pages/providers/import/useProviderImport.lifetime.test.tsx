@@ -1,12 +1,12 @@
 // How long a provider import lives, which is not how long its panel is on screen.
 //
 // THE DEFECT, AND WHY NOTHING REPORTED IT. An import panel that held the whole import —
-// the begin act in its own subject-scoped cell and the progress drain in its own
+// the start act in its own subject-scoped cell and the progress drain in its own
 // effect — lost it whenever the panel unmounted mid-import: the cleanup closed the
 // progress subscription while the daemon went on reading, and coming back built a fresh
-// act with no import id, which is what the one-import-at-a-time guard is derived from.
-// So the panel offered a second import over a first one still running, and the first
-// one's progress was gone for good. Every part of that is silent.
+// act that had started nothing, which is what "underway" is read from. So the panel
+// offered a second import over a first one still running, and the first one's progress
+// was gone for good. Every part of that is silent.
 //
 // THE CLAIM is that the import survives its panel: the state lives above the condition,
 // so an unmount of the panel costs the reading nothing. It is driven through a host that
@@ -16,29 +16,41 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { ProviderImportId, ProviderImportProgress } from "@ai-sidekicks/contracts";
+
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportBeginCall } from "./useProviderImport.js";
-import type {
-  ImportProgressFrame,
-  ImportProgressStream,
-  ImportProgressSubscribeCall,
-} from "./import-progress.js";
+import type { ImportProgressStream, ImportProgressSubscribeCall } from "./import-progress.js";
 import { settle } from "@test/helpers/settle.js";
+import { chooseProvider } from "./provider-import.test-support.js";
 
 /** The one import every case here starts, named so a remount can be shown to find it. */
-const IMPORT_ID = "provider-import-19";
+const IMPORT_ID = "provider-import-19" as ProviderImportId;
 
-const WHILE_READING: ImportProgressFrame = {
+const WHILE_READING: ProviderImportProgress = {
+  kind: "progress",
+  provider: "claude",
   importId: IMPORT_ID,
-  turnsSeen: 12,
-  state: "reading the transcript",
+  read: 12,
 };
 
-/** A second frame, so a case can prove the subscription is still LIVE and not merely held. */
-const STILL_READING: ImportProgressFrame = {
+/** A second message, so a case can prove the subscription is still LIVE and not merely held. */
+const STILL_READING: ProviderImportProgress = { ...WHILE_READING, read: 31 };
+
+/** How the import this case started ended. */
+const FINISHED: ProviderImportProgress = {
+  kind: "settled",
+  provider: "claude",
   importId: IMPORT_ID,
-  turnsSeen: 31,
-  state: "reading the transcript",
+  settlement: {
+    outcome: "finished",
+    imported: 31,
+    total: 31,
+    alreadyHere: 0,
+    failures: [],
+    unreadableFiles: [],
+    attachedProjects: [],
+  },
 };
 
 /**
@@ -49,12 +61,12 @@ const STILL_READING: ImportProgressFrame = {
  * double release on the live wire.
  */
 class DrivenProgressStream implements ImportProgressStream {
-  #pending: ImportProgressFrame | undefined;
+  #pending: ProviderImportProgress | undefined;
   #wake: (() => void) | undefined;
   #isClosed = false;
   #closeCount = 0;
 
-  public get events(): AsyncIterable<ImportProgressFrame> {
+  public get events(): AsyncIterable<ProviderImportProgress> {
     return this.#iterate();
   }
 
@@ -70,14 +82,14 @@ class DrivenProgressStream implements ImportProgressStream {
     this.#wake = undefined;
   }
 
-  /** Deliver one frame to whatever is draining. */
-  public emit(frame: ImportProgressFrame): void {
-    this.#pending = frame;
+  /** Deliver one message to whatever is draining. */
+  public emit(message: ProviderImportProgress): void {
+    this.#pending = message;
     this.#wake?.();
     this.#wake = undefined;
   }
 
-  async *#iterate(): AsyncGenerator<ImportProgressFrame> {
+  async *#iterate(): AsyncGenerator<ProviderImportProgress> {
     while (!this.#isClosed) {
       const pending = this.#pending;
       if (pending !== undefined) {
@@ -145,22 +157,6 @@ function PanelHeldImportHost(props: {
   return <div>{props.isPanelMounted ? <PanelHeldImport calls={props.calls} /> : null}</div>;
 }
 
-/** Type into one of the panel's fields, the way a person does. */
-function fill(container: HTMLElement, labelText: string, value: string): void {
-  const field = [...container.querySelectorAll("label")].find((label) =>
-    label.textContent?.startsWith(labelText),
-  );
-  const input = field?.querySelector("input");
-  if (input === null || input === undefined) {
-    throw new Error(`no field labeled ${labelText}`);
-  }
-  act(() => {
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-    setter?.call(input, value);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
-
 function submit(container: HTMLElement): void {
   const form = container.querySelector("form");
   act(() => {
@@ -168,10 +164,9 @@ function submit(container: HTMLElement): void {
   });
 }
 
-/** Fill the panel's two fields and put the import. */
+/** Choose the provider and put the import. */
 async function startAnImport(container: HTMLElement): Promise<void> {
-  fill(container, "Provider", "claude");
-  fill(container, "What to read", "~/.claude/threads/one.jsonl");
+  chooseProvider(container, "claude");
   submit(container);
   await settle();
 }
@@ -210,8 +205,8 @@ describe("an import whose panel goes away", () => {
     await settle();
 
     // The same import, still being read, reporting what happened while the panel was
-    // away rather than starting again from nothing — and the guard is still derived
-    // from an id that still exists, so a second import is refused.
+    // away rather than starting again from nothing — and the control is still shut,
+    // because the act that started it still exists.
     expect(view.container.textContent).toContain("31");
     expect(submitControl(view.container)?.disabled).toBe(true);
     expect(view.container.textContent).toContain("The last import is still being read.");
@@ -219,7 +214,7 @@ describe("an import whose panel goes away", () => {
     expect(stream.closeCount).toBe(0);
   });
 
-  it("negative control: an import that ENDED leaves the form a form again", async () => {
+  it("negative control: an import that SETTLED leaves the form a form again", async () => {
     // Without this the case above would pass over a panel that reported "still being
     // read" for every import it had ever seen — the same control stuck in the other
     // direction, and just as wrong.
@@ -232,11 +227,11 @@ describe("an import whose panel goes away", () => {
       await settle();
     });
     await act(async () => {
-      stream.close();
+      stream.emit(FINISHED);
       await settle();
     });
 
-    expect(view.container.textContent).toContain("Ended");
+    expect(view.container.textContent).toContain("brought in 31 of 31 conversations");
     expect(submitControl(view.container)?.disabled).toBe(false);
   });
 
@@ -261,9 +256,9 @@ describe("an import whose panel goes away", () => {
     view.rerender(<PanelHeldImportHost calls={calls} isPanelMounted />);
     await settle();
 
-    // A fresh act with no import id: the guard the panel derives from that id is
-    // gone, so a second import is offered over the first — and the first reading's
-    // subscription was closed on the way out, which is what leaves nothing to report.
+    // A fresh act that started nothing: the panel reads no import underway, so a
+    // second import is offered over the first — and the first reading's subscription
+    // was closed on the way out, which is what leaves nothing to report.
     expect(stream.closeCount).toBe(1);
     expect(view.container.textContent).not.toContain("The last import is still being read.");
     expect(view.container.querySelector(".meridian-session-import__progress")).toBeNull();

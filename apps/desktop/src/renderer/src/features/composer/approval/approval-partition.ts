@@ -12,13 +12,14 @@
 // section that showed its empty copy for the first would tell an operator that
 // nothing needs them while the read is still running.
 
-import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
+import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts";
+
 import { type ReadPhase } from "@renderer/lib/read-phase.js";
 
 /** One answered read, split into the cards waiting and the ones already decided. */
 export interface PartitionedApprovals {
-  readonly pending: readonly ApprovalRecord[];
-  readonly history: readonly ApprovalRecord[];
+  readonly pending: readonly ApprovalProjectionRow[];
+  readonly history: readonly ApprovalProjectionRow[];
 }
 
 /** Neither list has a member until a read has answered. */
@@ -34,12 +35,14 @@ const NO_RECORDS: PartitionedApprovals = { pending: [], history: [] };
  * Both lists are empty for every other phase, and that emptiness is NOT an answer —
  * every caller renders the phase this was folded from beside them.
  */
-export function partitionApprovalRecords(phase: ReadPhase<ApprovalRecord>): PartitionedApprovals {
+export function partitionApprovalRecords(
+  phase: ReadPhase<ApprovalProjectionRow>,
+): PartitionedApprovals {
   if (phase.status !== "answered") {
     return NO_RECORDS;
   }
-  const pending: ApprovalRecord[] = [];
-  const history: ApprovalRecord[] = [];
+  const pending: ApprovalProjectionRow[] = [];
+  const history: ApprovalProjectionRow[] = [];
   for (const record of phase.rows) {
     if (record.state === "pending") {
       pending.push(record);

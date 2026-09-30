@@ -5,8 +5,8 @@
 //
 //   • IN FLIGHT — progress from `receivedBytes`, the spooled running total of DECODED
 //     bytes, with the six-hour stream ceiling disclosed once the upload has gone quiet.
-//   • COMPLETE — the derived truth REPLACES the declaration. `normalizedName`,
-//     `derivedMediaType`, `derivedSizeBytes`, and the minted artifact id, because a
+//   • COMPLETE — the derived summary REPLACES the declaration. `fileName`,
+//     `mimeType`, `sizeBytes`, and the minted artifact id, because a
 //     declared type or size is advisory input and never a trusted fact.
 //   • UNRESOLVED — the marker sits HERE, in the declared position, naming one of six
 //     causes and its own remedy. Never appended, never footnoted, and the turn proceeds
@@ -15,7 +15,7 @@
 // THE DECLARED FILENAME IS NEVER REBUILT. Ingest validation keeps every caller-supplied
 // string out of every path component and lets the original survive as manifest metadata
 // only, so the declaration renders as a wire string in the in-flight arm and is REPLACED
-// by `normalizedName` the moment one exists. Nothing in this file concatenates a name
+// by `fileName` the moment one exists. Nothing in this file concatenates a name
 // with anything.
 //
 // AND THE LABEL READS THE SAME NAME THE FACE DOES, from one place. A completed ingest
@@ -31,6 +31,7 @@
 // reach the progress element as attributes, which are a measurement rather than a
 // figure a person reads.
 
+import type { SessionAttachmentUnresolvedCause } from "@ai-sidekicks/contracts";
 import { Fragment } from "react";
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
@@ -44,11 +45,7 @@ import {
   attachmentMediaTypeReadings,
   attachmentNameReading,
 } from "../attachment-provenance.js";
-import {
-  INGEST_ABANDON_COPY,
-  INGEST_DISPOSITION_COPY,
-  type UnresolvedAttachmentCause,
-} from "../attachment-policy.js";
+import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "../attachment-policy.js";
 import {
   UNRESOLVED_ATTACHMENT_PRESENTATION,
   ingestCeilingRemainingMs,
@@ -80,11 +77,11 @@ export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
       {reading.kind === "resolved" ? (
         <div className="meridian-attachment__face">
           <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
-          <WireFigure value={reading.derived.normalizedName} />
-          <Chip label={reading.derived.derivedMediaType} mono />
+          <WireFigure value={reading.derived.fileName} />
+          <Chip label={reading.derived.mimeType} mono />
           <WireFigure
-            value={formatByteQuantity(reading.derived.derivedSizeBytes).text}
-            title={String(reading.derived.derivedSizeBytes)}
+            value={formatByteQuantity(reading.derived.sizeBytes).text}
+            title={String(reading.derived.sizeBytes)}
           />
           <span className="meridian-attachment__artifact-id">
             <WireFigure value={reading.derived.artifactId} />
@@ -102,7 +99,7 @@ function attachmentLabel(reading: AttachmentReading): string {
     return `Attachment ${attachmentNameReading(reading.entry).name}`;
   }
   if (reading.kind === "resolved") {
-    return `Attachment ${reading.derived.normalizedName}`;
+    return `Attachment ${reading.derived.fileName}`;
   }
   return `Attachment ${reading.attachmentId}`;
 }
@@ -225,7 +222,7 @@ function renderIngesting(
  */
 function renderUnresolved(
   attachmentId: string,
-  cause: UnresolvedAttachmentCause,
+  cause: SessionAttachmentUnresolvedCause,
 ): React.JSX.Element {
   const presentation = UNRESOLVED_ATTACHMENT_PRESENTATION[cause];
   return (

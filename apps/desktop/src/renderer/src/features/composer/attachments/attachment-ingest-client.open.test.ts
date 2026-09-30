@@ -54,9 +54,9 @@ describe("ingest client — the happy stream", () => {
     const [entry] = client.snapshot;
     expect(entry?.derived).toStrictEqual({
       artifactId: "artifact-9",
-      normalizedName: "notes-1.md",
-      derivedMediaType: "text/markdown",
-      derivedSizeBytes: 300,
+      fileName: "notes-1.md",
+      mimeType: "text/markdown",
+      sizeBytes: 300,
     });
     // The declaration survives as what the caller said, never overwritten in place.
     expect(entry?.declared.declaredName).toBe("notes.md");

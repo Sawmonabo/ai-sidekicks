@@ -8,8 +8,8 @@
 // The defect this guards: a fixture that handed every subscriber the renderer-local
 // envelope would give a subscriber to `run.subscribeState` `{id, sessionId, sequence,
 // kind, occurredAt, payload}` where the wire sends `RunStateChangeEvent` — no `kind`,
-// no `sequence`, no nested `payload`, and `currentState` where the envelope has
-// `payload.newState`. Nothing reads those members yet, so no screen would show the
+// no `sequence`, no nested `payload`, and a top-level `newState` where the envelope
+// has `payload.newState`. Nothing reads those members yet, so no screen would show the
 // difference until something does.
 //
 // The projector's OWN behavior — which subscriptions it answers for at all, and
@@ -35,15 +35,12 @@ import {
   lastScriptedBeatMs,
   runTransitionBeat,
   subscribeThroughBridge,
+  subscribeToSessionStream,
 } from "@test/helpers/fixture-bridge.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioContractDefects } from "@test/helpers/scenario-contract-check/contract-check.js";
-import {
-  RUN_QUEUE_EVENT_STREAM,
-  RUN_STATE_EVENT_STREAM,
-  SESSION_EVENT_STREAM,
-} from "./session-event-streams.js";
+import { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "./session-event-streams.js";
 
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;
@@ -114,9 +111,9 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     expect(
       CONCURRENT_STREAMING_SCENARIO.beats.some((beat) => beat.event.kind === "run.queued"),
     ).toBe(true);
-    expect(parsed.map((event) => event.currentState)).not.toContain("queued");
+    expect(parsed.map((event) => event.newState)).not.toContain("queued");
     // The first transition the script plays, member by member.
-    expect(parsed[0]?.currentState).toBe("starting");
+    expect(parsed[0]?.newState).toBe("starting");
     expect(parsed[0]?.previousState).toBe("queued");
     // Sourced from the beat's own envelope, which is the only place the instant
     // lives — and not from the scenario's start, which is what a projection
@@ -147,7 +144,7 @@ describe("run streams — the registered payload reaches the subscriber", () => 
       expect(delivery["kind"]).toBeUndefined();
       expect(delivery["sequence"]).toBeUndefined();
       expect(delivery["payload"]).toBeUndefined();
-      expect(delivery["currentState"]).toBeDefined();
+      expect(delivery["newState"]).toBeDefined();
     }
   });
 
@@ -171,18 +168,18 @@ describe("run streams — the registered payload reaches the subscriber", () => 
 
   it("negative control: the whole-session stream still receives the envelope", () => {
     // Two things at once, and both are needed. A projector applied to every
-    // subscription would break the console's one real subscriber, whose
-    // registration IS the envelope; and a bridge that delivered nothing anywhere
-    // would satisfy every exact-set case above by delivering the empty set.
+    // subscription would break the console's one real subscriber, whose frames
+    // carry the envelope; and a bridge that delivered nothing anywhere would satisfy
+    // every exact-set case above by delivering the empty set.
     const probe = scenarioWithRollbackBeat();
     const fixture = createFixture(probe);
-    const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+    const received = subscribeToSessionStream(fixture);
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(received).toHaveLength(probe.beats.length);
-    expect(received.map((envelope) => envelope.type)).toContain("run.rolled_back");
-    expect(received.every((envelope) => typeof envelope.id === "string")).toBe(true);
+    expect(received.events()).toHaveLength(probe.beats.length);
+    expect(received.events().map((envelope) => envelope.type)).toContain("run.rolled_back");
+    expect(received.events().every((envelope) => typeof envelope.id === "string")).toBe(true);
   });
 
   it("negative control: a bare event-type subscriber still receives the envelope", () => {

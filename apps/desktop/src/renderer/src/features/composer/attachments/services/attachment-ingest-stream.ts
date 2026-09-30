@@ -200,12 +200,7 @@ export class AttachmentIngestStreamDriver {
     this.#ledger.write(localId, {
       ...settled,
       state: "complete",
-      derived: {
-        artifactId: completion.artifactId,
-        normalizedName: completion.normalizedName,
-        derivedMediaType: completion.derivedMediaType,
-        derivedSizeBytes: completion.derivedSizeBytes,
-      },
+      derived: completion,
       lastProgressAtMilliseconds: this.#clock.now(),
     });
   }

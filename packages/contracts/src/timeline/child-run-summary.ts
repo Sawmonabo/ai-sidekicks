@@ -15,33 +15,29 @@
 //
 // WHY A DISCRIMINATED MEMBER AND NOT A BOOLEAN. A bare `incomplete: true` says
 // that something is missing without saying what, which leaves a consumer no
-// basis to decide between retrying and giving up — and those are the two
-// different right answers for the two causes below. The member is also
-// REQUIRED rather than optional: an absent marker would be a third state
-// meaning "probably fine", and the rule is that incompleteness is
-// STATED. Before this member the only signal was a low `eventCount`, which is
+// basis to decide whether to retry. The member is also REQUIRED rather than
+// optional: an absent marker would be a third state meaning "probably fine",
+// and the rule is that incompleteness is STATED. A low `eventCount` alone is
 // indistinguishable from a child run that genuinely did little.
 //
-// THE CAUSE SET IS CLOSED AND BORROWED, NOT INVENTED. Each member is a term
-// this codebase already owns, so this surface adds no vocabulary:
+// THE CAUSE SET IS CLOSED:
 //   * `detail_fetch_failed` — a child-run detail fetch failed. Transient.
-//   * `compacted` — already the shipped vocabulary on this subdirectory's own
-//     `ReasoningSurfaceReadResponse` availability arm and on
-//     `HydratedContentUnavailableReason`. Terminal; no retry recovers it.
+// A context compaction inside the child is not a cause: the session's log
+// keeps every row the child wrote, so its summary stays whole across one.
 // Deliberately NOT reused: `RepoMountHealth`'s `unreachable` (scoped to
 // filesystem mounts, and its own module warns against overloading that word
 // across axes).
 import { z } from "zod";
 
 import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { RunStateSchema, type RunState } from "../run-control.js";
+import { RunStateSchema, type RunState } from "../run-state.js";
 
 /**
  * Why a child-run summary is not the whole picture. Closed; see this module's
  * header for the provenance of each member and for the near-misses that were
  * deliberately not reused.
  */
-export type ChildRunIncompleteCause = "detail_fetch_failed" | "compacted";
+export type ChildRunIncompleteCause = "detail_fetch_failed";
 
 /**
  * Whether a summary row reflects the child run's full activity, and if not,
@@ -59,8 +55,8 @@ export type ChildRunCompleteness =
 /**
  * Runtime validator for {@link ChildRunCompleteness}.
  *
- * `observedAt` is required on the incomplete arm because one of the two
- * causes is transient: a consumer deciding whether to retry and a renderer
+ * `observedAt` is required on the incomplete arm because its cause is
+ * transient: a consumer deciding whether to retry and a renderer
  * deciding whether to age the notice both need to know how old the reading is.
  * A cause with no time attached is unactionable.
  */
@@ -71,7 +67,7 @@ export const ChildRunCompletenessSchema: z.ZodType<ChildRunCompleteness> = z.dis
     z
       .object({
         state: z.literal("incomplete"),
-        cause: z.enum(["detail_fetch_failed", "compacted"]),
+        cause: z.enum(["detail_fetch_failed"]),
         observedAt: z.iso.datetime({ offset: true }),
       })
       .strict(),
@@ -86,7 +82,6 @@ export const ChildRunCompletenessSchema: z.ZodType<ChildRunCompleteness> = z.dis
  */
 export const CHILD_RUN_INCOMPLETE_CAUSES: readonly ChildRunIncompleteCause[] = Object.freeze([
   "detail_fetch_failed",
-  "compacted",
 ] as const);
 
 /** The summarized child-run projection: its parent, state, event count and completeness. */

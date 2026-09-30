@@ -6,14 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT } from "./attachment-caps.js";
+import { SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT } from "@ai-sidekicks/contracts";
 import { stagedAttachmentsFill, exceedsAttachmentByteAllowance } from "./attachment-bounds.js";
 
 describe("attachment bounds — the staged list's count against its allowance", () => {
   it("reports both halves, from the shipped bound rather than a figure of its own", () => {
     expect(stagedAttachmentsFill(3)).toStrictEqual({
       attached: 3,
-      allowance: ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT,
+      allowance: SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT,
     });
   });
 
@@ -22,9 +22,9 @@ describe("attachment bounds — the staged list's count against its allowance", 
     // stop the eleventh attach — so the eleventh has to be countable. A reading that
     // clamped would report ten attached over a staged list holding eleven, which is the
     // one number a user would use to work out what to take off.
-    const past = stagedAttachmentsFill(ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT + 1);
-    expect(past.attached).toBe(ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT + 1);
-    expect(past.allowance).toBe(ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT);
+    const past = stagedAttachmentsFill(SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT + 1);
+    expect(past.attached).toBe(SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT + 1);
+    expect(past.allowance).toBe(SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT);
   });
 });
 

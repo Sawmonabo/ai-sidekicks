@@ -13,26 +13,12 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
+import type { RememberedRule } from "@ai-sidekicks/contracts";
+
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { RememberedRules } from "../components/RememberedRules.js";
 import { offersRevoke } from "../contributions/revoke-rule-commands.js";
-
-const FIRST_RULE = "rule-01";
-const SECOND_RULE = "rule-02";
-
-function rule(overrides: Partial<RememberedRule> = {}): RememberedRule {
-  return {
-    ruleId: FIRST_RULE,
-    sessionId: "session-one",
-    userId: "user-you",
-    nodeId: "node-local",
-    category: "file_write",
-    scope: { kind: "session" },
-    grantedAt: "2026-01-01T10:00:00.000Z",
-    ...overrides,
-  };
-}
+import { FIRST_RULE_ID, SECOND_RULE_ID, rule } from "../remembered-rule.test-support.js";
 
 function renderGrants(options: {
   readonly rules: readonly RememberedRule[];
@@ -70,47 +56,38 @@ function pressRevokeRow(ruleId: string): void {
 
 describe("which rules the palette offers to revoke", () => {
   it("offers a row for every rule whose button is on screen", () => {
-    renderGrants({ rules: [rule(), rule({ ruleId: SECOND_RULE })] });
+    renderGrants({ rules: [rule(), rule({ ruleId: SECOND_RULE_ID })] });
 
     expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(2);
-    expect(revokeCommandFor(FIRST_RULE)).not.toBeUndefined();
-    expect(revokeCommandFor(SECOND_RULE)).not.toBeUndefined();
+    expect(revokeCommandFor(FIRST_RULE_ID)).not.toBeUndefined();
+    expect(revokeCommandFor(SECOND_RULE_ID)).not.toBeUndefined();
   });
 
   it("names the rule only where there is another to confuse it with", () => {
     renderGrants({ rules: [rule()] });
-    expect(revokeCommandFor(FIRST_RULE)?.title).toBe("Revoke the standing permission");
+    expect(revokeCommandFor(FIRST_RULE_ID)?.title).toBe("Revoke the standing permission");
     cleanup();
 
-    renderGrants({ rules: [rule(), rule({ ruleId: SECOND_RULE })] });
-    expect(revokeCommandFor(FIRST_RULE)?.title).toBe(`Revoke standing permission ${FIRST_RULE}`);
-  });
-
-  it("offers nothing for a rule already revoked, exactly as the list does", () => {
-    renderGrants({
-      rules: [rule({ revokedAt: "2026-01-02T10:00:00.000Z" }), rule({ ruleId: SECOND_RULE })],
-    });
-
-    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(1);
-    expect(revokeCommandFor(FIRST_RULE)).toBeUndefined();
-    expect(revokeCommandFor(SECOND_RULE)).not.toBeUndefined();
+    renderGrants({ rules: [rule(), rule({ ruleId: SECOND_RULE_ID })] });
+    expect(revokeCommandFor(FIRST_RULE_ID)?.title).toBe(
+      `Revoke standing permission ${FIRST_RULE_ID}`,
+    );
   });
 
   it("offers nothing for a rule whose revocation is already settling", () => {
     // The control reports the revocation rather than offering a second press, so a
     // palette row here would be a press with nothing to press.
-    renderGrants({ rules: [rule()], revoking: new Set([FIRST_RULE]) });
+    renderGrants({ rules: [rule()], revoking: new Set([FIRST_RULE_ID]) });
 
     expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull();
-    expect(revokeCommandFor(FIRST_RULE)).toBeUndefined();
+    expect(revokeCommandFor(FIRST_RULE_ID)).toBeUndefined();
   });
 
   it("negative control: the shared reading is what withholds them", () => {
-    // Without this the two cases above would pass over a contribution that filtered
-    // on its own copy of the rule — which is the state this predicate replaced.
+    // Without this the case above would pass over a contribution that filtered on its
+    // own copy of the rule — which is the state this predicate replaced.
     expect(offersRevoke(rule(), new Set())).toBe(true);
-    expect(offersRevoke(rule({ revokedAt: "2026-01-02T10:00:00.000Z" }), new Set())).toBe(false);
-    expect(offersRevoke(rule(), new Set([FIRST_RULE]))).toBe(false);
+    expect(offersRevoke(rule(), new Set([FIRST_RULE_ID]))).toBe(false);
   });
 });
 
@@ -119,7 +96,7 @@ describe("what a contributed row does", () => {
     const onRevoke = vi.fn();
     renderGrants({ rules: [rule()], onRevoke });
 
-    pressRevokeRow(FIRST_RULE);
+    pressRevokeRow(FIRST_RULE_ID);
 
     // The confirming control is now on screen against this rule, and nothing has
     // reached the wire: the palette armed the same two-step the button arms.
@@ -129,19 +106,19 @@ describe("what a contributed row does", () => {
 
   it("settles through the list's own confirming press, for the named rule", () => {
     const onRevoke = vi.fn();
-    renderGrants({ rules: [rule(), rule({ ruleId: SECOND_RULE })], onRevoke });
+    renderGrants({ rules: [rule(), rule({ ruleId: SECOND_RULE_ID })], onRevoke });
 
-    pressRevokeRow(SECOND_RULE);
+    pressRevokeRow(SECOND_RULE_ID);
     fireEvent.click(screen.getByRole("button", { name: "Revoke it" }));
 
-    expect(onRevoke.mock.calls).toStrictEqual([[SECOND_RULE]]);
+    expect(onRevoke.mock.calls).toStrictEqual([[SECOND_RULE_ID]]);
   });
 
   it("is cancelable from the control, with zero mutations", () => {
     const onRevoke = vi.fn();
     renderGrants({ rules: [rule()], onRevoke });
 
-    pressRevokeRow(FIRST_RULE);
+    pressRevokeRow(FIRST_RULE_ID);
     fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
 
     expect(onRevoke).not.toHaveBeenCalled();
@@ -154,18 +131,18 @@ describe("what a contributed row does", () => {
     const onRevoke = vi.fn();
     renderGrants({ rules: [rule()], onRevoke });
 
-    pressRevokeRow(FIRST_RULE);
-    pressRevokeRow(FIRST_RULE);
+    pressRevokeRow(FIRST_RULE_ID);
+    pressRevokeRow(FIRST_RULE_ID);
 
     expect(onRevoke).not.toHaveBeenCalled();
   });
 
   it("negative control: the rows go when the list does", () => {
     renderGrants({ rules: [rule()] });
-    expect(revokeCommandFor(FIRST_RULE)).not.toBeUndefined();
+    expect(revokeCommandFor(FIRST_RULE_ID)).not.toBeUndefined();
 
     cleanup();
 
-    expect(revokeCommandFor(FIRST_RULE)).toBeUndefined();
+    expect(revokeCommandFor(FIRST_RULE_ID)).toBeUndefined();
   });
 });

@@ -1,28 +1,17 @@
-// Standing permissions: only those in force are drawn, and they revoke in two steps.
+// The rules in force: each row reads what the rule does, and they revoke in two steps.
 //
-// The two claims worth a unit are the ones that would be invisible if they broke.
-// An ended rule that stayed on screen would offer a revoke that does nothing, and a
+// The claims worth a unit are the ones that would be invisible if they broke. A block
+// read as an allow would tell a person a host is open that the daemon refuses, and a
 // revoke control that mutated on the first click would look exactly like one that
 // mutated on the second — until someone canceled.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { RememberedRules } from "./RememberedRules.js";
-import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
+import type { RememberedRule } from "@ai-sidekicks/contracts";
 
-function rule(overrides: Partial<RememberedRule> = {}): RememberedRule {
-  return {
-    ruleId: "rule-01",
-    sessionId: "session-one",
-    userId: "user-you",
-    nodeId: "node-local",
-    category: "file_write",
-    scope: { kind: "session" },
-    grantedAt: "2026-01-01T10:00:00.000Z",
-    ...overrides,
-  };
-}
+import { RememberedRules } from "./RememberedRules.js";
+import { SECOND_RULE_ID, rule } from "../remembered-rule.test-support.js";
 
 function renderGrants(
   rules: readonly RememberedRule[],
@@ -39,14 +28,6 @@ function renderGrants(
   );
 }
 
-describe("only rules in force are drawn", () => {
-  it("draws no row for a rule that carries revokedAt", () => {
-    renderGrants([rule(), rule({ ruleId: "rule-02", revokedAt: "2026-01-02T10:00:00.000Z" })]);
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(1);
-  });
-});
-
 describe("only the confirming click mutates", () => {
   it("asks first, and canceling leaves zero mutations", () => {
     const onRevoke = vi.fn();
@@ -62,47 +43,36 @@ describe("only the confirming click mutates", () => {
 
   it("mutates once, for the named rule, on the confirmation", () => {
     const onRevoke = vi.fn();
-    renderGrants([rule(), rule({ ruleId: "rule-02" })], onRevoke);
+    renderGrants([rule(), rule({ ruleId: SECOND_RULE_ID })], onRevoke);
     const controls = screen.getAllByRole("button", { name: "Revoke" });
     fireEvent.click(controls[1] as HTMLElement);
     fireEvent.click(screen.getByRole("button", { name: "Revoke it" }));
-    expect(onRevoke.mock.calls).toStrictEqual([["rule-02"]]);
+    expect(onRevoke.mock.calls).toStrictEqual([[SECOND_RULE_ID]]);
   });
 });
 
-describe("the grant's own facts", () => {
-  it("names the grantor, the node, and the boundary the pattern covers", () => {
-    renderGrants([rule({ scope: { kind: "run", pattern: "src/**" }, runId: "run-7" })]);
-    expect(screen.getByText("user-you")).not.toBeNull();
-    expect(screen.getByText("node-local")).not.toBeNull();
-    expect(screen.getByText("src/**")).not.toBeNull();
-    expect(screen.getByText("run-7")).not.toBeNull();
-  });
-
-  it("says a pattern-less rule covers the whole category", () => {
+describe("what each row reads", () => {
+  it("reads an allow on its subject at this session", () => {
     renderGrants([rule()]);
-    expect(screen.getByText(/whole category inside that boundary/u)).not.toBeNull();
+    expect(screen.getByRole("listitem").textContent).toContain("Allow pnpm test · this session");
   });
 
-  it("marks a scope kind outside the ratified set rather than asserting it", () => {
-    renderGrants([rule({ scope: { kind: "forever" } })]);
-    const chip = screen.getByText("forever").closest(".meridian-chip");
-    expect(chip?.className).toContain("meridian-chip--failure");
-  });
-
-  it("negative control: a ratified kind is named and takes the neutral treatment", () => {
-    // Without this the case above would also pass over a component that marked
-    // every scope chip as unrecognized.
-    renderGrants([rule()]);
-    const chip = screen.getByText("This whole session").closest(".meridian-chip");
-    expect(chip?.className).not.toContain("meridian-chip--failure");
+  it("reads a block as a block, at this project", () => {
+    // The negative control on the case above: a row that read every rule as an allow
+    // would pass it and fail here.
+    renderGrants([
+      rule({ scope: { kind: "project", pattern: "api.example.com", sense: "block" } }),
+    ]);
+    expect(screen.getByRole("listitem").textContent).toContain(
+      "Block api.example.com · this project",
+    );
   });
 });
 
 describe("the empty and short reads", () => {
   it("says no permission is in force rather than showing an empty list", () => {
     renderGrants([]);
-    expect(screen.getByText("No standing permission is in force.")).not.toBeNull();
+    expect(screen.getByText("No rules yet")).not.toBeNull();
     expect(screen.queryByRole("listitem")).toBeNull();
   });
 
@@ -113,7 +83,7 @@ describe("the empty and short reads", () => {
     renderGrants([], vi.fn(), 3);
     expect(screen.getByText("Standing permissions could not be read.")).not.toBeNull();
     expect(screen.getByText(/not known to be none/u)).not.toBeNull();
-    expect(screen.queryByText("No standing permission is in force.")).toBeNull();
+    expect(screen.queryByText("No rules yet")).toBeNull();
   });
 
   it("names how many rows it could not read rather than saying only that some failed", () => {
@@ -125,7 +95,7 @@ describe("the empty and short reads", () => {
     // Without this the two cases above would pass over a panel that had simply lost
     // its empty state and reported every empty read as unreadable.
     renderGrants([], vi.fn(), 0);
-    expect(screen.getByText("No standing permission is in force.")).not.toBeNull();
+    expect(screen.getByText("No rules yet")).not.toBeNull();
     expect(screen.queryByText("Standing permissions could not be read.")).toBeNull();
   });
 

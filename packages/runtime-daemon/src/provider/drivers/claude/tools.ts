@@ -142,6 +142,27 @@ export function closeToolIdempotencyClasses(
 }
 
 // --------------------------------------------------------------------------
+// Claude Code's built-in tools, as an agent's tool allowlist names them
+// --------------------------------------------------------------------------
+
+/**
+ * The tools Claude Code carries itself, in its own names, as a person picks them
+ * for an agent's tool allowlist. A separate list from the recovery declarations
+ * below, which name what a transcript reports rather than what an allowlist offers.
+ */
+export const CLAUDE_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
+  "Read",
+  "Edit",
+  "Write",
+  "Bash",
+  "Glob",
+  "Grep",
+  "WebFetch",
+  "WebSearch",
+  "Agent",
+]);
+
+// --------------------------------------------------------------------------
 // Claude tool declarations
 // --------------------------------------------------------------------------
 

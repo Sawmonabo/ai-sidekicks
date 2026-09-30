@@ -139,7 +139,7 @@ export function ServerRow(props: {
  * Rebuilt per arm rather than spread off the entry, so the discriminated union stays
  * discriminated: a spread would widen `scope` back to its union and produce a value
  * the mutation signature cannot take without a cast — and a cast here would switch off
- * exactly the checking that keeps `(codex, local)` unrepresentable.
+ * exactly the checking that keeps a `scopeRef` off the `user` arm.
  */
 function bindingOf(entry: McpServerInventoryEntry): McpServerBindingRef {
   if (entry.scope === "user") {

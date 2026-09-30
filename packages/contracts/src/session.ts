@@ -1,5 +1,5 @@
 // Session contracts — request/response payloads and shared projection types
-// for the session core (SessionCreate / SessionRead / SessionSubscribe), the
+// for the session core (SessionRead / SessionSubscribe), the
 // frame a session's stream sends, the session verbs the console calls on one
 // session (rename, archive, reactivate, close, pin, mute, restart), the two
 // searches, and the payloads of the events those verbs append.
@@ -114,6 +114,11 @@ export const wireFreeFormString = (maxLen: number, fieldLabel: string): z.ZodStr
       message: `${fieldLabel} MUST NOT contain a NUL byte.`,
     });
 
+// The longest filesystem path any wire string carries. 4096 is Linux's
+// `PATH_MAX`, above macOS's 1024 and Windows' 260-character default; a Windows
+// extended-length path can run longer, and one past this bound is refused.
+export const FILE_PATH_MAX_LEN = 4096;
+
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
 
@@ -137,32 +142,27 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
 // Shared projection types
 // --------------------------------------------------------------------------
 //
-// These are the read-side projections referenced from `SessionCreateResponse`
-// and `SessionReadResponse`. Per the canonical spec they are strict shapes
+// These are the read-side projections referenced from `SessionReadResponse`.
+// Per the canonical spec they are strict shapes
 // (the `.strict()` modifier rejects unknown keys at parse time, surfacing
 // schema drift early).
 
-// `z.ZodType<T, T>` — see `./internal/branded.ts` for rationale (preserves
-// Input inference when this helper composes into tRPC-consumed request schemas).
-const RecordOfUnknownSchema: z.ZodType<Record<string, unknown>, Record<string, unknown>> = z.record(
-  z.string(),
-  z.unknown(),
-);
-
+/**
+ * One session as `session.read` answers it. `draft` is the unsent composer draft the daemon
+ * holds for the session, the whole text, and the empty string when none is held: Send clears
+ * it, and a half-typed message reaches the person's other devices through this read.
+ */
 export interface SessionSnapshot {
   id: SessionId;
   state: SessionState;
-  config: Record<string, unknown>;
-  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  draft: string;
 }
 export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
   .object({
     id: SessionIdSchema,
     state: SessionStateSchema,
-    config: RecordOfUnknownSchema,
-    metadata: RecordOfUnknownSchema,
     // Default `z.iso.datetime()` accepts only Z-suffixed UTC; `{ offset:
     // true }` widens to the full RFC 3339 section 5.6 spec (numeric
     // offsets like "+00:00", "-05:00") which the wire contract permits.
@@ -170,42 +170,7 @@ export const SessionSnapshotSchema: z.ZodType<SessionSnapshot> = z
     // normalization step, NOT by the wire schema here.
     createdAt: z.iso.datetime({ offset: true }),
     updatedAt: z.iso.datetime({ offset: true }),
-  })
-  .strict();
-
-// --------------------------------------------------------------------------
-// SessionCreate
-// --------------------------------------------------------------------------
-//
-// Both request fields are optional; an empty `{}` body is valid (the daemon
-// fills defaults from session config).
-
-export interface SessionCreateRequest {
-  config?: Record<string, unknown> | undefined;
-  metadata?: Record<string, unknown> | undefined;
-}
-// `z.ZodType<T, T>` (instead of `z.ZodType<T>`, where the second slot defaults
-// to `unknown`) is required so tRPC v11's Standard-Schema-V1 input inference
-// resolves to T and not `unknown`. The schema is non-transforming (no
-// `.transform()` / `.coerce()` / `.preprocess()` anywhere in this module), so
-// pre-validation Input ≡ post-validation Output ≡ T. Explicit double-T
-// preserves that equivalence on the type surface.
-export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, SessionCreateRequest> = z
-  .object({
-    config: RecordOfUnknownSchema.optional(),
-    metadata: RecordOfUnknownSchema.optional(),
-  })
-  .strict();
-
-/** The `session.create` result: the new session's id and its starting state. */
-export interface SessionCreateResponse {
-  sessionId: SessionId;
-  state: SessionState;
-}
-export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
-  .object({
-    sessionId: SessionIdSchema,
-    state: SessionStateSchema,
+    draft: z.string(),
   })
   .strict();
 
@@ -216,8 +181,12 @@ export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
 export interface SessionReadRequest {
   sessionId: SessionId;
 }
-// `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
-// Standard-Schema-V1 input inference for tRPC v11 consumers).
+// `z.ZodType<T, T>` (instead of `z.ZodType<T>`, where the second slot defaults
+// to `unknown`) is required so tRPC v11's Standard-Schema-V1 input inference
+// resolves to T and not `unknown`. The schema is non-transforming (no
+// `.transform()` / `.coerce()` / `.preprocess()` anywhere in this module), so
+// pre-validation Input ≡ post-validation Output ≡ T. Explicit double-T
+// preserves that equivalence on the type surface.
 export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionReadRequest> = z
   .object({
     sessionId: SessionIdSchema,
@@ -277,7 +246,7 @@ export interface SessionSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor | undefined;
 }
-// `z.ZodType<T, T>` — see SessionCreateRequestSchema for rationale (preserves
+// `z.ZodType<T, T>` — see SessionReadRequestSchema for rationale (preserves
 // Standard-Schema-V1 input inference for tRPC v11 consumers).
 export const SessionSubscribeRequestSchema: z.ZodType<
   SessionSubscribeRequest,
@@ -522,7 +491,7 @@ export interface SessionFileSearchResponse {
 }
 export const SessionFileSearchResponseSchema: z.ZodType<SessionFileSearchResponse> = z
   .object({
-    paths: z.array(z.string().min(1)),
+    paths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
     searchedFileCount: z.number().int().nonnegative(),
   })
   .strict()
@@ -570,24 +539,18 @@ export const SessionRenameOriginSchema: z.ZodType<SessionRenameOrigin> = z.enum(
 ]);
 
 /**
- * The `session.renamed` payload. `name` is `null` when the rename cleared it. `name` and
- * `previousName` are text a person or a provider wrote, so the event contract routes both
- * through its personal-data indirection.
+ * The stored `session.renamed` payload: the half the personal-data split leaves in the
+ * event. The new name and the previous one are text a person or a provider wrote, so the
+ * emitter moves both into the row's personal-data partition, and neither is a member here.
  */
 export interface SessionRenamedPayload {
   sessionId: SessionId;
-  name: string | null;
-  previousName?: string | null | undefined;
   origin: SessionRenameOrigin;
   actor?: UserId | undefined;
 }
 export const SessionRenamedPayloadSchema: z.ZodType<SessionRenamedPayload> = z
   .object({
     sessionId: SessionIdSchema,
-    name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRenamedPayload.name").nullable(),
-    previousName: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRenamedPayload.previousName")
-      .nullable()
-      .optional(),
     origin: SessionRenameOriginSchema,
     actor: UserIdSchema.optional(),
   })
@@ -616,11 +579,6 @@ export const SessionMarkChangePayloadSchema: z.ZodType<SessionMarkChangePayload>
  * emission is a frame over that union.
  */
 export interface SessionMethodDescriptors {
-  readonly "session.create": MethodDescriptor<
-    "session.create",
-    SessionCreateRequest,
-    SessionCreateResponse
-  >;
   readonly "session.read": MethodDescriptor<
     "session.read",
     SessionReadRequest,
@@ -696,13 +654,6 @@ function sessionVerb<MethodName extends string>(
 }
 
 export const SESSION_METHOD_DESCRIPTORS: SessionMethodDescriptors = defineMethodDescriptors({
-  "session.create": {
-    method: "session.create",
-    procedureType: "mutation",
-    mutating: true,
-    requestSchema: SessionCreateRequestSchema,
-    responseSchema: SessionCreateResponseSchema,
-  },
   "session.read": {
     method: "session.read",
     procedureType: "query",

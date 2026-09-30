@@ -19,8 +19,7 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { REPO_PATH_MAX_LEN } from "./repo.js";
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 /** The longest passphrase accepted on the wire. */
 export const DAEMON_PASSPHRASE_MAX_LEN = 1024;
@@ -67,7 +66,7 @@ export interface DataExportRequest {
 }
 /** Parses a {@link DataExportRequest}. */
 export const DataExportRequestSchema: z.ZodType<DataExportRequest, DataExportRequest> = z
-  .object({ destination: wireFreeFormString(REPO_PATH_MAX_LEN, "DataExportRequest.destination") })
+  .object({ destination: wireFreeFormString(FILE_PATH_MAX_LEN, "DataExportRequest.destination") })
   .strict();
 
 /** The export job the request started; its progress streams on `daemon.dataExportSubscribe`. */
@@ -117,7 +116,7 @@ export const DataExportProgressSchema: z.ZodType<DataExportProgress> = z.discrim
     z
       .object({
         state: z.literal("completed"),
-        path: wireFreeFormString(REPO_PATH_MAX_LEN, "DataExportProgress.path"),
+        path: wireFreeFormString(FILE_PATH_MAX_LEN, "DataExportProgress.path"),
         totalBytes: z.number().int().nonnegative(),
       })
       .strict(),

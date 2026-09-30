@@ -1,8 +1,10 @@
-// The attention projection's shape: the reply of the attention read, with the trigger
+// The attention projection's shape: what the attention read streams, with the trigger
 // and severity vocabularies its items carry.
 //
-// The projection exposes current actionable and informational attention state at both run
-// and session scope. The daemon, main and the renderer all read it.
+// The projection is machine-wide: every session's attention and every workflow run's,
+// in one list, whole on every emission. The daemon, main and the renderer all read
+// it: the bell draws its count and its list from it, and main posts and withdraws the
+// operating-system banner from the same entries.
 //
 // The file also holds the `attention.*` methods beside the read: main recording
 // what became of an entry's operating-system banner, opening a session marking it
@@ -10,20 +12,26 @@
 // digest, whose secrets the daemon seals and never sends back.
 import { z } from "zod";
 
-import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import {
+  defineMethodDescriptors,
+  type MethodDescriptor,
+  type SubscriptionMethodDescriptor,
+} from "./method-descriptor.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow-definition.js";
 
 /**
  * Every attention trigger: pending approval or user input, run completion, run failure,
- * mention or direct request. Closed and declared once: a sixth trigger is an amendment to
- * the owning document, never a string a client invents.
+ * and a workflow's Notify step. Closed and declared once: another trigger is an
+ * amendment to the owning document, never a string a client invents.
  */
 export const ATTENTION_TRIGGERS = [
   "pending_approval",
   "pending_input",
   "run_completed",
   "run_failed",
-  "mention",
+  "workflow_notify",
 ] as const;
 
 /** One attention trigger. Derived, so the vocabulary has exactly one home. */
@@ -42,50 +50,6 @@ export const ATTENTION_SEVERITIES = ["actionable", "informational"] as const;
 /** One attention severity. Derived, so the vocabulary has exactly one home. */
 export type AttentionSeverity = (typeof ATTENTION_SEVERITIES)[number];
 
-/**
- * One attention item — run-scoped, or the session-scoped aggregate.
- *
- * `runId` is the scope discriminator and there is no second type: an item carrying
- * one is run-scoped, an item omitting one is the session aggregate that
- * the read requires alongside run scope. A client therefore reads scope off
- * the presence of `runId` and never off a field that says which kind this is.
- */
-export interface AttentionItem {
-  readonly id: string;
-  readonly sessionId: string;
-  /** Present on a run-scoped item; absent on the session-scoped aggregate. */
-  readonly runId?: string;
-  readonly trigger: AttentionTrigger;
-  readonly severity: AttentionSeverity;
-  /** One line a surface renders. Prose, not an identifier. */
-  readonly summary: string;
-  /** The canonical event that triggered this item. */
-  readonly sourceEventId: string;
-  readonly createdAt: string;
-  /**
-   * Set once the state that produced the item resolves.
-   *
-   * Optional because an unresolved item is the interesting one, and actionable
-   * attention stays durable until it resolves — so absence means outstanding, not
-   * unknown.
-   */
-  readonly resolvedAt?: string;
-}
-
-/**
- * What one attention-projection read answers with.
- *
- * A wrapper object rather than a bare array: a reply that can grow a sibling member
- * without breaking every caller.
- */
-export interface AttentionProjection {
-  readonly items: readonly AttentionItem[];
-}
-
-// ---------------------------------------------------------------------------
-// The banner and the seen fact
-// ---------------------------------------------------------------------------
-
 const ATTENTION_BANNER_STATE_VALUES = ["pending", "posted", "withheld", "withdrawn"] as const;
 
 /**
@@ -98,8 +62,124 @@ export type AttentionBannerState = (typeof ATTENTION_BANNER_STATE_VALUES)[number
 export const ATTENTION_BANNER_STATES: readonly AttentionBannerState[] =
   ATTENTION_BANNER_STATE_VALUES;
 
-/** The longest attention entry id the daemon accepts. */
-export const ATTENTION_ENTRY_ID_MAX_LEN = 256;
+/**
+ * The longest id an attention entry carries: its own, its moment's, its run's and its
+ * source event's. The daemon mints each of them.
+ */
+export const ATTENTION_ID_MAX_LEN = 256;
+
+const attentionIdSchema = (fieldLabel: string): z.ZodString =>
+  wireFreeFormString(ATTENTION_ID_MAX_LEN, fieldLabel);
+
+/**
+ * One attention item — run-scoped, or the session-scoped aggregate.
+ *
+ * `runId` is the scope discriminator and there is no second type: an item carrying
+ * one is run-scoped, an item omitting one is the session aggregate that
+ * the read requires alongside run scope. A client therefore reads scope off
+ * the presence of `runId` and never off a field that says which kind this is.
+ *
+ * `momentId` is the stable id of the moment the item speaks for, the session or run
+ * and the state it is in: a `Waiting on you` item and the `Finished` one that follows
+ * it share it, so a later state replaces the operating-system banner in place. A
+ * workflow's Notify step takes its moment from the run, the node and which execution
+ * of the node it was.
+ *
+ * `displayName` is the session's name, or the run's on a run's item. `stateWord` is
+ * what the line reads after it: `Waiting on you`, `Finished` or `Failed`, or on a
+ * Notify step's item the step's own notice text, which the workflow's author wrote.
+ * `summary` is the projection's own line about the moment and is never a banner's
+ * body: a banner says the name and the state and never what was said.
+ *
+ * `stepId` names the Notify node on a `workflow_notify` item and is absent on every
+ * other. `seen` is the one seen-or-unseen fact the daemon keeps, which the session's
+ * row reads too.
+ */
+export interface AttentionItem {
+  readonly id: string;
+  readonly momentId: string;
+  readonly sessionId: string;
+  /** Present on a run-scoped item; absent on the session-scoped aggregate. */
+  readonly runId?: string | undefined;
+  readonly trigger: AttentionTrigger;
+  readonly severity: AttentionSeverity;
+  readonly displayName: string;
+  readonly stateWord: string;
+  readonly stepId?: WorkflowNodeId | undefined;
+  /** One line a surface renders. Prose, not an identifier. */
+  readonly summary: string;
+  /** The canonical event that triggered this item. */
+  readonly sourceEventId: string;
+  readonly createdAt: string;
+  /**
+   * Set once the state that produced the item resolves.
+   *
+   * Optional because an unresolved item is the interesting one, and actionable
+   * attention stays durable until it resolves — so absence means outstanding, not
+   * unknown.
+   */
+  readonly resolvedAt?: string | undefined;
+  readonly bannerState: AttentionBannerState;
+  readonly seen: boolean;
+}
+
+/**
+ * Parses an {@link AttentionItem}. A Notify step's item names its step and no other
+ * item does, and it is informational and carries its run: it tells the person
+ * something and never counts as waiting on them.
+ *
+ * @consumedBy the attention projector
+ */
+export const AttentionItemSchema: z.ZodType<AttentionItem> = z
+  .object({
+    id: attentionIdSchema("AttentionItem.id"),
+    momentId: attentionIdSchema("AttentionItem.momentId"),
+    sessionId: SessionIdSchema,
+    runId: attentionIdSchema("AttentionItem.runId").optional(),
+    trigger: z.enum(ATTENTION_TRIGGERS),
+    severity: z.enum(ATTENTION_SEVERITIES),
+    displayName: z.string().min(1),
+    stateWord: z.string().min(1),
+    stepId: WorkflowNodeIdSchema.optional(),
+    summary: z.string(),
+    sourceEventId: attentionIdSchema("AttentionItem.sourceEventId"),
+    createdAt: z.iso.datetime({ offset: true }),
+    resolvedAt: z.iso.datetime({ offset: true }).optional(),
+    bannerState: z.enum(ATTENTION_BANNER_STATE_VALUES),
+    seen: z.boolean(),
+  })
+  .strict()
+  .refine((item) => (item.trigger === "workflow_notify") === (item.stepId !== undefined), {
+    message: "stepId is present exactly on a workflow_notify item",
+    path: ["stepId"],
+  })
+  .refine(
+    (item) =>
+      item.trigger !== "workflow_notify" ||
+      (item.severity === "informational" && item.runId !== undefined),
+    {
+      message: "a workflow_notify item is informational and carries its run",
+      path: ["severity"],
+    },
+  );
+
+/**
+ * The whole projection, as every emission of the attention read carries it.
+ *
+ * A wrapper object rather than a bare array: a reply that can grow a sibling member
+ * without breaking every caller.
+ */
+export interface AttentionProjection {
+  readonly items: readonly AttentionItem[];
+}
+/** Parses an {@link AttentionProjection}. */
+export const AttentionProjectionSchema: z.ZodType<AttentionProjection> = z
+  .object({ items: z.array(AttentionItemSchema) })
+  .strict();
+
+// ---------------------------------------------------------------------------
+// The banner and the seen fact
+// ---------------------------------------------------------------------------
 
 /**
  * Main's record of what became of a `pending` entry's banner. Only main sends it,
@@ -115,7 +195,7 @@ export const AttentionBannerSettleRequestSchema: z.ZodType<
   AttentionBannerSettleRequest
 > = z
   .object({
-    entryId: wireFreeFormString(ATTENTION_ENTRY_ID_MAX_LEN, "AttentionBannerSettleRequest.entryId"),
+    entryId: attentionIdSchema("AttentionBannerSettleRequest.entryId"),
     state: z.enum(["posted", "withheld", "withdrawn"]),
   })
   .strict();
@@ -376,8 +456,18 @@ export const AttentionDeliveryNotConfiguredDetailsSchema: z.ZodType<AttentionDel
 // The method table
 // ---------------------------------------------------------------------------
 
-/** The `attention.*` methods the daemon serves beside the projection read. */
+/** The `attention.*` methods the daemon serves. */
 export interface AttentionMethodDescriptors {
+  /**
+   * The machine-wide attention projection, served live: the whole projection first,
+   * then the whole projection again on every change.
+   */
+  readonly "attention.projectionRead": SubscriptionMethodDescriptor<
+    "attention.projectionRead",
+    AttentionEmptyMessage,
+    SubscribeAckResponse,
+    AttentionProjection
+  >;
   readonly "attention.bannerSettle": MethodDescriptor<
     "attention.bannerSettle",
     AttentionBannerSettleRequest,
@@ -427,6 +517,14 @@ export interface AttentionMethodDescriptors {
 
 /** The `attention.*` methods' names, procedure types and shapes. */
 export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMethodDescriptors({
+  "attention.projectionRead": {
+    method: "attention.projectionRead",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: AttentionEmptyMessageSchema,
+    responseSchema: SubscribeAckResponseSchema,
+    emissionSchema: AttentionProjectionSchema,
+  },
   "attention.bannerSettle": {
     method: "attention.bannerSettle",
     procedureType: "mutation",

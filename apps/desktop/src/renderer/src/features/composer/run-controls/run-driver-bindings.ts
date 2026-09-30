@@ -1,9 +1,9 @@
 // Which driver each run in one session is bound to: the session's runs joined to their
 // agents' declared drivers.
 //
-// NEITHER HALF IS GUESSED. A run whose body names no agent, an agent no attach beat
-// named, and an attach beat naming another session all contribute NOTHING rather than a
-// default — the map's absence is `boundDriverNameForRun`'s "the console cannot say",
+// NEITHER HALF IS GUESSED. A run whose body names no agent, an agent the session's birth
+// record does not name, and a birth record naming another session all contribute NOTHING
+// rather than a default — the map's absence is `boundDriverNameForRun`'s "the console cannot say",
 // which takes a gated control off screen rather than offering one the daemon would
 // refuse or hiding one it would have honored.
 

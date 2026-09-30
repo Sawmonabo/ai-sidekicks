@@ -3,8 +3,8 @@
 import { describe, expect, it } from "vitest";
 
 import * as contracts from "../index.js";
-import { ExecutionModeSchema, REPO_PATH_MAX_LEN, RepoMountIdSchema } from "../repo.js";
-import { SessionIdSchema } from "../session.js";
+import { ExecutionModeSchema, RepoMountIdSchema } from "../repo.js";
+import { SessionIdSchema, FILE_PATH_MAX_LEN } from "../session.js";
 import {
   EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN,
   WORKSPACE_LAST_ERROR_MAX_LEN,
@@ -197,12 +197,11 @@ describe("WorkspaceBindRequestSchema (session + mount + explicit mode)", () => {
     expect(parseBindRequest({ directory: candidate }).success).toBe(true);
   });
 
-  it("bounds `directory` at REPO_PATH_MAX_LEN and refuses blank / NUL-byte forms", () => {
-    // The cap REUSES `REPO_PATH_MAX_LEN` rather than minting a second 4096:
-    // what the filesystem bounds is the joined `canonicalRoot + directory`,
-    // which the schema cannot see at parse time.
-    const atCap = "a".repeat(REPO_PATH_MAX_LEN);
-    const overCap = "a".repeat(REPO_PATH_MAX_LEN + 1);
+  it("bounds `directory` at FILE_PATH_MAX_LEN and refuses blank / NUL-byte forms", () => {
+    // The cap is the one path bound: what the filesystem bounds is the joined
+    // `canonicalRoot + directory`, which the schema cannot see at parse time.
+    const atCap = "a".repeat(FILE_PATH_MAX_LEN);
+    const overCap = "a".repeat(FILE_PATH_MAX_LEN + 1);
     expect(parseBindRequest({ directory: atCap }).success).toBe(true);
     expect(parseBindRequest({ directory: overCap }).success).toBe(false);
     expect(parseBindRequest({ directory: "" }).success).toBe(false);

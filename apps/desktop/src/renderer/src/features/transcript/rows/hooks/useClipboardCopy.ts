@@ -15,10 +15,9 @@ export interface ClipboardCopy {
 }
 
 /**
- * Put `text` on the host clipboard and hold the outcome for one transient-status duration.
- *
- * The host call sits inside the `try` because the shipped bridge throws synchronously
- * where the fixture rejects; both end as `failed`, which the control says in place.
+ * Put `text` on the system clipboard through main and hold the outcome for one
+ * transient-status duration. A refused copy ends as `failed`, which the control says in
+ * place.
  */
 export function useClipboardCopy(text: string): ClipboardCopy {
   const bridge = usePlatformBridge();
@@ -55,18 +54,14 @@ export function useClipboardCopy(text: string): ClipboardCopy {
   };
 
   const copy = (): void => {
-    try {
-      bridge.native.copyToClipboard(text).then(
-        () => {
-          settle("copied");
-        },
-        () => {
-          settle("failed");
-        },
-      );
-    } catch {
-      settle("failed");
-    }
+    bridge.native.copyToClipboard(text).then(
+      () => {
+        settle("copied");
+      },
+      () => {
+        settle("failed");
+      },
+    );
   };
 
   return { status, copy };

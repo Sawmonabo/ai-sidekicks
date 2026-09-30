@@ -2,6 +2,7 @@
 // scenario's own beats, so the pane is never tested against events the fixture does not
 // produce.
 
+import { PTY_CONTROL_CHANGED_EVENT } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -21,11 +22,9 @@ export function paneBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO }).bridge;
 }
 
-const LEASE_EVENT_KIND = "pty.control_changed";
-
 /** Every lease transition the scenario scripts, in the order it scripts them. */
 export const leaseBeats: readonly (typeof TERMINAL_LEASE_SCENARIO.beats)[number][] =
-  TERMINAL_LEASE_SCENARIO.beats.filter((beat) => beat.event.kind === LEASE_EVENT_KIND);
+  TERMINAL_LEASE_SCENARIO.beats.filter((beat) => beat.event.kind === PTY_CONTROL_CHANGED_EVENT);
 
 /**
  * A store holding the scenario's events through its `transitionOrdinal`-th lease

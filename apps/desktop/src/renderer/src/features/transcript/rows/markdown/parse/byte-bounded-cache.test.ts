@@ -58,6 +58,16 @@ describe("the byte-bounded cache", () => {
     expect(cache.get("alpha")).toBe(2);
   });
 
+  it("charges a value its caller can measure beside its key", () => {
+    // A span cache that charged only the source would hold its spans outside its bound.
+    const cache = new ByteBoundedCache<Uint32Array>(16, (spans) => spans.byteLength);
+    cache.set("abcd", new Uint32Array(3));
+    expect(cache.stats().retainedByteCount).toBe(16);
+    cache.set("abcde", new Uint32Array(3));
+    expect(cache.get("abcde")).toBeUndefined();
+    expect(cache.get("abcd")).not.toBeUndefined();
+  });
+
   it("reports its own bound, so a budget test reads it rather than restating it", () => {
     expect(new ByteBoundedCache<number>(4096).stats().byteCap).toBe(4096);
   });

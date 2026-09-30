@@ -2,17 +2,20 @@
 // the bridge, the roster fixtures, and the DOM queries needed by more than one suite,
 // so they live here once rather than being copied into the file written second.
 
+import type {
+  AgentDefinitionId,
+  AgentId,
+  AgentListEntry,
+  AgentResolvedConfiguration,
+  ChildRunLinkReadResponse,
+} from "@ai-sidekicks/contracts";
 import { AgentsPaneModels } from "../agents-pane-models.js";
-import type { AgentsPaneCalls } from "../../agent-reads.js";
+import type { AgentRoster, AgentsPaneCalls } from "../../agent-reads.js";
 import { unscriptedScenario, withDaemonCall } from "@test/helpers/fixture-bridge.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
 } from "@renderer/services/platform/platform-bridge.fixture.js";
-import {
-  type AgentListReading,
-  type ChildRunLinkReading,
-} from "@renderer/services/wire-shapes/agents.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
@@ -55,12 +58,12 @@ export function bridgeCalling(scriptedDaemon: ScriptedDaemon): FixtureBridge {
 function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentsPaneCalls {
   return {
     listAgents: async (request) =>
-      (await scriptedDaemon.answer("agent.list", request)) as AgentListReading,
+      (await scriptedDaemon.answer("agent.list", request)) as AgentRoster,
     readChildRunLinks: async (request) =>
       (await scriptedDaemon.answer(
         "orchestration.childRunLinkRead",
         request,
-      )) as ChildRunLinkReading,
+      )) as ChildRunLinkReadResponse,
   };
 }
 
@@ -113,16 +116,47 @@ export function modelsOver(
   return models;
 }
 
-export const AGENT_ON_CLAUDE = {
-  agentId: "agent-a",
-  name: "Scout",
-  driverName: "claude",
-  modelId: "claude-sonnet",
-};
+/** One roster row on Claude with every optional member left out; a case adds what it is about. */
+export function agentEntry(overrides: Partial<AgentListEntry> = {}): AgentListEntry {
+  return {
+    agentId: "agent-scout" as AgentId,
+    name: "Scout",
+    binding: {
+      driverName: "claude",
+      modelId: "claude-sonnet",
+      providerAccountId: null,
+      effort: null,
+    },
+    ancestry: [],
+    createdAt: "2026-03-04T08:15:00.000Z",
+    ...overrides,
+  };
+}
 
-export const AGENT_ON_CODEX = {
-  agentId: "agent-b",
+/** A resolved configuration with every row filled but the tools, which it leaves to the driver. */
+export function resolvedConfiguration(
+  overrides: Partial<AgentResolvedConfiguration> = {},
+): AgentResolvedConfiguration {
+  return {
+    resolvedFromDefinitionId: "definition-scout" as AgentDefinitionId,
+    resolvedBinding: {
+      driverName: "claude",
+      modelId: "claude-sonnet",
+      providerAccountId: null,
+      effort: "high",
+    },
+    executionPostureMode: "sandboxed",
+    toolAllowlist: null,
+    instructions: "Read before writing.",
+    goal: "Survey the repository",
+    ...overrides,
+  };
+}
+
+export const AGENT_ON_CLAUDE: AgentListEntry = agentEntry({ agentId: "agent-a" as AgentId });
+
+export const AGENT_ON_CODEX: AgentListEntry = agentEntry({
+  agentId: "agent-b" as AgentId,
   name: "Runner",
-  driverName: "codex",
-  modelId: "gpt-5.6",
-};
+  binding: { driverName: "codex", modelId: "gpt-5.6", providerAccountId: null, effort: null },
+});

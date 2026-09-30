@@ -9,9 +9,6 @@
 // back from the daemon's own checkpoints, so a dry run and an undo name the same three
 // choices: the conversation and the files, the conversation alone, or the files alone.
 //
-// What an undo reports is declared in `run-control.ts` beside the other run outcomes;
-// this module parses it.
-//
 // Request schemas are double-T (`z.ZodType<T, T>`) and result and event schemas
 // single-T, matching `session.ts`.
 import { z } from "zod";
@@ -23,13 +20,9 @@ import {
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
   type ArtifactId,
 } from "./provider-driver.js";
-import type {
-  SessionRestoreFailure,
-  SessionRestoreResult,
-  SessionRestoreScope,
-} from "./run-control.js";
 import {
   EventCursorSchema,
+  FILE_PATH_MAX_LEN,
   SessionIdSchema,
   wireFreeFormString,
   type EventCursor,
@@ -105,6 +98,12 @@ const SessionRestoreTargetSchema: z.ZodType<SessionRestoreTarget, SessionRestore
     z.object({ kind: z.literal("snapshot"), snapshotId: SnapshotIdSchema }).strict(),
   ]);
 
+/** What an undo is asked to put back. */
+export type SessionRestoreScope = "conversation-and-files" | "conversation" | "files";
+
+/** One part an undo puts back on its own. */
+export type SessionRestorePart = Exclude<SessionRestoreScope, "conversation-and-files">;
+
 const SessionRestoreScopeSchema: z.ZodType<SessionRestoreScope, SessionRestoreScope> = z.enum([
   "conversation-and-files",
   "conversation",
@@ -139,7 +138,10 @@ export interface SessionRestoreSkippedFile {
   reason: SessionRestoreSkipReason;
 }
 const SessionRestoreSkippedFileSchema: z.ZodType<SessionRestoreSkippedFile> = z
-  .object({ path: z.string().min(1), reason: z.enum(SESSION_RESTORE_SKIP_REASONS) })
+  .object({
+    path: z.string().min(1).max(FILE_PATH_MAX_LEN),
+    reason: z.enum(SESSION_RESTORE_SKIP_REASONS),
+  })
   .strict();
 
 /** Paths another session working in the same folder also changed since the point. */
@@ -200,10 +202,15 @@ export const SessionRestorePreviewResponseSchema: z.ZodType<SessionRestorePrevie
     skipped: z.array(SessionRestoreSkippedFileSchema),
     affectedChildCount: z.number().int().nonnegative(),
     runningCommands: z.number().int().nonnegative(),
-    ignoredFolders: z.array(z.string().min(1)),
+    ignoredFolders: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
     commandsRanAfterPoint: z.boolean(),
     alsoChangedBy: z.array(
-      z.object({ sessionId: SessionIdSchema, paths: z.array(z.string().min(1)) }).strict(),
+      z
+        .object({
+          sessionId: SessionIdSchema,
+          paths: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)),
+        })
+        .strict(),
     ),
   })
   .strict();
@@ -265,38 +272,22 @@ export const SessionRestoreRequestSchema: z.ZodType<SessionRestoreRequest, Sessi
       },
     );
 
+// What an undo reports. One undo has one result: what was asked, what went back,
+// the files it actually put back, and the daemon's reason for each asked-for part
+// that did not. An undo can land in part: the conversation cut can apply while
+// the files cannot go back, or the reverse; `restored: "nothing"` means the
+// conversation and the files are as they were. Edit and resend is the same undo
+// followed by a send, as one operation: when the undo applied and the send did
+// not, the result says so with the send's reason, so the conversation is never
+// left cut with nothing sent unremarked.
+
+/** Why one asked-for part did not go back, in the daemon's words. */
+export interface SessionRestoreFailure {
+  reason: string;
+}
 const SessionRestoreFailureSchema: z.ZodType<SessionRestoreFailure> = z
   .object({ reason: z.string().min(1) })
   .strict();
-
-/** Parses a {@link SessionRestoreResult}. */
-export const SessionRestoreResultSchema: z.ZodType<SessionRestoreResult> = z.discriminatedUnion(
-  "outcome",
-  [
-    z
-      .object({
-        outcome: z.literal("restore-finished"),
-        requested: SessionRestoreScopeSchema,
-        restored: z.enum(["conversation-and-files", "conversation", "files", "nothing"]),
-        failures: z
-          .object({
-            conversation: SessionRestoreFailureSchema.optional(),
-            files: SessionRestoreFailureSchema.optional(),
-          })
-          .strict()
-          .optional(),
-      })
-      .strict(),
-    z.object({ outcome: z.literal("resend-unapplied"), reason: z.string().min(1) }).strict(),
-  ],
-);
-
-// --------------------------------------------------------------------------
-// The event every undo settles with
-// --------------------------------------------------------------------------
-
-/** The event an undo settles with, whatever it managed to do. */
-export const SESSION_RESTORE_FINISHED_EVENT = "session.restore_finished" as const;
 
 /**
  * What the files part of an undo actually did: the files it put back, the lines
@@ -310,16 +301,82 @@ export interface SessionRestoreFileOutcome {
 }
 
 /**
+ * A finished undo: what was asked, what went back, and why each other asked-for
+ * part did not. `files` is present exactly when the files went back.
+ */
+export interface SessionRestoreFinished {
+  outcome: "restore-finished";
+  requested: SessionRestoreScope;
+  restored: SessionRestoreScope | "nothing";
+  files?: SessionRestoreFileOutcome | undefined;
+  failures?: { [Part in SessionRestorePart]?: SessionRestoreFailure | undefined } | undefined;
+}
+
+/** An edit and resend whose undo applied and whose send failed, with the send's reason. */
+export interface SessionResendUnapplied {
+  outcome: "resend-unapplied";
+  reason: string;
+}
+
+/** What an undo, or an edit and resend, reports. */
+export type SessionRestoreResult = SessionRestoreFinished | SessionResendUnapplied;
+
+/** Parses a {@link SessionRestoreResult}. */
+export const SessionRestoreResultSchema: z.ZodType<SessionRestoreResult> = z.discriminatedUnion(
+  "outcome",
+  [
+    z
+      .object({
+        outcome: z.literal("restore-finished"),
+        requested: SessionRestoreScopeSchema,
+        restored: z.enum(["conversation-and-files", "conversation", "files", "nothing"]),
+        files: z
+          .object({
+            restoredFileCount: z.number().int().nonnegative(),
+            restoredLineCount: z.number().int().nonnegative(),
+            skipped: z.array(SessionRestoreSkippedFileSchema),
+          })
+          .strict()
+          .optional(),
+        failures: z
+          .object({
+            conversation: SessionRestoreFailureSchema.optional(),
+            files: SessionRestoreFailureSchema.optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .refine(
+        (finished) =>
+          (finished.files !== undefined) ===
+          (finished.restored === "files" || finished.restored === "conversation-and-files"),
+        {
+          path: ["files"],
+          message: "The files outcome is present exactly when the files went back.",
+        },
+      ),
+    z.object({ outcome: z.literal("resend-unapplied"), reason: z.string().min(1) }).strict(),
+  ],
+);
+
+// --------------------------------------------------------------------------
+// The event every undo settles with
+// --------------------------------------------------------------------------
+
+/** The event an undo settles with, whatever it managed to do. */
+export const SESSION_RESTORE_FINISHED_EVENT = "session.restore_finished" as const;
+
+/**
  * The payload of {@link SESSION_RESTORE_FINISHED_EVENT}: one stored record per undo,
- * carrying what applied and the cause of what did not. `files` is present exactly
- * when the files went back. The conversation cut is recorded as well by the run's own
+ * carrying its result, which holds what applied, the files it put back and the
+ * cause of what did not. The conversation cut is recorded as well by the run's own
  * rolled-back event, which covers the conversation alone.
  */
 export interface SessionRestoreFinishedPayload {
   sessionId: SessionId;
   target: SessionRestoreTarget;
   result: SessionRestoreResult;
-  files?: SessionRestoreFileOutcome | undefined;
 }
 /** Parses a {@link SessionRestoreFinishedPayload}. */
 export const SessionRestoreFinishedPayloadSchema: z.ZodType<SessionRestoreFinishedPayload> = z
@@ -327,14 +384,6 @@ export const SessionRestoreFinishedPayloadSchema: z.ZodType<SessionRestoreFinish
     sessionId: SessionIdSchema,
     target: SessionRestoreTargetSchema,
     result: SessionRestoreResultSchema,
-    files: z
-      .object({
-        restoredFileCount: z.number().int().nonnegative(),
-        restoredLineCount: z.number().int().nonnegative(),
-        skipped: z.array(SessionRestoreSkippedFileSchema),
-      })
-      .strict()
-      .optional(),
   })
   .strict();
 

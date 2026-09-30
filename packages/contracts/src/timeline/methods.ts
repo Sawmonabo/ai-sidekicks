@@ -1,8 +1,7 @@
-// The seven `timeline.*` method strings, each BOUND to the
+// The six `timeline.*` method strings, each BOUND to the
 // request/response schemas that carry it.
 //
-// Seven methods, six `query` and one `subscription`, riding the daemon
-// JSON-RPC transport only (the timeline is a daemon-local projection over the
+// Six methods, all `query`, riding the daemon JSON-RPC transport only (the timeline is a daemon-local projection over the
 // session event log and no tRPC sibling exists). Method tails are camelCase.
 //
 // ----------------------------------------------------------------------------
@@ -31,7 +30,7 @@
 // that answers it, and none is registered without one: a placeholder handler
 // would put a method on the wire that answers nothing, which is worse than a
 // method that is not on the wire.
-import type { MethodDescriptor, SubscriptionMethodDescriptor } from "../method-descriptor.js";
+import type { MethodDescriptor } from "../method-descriptor.js";
 import {
   ChildRunExpandRequestSchema,
   ChildRunExpandResponseSchema,
@@ -39,18 +38,13 @@ import {
   ReasoningSurfaceReadResponseSchema,
   TimelineReadRequestSchema,
   TimelineReadResponseSchema,
-  TimelineSubscribeRequestSchema,
-  TimelineSubscribeResponseSchema,
   type ChildRunExpandRequest,
   type ChildRunExpandResponse,
   type ReasoningSurfaceReadRequest,
   type ReasoningSurfaceReadResponse,
   type TimelineReadRequest,
   type TimelineReadResponse,
-  type TimelineSubscribeRequest,
-  type TimelineSubscribeResponse,
 } from "./operations.js";
-import { TimelineRowSchema, type TimelineRow } from "./row.js";
 import {
   TimelineBodyReadRequestSchema,
   TimelineBodyReadResponseSchema,
@@ -69,7 +63,6 @@ import {
 } from "./search.js";
 
 export const TIMELINE_READ_METHOD = "timeline.read" as const;
-export const TIMELINE_SUBSCRIBE_METHOD = "timeline.subscribe" as const;
 export const TIMELINE_REASONING_SURFACE_READ_METHOD = "timeline.reasoningSurfaceRead" as const;
 export const TIMELINE_CHILD_RUN_EXPAND_METHOD = "timeline.childRunExpand" as const;
 export const TIMELINE_BODY_READ_METHOD = "timeline.bodyRead" as const;
@@ -79,7 +72,6 @@ export const TIMELINE_SEARCH_METHOD = "timeline.search" as const;
 /** The closed set of method strings this namespace registers. */
 export type TimelineMethodName =
   | typeof TIMELINE_READ_METHOD
-  | typeof TIMELINE_SUBSCRIBE_METHOD
   | typeof TIMELINE_REASONING_SURFACE_READ_METHOD
   | typeof TIMELINE_CHILD_RUN_EXPAND_METHOD
   | typeof TIMELINE_BODY_READ_METHOD
@@ -87,29 +79,11 @@ export type TimelineMethodName =
   | typeof TIMELINE_SEARCH_METHOD;
 
 /**
- * The `query` method strings — every timeline method EXCEPT the
- * subscription.
- *
- * The split is not decoration. A `query` is bound by supplying a handler whose
- * resolved value the registry validates against the response schema; a
- * subscription additionally has a PER-EMISSION schema
- * ({@link TimelineSubscriptionMethodBinding.emissionSchema}) that nothing in a
- * `query` binding has anywhere to consume. Deriving this set with `Exclude`
- * rather than re-listing it lets the daemon's query binder be typed so the
- * subscription cannot be passed to it at all — the emission schema is then
- * unskippable rather than merely available, because the only binder that
- * accepts `timeline.subscribe` is the one that fixes the producer's schema
- * from the descriptor.
- */
-export type TimelineQueryMethodName = Exclude<TimelineMethodName, typeof TIMELINE_SUBSCRIBE_METHOD>;
-
-/**
  * Every `timeline.*` method string, in the canonical registry table's row
  * order. A census a consumer can walk rather than a list it re-types.
  */
 export const TIMELINE_METHOD_NAMES: readonly TimelineMethodName[] = Object.freeze([
   TIMELINE_READ_METHOD,
-  TIMELINE_SUBSCRIBE_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_BODY_READ_METHOD,
@@ -123,9 +97,9 @@ export const TIMELINE_METHOD_NAMES: readonly TimelineMethodName[] = Object.freez
  * validates params and result against.
  *
  * `mutating` is typed `false` rather than `boolean` on purpose. Every
- * operation is a read — idempotent `query` rows and one `subscription` — so
- * the literal states a property of this surface instead of leaving a
- * per-descriptor decision that could be set wrong. A later timeline MUTATION
+ * operation is an idempotent `query` read, so the literal states a property of
+ * this surface instead of leaving a per-descriptor decision that could be set
+ * wrong. A later timeline MUTATION
  * would fail to typecheck against this interface, which is the point: it should
  * arrive with a deliberate widening, not by flipping a boolean.
  */
@@ -138,33 +112,12 @@ export interface TimelineMethodBinding<
   readonly mutating: false;
 }
 
-/**
- * A `subscription` binding additionally names its PER-EMISSION payload — the
- * `TimelineRow` union the canonical registry table's response column reports
- * for `timeline.subscribe`. For `timeline.subscribe` the response schema is the
- * init ack, not the stream payload.
- */
-export interface TimelineSubscriptionMethodBinding<
-  MethodName extends TimelineMethodName,
-  RequestType,
-  ResponseType,
-  EmissionType,
-> extends SubscriptionMethodDescriptor<MethodName, RequestType, ResponseType, EmissionType> {
-  readonly mutating: false;
-}
-
 /** The descriptors, keyed by method string. */
 export interface TimelineMethodDescriptorRegistry {
   readonly [TIMELINE_READ_METHOD]: TimelineMethodBinding<
     typeof TIMELINE_READ_METHOD,
     TimelineReadRequest,
     TimelineReadResponse
-  >;
-  readonly [TIMELINE_SUBSCRIBE_METHOD]: TimelineSubscriptionMethodBinding<
-    typeof TIMELINE_SUBSCRIBE_METHOD,
-    TimelineSubscribeRequest,
-    TimelineSubscribeResponse,
-    TimelineRow
   >;
   readonly [TIMELINE_REASONING_SURFACE_READ_METHOD]: TimelineMethodBinding<
     typeof TIMELINE_REASONING_SURFACE_READ_METHOD,
@@ -206,10 +159,6 @@ export interface TimelineMethodContract {
   readonly [TIMELINE_READ_METHOD]: {
     readonly request: TimelineReadRequest;
     readonly response: TimelineReadResponse;
-  };
-  readonly [TIMELINE_SUBSCRIBE_METHOD]: {
-    readonly request: TimelineSubscribeRequest;
-    readonly response: TimelineSubscribeResponse;
   };
   readonly [TIMELINE_REASONING_SURFACE_READ_METHOD]: {
     readonly request: ReasoningSurfaceReadRequest;
@@ -257,14 +206,6 @@ export const TIMELINE_METHOD_DESCRIPTORS: TimelineMethodDescriptorRegistry = Obj
     mutating: false,
     requestSchema: TimelineReadRequestSchema,
     responseSchema: TimelineReadResponseSchema,
-  }),
-  [TIMELINE_SUBSCRIBE_METHOD]: Object.freeze({
-    method: TIMELINE_SUBSCRIBE_METHOD,
-    procedureType: "subscription",
-    mutating: false,
-    requestSchema: TimelineSubscribeRequestSchema,
-    responseSchema: TimelineSubscribeResponseSchema,
-    emissionSchema: TimelineRowSchema,
   }),
   [TIMELINE_REASONING_SURFACE_READ_METHOD]: Object.freeze({
     method: TIMELINE_REASONING_SURFACE_READ_METHOD,

@@ -151,11 +151,15 @@ export class RunControlDispatcher {
     });
   }
 
-  /** Interrupt: `run.intervene` with a fresh key and, where given, the reason. */
+  /**
+   * Interrupt: `run.intervene` with a fresh key and, where given, the reason. The
+   * messages still waiting go as the next turn.
+   */
   public async interrupt(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
     return await this.#settle("interrupt", target, {
       type: "interrupt",
       ...this.#interventionGuards(target),
+      pending: "nextTurn",
       ...(reason === undefined ? {} : { reason }),
     });
   }

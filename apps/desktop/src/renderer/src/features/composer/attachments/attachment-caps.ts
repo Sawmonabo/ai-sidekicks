@@ -1,31 +1,11 @@
-// The attachment ingest bounds, and the stride the encoder walks a chunk in.
+// The ingest stream's time bounds, and the stride the encoder walks a chunk in.
 
-// The three bounds below that are registered on the wire are enforced by the daemon; the
-// console carries them so it can explain a bound ahead of the refusal rather than after
-// it. Each mirrors its registered source EXACTLY and is never looser — a console that
-// admitted more than the daemon would spend a user's upload to earn a refusal. All three
-// are operator-tunable, so every view that shows one says "default" until the daemon
-// answers with the effective value. The chunk size is the contract's
-// `ATTACHMENT_INGEST_CHUNK_MAX_BYTES`.
-
-/**
- * Decoded bytes one attachment may carry, at the shipped default.
- *
- * `max_attachment_ingest_bytes`, deliberately equal to the per-artifact relay cap
- * so an accepted attachment is relay-pinnable by construction. Operator-tunable
- * between one megabyte and one gigabyte.
- */
-export const ATTACHMENT_BYTE_CAP_DEFAULT: number = 100 * 1024 * 1024;
-
-/**
- * Attachments one staged list may name, at the shipped default.
- *
- * `max_attachments_per_carrier`, derived from the quota envelope rather than
- * picked: one maximally-sized staged list exactly saturates the per-session relay
- * budget. Operator-tunable over a 1 – 50 range. Bound on the STAGED LIST and never on
- * an ingest stream, which carries exactly one payload and has no count to cap.
- */
-export const ATTACHMENTS_PER_MESSAGE_CAP_DEFAULT = 10;
+// The byte and count limits are the contract's (`SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT`,
+// `SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT`) and the chunk size is
+// `ARTIFACT_CHUNK_MAX_BYTES`. The stream ceiling below is enforced by the daemon;
+// the console carries it to explain the bound ahead of the refusal. It is
+// operator-tunable, so a view that shows it says "default" until the daemon answers with
+// the value in force.
 
 /**
  * Wall-clock ceiling on one ingest stream, measured from its first call.

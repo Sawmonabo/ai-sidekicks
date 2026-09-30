@@ -7,14 +7,15 @@
 import { z } from "zod";
 
 import { decodedByteLength } from "../internal/base64.js";
-import { SessionIdSchema, type SessionId } from "../session.js";
+import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "../session.js";
 
 /**
- * The most raw bytes one chunk may carry. Fixed rather than configurable: it is the
- * largest chunk whose base64 form plus its message envelope fits the local wire's
- * 1 MB message ceiling.
+ * The most raw bytes one artifact chunk may carry, either way: a chunk a caller
+ * streams in, and a byte range `artifact.read` answers. Fixed rather than
+ * configurable: it is the largest chunk whose base64 form plus its message envelope
+ * fits the local wire's 1 MB message ceiling.
  */
-export const ATTACHMENT_INGEST_CHUNK_MAX_BYTES: number = 512 * 1024;
+export const ARTIFACT_CHUNK_MAX_BYTES: number = 512 * 1024;
 
 /**
  * Opens an ingest stream for one file.
@@ -38,7 +39,7 @@ export const AttachmentIngestInitRequestSchema: z.ZodType<
 > = z
   .object({
     sessionId: SessionIdSchema,
-    fileName: z.string().min(1),
+    fileName: z.string().min(1).max(FILE_PATH_MAX_LEN),
     mediaType: z.string().min(1).optional(),
     declaredSizeBytes: z.number().int().nonnegative(),
   })
@@ -47,7 +48,7 @@ export const AttachmentIngestInitRequestSchema: z.ZodType<
 /**
  * One chunk of an open stream. `sequenceNumber` counts from 0 with no gaps, and a
  * resent chunk carries the number it was first sent with. `chunk` is the RFC 4648
- * base64 of at most {@link ATTACHMENT_INGEST_CHUNK_MAX_BYTES} raw bytes, because the
+ * base64 of at most {@link ARTIFACT_CHUNK_MAX_BYTES} raw bytes, because the
  * local wire carries JSON and no binary field.
  */
 export interface AttachmentIngestChunkRequest {
@@ -63,11 +64,9 @@ export const AttachmentIngestChunkRequestSchema: z.ZodType<
   .object({
     ingestId: z.string().min(1),
     sequenceNumber: z.number().int().nonnegative(),
-    chunk: z
-      .base64()
-      .refine((value) => decodedByteLength(value) <= ATTACHMENT_INGEST_CHUNK_MAX_BYTES, {
-        message: `chunk must decode to at most ${ATTACHMENT_INGEST_CHUNK_MAX_BYTES} bytes`,
-      }),
+    chunk: z.base64().refine((value) => decodedByteLength(value) <= ARTIFACT_CHUNK_MAX_BYTES, {
+      message: `chunk must decode to at most ${ARTIFACT_CHUNK_MAX_BYTES} bytes`,
+    }),
   })
   .strict();
 

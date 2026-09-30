@@ -4,7 +4,7 @@
 // start — and a stub hand-built beside each would be three answers to what a page and
 // a cursor look like.
 
-import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";
+import type { WorkflowDefinitionId, WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 import type { ReadWorkflowDefinitionPage } from "./definition-enumeration.js";
 import type { WorkflowStartOperations, WorkflowStartRequest } from "./start-workflow-from-line.js";
 
@@ -51,7 +51,7 @@ export interface WorkflowFixtureOptions {
 /** A wire-shaped definition, so a case never asserts against a partial one. */
 export function workflowDefinition(seed: WorkflowDefinitionSeed): WorkflowDefinitionSummary {
   return {
-    id: `definition-${seed.name}`,
+    id: `definition-${seed.name}` as WorkflowDefinitionId,
     name: seed.name,
     scope: "session",
     scopeRef: WORKFLOW_TEST_SESSION_ID,
@@ -59,7 +59,12 @@ export function workflowDefinition(seed: WorkflowDefinitionSeed): WorkflowDefini
     latestWorkflowVersionId: seed.latestWorkflowVersionId ?? `version-${seed.name}`,
     contentHash: `hash-${seed.name}`,
     resolvesAtThisContext: seed.resolvesAtThisContext ?? true,
+    triggerKind: "trigger.manual",
+    enabled: true,
+    tags: [],
+    runCount: 0,
     createdAt: "2026-09-02T09:00:00.000Z",
+    updatedAt: "2026-09-02T09:00:00.000Z",
   };
 }
 

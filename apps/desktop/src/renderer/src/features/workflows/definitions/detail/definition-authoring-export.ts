@@ -162,8 +162,7 @@ function handToClipboard(
           kind: "refused",
           refusal: normalizeWireRejection(WORKFLOW_DETAIL_ORIGIN, rejection, {
             code: "call-rejected",
-            detail:
-              "native.copyToClipboard was rejected, so the file was not copied. It is shown below and can be selected by hand.",
+            detail: "The file could not be copied. It is shown below and can be selected by hand.",
           }),
         });
       });

@@ -11,10 +11,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DaemonMethod } from "@ai-sidekicks/contracts";
+import type { DaemonMethod, RepoMountId } from "@ai-sidekicks/contracts";
 
 import { FixtureBridgeError } from "./refusal.fixture.js";
-import { createFixture } from "@test/helpers/fixture-bridge.js";
+import { callBridge, createFixture } from "@test/helpers/fixture-bridge.js";
 import type { ScenarioReply } from "./scenario-reply.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { FIXTURE_SCENARIO_SESSION_ID, scenarioNamed } from "./vocabulary.test-support.js";
@@ -48,10 +48,10 @@ const SCRIPTED_BRANCH_CONTEXT = {
 };
 
 /** The entity-scoped call a computed reply in this file answers, and its two subjects. */
-const MOUNT_READ_CALL = "repo.mountRead" as DaemonMethod;
-const HEALTHY_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000001";
-const UNREACHABLE_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000002";
-const UNSCRIPTED_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000003";
+const MOUNT_READ_CALL = "repo.mountRead" satisfies DaemonMethod;
+const HEALTHY_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000001" as RepoMountId;
+const UNREACHABLE_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000002" as RepoMountId;
+const UNSCRIPTED_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000003" as RepoMountId;
 
 /**
  * What each mount answers. Distinct values, so one cannot pass for the other.
@@ -72,7 +72,6 @@ const MOUNT_ANSWERS: Readonly<Record<string, unknown>> = {
 function mountReadResponse(repoMountId: string, status: "healthy" | "unreachable"): unknown {
   return {
     id: repoMountId,
-    sessionId: FIXTURE_SCENARIO_SESSION_ID,
     nodeId: "9f2c4a10-1111-4000-8000-000000000100",
     localPath: "/Users/probe/dev/ai-sidekicks",
     canonicalRoot: "/Users/probe/dev/ai-sidekicks",
@@ -80,6 +79,13 @@ function mountReadResponse(repoMountId: string, status: "healthy" | "unreachable
     state: "attached",
     health: { status, checkedAt: "2026-01-01T14:20:00.500Z" },
     attachedAt: "2026-01-01T14:00:00.000Z",
+    origin: {
+      kind: "attached",
+      repoMountId,
+      projectId: "9f2c4a10-1111-4000-8000-000000000200",
+    },
+    displayName: "ai-sidekicks",
+    usedBy: [{ sessionId: FIXTURE_SCENARIO_SESSION_ID }],
   };
 }
 
@@ -135,7 +141,7 @@ function scenarioScriptingBranchContext(afterMs?: number): Scenario {
 describe("the fixture bridge's scripted calls — the same seam, rejecting instead", () => {
   it("rejects with the shared code when the engine is torn down under a call", async () => {
     const { bridge, engine } = createFixture(scenarioScriptingBranchContext(SCRIPTED_LATENCY_MS));
-    const pending = bridge.daemon.call(BRANCH_CONTEXT_CALL as DaemonMethod, undefined);
+    const pending = callBridge(bridge, BRANCH_CONTEXT_CALL);
 
     engine.dispose();
 
@@ -151,9 +157,9 @@ describe("the fixture bridge's scripted calls — the same seam, rejecting inste
   it("negative control: the same call resolves once the caller advances the clock", async () => {
     const { bridge } = createFixture(scenarioScriptingBranchContext());
 
-    await expect(
-      bridge.daemon.call(BRANCH_CONTEXT_CALL as DaemonMethod, undefined),
-    ).resolves.toStrictEqual(SCRIPTED_BRANCH_CONTEXT);
+    await expect(callBridge(bridge, BRANCH_CONTEXT_CALL)).resolves.toStrictEqual(
+      SCRIPTED_BRANCH_CONTEXT,
+    );
   });
 });
 
@@ -197,9 +203,7 @@ describe("a computed reply — one call, one answer per entity", () => {
     // entity, which is the whole defect this arm exists to close.
     const { bridge } = createFixture(scenarioComputingMountRead());
 
-    await expect(bridge.daemon.call(MOUNT_READ_CALL, undefined)).rejects.toBeInstanceOf(
-      FixtureBridgeError,
-    );
+    await expect(callBridge(bridge, MOUNT_READ_CALL)).rejects.toBeInstanceOf(FixtureBridgeError);
   });
 
   it("negative control: the constant form still answers every request the same way", async () => {

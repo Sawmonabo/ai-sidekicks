@@ -1,8 +1,7 @@
 // Brand-preserving UUID canonicalization for use as a Map key / hash input.
 //
-// THE single definition of "canonical UUID form" shared across surfaces: the
-// control-plane presence map (`@ai-sidekicks/control-plane`
-// `PresenceRegisterService`) keys off UUID identity and routes its lowercasing
+// THE single definition of "canonical UUID form" shared across surfaces: a map
+// keyed by a UUID (the daemon's per-session append lock) routes its lowercasing
 // through this helper so "canonical" means ONE thing repo-wide.
 
 /**

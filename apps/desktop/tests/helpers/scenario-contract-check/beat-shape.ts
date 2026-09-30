@@ -50,13 +50,12 @@
 // `run-and-queue-semantics.ts` covers the whole `run.` root and the `queue_item.`
 // root between three of its legs, each keyed off a table declared
 // `satisfies Record<<census-derived union>, …>` so its key set is a compile-time
-// fact. The nine kinds a narrowed stream projects are held to that projection; the
-// four the streams leave out — the creation row and the three forward, non-state rows
-// — are held to their own registered payloads; the five queue kinds are held to the
-// member their payload requires. A run-lifecycle or queue kind therefore cannot fall
-// into the escape by being forgotten there: it would have to leave the stream that
-// carries it AND leave the excluded-payload table, and each is a compile error in its
-// own module.
+// fact. The kinds a narrowed stream projects are held to that projection; the ones
+// the streams leave out are held to their own registered payloads; the queue kinds
+// are held to the member their payload requires. A run-lifecycle or queue kind
+// therefore cannot fall into the escape by being forgotten there: it would have to
+// leave the stream that carries it AND leave the excluded-payload table, and each is
+// a compile error in its own module.
 
 import {
   EventEnvelopeSchema,

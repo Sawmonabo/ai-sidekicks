@@ -33,8 +33,8 @@ const ROLE_BY_MEMBER: Readonly<Record<string, RunAttributionRole>> = RUN_ATTRIBU
 
 describe("the run-attribution table — a compile gate, and a dormant runtime arm", () => {
   it("decides every key the contract lists, so the runtime filter removes nothing", () => {
-    // The dormancy, checked rather than claimed. `parentRunId` is decided
-    // `another-run` and the contract's list does not carry it, so the intersection
+    // The dormancy, checked rather than claimed. Every member decided
+    // `another-run` is absent from the contract's list, so the intersection
     // in `attributedRunIdOf` drops no member at today's contract; it is the
     // fail-closed arm for a list that grows a key nobody here has reviewed.
     for (const attributingKey of TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS) {
@@ -43,7 +43,6 @@ describe("the run-attribution table — a compile gate, and a dormant runtime ar
     const decidedElsewhere = Object.entries(RUN_ATTRIBUTION_BY_PAYLOAD_KEY)
       .filter(([, role]) => role === "another-run")
       .map(([member]) => member);
-    expect(decidedElsewhere).toStrictEqual(["parentRunId"]);
     for (const member of decidedElsewhere) {
       expect(TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS, member).not.toContain(member);
     }

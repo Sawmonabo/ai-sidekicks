@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { FILE_PATH_MAX_LEN } from "./session.js";
 
 /** A secret record's id. The daemon mints it. */
 export type WorkflowSecretId = string & { readonly __brand: "WorkflowSecretId" };
@@ -45,7 +46,10 @@ export function isWorkflowSecretName(name: string): boolean {
  */
 export type WorkflowSecretPlace = { scope: "project"; scopeRef: string } | { scope: "shared" };
 
-const projectPlaceShape = { scope: z.literal("project"), scopeRef: z.string().min(1) };
+const projectPlaceShape = {
+  scope: z.literal("project"),
+  scopeRef: z.string().min(1).max(FILE_PATH_MAX_LEN),
+};
 const sharedPlaceShape = { scope: z.literal("shared") };
 
 /** One secret as the chooser lists it: its place and name, and never its value. */
@@ -174,7 +178,7 @@ export interface WorkflowSecretListRequest {
 export const WorkflowSecretListRequestSchema: z.ZodType<
   WorkflowSecretListRequest,
   WorkflowSecretListRequest
-> = z.object({ scopeRef: z.string().min(1).optional() }).strict();
+> = z.object({ scopeRef: z.string().min(1).max(FILE_PATH_MAX_LEN).optional() }).strict();
 
 /** The `workflow.secretList` result: records by name, and no member carries a value. */
 export interface WorkflowSecretListResponse {

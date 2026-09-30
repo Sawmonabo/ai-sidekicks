@@ -39,7 +39,7 @@
 
 import { useCallback } from "react";
 
-import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 import { subjectReadStart, type SubjectRead } from "../../subject-read-start.js";
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
 import type { WorkflowDefinitionRow } from "../definition-rows.js";

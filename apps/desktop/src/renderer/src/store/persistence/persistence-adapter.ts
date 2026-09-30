@@ -107,8 +107,8 @@ export interface PersistenceAdapter {
    * `keepSessionPartitions` remain, and return how many were dropped.
    *
    * `PERSISTENCE_GLOBAL_PARTITION` is never a candidate. Ordering by recency
-   * would otherwise make it the FIRST casualty — it holds the scheme and the
-   * keybindings, written once at boot and then never again, so it is permanently
+   * would otherwise make it the FIRST casualty — it holds the color scheme, written
+   * once at boot and then never again, so it is permanently
    * the least recently touched partition in the store.
    */
   trimPartitions(keepSessionPartitions: number): Promise<number>;
@@ -156,7 +156,7 @@ export function describeQuotaUnavailability(gauge: QuotaGauge): string | undefin
 
 /**
  * The partition holding preferences that belong to the window rather than to one
- * session (the color scheme, the keybinding overrides). Deliberately a reserved
+ * session (the color scheme). Deliberately a reserved
  * identifier rather than an empty string, so a bug that loses a session id writes
  * somewhere obviously wrong instead of silently into the global bucket.
  */

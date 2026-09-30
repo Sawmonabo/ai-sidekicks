@@ -21,11 +21,8 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import { ModalDialogClaims } from "./modal-dialog-claims.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
-import {
-  UNREPORTED_MAIN_PROCESS_STATE,
-  mainProcessReportsAreEqual,
-  type MainProcessState,
-} from "./main-process-state.js";
+import type { MainProcessState } from "@shared/daemon-status-topic.js";
+import { UNREPORTED_MAIN_PROCESS_STATE, mainProcessReportsAreEqual } from "./main-process-state.js";
 import { DEFAULT_ROUTE, parseRoute, type AppRoute } from "@renderer/routing/routes.js";
 import { routeSessionId, routesAreEqual } from "@renderer/routing/route-readers.js";
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/styles/tokens.js";
@@ -110,8 +107,8 @@ export interface WindowStoreState {
    * store with the main one — has its own bridge and therefore its own
    * report.
    *
-   * `store/window/main-process-state.ts` owns the vocabulary and the two derivations every reader
-   * shares; this store owns the one copy. It is in `store/` rather than in `layout/`
+   * `@shared/daemon-status-topic.ts` owns the vocabulary and `store/window/main-process-state.ts`
+   * the derivations every reader shares; this store owns the one copy. It is in `store/` rather than in `layout/`
    * because the settings pages read it, and a feature may not import `layout/`, which
    * sits above every feature in the import direction.
    */

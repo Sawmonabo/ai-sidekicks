@@ -11,7 +11,7 @@ import {
   UNMATCHED_PREFIX,
   agentPane,
   bridgeEnumerating,
-  composerAgentIds,
+  composerLeadAgentId,
   mountComposer,
   optionNames,
   scenarioBindingGroups,
@@ -47,7 +47,7 @@ describe("CommandList — a cut enumeration is said, not treated as all of it", 
     // about a search that never reached the entries it would have matched.
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([await addressedGroupWith({ complete: false })]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, UNMATCHED_PREFIX);
@@ -66,7 +66,7 @@ describe("CommandList — a cut enumeration is said, not treated as all of it", 
     // half of the same defect: the line renders whether the filter matched or not.
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([await addressedGroupWith({ complete: false })]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, "/");
@@ -80,7 +80,7 @@ describe("CommandList — a cut enumeration is said, not treated as all of it", 
     // the empty claim at all, or that announced a truncation on every served read.
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([await addressedGroupWith({ complete: true })]),
-      focusedPane: agentPane(composerAgentIds()[0]!),
+      focusedPane: agentPane(composerLeadAgentId()),
     });
 
     await typeIntoLine(mounted.line, UNMATCHED_PREFIX);

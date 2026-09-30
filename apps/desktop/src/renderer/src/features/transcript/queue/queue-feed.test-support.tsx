@@ -37,6 +37,7 @@ export function queueRow(
     id,
     state,
     priority: 0,
+    content: "Also run the linter",
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt,
   });

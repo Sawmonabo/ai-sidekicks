@@ -1,7 +1,7 @@
 // The one manifest row the artifacts suites are drawn against, and the served manifest it
 // is read from. One module for both, so the suites share one fixture.
 
-import type { ArtifactManifest } from "@ai-sidekicks/contracts";
+import type { ArtifactId, ArtifactManifest } from "@ai-sidekicks/contracts";
 
 import { SESSION_ID } from "./artifact-list-readers.js";
 import type { ArtifactManifestRow } from "@renderer/features/inspector/artifacts/artifact-model.js";
@@ -13,9 +13,10 @@ const ARTIFACT_RUN_ID = "019b7b30-0280-7c11-8420-b1a5c0de2202";
 export const ARTIFACT_PRODUCER_ID = "019b7b30-0280-7c11-8420-b1a5c0de2203";
 
 /** One published file artifact, with whatever a case cares about replaced. */
-export function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
+export function artifactRow(
+  overrides: Partial<Omit<ArtifactManifestRow, "id">> & { readonly id?: string } = {},
+): ArtifactManifestRow {
   return {
-    id: "artifact-01",
     sessionId: SESSION_ID,
     runId: ARTIFACT_RUN_ID,
     createdBy: ARTIFACT_PRODUCER_ID,
@@ -27,6 +28,7 @@ export function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): Artif
     metadata: {},
     createdAt: "2026-01-01T09:00:00.000Z",
     ...overrides,
+    id: (overrides.id ?? "artifact-01") as ArtifactId,
   };
 }
 

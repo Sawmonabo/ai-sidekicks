@@ -159,10 +159,10 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * The five code-token kinds that carry a color of their own.
+ * The four code span classes that carry a color of their own; a comment is an alias.
  *
  * HERE RATHER THAN IN THE TRANSCRIPT'S OWN SHEET, and the reason is measurement. These
- * five and the twelve ANSI ones below were hand-written `oklch()` literals in
+ * and the twelve ANSI ones below were hand-written `oklch()` literals in
  * `features/transcript/transcript.css`, outside every guarantee this module exists to make — and both
  * consequences were invisible: nothing fitted them into the sRGB gamut, so seven of
  * the thirty-four requests were remapped by the browser to a color no file states,
@@ -186,7 +186,6 @@ export const CODE_TOKENS: Readonly<Record<string, SchemePair>> = {
   "code-name": { light: oklch(0.44, 0.1, 250), dark: oklch(0.82, 0.09, 250) },
   "code-string": { light: oklch(0.42, 0.1, 150), dark: oklch(0.83, 0.1, 150) },
   "code-number": { light: oklch(0.45, 0.11, 45), dark: oklch(0.83, 0.1, 60) },
-  "code-type": { light: oklch(0.45, 0.09, 200), dark: oklch(0.83, 0.08, 200) },
 };
 
 /**
@@ -235,8 +234,6 @@ export const ANSI_TOKENS: Readonly<Record<string, SchemePair>> = {
 export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
   "code-plain": "text",
   "code-comment": "text-faint",
-  "code-operator": "text-muted",
-  "code-invalid": "red-text",
   "ansi-default-foreground": "text",
   "ansi-default-background": "surface-sunken",
   "ansi-black": "text-faint",

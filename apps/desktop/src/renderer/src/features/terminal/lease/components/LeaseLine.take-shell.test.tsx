@@ -38,7 +38,7 @@ describe("the take control", () => {
   it("negative control: a hold this device does not have calls acquire", () => {
     const take = vi.fn();
     const { container } = renderLease(
-      leaseState({ holding: "held-by-another-device", holderUserId: OTHER_DEVICE_ID }),
+      leaseState({ holding: "held-by-another-device", holderDeviceId: OTHER_DEVICE_ID }),
       { isInFlight: false, take },
     );
     fireEvent.click(takeShellButton(container));

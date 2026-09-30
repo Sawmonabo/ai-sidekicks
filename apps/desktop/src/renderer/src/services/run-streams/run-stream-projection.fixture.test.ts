@@ -96,7 +96,7 @@ describe("run-stream projection — which subscriptions it answers for", () => {
 describe("run-stream projection — the optional members a beat supplies", () => {
   it("carries them through rather than flattening them", () => {
     const beat = runTransitionBeat(
-      transitionPayload({ completionKind: "turn", internalHelper: true }),
+      transitionPayload({ completionKind: "turn", trigger: "budget_exhausted" }),
     );
     const projection = projectRunStreamDelivery(RUN_STATE_EVENT_STREAM, beat.event);
 
@@ -106,7 +106,7 @@ describe("run-stream projection — the optional members a beat supplies", () =>
     }
     const parsed = RunStateChangeEventSchema.parse(projection.delivery);
     expect(parsed.completionKind).toBe("turn");
-    expect(parsed.internalHelper).toBe(true);
+    expect(parsed.trigger).toBe("budget_exhausted");
   });
 
   it("negative control: one the beat omits is absent, not defaulted", () => {
@@ -122,8 +122,7 @@ describe("run-stream projection — the optional members a beat supplies", () =>
     }
     const parsed = RunStateChangeEventSchema.parse(projection.delivery);
     expect(parsed.completionKind).toBeUndefined();
-    expect(parsed.trigger).toBeUndefined();
-    expect("internalHelper" in parsed).toBe(false);
+    expect("trigger" in parsed).toBe(false);
   });
 });
 
@@ -190,7 +189,7 @@ describe("run-stream projection — an optional the registered shape rejects", (
       runId: PROBE_RUN_ID,
       runVersion: 4,
       previousState: "starting",
-      currentState: "running",
+      newState: "running",
       timestamp: beat.event.occurredAt,
     });
   });
@@ -263,6 +262,7 @@ const PROBE_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1150092";
 const PROBE_QUEUE_ROW: Readonly<Record<string, unknown>> = {
   id: PROBE_QUEUE_ITEM_ID,
   priority: 0,
+  content: "Also run the linter",
   createdAt: "2026-01-01T14:20:00.420Z",
 };
 
@@ -356,7 +356,7 @@ describe("run-stream projection — a member it will not compose", () => {
 
   it("refuses a state the registered vocabulary does not carry", () => {
     // `run.started` reads exactly like a real transition and names a state that does
-    // not exist. Admitted, it would reach a view as a `currentState` typed at a
+    // not exist. Admitted, it would reach a view as a run state typed at a
     // union it is not a member of.
     const unregistered = projectRunStreamDelivery(
       RUN_STATE_EVENT_STREAM,

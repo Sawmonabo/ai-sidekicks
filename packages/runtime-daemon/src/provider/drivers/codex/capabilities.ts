@@ -393,6 +393,7 @@ function declaredCodexModel(
     name,
     capabilities: freezeDeclaredModelArray([]),
     effortLevels: freezeDeclaredModelArray([...effortLevels]),
+    fast: true,
   });
 }
 
@@ -454,6 +455,10 @@ const CODEX_BASE_EFFORT_LEVELS: readonly string[] = Object.freeze([
  *                     no thread is started and nothing is billed.
  *   Trust           : Verified at 0.150.1. Every id, name, and effort level
  *                     below is a reading, not an illustration.
+ *   Fast            : Every row is `fast`. The 0.150.1 recording copied no
+ *                     service-tier list; the `model/list` reads at 0.155.1
+ *                     (2026-09-19) and 0.159.2 (2026-09-30) gave every listed
+ *                     model the one `priority` tier Codex names `Fast`.
  *
  * WHY A DECLARATION EXISTS AT ALL: see the sibling Claude catalog's note. The
  * read is admissible, so {@link CodexModelCatalogExchange} is the preferred
@@ -524,7 +529,7 @@ function readNonEmptyCodexString(source: Record<string, unknown>, key: string): 
  * Normalize one `model/list` reply into the contract's model shape.
  *
  * STRICT, not tolerant — the accepted shape is the one the pinned build
- * answers and nothing else. Four rules the wire forces:
+ * answers and nothing else. Five rules the wire forces:
  *
  *   1. **A paginated reply REFUSES.** `nextCursor` is `null` at the pin. A
  *      non-null cursor means this page is not the catalog, and answering the
@@ -548,6 +553,9 @@ function readNonEmptyCodexString(source: Record<string, unknown>, key: string): 
  *      stating absence and refusing it would cost the WHOLE catalog — this
  *      normalizer throws for the entire reply on any entry fault, so a single
  *      odd field would become a total loss of model listing.
+ *   5. **`fast` is a non-empty `serviceTiers` list**, on the same terms: an
+ *      absent or `null` list is no fast mode, and a present list that is not
+ *      an array refuses.
  */
 export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
   if (typeof payload !== "object" || payload === null) {
@@ -587,7 +595,22 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
     if (displayName === undefined) {
       throw new CodexModelCatalogUnreadableError(`model '${id}' has no \`displayName\``);
     }
-    const model: ProviderModel = { id, name: displayName, capabilities: [] };
+    const rawServiceTiers = entry["serviceTiers"];
+    if (
+      rawServiceTiers !== undefined &&
+      rawServiceTiers !== null &&
+      !Array.isArray(rawServiceTiers)
+    ) {
+      throw new CodexModelCatalogUnreadableError(
+        `model '${id}' has an unreadable \`serviceTiers\``,
+      );
+    }
+    const model: ProviderModel = {
+      id,
+      name: displayName,
+      capabilities: [],
+      fast: Array.isArray(rawServiceTiers) && rawServiceTiers.length > 0,
+    };
     const rawEfforts = entry["supportedReasoningEfforts"];
     if (rawEfforts !== undefined && rawEfforts !== null && !Array.isArray(rawEfforts)) {
       throw new CodexModelCatalogUnreadableError(
@@ -642,6 +665,7 @@ export async function resolveCodexModelCatalog(
       id: model.id,
       name: model.name,
       capabilities: [...model.capabilities],
+      fast: model.fast,
       ...(model.effortLevels === undefined ? {} : { effortLevels: [...model.effortLevels] }),
     }));
   }

@@ -1,11 +1,9 @@
 // One worktree row of `repo.worktreeStatusRead`, drawn.
 //
 // THIS CARD'S DENSITY, stated where it is obeyed: each list shows state, branch, root,
-// and age, and the provenance and cleanup columns collapse behind a row disclosure.
-// That is the whole shape of this card, and the split is deliberate
-// rather than a layout convenience — provenance is what a retired row still has to
-// prove, so it is one interaction away and never dropped — secondary controls live one
-// click away, applied to a column set.
+// and age, and the provenance columns collapse behind a row disclosure. That is the
+// whole shape of this card — secondary facts live one click away, applied to a column
+// set.
 //
 // THE DISCLOSURE IS A NATIVE `<details>`. Keyboard reachable, labeled, and
 // focus-visible without a line of code, and — the reason that matters more than the
@@ -13,8 +11,7 @@
 // be per-row state beside the session store for a fact the platform already keeps,
 // and a list of them would re-render on every toggle.
 //
-// EVERY COLUMN IS THE WIRE'S OWN STRING. Ten columns, and the card computes none of
-// them: `execution-root-model.ts` says why (no derived branch name, no derived checkout
+// EVERY COLUMN IS THE WIRE'S OWN STRING, and the card computes none of them: `execution-root-model.ts` says why (no derived branch name, no derived checkout
 // root, no snapshot refs in a branch column). The one reading the card DOES derive
 // is the age, which is two instants the console holds put through
 // `formatRelativeTime` — and the exact stamp rides the same element's `title`, so
@@ -36,18 +33,15 @@ import "./execution-root-cards.css";
 
 import { useId } from "react";
 
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts";
+
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatRelativeTime } from "@renderer/lib/wire-figures.js";
-import {
-  WORKTREE_DISK_DISPOSITION_COPY,
-  WORKTREE_STATE_PRESENTATION,
-  worktreeDiskDisposition,
-  type WorktreeStatusRecord,
-} from "../execution-root-model.js";
+import { WORKTREE_STATE_PRESENTATION } from "../execution-root-model.js";
 import {
   WORKTREE_COLUMN_LABELS,
   WORKTREE_DETAIL_COLUMNS,
@@ -71,7 +65,6 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
   const { record, nowMilliseconds } = props;
   const headingId = useId();
   const statePresentation = WORKTREE_STATE_PRESENTATION[record.state];
-  const disposition = worktreeDiskDisposition(record);
 
   return (
     <article className="meridian-root-card" aria-labelledby={headingId}>
@@ -114,15 +107,8 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
         </div>
       </dl>
 
-      {disposition === "live" ? null : (
-        <p className="meridian-root-card__disposition">
-          <Glyph name={disposition === "reclaimed" ? "check" : "clock"} size={GLYPH_SIZE_CHROME} />
-          {WORKTREE_DISK_DISPOSITION_COPY[disposition]}
-        </p>
-      )}
-
       <details className="meridian-root-card__detail">
-        <summary className="meridian-root-card__detail-summary">Provenance and cleanup</summary>
+        <summary className="meridian-root-card__detail-summary">Provenance</summary>
         <dl className="meridian-root-card__detail-list">
           {WORKTREE_DETAIL_COLUMNS.map((column) => {
             const cell = worktreeColumnCell(record, column);

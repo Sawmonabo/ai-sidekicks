@@ -12,6 +12,7 @@
 // class rather than about the fixture being noisy.
 
 import { beforeEach, describe, expect, it } from "vitest";
+import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
@@ -253,5 +254,55 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     // here would make every advance a no-op that the assertions would not notice.
     const { engine } = createHarness();
     expect(engine.clock).toBeInstanceOf(ManualClock);
+  });
+});
+
+describe("SessionEventSubscriber — the request each stream is opened with", () => {
+  /** A subscriber over the fixture bridge that keeps each request a stream was opened with. */
+  function recordingRequests(): {
+    readonly registry: SessionStoreRegistry;
+    readonly binder: SessionEventSubscriber;
+    readonly requests: unknown[];
+  } {
+    const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
+      scenario: CONCURRENT_STREAMING_SCENARIO,
+    });
+    const requests: unknown[] = [];
+    const bridge = withDaemonSubscribe(base, (passThrough, _handler, request) => {
+      requests.push(request);
+      return passThrough();
+    });
+    const registry = new SessionStoreRegistry({
+      read: () => Promise.resolve(undefined),
+      clock: engine.clock,
+    });
+    return { registry, binder: new SessionEventSubscriber({ registry, bridge }), requests };
+  }
+
+  it("opens a session's stream scoped to that session", () => {
+    const { registry, binder, requests } = recordingRequests();
+    binder.attach();
+    registry.open(SESSION_ID);
+
+    expect(requests).toStrictEqual([{ sessionId: SESSION_ID }]);
+    expect(binder.boundSessionIds).toEqual([SESSION_ID]);
+
+    binder.dispose();
+  });
+
+  it("opens no stream for an id the daemon does not admit, and marks the session", () => {
+    // A route address typed by hand reaches the registry as it was typed. The daemon
+    // would refuse the request, so nothing is opened, nothing is retried, and the
+    // session shows the stream it does not have.
+    const { registry, binder, requests } = recordingRequests();
+    binder.attach();
+    registry.open("not-a-session-id");
+
+    expect(requests).toStrictEqual([]);
+    expect(binder.boundSessionIds).toEqual([]);
+    expect(binder.unboundSessionIds).toEqual([]);
+    expect(registry.peek("not-a-session-id")?.snapshot().degradedCause).toBe("subscription-closed");
+
+    binder.dispose();
   });
 });

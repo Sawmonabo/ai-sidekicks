@@ -18,7 +18,7 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { withDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { NewSessionControl } from "./NewSessionControl.js";
-import { CREATED_SESSION_ID } from "../new-session-draft.test-support.js";
+import { CREATED_SESSION_ID, NEW_SESSION_LEAD } from "../new-session-draft.test-support.js";
 import {
   CREATE_REPLY,
   REJECTING_FIRST_TURN,
@@ -266,6 +266,7 @@ describe("the composed new-session draft — the transport it would send through
         <NewSessionControl
           bridge={retired.bridge}
           queueFirstTurn={REJECTING_FIRST_TURN}
+          lead={NEW_SESSION_LEAD}
           onSessionCreated={recordNothing}
           onSessionDirectoryRecheck={recordNothing}
         />
@@ -278,6 +279,7 @@ describe("the composed new-session draft — the transport it would send through
         <NewSessionControl
           bridge={live.bridge}
           queueFirstTurn={REJECTING_FIRST_TURN}
+          lead={NEW_SESSION_LEAD}
           onSessionCreated={recordNothing}
           onSessionDirectoryRecheck={recordNothing}
         />
@@ -303,6 +305,7 @@ describe("the composed new-session draft — the transport it would send through
         <NewSessionControl
           bridge={composed.bridge}
           queueFirstTurn={REJECTING_FIRST_TURN}
+          lead={NEW_SESSION_LEAD}
           onSessionCreated={recordNothing}
           onSessionDirectoryRecheck={recordNothing}
         />

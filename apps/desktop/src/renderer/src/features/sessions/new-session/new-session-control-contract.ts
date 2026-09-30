@@ -11,6 +11,7 @@
 // names a store or a route the draft does not hold.
 // The draft knows the id and stops there; a control that carried the settlement itself
 // would be a second copy of an act that already has one home.
+import type { AgentProviderBinding } from "@ai-sidekicks/contracts";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**
@@ -35,6 +36,12 @@ export interface NewSessionControlProps {
   readonly bridge: PlatformBridge;
   /** The call the send makes once the session exists, to queue the first message. */
   readonly queueFirstTurn: FirstTurnQueueCall;
+  /**
+   * The lead a new session starts on: its provider, model, account and effort. The control
+   * offers no model or effort choice of its own, so the composition that mounts it names
+   * the lead, and a draft opened later starts on the lead named then.
+   */
+  readonly lead: AgentProviderBinding;
   /**
    * The session a completed send produced, told once, at the moment it completed.
    *

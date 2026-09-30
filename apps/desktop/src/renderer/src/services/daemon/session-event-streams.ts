@@ -1,7 +1,7 @@
 // What a `daemon.subscribe` name delivers: the closed set of registered STREAMS and
 // the routing every subscription in the renderer goes through.
 //
-// `daemon.subscribe(name, handler)` names either a registered STREAM or a single
+// `daemon.subscribe(name, request, handler)` names either a registered STREAM or a single
 // event type, and the two answer differently — a stream delivers a projection of
 // many kinds, an event type delivers only its own. Both sides of that seam read this
 // module: `frame/session/session-event-binder.ts` passes a stream name to `daemon.subscribe`,
@@ -21,12 +21,13 @@
 //
 // WHERE THE ROWS COME FROM. Each row is a subscription the corpus registers:
 //
-//   • `session.subscribe` — the replay-then-tail stream of the WHOLE session
-//     (one long-lived `LocalSubscriptionConsumer<EventEnvelope>` row). Every
-//     kind the session emits reaches it.
-//   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`.
+//   • `session.subscribe` — the replay-then-tail stream of the WHOLE session,
+//     delivered as frames of its events, each carrying the event's envelope and
+//     cursor. Every kind the session emits reaches it.
+//   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`
+//     and Codex's live safety hold, which no session row carries.
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection.
-//   • `presence.subscribe` — the machine's in-memory presence register, which is the
+//   • `presence.subscribe` — the devices connected to this machine, which is the
 //     one row here that is not a session-event stream and is registered anyway: it
 //     IS a `daemon.subscribe` name, and a table that held every OTHER name left this
 //     one falling through to the bare-event-type arm, where it matched the kind
@@ -60,13 +61,11 @@ export const RUN_STATE_EVENT_STREAM = "run.subscribeState";
 export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
 
 /**
- * The registered subscription name for a session's Awareness room.
+ * The registered subscription name for the devices connected to this machine.
  *
  * Declared here for the reason the three above are: this module is the one place that
  * says what a `daemon.subscribe` name delivers, and a second spelling of a subscribe
- * name is the drift it exists to end. Two console views answer this push with two
- * different reads — who is present, and what they are doing — and neither opens its
- * payload.
+ * name is the drift it exists to end. It belongs to the machine, not to a session.
  */
 export const PRESENCE_EVENT_STREAM = "presence.subscribe";
 
@@ -97,24 +96,23 @@ export interface NarrowedSessionEventStream {
 }
 
 /**
- * A stream whose deliveries are CHANGE SIGNALS rather than frames.
+ * A stream whose deliveries are the machine's device list rather than frames.
  *
- * It carries no session-event kind: what reaches a subscriber is that the register
- * moved, and the reading comes from the register's own read. A separate scope rather
- * than a narrowed stream with a flag, because the two answer a subscriber differently
- * at the delivery seam — `scenario-subscriptions.fixture.ts` routes on exactly this
- * discriminant — and a flag on the narrowed row would have to be read by everything
- * that handles one.
+ * It carries no session-event kind: each delivery is the whole list of devices
+ * connected to the machine. A separate scope rather than a narrowed stream with a
+ * flag, because the two answer a subscriber differently at the delivery seam —
+ * `scenario-subscriptions.fixture.ts` routes on exactly this discriminant — and a
+ * flag on the narrowed row would have to be read by everything that handles one.
  */
-export interface AwarenessSignalStream {
-  readonly scope: "awareness-signal";
+export interface MachinePresenceStream {
+  readonly scope: "machine-presence";
 }
 
 /** One registered subscription this console opens. */
 export type SessionEventStream =
   | WholeSessionEventStream
   | NarrowedSessionEventStream
-  | AwarenessSignalStream;
+  | MachinePresenceStream;
 
 /**
  * One registered stream name — the four declarations above, read as a type.
@@ -153,7 +151,7 @@ export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, Sess
       carriedKinds: RUN_QUEUE_STREAM_CARRIED_KINDS,
     } satisfies SessionEventStream),
     [PRESENCE_EVENT_STREAM]: Object.freeze({
-      scope: "awareness-signal",
+      scope: "machine-presence",
     } satisfies SessionEventStream),
   });
 
@@ -173,8 +171,8 @@ export function sessionEventStreamFor(subscriptionName: string): SessionEventStr
  * serve and what keeps an unnoticed misspelling from quietly reading as an empty
  * session.
  *
- * The awareness row bears on no session-event kind: its subscriber is handed a
- * payload-free signal by the serving seam, never a frame.
+ * The presence row bears on no session-event kind: its subscriber is handed the
+ * machine's device list by the serving seam, never a frame.
  */
 export function subscriptionDeliversEventKind(
   subscriptionName: string,
@@ -187,7 +185,7 @@ export function subscriptionDeliversEventKind(
   if (stream.scope === "whole-session") {
     return true;
   }
-  if (stream.scope === "awareness-signal") {
+  if (stream.scope === "machine-presence") {
     return false;
   }
   return stream.carriedKinds.includes(eventKind);
