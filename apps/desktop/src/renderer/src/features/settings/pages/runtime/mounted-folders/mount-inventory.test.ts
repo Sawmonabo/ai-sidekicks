@@ -26,11 +26,9 @@ import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 /**
  * Let the scheduler's in-flight read settle without advancing the clock.
  *
- * One turn of the macrotask queue rather than a counted run of microtask flushes:
- * this read awaits a list, then a `Promise.allSettled` over as many mounts as the
- * cap admits, so the number of microtask ticks it takes is a function of the
- * fixture rather than a constant, and a counted flush would pass on two mounts and
- * silently under-settle on twenty.
+ * One macrotask turn, not a counted run of microtask flushes: the read awaits a list, then
+ * a `Promise.all` over as many mounts as the cap admits, so the tick count depends on the
+ * fixture and a counted flush would under-settle on twenty mounts.
  */
 async function settle(): Promise<void> {
   await new Promise((resolve) => {
@@ -41,8 +39,7 @@ async function settle(): Promise<void> {
 /**
  * Plain stubs for the two calls, and the record of what was asked.
  *
- * The CALLS are stubbed and the inventory is real — the module under test composes
- * the two, and that composition is what is being asserted.
+ * The calls are stubbed and the inventory is real, since the composition is what is asserted.
  */
 function callsAnswering(options: { readonly mountIds: readonly string[] }): {
   calls: MountInventoryCalls;
@@ -69,9 +66,8 @@ describe("distinct mount ids", () => {
   });
 
   it("negative control: reply order alone would not be stable", () => {
-    // The sort is the claim. Two replies listing the same mounts in different
-    // orders must produce one row order, or a row moves when an unrelated
-    // workspace is created.
+    // The sort is the claim: two replies listing the same mounts in different orders must
+    // give one row order, or a row moves when an unrelated workspace is created.
     const first = distinctMountIds(workspaceListWith([MOUNT_B, MOUNT_A]));
     const second = distinctMountIds(workspaceListWith([MOUNT_A, MOUNT_B]));
     expect(first).toStrictEqual(second);
@@ -157,8 +153,8 @@ describe("mount inventory read", () => {
   });
 
   it("opens no subscription where this window has no store for the session", async () => {
-    // The one honest absence left: no store open means no stream to bind. What must
-    // still hold is that nothing is armed behind the page once it leaves.
+    // No store open means no stream to bind; what must still hold is that nothing is armed
+    // behind the page once it leaves.
     const clock = new ManualClock();
     const { calls } = callsAnswering({ mountIds: [MOUNT_A] });
     const read = createMountInventoryRead({
@@ -178,11 +174,10 @@ describe("mount inventory read", () => {
 });
 
 /**
- * The signals the section names, bound to the stream the console already has open.
+ * The refresh signals, bound to the stream the console already has open.
  *
- * Every case drives the REAL store and the real signal filter — the read under test
- * is what composes them — so a re-read counted here is one the page would have
- * performed in a window.
+ * Every case drives the real store and signal filter, so a re-read counted here is one a
+ * window would perform.
  */
 describe("what refreshes the inventory", () => {
   /** A started read over one mount, already settled on its first reading. */
@@ -230,8 +225,8 @@ describe("what refreshes the inventory", () => {
   });
 
   it("costs one re-read for a burst, never one per event", async () => {
-    // The coalescing claim, counted rather than assumed: three mount-affecting
-    // events inside one window are one inventory read on the other side of it.
+    // Counted, not assumed: three mount-affecting events inside one window are one
+    // inventory read after it.
     const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
@@ -248,8 +243,8 @@ describe("what refreshes the inventory", () => {
   });
 
   it("negative control: an event outside the watched set refreshes nothing", async () => {
-    // Without this the cases above would pass over a read that re-read on every
-    // store transition, which is a poll wearing a subscription's clothes.
+    // Without this the cases above would pass over a read that re-read on every store
+    // transition, which is a poll.
     const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
@@ -262,9 +257,8 @@ describe("what refreshes the inventory", () => {
   });
 
   it("negative control: the same event refreshes nothing when no store was handed over", async () => {
-    // The store IS the signal. Without one the read is focus-driven, which is the
-    // state this case pins so the binding above cannot be mistaken for something
-    // the read does on its own.
+    // The store is the signal; without one the read is focus-driven. This pins that so the
+    // binding above is not mistaken for something the read does on its own.
     const sessionStore = initializedStore(SESSION_ID);
     const { clock, read, listCallCount } = await startedRead(undefined);
 

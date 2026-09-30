@@ -33,9 +33,8 @@ export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse 
 }
 
 /**
- * How the lifecycle axis is toned. A PRESENTATION of the daemon's own value and
- * never a verdict: the value renders verbatim beside the tone, so a reader is never
- * shown a color in place of a state name.
+ * How the lifecycle axis is toned: a presentation of the daemon's value, never a verdict.
+ * The value renders verbatim beside the tone, so a color never stands in for a state name.
  */
 function attachmentTone(mount: RepoMountReadResponse): "neutral" | "attention" {
   return mount.state === "attached" ? "neutral" : "attention";
@@ -44,13 +43,10 @@ function attachmentTone(mount: RepoMountReadResponse): "neutral" | "attention" {
 /**
  * The same, for the health axis. The two are toned independently.
  *
- * THE AXIS IS HEALTH AND NOT REACHABILITY, which is what the chip beside this says
- * too. `RepoMountHealth` carries three verdicts and only one of them is about whether
- * the root could be reached: `identity_mismatch` names a root that WAS reached and is
- * no longer the repository it was attached as, so a label promising reachability would
- * have been a false statement about the value printed next to it. The tone is right on
- * all three — anything but `healthy` is a failure a person has to act on — so this is
- * the name and the label moving to the axis, and no verdict changing.
+ * The axis is health, not reachability: `RepoMountHealth` has three verdicts and only one
+ * is about reachability. `identity_mismatch` names a root that was reached and is no longer
+ * the repository it was attached as. Anything but `healthy` is a failure a person has to
+ * act on.
  */
 function mountHealthTone(mount: RepoMountReadResponse): "neutral" | "failure" {
   return mount.health.status === "healthy" ? "neutral" : "failure";

@@ -3,6 +3,7 @@ import { type SettingsPageMatch } from "../settings-pages.js";
 import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 
+/** Props for {@link SettingsSearchResults}. */
 export interface SettingsSearchResultsProps {
   readonly query: string;
   readonly matches: readonly SettingsPageMatch[];
@@ -10,11 +11,7 @@ export interface SettingsSearchResultsProps {
   readonly onOpenSection: (section: SettingsPageId) => void;
 }
 
-/**
- * Ranked hits, each naming the section it landed in.
- *
- * A miss names the query and what was searched.
- */
+/** Ranked hits, each naming its section; a miss names the query and what was searched. */
 export function SettingsSearchResults(props: SettingsSearchResultsProps): React.JSX.Element {
   if (props.matches.length === 0) {
     return (

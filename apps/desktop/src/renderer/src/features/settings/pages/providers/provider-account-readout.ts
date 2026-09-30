@@ -1,14 +1,8 @@
 // What a watcher of the account-plane reading sees, and the parts it is made of.
 //
-// THE SHAPE, NOT THE WIRE. This module declares what every view in the window
-// renders from the account plane: the quota rows, the registry's whole account list and
-// its readiness projection — three folds of one reply. It opens no tail and
-// takes no read.
-//
-// PURE, AND THAT IS THE POINT. Composition takes the fold, the delivery arm, the read
-// state and the readiness projection and returns one object; it reads no field of the
-// reading and calls nothing back, so what a watcher sees is decided in one place a
-// test can drive with no bridge.
+// This declares what every view in the window renders from the account plane: the quota rows,
+// the registry's account list and its readiness projection, three folds of one reply. It is
+// pure: composition opens no tail, takes no read, and calls nothing back.
 
 import type {
   ProviderAccount,
@@ -33,57 +27,43 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
   /**
    * Every account the registry carries, `accountId` to `displayLabel`.
    *
-   * The same read and the same tail that feed the quota rows, folded a second way
-   * rather than fetched a second time: any view that names a paying account holds
-   * the daemon-minted handle and needs the operator's word for it, and this window
-   * has exactly one reader of the account plane. Empty until the read has served,
-   * which is what makes a missing entry mean "not read" rather than "no such
-   * account" — a consumer renders nothing for one rather than falling back to the
-   * handle.
+   * Folded from the same read and tail as the quota rows, so a view naming a paying account
+   * needs no second fetch. Empty until the read has served: a missing entry means "not
+   * read", not "no such account", and a consumer renders nothing for one rather than
+   * falling back to the handle.
    */
   readonly accountLabels: ReadonlyMap<string, string>;
   /**
    * Every account the registry carries, whole, in the order the daemon sent them.
    *
-   * THE REGISTRY HAS ONE READER IN THIS WINDOW AND THIS IS IT. A settings screen
-   * listing the accounts asks the same question of the same wire as the chips do —
-   * `providerAccount.list` answers with the accounts, the readiness projection, and
-   * the durable quota rows in one snapshot — so a page that took its own read would be
-   * a second reading of one registry: two arrival orders, and no way to say which was
-   * right when a removal or a token registration reached one of them first. Empty
-   * until the read has served, which is what makes an absent row mean "not read"
-   * rather than "no such account".
+   * This window has one reader of the registry. `providerAccount.list` answers with the
+   * accounts, the readiness projection and the quota rows in one snapshot, so a page taking
+   * its own read would be a second reading of one registry with a second arrival order.
+   * Empty until the read has served, so an absent row means "not read".
    */
   readonly accounts: readonly ProviderAccount[];
   /**
-   * What run admission would answer for each provider, as the last READ computed it.
+   * What run admission would answer for each provider, as the last read computed it.
    *
-   * READ-TIME AND DELIBERATELY NOT FOLDED FROM THE TAIL. The projection is the
-   * daemon's, derived by the same resolution the spawn path performs, and the
-   * subscription carries no readiness frame at all — so this is what the newest served
-   * read said and never a value this console re-derived from an account row it saw
-   * change. What keeps it current is a re-read, which is why a settled sign-in asks
-   * for one.
+   * Read-time, not folded from the tail: the projection is the daemon's, derived by the same
+   * resolution the spawn path performs, and the subscription carries no readiness frame. A
+   * re-read keeps it current, which is why a settled sign-in asks for one.
    */
   readonly readiness: readonly ProviderReadiness[];
   /**
    * The quota rows the fold currently holds, one per `(accountId, limitId)`.
    *
-   * The wire rows, for the view that renders a window's own members — its source, its
-   * reset horizon, the generation it was observed under. SUPERSEDED ALREADY, which is a contract and not a convenience: a
-   * consumer renders these as they came and folds them no further, because a second
-   * supersession rule downstream of the first does not stay in step with it and the
-   * disagreement is invisible — both views render.
+   * The wire rows, already superseded: a consumer renders them as they came and folds them
+   * no further, because a second supersession rule downstream would drift from the first
+   * with both views still rendering.
    */
   readonly usageWindows: readonly ProviderAccountUsageWindow[];
   /**
    * The newest brokered sign-in the tail reported finished, correlated by `attemptId`.
    *
-   * A REPORT AND NEVER A VERDICT. The registered contract is explicit that this says
-   * the provider's flow ended and not that the account is authenticated; what it is
-   * good for is the view that STARTED an attempt and has to know its flow is over,
-   * because a refused cancellation establishes nothing and that view would otherwise
-   * hold its single-flight claim for the life of the window.
+   * A report, never a verdict: the provider's flow ended, not necessarily authenticated. The
+   * view that started an attempt needs it to release its single-flight claim, since a
+   * refused cancellation establishes nothing.
    */
   readonly newestLoginCompletion: ProviderLoginCompletion | undefined;
 }
@@ -96,31 +76,28 @@ export interface ProviderAccountDeliveryReading {
   readonly newestLoginCompletion: ProviderLoginCompletion | undefined;
 }
 
-/** The four things a readout is composed from, named so no caller passes a reading. */
+/** The things a readout is composed from, named so no caller passes a reading. */
 export interface ProviderAccountReadoutParts {
   /** Which reading is current for each key, and every account the registry carries. */
   readonly fold: ProviderAccountFold;
   /**
    * What the deliveries carry that the fold does not hold.
    *
-   * The delivery READING rather than one hand-picked member of it: the tail contributes
-   * two things a view renders and neither belongs to the fold, so a signature naming
-   * one of them would have to be widened by every later one — and the composer would
-   * then be the place a reader has to look to find out what a tail can say.
+   * The whole delivery reading rather than one member of it, so a later tail member does
+   * not widen the composer's signature.
    */
   readonly deliveries: ProviderAccountDeliveryReading;
   /** How the newest read went, from the reading's own lifecycle. */
   readonly readState: WireReadState;
-  /** The projection the newest SERVED read carried. Never folded from the tail. */
+  /** The projection the newest served read carried. Never folded from the tail. */
   readonly readiness: readonly ProviderReadiness[];
 }
 
 /**
  * Compose one readout.
  *
- * The two spreads go FIRST so a member either of them carries cannot be silently
- * overwritten by one of the folds below — and neither declares one, which is what
- * keeps that ordering a statement rather than a coincidence.
+ * The two spreads go first so a member either carries cannot be overwritten by the folds
+ * below; neither declares one.
  *
  * @consumedBy the Providers settings page's quota readout
  */

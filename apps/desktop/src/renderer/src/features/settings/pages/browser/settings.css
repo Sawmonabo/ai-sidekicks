@@ -2,12 +2,10 @@
  * The settings page: the policy rows, a switch, a label, and the sentence that says what
  * turning it on stops enforcing.
  *
- * No literal color: every value is read back out of a Meridian custom property, and
- * the two hues are spent only on their one meaning each: amber where a person is
- * needed, red where something failed.
+ * No literal color: every value comes from a Meridian custom property.
  *
- * This sheet enters at `browser-settings-page-body.ts`, the settings page's chunk root,
- * so it travels with the page rather than landing on every launch.
+ * This sheet enters at `browser-settings-page-body.ts`, the chunk root, so it loads with the
+ * page rather than at launch.
  */
 
 /* ------------------------------------------------------------ settings page */
@@ -54,9 +52,8 @@
 }
 
 /*
- * Grid rather than flex: the switch column has to hold one width down the list,
- * or two rows whose labels differ in length put their switches at two positions
- * and the eye reads them as two different controls.
+ * Grid rather than flex: the switch column holds one width down the list, so rows with
+ * different label lengths do not put their switches at different positions.
  */
 .meridian-browser-policy__row {
   display: grid;
@@ -95,8 +92,8 @@
 /* ----------------------------------------------------------------- switch */
 
 /*
- * The Base UI switch under Meridian tokens. The track is a boundary rather than a
- * filled block until it is on, so a page of off switches carries no color at all.
+ * The Base UI switch under Meridian tokens. The track is a boundary, not a filled block,
+ * until it is on.
  */
 .meridian-browser-switch {
   box-sizing: border-box;

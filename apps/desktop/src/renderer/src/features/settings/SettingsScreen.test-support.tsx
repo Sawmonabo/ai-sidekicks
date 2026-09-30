@@ -1,12 +1,5 @@
 // How a case drives the settings screen: the window it is parked in, the mount, and a
-// keystroke into its search field.
-//
-// HOISTED ON THE SECOND SUITE, which is the package's rule. `SettingsScreen.test.tsx`
-// holds the four rules the settings screen enforces, and
-// `SettingsScreen.page-warm.test.ts` holds when this board's deferred pages are
-// fetched — two disjoint claims about one screen, and both need the same window, the
-// same mount, and the same way of typing into the field. Written twice they would drift
-// the first time either grew a member.
+// keystroke into its search field. Shared by two suites that need the same window and mount.
 
 import { act, render } from "@testing-library/react";
 
@@ -24,24 +17,16 @@ import {
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 /**
- * The render a window mounts, taken from the shipped registrar itself.
+ * The render a window mounts, taken from the shipped registrar.
  *
- * Driven THROUGH `registerSettingsScreen` rather than around it. The page set that
- * function composes is closed over and is not a value a suite may reach for, and
- * composing a second one here would be a copy that agrees with the shipped list until
- * someone adds a page to one of them — so claiming the screen and calling back the render
- * it registered is the only reading of "the pages a window renders" that cannot drift.
- * It also makes the screen claim itself a covered fact: a registrar that claimed nothing
- * fails here rather than rendering an empty rail.
+ * Going through `registerSettingsScreen` keeps the page set from being copied here, and
+ * fails a suite if the registrar claims no screen.
  */
 async function loadShippedScreenRender(): Promise<ScreenDescriptor["render"]> {
   const screens = new ScreenRegistry();
   registerSettingsScreen(screens);
-  // The chunk, before the mount — which is what a window does too: the idle warm walks
-  // this board after the first frame, and the rail's press warms the destination before
-  // the route commits. Awaiting the same `preload` here is what makes the cases that
-  // follow assertions about the RAIL rather than about how many turns a dynamic import
-  // takes.
+  // Preload first, as a window does, so cases assert on the rail and not on how many turns
+  // a dynamic import takes.
   await screens.preload("settings");
   const descriptor = screens.descriptorFor("settings");
   if (descriptor === undefined) {
@@ -53,19 +38,10 @@ async function loadShippedScreenRender(): Promise<ScreenDescriptor["render"]> {
 /**
  * That chunk, fetched once per suite and warmed off the per-case clock.
  *
- * THE COST IS REAL AND IT IS NOT WHAT ANY CASE MEASURES. The loader above pulls the
- * settings chunk — a dozen page modules, the combobox stack two of them mount, and the
- * stylesheets they carry — and the first case to await it pays the transform for all of
- * them inside vitest's 5 s per-case default. That is comfortable when a file runs alone
- * and it is not comfortable when the tier runs beside a dozen others on one machine: the
- * first case times out, the render it abandoned keeps its effects, and every case after
- * it fails against a document the aborted one left behind — a dozen failures reported as
- * a dozen defects, none of them real, green standalone and red in the suite.
- *
- * So the fetch is memoized in a holder, and a suite that renders the shipped arm awaits
- * it once in `beforeAll`, where the budget belongs to a hook rather than to an assertion.
- * A class with a private field rather than a module-level `let`, per
- * `apps/desktop/AGENTS.md`.
+ * The first case to await it pays the transform for a dozen page modules and their
+ * stylesheets; under load that exceeds the 5 s per-case default, and the abandoned render
+ * leaves a document that fails every later case. Held in a class field, awaited once in
+ * `beforeAll`.
  */
 class ShippedScreenRenderHolder {
   #fetched: Promise<ScreenDescriptor["render"]> | undefined;
@@ -84,13 +60,11 @@ export function shippedScreenRender(): Promise<ScreenDescriptor["render"]> {
 }
 
 /**
- * Long enough for a cold transform of that chunk on a loaded machine, and no case's.
+ * Long enough for a cold transform of that chunk on a loaded machine.
  *
- * Measured rather than guessed: a suite's own cold run reports ~50 s of transform and
- * import while a dozen sibling suites hold the machine, and about a second when the
- * transform cache is warm. The bound is roughly twice the measured worst case, because
- * it gates nothing — the bundle and endurance tiers own what this chunk may cost — and
- * a bound too tight here reintroduces exactly the cascade it exists to prevent.
+ * A suite's cold run measured about 50 s under load and about 1 s with a warm transform
+ * cache; the bound is roughly twice the worst case. It gates nothing else, so a tight bound
+ * only reintroduces the cascade it prevents.
  */
 export const CHUNK_WARM_TIMEOUT_MS = 120_000;
 
@@ -103,10 +77,8 @@ export interface SettingsWindow {
 /**
  * Open the sessions named, then park on a settings address.
  *
- * The frame store is the REAL one rather than a stub: the retained session is state a
- * route transition writes, so a hand-built object would let a case assert a contract the
- * shipped store does not have — and the projection this screen must NOT read is a getter
- * on that same store, which is what makes the negative control mean something.
+ * The frame store is the real one: a stub could assert a contract the shipped store lacks,
+ * and the negative control reads a getter on it.
  */
 export function windowAt(
   page: string | undefined,
@@ -123,11 +95,8 @@ export function windowAt(
       route: frameStore.getState().route,
       bridge: { source: "fixture" },
       frameStore,
-      // The REAL registry rather than a stub: the screen resolves the retained
-      // session's store through it, so a hand-built object would let a case assert a
-      // resolution the shipped registry does not perform. No session is opened on it
-      // here — a settings window that has opened none is the ordinary case, and it is
-      // the one this harness renders.
+      // The real registry: a stub could assert a resolution the shipped one does not make.
+      // No session is opened on it, the ordinary case for a settings window.
       sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
       chooseScheme: () => undefined,
     } as unknown as ScreenContext,
@@ -137,20 +106,10 @@ export function windowAt(
 /**
  * Render the settings screen the way a window mounts it.
  *
- * The announcer is part of that mount: a settings page that settles an act says so, and
- * `useAnnounce` throws outside the provider deliberately — so a harness that omitted it
- * would fail inside a page and report a missing live region as a broken settings pane.
- *
- * Omitting `pages` renders the shipped composition; passing one renders over the page set
- * the case chose. The two arms are the same screen — the shipped arm reaches it through
- * the registrar, which is the only way the closed-over set is reachable at all.
- *
- * AND IT SETTLES, because the shipped arm is loader-backed. The registrar hands the board
- * an `import()` rather than a component, so what the first commit renders is the screen's
- * reserved frame and the pages arrive a macrotask later. The wait is the console's own
- * boundary rather than a counted number of turns, for the reason
- * `core/settle.test-support.ts` records: a chain that grows one link deeper stops being
- * waited for, and the case then reports the absence of a rail that was still in flight.
+ * The announcer is part of the mount because settings pages announce and `useAnnounce`
+ * throws outside its provider. Omitting `pages` renders the shipped composition through the
+ * registrar. Settles afterward because the shipped arm is loader-backed: the first commit
+ * shows the reserved frame and the pages arrive a macrotask later.
  */
 export async function renderSettingsScreen(
   context: ScreenContext,
@@ -163,8 +122,7 @@ export async function renderSettingsScreen(
       <SettingsScreen context={context} pages={pages} />
     );
   const rendered = render(<LiveAnnouncerProvider>{screenElement}</LiveAnnouncerProvider>);
-  // Even with the module already in hand, the lazy component suspends on its first render
-  // and resumes on the resolved promise, so the body lands one boundary later.
+  // The lazy component suspends on its first render, so the body lands one boundary later.
   await settle();
   return rendered;
 }
@@ -172,13 +130,8 @@ export async function renderSettingsScreen(
 /**
  * Type into the search field the way a person does.
  *
- * The native value setter rather than an assignment, because React reads the input's
- * value through its own descriptor and a plain write is invisible to it.
- *
- * INSIDE `act`, like a press is. The dispatch drives a state write through React's own
- * change handler, and outside React's scope that write is applied without the surrounding
- * commit — so an assertion taken next reads the render before it, and React reports the
- * escape on stderr rather than failing.
+ * Uses the native value setter because React reads the input value through its own
+ * descriptor. Runs inside `act` so the state write is committed before the next assertion.
  */
 export function searchFor(container: HTMLElement, query: string): void {
   const field = container.querySelector(".meridian-settings__search-input");

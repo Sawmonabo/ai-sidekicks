@@ -1,7 +1,6 @@
-// The MCP servers page: the frame only.
-//
-// The server list and its controls are `fixtures/McpFixtureBody.tsx`, which takes its calls
-// as arguments; nothing mounts it until a composition has calls to give.
+// The MCP servers page: the frame only. The server list and its controls are
+// `fixtures/McpFixtureBody.tsx`, which takes its calls as arguments and is not mounted until a
+// composition has calls to give.
 
 import type { ReactNode } from "react";
 

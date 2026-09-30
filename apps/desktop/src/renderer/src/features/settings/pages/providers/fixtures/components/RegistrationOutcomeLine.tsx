@@ -4,12 +4,7 @@ import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { TokenRegistrationOutcome } from "../sign-in-flow.js";
 
-/**
- * What the registration did, and the form's own words where it refused the fields.
- *
- * A module of its own rather than a private declaration beside the form: a `.tsx` file
- * declares exactly one component, private ones counted.
- */
+/** What the registration did, and the form's own words where it refused the fields. */
 export function RegistrationOutcomeLine(props: {
   readonly outcome: TokenRegistrationOutcome;
 }): ReactNode {

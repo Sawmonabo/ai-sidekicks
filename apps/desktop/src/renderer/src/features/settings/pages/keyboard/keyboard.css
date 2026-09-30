@@ -1,15 +1,11 @@
-/* The keyboard page's rows and its controls.
- *
- * A sibling sheet rather than a block appended to `settings.css`: the filter, the row
- * table, the recorder and the two reset controls are all this page's and nothing else
- * draws them. Every value is a Meridian token — the recorder shares the console's one
- * control shape (`agents.css` states it for its own feature's actions) rather than
- * minting a second button that agrees with the first only until one is restyled.
+/* The keyboard page's rows and controls: the page's own sheet, since nothing else draws the
+ * filter, the row list, the recorder or the reset controls. Every value is a Meridian token,
+ * and the recorder shares the console's one control shape (`meridian-action-button`).
  */
 
 /* --- The keyboard map ----------------------------------------------------- */
-/* A scannable list rather than a table: every row carries the same three things,
-   and a chord is read by shape rather than by column position. */
+/* A scannable list rather than a table: every row carries the same three things, and a chord
+   is read by shape rather than by column position. */
 
 .meridian-keymap__filter {
   display: flex;
@@ -72,21 +68,14 @@
   font-size: var(--meridian-text-sm);
 }
 
-/* The meta line carries a command id — a wire figure, which `figure.css` renders
-   verbatim in mono and never truncates — beside the scope sentence. At the 320 px
-   reflow floor the row's column is narrower than that id, and a figure has no break
-   opportunity in it at all, so without a rule here the id sets the row's width and
-   the whole settings pane scrolls sideways (measured: the meta box wanted 190 px of
-   the 170 px the list had).
+/* The meta line carries a command id (a wire figure, rendered verbatim in mono with no break
+   opportunity) beside the scope sentence. At the 320 px reflow floor the column is narrower
+   than the id (measured: the meta box wanted 190 px of the 170 px available), so without a
+   rule here the whole settings pane scrolls sideways.
 
-   `anywhere` and not `break-word`, for `sessions.css`' reason on the identity column:
-   only `anywhere` lowers a box's min-content contribution, and the figure is a flex
-   item here, so only `anywhere` lets its automatic minimum stop being one unbreakable
-   run of the wire's own text. The rule sits on the line and is INHERITED by both
-   children rather than written once per figure — the scope sentence carried it alone
-   before, which moved the overflow one box inward instead of ending it. Wrapping and
-   not an ellipsis: a command id is what a person types into a search or a bug report,
-   and a truncated one is one they have to guess at. */
+   `anywhere`, not `break-word`, because only `anywhere` lowers the flex item's min-content
+   contribution. The rule sits on the line and is inherited by both children. It wraps rather
+   than truncating, since a command id is what a person types into a search or a bug report. */
 .meridian-keymap__meta {
   display: flex;
   flex-wrap: wrap;
@@ -129,9 +118,8 @@
   background: var(--meridian-surface);
 }
 
-/* Armed. The border carries the state as well as the pressed attribute does for a
-   reader, because "press a chord now" is the one moment on this page where the
-   keyboard behaves differently from every other moment. */
+/* Armed. The border carries the state as well as the pressed attribute, since recording is
+   the one moment the keyboard behaves differently from every other. */
 .meridian-keymap__record[aria-pressed="true"] {
   border-color: var(--meridian-accent);
   color: var(--meridian-accent-text);

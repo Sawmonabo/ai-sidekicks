@@ -1,30 +1,15 @@
-// The MCP servers fixture body: the server list, the per-leg disclosure, the tool overrides and
-// the mutation outcomes, drawn from the reading and the calls it is handed.
+// The MCP servers fixture body: the server list, per-leg disclosure, tool overrides and mutation
+// outcomes, drawn from the reading and the calls it is handed.
 //
-// IT AUTHORS NONE OF THE THINGS THE MCP PAGE MUST NOT AUTHOR. It composes no aggregate
-// status — the daemon's arrives on the row and is rendered. It derives no eligibility —
-// every control is offered. It renders no configuration value, environment-variable
-// value, header value, token, or authorization URL — the wire carries names in place of
-// all of them, so there is nothing here to withhold.
+// It authors none of what the MCP page must not: no aggregate status (the daemon's arrives on
+// the row), no derived eligibility (every control is offered), and no configuration, environment,
+// header, token or authorization-URL value (the wire carries names in their place).
 //
-// THE OUTCOME LEDGER IS PER BINDING AND BOUNDED BY THE INVENTORY. One entry per row,
-// keyed by the row's own scope-qualified identity and replaced in place, so a page
-// left open through many presses holds one outcome per binding rather than a growing
-// list of them.
-//
-// AND IT BELONGS TO THE BRIDGE IT WAS PRODUCED THROUGH. The provider replaces the
-// bridge under a live mount — a reconnect, a second window's own instance, the
-// fixture's scenario switch — and it does so IN PLACE, with no remount. A ledger held
-// in ordinary component state survived that, so a settled outcome, or a call still out
-// through the retired transport, rendered beside the replacement's inventory for the
-// same binding and reported that the new transport had applied a mutation
-// it had never been asked to perform. The map therefore rides the console's one
-// subject-scoped holder with the bridge as its subject: it re-seeds DURING the render
-// that first sees a new bridge, so no committed frame carries the previous one's
-// outcomes, and a publisher captured under the retired bridge writes nothing rather
-// than overwriting what the replacement said. The refresh beside the settlement needs
-// no second guard — a superseded read has already been disposed, and a disposed read
-// refreshes nothing.
+// The outcome ledger is one entry per binding, keyed by its scope-qualified identity. It belongs
+// to the bridge it was produced through: the provider replaces the bridge under a live mount in
+// place, so the map rides the subject-scoped holder with the bridge as subject. It re-seeds
+// during the render that first sees a new bridge, and a publisher captured under the retired
+// bridge writes nothing.
 
 import "./mcp-fixture-body.css";
 
@@ -72,18 +57,15 @@ export function McpFixtureBody(props: {
 }): ReactNode {
   const { bridge, operations } = props;
   const mintKey = props.mintKey ?? mintIdempotencyKey;
-  // The scenario's frozen clock under the fixture, the real one otherwise, so a story
-  // advances this read's coalescing window exactly when it advances everything else's.
+  // The scenario's frozen clock under the fixture, the real one otherwise.
   const clock = useClock();
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
-  // No key within the bridge: the ledger is about the whole node's inventory, and the
-  // binding is the key INSIDE the map rather than the subject the map is held under.
+  // No key within the bridge: the binding is the key inside the map.
   const { value: outcomes, publish: publishOutcomes } = useSubjectScopedState<
     ReadonlyMap<string, McpMutationOutcome>
   >(bridge, undefined, () => new Map());
-  // The bridge is a dependency although the read takes none: the clock forwards to
-  // whichever bridge is current, so a read armed under a retired bridge would wait on a
-  // clock nothing advances.
+  // The bridge is a dependency although the read takes none: the clock forwards to the current
+  // bridge, so a read armed under a retired bridge would wait on a clock nothing advances.
   const inventoryRead = useMemo(
     () =>
       createMcpInventoryRead({
@@ -108,10 +90,8 @@ export function McpFixtureBody(props: {
       window.removeEventListener("focus", onWindowFocus);
     };
   }, [inventoryRead]);
-  // A SEPARATE EFFECT rather than a second listener inside the one above, because the
-  // two release differently: the focus listener is the window's and the reconnect
-  // subscription is the transport's, and one cleanup releasing both would be a single
-  // identity for two lifetimes.
+  // Its own effect: the focus listener is the window's and the reconnect subscription is the
+  // transport's, and they release separately.
   useEffect(
     () =>
       bridge.transportReconnect.subscribe(() => {
@@ -120,18 +100,14 @@ export function McpFixtureBody(props: {
     [bridge, inventoryRead],
   );
 
-  // The update FORM rather than a value composed here, for the two reasons the holder
-  // states: two presses settling in one tick would each write the map they read at
-  // render and the second would erase the first, and an update refused because the
-  // bridge has moved is never run at all.
+  // The update form: two presses settling in one tick would each write the map they read at
+  // render and the second would erase the first, and an update refused because the bridge has
+  // moved is never run.
   const recordOutcome = (key: string, outcome: McpMutationOutcome): void => {
     publishOutcomes((held) => new Map(held).set(key, outcome));
   };
-  // A settled mutation answers with the row as it now stands, and this fixture body asks the
-  // daemon again rather than splicing that row into the list it is holding. The reply
-  // is authoritative about the binding it names and says nothing about the others,
-  // and a page that patched one row would be maintaining a second copy of an inventory
-  // whose fold it does not own.
+  // A settled mutation answers with the row as it now stands; this asks the daemon again rather
+  // than patching one row into a list whose fold this page does not own.
   const dispatch = (
     binding: McpServerBindingRef,
     send: (idempotencyKey: string) => Promise<McpMutationOutcome>,

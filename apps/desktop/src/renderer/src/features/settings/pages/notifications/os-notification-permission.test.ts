@@ -1,8 +1,6 @@
-// Overlapping probes of one machine's permission, and which answer is allowed to show.
-//
-// The probes are held by hand so the case decides when each answers. The scheduler means
-// a second reason never becomes a second concurrent call, and the generation latch means
-// a settlement that outlived its round installs nothing.
+// Overlapping probes of one machine's permission, and which answer is allowed to show. The
+// probes are held by hand; the scheduler keeps a second reason from becoming a concurrent call,
+// and the generation latch keeps a settlement that outlived its round from installing.
 
 import { describe, expect, it } from "vitest";
 
@@ -58,9 +56,8 @@ function probeAt(harness: ProbeHarness, index: number): HeldProbe {
 
 describe("the OS permission probe — a stale answer never overwrites a fresh one", () => {
   it("collapses the burst a returning window raises into one probe", () => {
-    // Mount, focus and reconnect all reach `requestRead`, and the scheduler is what
-    // decides what that costs. Without the chokepoint the three would be three probes
-    // in flight together, which is the state the ordering defect lives in.
+    // Mount, focus and reconnect all reach `requestRead`; the scheduler must keep them from
+    // being three concurrent probes.
     const harness = probeHarness();
     harness.read.requestRead("subscribe");
     harness.read.requestRead("window-focus");
@@ -69,12 +66,9 @@ describe("the OS permission probe — a stale answer never overwrites a fresh on
   });
 
   it("puts no second probe on the wire while one is still outstanding", async () => {
-    // THE DEFECT, at its root. Every trigger used to call the port directly, so the
-    // focus a person raises on returning from the operating system's own permission
-    // dialog dispatched a probe beside the one the mount had left outstanding — and
-    // two concurrent probes are what makes an older `denied` able to answer after a
-    // newer `granted`. Through the chokepoint the second reason does not become a
-    // second call at all: it becomes the NEXT one.
+    // Two concurrent probes let an older `denied` answer after a newer `granted`. Returning
+    // from the OS permission dialog raises a focus, which must become the next probe and not a
+    // second concurrent call.
     const harness = probeHarness();
     harness.read.requestRead("subscribe");
     await performScheduledProbe(harness);
@@ -86,10 +80,9 @@ describe("the OS permission probe — a stale answer never overwrites a fresh on
   });
 
   it("shows the answer taken last when a person grants the permission and comes back", async () => {
-    // The sequence both views exist for, end to end: the machine says `denied`
-    // while the window is away, the person grants the permission outside the
-    // application, and the focus that brings them back is what asks again. The reading
-    // that shows is the one taken LAST, which is the whole ordering claim.
+    // The machine says `denied` while the window is away, the person grants the permission
+    // outside the application, and the returning focus asks again; the reading shown is the one
+    // taken last.
     const harness = probeHarness();
     harness.read.requestRead("subscribe");
     await performScheduledProbe(harness);
@@ -109,8 +102,8 @@ describe("the OS permission probe — a stale answer never overwrites a fresh on
   });
 
   it("publishes nothing at all once the view is gone", async () => {
-    // A probe still traveling when the view unmounts. `dispose` supersedes every
-    // round, so its answer finds no key naming its serial.
+    // A probe still traveling when the view unmounts: `dispose` supersedes every round, so its
+    // answer finds no key naming its serial.
     const harness = probeHarness();
     harness.read.requestRead("subscribe");
     await performScheduledProbe(harness);
@@ -123,8 +116,7 @@ describe("the OS permission probe — a stale answer never overwrites a fresh on
   });
 
   it("negative control: a probe nothing superseded does publish", async () => {
-    // Without this the cases above would pass over a reading that published nothing
-    // ever, which is a different defect wearing the same green.
+    // Guards against a reading that never publishes, which would pass the cases above.
     const harness = probeHarness();
     harness.read.requestRead("subscribe");
     await performScheduledProbe(harness);

@@ -1,8 +1,5 @@
-/* The one preference row, and the switch it draws.
- *
- * The component's own sheet, imported by the component: a page that draws a
- * preference row gets these styles because it rendered the row.
- */
+/* The preference row and its switch; imported by the component so any page that renders the
+ * row gets the styles. */
 
 /* --- One preference row -------------------------------------------------- */
 
@@ -23,11 +20,9 @@
 }
 
 /*
- * The two custom properties below are this label's public API. A page whose label IS a wire value
- * asks for the provenance face through them; every other page leaves them unset and
- * takes the sans face at the row's own size. They exist because a page that declared
- * `.meridian-settings-row__label` in its own sheet would be a second sheet declaring
- * this class, and load order would decide which of the two a session read.
+ * The two custom properties are this label's public API: a page whose label is a wire value
+ * sets them for the provenance face, and every other page leaves them unset. A page's own
+ * sheet redeclaring the class would make load order decide which one wins.
  */
 .meridian-settings-row__label {
   color: var(--meridian-text);
@@ -44,8 +39,8 @@
   line-height: 1.5;
 }
 
-/* The switch is a `<span>` with a hidden `<input>` beside it, so the track and the
-   thumb are ours to draw and the semantics are the input's. */
+/* The switch is a `<span>` with a hidden `<input>`, so the input owns the semantics and the
+   track and thumb are drawn here. */
 .meridian-settings-row__switch {
   flex: 0 0 auto;
   position: relative;

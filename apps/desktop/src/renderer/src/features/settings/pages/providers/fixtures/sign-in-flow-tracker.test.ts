@@ -1,14 +1,10 @@
-// One brokered sign-in at a time, and where the second press lands.
-//
-// THE CASES BELOW ARE THE PAGE'S CLAIM STATED ON THE TRACKER. `AccountsFixtureBody.test.ts`
-// asserts that the control is disabled with its reason on screen; a control is a
-// courtesy, and these cases assert what happens to a press it did not stop — a stale
-// frame, a keyboard activation racing the commit that disabled it.
-//
-// EVERY CASE DRIVES THE REAL `SignInFlowTracker` over the real `startSignIn` and `cancelSignIn`
-// with stub calls. The single-flight guard under test is `lib/reads/generation-latch.ts`,
-// reached exactly as the shipped module reaches it, so a case here fails if that
-// register's refusal contract changes.
+// One brokered sign-in at a time, and where the second press lands. These cases state the
+// page's claim on the tracker: `AccountsFixtureBody.test.ts` asserts the control is disabled
+// with its reason, but a control is a courtesy, so these assert what happens to a press it did
+// not stop (a stale frame, a keyboard activation racing the commit that disabled it). They
+// drive the real `SignInFlowTracker` over the real `startSignIn` and `cancelSignIn` with stub
+// calls; the single-flight guard is `lib/reads/generation-latch.ts`, so a case fails if its
+// refusal contract changes.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -31,10 +27,8 @@ const RUNNING_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const WAITING_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 
 /**
- * A tracker over stub calls, bound the way the fixture body binds it.
- *
- * The real `startSignIn` and `cancelSignIn` rather than stubs of them, so a case here
- * drives the outcome narrowing those functions perform as well as the tracker's own rule.
+ * A tracker over stub calls, bound the way the fixture body binds it. The real `startSignIn` and
+ * `cancelSignIn` are used so a case drives the outcome narrowing they perform too.
  */
 function trackerOver(
   calls: AccountPlaneCalls,
@@ -65,9 +59,8 @@ describe("SignInFlowTracker", () => {
   it("refuses a second start raised while the first is still in flight", async () => {
     const { tracker } = trackerOverServedCalls();
 
-    // Deliberately NOT awaited: the window this closes is the one where the first
-    // start has been dispatched and has not answered, which is exactly when a person
-    // is looking at a control that has not yet been re-rendered as disabled.
+    // Deliberately not awaited: the window under test is the first start dispatched and
+    // unanswered, while a person looks at a control not yet re-rendered as disabled.
     tracker.start(RUNNING_ACCOUNT_ID);
     tracker.start(WAITING_ACCOUNT_ID);
 
@@ -78,9 +71,8 @@ describe("SignInFlowTracker", () => {
 
     await crossMacrotaskBoundary();
 
-    // The first start's own settlement is untouched by the refusal: the flow is live,
-    // it carries the attempt the provider answered with, and the row that was refused
-    // still says so.
+    // The first start's settlement is untouched by the refusal: the flow is live and carries the
+    // attempt the provider answered with.
     const settled = tracker.snapshot();
     expect(settled.flow).toEqual({
       kind: "live",
@@ -98,8 +90,8 @@ describe("SignInFlowTracker", () => {
     tracker.start(WAITING_ACCOUNT_ID);
     await crossMacrotaskBoundary();
 
-    // The refusal is the console's own and the daemon was never asked, which is what
-    // makes it arrive in the same tick as the press rather than a round trip later.
+    // The refusal is the console's own and the daemon was never asked, so it arrives in the
+    // same tick as the press.
     expect(calls.login).toHaveBeenCalledTimes(1);
     expect(calls.login).toHaveBeenCalledWith({ accountId: RUNNING_ACCOUNT_ID });
   });
@@ -128,9 +120,8 @@ describe("SignInFlowTracker", () => {
     await crossMacrotaskBoundary();
     tracker.start(WAITING_ACCOUNT_ID);
 
-    // The card that renders a flow is shared across every readiness row, so a refusal
-    // shown there would be a refusal about no particular account — and it would take
-    // the verification code and the cancel control with it.
+    // The card that renders a flow is shared across every readiness row, so a refusal shown
+    // there would be about no particular account and would take the code and cancel with it.
     expect(tracker.snapshot().flow.kind).toBe("live");
   });
 
@@ -146,19 +137,17 @@ describe("SignInFlowTracker", () => {
     expect(onFlowSettled).toHaveBeenCalledTimes(1);
     expect(findRunningSignInAccountId(tracker.snapshot())).toBeUndefined();
 
-    // The negative control for the guard itself: a single-flight key that were never
-    // released would make every later start unreachable, and the page would sit
-    // with every control disabled for the rest of the page's life.
+    // Negative control for the guard: a single-flight key never released would make every later
+    // start unreachable.
     tracker.start(WAITING_ACCOUNT_ID);
     expect(tracker.snapshot().flow).toEqual({ kind: "starting", accountId: WAITING_ACCOUNT_ID });
     expect(tracker.snapshot().refusalByAccountId.has(WAITING_ACCOUNT_ID)).toBe(false);
   });
 
   it("clears the flow when the registry reports the attempt finished", async () => {
-    // The second of the two things that end a flow. `providerAccount.subscribe` carries
-    // `login_completed` correlated on the attempt id, and that IS evidence the process
-    // stopped — so a tracker still holding an attempt is released by the registry rather
-    // than staying claimed for the life of the window.
+    // The second thing that ends a flow: `providerAccount.subscribe` carries `login_completed`
+    // correlated on the attempt id, which is evidence the process stopped, so a tracker still
+    // holding an attempt is released by the registry.
     const { tracker, onFlowSettled } = trackerOverServedCalls();
 
     tracker.start(RUNNING_ACCOUNT_ID);
@@ -171,10 +160,8 @@ describe("SignInFlowTracker", () => {
     expect(tracker.snapshot().flow).toEqual({ kind: "starting", accountId: WAITING_ACCOUNT_ID });
   });
 
-  // The negative control for the case above: the correlation is on the attempt id, so a
-  // completion for some other attempt — another window's brokered flow — must not take
-  // this one's card down. Without it the case would hold for a tracker that ended on any
-  // completion at all.
+  // Negative control: the correlation is on the attempt id, so another window's completion must
+  // not take this card down; otherwise a tracker ending on any completion would pass.
   it("leaves the flow alone for a completion naming another attempt", async () => {
     const { tracker, onFlowSettled } = trackerOverServedCalls();
 
@@ -187,10 +174,9 @@ describe("SignInFlowTracker", () => {
   });
 
   it("ends a flow whose completion arrived before the start reply recorded it", async () => {
-    // The tail opens BEFORE `providerAccount.login` is called — the registered ordering
-    // — so a flow that finishes fast reports its completion while the start reply is
-    // still traveling. The tracker would otherwise record an attempt that is already over
-    // and hold the key until somebody pressed cancel.
+    // The tail opens before `providerAccount.login` is called, so a flow that finishes fast
+    // reports its completion while the start reply is still traveling; the tracker would
+    // otherwise record an attempt that is already over and hold the key until cancel.
     const { tracker, onFlowSettled } = trackerOverServedCalls();
 
     tracker.start(RUNNING_ACCOUNT_ID);

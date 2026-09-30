@@ -1,9 +1,6 @@
-// The race between the updater's two mouths, driven directly.
-//
-// The case worth the most is the one the block could never show on its own: a push
-// landing while the opening read is still in flight. Through a rendered block that is
-// a timing accident; here the opening read is held open by hand, so "the push wins"
-// is asserted rather than hoped for.
+// The race between the updater's two sources, driven directly. A push landing while the
+// opening read is in flight is a timing accident through a rendered block; here the read is
+// held open by hand so "the push wins" is asserted.
 
 import { describe, expect, it, vi } from "vitest";
 import type { UpdateState, Unsubscribe } from "@shared/preload-api.js";
@@ -13,9 +10,7 @@ import { UpdaterReadingHolder, type UpdaterCalls } from "./updater-reading.js";
 /**
  * An updater whose read is settled by hand and whose pushes are delivered by hand.
  *
- * The real updater namespace rather than a partial object: the holder takes exactly
- * `UpdaterCalls`, so an arm added upstream fails this file to compile instead of
- * leaving a case driving a shape nobody serves.
+ * Typed as the real `UpdaterCalls`, so an arm added upstream fails this file to compile.
  */
 function controllableUpdater(): {
   readonly updater: UpdaterCalls;
@@ -94,9 +89,8 @@ describe("the updater reading — which source wins", () => {
   });
 
   it("negative control: the opening read is discarded and not merely ordered behind", async () => {
-    // Without this, a holder that installed whichever answer arrived LAST would pass
-    // the first case whenever the push happened to be delivered second — which is
-    // exactly the old page, and exactly the ordering a real updater does not promise.
+    // Guards against a holder that installs whichever answer arrives last, which passes the
+    // first case whenever the push happens to be delivered second.
     const updater = controllableUpdater();
     const holder = new UpdaterReadingHolder(updater.updater);
     holder.open();
@@ -110,8 +104,7 @@ describe("the updater reading — which source wins", () => {
   });
 
   it("negative control: a later push still installs over the opening read", async () => {
-    // Without this, a holder that latched the first answer it accepted would pass
-    // every case above and then freeze the block on its opening reading forever.
+    // Guards against a holder that latches the first accepted answer and freezes on it.
     const updater = controllableUpdater();
     const holder = new UpdaterReadingHolder(updater.updater);
     holder.open();
@@ -141,8 +134,8 @@ describe("the updater reading — an opening is released and re-opened", () => {
   });
 
   it("re-opens after a close rather than staying dead", async () => {
-    // The shape a React effect cleanup between StrictMode's two invocations takes. A
-    // terminal teardown would leave the block reading nothing for the window's life.
+    // The shape of a React effect cleanup between StrictMode's two invocations; a terminal
+    // teardown would leave the block reading nothing.
     const updater = controllableUpdater();
     const holder = new UpdaterReadingHolder(updater.updater);
     holder.open();
@@ -167,9 +160,8 @@ describe("the updater reading — an opening is released and re-opened", () => {
     updater.settleRead({ status: "idle" });
     await drain();
 
-    // Two observations arrived and one was discarded, so the discarded one raised no
-    // change: a holder that emitted on every reply would re-render on a reading it
-    // did not install.
+    // Two observations arrived and one was discarded; emitting on every reply would re-render
+    // on a reading that was not installed.
     expect(sink).toHaveBeenCalledTimes(1);
     expect(holder.snapshot().sequence).toBe(1);
   });

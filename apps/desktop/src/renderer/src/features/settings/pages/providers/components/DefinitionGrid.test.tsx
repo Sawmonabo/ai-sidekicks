@@ -24,9 +24,8 @@ describe("the settings definition grid", () => {
   });
 
   it("negative control: it pairs them rather than emitting one list then the other", () => {
-    // Without this, the case above would pass over a grid that rendered every term
-    // and then every definition — which reads identically to a flat text assertion
-    // and is exactly what the pairing exists to prevent.
+    // Guards against a grid that renders every term and then every definition, which reads the
+    // same to a flat text assertion.
     const { container } = render(<DefinitionGrid entries={ENTRIES} />);
     const pairs = [...container.querySelectorAll(".meridian-settings-page__vocabulary-entry")];
     expect(pairs).toHaveLength(2);

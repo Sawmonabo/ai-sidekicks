@@ -7,34 +7,13 @@ import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 /**
  * One binding's configuration, exactly as the daemon serves it back.
  *
- * THE READ-BACK IS THE REDACTED VIEW AND NOTHING ELSE. Configuration content splits
- * three ways on this page: input a person types, whose credential-bearing values
- * are write-only in the renderer; the read-back, which is precisely this; and values
- * the daemon does not serve at all, which are rendered nowhere. This component is the
- * middle one, and it can only be the middle one — the wire carries `envVarNames`,
- * `headerNames`, and `urlQueryParamNames`, so a value is not withheld here, it never
- * arrived.
- *
- * THE URL IS QUERY-REDACTED AT THE DAEMON AND CARRIED VERBATIM FROM THERE. Trimming
- * it again here would be this console deciding which part of a served string is safe,
- * which is a judgment the producer already made — and a second, weaker copy of a
- * redaction rule is how the two stop agreeing.
- *
- * NAMES ARE RENDERED AS NAMES, never as a table with a blank value column. An empty
- * column reads as "the value is empty" rather than "there is no value here", which is
- * the confusion this whole split exists to remove.
- *
- * AND THE ARGUMENTS ARE RENDERED, NOT COUNTED. `--read-only` and `--allow-write` are
- * the same command and opposite grants, so a read-back that reported how MANY
- * arguments a binding declared told an operator that two bindings were identical when
- * one of them could write. They are strings the daemon already serves in the redacted
- * view — the same view the command itself arrives on — so rendering them withholds
- * nothing that was ever withheld, and the design for this page requires the command and
- * its arguments to stay inspectable.
- *
- * The three groups render through camelCase helpers rather than second components, on
- * the `primitives/absence/Nothing.tsx` precedent: a `.tsx` module declares one component, and
- * a list body its only caller owns has no identity outside it.
+ * This is the redacted view and nothing else: the wire carries `envVarNames`, `headerNames`
+ * and `urlQueryParamNames`, so a value is not withheld here, it never arrived. The URL is
+ * query-redacted at the daemon and rendered verbatim, since a second redaction rule here
+ * would drift from the first. Names render as names, not as a table with a blank value column,
+ * which would read as an empty value. Arguments are rendered, not counted, because
+ * `--read-only` and `--allow-write` are the same command with opposite grants. The groups are
+ * helpers rather than second components: one component per file.
  */
 export function ConfigReadBack(props: {
   readonly config: McpServerInventoryEntry["config"];
@@ -73,10 +52,8 @@ interface KeyedWireString {
 }
 
 /**
- * One group of names the daemon served in place of values.
- *
- * A name group is a SET — which variables are read, which headers are sent — so the
- * name is its own identity and the order it arrives in carries nothing.
+ * One group of names the daemon served in place of values. A set, so the name is its own
+ * identity and arrival order carries nothing.
  */
 function renderNameList(caption: string, names: readonly string[] | undefined): ReactNode {
   return renderWireStrings({
@@ -89,10 +66,8 @@ function renderNameList(caption: string, names: readonly string[] | undefined): 
 /**
  * The arguments the daemon served, in the order it served them.
  *
- * A POSITIONAL VECTOR RATHER THAN A SET, which is the whole difference from the
- * groups above: `--root /a --root /b` carries `--root` twice and means two roots, so
- * the position is the identity and the string is not, and reordering it would be this
- * console rewriting the command.
+ * A positional vector, not a set: `--root /a --root /b` carries `--root` twice and means two
+ * roots, so position is the identity and reordering would rewrite the command.
  */
 function renderArgumentList(args: readonly string[] | undefined): ReactNode {
   return renderWireStrings({
@@ -105,13 +80,9 @@ function renderArgumentList(args: readonly string[] | undefined): ReactNode {
 /**
  * One bounded, wrapping list of wire strings under its caption.
  *
- * Absent and empty are the same fact here and render the same way — as nothing —
- * because both mean this binding declares none of that kind, and inventing a
- * distinction the wire does not draw would be a reading rather than a render.
- *
- * `positional` decides the element AND the class together because those are one fact:
- * an ordered list announces its members as a sequence, which is true of argv and false
- * of a name group, and each shape carries the enumeration bound its own class holds.
+ * Absent and empty both mean the binding declares none of that kind, so both render as
+ * nothing. `positional` picks the element and class together: an ordered list announces a
+ * sequence, true of argv and false of a name group.
  */
 function renderWireStrings(options: {
   readonly caption: string;

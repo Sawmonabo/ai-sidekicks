@@ -10,25 +10,11 @@ import { RemedyLine } from "./RemedyLine.js";
 /**
  * One provider's readiness entry, and the single action its remedy names.
  *
- * THE REMEDY IS RENDERED, NEVER COMPUTED. The daemon composes it at read time from the
- * same resolution the spawn path performs, and it arrives already decided — which
- * state calls for which kind, which account a sign-in authenticates into, and which
- * candidates a default could be chosen from. A renderer that derived one would be a
- * second answer to a question the account plane already answered.
- *
- * AN ENTRY WITH NO REMEDY IS THE AUTHENTICATED ONE, and it offers nothing. That is not
- * an omission to be filled with a "check again" button: an account that needs nothing
- * done is the one entry whose remedy would be wrong rather than merely redundant.
- *
- * `indeterminate` READS AS AN HONEST UNKNOWN AND NEVER AS A FAILURE. It carries the
- * `sign_in` remedy like the other two non-authenticated arms, and the sentence beside
- * it says the probe could not decide rather than that anything is broken.
- *
- * READINESS BLOCKS NOTHING. The spawn gate stays the daemon's live check, so this row
- * says what a run would find and never withholds a control anywhere else in the
- * console. The one thing that DOES gate this row's own control is the sign-in flow —
- * one brokered flow at a time on this machine — and that gate disables the control with
- * its reason rather than removing it.
+ * The remedy is rendered, never computed: the daemon composes it at read time from the same
+ * resolution the spawn path performs. An entry with no remedy is the authenticated one and
+ * offers nothing. `indeterminate` reads as an honest unknown, not a failure. Readiness blocks
+ * nothing (the spawn gate stays the daemon's live check); the one gate on this row's control is
+ * the sign-in flow, one brokered flow at a time, which disables the control with its reason.
  */
 export function ReadinessRow(props: {
   readonly readiness: ProviderReadiness;

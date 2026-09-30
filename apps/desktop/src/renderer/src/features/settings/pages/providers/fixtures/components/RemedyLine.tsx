@@ -8,20 +8,10 @@ import type { Refusal } from "@renderer/lib/refusal.js";
 /**
  * The one action a remedy names.
  *
- * A module of its own rather than a private declaration beside its one caller: a
- * `.tsx` file declares exactly one component, private ones counted, which is the rule
- * that keeps a component's identity and its file name the same fact.
- *
- * THE START IS DISABLED AND NEVER HIDDEN while another sign-in is running. This
- * machine runs one brokered flow at a time, so a second start would be refused by the
- * daemon — but a control that vanished would leave a person looking for the step they
- * were told to take, with nothing on screen saying why it went. Disabling it keeps the
- * remedy where it was and puts the reason beside it, which is a fact somebody can act
- * on: finish the other sign-in, or cancel it.
- *
- * AND A REFUSED START RENDERS HERE, on the row that asked. The card that watches a live
- * flow is shared across every readiness row, so a refusal shown there would be a
- * refusal about no particular account.
+ * The start is disabled and never hidden while another sign-in runs: this machine runs one
+ * brokered flow at a time, and a vanished control would leave a person looking for the step
+ * they were told to take. The reason sits beside it. A refused start renders here, on the row
+ * that asked, since the card that watches a live flow is shared across every readiness row.
  */
 export function RemedyLine(props: {
   readonly remedy: NonNullable<ProviderReadiness["remedy"]>;
@@ -54,10 +44,8 @@ export function RemedyLine(props: {
   return (
     <div className="meridian-settings-page__state">
       <p>
-        {/* The one credential-home string that reaches the screen, and it is
-            display-only: it names where the provider's own sign-in writes, so an
-            operator can tell which home is being authenticated. Nothing about the
-            contents of that directory is read or rendered. */}
+        {/* The one credential-home string that reaches the screen; display-only, naming where
+            the provider's own sign-in writes. Nothing in that directory is read or rendered. */}
         The provider’s own sign-in authenticates into{" "}
         <WireFigure value={remedy.credentialHomePath} />
         , by running <WireFigure value={remedy.signInInvocation} />.

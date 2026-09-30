@@ -1,6 +1,6 @@
-// The map joins commands to bindings, and the recorder reads one keystroke as one
-// act. Every verdict about a binding SET is the keybinding service's own and is
-// driven where that service is asked (`palette/keybindings/keybinding-audit.test.ts`).
+// The map joins commands to bindings, and the recorder reads one keystroke as one act. Verdicts
+// about a binding set are the keybinding service's own and are tested in
+// `registries/keybindings/keybinding-audit.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,7 +20,7 @@ function command(id: string, title: string, group = "Navigation"): CommandDefini
   return { id, title, group, run: () => undefined };
 }
 
-/** One keystroke, as the recorder receives it. Only the fields it reads. */
+/** One keystroke as the recorder receives it, with only the fields it reads. */
 function press(
   fields: Partial<
     Pick<KeyboardEvent, "key" | "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">
@@ -94,8 +94,7 @@ describe("composing rows", () => {
     expect(rows.find((row) => row.commandId === "frame.goToSessions")?.unavailableReason).toContain(
       "Spotlight",
     );
-    // The negative half of the same claim: marking every row would be as wrong as
-    // marking none, and only the reserved one carries a reason.
+    // Marking every row would be as wrong as marking none; only the reserved one has a reason.
     expect(
       rows.find((row) => row.commandId === "frame.goToWorkflows")?.unavailableReason,
     ).toBeUndefined();
@@ -114,8 +113,7 @@ describe("composing rows", () => {
   });
 
   it("carries the chord the console ships, so a reset can name what it restores", () => {
-    // Composed against a CHANGED effective table: the shipped chord has to survive
-    // being overridden, which is the one case a reset control exists for.
+    // Composed against a changed effective table: the shipped chord must survive the override.
     const rows = composeKeybindingRows({
       commands,
       bindings: [{ chord: "$mod+9", commandId: "frame.goToSessions" }, ...bindings.slice(1)],
@@ -129,8 +127,8 @@ describe("composing rows", () => {
   });
 
   it("leaves a command the console ships no chord for without a default to restore", () => {
-    // "back to no chord" and "back to some chord" are different promises, and only
-    // an absent `shippedChord` can carry the first one honestly.
+    // "Back to no chord" and "back to some chord" differ; only an absent `shippedChord` carries
+    // the first.
     const rows = composeKeybindingRows({
       commands,
       bindings,
@@ -143,8 +141,7 @@ describe("composing rows", () => {
   });
 
   it("negative control: with no overrides, no row claims to have been changed", () => {
-    // Without this the case above would pass over a composer that marked every row,
-    // and the page would offer a reset on rows with nothing to reset.
+    // Guards against a composer that marks every row, offering a reset with nothing to reset.
     const rows = composeKeybindingRows({
       commands,
       bindings,
@@ -165,8 +162,7 @@ describe("reading a keystroke as a chord", () => {
   });
 
   it("writes the platform's command modifier as `$mod` and the other one literally", () => {
-    // `⌃` and `⌘` are two different keys on macOS, so a recorder that folded them
-    // together would install the chord on the wrong one.
+    // On macOS `⌃` and `⌘` are different keys; folding them installs on the wrong one.
     expect(readChordFromEvent(press({ key: "k", code: "KeyK", ctrlKey: true }), "darwin")).toEqual({
       outcome: "captured",
       chord: "Control+KeyK",
@@ -178,8 +174,8 @@ describe("reading a keystroke as a chord", () => {
   });
 
   it("does not complete on a modifier held on its own", () => {
-    // A person on the way to ⌘⇧K passes through ⌘ and ⌘⇧; settling on either would
-    // bind the wrong chord every time.
+    // On the way to ⌘⇧K a person passes through ⌘ and ⌘⇧;
+    // settling on either binds the wrong chord.
     expect(
       readChordFromEvent(press({ key: "Meta", code: "MetaLeft", metaKey: true }), "darwin"),
     ).toEqual({ outcome: "incomplete", heldModifiers: ["$mod"] });
@@ -204,8 +200,7 @@ describe("reading a keystroke as a chord", () => {
   });
 
   it("negative control: the same keys held with a modifier are chords, not commands", () => {
-    // Without this, `$mod+Backspace` — a chord somebody may legitimately want —
-    // would be unbindable, because the recorder would read it as a clearing.
+    // Guards `$mod+Backspace` from being unbindable by reading it as a clearing.
     expect(
       readChordFromEvent(press({ key: "Backspace", code: "Backspace", metaKey: true }), "darwin"),
     ).toEqual({ outcome: "captured", chord: "$mod+Backspace" });
@@ -224,8 +219,7 @@ describe("reading a keystroke as a chord", () => {
 
 describe("reading what is held right now", () => {
   it("answers the same tokens a chord is composed from", () => {
-    // The hint and the chord read one function, so a modifier cannot be called one
-    // thing on the row and another in the binding.
+    // The hint and the chord read one function, so a modifier has one name in both.
     const held = press({ key: "K", code: "KeyK", metaKey: true, shiftKey: true });
     expect(readHeldModifiersFromEvent(held, "darwin")).toStrictEqual(["$mod", "Shift"]);
     expect(readChordFromEvent(held, "darwin")).toStrictEqual<ChordRecording>({
@@ -235,9 +229,8 @@ describe("reading what is held right now", () => {
   });
 
   it("answers the state a release leaves behind, not the key that ended", () => {
-    // A keyup carries the flags the host is in AFTER the release, so `⇧` released
-    // while `⌥` is still down reads as `⌥` alone — which is what makes recomputing
-    // correct where clearing is not.
+    // A keyup carries the flags the host is in after the release, so `⇧` released while `⌥` is
+    // down reads as `⌥` alone; recomputing is correct where clearing is not.
     expect(
       readHeldModifiersFromEvent(
         press({ key: "Shift", code: "ShiftLeft", altKey: true, shiftKey: false }),
@@ -253,9 +246,8 @@ describe("reading what is held right now", () => {
   });
 
   it("negative control: the key that ended does not decide the answer", () => {
-    // Without this the two cases above would pass over a reader that keyed on `key`
-    // and subtracted the released modifier itself — which is right for `⇧` and wrong
-    // for every host that reports a stuck flag, and wrong for a chord read on keydown.
+    // Guards against a reader that keys on `key` and subtracts the released modifier itself,
+    // which is wrong for a stuck flag and for a chord read on keydown.
     expect(
       readHeldModifiersFromEvent(
         press({ key: "Shift", code: "ShiftLeft", shiftKey: true }),

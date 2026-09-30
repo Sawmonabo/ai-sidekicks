@@ -1,13 +1,7 @@
-// The browser section is reachable.
-//
-// These cases drive the SHIPPED board rather than a registry composed here, because a
-// registrar that works and is never called leaves `#/settings/browser` rendering the
-// reserved arm — a page a person cannot reach by any address.
-//
-// The registration is loader-backed: the page is a chunk of its own
-// (`pages/browser/browser-settings-page-body.ts`), which keeps a page nobody has opened off
-// every launch's initial import graph, so the shipped screen parked on this address renders
-// the page region and its reservation, and the body lands a turn later.
+// The browser section is reachable. These cases drive the shipped board: a registrar that is
+// never called would leave `#/settings/browser` on the reserved arm. The page is loader-backed
+// (`browser-settings-page-body.ts`), so the shipped screen first renders the page region and
+// its reservation and the body lands a turn later.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,9 +15,8 @@ import { registerSettingsScreen } from "../../contributions/screens.js";
 import { SETTINGS_PAGES, SettingsPageRegistry } from "../../settings-pages.js";
 import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
-// The pending marker's reader by its own leaf specifier: the registries' shared entry
-// exports the ATTRIBUTE, which a producer needs, and not this reader, whose consumers outside that
-// directory are tests.
+// The pending marker's reader by its own leaf specifier; the registries' shared entry exports
+// only the attribute, and this reader's consumers outside that directory are tests.
 import { findPendingBodies } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 afterEach(() => {
@@ -33,10 +26,8 @@ afterEach(() => {
 /**
  * The settings screen a window mounts, parked on the browser address.
  *
- * Driven through `registerSettingsScreen` rather than around it, so the screen claim is
- * itself a covered fact. What this answers is whether the shipped board claims the
- * section — the page's own contents are the next helper's subject, because this mount
- * holds the page registry the screen composed and no suite may reach for it.
+ * Driven through `registerSettingsScreen` so the screen claim is itself covered; it answers
+ * whether the shipped board claims the section, not what the page contains.
  */
 async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
   const screens = new ScreenRegistry();
@@ -76,16 +67,15 @@ function registerBrowserPage(registry: SettingsPageRegistry): void {
 describe("the browser settings section", () => {
   it("is registered on the shipped board, so its address renders the page region", async () => {
     const container = await renderShippedSettingsAtBrowser();
-    // The reserved arm is what an unclaimed section draws, and it is gone: the board
-    // claims `browser`. What stands in its place is the page's own reservation, which is
-    // the loader form working rather than a page that failed to render.
+    // The reserved arm is what an unclaimed section draws; the page's own reservation in its
+    // place shows the loader form working.
     expect(container.textContent ?? "").not.toContain("has not been built yet");
     expect(findPendingBodies(container).length).toBe(1);
   });
 
   it("negative control: the table's entry is what puts the page on a board", () => {
-    // Without this, the cases above would pass over a board that had grown the section
-    // some other way — and this one fails if the table stops holding it.
+    // Guards against a board that grew the section some other way; fails if the table stops
+    // holding it.
     const withoutRegistration = new SettingsPageRegistry();
     expect(withoutRegistration.descriptorFor("browser")).toBeUndefined();
     const withRegistration = new SettingsPageRegistry();

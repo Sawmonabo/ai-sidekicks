@@ -1,10 +1,7 @@
 // Mounting the accounts fixture body over a registry reading built here, and reading it back.
-//
-// Hoisted because three suites drive this page — what the registry reading renders, and
-// what the sign-in tracker does while a flow is running or after it has ended — and all
-// three need the same registry, the same mount and the same readers over the rendered
-// list. The registry is built from the contract types, so every state a case reaches is
-// one the wire can carry.
+// Three suites drive this page (the registry reading, and the sign-in tracker while a flow runs
+// or after it ends) and share the registry, the mount and the readers. The registry is built
+// from the contract types, so every state a case reaches is one the wire can carry.
 
 import { fireEvent, render } from "@testing-library/react";
 import { vi } from "vitest";

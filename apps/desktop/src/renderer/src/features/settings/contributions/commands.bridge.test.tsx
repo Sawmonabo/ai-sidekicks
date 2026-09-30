@@ -1,12 +1,7 @@
-// The palette's bridge-backed commands, and the hook they reach the bridge through.
-//
-// Two claims worth proving separately. The BEHAVIOR — an act that the bridge
-// refuses settles as a rendered refusal rather than as a dropped promise — is
-// driven against the real fixture bridge, whose `update.requestCheck` genuinely
-// rejects and whose `native.copyToClipboard` genuinely resolves, so neither arm is
-// a stub answering the way the test wants. The WIRING — that the commands reach the
-// bridge through `usePlatformBridge` and through nothing else — needs a React tree,
-// and is proved by rendering one.
+// The palette's bridge-backed commands and the hook that reaches the bridge. The behavior (a
+// refused act is rendered, not dropped) runs against the fixture bridge, whose
+// `update.requestCheck` rejects and whose `native.copyToClipboard` resolves; the wiring (the
+// commands reach the bridge through `usePlatformBridge`) needs a React tree.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -33,9 +28,8 @@ function commandById(commands: readonly CommandDefinition[], commandId: string):
 
 describe("palette bridge commands — a refused act is rendered, never dropped", () => {
   it("routes a bridge rejection to the refusal sink", async () => {
-    // `update.requestCheck` has no fixture stand-in and rejects. The palette drops
-    // the promise `invoke` hands back, so a `run` that let this reject would raise
-    // an unhandled rejection and show the person nothing at all.
+    // `update.requestCheck` has no fixture stand-in and rejects. The palette drops the promise
+    // `invoke` returns, so a `run` that let this reject would show the person nothing.
     const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(fixtureBridge(), (refusal) => refusals.push(refusal));
 
@@ -48,12 +42,9 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
   });
 
   it("routes a bridge that THROWS to the same sink as one that rejects", async () => {
-    // The shipped stub bridge implements every method as a synchronous `throw`,
-    // and the fixture refuses by returning a rejected promise, so the two arms fail
-    // differently and must land on one line. This is the negative control for a
-    // boundary attached to the returned promise: under that shape the throw escapes
-    // `settle` entirely, the sink is never called, and `run` rejects into a dispatch
-    // that drops it.
+    // A preload member main has not wired throws synchronously, while the fixture refuses with
+    // a rejected promise; both must land on one sink. Negative control for a boundary attached
+    // to the returned promise, which the throw would escape.
     const bridge = fixtureBridge();
     const throwing: PlatformBridge = {
       ...bridge,
@@ -80,9 +71,8 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
   });
 
   it("negative control: an act the bridge serves reports no refusal", async () => {
-    // Without this, a sink that was called on every path — or an assertion that
-    // never checked emptiness — would make the case above pass for the wrong
-    // reason. The fixture's clipboard write resolves, so this arm must stay silent.
+    // Guards against a sink called on every path, or an assertion that never checked emptiness.
+    // The fixture's clipboard write resolves, so this arm must stay silent.
     const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(fixtureBridge(), (refusal) => refusals.push(refusal));
 
@@ -92,9 +82,8 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
   });
 
   it("copies the meta the bridge reports rather than the host's own", async () => {
-    // The command must read `app` off the bridge: under the fixture that meta is
-    // pinned, which is what keeps a screenshot of the result stable. A command that
-    // read `navigator` would pass every assertion above and still be wrong.
+    // The command must read `app` off the bridge: the fixture pins that meta for stable
+    // screenshots, and a command reading `navigator` would pass every assertion above.
     let copied: string | undefined;
     const bridge = fixtureBridge();
     const instrumented: PlatformBridge = {
@@ -139,9 +128,8 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
   });
 
   it("negative control: refuses to build outside the provider", async () => {
-    // `usePlatformBridge` throws rather than returning `undefined`, so a component
-    // mounted outside the provider is a wiring bug that surfaces at once instead of
-    // rendering an empty palette that looks like "no commands apply here".
+    // `usePlatformBridge` throws outside the provider, so a wiring bug surfaces at once and
+    // not as an empty palette.
     function OrphanProbe(): React.JSX.Element {
       useBridgeCommands(() => undefined);
       return <span />;

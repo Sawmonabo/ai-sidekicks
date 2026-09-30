@@ -22,9 +22,8 @@ interface HeldWrite {
 }
 
 /**
- * The bridge's `machineSettings`, driven by hand: a case delivers on the feed when it
- * chooses, and answers or refuses each write in the order it chooses, because the
- * subject below is the ORDER answers land in.
+ * The bridge's `machineSettings`, driven by hand: a case delivers on the feed and answers or
+ * refuses each write in the order it chooses, because the subject is the order answers land in.
  */
 class HandDrivenMachineSettings implements MachineSettingsBridge {
   public readonly writes: MachineSettingsChange[] = [];
@@ -148,9 +147,8 @@ describe("machine settings — a write", () => {
   });
 
   it("drops a write's answer that lands after a newer feed delivery", async () => {
-    // Another window's change arrives on the feed while this window's write is out.
-    // The write's answer is the file from before that change, and installing it would
-    // take the other window's change off this screen with nothing left to put it back.
+    // Another window's change arrives while this write is out; installing the write's older
+    // answer would take that change off this screen.
     const { store, service } = startedStore();
     service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
 

@@ -1,8 +1,8 @@
 // The local-runtime page and its call-bearing blocks, mounted over operations a case scripts.
 //
-// Shared by the suites beside it. The operations are built once per mount, because the
-// status answer is held against the bridge that produced it, so a bridge rebuilt per
-// render would make every re-read case read as a re-read that never happened.
+// Shared by the suites beside it. The operations are built once per mount because the status
+// answer is held against the bridge that produced it; a bridge rebuilt per render would make
+// a re-read case read as a re-read that never happened.
 
 import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -19,10 +19,10 @@ import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
 export interface ControlLedger {
   readonly calls: string[];
   /**
-   * One entry per status read, carrying the version THAT read answered with.
+   * One entry per status read, carrying the version that read answered with.
    *
-   * A list and not a count, because both halves of the re-read claim are read off it:
-   * how many reads there were, and which answer is the one on screen.
+   * A list, not a count: the re-read claim needs both how many reads there were and which
+   * answer is on screen.
    */
   readonly statusReads: string[];
 }
@@ -31,18 +31,19 @@ export interface ControlLedger {
 export interface MountedRuntimePage {
   readonly container: HTMLElement;
   readonly ledger: ControlLedger;
-  /** Re-render the page under a different supervisor state, over the SAME bridge. */
+  /** Re-render the page under a different supervisor state, over the same bridge. */
   readonly showMainProcessState: (next: MainProcessState) => void;
 }
 
+/** Mount the page with its call-bearing blocks over scripted operations. */
 export function renderRuntimePage(options: {
   readonly mainProcessState?: MainProcessState;
   /**
    * Whether a dispatched control is recorded and then never answered.
    *
-   * The double-press cases are about the window BETWEEN the dispatch and its
-   * settlement, and an operation that answers on the next microtask closes that window
-   * before an assertion can read it.
+   * The double-press cases are about the window between dispatch and settlement; an
+   * operation answering on the next microtask closes that window before an assertion can
+   * read it.
    */
   readonly holdsControls?: boolean;
 }): MountedRuntimePage {
@@ -54,9 +55,7 @@ export function renderRuntimePage(options: {
     }
   };
   const operations: DaemonOperations = {
-    // A DIFFERENT VERSION EVERY TIME, so a case can tell a re-read from a re-render:
-    // an answer that never changes cannot distinguish a page that asked again from one
-    // that kept the first reply.
+    // A different version every time, so a case can tell a re-read from a re-render.
     readStatus: async () => {
       const version = `2026-04-30-read-${ledger.statusReads.length + 1}`;
       ledger.statusReads.push(version);

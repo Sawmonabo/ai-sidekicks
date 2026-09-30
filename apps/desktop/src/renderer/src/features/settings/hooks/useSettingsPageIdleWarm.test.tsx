@@ -1,19 +1,14 @@
-// The settings mount arms one walk over its own board, and releases it with itself.
-//
-// The claim here is the LIFETIME rather than the walking, which `components/LazyBody/lazy-body-warm.test.ts`
-// already holds, and rather than the wiring, which `SettingsScreen.page-warm.test.ts`
-// holds through the screen. What can go wrong in a binding is a walk that starts again on
-// every render, one still re-arming against a board whose screen has unmounted — the leak
-// that leaves no trace until a second settings window is opened and closed — and the
-// `StrictMode` replay, which fails silently in the one direction that matters: the board
-// simply stays cold and nothing reports it.
+// The settings mount arms one walk over its own board and releases it with itself. This is the
+// binding's lifetime; the walking itself is in `components/LazyBody/lazy-body-warm.test.ts` and
+// the wiring in `SettingsScreen.page-warm.test.ts`. A binding can fail by walking again on
+// every render, by re-arming against a board whose screen has unmounted, or by going cold
+// silently under the `StrictMode` replay.
 
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
-// Deeply, as every consumer of a `.test-support` module does: a helper that exists for
-// suites belongs to the module beside it and not in the feature's shipped exports.
+// Deep import, as every `.test-support` consumer does.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
 import { SettingsPageRegistry } from "../settings-pages.js";
 import type { SettingsPageContext } from "../types.js";
@@ -79,9 +74,8 @@ describe("the settings page board's idle warm", () => {
 
   it("does not re-arm when the screen re-renders", () => {
     // The walk is built inside the effect, whose dependencies are the board and a pinned
-    // scheduler — neither of which a re-render changes. Naming the scheduler PARAMETER as
-    // the dependency instead would re-run the effect every pass, because its default
-    // constructs one per render, and start a fresh walk each time.
+    // scheduler. Depending on the scheduler parameter instead would re-run the effect every
+    // pass, since its default constructs one per render.
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
@@ -95,8 +89,7 @@ describe("the settings page board's idle warm", () => {
   });
 
   it("releases the walk when the screen goes away", () => {
-    // The leak this is for: a settings window closed mid-walk would go on re-arming an
-    // idle callback against a board that nothing reads any more.
+    // Guards the leak of a window closed mid-walk still re-arming an idle callback.
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
@@ -113,12 +106,9 @@ describe("the settings page board's idle warm", () => {
   });
 
   it("warms the board under a replayed effect", () => {
-    // `StrictMode` runs every effect setup, its cleanup, and the setup again. A walk held
-    // across that replay is silently fatal: the first setup starts it, the synthetic
-    // cleanup cancels it, and the replayed setup finds the same object already started and
-    // already canceled and returns — so the board stays cold for the life of the screen
-    // with nothing failing and nothing logged. Building it inside each setup is what makes
-    // a replay a fresh walk.
+    // `StrictMode` runs setup, cleanup, then setup again. A walk held across the replay would be
+    // started, canceled and then found already canceled, leaving the board cold with nothing
+    // failing; building it inside each setup makes a replay a fresh walk.
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
@@ -128,8 +118,7 @@ describe("the settings page board's idle warm", () => {
       </StrictMode>,
     );
 
-    // The replay's own cleanup canceled the first walk, so exactly one is armed — a count
-    // that also fails if the fix had left both of them walking.
+    // The replay's cleanup canceled the first walk, so exactly one is armed.
     expect(scheduler.pendingCount).toBe(1);
 
     scheduler.runToQuiescence();
@@ -139,8 +128,8 @@ describe("the settings page board's idle warm", () => {
   });
 
   it("negative control: a board nobody bound the walk to is never warmed", () => {
-    // Without this, every case above would pass over a registry that warmed itself on
-    // registration — and unmounting would then stop nothing.
+    // Guards against a registry that warms itself on registration, which would pass the cases
+    // above even though unmounting stopped nothing.
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();

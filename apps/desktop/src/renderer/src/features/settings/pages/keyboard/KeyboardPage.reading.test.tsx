@@ -1,9 +1,6 @@
-// What the keyboard page reads, and what it draws when the set it reads moves.
-//
-// The rows the shipped chord set produces, the scope each chord is live in, and the
-// rows that appear and vanish as the frame registers and unregisters commands while
-// the page is open. What a person CHANGES is `KeyboardPage.rebinding.test.tsx`, over
-// the one cast in `keyboard-page.test-support.tsx`.
+// What the keyboard page reads, and what it draws when the set it reads moves: the rows the
+// shipped chord set produces, each chord's scope, and rows that appear and vanish as the frame
+// registers and unregisters commands. Changes are in `KeyboardPage.rebinding.test.tsx`.
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, fireEvent, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
@@ -31,9 +28,8 @@ describe("keyboard page — what it reads", () => {
   });
 
   it("says where a chord is live rather than leaving its scope unstated", () => {
-    // Every chord the frame ships is unscoped, so this asserts the arm the shipped
-    // set actually reaches. That a scoped binding carries its expression through to
-    // its row is asserted in `keybinding-map.test.ts`, against a set that has one.
+    // Every shipped chord is unscoped, so this asserts the arm the shipped set reaches; scoped
+    // bindings are asserted in `keybinding-map.test.ts`.
     const { container } = renderKeyboardPage();
     expect(container.textContent ?? "").toContain("Live everywhere in this window");
   });
@@ -75,12 +71,7 @@ describe("keyboard page — what it reads", () => {
   });
 });
 
-/**
- * A command no `beforeEach` registers, so a case can register it LATE.
- *
- * The chord table names none of these ids, which is what makes it a command with no
- * chord rather than one competing for a shipped one.
- */
+/** A command no `beforeEach` registers, so a case can register it late and with no chord. */
 const LATE_COMMAND = {
   id: "frame.openContextPicker",
   title: "Open the context picker",
@@ -89,14 +80,11 @@ const LATE_COMMAND = {
 } as const;
 
 /**
- * The frame's own shape: a parent that registers commands from an effect and bumps
- * a revision, which is what re-renders the subtree the page is in.
+ * The frame's own shape: a parent that registers commands from an effect and bumps a revision,
+ * which re-renders the subtree the page is in.
  *
- * React runs a child's effects BEFORE its parent's, so the page renders once against
- * a registry the frame has not filled yet — exactly what a window opened directly on
- * `#/settings/keyboard` does. The revision is rendered onto the wrapper rather than
- * passed down, because the page takes no such prop and does not need one: what the
- * frame owes it is a render, not a value.
+ * A child's effects run before its parent's, so the page first renders against an unfilled
+ * registry, as a window opened directly on `#/settings/keyboard` does.
  */
 function LateRegisteringFrame(): React.JSX.Element {
   const [commandRevision, setCommandRevision] = useState(0);
@@ -118,10 +106,8 @@ function LateRegisteringFrame(): React.JSX.Element {
 
 describe("keyboard page — a command registered after the page first rendered", () => {
   it("draws the row once the frame has registered it", async () => {
-    // The defect: the page snapshotted the registry in a memo keyed on nothing, so a
-    // window opened straight onto this route kept the empty registry it had before
-    // the frame's registration effect ran — no rows at all until the person left the
-    // section and came back.
+    // Guards the fix for a page that snapshotted the registry in a memo and showed no rows
+    // when a window opened straight onto this route.
     const { container } = render(<LateRegisteringFrame />);
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -131,8 +117,7 @@ describe("keyboard page — a command registered after the page first rendered",
   });
 
   it("drops a row for a command that is unregistered while the page is open", async () => {
-    // The same read, in the other direction: a view that withdraws its commands
-    // leaves no row behind claiming a chord runs something this window cannot run.
+    // The same read in the other direction: a withdrawn command leaves no row behind.
     const { container, rerender } = render(
       <LiveAnnouncerProvider>
         <KeyboardPage />
@@ -154,8 +139,7 @@ describe("keyboard page — a command registered after the page first rendered",
   });
 
   it("negative control: with nothing registered the page draws no rows", () => {
-    // Without this the cases above would pass over a page that drew a row for every
-    // id it was ever asked about, which would prove nothing about the read.
+    // Guards against a page that draws a row for every id it was ever asked about.
     for (const commandId of TEST_COMMAND_IDS) {
       commandRegistry.unregister(commandId);
     }

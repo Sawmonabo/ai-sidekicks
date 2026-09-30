@@ -1,11 +1,8 @@
 // The cast both keyboard-page suites drive the real registry with.
 //
-// The page reads the window's real command registry and the frame's real override
-// seam: what it prints is what the frame installs, and what it records reaches that
-// seam rather than a table of its own. Both halves — what it reads, and what it
-// changes — need that same wiring, so it is built once here. Each suite contributes the
-// rail's shipped chords itself, because the rail is the layout's and this module may
-// not import it.
+// The page reads the window's real command registry and the frame's real override seam, so
+// what it prints is what the frame installs and what it records reaches that seam. Each suite
+// contributes the rail's shipped chords itself, since this module may not import the layout.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
@@ -20,9 +17,7 @@ import { KeyboardPage } from "./KeyboardPage.js";
 /**
  * The commands the shipped frame bindings name, plus one that no chord reaches.
  *
- * Registered on the REAL registry rather than a stand-in: the page reads that
- * registry by name, and a test that handed it a private one would prove the join
- * works on an object nothing in the console uses.
+ * Registered on the real registry, which the page reads by name.
  */
 export const TEST_COMMAND_IDS = [
   "frame.goToSessions",
@@ -33,12 +28,12 @@ export const TEST_COMMAND_IDS = [
 /**
  * A chord no platform reads differently.
  *
- * `$mod` resolves against the host, so a synthesized press naming it would be a
- * second platform reading in a test file. `Alt` is the same key everywhere, which is
- * all these cases need — what is under test is the seam, not the modifier.
+ * `$mod` resolves against the host; `Alt` is the same key everywhere, and the seam is under
+ * test, not the modifier.
  */
 export const RECORDED_PRESS = { key: "j", code: "KeyJ", altKey: true } as const;
 
+/** Render the keyboard page under the announcer it needs. */
 export function renderKeyboardPage(): ReturnType<typeof render> {
   return render(
     <LiveAnnouncerProvider>
@@ -58,6 +53,7 @@ export function rowOf(container: HTMLElement, commandId: string): HTMLElement {
   return row;
 }
 
+/** The recorder button on one row. */
 export function recorderOf(container: HTMLElement, commandId: string): HTMLElement {
   const button = rowOf(container, commandId).querySelector<HTMLElement>(".meridian-keymap__record");
   if (button === null) {
@@ -108,7 +104,6 @@ afterEach(async () => {
   for (const commandId of TEST_COMMAND_IDS) {
     commandRegistry.unregister(commandId);
   }
-  // The seam is this window's, so one case's rebinding would otherwise be the next
-  // case's starting keyboard.
+  // The seam is this window's, so one case's rebinding would be the next case's keyboard.
   await keybindingOverrides.resetAll();
 });

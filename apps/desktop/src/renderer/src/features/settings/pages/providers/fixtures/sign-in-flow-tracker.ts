@@ -1,31 +1,11 @@
 // The one brokered sign-in this window may have running, and what a second start gets.
 //
-// ONE FLOW, BECAUSE THE DAEMON RUNS ONE. A brokered sign-in spawns the provider's own
-// login binary against one credential home, and the account plane answers a second
-// start with `provideraccount.signin_in_flight`. The page held that flow in a single
-// `useState` cell and offered the control on every readiness row, so a second press
-// replaced the live attempt with `starting` and then with the daemon's refusal —
-// taking the verification code the operator was typing and the cancel control that was
-// the only way to stop the flow, over a press the page should never have accepted.
+// The daemon runs one brokered flow at a time, so a second start is refused here, in the
+// same tick as the press, through the single-flight latch. A boolean read from the rendered
+// flow could be stale, and two presses in one frame would both dispatch.
 //
-// SO THE GUARD IS `lib/reads/generation-latch.ts` AND NOT A FLAG. Single flight is that
-// register's one job, its key is per SUBJECT rather than per mount, and its refusal is
-// the answer `claim` already gives: a key that is held answers `undefined`, in the same
-// tick as the press, before anything is dispatched. A boolean read out of the rendered
-// flow would be the value from the render that produced the handler, so two presses in
-// one frame would both find no flow running and both dispatch — which is the defect one
-// layer down from the one this module exists to close.
-//
-// AND IT HOLDS NO WIRE. The two calls are handed in bound: a class that publishes a
-// snapshot AND holds a `PlatformBridge` is a reading, and the console requires every one
-// of those to be refreshable through a scheduler and the trigger contract. A start and a
-// cancel are acts a person takes, not answers that go stale, so this takes the
-// operations rather than the connection.
-//
-// AND WHAT IS IN THE WAY IS SAID ONCE. Two places say it — the disabled control's
-// reason, and the refusal a press that got past that control is answered with — so the
-// words are composed here and the caller hands in the label it holds. Two spellings of
-// one fact drift apart, and the drift is invisible because both of them render.
+// The tracker takes the start and cancel calls bound, not a bridge: they are acts, not
+// readings that go stale. The words for what is in the way are composed once, here.
 //
 // Exactly two things end a flow: a cancel that answered `canceled` or `notFound`, and
 // the registry's own tail reporting that attempt completed
@@ -55,10 +35,8 @@ const START_ALREADY_RUNNING_CODE = "signin-already-running";
 /**
  * The one key the sign-in flow is claimed under.
  *
- * ONE KEY FOR EVERY ACCOUNT, which is the rule rather than an economy: the daemon runs
- * one brokered flow at a time whichever account it is for, so a key per account would
- * admit two starts the daemon would then refuse — and the refusal would arrive after
- * the page had already replaced the live attempt.
+ * One key for every account: the daemon runs one brokered flow whichever account it is for,
+ * so a key per account would admit a second start the daemon then refuses.
  */
 const SIGN_IN_FLOW_KEY = "brokered-sign-in";
 
@@ -78,6 +56,7 @@ const NOTHING_STARTED: SignInFlowTrackerSnapshot = {
   revision: 0,
 };
 
+/** The calls a {@link SignInFlowTracker} makes, all supplied by its owner. */
 export interface SignInFlowTrackerOptions {
   /** Start one brokered sign-in. Supplied by the caller, never held here. */
   readonly startSignIn: (accountId: ProviderAccountId) => Promise<SignInStartOutcome>;
@@ -86,9 +65,8 @@ export interface SignInFlowTrackerOptions {
   /**
    * Called once a canceled flow has settled, either way.
    *
-   * The tracker learns nothing about the ACCOUNT from a flow ending — the daemon reads
-   * nothing the provider's login binary writes — so the only honest response is to ask
-   * the registry again, and the read belongs to whoever owns it.
+   * A flow ending says nothing about the account, so the owner of the registry read takes
+   * a fresh one.
    */
   readonly onFlowSettled: () => void;
 }
@@ -96,10 +74,8 @@ export interface SignInFlowTrackerOptions {
 /**
  * One window's brokered sign-in: which flow is running, and which starts were declined.
  *
- * A class with private fields rather than a pair of `useState` cells, per
- * `apps/desktop/AGENTS.md`: it owns a single-flight claim, two calls in flight, and the
- * rule that decides which of their settlements installs. The React binding lives in
- * `AccountsFixtureBody.tsx` and holds nothing.
+ * Owns the single-flight claim and decides which settlement installs. The React binding is
+ * in `AccountsFixtureBody.tsx`.
  */
 export class SignInFlowTracker {
   readonly #startSignIn: (accountId: ProviderAccountId) => Promise<SignInStartOutcome>;
@@ -107,22 +83,18 @@ export class SignInFlowTracker {
   readonly #onFlowSettled: () => void;
   readonly #changes = new Emitter<void>("sign-in flow change");
   /**
-   * Which flow this tracker is on, through the console's one single-flight register.
+   * Single-flight register for the sign-in key.
    *
-   * The key is held from the start that took it until the flow is ended or
-   * canceled, so a settlement arriving for a round something has superseded
-   * installs nothing and a disposed tracker installs nothing at all.
+   * Held from the start that took it until the flow ends or is canceled, so a settlement
+   * for a superseded round, or after dispose, installs nothing.
    */
   readonly #flows = new GenerationLatch();
   /**
    * The newest attempt the registry has reported finished.
    *
-   * Held because the tail opens BEFORE `providerAccount.login` is called — the ordering
-   * the registered contract states — so a flow that finishes fast reports its
-   * completion while the start reply is still traveling. Without this the tracker would
-   * record an attempt that is already over as running and hold the key until somebody pressed
-   * cancel. ONE id and not a set: the daemon runs one brokered flow at a time, so the
-   * newest completion is the only one an attempt being recorded could be.
+   * A fast flow can report completion while its start reply is still traveling; without
+   * this the tracker would record a finished attempt as running. One id is enough because
+   * the daemon runs one brokered flow at a time.
    */
   #completedAttemptId: string | undefined = undefined;
   #snapshot: SignInFlowTrackerSnapshot = NOTHING_STARTED;
@@ -145,11 +117,9 @@ export class SignInFlowTracker {
   /**
    * Start a brokered sign-in for one account.
    *
-   * The page disables every start control while a sign-in is running, so a press that
-   * reaches here is one that page could not intercept — a stale frame, a keyboard
-   * activation racing a commit. Doing nothing would be indistinguishable from a broken
-   * control, so the row that asked gets this tracker's own refusal saying what is in the
-   * way, and the flow that is running is not touched.
+   * A press that reaches here while a flow runs (a stale frame, a keyboard activation
+   * racing a commit) gets a refusal on its own row saying what is in the way; the running
+   * flow is untouched.
    */
   public start(accountId: ProviderAccountId): void {
     if (this.#isDisposed) {
@@ -165,8 +135,8 @@ export class SignInFlowTracker {
       });
       return;
     }
-    // Dropped on the attempt rather than on its settlement, so a person pressing again
-    // does not read last time's reason beside this time's spinner.
+    // Dropped on the attempt, not its settlement, so a repeat press does not show last
+    // time's reason beside this time's spinner.
     this.#publish({
       flow: { kind: "starting", accountId },
       refusalByAccountId: this.#refusalsWithout(accountId),
@@ -174,10 +144,8 @@ export class SignInFlowTracker {
     void this.#startSignIn(accountId).then((outcome) => {
       claim.settle(() => {
         if (outcome.attempt.attemptId === this.#completedAttemptId) {
-          // The registry reported this very attempt finished while its start reply was
-          // still traveling, which the registered ordering makes ordinary: the tail is
-          // open before the call goes out. Recording it would put a card on screen for a
-          // flow that is over.
+          // The registry reported this attempt finished before its start reply arrived;
+          // recording it would put a card on screen for a flow that is over.
           claim.release();
           this.#settleEndedFlow(SIGN_IN_ENDED_BY_REGISTRY);
           return;
@@ -190,8 +158,8 @@ export class SignInFlowTracker {
   /**
    * Cancel the live flow.
    *
-   * `canceled` and `notFound` are both the daemon telling this window there is no flow
-   * of its making left, so both end the flow and free the key.
+   * `canceled` and `notFound` both mean the daemon holds no flow of this window's, so both
+   * end the flow and free the key.
    */
   public cancel(): void {
     const { flow } = this.#snapshot;
@@ -213,18 +181,9 @@ export class SignInFlowTracker {
   /**
    * The registry's tail reports one brokered attempt finished.
    *
-   * THE SECOND OF THE TWO THINGS THAT END A FLOW, and the one that is evidence rather
-   * than a reply: `providerAccount.subscribe` carries `login_completed` correlated on
-   * the attempt id, so a tracker still holding an attempt is released by the node.
-   *
-   * CORRELATED AND NEVER ASSUMED. Another window's brokered flow completes on this same
-   * node-scoped tail, and taking that as this card's ending would clear a live
-   * attempt's verification code. The id this tracker holds is the only one that
-   * moves it.
-   *
-   * The completion is REMEMBERED whether or not it matched, because a flow that
-   * finishes fast reports its completion while its own start reply is still in flight —
-   * {@link start} reads it on the arm that records the attempt.
+   * Only the attempt id this tracker holds ends its flow: another window's flow completes
+   * on the same node-scoped tail and must not clear this card's verification code. Every
+   * completion is remembered, matched or not, for {@link start} to read.
    */
   public noteLoginCompleted(attemptId: string): void {
     if (this.#isDisposed) {
@@ -246,10 +205,10 @@ export class SignInFlowTracker {
   }
 
   /**
-   * Leave the flow ended and ask whoever owns the registry read to take a fresh one.
+   * Leave the flow ended and ask the owner of the registry read to take a fresh one.
    *
-   * The pair is written once because the two are one act: a flow ending is never a
-   * verdict about the account, so every path that ends one owes the same re-read.
+   * A flow ending is never a verdict about the account, so every path that ends one owes
+   * the same re-read.
    */
   #settleEndedFlow(because: string): void {
     this.#publish({ flow: { kind: "ended", because } });
@@ -277,8 +236,8 @@ export class SignInFlowTracker {
   /**
    * Fold one transition in and hand out a new identity.
    *
-   * The snapshot is HELD rather than composed per read, because `useSyncExternalStore`
-   * compares identity: a getter returning a fresh object every call renders forever.
+   * The snapshot is held, not composed per read, because `useSyncExternalStore` compares
+   * identity.
    */
   #publish(changes: Partial<Omit<SignInFlowTrackerSnapshot, "revision">>): void {
     this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
@@ -289,10 +248,8 @@ export class SignInFlowTracker {
 /**
  * The account whose sign-in is running, where one is.
  *
- * A function over the SNAPSHOT rather than a getter on the tracker, because the page
- * reads the snapshot through `useSyncExternalStore` and a getter reaching past it
- * would be a second reading of the same fact with no guarantee the two agree in one
- * render. The tracker's own guard calls it too, so the derivation has one spelling.
+ * A function over the snapshot, so the page and the tracker's guard derive it the same way
+ * from one reading.
  */
 export function findRunningSignInAccountId(
   snapshot: SignInFlowTrackerSnapshot,
@@ -304,11 +261,8 @@ export function findRunningSignInAccountId(
 /**
  * What is in the way of a start, in the words both places that say it use.
  *
- * TWO SENTENCES UNDER ONE RULE, because what a person does next differs: their own
- * account's sign-in is already the one running, and another account's is in front of
- * theirs. The second NAMES the account where the caller holds a label for it and
- * degrades to "another account" where it does not — which is what a refusal has to say,
- * being raised on the row that asked rather than beside the registry the label is in.
+ * The other-account sentence names the account where the caller holds a label for it, and
+ * says "another account" where it does not.
  */
 export function describeRunningSignIn(options: {
   readonly isTheSameAccount: boolean;
@@ -320,14 +274,12 @@ export function describeRunningSignIn(options: {
   const holder = options.holdingAccountLabel ?? "another account";
   return `A sign-in for ${holder} is already running. Cancel it before starting this one — this machine runs one brokered sign-in at a time.`;
 }
-
 /**
  * Why this tracker declined a start it never sent.
  *
- * Its own code rather than the daemon's `provideraccount.signin_in_flight` — that code
- * belongs to a call this tracker deliberately did not make, and borrowing it would report
- * a daemon refusal that never happened. The detail is the sentence above without a
- * label, because a refusal reaches the row from here and the registry is the page's.
+ * Its own code rather than the daemon's `provideraccount.signin_in_flight`: that call was
+ * never made, so borrowing the code would report a daemon refusal that did not happen. The
+ * detail is the sentence above without a label, since the registry is the page's.
  */
 function startAlreadyRunning(isTheSameAccount: boolean): Refusal {
   return refuse(

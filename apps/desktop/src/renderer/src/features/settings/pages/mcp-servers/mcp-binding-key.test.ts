@@ -1,8 +1,6 @@
-// How a binding is keyed.
-//
-// THE KEY IS ASSERTED AS AN IDENTITY AND NOT AS A STRING SHAPE. What matters is that
-// two bindings that differ anywhere in the scope-qualified tuple key differently and
-// that one binding keys the same way twice — never the particular separator.
+// How a binding is keyed, asserted as an identity and not a string shape: bindings that differ
+// anywhere in the scope-qualified tuple key differently, and one binding keys the same way
+// twice.
 
 import { describe, expect, it } from "vitest";
 
@@ -44,11 +42,10 @@ describe("mcpBindingKeyOf", () => {
     );
   });
 
-  // Both halves of the tuple are free-form wire strings — a checkout path an operator
-  // chose and a server name an operator typed — so a separator that either of them may
-  // contain is not a separator. Under a space join these two bindings are one key: the
-  // rows share a React identity, and whichever mutation settles last writes its outcome
-  // onto both controls.
+  // Both tuple halves are free-form wire strings (an operator's checkout path and server name),
+  // so a separator either may contain is not a separator. Under a space join these two bindings
+  // are one key: the rows share a React identity and the last mutation to settle writes its
+  // outcome onto both controls.
   it("keys two bindings apart when a space moves across the scope/name boundary", () => {
     expect(
       mcpBindingKeyOf({ ...PROJECT_BINDING, scopeRef: "/repo one", serverName: "server" }),
@@ -57,18 +54,16 @@ describe("mcpBindingKeyOf", () => {
     );
   });
 
-  // The `user` arm carries no `scopeRef`, and the encoding says so by carrying one
-  // segment fewer rather than by substituting a stand-in value for the member that arm
-  // does not have — which is what keeps the two arms apart on their own shape and not
-  // on the scope word alone.
+  // The `user` arm has no `scopeRef` and carries one segment fewer instead of a stand-in, so
+  // the two arms differ by shape and not by the scope word alone.
   it("keys a user binding apart from a project binding rooted at the empty string", () => {
     expect(mcpBindingKeyOf(USER_BINDING)).not.toBe(
       mcpBindingKeyOf({ ...PROJECT_BINDING, scopeRef: "", serverName: USER_BINDING.serverName }),
     );
   });
 
-  // The negative control for the three above: the server NAME alone is equal across
-  // every one of those pairs, so a key built from it would have collapsed them.
+  // Negative control for the three above: the server name is equal across every pair, so a key
+  // built from it would have collapsed them.
   it("does not key on the server name", () => {
     const sharedNames = new Set(
       [USER_BINDING, PROJECT_BINDING, { ...PROJECT_BINDING, provider: "codex" as const }].map(

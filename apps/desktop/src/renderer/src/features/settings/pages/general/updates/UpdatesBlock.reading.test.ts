@@ -1,9 +1,7 @@
-// What the updates block reads, and what it says once it has read it.
-//
-// The arms the updater publishes, the ordering between the opening read and a
-// transition pushed while it is still in flight, and the one polite announcement the
-// settled read makes. What a control does with any of it is
-// `UpdatesBlock.controls.test.ts`, over the doubles in `updates-block.test-support.tsx`.
+// What the updates block reads and says once it has read it: the arms the updater publishes,
+// the ordering between the opening read and a transition pushed while it is in flight, and the
+// one polite announcement. Controls are in `UpdatesBlock.controls.test.ts`, over the doubles
+// in `updates-block.test-support.tsx`.
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -73,9 +71,9 @@ describe("the updates block — the updater's arms", () => {
 
 describe("the updates block — the two sources are sequenced", () => {
   it("keeps a pushed transition when the opening read resolves behind it", async () => {
-    // The block's own end of the race. Without the sequencing, the read's older
-    // snapshot lands last and the ready arm — and its restart control — disappear
-    // until the updater pushes again, which from a terminal arm it never does.
+    // Without the sequencing the read's older snapshot lands last and the ready arm and its
+    // restart control disappear until the updater pushes again, which from a terminal arm it
+    // never does.
     const held = updaterHoldingItsRead();
     const { block } = await renderSettled(held.updater);
 
@@ -94,8 +92,8 @@ describe("the updates block — the two sources are sequenced", () => {
   });
 
   it("negative control: the opening read still installs when nothing was pushed", async () => {
-    // Without this, a block that ignored its opening read outright would satisfy the
-    // case above and then show "Reading the updater's state" for the window's life.
+    // Guards against a block that ignores its opening read and shows "Reading the updater's
+    // state" for the window's life.
     const held = updaterHoldingItsRead();
     const { block } = await renderSettled(held.updater);
     expect(block.textContent ?? "").toContain("Reading the updater");
@@ -117,9 +115,8 @@ describe("the updates block — the read says it landed, once", () => {
   });
 
   it("negative control: a second push inside the same arm says nothing again", async () => {
-    // Without this, a sentence carrying the download percent would satisfy the case
-    // above and then announce once per percentage point — which fills the polite
-    // queue with one condition and sheds every other announcement behind it.
+    // Guards against a sentence carrying the download percent, which would be announced once
+    // per percentage point and fill the polite queue.
     const pushing = updaterPushing({ status: "downloading", percent: 42 });
     const { block, clock, politeText } = await renderSettled(pushing.updater);
     expect(politeText()).toBe("Update state read. An update is downloading.");
@@ -135,8 +132,7 @@ describe("the updates block — the read says it landed, once", () => {
       await crossMacrotaskBoundary();
     });
 
-    // The block really did re-render on the push, so the silence is the hook's doing
-    // rather than a component that stopped listening.
+    // The block re-rendered on the push, so the silence is the hook's doing.
     expect(block.textContent ?? "").toContain("43%");
     expect(politeText()).toBe("");
   });

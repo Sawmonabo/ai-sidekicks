@@ -1,20 +1,9 @@
 // One settings page, and the settle that follows a search hit.
 //
-// HOW THE READER GETS THERE, AND WHY IT IS NOT A PROGRAMMATIC SCROLL. The design
-// asks for "a match names where it landed, scrolls into the pane, and settles with
-// one brief highlight". Two of the three are this file's; the scroll is the
-// PLATFORM's, reached by moving focus to the page's heading. `scrollIntoView` is a
-// standing tripwire in this console, and the programmatic-scroll chokepoint the
-// transcript feature owns does not exist in this tree yet — so a scroll writer minted
-// here would be exactly the second one that rule exists to prevent. Focus is not a
-// scroll writer: it is what a keyboard reader needs anyway, and the viewport
-// following it is the browser's own behavior rather than this module's.
-//
-// AND WHY THE SETTLE IS AN ANIMATION RATHER THAN A TIMER. A highlight cleared on a
-// timer would be a second clock in a console whose timers are chokepointed; the
-// animation's own end is the signal, so nothing here schedules anything, and a
-// reader whose system asks for reduced motion gets no animation and therefore no
-// lingering highlight to clear.
+// The reader reaches the page by moving focus to its heading, not by a programmatic scroll:
+// `scrollIntoView` is not allowed in this console and the transcript's scroll chokepoint owns
+// scroll writes. The viewport following focus is the browser's own behavior. The settle is a
+// CSS animation whose end clears it, so nothing here schedules a timer.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -23,14 +12,14 @@ import type { SettingsPageContext } from "../types.js";
 import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 
+/** Props for {@link SettingsPageContent}. */
 export interface SettingsPageContentProps {
   readonly section: SettingsPageId;
   readonly context: SettingsPageContext;
   readonly pages: SettingsPageRegistry;
   /**
-   * How many search hits this pane has opened. Moves on every hit, including a
-   * second hit on the section already open — the case a boolean could not express,
-   * and the one where a reader most needs to be told they did not move.
+   * How many search hits this pane has opened. It moves on every hit, including a second hit
+   * on the section already open.
    */
   readonly settleOrdinal: number;
 }
@@ -38,11 +27,8 @@ export interface SettingsPageContentProps {
 /**
  * The selected section's page, and the settle that follows a search hit.
  *
- * Its own component because the hooks below may not be called from the arms above:
- * an address naming no section renders no page, and a component that ran the settle
- * effect anyway would be reaching for a heading that is not on screen. The pane's
- * absence arms stay hook-free, which is what makes that safe by construction
- * rather than by an early-return convention.
+ * Its own component because the settle effect needs a heading on screen; the pane's absence
+ * arms stay hook-free.
  */
 export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.Element {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -50,9 +36,8 @@ export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.
   const { settleOrdinal } = props;
 
   useEffect(() => {
-    // Ordinal zero is the pane opening rather than a hit, so nothing settles
-    // before anybody has searched — a page that flashed on arrival would be saying
-    // "you landed here" to a person who navigated by the rail.
+    // Ordinal zero is the pane opening, not a hit; settling then would flash on rail
+    // navigation.
     if (settleOrdinal === 0) {
       return;
     }

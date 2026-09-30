@@ -44,26 +44,17 @@ export interface SettingsPageDescriptor {
 }
 
 /**
- * One entry of the page table, in one of exactly two forms.
+ * One entry of the page table, in one of exactly two forms: an eager `render`, or a `body`
+ * loader.
  *
- * THE PANE LAYOUT'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
- * product fact and normalized by the same `LoaderBackedBody`. `registries/panes/pane-registry.ts`
- * states the reasoning; what makes it apply here is that a settings page is not painted
- * before a person acts — settings is a destination somebody navigates to, and a section
- * inside it is a second act after that.
+ * The same union as the pane layout's and the frame's (see `registries/panes/pane-registry.ts`),
+ * normalized by the same `LoaderBackedBody`. A settings page is not painted before a person
+ * acts, so a loader keeps its page and stylesheet off the initial import graph: a module
+ * reachable both statically and dynamically lands in the static chunk, and a loader lets the
+ * registration name a chunk root instead of a component.
  *
- * IT IS NOT MERELY A SIZE QUESTION, and the case that forced this arm shows why. The
- * agent definitions page's body is the agents feature's, and that feature's public entry is imported
- * EAGERLY by `app/registrations.ts` for the Agents pane's pane registration. So
- * while this registry took only a `render`, the registration site had to reach the page
- * through that entry, and the bundler — which assigns a module reachable both statically
- * and dynamically to the static chunk — put the page and its stylesheet on the initial
- * graph of every launch, including every launch that never opens settings. A loader here
- * is what lets the registration name a chunk root instead of a component.
- *
- * A UNION AND NOT TWO OPTIONAL MEMBERS, for the pane board's reason: `render?` beside
- * `body?` makes "both" and "neither" representable, and both would have to be answered at
- * run time by a registry that cannot know which the page meant.
+ * A union rather than two optional members, since `render?` beside `body?` would make "both"
+ * and "neither" representable, and a registry cannot know which the page meant.
  */
 export type SettingsPageRegistration =
   | (SettingsPageRegistrationBase & {
@@ -89,9 +80,8 @@ export interface SettingsPageMatch {
  * A second claim on a section by a different owner throws rather than replacing it.
  */
 export class SettingsPageRegistry {
-  // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: a hot reload re-runs
-  // the owner's module and must replace, while two owners on one section is a
-  // conflict rather than a swap decided by module import order.
+  // `"owner-scoped"`: a hot reload re-runs the owner's module and must replace, while two
+  // owners on one section is a conflict rather than a swap decided by import order.
   readonly #descriptorsBySection = new KeyedRegistry<SettingsPageId, SettingsPageDescriptor>({
     duplicatePolicy: "owner-scoped",
     describeWhat: "settings section",
@@ -102,9 +92,8 @@ export class SettingsPageRegistry {
   /**
    * The loader-backed pages, so {@link preload} has something to resolve.
    *
-   * A second table rather than a member on the descriptor, for the pane and screen registries'
-   * reason: the descriptor is what every mount site reads and none of them has business
-   * knowing whether the page it is about to render arrived as a chunk.
+   * Kept apart from the descriptor because every mount site reads the descriptor and none
+   * needs to know whether the page arrived as a chunk.
    */
   readonly #loadedBodiesBySection = new Map<
     SettingsPageId,
@@ -114,16 +103,12 @@ export class SettingsPageRegistry {
   /**
    * Claim a section. A second claim by a different owner is an error, not a swap.
    *
-   * A loader-form registration is normalized here exactly as the pane layout's and the frame's
-   * boards normalize theirs: one `LoaderBackedBody` per registration — one memoized promise
-   * and one stable lazy component — and a descriptor whose `render` mounts it. So
-   * `descriptorFor` answers the same shape for both forms, `entries` ranks both the same
-   * way, and neither `SettingsPane` nor the search index branches on how a body arrived.
-   *
-   * The two writes are ordered as the pane board's are, and for the measured reason that
-   * board records: the descriptor is registered FIRST so a refusal — a different owner
-   * claiming a taken section — throws before the loader table is touched, and cannot
-   * strip the loader off the registration that survives it.
+   * A loader-form registration becomes one `LoaderBackedBody` (one memoized promise, one
+   * stable lazy component) and a descriptor whose `render` mounts it, so `descriptorFor` and
+   * `entries` answer the same shape for both forms and neither `SettingsPane` nor the search
+   * index branches on how a body arrived. The descriptor is registered first so a refusal (a
+   * different owner claiming a taken section) throws before the loader table is touched and
+   * cannot strip the loader off the registration that survives it.
    */
   public register(registration: SettingsPageRegistration): void {
     const descriptorBase = {
@@ -140,9 +125,9 @@ export class SettingsPageRegistry {
       this.#loadedBodiesBySection.delete(registration.section);
       return;
     }
-    // The fallback is the page region's own empty reservation, supplied here rather than
-    // by the generic machinery: what a settings page reserves while it loads is a
-    // settings-shaped question, and the pane above it has already drawn the heading.
+    // The fallback is the page region's own reservation, supplied here because what a
+    // settings page reserves while it loads is settings-shaped, and the pane above has
+    // already drawn the heading.
     const loadedBody = new LoaderBackedBody(registration.body, () =>
       createElement(PendingSettingsPage, { section: registration.section }),
     );
@@ -156,28 +141,22 @@ export class SettingsPageRegistry {
   /**
    * Start this section's body loading, without opening it.
    *
-   * The pane and screen registries' `preload`: idempotent by construction, because the promise
-   * is memoized on the registration, and a component-form or unregistered section settles
-   * immediately with nothing to do — so a caller never has to ask first whether a section
-   * is loader-backed.
-   *
-   * ONE PRODUCTION CALLER: the mount's idle walk, which covers the board after the first
-   * frame. A load that fails is reported where the page mounts, inside the screen's error
-   * boundary, where somebody is waiting for it; the walk drops its own rejection because
-   * nobody is.
+   * Idempotent, because the promise is memoized on the registration; a component-form or
+   * unregistered section settles immediately. The one production caller is the idle walk
+   * (`hooks/useSettingsPageIdleWarm.ts`) after the first frame. A load that fails is
+   * reported where the page mounts, inside the screen's error boundary; the walk drops its
+   * own rejection because nobody is waiting on it.
    */
   public async preload(section: SettingsPageId): Promise<void> {
     await this.#loadedBodiesBySection.get(section)?.load();
   }
 
   /**
-   * Which registered sections have a page still to load, in RAIL order.
+   * Which registered sections have a page still to load, in rail order.
    *
-   * The two boards' `unloadedKeys`, with their ordering reason read one level down: what
-   * the walk warms first is observable in what a person never waits for, and registration
-   * order would make it depend on which page module the chunk root evaluated first.
-   * Already-resolved sections drop out, so a second walk over a warm board does nothing
-   * rather than re-entering every memo.
+   * Rail order, not registration order, so what the idle walk warms first does not depend on
+   * which page module evaluated first. Resolved sections drop out, so a second walk over a
+   * warm board does nothing.
    */
   public unloadedKeys(): readonly SettingsPageId[] {
     return SETTINGS_PAGE_IDS.filter(
@@ -207,23 +186,19 @@ export class SettingsPageRegistry {
   }
 }
 
-// There is deliberately NO module-scope page registry here. The settings screen is handed
-// the one its registrar composed, for `registerFeatureContributions`' reason one level
-// down: a singleton would make the pane's contents depend on a side effect of the
-// screen registration, so a test rendering the screen directly would get an empty
-// pane and a second settings window could not compose a different subset.
+// There is no module-scope page registry: the screen is handed the one its registrar
+// composed. A singleton would make the pane's contents depend on a side effect of the screen
+// registration, so a test rendering the screen directly would get an empty pane and a second
+// settings window could not compose a different subset.
 
 /**
  * Rank settings entries against a query.
  *
- * The scoring is `scoreSubsequence`'s and none of it is re-implemented here — the
- * only decision this function makes is WHICH strings an entry offers (its label,
- * its section label, and its aliases) and that the best of them wins. An empty
- * query answers every entry in rail order, which is what the pane shows before
- * anyone has typed.
- *
- * Ties break on rail order, because the input is already in it and `Array.sort` is
- * stable — so two equally-good hits never swap places between keystrokes.
+ * The scoring is `scoreSubsequence`'s; this function only decides which strings an entry
+ * offers (its label, its section label and its aliases) and that the best of them wins. An
+ * empty query answers every entry in rail order. Ties break on rail order, since the input is
+ * in it and `Array.sort` is stable, so equally good hits never swap places between
+ * keystrokes.
  */
 export function matchSettingsPages(
   entries: readonly SettingsPageDescriptor[],

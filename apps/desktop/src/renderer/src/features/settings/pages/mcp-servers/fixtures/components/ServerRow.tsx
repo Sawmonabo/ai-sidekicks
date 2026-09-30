@@ -14,26 +14,15 @@ import { ToolOverrideList } from "./ToolOverrideList.js";
 import type { McpMutationOutcome } from "../mcp-mutation.js";
 
 /**
- * One inventory row: the binding's identity, what is known about it, and the two
- * controls this fixture body sends.
+ * One inventory row: the binding's identity, what is known about it, and the two controls this
+ * fixture body sends.
  *
- * THE IDENTITY IS THE SCOPE-QUALIFIED TUPLE AND NEVER THE NAME. Two same-named servers
- * in two scopes are two bindings, and a row keyed on the name would collapse them —
- * putting one row's status, one row's overrides, and one row's mutation outcome onto
- * the other. The provider, the scope, and the scope reference are all on screen for
- * exactly that reason.
- *
- * EVERY CONTROL IS OFFERED AND NONE IS ELIGIBILITY-GATED. The design for this page says
- * so in terms: eligibility is not projected at all and no field reports it. So this
- * row disables a control only while its own call is in flight — which is about this
- * press and not about permission.
- *
- * EXCEPT WHERE THE TRUST STORE IS UNREACHABLE, WHICH IS STRUCTURAL. On that arm
- * `trusted`, `configHash`, and the overrides are ABSENT from the wire rather than
- * false, and the trust control is withheld on that row alone — not because this
- * console decided the operator may not press it, but because there is no current value
- * for a toggle to move away from, and a toggle rendered against nothing would be
- * asserting one.
+ * The identity is the scope-qualified tuple, never the name: two same-named servers in two
+ * scopes are two bindings, so provider, scope and scope reference are all on screen. Every
+ * control is offered and none is eligibility-gated; a control disables only while its own call
+ * is in flight. The exception is structural: when the trust store is unreachable, `trusted`,
+ * `configHash` and the overrides are absent from the wire, and the trust control is withheld on
+ * that row because there is no current value for a toggle to move away from.
  */
 export function ServerRow(props: {
   readonly entry: McpServerInventoryEntry;
@@ -136,10 +125,8 @@ export function ServerRow(props: {
 /**
  * The binding identity carried inside one inventory entry.
  *
- * Rebuilt per arm rather than spread off the entry, so the discriminated union stays
- * discriminated: a spread would widen `scope` back to its union and produce a value
- * the mutation signature cannot take without a cast — and a cast here would switch off
- * exactly the checking that keeps a `scopeRef` off the `user` arm.
+ * Rebuilt per arm rather than spread, so the discriminated union stays discriminated and no
+ * cast is needed to keep a `scopeRef` off the `user` arm.
  */
 function bindingOf(entry: McpServerInventoryEntry): McpServerBindingRef {
   if (entry.scope === "user") {

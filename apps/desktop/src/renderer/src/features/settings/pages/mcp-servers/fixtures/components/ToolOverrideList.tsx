@@ -8,17 +8,10 @@ import type { McpToolOverride } from "@ai-sidekicks/contracts";
 /**
  * The tool overrides pinned on one binding, by facet.
  *
- * AN ABSENT FACET IS RENDERED AS AN ABSENCE AND NEVER AS A DEFAULT. Every facet is
- * independently optional and at least one is present, and an absent one means
- * "inherit" — so a row that filled the blank with the value the daemon would fall back
- * to would be re-deriving the fallback here. `idempotencyClass` is the case that
- * matters: its floor is the manual-reconcile class, recovery depends on it, and a
- * renderer naming that floor would be a second source of truth for a decision the
- * daemon owns.
- *
- * THE LIST IS RENDERED AND NEVER SORTED. The daemon serves the overrides in the order
- * it holds them; re-ordering them here would make two consoles disagree about what one
- * binding declares, for no gain a person could name.
+ * An absent facet renders as an absence, never as a default: each facet is independently
+ * optional and absent means "inherit", so filling the blank would re-derive a fallback the
+ * daemon owns (`idempotencyClass` especially). The list is rendered in the order the daemon
+ * serves it and never sorted.
  */
 export function ToolOverrideList(props: {
   readonly overrides: readonly McpToolOverride[];

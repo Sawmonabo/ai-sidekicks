@@ -1,4 +1,4 @@
-// The row's two jobs: be reachable, and say nothing the page did not tell it.
+// The row is reachable (labeled and described) and reports only what the page gave it.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -39,7 +39,7 @@ describe("preference toggle row", () => {
   });
 
   it("negative control: an unchecked row does not report itself checked", () => {
-    // Without this, the case above would pass over a row that hardcoded `true`.
+    // Guards against a row that hardcodes `true`.
     const { container } = render(
       <PreferenceToggleRow
         label="Off"

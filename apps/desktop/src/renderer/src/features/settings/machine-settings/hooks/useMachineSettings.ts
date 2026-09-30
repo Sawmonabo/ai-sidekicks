@@ -1,4 +1,4 @@
-// How React binds this window's machine-settings store.
+// The React binding for this window's machine-settings store.
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
@@ -14,7 +14,7 @@ import {
 } from "../machine-settings-snapshot.js";
 import { machineSettingsHolder } from "../machine-settings-holder.js";
 
-/** What a page reads and what it presses. One object, so a row takes one prop set. */
+/** What a page reads and what it presses, as one object so a row takes one prop set. */
 export interface MachineSettingsBinding {
   readonly snapshot: MachineSettingsSnapshot;
   /** The effective settings: what the service answered, or the defaults. */
@@ -29,29 +29,22 @@ export interface MachineSettingsBinding {
 /**
  * Bind this window's machine settings over the bridge's `machineSettings`.
  *
- * THE STORE IS ACQUIRED IN AN EFFECT AND ONLY READ DURING RENDER, because acquiring
- * can dispose the store a replaced bridge left behind and a memo is not a safe place
- * for that. The effect has no teardown: this store's lifetime is the WINDOW's and a
- * page unmount is not the window closing; the one disposal there is belongs to the
- * replacement, inside `acquire`, after a commit.
- *
- * A page that renders before the effect settles gets the unanswered snapshot, never a
- * disposed store: the store answered is this mount's own only while the holder still
- * holds it for this bridge.
+ * The store is acquired in an effect and only read during render, because acquiring can
+ * dispose the store a replaced bridge left behind. The effect has no teardown: the store
+ * lives as long as the window. A page that renders before the effect settles gets the
+ * unanswered snapshot, never a disposed store.
  */
 export function useMachineSettings(bridge: PlatformBridge): MachineSettingsBinding {
-  // Held against the TRANSPORT, through the console's one holder. The seed reads the
-  // pure lookup so the SECOND page to bind in a window opens on the store the first
-  // one acquired rather than on one frame of the opening arm — and because the seed
-  // is re-read in the render that first sees a new bridge, a page carried across a
-  // scenario switch never reads the retired bridge's store even for a frame.
+  // Held against the transport. The seed reads the pure lookup so a second page in the window
+  // opens on the store the first acquired, and a page carried across a scenario switch never
+  // reads the retired bridge's store.
   const { value: acquiredStore, publish: publishAcquiredStore } = useSubjectScopedState<
     MachineSettingsStore | undefined
   >(bridge, undefined, () => machineSettingsHolder.storeIfCurrent(bridge));
 
   useEffect(() => {
     const store = machineSettingsHolder.acquire(bridge);
-    // Idempotent, so strict mode's second invocation subscribes once.
+    // Idempotent, so strict mode subscribes once.
     store.start();
     publishAcquiredStore(store);
   }, [bridge, publishAcquiredStore]);
@@ -70,10 +63,8 @@ export function useMachineSettings(bridge: PlatformBridge): MachineSettingsBindi
     settings: effectiveSettings(snapshot),
     isPending: (member) => snapshot.pendingMembers.has(member),
     choose: (member, value) => {
-      // Reached from an event handler and never from a render, so this acquires
-      // rather than reads: a press must move a store rather than be swallowed by
-      // the frame before the effect ran, and the handler settles on the same store
-      // that effect acquired because a press cannot outrun a passive effect.
+      // Acquire rather than read: a press must move a store, and an event handler runs after
+      // the passive effect that acquired it.
       void machineSettingsHolder.acquire(bridge).choose(member, value);
     },
   };

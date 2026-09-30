@@ -1,9 +1,6 @@
-// The settings entry index, and the two claims the settings screen rests on.
-//
-// The rail is the closed section tuple and the search is one shared matcher. Both
-// are claims about SETS, so the cases drive the sets rather than a hand-listed copy
-// beside them — a test that restated the sections would be one more place to
-// widen and the first one to go stale.
+// The settings entry index, and the two claims the settings screen rests on: the rail is the
+// closed section tuple and the search is one shared matcher. Both are claims about sets, so
+// the cases drive the sets, not a hand-listed copy that would go stale.
 
 import { describe, expect, it } from "vitest";
 import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
@@ -33,9 +30,9 @@ function pageFor(
 
 describe("settings sections — the closed set the rail renders", () => {
   it("labels every section, and labels nothing else", () => {
-    // A total record is what makes a fifteenth section a compile error rather
-    // than a rail entry reading `mcp-servers`. Checked at runtime too, because the
-    // record could be widened past the union with a cast.
+    // A total record makes a new section a compile error rather than a rail entry reading
+    // `mcp-servers`. Checked at runtime too, since a cast could widen the record past the
+    // union.
     expect(Object.keys(SETTINGS_PAGE_LABELS).sort()).toStrictEqual([...SETTINGS_PAGE_IDS].sort());
     for (const section of SETTINGS_PAGE_IDS) {
       expect(SETTINGS_PAGE_LABELS[section].length).toBeGreaterThan(0);
@@ -49,8 +46,8 @@ describe("settings sections — the closed set the rail renders", () => {
 
 describe("settings page registry — one page per section", () => {
   it("answers in rail order rather than registration order", () => {
-    // Rail order is what a person reads. Registration order would make it depend
-    // on which page's module the bundler evaluated first.
+    // Rail order is what a person reads; registration order would depend on which page's
+    // module the bundler evaluated first.
     const registry = new SettingsPageRegistry();
     registry.register(pageFor("keyboard"));
     registry.register(pageFor("providers"));
@@ -62,9 +59,8 @@ describe("settings page registry — one page per section", () => {
   });
 
   it("replaces under one owner and refuses a second", () => {
-    // The owner-scoped policy: a hot reload re-runs the owner's module and must
-    // replace; two owners on one section is a conflict rather than a swap decided
-    // by import order.
+    // The owner-scoped policy: a hot reload re-runs the owner's module and must replace;
+    // two owners on one section is a conflict, not a swap decided by import order.
     const registry = new SettingsPageRegistry();
     registry.register(pageFor("runtime", { label: "First" }));
     registry.register(pageFor("runtime", { label: "Second" }));
@@ -75,8 +71,8 @@ describe("settings page registry — one page per section", () => {
   });
 
   it("negative control: a fresh registry claims nothing", () => {
-    // Every case above reads `registeredSections`, and all of them would pass over
-    // a registry that reported sections nobody registered.
+    // Every case above reads `registeredSections`, so all would pass over a registry that
+    // reported sections nobody registered.
     expect(new SettingsPageRegistry().registeredSections()).toStrictEqual([]);
   });
 });
@@ -97,9 +93,8 @@ describe("settings page registry — what is left to warm", () => {
   }
 
   it("names the sections still to load, in rail order", () => {
-    // Rail order rather than registration order, for the two boards' reason: what a walk
-    // warms first is observable, and registration order would make it depend on which
-    // page module the chunk root evaluated first.
+    // Rail order rather than registration order: what a walk warms first is observable, and
+    // registration order would depend on which page module evaluated first.
     const registry = new SettingsPageRegistry();
     registry.register(deferredPageFor("keyboard"));
     registry.register(deferredPageFor("providers"));
@@ -114,9 +109,8 @@ describe("settings page registry — what is left to warm", () => {
   });
 
   it("negative control: a component-form page has nothing to warm", () => {
-    // Without this, the cases above would pass over a registry that reported every
-    // registered section as unloaded — and the walk would then re-arm forever on a page
-    // that was never going to resolve.
+    // Without this the cases above would pass over a registry that reported every registered
+    // section as unloaded, and the walk would re-arm forever on a page that never resolves.
     const registry = new SettingsPageRegistry();
     registry.register(pageFor("keyboard"));
     expect(registry.registeredSections()).toStrictEqual(["keyboard"]);
@@ -138,8 +132,8 @@ describe("settings search — one matcher, shared with the palette", () => {
   });
 
   it("finds an entry by an alias its label does not carry", () => {
-    // The reason entries declare aliases at all: "shortcuts" appears nowhere in
-    // the word "Keyboard", and a matcher over labels alone would answer nothing.
+    // The reason entries declare aliases at all: "shortcuts" appears nowhere in "Keyboard",
+    // and a matcher over labels alone would answer nothing.
     const found = matchSettingsPages(entries, "shortc");
     expect(found.map((match) => match.descriptor.section)).toStrictEqual(["keyboard"]);
     expect(found[0]?.matchedText).toBe("shortcuts");

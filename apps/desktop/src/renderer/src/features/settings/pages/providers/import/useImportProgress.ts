@@ -1,10 +1,9 @@
 // Drains one provider's import stream for as long as its holder is mounted.
 //
-// The subscribe call is the caller's, taken as an argument. A rejected call, or a stream
-// that rejects part-way, is not caught here: it propagates. The stream is opened once per
-// provider and closed on the way out: a subscription left open after its holder unmounts
-// is a producer with no reader. A message arriving after that installs nowhere, because
-// the disposal flag is read before every publish.
+// The subscribe call is the caller's. A rejected call, or a stream that rejects part-way,
+// propagates. The stream is opened once per provider and closed on the way out, since one
+// left open after unmount is a producer with no reader; a message arriving after that
+// installs nowhere because the disposal flag is read before every publish.
 
 import { useEffect, useState } from "react";
 
@@ -19,11 +18,9 @@ const UNSUBSCRIBED: ImportProgressReading = { status: "unsubscribed" };
 
 /**
  * Drain one provider's import stream for as long as its holder is mounted.
- *
- * `provider` is `undefined` until an import is put, and that absence is the
- * `unsubscribed` arm rather than an empty `open` one: nothing has been asked, and a
- * panel rendering "no progress yet" for a question nobody put is the conflation the
- * console's five-kinds-of-nothing rule exists to prevent.
+ * `provider` is `undefined` until an import is put. That is the `unsubscribed` arm, not an
+ * empty `open` one: nothing has been asked, and "no progress yet" would answer a question
+ * nobody put.
  */
 export function useImportProgress(
   subscribe: ImportProgressSubscribeCall,

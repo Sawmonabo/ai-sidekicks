@@ -1,15 +1,8 @@
-// The browser's page in settings: its heading, and the sections the caller composes under
-// it.
+// The browser's page in settings: its heading and the sections the caller composes under it.
 //
-// It is mounted on the settings board as the `browser` section. The settings screen is
-// one registered screen, so the pages behind it are keyed by section in a registry of their
-// own. The one line that registers this page lives at the console root, in
-// `console/browser-settings-page.ts`, because the registration names two features
-// and neither feature may import the other.
-//
-// The page is a projection, not a read: everything it draws arrives as children, and it
-// performs no fetch, holds no store, and runs no effect. That keeps it renderable in a
-// test, in a screenshot tier, and in an auxiliary window without a second code path.
+// It is registered as the `browser` section in `settings-pages.ts`. The page is a projection:
+// everything it draws arrives as children, and it fetches nothing, holds no store and runs no
+// effect, so it renders the same in a test, a screenshot tier and an auxiliary window.
 
 import type { ReactNode } from "react";
 

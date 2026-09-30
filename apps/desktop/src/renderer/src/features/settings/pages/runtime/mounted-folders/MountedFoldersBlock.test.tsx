@@ -1,8 +1,7 @@
-// The mounts page renders both health axes separately and offers no detach.
+// The mounted-folders block renders both health axes separately and offers no detach.
 //
-// The refresh signals and the refused read are the suite beside this one
-// (`WorkspaceMountsPage.refresh.test.tsx`); both drive the page through the harness
-// in `workspace-mounts-page.test-support.tsx`.
+// The refresh signals and the refused read are in `MountedFoldersBlock.refresh.test.ts`;
+// both suites use the harness in `mounted-folders-block.test-support.tsx`.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
@@ -33,9 +32,9 @@ describe("workspace mounts page", () => {
   });
 
   it("names the day a mount was last probed, and tells two days apart apart", async () => {
-    // The row has no day divider, so a clock-only reading made a probe from last
-    // week and one from this morning the same eight characters — and "last probed
-    // at" is read precisely to tell how stale the reachability chip is.
+    // The row has no day divider, so a clock-only reading made a probe from last week and
+    // one from this morning look alike, and "last probed at" exists to tell how stale the
+    // health chip is.
     const probedToday = "2026-09-02T10:00:00.000Z";
     const probedLastWeek = "2026-08-26T10:00:00.000Z";
     const { page: container } = await renderSettledBlock(
@@ -52,8 +51,8 @@ describe("workspace mounts page", () => {
     );
     expect(readings[0]).toBe(formatDateTime(probedToday));
     expect(readings[1]).not.toBe(readings[0]);
-    // Without this the case would pass over two instants that were never a
-    // collision, and would prove nothing about which formatter the row reaches for.
+    // Without this the case would pass over two instants that never collided, and prove
+    // nothing about which formatter the row uses.
     expect(formatClockTime(probedLastWeek)).toBe(formatClockTime(probedToday));
   });
 
@@ -81,8 +80,8 @@ describe("workspace mounts page", () => {
   });
 
   it("negative control: the control sweep bites on one detach button", async () => {
-    // Without this the assertion above would pass over any tree with no buttons,
-    // including one that failed to render rows at all.
+    // Without this the assertion above would pass over any tree with no buttons, including
+    // one that rendered no rows.
     const { container } = render(
       <div>
         <button type="button">Detach</button>
@@ -118,14 +117,14 @@ describe("workspace mounts page — the read says it landed, once", () => {
       }),
     );
     expect(politeText()).toBe("that node is not attached");
-    // The card on screen carries the same words, so the announcement is the spoken
-    // half of one fact rather than a second account of it.
+    // The card on screen carries the same words: the announcement is the spoken half of one
+    // fact.
     expect(page.textContent ?? "").toContain("that node is not attached");
   });
 
   it("negative control: a focus refresh finding the same mounts says nothing again", async () => {
-    // Without this, a page that announced on every settlement would speak the same
-    // sentence every time the window regained focus.
+    // Without this, a page that announced on every settlement would repeat the sentence each
+    // time the window regained focus.
     const methodsAsked: string[] = [];
     const { clock, politeText, settle } = await renderSettledBlock(
       contextReading({
@@ -147,8 +146,8 @@ describe("workspace mounts page — the read says it landed, once", () => {
     });
     await settle();
 
-    // The refresh really happened, so the silence is the announcement rule's doing
-    // rather than a read that never ran.
+    // The refresh really happened, so the silence is the announcement rule's doing, not a
+    // read that never ran.
     expect(methodsAsked.length).toBeGreaterThan(askedOnFirstRead);
     expect(politeText()).toBe("");
   });

@@ -1,11 +1,10 @@
-// The Settings feature's palette commands: the acts on this install that have no screen of
-// their own (copy build details, check for updates) and the `Color scheme` row.
+// The Settings palette commands: acts on this install with no screen of their own (copy build
+// details, check for updates) and the `Color scheme` row.
 //
-// Every bridge act settles. The palette drops the promise a command returns, so a `run`
-// that rejected would show the person nothing; each act catches its own failure and hands
-// it to the caller's sink as a `Refusal`. The refusal detail is a constant sentence,
-// never the caught error's message: that text comes from the main process across IPC, may
-// be a stack, and names a subsystem the person cannot act on.
+// Every bridge act settles: the palette drops the promise a command returns, so each act
+// catches its own failure and hands the caller's sink a `Refusal`. The refusal detail is a
+// constant sentence, never the caught error's message, which crosses IPC from the main
+// process and may be a stack naming a subsystem the person cannot act on.
 
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
@@ -30,8 +29,7 @@ export type BridgeCommandRefusalSink = (refusal: Refusal) => void;
 /**
  * The bridge-backed commands, for a bridge the caller already holds.
  *
- * Separate from `useBridgeCommands` so the commands can be built and driven without a
- * React tree: the hook is the wiring, this is the behavior.
+ * Separate from `useBridgeCommands` so the commands can be built without a React tree.
  */
 export function buildBridgeCommands(
   bridge: PlatformBridge,
@@ -44,9 +42,8 @@ export function buildBridgeCommands(
       group: "Help",
       keywords: ["version", "platform", "architecture", "locale", "diagnostics", "bug report"],
       run: async () => {
-        // Read from the bridge rather than from `navigator`: `app` meta is what the
-        // MAIN process reports, and under the fixture it is pinned, so a screenshot
-        // of this command's result does not move with the developer's machine.
+        // Read from the bridge, not `navigator`: the main process reports `app`, and the
+        // fixture pins it so screenshots do not move with the machine.
         const { version, platform, arch, locale } = bridge.app;
         await settle(onRefusal, "clipboard-unavailable", CLIPBOARD_REFUSAL_DETAIL, () =>
           bridge.native.copyToClipboard(
@@ -61,10 +58,9 @@ export function buildBridgeCommands(
       group: "Help",
       keywords: ["update", "upgrade", "release", "version"],
       run: async () => {
-        // Requests the check and returns. The updater's own state arrives through
-        // `update.subscribe`, which belongs to whichever view renders it — a
-        // command that awaited an outcome here would be a second reader of a state
-        // machine the main process already observes.
+        // Requests the check and returns: the updater's state arrives through
+        // `update.subscribe` to whichever view renders it, and awaiting an outcome here would be
+        // a second reader of it.
         await settle(onRefusal, "update-check-unavailable", UPDATE_REFUSAL_DETAIL, () =>
           bridge.update.requestCheck(),
         );
@@ -74,10 +70,8 @@ export function buildBridgeCommands(
 }
 
 /**
- * The `Color scheme` row, which moves this window to the next scheme in the cycle.
- *
- * Built per window rather than registered at module scope, because it reads and chooses
- * through the window's own scheme.
+ * The `Color scheme` row, which moves this window to the next scheme in the cycle. Built per
+ * window because it reads and chooses through the window's own scheme.
  */
 export function buildColorSchemeCommand(
   readScheme: () => SchemePreference,
@@ -103,13 +97,10 @@ const UPDATE_REFUSAL_DETAIL =
 /**
  * Perform one act, and route either kind of failure to the sink.
  *
- * `act` is CALLED INSIDE the `try` rather than awaited from outside it, and that
- * placement is the contract: the shipped stub bridge implements every method as a
- * synchronous `throw`, while the fixture bridge refuses by returning a rejected
- * promise. A boundary attached to the returned promise would catch the fixture and
- * let the release build's throw escape into the palette's fire-and-forget dispatch,
- * which drops it — so the person who pressed Enter would see nothing on the one
- * build they actually run.
+ * `act` is called inside the `try`, and that placement is the contract: a preload member main
+ * has not wired throws synchronously while the fixture refuses with a rejected promise. A
+ * boundary on the returned promise would let the throw escape into the palette's
+ * fire-and-forget dispatch, which drops it.
  */
 async function settle(
   onRefusal: BridgeCommandRefusalSink,

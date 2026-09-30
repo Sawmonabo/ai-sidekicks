@@ -13,22 +13,11 @@ import {
 /**
  * Register an account, optionally under a vendor-minted non-interactive token.
  *
- * THE TOKEN FIELD IS WRITE-ONLY, AND THAT IS A PROPERTY OF THIS COMPONENT RATHER THAN
- * OF ITS STYLING. Every other field on this form is ordinary uncontrolled input; the
- * token is read from its own ref inside the submit handler, put on the request, and the
- * input is cleared in the same statement block. It is never a `useState` member, never
- * a `FormData` entry, and never anything a devtools inspection or a crash report could
- * capture — which is the guarantee no form library gives for free and the reason this
- * form is written out rather than generated.
- *
- * AND IT IS NEVER ECHOED, WHICH THE WIRE MAKES EASY: the registration reply carries the
- * account and no token member at all, so the settled arm below has nothing to render
- * even for a view that tried. The one thing this form shows after a success is the
- * account the daemon created.
- *
- * `type="password"` IS FOR THE SHOULDER AND NOT FOR THE PROCESS. It keeps the value off
- * the screen; keeping it out of renderer state is the ref above, and the two are
- * different guarantees against different observers.
+ * The token field is write-only by construction: it is read from its own ref in the submit
+ * handler, put on the request, and cleared in the same block. It is never a `useState` member
+ * or a `FormData` entry, so no devtools inspection or crash report can capture it, and the
+ * registration reply carries no token member to echo. `type="password"` keeps the value off
+ * the screen; the ref keeps it out of renderer state; they guard against different observers.
  */
 export function TokenRegistrationForm(props: {
   readonly register: ProviderAccountRegisterCall;
@@ -46,11 +35,9 @@ export function TokenRegistrationForm(props: {
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    // THE ORDER HERE IS THE GUARANTEE. The ordinary fields are read and judged before
-    // the token is touched at all, because a form that cannot be sent must leave the
-    // credential where the person put it: `required` accepts a label of spaces, so the
-    // handler that trimmed after clearing threw away a typed token and returned in
-    // silence, and the only way back was to type the credential again.
+    // The ordinary fields are read and judged before the token is touched, so a form that
+    // cannot be sent leaves the credential where the person put it; `required` accepts a label
+    // of spaces.
     const reading = readRegistrationFields({
       displayLabel: displayLabelInput.current?.value ?? "",
       provider: providerSelect.current?.value ?? "",
@@ -60,9 +47,8 @@ export function TokenRegistrationForm(props: {
       setOutcome({ kind: "refused", refusal: reading.refusal });
       return;
     }
-    // Read once, sent once, cleared immediately — and only now, on the path that
-    // dispatches. The local binding dies with this handler's frame; nothing above it
-    // ever holds the value.
+    // Read once, sent once, cleared immediately, and only on the path that dispatches; nothing
+    // above this handler holds the value.
     const nonInteractiveToken = tokenInput.current?.value ?? "";
     if (tokenInput.current !== null) {
       tokenInput.current.value = "";
@@ -70,9 +56,8 @@ export function TokenRegistrationForm(props: {
     setOutcome({ kind: "submitting" });
     void submitTokenRegistration(register, {
       ...reading.fields,
-      // Absent rather than empty when nothing was typed: the member is optional on the
-      // wire and an empty string is a token the daemon would have to refuse, which
-      // would report a field left blank as a rejected credential.
+      // Absent rather than empty when nothing was typed: an empty string is a token the
+      // daemon would refuse, reporting a blank field as a rejected credential.
       ...(nonInteractiveToken === "" ? {} : { nonInteractiveToken }),
     }).then(setOutcome);
   };

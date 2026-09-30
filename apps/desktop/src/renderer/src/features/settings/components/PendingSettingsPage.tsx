@@ -1,35 +1,22 @@
-// What a settings section renders while its page's module is still arriving.
+// What a settings section renders while its page module is still loading: an empty hidden
+// region carrying the pending-body marker.
 //
-// THE REGION AND NOTHING IN IT, which is the whole of the design here. `SettingsPane`
-// has already drawn the page's frame and its heading from the descriptor by the time this
-// renders — the label is registered beside the loader, so it is known without the body —
-// so what is missing is the body alone and the honest reservation for it is the empty
-// region the body will fill.
-//
-// NOT ONE OF THE FIVE KINDS OF NOTHING. `registries/panes/PendingPaneBody.tsx` states the reasoning
-// and it holds here unchanged: the five absences are claims about the ENTITY, and
-// none of them is true of a module that has not landed. `not loaded` would say the page's
-// read had not come back, which is a different sentence and a false one — the page has not
-// been mounted, so it has asked the daemon for nothing.
-//
-// IT CARRIES THE SAME MARKER A PENDING PANE CARRIES, and deliberately not one of its own.
-// The question a capture asks is a single question — is anything on this page still
-// loading — and a second attribute would be a second sweep that agreed with the first
-// until somebody forgot it. The marker's VALUE is the section id, so a refusal names the
-// rail entry a person would recognize rather than the count of things pending.
-//
-// The marker rides a `hidden` element for that module's reason: `display: none`
-// contributes no box, so what the reserved region costs the layout is nothing.
+// `SettingsPane` has already drawn the page frame and heading from the descriptor, so only the
+// body is missing and the honest reservation is the empty region it will fill. None of the
+// absence kinds fits: the page has not mounted, so it has asked the daemon for nothing. The
+// marker is the one a pending pane wears, so a capture asks one question, and its value is the
+// section id. It rides a `hidden` element so the region takes no layout box.
 
 import { PENDING_BODY_ATTRIBUTE } from "@renderer/components/LazyBody/pending-body-marker.js";
 import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 
+/** Props for {@link PendingSettingsPage}. */
 export interface PendingSettingsPageProps {
   /** The rail section whose page is loading, so a refusal can name it. */
   readonly section: SettingsPageId;
 }
 
-/** The settings page's region, before its body. */
+/** The settings page's reserved region, shown before its body arrives. */
 export function PendingSettingsPage(props: PendingSettingsPageProps): React.JSX.Element {
   return <span hidden {...{ [PENDING_BODY_ATTRIBUTE]: props.section }} />;
 }

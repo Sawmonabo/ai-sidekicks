@@ -1,16 +1,9 @@
-/* The chrome every settings page body is drawn inside.
- *
- * A sibling of `settings.css` rather than a block inside it: the rail and the pane
- * belong to the screen, while the block, the lede, the fact grid, the action row and
- * the wire-vocabulary list are the shape a PAGE takes — shared by every page and
- * owned by none of them, which is why this sheet lives beside the two shared page
- * components rather than in any one page's directory.
+/* The chrome every settings page body is drawn inside: the block, the lede, the fact grid,
+ * the action row and the wire-vocabulary list. Shared by every page and owned by none, so it
+ * lives beside the shared page components rather than in one page's directory. The classes
+ * are named for the three shapes every page composes (a lede, a block with a title, and
+ * rows), not for any one page.
  */
-
-/* --- Page bodies --------------------------------------------------------- */
-/* Appended by the page lanes; the rail and pane above are the screen's. Every
-   page composes the same three shapes — a lede, a block with a title, and rows —
-   so the classes are named for those rather than for any one page. */
 
 .meridian-settings-page {
   display: flex;
@@ -62,9 +55,8 @@
 }
 
 /*
- * A page that lays its own form out as a grid places this line with this class
- * rather than declaring the class in its own sheet. `grid-column` applies only to a
- * grid item, so the property inheriting past the form's own children changes nothing
+ * A page that lays its own form out as a grid places this line with this class rather than
+ * declaring its own. `grid-column` applies only to a grid item, so it changes nothing
  * deeper; unset, the line is placed by the grid's ordinary flow.
  */
 .meridian-settings-page__state {
@@ -159,11 +151,9 @@
   margin: var(--meridian-space-2) 0;
 }
 
-/* --- A wire vocabulary: the closed set a page's rows will speak ----------- */
-/* Two columns rather than the `__facts` grid, because a term here is a value the
-   daemon sends and `__facts` upper-cases its terms — which would re-case a wire
-   string, and a wire string renders verbatim. The term column sizes
-   to its content so the definitions share one left edge and read as a list. */
+/* A wire vocabulary: the closed set a page's rows will speak. Two columns rather than the
+   `__facts` grid, because `__facts` upper-cases its terms and a wire string renders
+   verbatim. The term column sizes to its content so the definitions share one left edge. */
 
 .meridian-settings-page__vocabulary {
   display: grid;
@@ -174,8 +164,8 @@
 }
 
 /* The grid is two columns and each entry is a `dt`/`dd` pair, so the wrapper is
-   `display: contents`: the pair lands in the grid's own tracks rather than in a
-   box of its own, which is what keeps every definition on one left edge. */
+   `display: contents`: the pair lands in the grid's own tracks rather than in a box of its
+   own, which keeps every definition on one left edge. */
 .meridian-settings-page__vocabulary-entry {
   display: contents;
 }
@@ -193,11 +183,10 @@
   min-width: 0;
   max-width: 62ch;
   color: var(--meridian-text-muted);
-  /* The term column sizes to its content, so at the reflow floor the definition is
-     what is left of a 170 px row — narrower than some of the words in it. Breaking
-     one word is the only disposition that keeps the definition both complete and
-     inside the page; the alternative measured at that width is a page that scrolls
-     sideways, which SC 1.4.10 is exactly about. */
+  /* The term column sizes to its content, so at the reflow floor the definition gets what
+     is left of a 170 px row, narrower than some of the words in it. Breaking a word keeps
+     the definition complete and inside the page; the alternative measured at that width is
+     a page that scrolls sideways, which SC 1.4.10 is about. */
   overflow-wrap: break-word;
   font-size: var(--meridian-text-sm);
   line-height: 1.5;

@@ -1,7 +1,6 @@
-// The Providers page: an empty frame under the page heading.
-//
-// The account list and the sign-in flow are `fixtures/AccountsFixtureBody.tsx`, which takes
-// its calls as arguments; nothing mounts it until a composition has calls to give.
+// The Providers page: an empty frame under the page heading. The account list and the sign-in
+// flow are `fixtures/AccountsFixtureBody.tsx`, which takes its calls as arguments and is not
+// mounted until a composition has calls to give.
 
 import type { ReactNode } from "react";
 

@@ -1,36 +1,13 @@
-// What the updater said, and which of its two mouths said it.
+// What the updater said, and which of its two sources said it.
 //
-// TWO SOURCES, AND THEY RACE
+// The block subscribes and then reads the current state once, and the answers race: an opening
+// read that installed unconditionally would overwrite a transition pushed meanwhile, hiding a
+// `ready`, `downloading` or error until the next push, which a terminal arm never makes. So the
+// sources are sequenced: the opening read installs only while nothing has been pushed.
 //
-// The updates block opens a SUBSCRIPTION and asks for the current state once, in
-// that order. Those two answers race. A transition the updater pushes after
-// `getState()` was called but before it resolved is the NEWER fact, and an opening
-// continuation that installed unconditionally would overwrite it with the state the
-// updater held a moment earlier — hiding a `ready`, a `downloading`, or an error
-// until the updater happens to push again, which from a terminal arm it never does.
-//
-// So the two sources are SEQUENCED rather than merged: the opening read installs
-// only while nothing has been pushed, and the first push settles the question for
-// the rest of that subscription's life. Both facts live in one holder carrying a
-// `source` discriminator and a monotonic sequence, rather than in two `useState`
-// setters — which side won is the property under test, and a pair of setters cannot
-// be asked.
-//
-// THE OPENING IS RE-OPENABLE, SO `close()` IS NOT TERMINAL
-//
-// A React effect's cleanup runs between the two invocations StrictMode makes of one
-// effect, and a change of updater tears an opening down and builds another. A holder whose
-// teardown were terminal would answer the second invocation with a dead object and
-// the block would read nothing for the rest of the window's life. So an opening is a
-// GENERATION: `close()` releases the subscription and invalidates every reply still
-// in flight, and a later `open()` starts a fresh one.
-//
-// WHAT THIS HOLDS, AND WHAT IT DOES NOT
-//
-// The updater namespace rather than the whole bridge: this holder reads a state and
-// a subscription and touches neither control, so taking the bridge would be taking
-// capabilities it has no business reaching — and would make its own test build a bridge
-// to exercise a race that has nothing to do with one.
+// `close()` is not terminal: StrictMode runs an effect's cleanup between two setups and a changed
+// updater rebuilds the opening, so an opening is a generation that `close()` invalidates and a
+// later `open()` restarts. The holder takes the updater namespace, not the whole bridge.
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { UpdateState } from "@shared/preload-api.js";
 
@@ -56,10 +33,8 @@ export interface UpdaterReadingSnapshot {
 /**
  * Which side of the updater seam the held reading came from.
  *
- * Not rendered anywhere: it exists so the sequencing rule can be ASKED. A holder
- * that answered with the right state for the wrong reason — the opening read landing
- * last and happening to carry the same arm — is a holder that will lose the next
- * race, and only the source tells the two apart.
+ * Not rendered: it lets the sequencing rule be asserted, since the right state can arrive for
+ * the wrong reason and lose the next race.
  */
 type UpdateReadingSource = "none" | "opening" | "push";
 
@@ -69,21 +44,14 @@ const NOTHING_READ: UpdaterReadingSnapshot = {
   sequence: 0,
 };
 
-/**
- * The one key this holder claims, because it has exactly one act to be on a round of.
- *
- * Named rather than spelled at the two sites that use it: the latch is keyed by
- * string, and a key that disagreed between the take and the teardown would leave a
- * round nothing could supersede.
- */
+/** The one key this holder claims on its latch, named so the take and the teardown agree. */
 const OPENING_KEY = "open";
 
 /**
  * One window's reading of the updater, sequenced across its two sources.
  *
- * A class with private fields rather than a hook body, per `apps/desktop/AGENTS.md`:
- * it owns a subscription, an opening generation, and the rule that decides which
- * answer installs. The React binding lives in `UpdatesBlock.tsx` and holds nothing.
+ * A class with private fields because it owns a subscription, an opening generation, and the
+ * rule for which answer installs. The React binding is `useUpdateReading`.
  */
 export class UpdaterReadingHolder {
   readonly #updater: UpdaterCalls;
@@ -108,12 +76,9 @@ export class UpdaterReadingHolder {
   }
 
   /**
-   * Subscribe, then read once — in that order, and never the other way round.
-   *
-   * Subscribe-before-read for the reason every push-driven read in this console
-   * gives: a transition landing after the read and before the handler attaches would
-   * be lost, and the worst case the other way round is one redundant render. A call
-   * that throws or rejects is not caught here.
+   * Subscribe, then read once, in that order: a transition landing between a read and the
+   * handler attaching would be lost, while the reverse costs one redundant render. A call that
+   * throws or rejects is not caught here.
    */
   public open(): void {
     this.close();
@@ -143,10 +108,7 @@ export class UpdaterReadingHolder {
     });
   }
 
-  /**
-   * The opening read's answer, installed only while nothing has been pushed: it
-   * describes the moment the block opened, and a push is newer.
-   */
+  /** The opening read's answer, installed only while nothing has been pushed; a push is newer. */
   #observeOpening(opening: GenerationClaim, state: UpdateState): void {
     opening.settle(() => {
       if (this.#hasObservedPush) {

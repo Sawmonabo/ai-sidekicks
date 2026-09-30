@@ -1,12 +1,7 @@
-// One row of the keyboard map: what runs, on what keys, in what scope, and the two
-// controls that change it.
-//
-// Its own module rather than a second component inside the page for the reason
-// `apps/desktop/AGENTS.md` states in terms — one component per `.tsx` — and because
-// the two jobs really are separate: the page composes rows, decides what to announce,
-// and owns the acts; this draws one row and reads one keystroke. Every decision it
-// makes about that keystroke comes back from `readChordFromEvent`, so the recorder's
-// grammar is tested as a pure function rather than through a DOM.
+// One row of the keyboard map: what runs, on what keys, in what scope, and the two controls
+// that change it. The page composes rows, announces and owns the acts; this draws one row and
+// reads one keystroke, and `readChordFromEvent` decides the recorder's grammar as a pure
+// function.
 
 import { useState, type ReactNode } from "react";
 
@@ -22,6 +17,7 @@ import {
   type KeybindingRow,
 } from "../keybinding-map.js";
 
+/** Props for {@link KeybindingRowBody}. */
 export interface KeybindingRowBodyProps {
   readonly row: KeybindingRow;
   readonly recording: boolean;
@@ -34,9 +30,7 @@ export interface KeybindingRowBodyProps {
 /**
  * What a reset control promises, in words, for one row.
  *
- * Exported because the page's reset-ALL control makes the same promise over a set and
- * must make it in the same words: two spellings of "back to none" is two answers to
- * one question, and only one of them can be the one a person reads twice.
+ * Exported so the reset-all control makes the same promise in the same words.
  */
 export function describeShippedChord(shippedChord: string | undefined): string {
   return shippedChord === undefined ? "no chord" : shippedChord;
@@ -45,18 +39,13 @@ export function describeShippedChord(shippedChord: string | undefined): string {
 /**
  * One row: what runs, on what keys, in what scope, and how to change it.
  *
- * Both controls carry the command's own name in their accessible label. A
- * list of rows whose buttons are all called "Rebind" is a list somebody reading it
- * through a screen reader cannot navigate; the visible word stays inside the label,
- * so the spoken name still contains the one a person would say out loud.
+ * Both controls carry the command's name in their accessible label, since a list of buttons all
+ * called "Rebind" cannot be navigated by screen reader; the visible word stays inside it.
  */
 export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
   const { row, recording } = props;
-  // The keys held so far, for as long as this recorder is armed. Local because it is
-  // a fact about ONE press in ONE row's control and nothing above the row can act on
-  // it — and cleared by the page's own `recording` flag rather than by a second
-  // lifecycle here: when the row stops recording there are no keys held, whichever
-  // way the recording ended.
+  // The keys held while this recorder is armed. Local because it concerns one press in one
+  // row; cleared by the page's `recording` flag, since no keys are held once recording stops.
   const [heldModifiers, setHeldModifiers] = useState<readonly string[]>([]);
   const heldChord = heldModifiers.join("+");
   return (
@@ -97,15 +86,14 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
             if (!recording) {
               return;
             }
-            // The press belongs to the recorder and nothing else — not to the
-            // button's own Space/Enter activation, not to anything listening above.
+            // The press belongs to the recorder, not to the button's Space/Enter activation or
+            // anything listening above.
             event.preventDefault();
             event.stopPropagation();
             const read = readChordFromEvent(event.nativeEvent);
             if (read.outcome === "incomplete") {
-              // A chord on its way, drawn rather than swallowed: the keys are held
-              // right now and the row says which, so a person can see the console
-              // received `⌘` before they press the key that completes it.
+              // A chord in progress is drawn, so a person sees the console received `⌘` before
+              // the completing key.
               setHeldModifiers(read.heldModifiers);
               return;
             }
@@ -116,13 +104,9 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
             if (!recording) {
               return;
             }
-            // A release is the other half of the hint, and without it the sentence is
-            // in the present tense about a key that is no longer down: a person who
-            // pressed ⇧ and let go read "Holding ⇧" until they pressed something else,
-            // blurred the control, or started over. Recomputed rather than cleared,
-            // because releasing ⇧ on the way to ⌥⇧J leaves ⌥ held — and read through
-            // the same function the chord is composed with, so the hint and the chord
-            // cannot disagree about what a modifier is called.
+            // A release corrects the hint, or it would say "Holding ⇧" after the key is up.
+            // Recomputed rather than cleared, since releasing ⇧ on the way to ⌥⇧J leaves ⌥
+            // held, and read through the same function as the chord so both name modifiers alike.
             event.preventDefault();
             event.stopPropagation();
             setHeldModifiers(readHeldModifiersFromEvent(event.nativeEvent));

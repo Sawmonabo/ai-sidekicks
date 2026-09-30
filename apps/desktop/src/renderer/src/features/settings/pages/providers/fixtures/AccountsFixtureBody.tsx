@@ -1,12 +1,12 @@
-// The provider-account fixture body: the states the account registry can be in — an account
-// nothing has ever observed, a reading months old, a readiness entry carrying a sign-in
-// remedy, three quota limits sharing one window — drawn from the reading and the calls
-// it is handed. It authors no rule: no eligibility, no health verdict, no remedy.
+// The provider-account fixture body: the states the account registry can be in (an account
+// nothing has observed, a months-old reading, a readiness entry carrying a sign-in remedy,
+// three quota limits sharing one window), drawn from the reading and the calls it is handed. It
+// authors no rule: no eligibility, no health verdict, no remedy.
 //
-// The sign-in is one flow, not one per row: this machine runs one brokered sign-in at a
-// time, so every start control is disabled, with its reason, while one is running.
-// `sign-in-flow-tracker.ts` owns that rule. The registry's completion report is what
-// releases a flow the node ended on its own, correlated by attempt id.
+// The sign-in is one flow, not one per row: this machine runs one brokered sign-in at a time,
+// so every start control is disabled, with its reason, while one runs. `sign-in-flow-tracker.ts`
+// owns that rule, and the registry's completion report releases a flow the node ended on its
+// own, correlated by attempt id.
 
 import "./accounts-fixture-body.css";
 
@@ -64,12 +64,12 @@ export function AccountsFixtureBody(props: {
   readonly operations: AccountOperations;
 }): ReactNode {
   const { registry, requestRegistryRead, operations } = props;
-  // The scenario's frozen clock under the fixture, the real one otherwise, so an
-  // observation's age is measured on the clock the scenario is driving.
+  // The scenario's frozen clock under the fixture, so an observation's age is measured on the
+  // clock the scenario drives.
   const clock = useClock();
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
-  // Built in a memo and disposed in an effect, so a memo React discards costs an object
-  // rather than a call in flight.
+  // Built in a memo and disposed in an effect, so a discarded memo costs an object and not a
+  // call in flight.
   const signInFlowTracker = useMemo(
     () =>
       new SignInFlowTracker({
@@ -91,8 +91,8 @@ export function AccountsFixtureBody(props: {
     () => signInFlowTracker.snapshot(),
     () => signInFlowTracker.snapshot(),
   );
-  // The registry's completion report ends a flow the node finished on its own. Keyed on
-  // the attempt id so a re-render over the same completion re-runs nothing.
+  // The registry's completion report ends a flow the node finished on its own; keyed on the
+  // attempt id so a re-render over the same completion re-runs nothing.
   const completedAttemptId = registry.newestLoginCompletion?.attemptId;
   useEffect(() => {
     if (completedAttemptId !== undefined) {

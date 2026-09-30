@@ -1,6 +1,4 @@
 // What the three account-plane calls answer with, and what they never answer with.
-//
-// Every case drives the real functions with plain stubs standing in for the calls.
 
 import { describe, expect, it } from "vitest";
 
@@ -56,9 +54,8 @@ describe("startSignIn", () => {
       accountPlaneCalls({ login: PROVIDER_SIGN_IN_ATTEMPT }).login,
       ACCOUNT_ID,
     );
-    // The account rides the outcome because the one-at-a-time rule is what disables the OTHER rows,
-    // and a flow that recorded only its own progress could say something was running
-    // without saying which account was running it.
+    // The account rides the outcome so the one-at-a-time rule can say which account is
+    // running when it disables the other rows.
     expect(state).toEqual({
       kind: "live",
       accountId: ACCOUNT_ID,
@@ -84,9 +81,8 @@ describe("cancelSignIn", () => {
     expect(endedBecause(state)).toContain("no sign-in left to cancel");
   });
 
-  // The two statuses are kept apart, which is the whole point of the arm: reporting
-  // a `notFound` as a cancellation would tell an operator the console stopped
-  // something it did not.
+  // Guards the two statuses staying apart: a `notFound` reported as a cancellation would
+  // claim the console stopped something it did not.
   it("does not report a notFound as a cancellation", async () => {
     const state = await cancelSignIn(
       accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
@@ -120,9 +116,8 @@ describe("submitTokenRegistration", () => {
     expect(outcome).toEqual({ kind: "registered", account: REGISTERED.account });
   });
 
-  // The reply carries no token member at all, so there is nothing for the settled arm
-  // to echo even if a view tried. Asserted over the whole serialized outcome
-  // because that is the shape a devtools inspection would read.
+  // The reply has no token member, so nothing can echo one; asserted over the serialized
+  // outcome because that is what a devtools inspection would read.
   it("carries no token anywhere in the outcome it answers with", async () => {
     const outcome = await submitTokenRegistration(
       accountPlaneCalls({ register: REGISTERED }).register,
@@ -151,8 +146,8 @@ describe("readRegistrationFields", () => {
   });
 
   it("refuses a label of nothing but whitespace, which the browser's own check accepts", () => {
-    // `required` is satisfied by any non-empty value, so this is the one blank the
-    // engine lets through — and the reading, not the markup, is what has to catch it.
+    // `required` accepts any non-empty value, so this blank passes the markup and the
+    // reading has to catch it.
     const refusal = refusalOf(readRegistrationFields(typed("   ")));
     expect(refusal?.code).toBe("registration-label-blank");
     expect(refusal?.origin).toBe(TOKEN_REGISTRATION_REFUSAL_ORIGIN);
@@ -169,7 +164,7 @@ describe("readRegistrationFields", () => {
   });
 
   it("echoes no refused value back into the sentence a person reads", () => {
-    // A label is user content. `detail` says what would change the answer.
+    // A label is user content; `detail` says what would change the answer.
     const refusal = refusalOf(readRegistrationFields(typed(" \t ")));
     expect(JSON.stringify(refusal)).not.toContain("\\t");
   });

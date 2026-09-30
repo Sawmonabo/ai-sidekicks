@@ -1,8 +1,6 @@
-// The MCP fixture body, driven with the daemon verbs handed in as arguments.
-//
-// The three rows below are the three arms this page has to draw: an ordinary trusted
-// binding, one that needs authorization while a leg of it is fine, and one whose trust
-// store could not be read at all.
+// The MCP fixture body, driven with the daemon verbs handed in as arguments. The three rows are
+// the arms the page must draw: a trusted binding, one needing authorization while a leg is
+// fine, and one whose trust store could not be read.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -114,10 +112,7 @@ function fixtureBridge(): FixtureBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("mcp-fixture-body") });
 }
 
-/**
- * The fixture body as a composition mounts it: the bridge comes from the provider's resolution,
- * which moves one commit after a prop changes.
- */
+/** The fixture body as a composition mounts it: the bridge comes from the provider's resolution. */
 function MountedMcpPage(props: {
   readonly operations: McpServerOperations;
   readonly mintKey?: () => string;
@@ -131,8 +126,8 @@ function MountedMcpPage(props: {
 }
 
 /**
- * The tree, as an element rather than a render, so a case can re-render the SAME mount
- * at a different bridge the way `PlatformBridgeProvider` does on a reconnect.
+ * The tree as an element, so a case can re-render the same mount at a different bridge the way
+ * `PlatformBridgeProvider` does on a reconnect.
  */
 function mcpPageTree(
   fixture: FixtureBridge,
@@ -153,10 +148,8 @@ function mcpPageTree(
 }
 
 /**
- * The first row's enablement control, which is the press every mutation case makes.
- *
- * Throws rather than asserting, so a case that never reached a settled inventory fails
- * at the line that pressed instead of at an assertion three settles later.
+ * The first row's enablement control, the press every mutation case makes. Throws so a case that
+ * never reached a settled inventory fails at the press.
  */
 function firstEnableButton(container: HTMLElement): HTMLButtonElement {
   const [button] = [...container.querySelectorAll("button")].filter((candidate) =>
@@ -201,9 +194,8 @@ describe("McpFixtureBody", () => {
 
   it("renders the daemon's aggregate status rather than folding the legs itself", async () => {
     const { container } = await renderSettledMcpPage(operationsServing([ISSUE_TRACKER]));
-    // Its two legs disagree — one `needs-auth`, one `connected` — and the row's own
-    // chip carries the daemon's aggregate. A page that folded the legs by eye would
-    // have had to pick one of them.
+    // The two legs disagree and the row's chip carries the daemon's aggregate; folding the legs
+    // by eye would have to pick one.
     expect(rowNamed(container, "issue-tracker")?.textContent).toContain("needs-auth");
     expect(rowNamed(container, "issue-tracker")?.textContent).toContain("connected");
   });
@@ -228,8 +220,7 @@ describe("McpFixtureBody", () => {
     ).not.toContain("Grant trust");
   });
 
-  // The negative control for the case above: every other row DOES offer it, so the
-  // withholding is about that row's arm and not about the page having no control.
+  // Negative control: every other row offers it, so the withholding is about that row's arm.
   it("offers the trust control on the rows whose trust arm arrived", async () => {
     const { container } = await renderSettledMcpPage(
       operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
@@ -305,7 +296,7 @@ function operationsHoldingTheirMutation(): {
   };
 }
 
-// What the held mutation's answer prints, as the operator reads it.
+// What the held mutation's answer prints.
 const HELD_MUTATION_OUTCOME_TEXT = "mcp.config_write_conflict";
 
 describe("McpFixtureBody — a bridge replaced under a mounted fixture body", () => {
@@ -320,8 +311,8 @@ describe("McpFixtureBody — a bridge replaced under a mounted fixture body", ()
     const replacementBridge = fixtureBridge();
     rerender(mcpPageTree(replacementBridge, operationsServing([FILESYSTEM, ISSUE_TRACKER])));
     await settleScheduledRead(replacementBridge.scenarioEngine.clock);
-    // The replacement answered its own inventory, and the superseded bridge's press
-    // is not still reported as in flight against it.
+    // The replacement answered its own inventory; the superseded press is not reported as in
+    // flight against it.
     expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(2);
     expect(container.textContent).not.toContain("Asking the background service to apply this.");
 
@@ -332,9 +323,8 @@ describe("McpFixtureBody — a bridge replaced under a mounted fixture body", ()
     expect(container.textContent).not.toContain(HELD_MUTATION_OUTCOME_TEXT);
   });
 
-  // The negative control for the case above: the same held call, the same release, and
-  // no replacement — so a clean reading there is about WHOSE settlement it was rather
-  // than about this fixture body never rendering one.
+  // Negative control: the same held call and release with no replacement, so the clean reading
+  // above is about whose settlement it was.
   it("negative control: the same settlement renders while its own bridge still holds", async () => {
     const held = operationsHoldingTheirMutation();
     const { container, clock } = await renderSettledMcpPage(held.operations);
