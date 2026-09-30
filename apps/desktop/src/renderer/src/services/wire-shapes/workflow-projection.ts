@@ -1,20 +1,10 @@
-// The console's declaration of the workflow engine's read shapes.
+// The phase-model run shapes that today's Workflows screens read: run and phase states,
+// gates and parks.
 //
-// OWNER. The workflow engine owns the definition, run, gate, phase-output, and
-// human-form operations, and its operator run control owns the cancel and resume
-// pair. The typed request and reply shapes are registered in the payload contracts,
-// and every vocabulary below is transcribed from that registry rather than
-// re-derived from prose — the rules live one layer up and the registry fixes the
-// spellings.
-//
-// WHY THE CONSOLE DECLARES IT AT ALL. None of it is registered in any code package:
-// there is no `workflow` root in the daemon method union, no `PlatformBridge`
-// namespace naming one, and no phase or run type anywhere under `packages/`. A run
-// pane or a builder built against a shape that exists nowhere would have to invent
-// it inside a feature, so the shapes are declared here, on the substrate.
-//
-// DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and its importers take them from the contracts package instead.
+// NO CONTRACT COUNTERPART. The workflow contract in `packages/contracts` describes a run
+// as the steps of a node document, not as phases, and the screens that read these shapes
+// still draw phases. What the two models share (the scope, the definition summary, the
+// version chain) is imported from the contract, never declared here.
 //
 // WHY THE VOCABULARIES ARE TUPLES AND THE NARROWINGS ARE NOT. An operation that
 // answers with a state can answer with a SUBSET of one of these unions — a successful
@@ -27,12 +17,10 @@
 // request shape comes here the day two views share one.
 
 /**
- * Every run status, in the owning contract's DDL order.
+ * Every run status these screens draw.
  *
- * Closed and declared once: the registered response comments bind this union in
- * lockstep with the `workflow_runs.status` CHECK, so a seventh status is an
- * amendment to the owning document and never a string a console module invents. A
- * `gated` run reads `suspended` on the wire as on disk.
+ * Closed and declared once, so a seventh status is one edit here and never a string a
+ * console module invents. A `gated` run reads `suspended`.
  */
 export const WORKFLOW_RUN_STATES = [
   "pending",
@@ -47,12 +35,12 @@ export const WORKFLOW_RUN_STATES = [
 export type WorkflowRunState = (typeof WORKFLOW_RUN_STATES)[number];
 
 /**
- * Every phase-run status, in the owning contract's order.
+ * Every phase-run status these screens draw.
  *
  * Deliberately NOT widened with a `suspended` arm. The park members below are what
- * separate a phase parked right now from one that has resumed past its park, and
- * the owning document keeps this union coarse on purpose — a reader switching on
- * five values stays correct while the park members carry the finer fact.
+ * separate a phase parked right now from one that has resumed past its park, so the
+ * union stays coarse — a reader switching on five values stays correct while the park
+ * members carry the finer fact.
  */
 export const WORKFLOW_PHASE_RUN_STATES = [
   "pending",
@@ -82,41 +70,29 @@ export const WORKFLOW_PARK_REASONS = ["waiting-human", "provider-usage-limited"]
 export type WorkflowParkReason = (typeof WORKFLOW_PARK_REASONS)[number];
 
 /**
- * The three definition scopes, most specific first — which is also the order the
- * registered enumeration resolves them in.
- */
-export const WORKFLOW_DEFINITION_SCOPES = ["session", "project", "shared"] as const;
-
-/** One definition scope. Derived, so the vocabulary has exactly one home. */
-export type WorkflowDefinitionScope = (typeof WORKFLOW_DEFINITION_SCOPES)[number];
-
-/**
  * One phase of a run, as the run read and the start reply both project it.
  *
- * The optional members are optional on the wire for three different reasons and the
- * console must not collapse them. `phaseRunId`, `attemptNumber`, and `formRevision`
- * are additive-optional on an already-published shape, so their absence means an
- * older daemon. The four park members are LIVE-SCOPED: a daemon emits them for
+ * The optional members are optional for different reasons and the console must not
+ * collapse them. `phaseRunId`, `attemptNumber` and `formRevision` may be absent from a
+ * run read. The four park members are LIVE-SCOPED: a daemon emits them for
  * exactly those phases parked at the moment the response is built and emits none of
  * them for a phase that is not — so `parkReason`'s presence is the wire's park
  * discriminator, and its absence means this phase is not parked NOW rather than that
  * it never was. A view that read absence as "unknown" would show a resumed phase
  * as still waiting.
  *
- * `prompt` and `inputSchema` are BOTH at once — additive-optional, because they are new
- * on a shape that is already published, and live-scoped to the human park, because what
- * a phase asks is a question only while somebody is being asked it. They ride the park
- * discriminator rather than a fourth presence rule: emitted for exactly those phases
+ * `prompt` and `inputSchema` are live-scoped to the human park, because what a phase
+ * asks is a question only while somebody is being asked it. They ride the park
+ * discriminator rather than a presence rule of their own: emitted for exactly those phases
  * whose `parkReason` is `waiting-human` when the response is built, and for no other
- * phase, so a phase that has answered its form carries neither. They are declared here
- * because the registered shape carries the four park members and no form content at all
- * — and the definition body that holds a human phase's prompt and schema is addressed
+ * phase, so a phase that has answered its form carries neither. They sit on the run
+ * read because the definition body that holds a human phase's prompt and schema is addressed
  * by `(definitionId, versionNumber)`, which a run holding one opaque version id has
  * neither half of.
  */
 export interface WorkflowPhaseState {
   readonly phaseId: string;
-  /** The execution instance. Absent from daemons below the contract revision. */
+  /** The execution instance, where the run read carries it. */
   readonly phaseRunId?: string;
   readonly attemptNumber?: number;
   readonly state: WorkflowPhaseRunState;
@@ -186,15 +162,11 @@ export interface WorkflowRunSnapshot {
  * addresses one run by an id the caller already holds — a caller that got that id
  * from a definition already knows which definition it came from. An enumeration has
  * no such caller: it answers with runs nobody named, each pinned to an opaque
- * version id, and no registered read maps a version id back to its definition
+ * version id, and no read maps a version id back to its definition
  * (`workflow.versionRead` addresses by `(definitionId, versionNumber)`, and the
  * definition enumeration carries only each definition's LATEST version). So a run
  * list built on the read's shape alone can name no run and can never tell that a
  * pin has fallen behind — which is the one condition an operator repairs.
- *
- * The enumeration is registered nowhere; this is the console declaring what that wire
- * has to answer with, in the same file and on the same footing as the request shape it
- * already declares. A daemon serving it holds both rows in one query.
  */
 export interface WorkflowRunListEntry extends WorkflowRunSnapshot {
   /** The definition this run was started from, so a row reads as more than an id. */
@@ -202,84 +174,10 @@ export interface WorkflowRunListEntry extends WorkflowRunSnapshot {
   /**
    * That definition's newest version id at the moment the enumeration answered.
    *
-   * Additive-optional, on the reading `WorkflowDefinitionReadResponse` already takes
-   * for its own `workflowVersionId`: a daemon that does not send it leaves the
+   * Optional: a daemon that does not send it leaves the
    * frozen-pin state UNKNOWN, and unknown is reported as not-stale rather than
    * guessed — claiming a run is current is a smaller error than claiming it is stale
    * and inviting a repair the daemon would refuse.
    */
   readonly definitionLatestWorkflowVersionId?: string;
-}
-
-/**
- * One entry of the definition enumeration.
- *
- * `latestWorkflowVersionId` is the opaque server-minted reference a run start
- * accepts verbatim; `latestVersionNumber` stays beside it because a version read
- * addresses by number instead. A client passes both through and synthesizes
- * neither — no delimiter or encoding over the pair exists on the wire.
- */
-export interface WorkflowDefinitionSummary {
-  readonly id: string;
-  readonly name: string;
-  readonly scope: WorkflowDefinitionScope;
-  /**
-   * Scope identity: the authoring session's id at `session`, the resolved repository
-   * root at `project`, the empty string at `shared`, which is daemon-wide and refers
-   * to nothing narrower.
-   */
-  readonly scopeRef: string;
-  readonly latestVersionNumber: number;
-  readonly latestWorkflowVersionId: string;
-  readonly contentHash: string;
-  /**
-   * True for the one entry per name that most-specific-first resolution would
-   * actually pick from the caller's context, so a picker can show which definition a
-   * run would use rather than re-deriving the order itself.
-   */
-  readonly resolvesAtThisContext: boolean;
-  readonly createdAt: string;
-}
-
-/**
- * One version of a definition, as the version CHAIN read carries it.
- *
- * WHY A CHAIN READ EXISTS AND WHAT IT ANSWERS. A run carries one opaque
- * `workflowVersionId` and nothing else about the definition it was started from.
- * `workflow.versionRead` addresses a version by `(definitionId, versionNumber)` and
- * the definition enumeration carries only each definition's LATEST, so a view
- * holding a run's pin can name no other version of the same definition — which is
- * exactly what an operator re-pinning a parked run has to do. The chain read closes
- * that: handed the pin, it answers the versions that pin's definition has.
- *
- * TWO MEMBERS AND NOT MORE. The id is what a re-pin travels with and the number is
- * what a person reads instead of it; a content hash, an author and an instant are all
- * facts the registered version read already carries for a version somebody named, and
- * minting them here would be members ahead of any reader. Which entry is the CURRENT
- * pin is deliberately absent too: the caller asked BY that id and can compare, so a
- * flag would be the wire restating the request.
- *
- * Registered nowhere, on the same footing as the run enumeration above.
- */
-export interface WorkflowVersionChainEntry {
-  /** Opaque and server-minted, exactly as a run start accepts it. Never parsed. */
-  readonly workflowVersionId: string;
-  /** The version's own ordinal, which is what a version read addresses it by. */
-  readonly versionNumber: number;
-}
-
-/**
- * One durable output of a completed or failed phase.
- *
- * `valueKind` is additive-optional: set means the output is an artifact reference,
- * unset on a daemon at this contract revision means inline, and absent from an older
- * daemon, where the presence of `artifactId` is the fallback reading.
- *
- * @consumedBy the workflow run pane's phase outputs
- */
-export interface WorkflowPhaseOutput {
-  readonly valueKind?: "inline" | "artifact_ref";
-  readonly artifactId?: string;
-  readonly summary: string;
-  readonly producedAt: string;
 }

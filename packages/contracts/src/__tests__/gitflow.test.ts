@@ -164,7 +164,7 @@ describe("gitflow.diffRead", () => {
     const runDiff = {
       sessionId: SESSION_ID,
       scope: "workflow_run",
-      workflowRunId: "wfr-1",
+      workflowRunId: "33333333-3333-4333-8333-333333333333",
       from: { epoch: 0, point: "start" },
       to: { epoch: 0, point: "pause", pauseNumber: 1 },
     };

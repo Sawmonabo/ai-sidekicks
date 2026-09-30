@@ -23,7 +23,7 @@
 // THE PAGE READ IS AN ARGUMENT. This module holds the walk and none of the wire: the
 // caller supplies the one call that reads a page.
 
-import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 import { COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP } from "../../composer-bounds.js";
 
 /** What one walk of the enumeration read. */

@@ -30,6 +30,8 @@
 // a phase id or a refusal. Each optional reader therefore returns `{}` for absent, its
 // own one-member record for present, and a sentence for present-and-wrong.
 
+import type { WorkflowToolBinding } from "@ai-sidekicks/contracts";
+
 import {
   WORKFLOW_FAILURE_BEHAVIORS,
   WORKFLOW_GATE_TYPES,
@@ -41,7 +43,6 @@ import {
   type WorkflowEntry,
   type WorkflowParallelJoinPolicy,
   type WorkflowPhaseDefinition,
-  type WorkflowToolBinding,
   type WorkflowVersionBody,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { readToolBindings, toolBindingFileRecords } from "./workflow-definition-file-bindings.js";

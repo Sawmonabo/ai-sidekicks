@@ -13,7 +13,7 @@
 // readings fold case the same way and both are here, so the command list that offers a
 // candidate and the path that starts it cannot come apart on what a name matches.
 
-import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 
 /** What resolving a typed name against the enumeration answered. */
 export type WorkflowDefinitionMatch =

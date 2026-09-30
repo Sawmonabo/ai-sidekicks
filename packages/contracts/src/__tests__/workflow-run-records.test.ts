@@ -15,14 +15,17 @@ import {
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
+const PARENT_RUN_ID = "33333333-3333-4333-8333-333333333333";
+const RUN_ID = "44444444-4444-4444-8444-444444444444";
+const WAITING_RUN_ID = "55555555-5555-4555-8555-555555555555";
 
 const ROW = {
-  workflowRunId: "wfr-2",
+  workflowRunId: RUN_ID,
   definitionId: "wfd-1",
   definitionName: "Summarize subfolder",
   status: "running",
   mode: "sub-workflow",
-  startedBy: { kind: "parentWorkflow", parentWorkflowRunId: "wfr-1" },
+  startedBy: { kind: "parentWorkflow", parentWorkflowRunId: PARENT_RUN_ID },
   startedAt: "2026-09-29T06:00:00Z",
   stepCount: 3,
   liveStep: { index: 4, total: 9, nodeName: "run tests" },
@@ -30,15 +33,15 @@ const ROW = {
 
 describe("workflow.runRead", () => {
   const run = {
-    workflowRunId: "wfr-2",
+    workflowRunId: RUN_ID,
     sessionId: SESSION_ID,
     definitionId: "wfd-1",
     workflowVersionId: "wfv-5",
     state: "succeeded",
     mode: "sub-workflow",
-    startedBy: { kind: "parentWorkflow", parentWorkflowRunId: "wfr-1" },
+    startedBy: { kind: "parentWorkflow", parentWorkflowRunId: PARENT_RUN_ID },
     chainRoot: {
-      runId: "wfr-1",
+      runId: PARENT_RUN_ID,
       workflowId: "wfd-0",
       workflowName: "Summarize folder",
       startedAt: "2026-09-29T06:00:00Z",
@@ -118,7 +121,7 @@ describe("workflow.runAttentionList", () => {
   };
   const approval = {
     kind: "run",
-    workflowRunId: "wfr-3",
+    workflowRunId: WAITING_RUN_ID,
     workflowName: "Nightly release",
     waitCause: "approval",
     waitingSince: "2026-09-29T06:10:00Z",
@@ -149,7 +152,7 @@ describe("workflow.subscribe", () => {
   it("accepts the hold, a removal and a definition's removal", () => {
     for (const notification of [
       { kind: "runsPause", paused: true, waitingStartCount: 3 },
-      { kind: "runsRemoved", workflowRunIds: ["wfr-1", "wfr-2"] },
+      { kind: "runsRemoved", workflowRunIds: [PARENT_RUN_ID, RUN_ID] },
       { kind: "definitionRemoved", definitionId: "wfd-1" },
     ]) {
       expect(WorkflowSubscribeNotificationSchema.safeParse(notification).success).toBe(true);

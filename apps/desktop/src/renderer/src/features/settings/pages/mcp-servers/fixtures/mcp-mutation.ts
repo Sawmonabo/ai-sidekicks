@@ -1,5 +1,4 @@
-// The two governance mutations this fixture body sends, the idempotency key it mints, and the
-// key a binding is identified by.
+// The two governance mutations this fixture body sends and the idempotency key it mints.
 //
 // THE KEY IS THE CALLER'S AND IT IS MINTED ONCE PER PRESS. Every governance mutation
 // carries a `clientIdempotencyKey`, and what it means is "this is the same operation",
@@ -25,8 +24,6 @@ import type {
   McpSetTrustRequest,
 } from "@ai-sidekicks/contracts";
 
-import { structuralKey } from "@renderer/lib/structural-key.js";
-
 /** How a mutation this fixture body sent has settled. */
 export type McpMutationOutcome =
   | { readonly kind: "idle" }
@@ -48,19 +45,6 @@ export type SendMcpEnabled = (request: McpSetEnabledRequest) => Promise<McpMutat
 
 /** Sends a binding's trust change to the daemon. */
 export type SendMcpTrust = (request: McpSetTrustRequest) => Promise<McpMutationResult>;
-
-/**
- * The string one binding is keyed by: its provider, scope, scope reference and server
- * name, encoded through the console's one tuple encoder so a separator inside a wire
- * string cannot make two bindings collide.
- */
-export function mcpBindingKeyOf(binding: McpServerBindingRef): string {
-  return structuralKey(
-    binding.scope === "user"
-      ? [binding.provider, binding.scope, binding.serverName]
-      : [binding.provider, binding.scope, binding.scopeRef, binding.serverName],
-  );
-}
 
 /** The default minter: the platform's own identifier source. */
 export function mintIdempotencyKey(): string {

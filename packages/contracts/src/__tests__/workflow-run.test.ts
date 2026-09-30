@@ -13,7 +13,7 @@ import {
 
 const EMPTY = { kind: "inline", items: [] };
 const STEP = {
-  workflowRunId: "wfr-1",
+  workflowRunId: "33333333-3333-4333-8333-333333333333",
   nodeId: "approve",
   attempt: 1,
   executionIndex: 3,
@@ -61,6 +61,14 @@ describe("WorkflowStepSchema", () => {
 
   it("refuses a step status outside the closed list", () => {
     expect(WorkflowStepSchema.safeParse({ ...STEP, status: "completed" }).success).toBe(false);
+  });
+
+  it("refuses a run id that is not a UUID", () => {
+    const finished = { ...STEP, status: "succeeded" };
+    expect(WorkflowStepSchema.safeParse(finished).success).toBe(true);
+    expect(WorkflowStepSchema.safeParse({ ...finished, workflowRunId: "wfr-1" }).success).toBe(
+      false,
+    );
   });
 });
 

@@ -5,6 +5,7 @@
 // failure has one source. The two-page call is here because both the settlement and the
 // paging suite want a served list with a cursor that reaches a second page.
 
+import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 
 import { SECOND_PAGE_CURSOR, definition } from "../../workflows-probe.test-support.js";
@@ -24,7 +25,7 @@ import {
  */
 export function definitionWithId(id: string): WorkflowDefinitionRow {
   return definition({
-    id,
+    id: id as WorkflowDefinitionId,
     name: `Definition ${id}`,
     latestVersionNumber: 1,
     latestWorkflowVersionId: `${id}-version-1`,

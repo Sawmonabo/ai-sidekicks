@@ -6,6 +6,7 @@
 // chose. The row factory takes overrides so a new required member of the wire type is one
 // edit here and every caller keeps compiling because it only names what it asserts on.
 
+import type { WorkflowDefinitionId, WorkflowVersionChainEntry } from "@ai-sidekicks/contracts";
 import { act } from "@testing-library/react";
 
 import type { WorkflowRunSnapshot } from "@renderer/services/wire-shapes/workflow-projection.js";
@@ -24,7 +25,7 @@ export const SECOND_PAGE_CURSOR = "definitions-page-2";
 /** One definition, as the enumeration carries it. Override only what a case asserts on. */
 export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): WorkflowDefinitionRow {
   return {
-    id: "release-checklist",
+    id: "release-checklist" as WorkflowDefinitionId,
     name: "Release checklist",
     scope: "session",
     scopeRef: PROBE_SESSION_ID,
@@ -32,8 +33,27 @@ export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): Work
     latestWorkflowVersionId: "release-checklist-version-3",
     contentHash: "b3:0f1e2d",
     resolvesAtThisContext: false,
+    triggerKind: "trigger.manual",
+    enabled: true,
+    tags: [],
+    runCount: 0,
     createdAt: "2026-01-01T10:00:00.000Z",
+    updatedAt: "2026-01-01T10:00:00.000Z",
     ...overrides,
+  };
+}
+
+/** One version in a chain read, saved by the person. Only the id and number vary by case. */
+export function versionChainEntry(
+  workflowVersionId: string,
+  versionNumber: number,
+): WorkflowVersionChainEntry {
+  return {
+    workflowVersionId,
+    versionNumber,
+    contentHash: `b3:${workflowVersionId}`,
+    createdAt: "2026-01-01T10:00:00.000Z",
+    savedBy: { kind: "user" },
   };
 }
 

@@ -9,6 +9,10 @@
 // EVERY CASE DRIVES THE REAL HOOK. The create is a plain function the case hands it and
 // the host is the one native seam the export reaches.
 
+// The file form's chunk reads its vocabularies from the contracts package, which this
+// environment compiles from source on first load. Loading it here, when a suite imports
+// this file, keeps each case's wait about the act's verdict rather than that compile.
+import "@ai-sidekicks/contracts";
 import { act, renderHook } from "@testing-library/react";
 import { expect } from "vitest";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -17,7 +21,7 @@ import type {
   WorkflowVersionBody,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { PROBE_SESSION_ID } from "../../../workflows-probe.test-support.js";
+import { PROBE_SESSION_ID, versionChainEntry } from "../../../workflows-probe.test-support.js";
 import { useWorkflowDefinitionAuthoring } from "./useWorkflowDefinitionAuthoring.js";
 import type { WorkflowDefinitionDetailCalls } from "./useWorkflowDefinitionDetail.js";
 import type { WorkflowDefinitionCreateCall } from "../definition-authoring-runtime.js";
@@ -73,10 +77,7 @@ export function answeringDetailCalls(
     readVersion: async () => RELEASE_CHECKS_BODY,
     readChain: async () => ({
       versions: [
-        {
-          workflowVersionId: RELEASE_CHECKS_BODY.workflowVersionId,
-          versionNumber: RELEASE_CHECKS_BODY.versionNumber,
-        },
+        versionChainEntry(RELEASE_CHECKS_BODY.workflowVersionId, RELEASE_CHECKS_BODY.versionNumber),
       ],
     }),
     ...replacements,
