@@ -16,7 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DriverCapabilities, RunId, SessionId } from "@ai-sidekicks/contracts";
 import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts";
 
-import { classifyClaudeTurnEvidence } from "../claude/event-normalizer.js";
+import { classifyClaudeTurnEvidence } from "../claude/turn-evidence.js";
 import {
   CLAUDE_API_ERRORED_TURN_RESULT_FRAME,
   CLAUDE_ORDINARY_TURN_RESULT_FRAME,

@@ -107,12 +107,11 @@ import {
 } from "./capabilities.js";
 import {
   CLAUDE_SUBAGENT_START_SIGNAL,
-  ClaudeTerminalEmissionGate,
   classifyClaudeFrameFamilyForRouting,
-  classifyClaudeTurnEvidence,
   normalizeClaudeSubagentLifecycle,
   type ClaudeSubagentLifecycleSignal,
 } from "./event-normalizer.js";
+import { ClaudeTerminalEmissionGate, classifyClaudeTurnEvidence } from "./turn-evidence.js";
 import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 
 // A refused attach hides the previous leg's work; consumers treat it as `irreversible`.

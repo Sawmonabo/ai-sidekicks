@@ -16,19 +16,10 @@ import {
   SESSION_EVENT_TYPES,
   type EventCategory,
   type NormalizedEventKind,
-  type ProviderUsageLimitSignal,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
-
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import { TerminalEmissionGate, type TerminalRunFrame } from "../../terminal-emission-gate.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
-import {
-  UNRECOGNIZED_TURN_EVIDENCE,
-  observedTurnEvidence,
-  type TurnEvidenceClass,
-  type TurnEvidenceClassification,
-} from "../outbound-frame.js";
 
 /**
  * Which channel carried the frame: stdout stream-json, or one half of the control channel. Not a
@@ -698,6 +689,7 @@ export function resolveClaudeFrameEmissionRoute(
  * `parent_tool_use_id`. Claimed by name, outside the census, which holds only recorded kinds.
  */
 export const CLAUDE_SUBAGENT_START_SIGNAL = "SubagentStart" as const;
+
 /** Wire name of a Claude subagent stop; see {@link CLAUDE_SUBAGENT_START_SIGNAL}. */
 export const CLAUDE_SUBAGENT_STOP_SIGNAL = "SubagentStop" as const;
 
@@ -825,142 +817,4 @@ function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamily
     default:
       return { scope: "unknown" };
   }
-}
-
-// Terminal emission, as in the Codex normalizer, except `ClaudeChannelDisposalReason` carries an
-// explicit `session_closed` intent, so an intended close is read, not inferred from timing.
-// `closeSession` signals before disposing the channel, so the `result/*` it provokes is a clean
-// shutdown, not a crash. Only a frame routed to the session's own thread settles a run, so a
-// subagent's `result/*` never settles the parent's.
-
-/** The Claude leg's binding for the shared emission gate, whose suppression rule lives once. */
-export type ClaudeTerminalRunFrame = TerminalRunFrame;
-
-/** The Claude terminal-emission gate, one per provider session; empty, like Codex's subclass. */
-export class ClaudeTerminalEmissionGate extends TerminalEmissionGate {}
-
-// Derived from the census so a new subtype joins without a second edit. `success` is excluded:
-// it is the subtype a swallowed turn wears.
-const CLAUDE_DECLARED_FAILURE_RESULT_SUBTYPES: ReadonlySet<string> = new Set(
-  CLAUDE_WIRE_FRAME_KINDS.filter((kind) => kind.startsWith("result/error_")).map((kind) =>
-    kind.slice("result/".length),
-  ),
-);
-
-const CLAUDE_RESULT_SUBTYPES: ReadonlySet<string> = new Set(
-  CLAUDE_WIRE_FRAME_KINDS.filter((kind) => kind.startsWith("result/")).map((kind) =>
-    kind.slice("result/".length),
-  ),
-);
-
-function isPositiveFiniteNumber(value: unknown): boolean {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
-
-function isNonEmptyRecord(value: unknown): boolean {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.keys(value).length > 0
-  );
-}
-
-/**
- * Reads a settling `result` frame for typed evidence that a model turn happened. `num_turns`,
- * `duration_api_ms`, `total_cost_usd` and `modelUsage` move together on a real turn and are all
- * zero-valued on an intercepted one (measured on the pinned build).
- */
-export function classifyClaudeTurnEvidence(terminalFrame: unknown): TurnEvidenceClassification {
-  if (typeof terminalFrame !== "object" || terminalFrame === null || Array.isArray(terminalFrame)) {
-    return UNRECOGNIZED_TURN_EVIDENCE;
-  }
-  const frame = terminalFrame as Record<string, unknown>;
-  if (frame["type"] !== "result") {
-    return UNRECOGNIZED_TURN_EVIDENCE;
-  }
-  const subtype = frame["subtype"];
-  if (typeof subtype !== "string" || !CLAUDE_RESULT_SUBTYPES.has(subtype)) {
-    return UNRECOGNIZED_TURN_EVIDENCE;
-  }
-
-  // Not read: `is_error` (false on an intercepted run, true on a refused real turn), the
-  // `<synthetic>` model (an API-errored turn renders it too), and the `<local-command-stdout>`
-  // wrapper or `is_meta`, whose shape set is open and would fail open.
-  const observations: TurnEvidenceClass[] = [];
-  if (
-    isPositiveFiniteNumber(frame["num_turns"]) ||
-    isPositiveFiniteNumber(frame["duration_api_ms"]) ||
-    isPositiveFiniteNumber(frame["total_cost_usd"])
-  ) {
-    observations.push("turn_accounting");
-  }
-  if (isNonEmptyRecord(frame["modelUsage"])) {
-    observations.push("model_output");
-  }
-  if (CLAUDE_DECLARED_FAILURE_RESULT_SUBTYPES.has(subtype)) {
-    observations.push("declared_turn_failure");
-  }
-  return observedTurnEvidence(...observations);
-}
-
-/** The `type` of the retry frame. */
-export const CLAUDE_API_RETRY_FRAME_TYPE = "system" as const;
-/** The `subtype` of the retry frame. */
-export const CLAUDE_API_RETRY_FRAME_SUBTYPE = "api_retry" as const;
-
-/**
- * The one `api_retry` error member that names a spent allowance. `billing_error` is excluded: a
- * human fixes a payment fault, so parking a run on it would wait for a boundary that never comes.
- */
-export const CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER = "rate_limit" as const;
-
-/**
- * Classifies a Claude `system/api_retry` frame for a spent usage allowance, or `null`. Typed-only:
- * it gates on `type`, `subtype` and the `error` member, so an unfamiliar member yields `null`.
- * A provider that abandons its retry ladder early emits no final attempt and goes unrecognized.
- */
-export function classifyClaudeUsageLimitSignal(
-  frame: unknown,
-  observedAtEpochMs: number,
-): ProviderUsageLimitSignal | null {
-  if (typeof frame !== "object" || frame === null || Array.isArray(frame)) {
-    return null;
-  }
-  const record = frame as Record<string, unknown>;
-  // `error_status` is never read: a bare `429` is also emitted for throttling that spends no
-  // allowance, and keying on it would park runs the provider would still serve.
-  if (
-    record["type"] !== CLAUDE_API_RETRY_FRAME_TYPE ||
-    record["subtype"] !== CLAUDE_API_RETRY_FRAME_SUBTYPE ||
-    record["error"] !== CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER
-  ) {
-    return null;
-  }
-  // Only the final announced retry signals; a mid-ladder frame is the provider still retrying. The
-  // positive-finite reads also reject `max_retries: 0`, which announces no ladder. A final attempt
-  // that then succeeds still signals, so the consumer correlates it with the run's outcome.
-  const attempt = record["attempt"];
-  const maxRetries = record["max_retries"];
-  if (!isPositiveFiniteNumber(attempt) || !isPositiveFiniteNumber(maxRetries)) {
-    return null;
-  }
-  if ((attempt as number) < (maxRetries as number)) {
-    return null;
-  }
-
-  // `retry_delay_ms` is when the provider retries, not when the allowance resets (no reset field is
-  // documented); the provenance member lets a consumer tell this from a stated reset.
-  const retryDelayMs = record["retry_delay_ms"];
-  if (!isPositiveFiniteNumber(retryDelayMs) || !Number.isFinite(observedAtEpochMs)) {
-    return { cause: "plan-allowance-exhausted" };
-  }
-  const instant = new Date(observedAtEpochMs + (retryDelayMs as number));
-  if (Number.isNaN(instant.getTime())) {
-    return { cause: "plan-allowance-exhausted" };
-  }
-  return {
-    cause: "plan-allowance-exhausted",
-    resetBoundary: { resetsAt: instant.toISOString(), provenance: "runtime-derived" },
-  };
 }
