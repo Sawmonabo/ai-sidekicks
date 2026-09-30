@@ -1,61 +1,6 @@
-// Which pane, over which entity — and which entities each pane kind admits.
-//
-// A pane is a view OF something, and what it is a view of is not free. A
-// workflow-run pane over an agent reference has nothing to render; an inspector with
-// nothing to inspect has no row to look up. So the address pairs each pane kind
-// with only the entity kinds it can serve, and the type and the pane registry refuse
-// the rest — otherwise a restored layout row or a card could hand a registered body
-// an address it cannot serve, and that body would query a partition that has never
-// held the row, rendering as permanently missing.
-//
-// ONE DECLARATION, TWO HALVES DERIVED FROM IT
-//
-// `PaneEntityScopeByKind` below is the declaration — the kind-indexed map
-// `registries/inline-cards/inline-card-registry.ts` uses for its own three card kinds, at
-// the eight pane kinds. Both halves come off it: the static `PaneAddress` union that
-// makes a mismatch a compile error at a typed call site, and the runtime table
-// `parse-pane-address.ts` applies at the boundaries where an address arrives
-// untyped — a persisted layout snapshot read back off disk, and a route a person
-// can type into the address bar. A union written beside a hand-kept table is two
-// closed sets that agree until someone widens one, which is the failure
-// `pane-kinds.ts` and `lib/entity-kinds.ts` each state about their own sets.
-//
-// THE SECOND HALF IS A SIBLING MODULE and not a second declaration. This file is
-// the rows and everything the compiler derives from them; the parse beside it is
-// what one untyped boundary is held to, with its own refusal vocabulary and its own
-// identifier grammar. It imports the table and the two predicates below and declares
-// no row of its own — which is what keeps "two halves of one declaration" true after
-// the split, and is why `isEntityOptionalPaneKind` is exported rather than inlined
-// there: the narrowing it performs is a fact about the table, and the table is here.
-//
-// WHERE EACH ROW COMES FROM
-//
-// Most of them come from one rule: the pane-kind set is closed, and `transcript` is
-// session-scoped. The inspector shows the session's checkout — a worktree on a project
-// session, a workspace on a chat — and the `diff` pane shows that checkout's changes,
-// so both rows admit those two entity kinds and no others. No entity kind without a
-// checkout has a record or a change set to draw, so none of them is representable
-// here.
-//
-// The two kinds are declared ONCE, below, and both rows read the list. The row is
-// derived from a map that decides EVERY entity kind, so a kind added later fails to
-// compile until the question is answered for it. Optionality is never invented:
-// `agents` takes a no-entity arm because its body renders with no agent named,
-// and `workflow-builder` takes one because `routing/routes.ts` opens the workflows
-// destination bare — "a definition id written into the address here would be a
-// second, unowned locator for something the builder has not defined yet".
-//
-// A REQUIRED entity is never invented either, and for a sharper reason: an
-// optional arm that should have been required costs a caller nothing, while a
-// required arm over an entity kind no producer mints is unconstructible. `browser`
-// and `terminal` are the pair that proves it — both are driven by a seam that keys
-// every one of its operations by the pane's or the lease's own id, so neither has
-// a reference to be a view of, and both are session-scoped.
-//
-// A kind whose scope is `never` is SESSION-scoped and its address carries no
-// `entity` member at all, rather than a member that is always `undefined`: the
-// two read identically at a call site, and only the first makes "this pane takes
-// no entity" a fact the compiler holds.
+// Which pane, over which entity, and which entities each pane kind admits. `PaneEntityScopeByKind`
+// is the one declaration; the static `PaneAddress` union and the runtime table that
+// `parse-pane-address.ts` reads both derive from it, so they cannot drift.
 
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { type PaneKind } from "./pane-kinds.js";
@@ -72,14 +17,9 @@ type ScopedEntityRef<TEntityKind extends EntityKind> = EntityRef & {
 type CheckoutEntityKind = "workspace" | "worktree";
 
 /**
- * Every entity kind, decided. The exhaustiveness check, and the union's proof.
- *
- * A TOTAL map rather than a list of the admitted kinds: `Record<EntityKind,
- * boolean>` means a kind added to `ENTITY_KINDS` fails to compile here until
- * the checkout question is answered for it, and the two intersected records hold this
- * map and the union above to the SAME set — every union member `true`, every other
- * kind `false` — so the union cannot quietly become narrower or wider than the table
- * the runtime filters with.
+ * Every entity kind, decided. A total map, so a kind added to `ENTITY_KINDS` fails to compile
+ * until the checkout question is answered for it; the intersected records pin it to exactly
+ * `CheckoutEntityKind`.
  */
 const CHECKOUT_ADMITS_ENTITY_KIND = {
   session: false,
@@ -105,32 +45,20 @@ const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = ENTITY_KINDS.filter
 );
 
 /**
- * Which pane, over which entity — the address a pane is opened at.
+ * Which pane, over which entity: the address a pane is opened at.
  *
- * A discriminated union over `kind`, so narrowing on the kind narrows the entity
- * with it: a `workflow-run` arm's entity is a workflow-run reference and nothing
- * else, and a `transcript` arm has no `entity` member to read. Both halves matter — the
- * first refuses the wrong entity, the second refuses a caller that forgot to
- * resolve one.
+ * A discriminated union over `kind`, so narrowing on the kind narrows the entity with it, and a
+ * `transcript` arm has no `entity` member to read.
  */
 export type PaneAddress = { [K in PaneKind]: PaneAddressOf<K> }[PaneKind];
 
 /**
  * One pane kind's address arm, entity member and all.
  *
- * THREE SHAPES, NOT TWO. A session-scoped kind has no `entity` member; a kind whose
- * scope is a bare reference REQUIRES one; and a kind whose scope includes `undefined`
- * takes an OPTIONAL one. The third arm used to be written as a required member whose
- * value may be undefined, which is not the same claim: a typed caller could not write
- * the documented bare `{ kind: "workflow-builder" }` at all, while
- * {@link parsePaneAddress} returned exactly that object through a cast — so the
- * static contract and the runtime contract disagreed, and the cast is what hid it.
- *
- * The optional arm keeps `| undefined` in its member type rather than stripping it to
- * `NonNullable`, and that is load-bearing under `exactOptionalPropertyTypes`: without
- * it the only admitted spelling would be the ABSENT key, and every existing caller
- * that writes the equally honest `entity: undefined` would stop compiling. Both
- * spellings mean the same thing here, and both are admitted.
+ * Three shapes: a session-scoped kind has no `entity` member (a compile-time fact, not an
+ * always-undefined one), a bare-reference kind requires one, and a kind whose scope includes
+ * `undefined` takes an optional one. The optional member keeps `| undefined` so that under
+ * `exactOptionalPropertyTypes` both an absent key and `entity: undefined` compile.
  */
 export type PaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind]] extends [never]
   ? { readonly kind: TKind }
@@ -139,12 +67,11 @@ export type PaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind
     : { readonly kind: TKind; readonly entity?: PaneEntityScopeByKind[TKind] };
 
 /**
- * What each pane kind is a view of. THE declaration.
+ * What each pane kind is a view of. The one declaration.
  *
- * `never` where the pane is session-scoped and takes no entity; `| undefined`
- * where the pane renders without one and its own governing module says so. A
- * kind added to `PANE_KINDS` is a compile error here until its scope is decided,
- * which is the site where a new pane kind needs that decision anyway.
+ * `never` where the pane is session-scoped and takes no entity; `| undefined` where the pane
+ * renders without one. A kind added to `PANE_KINDS` fails to compile here until its scope is
+ * decided.
  */
 interface PaneEntityScopeByKind {
   /** The session's transcript. */
@@ -157,16 +84,9 @@ interface PaneEntityScopeByKind {
   /** Bare from the workflows destination; over a definition once one is saved. */
   readonly "workflow-builder": ScopedEntityRef<"workflow-definition"> | undefined;
   /**
-   * One page per browser pane, keyed by the pane's own id and nothing else.
-   *
-   * Session-scoped rather than over a page reference, because the identity a page
-   * reference would name does not exist: every browser operation takes the `paneId`,
-   * and the navigation state a page streams back carries a url, a title, and three
-   * flags and no page identifier at all. Nothing in this build produces such an
-   * entity, so requiring one would make every caller mint an identifier the seam
-   * never issues, and would refuse
-   * `parsePaneAddress("browser", undefined)` — which is the shape both
-   * untyped boundaries actually supply for a pane opened bare.
+   * Session-scoped: browser operations are keyed by the pane's own id and no page entity is
+   * ever issued, so requiring one would refuse `parsePaneAddress("browser", undefined)`, the
+   * shape both untyped boundaries supply for a bare pane.
    */
   readonly browser: never;
   /** One shared terminal per session, over the runtime node's write lease. */
@@ -174,16 +94,12 @@ interface PaneEntityScopeByKind {
   /** Bare is the picker arm: a session is chosen and no agent is named yet. */
   readonly agents: ScopedEntityRef<"agent"> | undefined;
 }
-
 /** The entity kinds one pane kind admits, read off the declaration. */
 type AdmittedEntityKind<TKind extends PaneKind> = NonNullable<PaneEntityScopeByKind[TKind]>["kind"];
 
 /**
- * Whether one pane kind must be opened over an entity, read off the declaration.
- *
- * False on both no-entity shapes and for the same reason: a session-scoped kind
- * has no entity to require, and an optional arm is one its own governing module
- * documents. Only a kind whose scope is a bare reference is required.
+ * Whether one pane kind must be opened over an entity. False for session-scoped and for
+ * entity-optional kinds; true only when the scope is a bare reference.
  */
 type EntityRequired<TKind extends PaneKind> = undefined extends PaneEntityScopeByKind[TKind]
   ? false
@@ -194,13 +110,9 @@ type EntityRequired<TKind extends PaneKind> = undefined extends PaneEntityScopeB
 /**
  * The same scopes as data, for the boundaries the compiler has no claim over.
  *
- * The annotation is a mapped type over the declaration above rather than a
- * second copy of it, so a row naming an entity kind its arm does not admit — or
- * disagreeing about whether the entity is required — fails to compile here. The
- * one divergence the annotation cannot catch is a row that names FEWER kinds
- * than its arm admits, and that direction is fail-closed: the parse refuses an
- * address the union would have allowed, which surfaces as a named refusal rather
- * than as a body reading the wrong partition.
+ * Typed as a mapped type over the declaration, so a row naming an entity kind its arm does not
+ * admit, or disagreeing on whether the entity is required, fails to compile. A row naming fewer
+ * kinds than its arm admits fails closed: the parse refuses an address the union allows.
  */
 const PANE_ENTITY_SCOPES: {
   readonly [K in PaneKind]: {
@@ -227,24 +139,18 @@ export interface PaneEntityScopeDeclaration {
 }
 
 /**
- * The pane kinds whose address can be written bare — session-scoped, or entity-optional.
- *
- * Derived from the one declaration rather than listed, so a kind whose scope changes
- * moves between the two sides of this predicate without anybody editing a list.
+ * The pane kinds whose address can be written bare (session-scoped or entity-optional),
+ * derived from the one declaration.
  */
 export type EntityOptionalPaneKind = {
   [K in PaneKind]: EntityRequired<K> extends true ? never : K;
 }[PaneKind];
 
 /**
- * How a pane names itself as the pane another was opened FROM.
+ * How a pane names itself as the pane another was opened from.
  *
- * A parameter object rather than a bare second string, so the caller writes what
- * the identifier means at the call site: `openPane(address, { linkedSourcePaneId })`
- * reads as a link and a positional `openPane(address, paneId)` reads as anything at
- * all. `linkedSourcePaneId` is required here — the whole value is optional on the
- * opener, so an absent link is an absent argument rather than a present object
- * carrying `undefined`, and there is exactly one way to say "no link".
+ * An object rather than a bare string so the call site reads as a link. The whole value is
+ * optional on the opener, so there is one way to say "no link".
  */
 export interface PaneLink {
   readonly linkedSourcePaneId: string;
@@ -253,27 +159,12 @@ export interface PaneLink {
 /**
  * The call a card and the palette make to open a pane.
  *
- * A callback handed down by whoever owns the pane layout, rather than a module-scope
- * function, so a pane opens in the pane layout that asked for it.
- *
- * The optional `link` is how a pane that opens another says which pane it is: the
- * pane layout copies it onto the new pane's `PaneContext.linkedSourcePaneId`.
- * Optional because most opens have no source pane at all — a card and the
- * palette open from a list, not from a pane — and a required member would have both
- * of those inventing a value to pass.
+ * The pane layout copies `link` onto the new pane's `PaneContext.linkedSourcePaneId`; it is
+ * optional because a card or the palette opens from a list, not from a pane.
  */
 export type PaneOpener = (address: PaneAddress, link?: PaneLink) => void;
 
-// THE OPENER AND ITS LINK LIVE HERE, WITH THE ADDRESS THEY CARRY, and not in
-// `pane-registry.ts`. The type is about an ADDRESS, this is the module that declares
-// addresses, and nothing here imports a module that could reach back.
-
-/**
- * One pane kind's entity scope, for the callers that decide at runtime — the
- * pane layout's validator and a card's open-pane call.
- *
- * The one reader of the table above, so no caller keeps its own copy of a row.
- */
+/** One pane kind's entity scope, read by the address parse; the one reader of the table above. */
 export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
   return PANE_ENTITY_SCOPES[kind];
 }
@@ -281,10 +172,8 @@ export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
 /**
  * Whether this kind's address may be written with no entity.
  *
- * A narrowing predicate rather than a bare boolean read, because it is what lets
- * `parse-pane-address.ts` RETURN the bare address without a cast: the table's `entityRequired` column is
- * annotated `EntityRequired<K>`, so the runtime value and the type it narrows to are
- * the same fact, checked by the compiler at the table rather than asserted here.
+ * A narrowing predicate so `parsePaneAddress` can return a bare address without a cast; the
+ * table's `entityRequired` column is typed `EntityRequired<K>`, so value and narrowing agree.
  */
 export function isEntityOptionalPaneKind(kind: PaneKind): kind is EntityOptionalPaneKind {
   return !PANE_ENTITY_SCOPES[kind].entityRequired;
