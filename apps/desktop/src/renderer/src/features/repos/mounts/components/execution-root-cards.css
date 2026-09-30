@@ -48,23 +48,13 @@
   white-space: nowrap;
 }
 
-.meridian-root-card__meaning,
-.meridian-root-card__disposition {
+.meridian-root-card__meaning {
   display: flex;
   align-items: center;
   gap: var(--meridian-space-2);
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-}
-
-/*
- * The sub-state line reads louder than the state's own sentence, because it is the
- * one that answers "is this disk free" — the question `execution-root-model.ts` says the
- * view exists to answer and the one a plain `retired` chip gets wrong.
- */
-.meridian-root-card__disposition {
-  color: var(--meridian-amber-text);
 }
 
 .meridian-root-card__summary,

@@ -1,15 +1,32 @@
 // Folder contracts — the folders the service can reach and where each came
 // from (`repo.mountList`), browsing the machine's folders from another device
-// by token (`repo.folderList`), and the refusal for a folder the service cannot
-// reach.
+// by token (`repo.folderList`), one folder's attach, read and detach
+// (`repo.attach`, `repo.mountRead`, `repo.detach`), and the refusal for a
+// folder the service cannot reach.
+//
+// Requests are double-T `z.ZodType<T, T>` (the substrate parses inbound params
+// against them) and responses single-T `z.ZodType<T>`, since a response is not
+// an input surface.
 //
 // IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
 // and nothing whose import closure reaches it (the transitive rule repo.ts's
 // header documents). Every module imported below is closure-clean.
 import { z } from "zod";
 
-import { ProjectIdSchema, type ProjectId } from "./project.js";
-import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
+import { NodeIdSchema, type NodeId } from "./node-id.js";
+import { PROJECT_NAME_MAX_LEN, ProjectIdSchema, type ProjectId } from "./project.js";
+import {
+  RepoMountHealthSchema,
+  RepoMountIdSchema,
+  RepoMountStateSchema,
+  VcsTypeSchema,
+  WorkspaceIdSchema,
+  type RepoMountHealth,
+  type RepoMountId,
+  type RepoMountState,
+  type VcsType,
+  type WorkspaceId,
+} from "./repo.js";
 import {
   SessionIdSchema,
   wireFreeFormString,
@@ -193,6 +210,165 @@ export const RepoFolderListResponseSchema: z.ZodType<RepoFolderListResponse> = z
       )
       .max(FOLDER_LIST_ENTRY_LIMIT),
     more: z.boolean(),
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// One folder — `repo.attach`, `repo.mountRead`, `repo.detach`.
+// --------------------------------------------------------------------------
+//
+// Attach is the only way a path enters the machine's trust envelope. A mount
+// belongs to the machine, not to a session: the daemon stamps its own node id on
+// the row, and a session reaches the mount by binding a workspace to it. A path
+// that is not a git repository is refused.
+
+/**
+ * The `repo.attach` input, one of two arms:
+ * - `{localPath}`: a path on the machine the service runs on, from a client on
+ *   that machine. On the desktop the renderer never holds it: the folder chooser
+ *   hands the renderer a picked-file token, and main's relay puts the path in the
+ *   token's place before the call reaches the service.
+ * - `{folderToken}`: from another device, a token `repo.folderList` minted for a
+ *   folder it listed. The service turns it back into the folder it listed, so no
+ *   path string ever comes from another device.
+ */
+export type RepoAttachRequest = { localPath: string } | { folderToken: FolderToken };
+/** Wire schema for {@link RepoAttachRequest}: exactly one of the two arms. */
+export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachRequest> = z.union([
+  z
+    .object({
+      // The path as entered, kept as the mount's provenance; the trust envelope
+      // keys off the resolved canonical root, never this.
+      //
+      // Three checks are deliberately not made here. An absoluteness test would
+      // refuse every Windows path in one spelling or another; the daemon's
+      // resolver applies the platform's own rule and refuses a relative, a
+      // `~`-prefixed or a driveless path loudly rather than completing it from
+      // its own working folder or home. A traversal test would refuse the lawful
+      // `/home/me/../me/repo`; containment is checked at bind, against the mount
+      // root. And a missing path is the resolver's typed refusal, not a parse
+      // error. The NUL guard `wireFreeFormString` carries is the one that matters
+      // on a path: an embedded NUL is a truncation vector.
+      localPath: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoAttachRequest.localPath"),
+    })
+    .strict(),
+  z.object({ folderToken: FolderTokenSchema }).strict(),
+]);
+
+/** The `repo.attach` result: the new mount and the root its path resolved to. */
+export interface RepoAttachResponse {
+  repoMountId: RepoMountId;
+  state: RepoMountState;
+  vcsType: VcsType;
+  canonicalRoot: string;
+}
+/** Wire schema for {@link RepoAttachResponse}. */
+export const RepoAttachResponseSchema: z.ZodType<RepoAttachResponse> = z
+  .object({
+    repoMountId: RepoMountIdSchema,
+    state: RepoMountStateSchema,
+    vcsType: VcsTypeSchema,
+    // The resolver's absolute, symlink-resolved root, never the entered path.
+    // Required: a resolution failure aborts the attach with typed
+    // `repo.root_resolution_failed` rather than answering a partial success.
+    canonicalRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoAttachResponse.canonicalRoot"),
+  })
+  .strict();
+
+/** `repo.mountRead`: the mount to read. */
+export interface RepoMountReadRequest {
+  repoMountId: RepoMountId;
+}
+/** Wire schema for {@link RepoMountReadRequest}. */
+export const RepoMountReadRequestSchema: z.ZodType<RepoMountReadRequest, RepoMountReadRequest> = z
+  .object({ repoMountId: RepoMountIdSchema })
+  .strict();
+
+/** One session using a folder. */
+export interface RepoMountUser {
+  sessionId: SessionId;
+}
+
+/**
+ * One mount as `repo.mountRead` reports it: its own facts, a freshly probed
+ * health verdict, where it came from and what uses it.
+ *
+ * `localPath` is the path as entered and `canonicalRoot` the resolved root; they
+ * differ when the folder was attached from inside the repository or through a
+ * link. `displayName` is the name of the project the folder belongs to, as
+ * Settings › Projects shows it, and is absent on a chat's own workspace, which
+ * belongs to no project. `usedBy` names the sessions using the folder.
+ */
+export interface RepoMountReadResponse {
+  id: RepoMountId;
+  nodeId: NodeId;
+  localPath: string;
+  canonicalRoot: string;
+  vcsType: VcsType;
+  state: RepoMountState;
+  health: RepoMountHealth;
+  attachedAt: string;
+  origin: RepoMountOrigin;
+  displayName?: string | undefined;
+  usedBy: RepoMountUser[];
+}
+/** Wire schema for {@link RepoMountReadResponse}. */
+export const RepoMountReadResponseSchema: z.ZodType<RepoMountReadResponse> = z
+  .object({
+    // The bare `id`, as a read projection names its own row's key; the attach
+    // and detach replies name the mount they acted on `repoMountId`.
+    id: RepoMountIdSchema,
+    nodeId: NodeIdSchema,
+    localPath: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoMountReadResponse.localPath"),
+    canonicalRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoMountReadResponse.canonicalRoot"),
+    vcsType: VcsTypeSchema,
+    state: RepoMountStateSchema,
+    // Probed on every read, never a stored column.
+    health: RepoMountHealthSchema,
+    attachedAt: z.iso.datetime({ offset: true }),
+    origin: RepoMountOriginSchema,
+    displayName: wireFreeFormString(
+      PROJECT_NAME_MAX_LEN,
+      "RepoMountReadResponse.displayName",
+    ).optional(),
+    usedBy: z.array(z.object({ sessionId: SessionIdSchema }).strict()),
+  })
+  .strict();
+
+/** `repo.detach`: the project's folder to remove. */
+export interface RepoDetachRequest {
+  repoMountId: RepoMountId;
+}
+/** Wire schema for {@link RepoDetachRequest}. */
+export const RepoDetachRequestSchema: z.ZodType<RepoDetachRequest, RepoDetachRequest> = z
+  .object({ repoMountId: RepoMountIdSchema })
+  .strict();
+
+/**
+ * The `repo.detach` result. Detaching is a project's `Delete`: the mount turns
+ * `detached` for good, every dependent workspace is archived, the project record
+ * is forgotten with its setup steps, and the project's sessions are archived and
+ * stay readable. Nothing on disk is touched.
+ *
+ * `forgottenProjectId` names the project this call forgot, and is null when the
+ * mount was already detached, so the call forgot nothing. It is refused with
+ * `repo.detach_conflict` while a dependent workspace is busy.
+ */
+export interface RepoDetachResponse {
+  repoMountId: RepoMountId;
+  state: RepoMountState;
+  archivedWorkspaceIds: WorkspaceId[];
+  archivedSessionIds: SessionId[];
+  forgottenProjectId: ProjectId | null;
+}
+/** Wire schema for {@link RepoDetachResponse}. */
+export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
+  .object({
+    repoMountId: RepoMountIdSchema,
+    state: RepoMountStateSchema,
+    archivedWorkspaceIds: z.array(WorkspaceIdSchema),
+    archivedSessionIds: z.array(SessionIdSchema),
+    forgottenProjectId: ProjectIdSchema.nullable(),
   })
   .strict();
 

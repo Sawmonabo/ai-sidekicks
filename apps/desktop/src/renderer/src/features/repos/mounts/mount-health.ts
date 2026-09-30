@@ -43,7 +43,8 @@ import { selectionInFlightCopy } from "./execution-mode-selection.js";
  * `unreachable` on the screen can search the daemon's own vocabulary for it.
  * `sentence` is the console's prose: what this reading means for the next move.
  * They are separate fields because the sentence is the console's to write and the label
- * is not.
+ * is not, which is why the tables below hold only the tone and the sentence and the
+ * label is the wire value itself.
  */
 export interface MountAxisReading {
   readonly tone: ChipTone;
@@ -51,19 +52,20 @@ export interface MountAxisReading {
   readonly sentence: string;
 }
 
+/** What the console writes for one wire word: everything but the word. */
+type MountAxisPresentation = Omit<MountAxisReading, "label">;
+
 /**
  * The health axis. Total over `RepoMountHealth["status"]`, keyed off the contract's
  * own union rather than a tuple restated here.
  */
-const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisReading>> = {
+const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisPresentation>> = {
   healthy: {
     tone: "neutral",
-    label: "healthy",
     sentence: "The root was reachable when it was last probed.",
   },
   unreachable: {
     tone: "failure",
-    label: "unreachable",
     // The card's own copy for the state: no further question can be put
     // to a root that cannot be probed. Deliberately not softened to "temporarily
     // unavailable" — precedence between failing verdicts is the daemon's.
@@ -72,7 +74,6 @@ const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisReadi
   },
   identity_mismatch: {
     tone: "failure",
-    label: "identity_mismatch",
     // WAITING IS THE WRONG MOVE HERE, which is what separates this sentence from the
     // one above it. `unreachable` can resolve on its own — a volume remounts, a network
     // path answers again — and this cannot: the path resolves fine and holds a different
@@ -86,15 +87,13 @@ const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisReadi
 };
 
 /** The lifecycle axis. Total over `RepoMountState`. */
-const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisReading>> = {
+const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisPresentation>> = {
   attached: {
     tone: "neutral",
-    label: "attached",
     sentence: "This mount is live in the session.",
   },
   detached: {
     tone: "neutral",
-    label: "detached",
     // Terminal: there is no `detached -> attached` transition, so this row is history
     // and says so.
     sentence:
@@ -102,7 +101,6 @@ const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisReading>> = {
   },
   archived: {
     tone: "neutral",
-    label: "archived",
     sentence: "This mount was archived and is kept as history.",
   },
 };
@@ -127,12 +125,12 @@ export type BindControlAvailability =
 
 /** How this mount's health reads. */
 export function mountHealthReading(health: RepoMountHealth): MountAxisReading {
-  return HEALTH_READINGS[health.status];
+  return { ...HEALTH_READINGS[health.status], label: health.status };
 }
 
 /** How this mount's lifecycle position reads. */
 export function mountLifecycleReading(state: RepoMountState): MountAxisReading {
-  return LIFECYCLE_READINGS[state];
+  return { ...LIFECYCLE_READINGS[state], label: state };
 }
 
 const BIND_CONTROLS_OFFERED: BindControlAvailability = { offered: true };

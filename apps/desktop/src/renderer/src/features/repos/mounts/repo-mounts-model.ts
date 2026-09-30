@@ -13,8 +13,8 @@ import type {
   RepoMountReadResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceListResponse,
+  WorktreeStatusRecord,
 } from "@ai-sidekicks/contracts";
-import type { WorktreeStatusRecord } from "./execution-root-model.js";
 
 /** One workspace row, exactly as `WorkspaceListResponse` spells it. */
 export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
@@ -29,7 +29,10 @@ export interface RepoMountsReading {
   readonly status: "not-read" | "reading" | "read";
   readonly mounts: readonly RepoMountReadResponse[];
   readonly workspaces: readonly RepoWorkspaceRow[];
-  /** Every worktree this session holds, in the order the status read returned them. */
+  /**
+   * The worktrees of every mount this session has bound, mount by mount, each in the
+   * order its read returned them.
+   */
   readonly worktrees: readonly WorktreeStatusRecord[];
   /**
    * The instant this reading was taken, on the reader's own clock.

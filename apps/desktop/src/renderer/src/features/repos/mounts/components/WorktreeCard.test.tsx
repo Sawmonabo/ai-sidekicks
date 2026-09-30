@@ -1,9 +1,6 @@
 // What a worktree card puts on screen, and what it refuses to.
 //
-// The cases drive the real card against real records rather than a stand-in, and
-// each clean assertion is paired with the case that would pass if the card stopped
-// doing the thing: a disposition line asserted present on a retired row is only
-// meaningful beside the ready row that must not carry one.
+// The cases drive the real card against real records rather than a stand-in.
 
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -11,10 +8,7 @@ import { describe, expect, it } from "vitest";
 import { formatRelativeTime } from "@renderer/lib/wire-figures.js";
 import { worktreeRecord } from "../repo-mounts.test-support.js";
 import { WorktreeCard } from "./WorktreeCard.js";
-import {
-  WORKTREE_DISK_DISPOSITION_COPY,
-  WORKTREE_STATE_PRESENTATION,
-} from "../execution-root-model.js";
+import { WORKTREE_STATE_PRESENTATION } from "../execution-root-model.js";
 import {
   WORKTREE_ABSENT_COLUMN_COPY,
   WORKTREE_COLUMN_LABELS,
@@ -71,49 +65,15 @@ describe("WorktreeCard — the face", () => {
   });
 });
 
-describe("WorktreeCard — the retired-with-files sub-state", () => {
-  it("says the files are still on disk when a retired row has no sweep stamp", () => {
-    const { container } = render(
-      <WorktreeCard
-        record={worktreeRecord({ state: "retired" })}
-        nowMilliseconds={NOW_MILLISECONDS}
-      />,
-    );
-    expect(container.textContent).toContain(WORKTREE_DISK_DISPOSITION_COPY["retired-on-disk"]);
-  });
-
-  it("says the checkout is gone once the sweep has stamped it", () => {
-    const { container } = render(
-      <WorktreeCard
-        record={worktreeRecord({ state: "retired", cleanedAt: "2026-01-01T09:20:00.000Z" })}
-        nowMilliseconds={NOW_MILLISECONDS}
-      />,
-    );
-    expect(container.textContent).toContain(WORKTREE_DISK_DISPOSITION_COPY.reclaimed);
-  });
-
-  it("negative control: a live row carries no disposition line at all", () => {
-    // Without this the two cases above would pass against a card that printed all
-    // three sentences on every row.
-    const { container } = render(
-      <WorktreeCard record={worktreeRecord()} nowMilliseconds={NOW_MILLISECONDS} />,
-    );
-    expect(container.querySelector(".meridian-root-card__disposition")).toBeNull();
-    expect(container.textContent).not.toContain(WORKTREE_DISK_DISPOSITION_COPY["retired-on-disk"]);
-  });
-});
-
-describe("WorktreeCard — provenance survives retirement", () => {
+describe("WorktreeCard — provenance", () => {
   it("renders every disclosure column's label and value", () => {
-    const record = worktreeRecord({ state: "retired", cleanedAt: "2026-01-01T09:20:00.000Z" });
+    const record = worktreeRecord({ state: "merged" });
     const { container } = render(
       <WorktreeCard record={record} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     for (const column of WORKTREE_DETAIL_COLUMNS) {
       expect(container.textContent).toContain(WORKTREE_COLUMN_LABELS[column]);
     }
-    // The two the design names: losing run provenance when a worktree is later
-    // retired is the pitfall this row exists to not have.
     expect(container.textContent).toContain(record.createdBySessionId);
     expect(container.textContent).toContain("run-01");
   });
@@ -134,7 +94,7 @@ describe("WorktreeCard — provenance survives retirement", () => {
     );
     const disclosure = container.querySelector("details");
     expect(disclosure).not.toBeNull();
-    expect(disclosure?.querySelector("summary")?.textContent).toBe("Provenance and cleanup");
+    expect(disclosure?.querySelector("summary")?.textContent).toBe("Provenance");
   });
 });
 
@@ -143,7 +103,7 @@ describe("WorktreeCard — the controls it does not offer", () => {
     // Preview is consent: the retire confirm enumerates an inspection this card is
     // never given, and a force-override is deliberately unscheduled. A card that
     // grew one of these buttons would be offering an act with no preview behind it.
-    for (const state of ["ready", "dirty", "merged", "retired", "failed", "creating"] as const) {
+    for (const state of ["ready", "dirty", "merged", "failed", "creating"] as const) {
       const { container } = render(
         <WorktreeCard record={worktreeRecord({ state })} nowMilliseconds={NOW_MILLISECONDS} />,
       );

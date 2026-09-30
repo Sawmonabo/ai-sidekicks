@@ -20,8 +20,8 @@
 // the artifact is workspace-level and labeled as such.
 
 /**
- * The change set the implementer's run produced, as `gitflow.diffArtifactCreate`
- * answers for the `run_attributed` arm.
+ * The change set the implementer's run produced, as the unified patch text a
+ * `gitflow.diffRead` file carries.
  *
  * Two files and three hunks, one of them a rename with no textual change at all — the
  * case a renderer deriving its file notes from `hunks.length` reports as nothing
@@ -67,7 +67,7 @@ rename to packages/runtime-daemon/src/rate-limit/lease-timing.ts
 
 /**
  * The change sitting in the git workspace's own checkout ahead of the shared branch,
- * as the same call answers for the `workspace_fallback` arm.
+ * as the same unified patch text.
  *
  * Three files: a textual change, a mode change with no hunks, and a binary file the
  * patch declares and carries no text for. The last two are the reason `DiffFile` has

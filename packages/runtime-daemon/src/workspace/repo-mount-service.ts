@@ -104,9 +104,12 @@
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {
+  NodeIdSchema,
   RepoAttachResponseSchema,
-  RepoDetachResponseSchema,
-  RepoMountReadResponseSchema,
+  RepoMountIdSchema,
+  RepoMountStateSchema,
+  VcsTypeSchema,
+  WorkspaceIdSchema,
   type NodeId,
   type RepoAttachRequest,
   type RepoAttachResponse,
@@ -146,9 +149,9 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
  */
 export type RepoMountServiceInvariantKind =
   /**
-   * A mount row — stored, or about to be — cannot be projected onto its wire
-   * shape: an identifier the contracts schemas refuse, a `state` or `vcs_type`
-   * outside the ratified vocabulary, an `attached_at` that is not ISO-8601. DB
+   * A mount row — stored, or about to be — cannot be projected through the
+   * contract's schemas: an identifier they refuse, a `state` or `vcs_type`
+   * outside the vocabulary, a probe measured against another path. DB
    * corruption, or an id source that does not mint real UUIDs. The row is the
    * thing to inspect.
    */
@@ -304,6 +307,30 @@ export interface RepoMountServiceDeps {
    */
   readonly newRepoMountId?: () => string;
 }
+
+/**
+ * The path arm of `repo.attach`. A folder token from another device is turned
+ * back into the folder `repo.folderList` listed before it reaches this service,
+ * which attaches paths only.
+ */
+export type RepoAttachPathRequest = Extract<RepoAttachRequest, { localPath: string }>;
+
+/**
+ * One mount's own facts off its row, with a freshly probed health verdict. The
+ * `repo.mountRead` reply adds the folder's origin, its project's name and the
+ * sessions using it, which this service does not hold.
+ */
+export type RepoMountRecord = Omit<RepoMountReadResponse, "origin" | "displayName" | "usedBy">;
+
+/**
+ * What a detach did to the mount and its workspaces. The `repo.detach` reply adds
+ * the forgotten project and the archived sessions, which this service does not
+ * hold.
+ */
+export type RepoMountDetachOutcome = Omit<
+  RepoDetachResponse,
+  "archivedSessionIds" | "forgottenProjectId"
+>;
 
 /** Inputs for {@link RepoMountService.detach}. */
 export interface DetachRepoMountInput extends RepoDetachRequest {
@@ -509,7 +536,8 @@ export class RepoMountService {
 
   /**
    * Attach a local path to this machine: resolve its canonical root and persist
-   * the mount — `repo.attach`. No workspace is created and no event appended.
+   * the mount, the path arm of `repo.attach`. No workspace is created and no
+   * event appended.
    *
    * @throws {RepoRootResolutionError} when the path resolves to no canonical
    *   root, including a path that is not a git repository. Nothing is
@@ -517,7 +545,7 @@ export class RepoMountService {
    * @throws {RepoAlreadyAttachedError} when the resolved root is already
    *   actively attached on this node.
    */
-  async attach(input: RepoAttachRequest): Promise<RepoAttachResponse> {
+  async attach(input: RepoAttachPathRequest): Promise<RepoAttachResponse> {
     // Throws typed `repo.root_resolution_failed` on every non-resolution; there
     // is no fallback to the entered path.
     const resolution = await this.#resolver.resolveCanonicalRoot(input.localPath);
@@ -559,7 +587,8 @@ export class RepoMountService {
   // ------------------------------------------------------------------------
 
   /**
-   * Read one mount with a freshly probed health verdict — `repo.mountRead`.
+   * Read one mount's own facts with a freshly probed health verdict, the part of
+   * `repo.mountRead` this service holds.
    *
    * Answers for mounts in EVERY state, not just `attached`. An UNKNOWN id is the
    * only miss, and it is `repo.not_found`.
@@ -575,18 +604,16 @@ export class RepoMountService {
    * some other path that merely normalizes alike.
    *
    * Takes the BRANDED `RepoMountId` because that is what
-   * `RepoMountReadRequest.repoMountId` declares — `detach` gets its id from the
-   * request interface it extends, and this method is the one public entry point
-   * that would otherwise widen to bare `string`. The private `#requireMountRow`
+   * `RepoMountReadRequest.repoMountId` declares. The private `#requireMountRow`
    * stays `string`: it is shared with `detach` and is a row lookup, not a wire
    * boundary.
    *
    * @throws {RepoMountNotFoundError} when no row carries this id.
    */
-  async read(repoMountId: RepoMountId): Promise<RepoMountReadResponse> {
+  async read(repoMountId: RepoMountId): Promise<RepoMountRecord> {
     const row = this.#requireMountRow(repoMountId);
     const probe = await this.#probePath(row.canonical_root);
-    return this.#projectMountRead(row, probe);
+    return this.#projectMountRecord(row, probe);
   }
 
   // ------------------------------------------------------------------------
@@ -594,7 +621,8 @@ export class RepoMountService {
   // ------------------------------------------------------------------------
 
   /**
-   * Detach a mount and archive its dependent workspaces — `repo.detach`.
+   * Detach a mount and archive its dependent workspaces, the part of
+   * `repo.detach` this service holds.
    *
    * In order: refuse while any dependent workspace is `busy` (there is no
    * force-detach in V1); otherwise archive every dependent and transition the
@@ -624,14 +652,14 @@ export class RepoMountService {
    * @throws {RepoMountServiceInvariantError} (`detach_notification_incomplete`)
    *   when the transaction committed but a dependent announcement did not.
    */
-  async detach(input: DetachRepoMountInput): Promise<RepoDetachResponse> {
+  async detach(input: DetachRepoMountInput): Promise<RepoMountDetachOutcome> {
     const actor = input.actor ?? null;
     const correlationId = input.correlationId ?? null;
     const repoMountId = input.repoMountId;
 
     const row = this.#requireMountRow(repoMountId);
     if (row.state !== ATTACHED_MOUNT_STATE) {
-      return this.#projectDetachResponse(repoMountId, row.state, []);
+      return this.#projectDetachOutcome(repoMountId, row.state, []);
     }
 
     const now = this.#now();
@@ -647,7 +675,7 @@ export class RepoMountService {
       // and `archivedWorkspaceIds` stays empty because THIS call archived
       // nothing.
       const current = this.#requireMountRow(repoMountId);
-      return this.#projectDetachResponse(repoMountId, current.state, []);
+      return this.#projectDetachOutcome(repoMountId, current.state, []);
     }
 
     // Post-commit. See the header for why these follow the commit and what
@@ -698,7 +726,7 @@ export class RepoMountService {
       );
     }
 
-    return this.#projectDetachResponse(repoMountId, DETACHED_MOUNT_STATE, archivedWorkspaceIds);
+    return this.#projectDetachOutcome(repoMountId, DETACHED_MOUNT_STATE, archivedWorkspaceIds);
   }
 
   // ------------------------------------------------------------------------
@@ -833,44 +861,51 @@ export class RepoMountService {
     }
   }
 
-  #projectMountRead(row: RepoMountRow, probe: FilesystemPathProbe): RepoMountReadResponse {
+  /**
+   * The row's facts, each parsed through its contract schema so a row the wire
+   * vocabulary cannot carry fails here, attributed to this row. The two paths
+   * were checked against the wire's bound when the attach wrote them.
+   */
+  #projectMountRecord(row: RepoMountRow, probe: FilesystemPathProbe): RepoMountRecord {
     try {
-      return RepoMountReadResponseSchema.parse({
+      return {
         // BARE `id` — the read projection's key name, per the contract's note.
-        id: row.id,
-        nodeId: row.node_id,
+        id: RepoMountIdSchema.parse(row.id),
+        nodeId: NodeIdSchema.parse(row.node_id),
         localPath: row.local_path,
         canonicalRoot: row.canonical_root,
-        vcsType: row.vcs_type,
-        state: row.state,
+        vcsType: VcsTypeSchema.parse(row.vcs_type),
+        state: RepoMountStateSchema.parse(row.state),
         // Throws on a mispaired probe, and that throw is attributed to this row
         // rather than swallowed: a health verdict measured against a different
         // path is a confident wrong answer no downstream surface can detect.
         health: computeRepoMountHealth({ canonicalRoot: row.canonical_root }, probe),
         attachedAt: row.attached_at,
-      });
+      };
     } catch (error) {
       throw new RepoMountServiceInvariantError(
-        `repo mount "${row.id}" cannot be projected onto the mount read response`,
+        `repo mount "${row.id}" cannot be projected onto the mount record`,
         { kind: "repo_mount_row_unprojectable", repoMountId: row.id, cause: error },
       );
     }
   }
 
-  #projectDetachResponse(
+  #projectDetachOutcome(
     repoMountId: string,
     state: string,
     archivedWorkspaceIds: readonly string[],
-  ): RepoDetachResponse {
+  ): RepoMountDetachOutcome {
     try {
-      return RepoDetachResponseSchema.parse({
-        repoMountId,
-        state,
-        archivedWorkspaceIds: [...archivedWorkspaceIds],
-      });
+      return {
+        repoMountId: RepoMountIdSchema.parse(repoMountId),
+        state: RepoMountStateSchema.parse(state),
+        archivedWorkspaceIds: archivedWorkspaceIds.map((workspaceId) =>
+          WorkspaceIdSchema.parse(workspaceId),
+        ),
+      };
     } catch (error) {
       throw new RepoMountServiceInvariantError(
-        `repo mount "${repoMountId}" cannot be projected onto the detach response`,
+        `repo mount "${repoMountId}" cannot be projected onto the detach outcome`,
         { kind: "repo_mount_row_unprojectable", repoMountId, cause: error },
       );
     }

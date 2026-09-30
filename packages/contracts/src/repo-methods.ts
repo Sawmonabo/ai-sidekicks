@@ -44,20 +44,6 @@ import {
   type WorktreeRestoreResponse,
 } from "./removed-worktree.js";
 import {
-  RepoAttachRequestSchema,
-  RepoAttachResponseSchema,
-  RepoDetachRequestSchema,
-  RepoDetachResponseSchema,
-  RepoMountReadRequestSchema,
-  RepoMountReadResponseSchema,
-  type RepoAttachRequest,
-  type RepoAttachResponse,
-  type RepoDetachRequest,
-  type RepoDetachResponse,
-  type RepoMountReadRequest,
-  type RepoMountReadResponse,
-} from "./repo.js";
-import {
   RepoCloneAnswerRequestSchema,
   RepoCloneFolderReadRequestSchema,
   RepoCloneFolderReadResponseSchema,
@@ -76,14 +62,26 @@ import {
   type RepoCloneSubscribeResponse,
 } from "./repo-clone.js";
 import {
+  RepoAttachRequestSchema,
+  RepoAttachResponseSchema,
+  RepoDetachRequestSchema,
+  RepoDetachResponseSchema,
   RepoFolderListRequestSchema,
   RepoFolderListResponseSchema,
   RepoMountListRequestSchema,
   RepoMountListResponseSchema,
+  RepoMountReadRequestSchema,
+  RepoMountReadResponseSchema,
+  type RepoAttachRequest,
+  type RepoAttachResponse,
+  type RepoDetachRequest,
+  type RepoDetachResponse,
   type RepoFolderListRequest,
   type RepoFolderListResponse,
   type RepoMountListRequest,
   type RepoMountListResponse,
+  type RepoMountReadRequest,
+  type RepoMountReadResponse,
 } from "./repo-folders.js";
 import {
   RepoBranchListRequestSchema,

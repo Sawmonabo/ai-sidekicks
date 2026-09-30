@@ -15,13 +15,20 @@
 // UUID scalars and a shipped call parses them. Named, so the cases still read as "the
 // first mount" rather than as a hex string.
 
-import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
+import type {
+  ProjectId,
+  RepoMountReadResponse,
+  WorkspaceListResponse,
+} from "@ai-sidekicks/contracts";
 
 /** The session both suites read for. */
 export const SESSION_ID = "019b7911-0000-7000-8000-000000000001";
 
 /** The node every mount below is attached on. */
 export const NODE_ID = "019b7911-0003-7000-8000-000000000001";
+
+/** The project every mount below belongs to. */
+export const PROJECT_ID = "019b7911-0005-7000-8000-000000000001";
 
 /** The first mount, named so a case reads as a mount rather than as a hex string. */
 export const MOUNT_A = "019b7911-0001-7000-8000-00000000000a";
@@ -71,6 +78,12 @@ export function mountReadFor(
     state: "attached",
     health: { status: "healthy", checkedAt: "2026-09-02T10:00:00.000Z" },
     attachedAt: "2026-09-01T10:00:00.000Z",
+    origin: {
+      kind: "attached",
+      repoMountId: repoMountId as RepoMountReadResponse["id"],
+      projectId: PROJECT_ID as ProjectId,
+    },
+    usedBy: [{ sessionId: SESSION_ID as RepoMountReadResponse["usedBy"][number]["sessionId"] }],
     ...overrides,
   };
 }

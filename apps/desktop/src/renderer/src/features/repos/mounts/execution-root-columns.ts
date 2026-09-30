@@ -2,9 +2,9 @@
 // the wire sent nothing.
 //
 // A MODULE BESIDE THE MODEL, not a second model. `execution-root-model.ts` answers what a
-// root IS — its sub-state on disk — and this answers how a row is TABULATED: the column
-// key sets, the labels, the summary and detail selections, and the sentence that renders
-// in an absent cell.
+// root's state means, and this answers how a row is TABULATED: the column key sets, the
+// labels, the summary and detail selections, and the sentence that renders in an absent
+// cell.
 //
 // THE ABSENCE COPY IS TOTAL OVER EXACTLY THE OPTIONAL COLUMNS, which is the property
 // that makes it worth its own home: `OptionalColumnKey` derives that set from the
@@ -16,10 +16,18 @@
 // wire's own string or as absent. Nothing here computes a branch name or a checkout
 // root.
 
-import type { WorktreeStatusRecord } from "./execution-root-model.js";
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts";
 
-/** Every column of a worktree row, as the wire names it. */
-export type WorktreeColumnKey = keyof WorktreeStatusRecord;
+/**
+ * Every text column of a worktree row, as the wire names it: the members whose value is
+ * a string, optional ones included. The figures and the occupancy lists are not columns
+ * this card tabulates.
+ */
+export type WorktreeColumnKey = {
+  [Key in keyof WorktreeStatusRecord]-?: WorktreeStatusRecord[Key] extends string | undefined
+    ? Key
+    : never;
+}[keyof WorktreeStatusRecord];
 
 /**
  * The keys a record may legally omit.
@@ -34,20 +42,21 @@ type OptionalColumnKey<TRecord> = {
 }[keyof TRecord];
 
 /**
- * Every worktree column's label. Total over the record's keys by construction, so a
- * column added to the wire cannot reach a card without a label.
+ * Every worktree column's label. Total over the text columns by construction, so a
+ * text column added to the wire cannot reach a card without a label.
  */
 export const WORKTREE_COLUMN_LABELS: Readonly<Record<WorktreeColumnKey, string>> = {
   worktreeId: "Worktree id",
   repoMountId: "Repo mount",
+  name: "Name",
   branchName: "Branch",
+  baseBranchName: "Base",
   fsRoot: "Checkout root",
   state: "State",
   createdBySessionId: "Created by session",
   createdByRunId: "Created by run",
   createdAt: "Created",
   updatedAt: "Updated",
-  cleanedAt: "Files removed",
 };
 
 /**
@@ -62,30 +71,29 @@ export const WORKTREE_SUMMARY_COLUMNS: readonly WorktreeColumnKey[] = [
   "createdAt",
 ];
 
-/** The rest, behind the row disclosure: provenance and cleanup. */
+/** The rest, behind the row disclosure: the tree's name, its base and its provenance. */
 export const WORKTREE_DETAIL_COLUMNS: readonly WorktreeColumnKey[] = [
+  "name",
+  "baseBranchName",
   "worktreeId",
   "repoMountId",
   "createdBySessionId",
   "createdByRunId",
   "updatedAt",
-  "cleanedAt",
 ];
 
 /**
  * What an omitted worktree column MEANS, per column.
  *
- * Total over the optional keys and no wider. Both sentences describe a real state
- * of the world rather than a gap in the console's knowledge: a worktree prepared
- * before any run has no run to attribute, and a row with no cleanup stamp has not
- * been swept. Rendering either as "unknown" would be the console reporting its own
- * ignorance in place of the daemon's answer.
+ * Total over the optional text columns and no wider. The sentence describes a real
+ * state of the world rather than a gap in the console's knowledge: a worktree prepared
+ * before any run has no run to attribute. Rendering it as "unknown" would be the console
+ * reporting its own ignorance in place of the daemon's answer.
  */
 export const WORKTREE_ABSENT_COLUMN_COPY: Readonly<
-  Record<OptionalColumnKey<WorktreeStatusRecord>, string>
+  Record<OptionalColumnKey<Pick<WorktreeStatusRecord, WorktreeColumnKey>>, string>
 > = {
   createdByRunId: "No run — this root was prepared explicitly.",
-  cleanedAt: "Not swept.",
 };
 
 /**
@@ -94,8 +102,8 @@ export const WORKTREE_ABSENT_COLUMN_COPY: Readonly<
  *
  * A discriminated cell rather than `string | undefined` because the two arms render
  * differently and the difference is the point — an omitted column is a fact about
- * the world (no run to attribute, no sweep yet) and rendering it as an empty cell
- * would report the console's silence as the daemon's.
+ * the world (no run to attribute) and rendering it as an empty cell would report the
+ * console's silence as the daemon's.
  */
 export type ColumnCell =
   | { readonly kind: "value"; readonly value: string }
@@ -123,11 +131,10 @@ const WORKTREE_ABSENT_COPY_BY_COLUMN: Readonly<Partial<Record<WorktreeColumnKey,
 /**
  * One worktree column, as a cell.
  *
- * Every column is a string on the wire — branded ids included — so
- * the accessor is total and needs no per-column branch. It exists so a card can
- * iterate a column list instead of writing ten property reads, which is what keeps
- * the "columns verbatim" claim checkable: the list is data a test holds against the
- * labels table.
+ * Every column is a string on the wire — branded ids included — so the accessor is
+ * total and needs no per-column branch. It exists so a card can iterate a column list
+ * instead of writing a property read per column, which is what keeps the "columns
+ * verbatim" claim checkable: the list is data a test holds against the labels table.
  */
 export function worktreeColumnCell(
   record: WorktreeStatusRecord,

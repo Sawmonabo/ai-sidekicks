@@ -72,7 +72,6 @@ const MOUNT_ANSWERS: Readonly<Record<string, unknown>> = {
 function mountReadResponse(repoMountId: string, status: "healthy" | "unreachable"): unknown {
   return {
     id: repoMountId,
-    sessionId: FIXTURE_SCENARIO_SESSION_ID,
     nodeId: "9f2c4a10-1111-4000-8000-000000000100",
     localPath: "/Users/probe/dev/ai-sidekicks",
     canonicalRoot: "/Users/probe/dev/ai-sidekicks",
@@ -80,6 +79,13 @@ function mountReadResponse(repoMountId: string, status: "healthy" | "unreachable
     state: "attached",
     health: { status, checkedAt: "2026-01-01T14:20:00.500Z" },
     attachedAt: "2026-01-01T14:00:00.000Z",
+    origin: {
+      kind: "attached",
+      repoMountId,
+      projectId: "9f2c4a10-1111-4000-8000-000000000200",
+    },
+    displayName: "ai-sidekicks",
+    usedBy: [{ sessionId: FIXTURE_SCENARIO_SESSION_ID }],
   };
 }
 

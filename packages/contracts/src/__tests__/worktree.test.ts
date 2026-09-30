@@ -601,7 +601,6 @@ const BRANCH_NAME = "sidekicks/550e8400/add-worktree-wire-pairs";
 const BASE_REF = "main";
 const CREATED_AT = "2026-07-26T09:30:00.000Z";
 const UPDATED_AT = "2026-07-26T09:31:00.000Z";
-const CLEANED_AT = "2026-07-26T10:00:00.000Z";
 
 // The three inputs that separate `wireFreeFormString` from a bare `z.string()`:
 // empty, whitespace-only, and an embedded NUL byte. A guard downgrade at any
@@ -650,22 +649,39 @@ const buildWorktreeReuseCheckResponse = () => ({
 const buildWorktreeRetireRequest = () => ({ worktreeId: WORKTREE_ID, discard: false });
 const buildWorktreeRetireResponse = () => ({ worktreeId: WORKTREE_ID, state: "retired" });
 
-// The worktree record carries RUN provenance and no cleanup stamp — a live
-// run-created checkout.
+// A live, run-created checkout, with the figures its switcher row draws.
 const buildWorktreeStatusRecord = () => ({
   worktreeId: WORKTREE_ID,
   repoMountId: REPO_MOUNT_ID,
+  name: "1a2b3c4d-fix-login-bug",
   branchName: BRANCH_NAME,
+  baseBranchName: "main",
   fsRoot: EXECUTION_ROOT,
   state: "ready",
+  ahead: 2,
+  behind: 1,
+  uncommittedFileCount: 3,
+  unpushedCommitCount: 2,
+  occupyingSessionIds: [SESSION_ID],
+  runningSessionId: null,
   createdBySessionId: SESSION_ID,
   createdByRunId: RUN_ID,
   createdAt: CREATED_AT,
   updatedAt: UPDATED_AT,
 });
-const buildWorktreeStatusReadRequest = () => ({ sessionId: SESSION_ID });
+const buildWorktreeStatusReadRequest = () => ({
+  repoMountId: REPO_MOUNT_ID,
+  sessionId: SESSION_ID,
+});
 const buildWorktreeStatusReadResponse = () => ({
+  repoRoot: { path: "/Users/dev/code/beacon", branchName: "main" },
   worktrees: [buildWorktreeStatusRecord()],
+  countsAsOf: CREATED_AT,
+  newWorktree: {
+    fixedPart: "sidekicks/1a2b3c4d/",
+    suggestedTail: "fix-login-bug",
+    pathHint: "~/.ai-sidekicks/worktrees/beacon/1a2b3c4d-fix-login-bug",
+  },
 });
 
 // Override-parse helpers, the repo.test.ts affordance: the fixtures above stay
@@ -701,7 +717,10 @@ const parseReuseCheckResponse = (overrides: Record<string, unknown> = {}) =>
 // helper takes a whole record (so the field-omission rows can `delete` a key);
 // the override helper rides it for the common in-shape case.
 const parseStatusReadWorktreeRecord = (record: Record<string, unknown>) =>
-  WorktreeStatusReadResponseSchema.safeParse({ worktrees: [record] });
+  WorktreeStatusReadResponseSchema.safeParse({
+    ...buildWorktreeStatusReadResponse(),
+    worktrees: [record],
+  });
 const parseStatusReadWithWorktree = (overrides: Record<string, unknown> = {}) =>
   parseStatusReadWorktreeRecord({ ...buildWorktreeStatusRecord(), ...overrides });
 
@@ -999,97 +1018,80 @@ describe("WorktreeRetire (records retirement)", () => {
       expect(WorktreeRetireResponseSchema.safeParse({ ...response, state }).success).toBe(false);
     }
   });
-
-  it("carries no cleanedAt — nothing has been cleaned when it is produced", () => {
-    // The recorded-then-cleaned ordering, pinned on the shape: the stamp
-    // belongs to the async sweep and surfaces on the status read.
-    const withStamp = { ...buildWorktreeRetireResponse(), cleanedAt: CLEANED_AT };
-    expect(WorktreeRetireResponseSchema.safeParse(withStamp).success).toBe(false);
-  });
 });
 
-describe("WorktreeStatusRead (worktree records with provenance)", () => {
-  it("accepts a session-scoped read with and without the mount filter", () => {
-    const sessionScoped = buildWorktreeStatusReadRequest();
-    expect(WorktreeStatusReadRequestSchema.safeParse(sessionScoped).success).toBe(true);
-    const mountFiltered = { sessionId: SESSION_ID, repoMountId: REPO_MOUNT_ID };
-    expect(WorktreeStatusReadRequestSchema.safeParse(mountFiltered).success).toBe(true);
-    // `sessionId` is not optional: the mount id is a FILTER, and the read is
-    // the session's whole root roster when it is absent.
-    const sessionless = { repoMountId: REPO_MOUNT_ID };
-    expect(WorktreeStatusReadRequestSchema.safeParse(sessionless).success).toBe(false);
+describe("WorktreeStatusRead (the switcher's one read, keyed by the project's folder)", () => {
+  it("is keyed by the project's folder, with the asking session optional", () => {
+    expect(
+      WorktreeStatusReadRequestSchema.safeParse(buildWorktreeStatusReadRequest()).success,
+    ).toBe(true);
+    expect(WorktreeStatusReadRequestSchema.safeParse({ repoMountId: REPO_MOUNT_ID }).success).toBe(
+      true,
+    );
+    expect(WorktreeStatusReadRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(
+      false,
+    );
   });
 
-  it("accepts the full projection and an EMPTY array alike", () => {
-    const fullProjection = buildWorktreeStatusReadResponse();
-    expect(WorktreeStatusReadResponseSchema.safeParse(fullProjection).success).toBe(true);
-    // A session that has bound no worktree yet is a lawful answer, not a
-    // degenerate one — hence no `.min(1)` on the array.
-    const emptyProjection = { worktrees: [] };
-    expect(WorktreeStatusReadResponseSchema.safeParse(emptyProjection).success).toBe(true);
+  it("carries the repo-root row, each tree's figures, the fetch age and the form's suggestion", () => {
+    expect(
+      WorktreeStatusReadResponseSchema.safeParse(buildWorktreeStatusReadResponse()).success,
+    ).toBe(true);
   });
 
-  it("requires the worktrees array to be present", () => {
-    expect(WorktreeStatusReadResponseSchema.safeParse({}).success).toBe(false);
+  it("answers a project with no trees, no failed fetch and no asking session", () => {
+    const bare = {
+      repoRoot: { path: "/Users/dev/code/beacon", branchName: "main" },
+      worktrees: [],
+    };
+    expect(WorktreeStatusReadResponseSchema.safeParse(bare).success).toBe(true);
+    const { repoRoot: _repoRoot, ...withoutRoot } = bare;
+    expect(WorktreeStatusReadResponseSchema.safeParse(withoutRoot).success).toBe(false);
   });
 
-  it.each([
-    "worktreeId",
-    "repoMountId",
-    "branchName",
-    "fsRoot",
-    "state",
-    "createdBySessionId",
-    "createdAt",
-    "updatedAt",
-  ])("rejects a worktree record missing %s", (field) => {
-    // `createdBySessionId` is the row the plan's Tests line names:
-    // `worktrees.created_by_session_id` is NOT NULL and makes creating-session
-    // provenance unconditional, so a provenance-less record is unrepresentable
-    // rather than merely unusual.
-    const broken = { ...buildWorktreeStatusRecord() } as Record<string, unknown>;
-    delete broken[field];
-    expect(parseStatusReadWorktreeRecord(broken).success).toBe(false);
+  it("never lists a retired tree", () => {
+    expect(parseStatusReadWithWorktree({ state: "retired" }).success).toBe(false);
+    expect(parseStatusReadWithWorktree({ state: "failed" }).success).toBe(true);
   });
 
-  it("keeps createdByRunId OPTIONAL but UUID-validated when present", () => {
-    // The asymmetry with `createdBySessionId` IS the provenance contract:
-    // `created_by_run_id` is nullable because a pre-run explicit prepare
-    // creates a worktree with no run to attribute.
+  it("requires the figures the switcher row and the removal confirm draw", () => {
+    for (const field of [
+      "name",
+      "baseBranchName",
+      "uncommittedFileCount",
+      "unpushedCommitCount",
+      "occupyingSessionIds",
+      "runningSessionId",
+      "createdBySessionId",
+    ]) {
+      const broken = { ...buildWorktreeStatusRecord() } as Record<string, unknown>;
+      delete broken[field];
+      expect(parseStatusReadWorktreeRecord(broken).success).toBe(false);
+    }
+  });
+
+  it("leaves ahead and behind absent for a branch with no upstream, and refuses a negative figure", () => {
+    const { ahead: _ahead, behind: _behind, ...noUpstream } = buildWorktreeStatusRecord();
+    expect(parseStatusReadWorktreeRecord(noUpstream).success).toBe(true);
+    expect(parseStatusReadWithWorktree({ behind: -1 }).success).toBe(false);
+    expect(parseStatusReadWithWorktree({ uncommittedFileCount: 1.5 }).success).toBe(false);
+  });
+
+  it("keeps createdByRunId optional but UUID-validated when present", () => {
     const withoutRun = { ...buildWorktreeStatusRecord() } as Record<string, unknown>;
     delete withoutRun["createdByRunId"];
     expect(parseStatusReadWorktreeRecord(withoutRun).success).toBe(true);
     expect(parseStatusReadWithWorktree({ createdByRunId: "run-1" }).success).toBe(false);
-    expect(parseStatusReadWithWorktree({ createdByRunId: RUN_ID }).success).toBe(true);
   });
-
-  it("accepts the async cleanup stamp on a worktree record", () => {
-    expect(parseStatusReadWithWorktree({ cleanedAt: CLEANED_AT }).success).toBe(true);
-    expect(parseStatusReadWithWorktree({ cleanedAt: "2026-07-26" }).success).toBe(false);
-  });
-
-  it.each(["creating", "ready", "dirty", "merged", "retired", "failed"])(
-    "never hides a worktree row in state %s",
-    (state) => {
-      // Admit-not-eject: the projection returns EVERY row and the Phase 4 views
-      // label them. A "live states only" narrowing here would make the
-      // contract unrepresentable on the wire.
-      expect(parseStatusReadWithWorktree({ state }).success).toBe(true);
-    },
-  );
 
   it("keeps a workspace state out of the worktree record", () => {
-    // The per-record composition of the canonical enum (contract half) keeps a
-    // worktree row from borrowing a workspace state.
     expect(parseStatusReadWithWorktree({ state: "preparing" }).success).toBe(false);
   });
 
   it("applies the wireFreeFormString guard to every path and ref on the record", () => {
-    // Two fields, neither of which has a cap row: a downgrade at either of them
-    // would put a blank or NUL-bearing path into a projection the Phase 4 views
-    // render directly.
     for (const hostile of GUARD_DOWNGRADE_VALUES) {
       expect(parseStatusReadWithWorktree({ branchName: hostile }).success).toBe(false);
+      expect(parseStatusReadWithWorktree({ baseBranchName: hostile }).success).toBe(false);
       expect(parseStatusReadWithWorktree({ fsRoot: hostile }).success).toBe(false);
     }
   });
@@ -1166,9 +1168,15 @@ const worktreeStatusRecordProvenancePin = (): void => {
   const missingCreatedBySessionId: WorktreeStatusReadResponse["worktrees"][number] = {
     worktreeId: WorktreeIdSchema.parse(WORKTREE_ID),
     repoMountId: RepoMountIdSchema.parse(REPO_MOUNT_ID),
+    name: "1a2b3c4d-fix-login-bug",
     branchName: BRANCH_NAME,
+    baseBranchName: "main",
     fsRoot: EXECUTION_ROOT,
     state: "ready",
+    uncommittedFileCount: 0,
+    unpushedCommitCount: 0,
+    occupyingSessionIds: [],
+    runningSessionId: null,
     createdAt: CREATED_AT,
     updatedAt: UPDATED_AT,
   };

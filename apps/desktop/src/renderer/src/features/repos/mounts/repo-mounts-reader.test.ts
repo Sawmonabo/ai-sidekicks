@@ -8,10 +8,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import {
+  CANONICAL_ROOT,
+  DRIFTED_MOUNT_ID,
+  HEALTHY_MOUNT_ID,
+  UNREACHABLE_MOUNT_ID,
   disposeTrackedReaders,
   openReader,
   sessionOperations,
   settle,
+  worktreeRecord,
 } from "./repo-mounts.test-support.js";
 
 // Every reader a case opens is tracked, and none of them outlives its case.
@@ -61,13 +66,33 @@ describe("RepoMountsReader — the read", () => {
     );
   });
 
-  it("carries the worktrees the status read answers with", async () => {
+  it("reads the worktrees of every bound mount, mount by mount", async () => {
+    // The status read is keyed by one project's folder, so a session on three mounts
+    // asks three times; a reader that asked only for the first would drop the others.
     const clock = new ManualClock();
-    const reader = openReader(sessionOperations(), clock);
+    const reader = openReader(
+      sessionOperations({
+        readWorktreeStatus: (repoMountId) =>
+          Promise.resolve({
+            repoRoot: { path: CANONICAL_ROOT, branchName: "main" },
+            worktrees: [
+              worktreeRecord({
+                worktreeId: `worktree-on-${repoMountId}`,
+                repoMountId,
+              }),
+            ],
+          }),
+      }),
+      clock,
+    );
     reader.start();
     await settle(clock, reader);
 
-    expect(reader.snapshot.worktrees).toHaveLength(2);
+    expect(reader.snapshot.worktrees.map((record) => record.worktreeId)).toStrictEqual([
+      `worktree-on-${HEALTHY_MOUNT_ID}`,
+      `worktree-on-${UNREACHABLE_MOUNT_ID}`,
+      `worktree-on-${DRIFTED_MOUNT_ID}`,
+    ]);
   });
 
   it("negative control: nothing is read until the section starts", async () => {

@@ -12,7 +12,7 @@
 // A call that rejects is not caught here: the guard is still given back, and the rejection
 // propagates to the caller.
 
-import type { WorktreeId } from "@ai-sidekicks/contracts";
+import type { WorktreeId, WorktreeRetireResponse } from "@ai-sidekicks/contracts";
 
 import type { RepoOperations } from "../../repo-operations.js";
 
@@ -23,7 +23,7 @@ export type RootRemovalOperations = Pick<RepoOperations, "retireWorktree">;
 export type RootRemovalReading =
   | { readonly status: "idle" }
   | { readonly status: "sending" }
-  | { readonly status: "settled"; readonly state: string };
+  | { readonly status: "settled"; readonly state: WorktreeRetireResponse["state"] };
 
 /** Where a settlement lands: the confirmation that asked for the removal. */
 export interface RootRemovalRecorder {
@@ -75,7 +75,12 @@ export class RootRemovalController {
     this.#inFlight = true;
     this.#recorder.recordRemoval({ status: "sending" });
     try {
-      const reply = await this.#operations.retireWorktree(this.#rootId as WorktreeId);
+      // The ordinary removal: this confirm offers no discard, so a tree that changed since
+      // its risks were read is refused with the current ones rather than removed.
+      const reply = await this.#operations.retireWorktree({
+        worktreeId: this.#rootId as WorktreeId,
+        discard: false,
+      });
       if (this.#disposed) {
         return;
       }

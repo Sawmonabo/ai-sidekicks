@@ -25,7 +25,7 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceId,
   WorkspaceListResponse,
-  WorktreeId,
+  WorktreeRetireRequest,
   WorktreeRetireResponse,
   WorktreeReuseCheckResponse,
   WorktreeStatusReadResponse,
@@ -58,12 +58,12 @@ export interface RepoOperations {
     workspaceId: WorkspaceId,
     executionMode: ExecutionMode,
   ) => Promise<ExecutionModeSelectResponse>;
-  /** Every execution root this session holds, in one unfiltered read. */
+  /** The worktrees of the project whose folder this is, in one read. */
   readonly readWorktreeStatus: (
-    sessionId: string,
+    repoMountId: RepoMountId,
     signal: AbortSignal,
   ) => Promise<WorktreeStatusReadResponse>;
-  /** Attach one local checkout to this machine. The path travels verbatim. */
+  /** Attach one folder to this machine, by its path or by another device's folder token. */
   readonly attachRepository: (request: RepoAttachRequest) => Promise<RepoAttachResponse>;
   /** Bind a workspace on one mount, in one explicit execution mode. */
   readonly bindWorkspace: (request: WorkspaceBindRequest) => Promise<WorkspaceBindResponse>;
@@ -77,6 +77,9 @@ export interface RepoOperations {
     branchName: string,
     signal: AbortSignal,
   ) => Promise<WorktreeReuseCheckResponse>;
-  /** Record one worktree's retirement: recorded, not deleted from disk. */
-  readonly retireWorktree: (worktreeId: WorktreeId) => Promise<WorktreeRetireResponse>;
+  /**
+   * Remove one worktree. `discard: false` is the ordinary removal, which removes nothing
+   * the confirm did not show; `discard: true` is sent only from the discard confirm.
+   */
+  readonly retireWorktree: (request: WorktreeRetireRequest) => Promise<WorktreeRetireResponse>;
 }

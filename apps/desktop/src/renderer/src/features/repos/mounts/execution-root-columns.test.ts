@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type WorktreeStatusRecord } from "./execution-root-model.js";
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts";
 import {
   COLUMN_ABSENT_FALLBACK,
   WORKTREE_ABSENT_COLUMN_COPY,
@@ -39,14 +39,13 @@ function splitCoverage(
 }
 
 describe("worktree-columns — every column has a home", () => {
-  it("splits the ten worktree columns across the summary and the disclosure", () => {
+  it("splits the worktree's text columns across the summary and the disclosure", () => {
     const coverage = splitCoverage(
       Object.keys(WORKTREE_COLUMN_LABELS),
       WORKTREE_SUMMARY_COLUMNS,
       WORKTREE_DETAIL_COLUMNS,
     );
     expect(coverage).toStrictEqual({ missing: [], duplicated: [] });
-    expect(Object.keys(WORKTREE_COLUMN_LABELS)).toHaveLength(10);
   });
 
   it("negative control: the coverage predicate reports a dropped and a doubled column", () => {
@@ -66,18 +65,10 @@ describe("worktree-columns — column cells", () => {
     });
   });
 
-  it("names what an omitted optional column means, per column", () => {
+  it("names what an omitted optional column means", () => {
     expect(
       worktreeColumnCell(worktreeRecord({ createdByRunId: undefined }), "createdByRunId"),
     ).toStrictEqual({ kind: "absent", copy: WORKTREE_ABSENT_COLUMN_COPY.createdByRunId });
-    expect(worktreeColumnCell(worktreeRecord(), "cleanedAt")).toStrictEqual({
-      kind: "absent",
-      copy: WORKTREE_ABSENT_COLUMN_COPY.cleanedAt,
-    });
-    // Two different sentences, because they are two different facts about the world.
-    expect(WORKTREE_ABSENT_COLUMN_COPY.createdByRunId).not.toBe(
-      WORKTREE_ABSENT_COLUMN_COPY.cleanedAt,
-    );
   });
 
   it("says so when a column the wire declares required arrives empty", () => {

@@ -1,7 +1,7 @@
 // Workspace contracts — the three `repo.*` pairs that bind a session's
 // workspace to a mount and read what it can do: `repo.workspaceBind`,
-// `repo.executionModeCapabilitiesRead` and `repo.workspaceList`. The ids,
-// enums and mount pairs they compose live in repo.ts.
+// `repo.executionModeCapabilitiesRead` and `repo.workspaceList`. The ids and
+// enums they compose live in repo.ts, and the mount pairs in repo-folders.ts.
 //
 // IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
 // and nothing whose import closure reaches it (the transitive rule repo.ts's
@@ -33,7 +33,7 @@ import {
 // The three request/response pairs for the WORKSPACE half of the six
 // `repo.*` methods — `repo.workspaceBind` (mutation),
 // `repo.executionModeCapabilitiesRead` (query), `repo.workspaceList` (query)
-// completing the mount half in repo.ts.
+// completing the mount half in repo-folders.ts.
 //
 // Field sets are transcribed and satisfy three requirements: `WorkspaceBind` "must
 // accept repo mount or directory root plus intended execution mode from the
@@ -43,7 +43,7 @@ import {
 // shape composes the enums and branded ids rather than re-spelling them —
 // canonical-origin rule.
 //
-// The TRANSPORT and TYPING notes on repo.ts's mount pairs govern these three unchanged:
+// The TRANSPORT and TYPING notes on repo-folders.ts's mount pairs govern these three unchanged:
 // daemon JSON-RPC only (no control-plane tRPC sibling), requests double-T
 // `z.ZodType<T, T>`, responses single-T `z.ZodType<T>`, and validates BOTH
 // directions. The one departure is `WorkspaceBindRequestSchema`, which needs
@@ -158,7 +158,7 @@ export const WorkspaceBindRequestSchema: z.ZodType<WorkspaceBindRequest, Workspa
     // envelope without a single `..`) and over-broad (`docs/../packages`
     // names a legitimate subtree), so it would trade a sound post-resolution
     // check for a bypassable pre-resolution one — the same reasoning that
-    // keeps traversal off `RepoAttachRequest.localPath` in repo.ts.
+    // keeps traversal off `RepoAttachRequest.localPath` in repo-folders.ts.
     //
     // The cap is the one path bound. The honest bound on a relative segment is
     // the same PATH_MAX ceiling: what the filesystem actually bounds is the
@@ -187,7 +187,7 @@ export const WorkspaceBindResponseSchema: z.ZodType<WorkspaceBindResponse> = z
     // wire doc types the field `WorkspaceState` with no narrowing, and a
     // narrowing would be re-typed (a wire break) the first time a bind
     // legitimately answers from another state — the same stance
-    // `RepoAttachResponse.state` takes in repo.ts.
+    // `RepoAttachResponse.state` takes in repo-folders.ts.
     state: WorkspaceStateSchema,
   })
   .strict();
@@ -366,7 +366,7 @@ export interface WorkspaceListResponse {
 const workspaceListItemSchema = z
   .object({
     // BARE `id`, the read-projection convention — the same asymmetry
-    // `RepoMountReadResponse.id` documents above (a projection names its own
+    // `RepoMountReadResponse.id` documents in repo-folders.ts (a projection names its own
     // row's key `id`; a mutation response names the entity it acted on, hence
     // `WorkspaceBindResponse.workspaceId`). Do not "fix" it.
     id: WorkspaceIdSchema,
