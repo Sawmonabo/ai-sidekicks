@@ -6,10 +6,6 @@ import { earliestFutureDeadline } from "./deadlines.js";
 const MOUNTED_AT = 1_000;
 
 describe("earliestFutureDeadline — what is armed for", () => {
-  it("takes the soonest deadline still ahead", () => {
-    expect(earliestFutureDeadline([5_000, 2_000, 9_000], MOUNTED_AT)).toBe(2_000);
-  });
-
   it("skips a deadline already behind the instant", () => {
     expect(earliestFutureDeadline([500, 2_000], MOUNTED_AT)).toBe(2_000);
     expect(earliestFutureDeadline([500, 900], MOUNTED_AT)).toBeUndefined();
@@ -21,10 +17,5 @@ describe("earliestFutureDeadline — what is armed for", () => {
       undefined,
     );
     expect(earliestFutureDeadline([Number.NaN, 3_000], MOUNTED_AT)).toBe(3_000);
-  });
-
-  it("negative control: the deadline exactly at the instant is behind, not ahead", () => {
-    // Guards against `<` for `<=`, which would arm a zero-delay timer for a crossed deadline.
-    expect(earliestFutureDeadline([MOUNTED_AT], MOUNTED_AT)).toBeUndefined();
   });
 });

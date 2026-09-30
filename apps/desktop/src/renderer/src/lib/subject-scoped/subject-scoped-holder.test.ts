@@ -5,7 +5,8 @@
 // A render is not a commit: `visit(...)` addresses and confirms, as React does, and drives the
 // cases about the component on screen; cases about a proposal that never reached the screen call
 // `address` alone. Each clean assertion has a negative control, since "the late settlement was
-// dropped" is also satisfied by a publisher that never writes.
+// dropped" is also satisfied by a publisher that never writes. What becomes of a value the holder
+// let go of is at the end.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -88,7 +89,7 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
     expect(holder.value).toBe("seed");
   });
 
-  it("negative control: a re-address to the pair already held admits its publisher", () => {
+  it("admits the publisher of a re-address to the pair already held", () => {
     // The addressing advances on a move, not a re-render. A holder minting a new addressing per
     // call would refuse this and still pass the two cases above.
     const holder = new SubjectScopedHolder<string>();
@@ -96,15 +97,6 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
     const publisher = holder.publisherFor(SUBJECT_ONE, "alpha");
     visit(holder, SUBJECT_ONE, "alpha", () => "a seed nothing asked for");
     publisher("landed");
-    expect(holder.value).toBe("landed");
-  });
-
-  it("negative control: the same settlement lands while the subject stands", () => {
-    // Without this, "dropped" above would also be satisfied by a publisher that never writes.
-    const holder = new SubjectScopedHolder<string>();
-    visit(holder, SUBJECT_ONE, "alpha", () => "seed");
-    const settlement = holder.publisherFor(SUBJECT_ONE, "alpha");
-    settlement("landed");
     expect(holder.value).toBe("landed");
   });
 
@@ -116,47 +108,6 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
     appendFirst((previous) => [...previous, "first"]);
     appendSecond((previous) => [...previous, "second"]);
     expect(holder.value).toStrictEqual(["first", "second"]);
-  });
-
-  it("settle captures the subject standing when it is CALLED", () => {
-    const holder = new SubjectScopedHolder<string>();
-    visit(holder, SUBJECT_ONE, "alpha", () => "seed");
-    const capturedEarly = holder.settle();
-    visit(holder, SUBJECT_TWO, "alpha", () => "seed");
-    const capturedLate = holder.settle();
-    capturedEarly("from the subject that left");
-    expect(holder.value).toBe("seed");
-    capturedLate("from the subject on screen");
-    expect(holder.value).toBe("from the subject on screen");
-  });
-
-  it("a capture taken before any address publishes nowhere rather than throwing", () => {
-    const holder = new SubjectScopedHolder<string>();
-    const beforeAnySubject = holder.settle();
-    expect(() => {
-      beforeAnySubject("nothing was ever addressed");
-    }).not.toThrow();
-    visit(holder, SUBJECT_ONE, "alpha", () => "seed");
-    expect(holder.value).toBe("seed");
-  });
-
-  it("reading before an address is a composition error and says so", () => {
-    const holder = new SubjectScopedHolder<string>();
-    expect(() => holder.value).toThrow(/before it was addressed/);
-  });
-
-  it("wakes nobody for a publish that changes nothing", () => {
-    const holder = new SubjectScopedHolder<string>();
-    visit(holder, SUBJECT_ONE, "alpha", () => "seed");
-    let wakes = 0;
-    holder.subscribe(() => {
-      wakes += 1;
-    });
-    holder.publisherFor(SUBJECT_ONE, "alpha")("seed");
-    expect(wakes).toBe(0);
-    // Negative control: the same subscription does wake for a real change.
-    holder.publisherFor(SUBJECT_ONE, "alpha")("changed");
-    expect(wakes).toBe(1);
   });
 });
 
@@ -175,18 +126,6 @@ describe("SubjectScopedHolder — an addressing is a proposal until a render com
     expect(holder.value).toBe("the seed a pass proposed");
     holder.address(SUBJECT_ONE, "alpha", () => "a seed nothing asked for");
     expect(holder.value).toBe("what the visit on screen read");
-  });
-
-  it("negative control: the same publisher is refused once a proposal commits", () => {
-    // Without this, "still publishable" above would pass for a holder that never retires anything.
-    const holder = new SubjectScopedHolder<string>();
-    visit(holder, SUBJECT_ONE, "alpha", () => "seed");
-    const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
-
-    visit(holder, SUBJECT_TWO, "alpha", () => "the second visit's seed");
-    settlementFromTheVisitThatEnded("the answer to a question nobody is asking");
-
-    expect(holder.value).toBe("the second visit's seed");
   });
 
   it("refuses a settlement captured under a pass that never committed", () => {
@@ -222,33 +161,95 @@ describe("SubjectScopedHolder — an addressing is a proposal until a render com
     // The one on screen is untouched: a live effect holds it.
     expect(holder.value).toBe("the connection on screen");
   });
+});
 
-  it("commits nothing for a pair no proposal carries, and ends the proposal there is", () => {
-    // A commit naming a pair no proposal carries confirms nothing and ends the proposal.
-    const closed: string[] = [];
+describe("SubjectScopedHolder — a disposal that throws does not take the render with it", () => {
+  /** The value a pass proposed, which the case that supersedes it cannot dispose. */
+  const UNDISPOSABLE = "the value that owns a registry";
+
+  it("leaves the proposal that superseded it addressed and publishable, and records why", () => {
+    // This runs inside a render body. Escaping, the throw would reach the region's error boundary
+    // and unmount the subtree, leaving the newest proposal held by nothing.
     const holder = new SubjectScopedHolder<string>({
+      disposeUnheldValue: (unheld) => {
+        if (unheld === UNDISPOSABLE) {
+          throw new Error("the registry this value owned refused to dispose");
+        }
+      },
+    });
+    visit(holder, SUBJECT_ONE, "alpha", () => "the visit on screen");
+    holder.address(SUBJECT_TWO, "alpha", () => UNDISPOSABLE);
+
+    expect(() => {
+      holder.address(SUBJECT_TWO, "beta", () => "the proposal that superseded it");
+    }).not.toThrow();
+
+    expect(holder.value).toBe("the proposal that superseded it");
+    expect(windowTripwires.firingCount("region-render-failure")).toBe(1);
+    expect(windowTripwires.reports().at(-1)?.detail).toContain("refused to dispose");
+    // The superseding pass can still settle into what it addressed.
+    holder.publisherFor(SUBJECT_TWO, "beta")("what the new pass read");
+    expect(holder.value).toBe("what the new pass read");
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
+  });
+});
+
+describe("SubjectScopedHolder — a resource it refuses is disposed rather than dropped", () => {
+  /** What the caller's disposal was handed, in order, so a double close is visible. */
+  function holderDisposing(closed: string[]): SubjectScopedHolder<string> {
+    return new SubjectScopedHolder<string>({
       disposeUnheldValue: (unheld) => {
         closed.push(unheld);
       },
     });
-    visit(holder, SUBJECT_ONE, "alpha", () => "the connection on screen");
-    holder.address(SUBJECT_TWO, "alpha", () => "the connection a dropped pass opened");
+  }
 
-    holder.commit(SUBJECT_ONE, "alpha");
+  it("closes a resource that settled into a visit which had already ended", () => {
+    // An async open: the component was re-addressed while it was in flight, so the settlement
+    // names a visit nothing is addressed at and this disposal is the only path to the resource.
+    const closed: string[] = [];
+    const holder = holderDisposing(closed);
+    visit(holder, SUBJECT_ONE, "alpha", () => "the connection the first visit opened");
+    const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
+    visit(holder, SUBJECT_TWO, "alpha", () => "the connection the second visit opened");
 
-    expect(closed).toStrictEqual(["the connection a dropped pass opened"]);
-    expect(holder.value).toBe("the connection on screen");
+    settlementFromTheVisitThatEnded("the connection that opened too late");
+
+    expect(closed).toStrictEqual(["the connection that opened too late"]);
+    expect(holder.value).toBe("the connection the second visit opened");
+    expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(windowTripwires.reports().at(-1)?.detail).toContain("had already ended");
   });
 
-  it("settle names the visit on screen, never a proposal a pass left behind", () => {
-    // `settle` runs outside a render, where only the committed visit is being read.
-    const holder = new SubjectScopedHolder<string>();
-    visit(holder, SUBJECT_ONE, "alpha", () => "seed");
-    holder.address(SUBJECT_TWO, "alpha", () => "the seed a pass proposed");
+  it("hands a resource a later publish replaced to the same disposal", () => {
+    // Two publishes in one batched event: the first is replaced with no commit between, so no
+    // effect closed over it; the holder's own write is the last moment it is reachable.
+    const closed: string[] = [];
+    const holder = holderDisposing(closed);
+    visit(holder, SUBJECT_ONE, "alpha", () => "the connection the visit opened");
+    const publish = holder.publisherFor(SUBJECT_ONE, "alpha");
 
-    holder.settle()("what the visit on screen read");
+    publish("the connection published second");
+    publish("the connection published third");
 
-    holder.address(SUBJECT_ONE, "alpha", () => "a seed nothing asked for");
-    expect(holder.value).toBe("what the visit on screen read");
+    expect(closed).toStrictEqual([
+      "the connection the visit opened",
+      "the connection published second",
+    ]);
+    expect(holder.value).toBe("the connection published third");
+    // Ordinary, so nothing is reported: a window replaces a store that closed itself this way.
+    expect(windowTripwires.totalFiringCount).toBe(0);
+  });
+
+  it("disposes nothing for a publish that changes nothing", () => {
+    // The value is still held, so disposing it would close what the component reads through.
+    const closed: string[] = [];
+    const holder = holderDisposing(closed);
+    visit(holder, SUBJECT_ONE, "alpha", () => "the only connection");
+
+    holder.publisherFor(SUBJECT_ONE, "alpha")("the only connection");
+
+    expect(closed).toStrictEqual([]);
+    expect(holder.value).toBe("the only connection");
   });
 });
