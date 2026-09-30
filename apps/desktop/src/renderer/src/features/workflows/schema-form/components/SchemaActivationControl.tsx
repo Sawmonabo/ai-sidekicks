@@ -8,6 +8,7 @@ export const ACTIVATE_LABEL = "Answer this section";
 /** What it reads once the container is being answered. */
 export const DEACTIVATE_LABEL = "Leave unanswered";
 
+/** Props for `SchemaActivationControl`. */
 export interface SchemaActivationControlProps {
   /** Whether somebody is answering this container. */
   readonly isActive: boolean;

@@ -12,6 +12,7 @@ import type { WorkflowRunCancelReply } from "../run-controls.js";
 
 /** Two run ids, so a case can retarget a pane from one run to another. */
 export const RUN_A = "run-a";
+/** The second run id. */
 export const RUN_B = "run-b";
 
 /** A served cancel, in the shape the operation's own signature fixes. */
