@@ -9,11 +9,11 @@
 //
 // It imports downward only. The shapes below compose `./provider-driver.js`,
 // `./run-children.js`, `./run-queue.js`, `./run-state.js`,
-// `./session-controls.js`, `./session-cost.js` and `./session.js`, each an eager
-// module-scope Zod initializer, so a back-import from any of them would throw
-// `ReferenceError` at import time rather than fail to compile. The same reason
-// keeps the message bounds (`DRIVER_WIRE_STEER_*`) in `./provider-driver.js`: its
-// `SteerPayload` applies them and cannot import from here.
+// `./session-controls.js` and `./session.js`, each an eager module-scope Zod
+// initializer, so a back-import from any of them would throw `ReferenceError` at
+// import time rather than fail to compile. The same reason keeps the message
+// bounds (`DRIVER_WIRE_STEER_*`) in `./provider-driver.js`: its `SteerPayload`
+// applies them and cannot import from here.
 //
 // Request schemas use the double-T `z.ZodType<T, T>` form and response and
 // event schemas the single-T `z.ZodType<T>` form, matching `session.ts`: only
@@ -90,7 +90,6 @@ import {
   RunSafetyBufferingUpdatedPayloadSchema,
   type RunSafetyBufferingUpdatedPayload,
 } from "./session-controls.js";
-import { UsdMicrosSchema } from "./session-cost.js";
 import {
   FILE_PATH_MAX_LEN,
   SessionIdSchema,
@@ -466,12 +465,6 @@ export interface RunStateChangeEvent {
     | "idle_timeout"
     | "workflow_phase_canceled"
     | undefined;
-  parentRunId?: RunId | undefined;
-  internalHelper?: boolean | undefined;
-  // Admission stamps `run.queued` carries for every provider run, whichever
-  // admission path created it. Never client-suppliable.
-  admittedUnpricedCapUsdMicros?: number | undefined;
-  admittedModelFamily?: string | undefined;
   timestamp: string;
 }
 
@@ -495,13 +488,6 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     trigger: z
       .enum(["turn_limit", "budget_exhausted", "idle_timeout", "workflow_phase_canceled"])
       .optional(),
-    parentRunId: RunIdSchema.optional(),
-    internalHelper: z.boolean().optional(),
-    admittedUnpricedCapUsdMicros: UsdMicrosSchema.optional(),
-    admittedModelFamily: wireFreeFormString(
-      DRIVER_WIRE_HANDLE_MAX_LEN,
-      "RunStateChangeEvent.admittedModelFamily",
-    ).optional(),
     timestamp: z.iso.datetime({ offset: true }),
   })
   .strict()

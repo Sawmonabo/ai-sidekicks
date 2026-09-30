@@ -51,9 +51,14 @@ const EffectiveRunConfigSchema: z.ZodType<EffectiveRunConfig> = z
  * with the configuration it was resolved from: this row is the record that brings it
  * into the session.
  *
+ * `agentId` names an agent already in the session; `resolvedAgent` carries one minted
+ * from a definition with this run. A payload carries one or the other, never both,
+ * and neither where the run is the lead's, named by the session's birth record.
+ *
  * The admission stamps ride every provider run, whichever path admitted it, and are
  * never supplied by a client: the unpriced cap on a native-cap admission, the model
- * family as of admission, and the account the run was admitted against.
+ * family as of admission, and the account the run was admitted against. This row is
+ * their one carrier; the run's state stream carries state.
  *
  * A type rather than an interface, so it meets the envelope's open payload record.
  */
@@ -92,6 +97,11 @@ export const RunQueuedPayloadSchema: z.ZodType<RunQueuedPayload> = z
     admittedProviderAccountId: ProviderAccountIdSchema.optional(),
   })
   .strict()
+  .refine((payload) => payload.agentId === undefined || payload.resolvedAgent === undefined, {
+    path: ["resolvedAgent"],
+    message:
+      "A run names an agent already in the session or one resolved from a definition, never both.",
+  })
   .refine(
     (payload) =>
       payload.resolvedAgent === undefined ||

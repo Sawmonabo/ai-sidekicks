@@ -17,8 +17,8 @@
 //     smoke test.
 //   • Every parse refusal the contract claims is exercised WITH its positive
 //     control.
-//   • The creation row's own members (`agentId`, `effectiveRunConfig`) are
-//     pinned as REJECTED on the state stream: `run.queued`'s payload carries
+//   • The creation row's own members (the linkage, the limits, the admission
+//     stamps) are pinned as REJECTED on the state stream: `run.queued`'s payload carries
 //     them, and a producer that put them on a transition must fail rather than
 //     have them silently dropped.
 //   • The three arms of the `run.subscribeState` stream are pinned AGAINST
@@ -401,10 +401,6 @@ describe("RunStateChangeEvent", () => {
       intendedClose: true,
       executionPosture: { networkAccess: "none", writableRoots: ["/w"], mode: "trusted" },
       trigger: "workflow_phase_canceled",
-      parentRunId: PARENT_RUN_ID,
-      internalHelper: false,
-      admittedUnpricedCapUsdMicros: 5_000_000,
-      admittedModelFamily: "claude-opus",
     };
     expect(RunStateChangeEventSchema.parse(full)).toEqual(full);
   });
@@ -469,27 +465,22 @@ describe("RunStateChangeEvent", () => {
   });
 
   it("refuses the creation row's own members on a state transition", () => {
-    // `agentId` and `effectiveRunConfig` are `run.queued`'s, recorded once on the
-    // run's creation. A transition that carried them would be a second record of
-    // one fact, so a producer that emits one must FAIL rather than have it
-    // silently dropped.
+    // The linkage, the limits and the admission stamps are `run.queued`'s,
+    // recorded once on the run's creation. A transition that carried them would be
+    // a second record of one fact, so a producer that emits one must FAIL rather
+    // than have it silently dropped.
     for (const smuggled of [
       { agentId: "agent-1" },
+      { parentRunId: PARENT_RUN_ID },
+      { internalHelper: true },
       { effectiveRunConfig: { tokenLimit: 200_000 } },
+      { admittedUnpricedCapUsdMicros: 5_000_000 },
+      { admittedModelFamily: "claude-opus" },
     ]) {
       expect(() =>
         RunStateChangeEventSchema.parse({ ...minimalRunStateChange, ...smuggled }),
       ).toThrow();
     }
-    // The linkage members that CAN be typed are carried, so the refusals above
-    // are the two named omissions and not a blanket rejection of the block.
-    expect(
-      RunStateChangeEventSchema.parse({
-        ...minimalRunStateChange,
-        parentRunId: PARENT_RUN_ID,
-        internalHelper: true,
-      }).parentRunId,
-    ).toBe(PARENT_RUN_ID);
   });
 
   describe("a turn the provider refused", () => {
@@ -519,15 +510,6 @@ describe("RunStateChangeEvent", () => {
         }).success,
       ).toBe(false);
     });
-  });
-
-  it("stamps the admitted cap in whole micro-dollars", () => {
-    expect(
-      RunStateChangeEventSchema.safeParse({
-        ...minimalRunStateChange,
-        admittedUnpricedCapUsdMicros: 2.5,
-      }).success,
-    ).toBe(false);
   });
 
   describe("the executionPosture member", () => {

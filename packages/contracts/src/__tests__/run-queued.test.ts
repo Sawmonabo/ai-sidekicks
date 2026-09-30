@@ -24,7 +24,6 @@ const CHILD_FROM_DEFINITION = {
   runId: RUN_ID,
   runVersion: 0,
   newState: "queued",
-  agentId: AGENT_ID,
   parentRunId: PARENT_RUN_ID,
   reachedBy: "bridge_run",
   internalHelper: false,
@@ -57,6 +56,24 @@ describe("run.queued", () => {
       CHILD_FROM_DEFINITION.resolvedAgent;
     const payload = { ...CHILD_FROM_DEFINITION, resolvedAgent: unresolved };
     expect(RunQueuedPayloadSchema.safeParse(payload).success).toBe(false);
+  });
+
+  it("refuses a run naming both an agent in the session and one resolved from a definition", () => {
+    expect(
+      RunQueuedPayloadSchema.safeParse({ ...CHILD_FROM_DEFINITION, agentId: AGENT_ID }).success,
+    ).toBe(false);
+    // Neither is a run of the lead, which the session's birth record names.
+    const { resolvedAgent: _agent, ...leadRun } = CHILD_FROM_DEFINITION;
+    expect(RunQueuedPayloadSchema.safeParse(leadRun).success).toBe(true);
+  });
+
+  it("stamps the admitted cap in whole micro-dollars", () => {
+    expect(
+      RunQueuedPayloadSchema.safeParse({
+        ...CHILD_FROM_DEFINITION,
+        admittedUnpricedCapUsdMicros: 2.5,
+      }).success,
+    ).toBe(false);
   });
 
   it("refuses the retired link kind and producing node", () => {
