@@ -1,10 +1,10 @@
 // The registry projection keeps an allowlist of `null` (the driver's defaults) apart from an
-// empty one (no tools), and sorts without reordering the caller's array.
+// empty one (no tools), and its delete question names the record it would delete.
 
 import { describe, expect, it } from "vitest";
 
 import { definition } from "./agent-library.test-support.js";
-import { projectDefinitionRows } from "./definition-rows.js";
+import { describeDeletionQuestion, projectDefinitionRows } from "./definition-rows.js";
 
 describe("the registry projection — what a row carries", () => {
   it("keeps the allowlist's three states three", () => {
@@ -18,5 +18,13 @@ describe("the registry projection — what a row carries", () => {
     expect(readingFor([])).toBe("No tools");
     expect(readingFor(["read"])).toBe("1 tool");
     expect(readingFor(["read", "grep", "glob"])).toBe("3 tools");
+  });
+});
+
+describe("the registry projection — the delete question", () => {
+  it("names the record", () => {
+    const [row] = projectDefinitionRows([definition({ name: "Reviewer" })]);
+    expect(row).toBeDefined();
+    expect(describeDeletionQuestion(row!)).toContain("Reviewer");
   });
 });
