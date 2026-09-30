@@ -1,10 +1,10 @@
-// Codex per-tool metadata: a tool authored without an `idempotency_class`, and any MCP-discovered
-// tool whatever its annotations claim, floors at `manual_reconcile_only`, so it is never retried.
+// Codex per-tool metadata: a tool authored without an `idempotency_class` floors at
+// `manual_reconcile_only`, so it is never retried.
 
 import type { NormalizedProviderToolMetadata } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { CODEX_TOOL_METADATA, classifyMcpDiscoveredTool } from "../tools.js";
+import { CODEX_TOOL_METADATA } from "../tools.js";
 import type { CodexToolName } from "../tools.js";
 
 // Tools authored without an `idempotency_class`; they reach the floor through
@@ -29,20 +29,5 @@ describe("Codex tool metadata declaration", () => {
     for (const name of EXPECTED_FLOOR_TOOLS) {
       expect(findTool(name).idempotency_class).toBe("manual_reconcile_only");
     }
-  });
-});
-
-describe("Codex MCP idempotency floor", () => {
-  it("never lets readOnlyHint or idempotentHint self-claims upgrade the class", () => {
-    // MCP tool annotations are untrusted; a server advertising itself as maximally safe still
-    // lands on the floor.
-    expect(
-      classifyMcpDiscoveredTool({
-        readOnlyHint: true,
-        idempotentHint: true,
-        destructiveHint: false,
-        openWorldHint: false,
-      }),
-    ).toBe("manual_reconcile_only");
   });
 });

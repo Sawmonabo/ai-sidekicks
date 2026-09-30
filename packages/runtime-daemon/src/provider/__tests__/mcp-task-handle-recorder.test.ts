@@ -16,14 +16,7 @@ import {
   InMemoryDriverDiagnosticCounterSink,
   type DriverDiagnosticRecord,
 } from "../driver-diagnostics.js";
-import {
-  observeMcpTaskAcceptance as observeClaudeMcpTaskAcceptance,
-  type McpTaskHandleSink as ClaudeMcpTaskHandleSink,
-} from "../drivers/claude/tools.js";
-import {
-  observeMcpTaskAcceptance as observeCodexMcpTaskAcceptance,
-  type McpTaskHandleSink as CodexMcpTaskHandleSink,
-} from "../drivers/codex/tools.js";
+import { observeMcpTaskAcceptance } from "../mcp-tool-calls.js";
 import {
   classifyMcpTaskIdRefusal,
   MCP_TASK_ID_MAX_LENGTH,
@@ -89,7 +82,7 @@ describe("McpTaskHandleRecorder", () => {
     it("leaves NULL when the acceptance never arrived — the crash case", () => {
       // A crash before the acceptance is stored leaves no `CreateTaskResult` to parse, so nothing
       // reaches the recorder and the receipt stays on the `manual_reconcile_only` halt.
-      observeCodexMcpTaskAcceptance(
+      observeMcpTaskAcceptance(
         recorder.asSink(),
         { commandId: COMMAND_ID, serverName: "filesystem", toolName: "read_file" },
         undefined,
@@ -99,29 +92,14 @@ describe("McpTaskHandleRecorder", () => {
       expect(loggedRecords).toEqual([]);
     });
 
-    it("carries a handle from each driver's observation seam through to the column", () => {
-      // The recorder is provider-neutral and each driver has its own seam module, so both are
-      // exercised.
-      insertReceipt("command-claude");
-
-      // Typed as each driver's own exported sink type; these annotations are what keep the
-      // recorder's sink shape and the drivers' equal.
-      const codexSink: CodexMcpTaskHandleSink = recorder.asSink();
-      const claudeSink: ClaudeMcpTaskHandleSink = recorder.asSink();
-
-      observeCodexMcpTaskAcceptance(
-        codexSink,
+    it("carries a handle from the observation seam through to the column", () => {
+      observeMcpTaskAcceptance(
+        recorder.asSink(),
         { commandId: COMMAND_ID, serverName: "filesystem", toolName: "read_file" },
-        { task: { taskId: "task-codex" } },
-      );
-      observeClaudeMcpTaskAcceptance(
-        claudeSink,
-        { commandId: "command-claude", serverName: "filesystem", toolName: "read_file" },
-        { task: { taskId: "task-claude" } },
+        { task: { taskId: "task-observed" } },
       );
 
-      expect(storedHandle(COMMAND_ID)).toBe("task-codex");
-      expect(storedHandle("command-claude")).toBe("task-claude");
+      expect(storedHandle(COMMAND_ID)).toBe("task-observed");
     });
   });
 
