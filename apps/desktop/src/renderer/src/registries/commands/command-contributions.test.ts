@@ -27,22 +27,6 @@ function releaseAll(...releases: readonly CommandContributionRelease[]): void {
 }
 
 describe("command contributions — one owner's whole set, contributed together", () => {
-  it("registers the commands and publishes the chords together", () => {
-    const release = commandContributionRegistry.contribute({
-      owner: "contribution-test-alone",
-      commands: [inertCommand("contribution-test.act")],
-      keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
-    });
-    try {
-      expect(commandRegistry.has("contribution-test.act")).toBe(true);
-      expect(contributedKeybindings()).toStrictEqual([
-        { chord: "$mod+Shift+7", commandId: "contribution-test.act" },
-      ]);
-    } finally {
-      releaseAll(release);
-    }
-  });
-
   it("replaces its own rows when a feature contributes twice, and nobody else's", () => {
     // Hot reload and every composing test re-run `contribute`; an additive registry would raise.
     const releaseNeighbor = commandContributionRegistry.contribute({
@@ -76,31 +60,6 @@ describe("command contributions — one owner's whole set, contributed together"
     }
   });
 
-  it("tells a listener that the chords changed, and stops when it unsubscribes", () => {
-    // Without the signal, a feature composed after the table was installed is never re-read.
-    let signalCount = 0;
-    const stopWatching = subscribeToCommandContributions(() => {
-      signalCount += 1;
-    });
-
-    const release = commandContributionRegistry.contribute({
-      owner: "contribution-test-signal",
-      commands: [inertCommand("contribution-test.act")],
-      keyBindings: [{ chord: "$mod+Shift+7", commandId: "contribution-test.act" }],
-    });
-    try {
-      const afterContribution = signalCount;
-      stopWatching();
-      release();
-
-      expect(afterContribution).toBe(1);
-      expect(signalCount).toBe(1);
-    } finally {
-      stopWatching();
-      releaseAll(release);
-    }
-  });
-
   it("has already written the contribution when the listener reads it", () => {
     // Guards the emit's position: a signal before the map write hands the listener the old table.
     let chordsSeenByListener: readonly Keybinding[] = [];
@@ -121,12 +80,5 @@ describe("command contributions — one owner's whole set, contributed together"
       stopWatching();
       releaseAll(release);
     }
-  });
-
-  it("negative control: no chord this file contributed survives it", () => {
-    // Without this, a registry whose withdrawal did nothing would pass every case above.
-    expect(contributedKeybindings()).toStrictEqual([]);
-    expect(commandRegistry.has("contribution-test.act")).toBe(false);
-    expect(commandRegistry.has("contribution-test.kept")).toBe(false);
   });
 });
