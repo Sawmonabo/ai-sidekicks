@@ -26,9 +26,11 @@ import {
 /** Hears each reading the file takes on: after a change, and after a repair. */
 export type MachineSettingsListener = (reading: MachineSettingsReading) => void;
 
+/** Where the settings file lives and the clock that stamps a repair. */
 export interface MachineSettingsFileOptions {
   /** The file's full path, `<home>/.ai-sidekicks/machine-settings.json` in the service. */
   readonly filePath: string;
+  /** The clock that stamps a repair. */
   readonly now: () => Date;
 }
 
@@ -41,6 +43,10 @@ function isMissingFileError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
+/**
+ * The machine-settings file with its read, write and repair rules. Every operation reads
+ * the disk and runs one at a time, so callers never see a half-applied change.
+ */
 export class MachineSettingsFile {
   readonly #filePath: string;
   readonly #now: () => Date;
