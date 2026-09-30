@@ -24,7 +24,6 @@ import {
   refuseAbsentCapability,
 } from "@renderer/services/daemon/refusal.fixture.js";
 import { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
-import { subscribeToScenarioRelay } from "@renderer/services/daemon/scenario-subscriptions.fixture.js";
 import { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { createFixtureDaemon } from "@renderer/services/daemon/daemon.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
@@ -93,8 +92,6 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         input: CpInput<ProcedureName>,
       ): Promise<CpOutput<ProcedureName>> =>
         (await resolveScriptedReply(scenarioEngine, procedure, input)) as CpOutput<ProcedureName>,
-      subscribeRelay: (sessionId, handler): Unsubscribe =>
-        subscribeToScenarioRelay(scenarioEngine, sessionId, handler),
     },
     native: {
       showOpenDialog: () => refuseAbsentCapability("native.showOpenDialog"),
