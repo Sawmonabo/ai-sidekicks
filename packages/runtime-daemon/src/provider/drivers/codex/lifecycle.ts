@@ -576,7 +576,7 @@ const CODEX_ROUTED_ASK_TURN_ID_MAX_LEN = 256;
  *
  * An OBSERVABILITY ANNOTATION, deliberately NOT a routing filter — and that is
  * still true now that {@link CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS} routes a
- * subset of these methods (leg 3 + the `driver_ask` reachability leg). The
+ * subset of these methods (leg 3 + the ask reachability leg). The
  * routing table is keyed on ITS OWN descriptor map, and every method outside
  * that map — censused or not — still reaches the same fail-closed `-32601`
  * answer.
@@ -598,15 +598,16 @@ const CODEX_SERVER_REQUEST_METHODS: ReadonlySet<string> = new Set([
 ]);
 
 // --------------------------------------------------------------------------
-// Server-request routing (leg 3 + the `driver_ask` reachability leg).
+// Server-request routing (leg 3 + the ask reachability leg).
 // --------------------------------------------------------------------------
 //
-// WHY THIS BAND EXISTS. The normalizer already maps seven inbound methods to
-// `driver_ask.requested` and one to `tool.invoked`. Until this band, every one
-// of those descriptors was unreachable: the transport answered EVERY method+id
-// frame `-32601`, so a Cedar-governed approval could never have been asked for,
-// and a callback tool could never have been invoked. The descriptors were
-// correct and dead. This table is what connects them.
+// WHY THIS BAND EXISTS. The normalizer already maps five inbound permission asks
+// to `approval.requested`, two questions to `question.asked`, and one method to
+// `tool.invoked`. Until this band, every one of those descriptors was
+// unreachable: the transport answered EVERY method+id frame `-32601`, so a
+// Cedar-governed approval could never have been asked for, and a callback tool
+// could never have been invoked. The descriptors were correct and dead. This
+// table is what connects them.
 //
 // WHAT IS ROUTED, AND WHAT DELIBERATELY IS NOT, across the pinned ten:
 //
@@ -615,10 +616,9 @@ const CODEX_SERVER_REQUEST_METHODS: ReadonlySet<string> = new Set([
 //   `item/permissions/requestApproval`), the legacy approval pair
 //   (`execCommandApproval`, `applyPatchApproval`), and
 //   `mcpServer/elicitation/request`. All seven are reachable at the negotiated
-//   posture and all seven are asks: the driver-ask binding enumerates exactly this set as
-//   the Codex interactive-request mechanism. Routing the modern trio while
-//   leaving the legacy pair on `-32601` would make the daemon's answer depend on
-//   which spelling the provider chose for the same question.
+//   posture and all seven are asks the daemon must answer. Routing the modern
+//   trio while leaving the legacy pair on `-32601` would make the daemon's
+//   answer depend on which spelling the provider chose for the same question.
 //
 //   NOT ROUTED — `item/tool/requestUserInput` is EXPERIMENTAL at the pin and
 //   unreachable while this driver negotiates `experimentalApi: false`; it is
@@ -820,9 +820,10 @@ export type CodexServerRequestDecision =
  * Declared here rather than imported from the host so this module stays free of
  * a dependency on a sibling band, and so a driver composed with no responder is
  * a representable — and fail-closed — configuration rather than a broken one.
- * Every routed ask ALSO projects its `driver_ask.requested` event; that is the
- * responder's, because projection needs the session and run identity the
- * transport deliberately does not hold.
+ * Every routed permission ask ALSO projects its `approval.requested` event, and a
+ * routed question its `question.asked` event; that is the responder's, because
+ * projection needs the session and run identity the transport deliberately does
+ * not hold.
  */
 export interface CodexServerRequestResponder {
   answer(request: CodexInboundServerRequest): Promise<CodexServerRequestDecision>;
@@ -850,9 +851,9 @@ export interface CodexServerRequestResponder {
 // and still answerable through the free-text arm, and refusing to normalize an
 // ask because its garnish did not parse would hang a turn over a decoration.
 //
-// THE EVENT PAYLOAD MEMBER IS OWNED ELSEWHERE, NOT BY THIS TYPE. The event's
-// driver-ask shape carries its own additive-optional `options?` member; this
-// is the driver-side shape that feeds it. The two are deliberately separate
+// THE EVENT'S OPTION ROWS ARE OWNED ELSEWHERE, NOT BY THIS TYPE. The question
+// record carries its own option rows in each question it holds; this is the
+// driver-side shape that feeds them. The two are deliberately separate
 // declarations — authoring one symbol here would put the wire contract in a
 // driver.
 
@@ -1176,8 +1177,8 @@ function boundCodexAskOptionSet(candidates: readonly unknown[]): CodexAskOptionS
  * live route for falls back to the sole-active-run arm, which answers `null`
  * when turns from two runs are live and nothing is left to disambiguate them
  * with. Inventing a run id in any of those would attribute the ask — and its
- * `driver_ask.requested` projection — to a run that did not raise it. A
- * callback-tool invocation never reaches the un-attributed case at all: its
+ * `approval.requested` or `question.asked` projection — to a run that did not
+ * raise it. A callback-tool invocation never reaches the un-attributed case at all: its
  * params type always names a turn, so an unresolvable one is refused.
  */
 export interface CodexSessionServerRequest extends CodexInboundServerRequest {
@@ -8943,8 +8944,8 @@ export class CodexLifecycleManager {
    * names NO turn at all — never by one whose named turn failed to resolve,
    * whatever its kind, which refuses instead. With turns from TWO runs live there is nothing left
    * to disambiguate them with, and picking either would attribute the ask, and
-   * its `driver_ask.requested` projection, to a run that may not have raised
-   * it. But the count that decides is of RUNS, not turns:
+   * its `approval.requested` or `question.asked` projection, to a run that may
+   * not have raised it. But the count that decides is of RUNS, not turns:
    * two overlapping accepted starts on one run — the very shape the turn-keyed
    * routes retain — put two turns on the session whose values all name the same
    * run, and that attribution is unambiguous at any turn count, so a turn-count

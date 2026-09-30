@@ -21,7 +21,6 @@ export const REGISTERED_DAEMON_METHODS = [
   "driver.listProviderCommands",
   "driver.listCapabilities",
   "driver.listModels",
-  "driver.respondToRequest",
   "timeline.reasoningSurfaceRead",
   "timeline.childRunExpand",
   "session.create",

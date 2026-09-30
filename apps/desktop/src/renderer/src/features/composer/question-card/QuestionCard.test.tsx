@@ -1,15 +1,16 @@
-// The ask card: two answer arms, a countdown that settles nothing, two terminals, and
-// what became of the answer a press dispatched.
+// The question card: the answers it sends, and what became of them.
 //
-// THE DELIVERY CASES READ WHAT A USER WOULD SEE AND WHAT THEY COULD STILL DO.
-// The defect was that a refused answer reached the screen nowhere: the free-text arm
-// emptied itself on dispatch, the option buttons changed not at all, and a run blocked
-// on an unanswered ask looked like one waiting to be typed into. So every case below
-// asserts on the rendered field or the rendered refusal, never on a callback count.
+// THE CASES READ WHAT A PERSON WOULD SEE AND WHAT THEY COULD STILL DO. A refused answer
+// once reached the screen nowhere: the typed field emptied itself on dispatch, and a run
+// blocked on an unanswered question looked like one waiting to be typed into. So the
+// delivery cases assert on the rendered controls or the rendered refusal, and the
+// answer cases on the list the card hands its mount.
 
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+
+import type { QuestionAnswer, QuestionPrompt } from "@ai-sidekicks/contracts";
 
 import {
   UNSENT_ANSWER_DELIVERY,
@@ -18,57 +19,60 @@ import {
 } from "@renderer/store/session-events/question-reading.js";
 import { QuestionCard } from "./QuestionCard.js";
 
-/**
- * Ten o'clock, as the mount would read it, and five past, as the daemon stamps it.
- *
- * Both stated with `Date.UTC` rather than read back out of a string: the platform
- * parser is banned in this tree because it normalizes rather than refuses, and a
- * fixture that derived its milliseconds by parsing its own literal would be asking a
- * reader to trust the one function the console does not use.
- */
-const NOW_MILLISECONDS = Date.UTC(2026, 8, 2, 10, 0, 0);
-const PAST_THE_DEADLINE_MILLISECONDS = Date.UTC(2026, 8, 2, 10, 6, 0);
+const OPEN_QUESTION: QuestionReading = {
+  questionId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e11",
+  runId: undefined,
+  pageCount: 2,
+};
 
-function pendingAsk(overrides: Partial<QuestionReading> = {}): QuestionReading {
-  return {
-    askId: "ask-01",
-    // The card renders nothing off the run and the reading requires it, so a fixture
-    // that omitted it would be a shape the reader cannot produce.
-    runId: undefined,
-    state: "requested",
-    prompt: "Which branch should this land on?",
-    options: [],
-    expiresAt: "2026-09-02T10:05:00.000Z",
-    deliveredAnswer: undefined,
-    ...overrides,
-  };
-}
+const BRANCH_QUESTION: QuestionPrompt = {
+  header: "Branch",
+  text: "Which branch should this land on?",
+  heading: "Landing the fix",
+  options: [{ label: "develop", description: "The integration branch" }, { label: "main" }],
+  severalAnswers: false,
+  secret: false,
+};
 
-/** One refused delivery, carrying `callDaemon`'s own refusal shape. */
+const NOTES_QUESTION: QuestionPrompt = {
+  text: "Anything the reviewer should know?",
+  options: [],
+  severalAnswers: false,
+  secret: false,
+};
+
+const QUESTIONS = [BRANCH_QUESTION, NOTES_QUESTION];
+
+const TOKEN_QUESTION: QuestionPrompt = {
+  header: "Deploy",
+  text: "Paste the deploy token",
+  options: [],
+  severalAnswers: false,
+  secret: true,
+};
+
+/** One refused delivery, carrying the call's own refusal shape. */
 const REFUSED_DELIVERY: AnswerDelivery = {
   status: "refused",
-  response: "develop",
   refusal: {
-    code: "driver.request_not_found",
-    detail: "The driver has no record of this ask.",
+    code: "call-rejected",
+    detail: "The background service is not answering.",
     origin: "daemon",
   },
 };
 
 function renderCard(
-  ask: QuestionReading,
   overrides: {
-    readonly nowEpochMilliseconds?: number;
     readonly delivery?: AnswerDelivery;
-    readonly onAnswer?: (response: string) => void;
-    readonly body?: (props: { readonly ask: QuestionReading }) => React.ReactNode;
+    readonly body?: (props: { readonly question: QuestionReading }) => React.ReactNode;
+    readonly onAnswer?: (answers: QuestionAnswer[]) => void;
   } = {},
 ): HTMLElement {
   const { container } = render(
     <QuestionCard
       body={overrides.body}
-      ask={ask}
-      nowEpochMilliseconds={overrides.nowEpochMilliseconds ?? NOW_MILLISECONDS}
+      question={OPEN_QUESTION}
+      questions={QUESTIONS}
       delivery={overrides.delivery ?? UNSENT_ANSWER_DELIVERY}
       onAnswer={overrides.onAnswer ?? (() => undefined)}
     />,
@@ -76,136 +80,52 @@ function renderCard(
   return container;
 }
 
-/** The free-text field, or a failure naming the card that drew none. */
-function fieldOf(container: HTMLElement): HTMLTextAreaElement {
-  const field = container.querySelector<HTMLTextAreaElement>(".meridian-input-ask__field");
-  if (field === null) {
-    throw new Error("the ask card drew no free-text field");
+/** The card's section for the question at `index`. */
+function questionSection(container: HTMLElement, index: number): HTMLElement {
+  const section = container.querySelectorAll<HTMLElement>(".meridian-input-ask__question")[index];
+  if (section === undefined) {
+    throw new Error(`the question card drew no question ${String(index)}`);
   }
-  return field;
+  return section;
 }
 
-/** Type an answer into the free-text arm and submit it, as a user would. */
-function sendFreeText(container: HTMLElement, text: string): void {
-  fireEvent.change(fieldOf(container), { target: { value: text } });
-  fireEvent.click(container.querySelector(".meridian-input-ask__send") as Element);
+function fieldOf(container: HTMLElement, index: number): HTMLTextAreaElement {
+  return within(questionSection(container, index)).getByRole("textbox");
 }
 
-describe("the pending ask", () => {
-  it("renders the provider's question", () => {
-    expect(renderCard(pendingAsk()).textContent).toContain("Which branch should this land on?");
-  });
+function answerButton(container: HTMLElement): HTMLButtonElement {
+  return within(container).getByRole("button", { name: "Answer" });
+}
 
-  it("says so when the ask carried no question rather than rendering an empty region", () => {
-    const container = renderCard(pendingAsk({ prompt: undefined }));
-    expect(container.textContent).toContain("carried no question");
+/** The option row whose label is `label`; its accessible name also carries the description. */
+function optionRow(container: HTMLElement, index: number, label: string): HTMLButtonElement {
+  return within(questionSection(container, index)).getByRole("button", {
+    name: new RegExp(`^${label}`),
   });
+}
 
-  it("offers the free-text arm on an ask that declared no choice set", () => {
-    const container = renderCard(pendingAsk());
-    expect(container.querySelector(".meridian-input-ask__field")).not.toBeNull();
-    expect(container.querySelector(".meridian-input-ask__option")).toBeNull();
-  });
+function pick(container: HTMLElement, index: number, label: string): void {
+  fireEvent.click(optionRow(container, index, label));
+}
 
-  it("offers the free-text arm beside a choice set rather than instead of it", () => {
-    const container = renderCard(
-      pendingAsk({ options: [{ value: "develop", label: "The integration branch" }] }),
-    );
-    expect(container.querySelector(".meridian-input-ask__field")).not.toBeNull();
-    expect(container.textContent).toContain("The integration branch");
-    expect(container.textContent).toContain("develop");
-  });
-
-  it("delivers the option's value and never its label", () => {
-    const onAnswer = vi.fn();
-    const container = renderCard(
-      pendingAsk({ options: [{ value: "develop", label: "The integration branch" }] }),
-      { onAnswer },
-    );
-    container.querySelector<HTMLButtonElement>(".meridian-input-ask__option")?.click();
-    expect(onAnswer).toHaveBeenCalledWith("develop");
-  });
-
-  it("renders an option with no label by its value alone", () => {
-    const container = renderCard(pendingAsk({ options: [{ value: "main", label: undefined }] }));
-    expect(container.textContent).toContain("main");
-    expect(container.querySelector(".meridian-input-ask__option-label")).toBeNull();
-  });
-});
-
-describe("the countdown", () => {
-  it("shows what the daemon's stamp leaves", () => {
-    expect(renderCard(pendingAsk()).textContent).toContain("Answer within");
-  });
-
-  // THE RULE THIS CARD MOST HAS TO KEEP: a countdown at zero is a statement about
-  // the console, never about the ask. Only a row the daemon writes settles it.
-  it("waits for the daemon past zero rather than settling a terminal", () => {
-    const container = renderCard(pendingAsk(), {
-      nowEpochMilliseconds: PAST_THE_DEADLINE_MILLISECONDS,
-    });
-    expect(container.textContent).toContain("Waiting for the background service.");
-    expect(container.textContent).not.toContain("was canceled");
-  });
-
-  it("negative control: the answer arms survive a countdown that reached zero", () => {
-    // Without this, a card that hid its arms at zero would leave a still-open ask
-    // unanswerable for as long as the daemon took to settle it.
-    const container = renderCard(pendingAsk(), {
-      nowEpochMilliseconds: PAST_THE_DEADLINE_MILLISECONDS,
-    });
-    expect(container.querySelector(".meridian-input-ask__field")).not.toBeNull();
-  });
-
-  it("counts nothing down for a row carrying no deadline", () => {
-    const container = renderCard(pendingAsk({ expiresAt: undefined }));
-    expect(container.textContent).toContain("No deadline was stamped");
-    expect(container.textContent).not.toContain("Answer within");
-  });
-
-  it("counts nothing down for a stamp it could not read", () => {
-    const container = renderCard(pendingAsk({ expiresAt: "not a timestamp" }));
-    expect(container.textContent).toContain("No deadline was stamped");
-  });
-});
-
-describe("the terminals", () => {
-  it("shows the delivered answer on the responded row", () => {
-    const container = renderCard(
-      pendingAsk({ state: "responded", deliveredAnswer: "develop", options: [] }),
-    );
-    expect(container.textContent).toContain("was answered");
-    expect(container.textContent).toContain("develop");
-  });
-
-  it("says the ask was canceled on the canceled row", () => {
-    expect(renderCard(pendingAsk({ state: "canceled" })).textContent).toContain("canceled");
-  });
-
-  it("offers no answer arm on a settled ask", () => {
-    const container = renderCard(pendingAsk({ state: "canceled" }));
-    expect(container.querySelector(".meridian-input-ask__field")).toBeNull();
-    expect(container.querySelector(".meridian-input-ask__option")).toBeNull();
-  });
-});
+function type(container: HTMLElement, index: number, text: string): void {
+  fireEvent.change(fieldOf(container, index), { target: { value: text } });
+}
 
 /**
- * The card inside a holder that owns the delivery, which is what the row is.
+ * The card inside a holder that owns the delivery, which is what the mount is.
  *
  * The card is controlled — it dispatches and renders what it is handed — so a case
  * about what a PRESS leaves on screen has to close that loop, or it is asserting over
  * a component that decides nothing.
  */
-function MountedWithDelivery(props: {
-  readonly ask: QuestionReading;
-  readonly settled: AnswerDelivery;
-}): React.JSX.Element {
+function MountedWithDelivery(props: { readonly settled: AnswerDelivery }): React.JSX.Element {
   const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
   return (
     <QuestionCard
       body={undefined}
-      ask={props.ask}
-      nowEpochMilliseconds={NOW_MILLISECONDS}
+      question={OPEN_QUESTION}
+      questions={QUESTIONS}
       delivery={delivery}
       onAnswer={() => {
         setDelivery(props.settled);
@@ -214,91 +134,166 @@ function MountedWithDelivery(props: {
   );
 }
 
-describe("what became of the answer", () => {
-  it("keeps the user's words on screen when the answer was refused", () => {
-    // THE DEFECT, EXERCISED. The arm cleared the field the instant the callback
-    // returned, so a delivery that never reached the driver left an empty box, a
-    // blocked run, and nothing to retry from.
-    const { container } = render(
-      <MountedWithDelivery ask={pendingAsk()} settled={REFUSED_DELIVERY} />,
+describe("the questions it draws", () => {
+  it("draws each question with its header, summary line, options and typed field", () => {
+    const branch = within(questionSection(renderCard(), 0));
+
+    expect(branch.getByText("Branch")).toBeTruthy();
+    expect(branch.getByText("Which branch should this land on?")).toBeTruthy();
+    expect(branch.getByText("Landing the fix")).toBeTruthy();
+    expect(branch.getByRole("button", { name: /^develop/ }).textContent).toContain(
+      "The integration branch",
     );
+    expect(branch.getByRole("button", { name: /^main/ })).toBeTruthy();
+    expect(branch.getByRole("textbox")).toBeTruthy();
+  });
+});
 
-    sendFreeText(container, "land it on develop");
+describe("the answers it sends", () => {
+  it("sends one answer per question, in the record's order, only once every question has one", () => {
+    const sent: QuestionAnswer[][] = [];
+    const container = renderCard({ onAnswer: (answers) => sent.push(answers) });
 
-    expect(fieldOf(container).value).toBe("land it on develop");
-    expect(container.textContent).toContain("driver.request_not_found");
-    expect(container.textContent).toContain("The driver has no record of this ask.");
+    pick(container, 0, "develop");
+    expect(answerButton(container).disabled).toBe(true);
+    fireEvent.click(answerButton(container));
+    expect(sent).toStrictEqual([]);
+
+    type(container, 1, "the flaky test is known");
+    fireEvent.click(answerButton(container));
+
+    expect(sent).toStrictEqual([
+      [
+        { kind: "picked", labels: ["develop"] },
+        { kind: "typed", text: "the flaky test is known" },
+      ],
+    ]);
   });
 
-  it("leaves every answer control pressable after a refusal", () => {
-    // A refusal never hides the control that produced it. Without this the
-    // refusal would be readable and the retry unreachable.
-    const container = renderCard(
-      pendingAsk({ options: [{ value: "develop", label: undefined }] }),
-      { delivery: REFUSED_DELIVERY },
-    );
-    expect(
-      container.querySelector<HTMLButtonElement>(".meridian-input-ask__option")?.disabled,
-    ).toBe(false);
-    expect(fieldOf(container).disabled).toBe(false);
-  });
+  it("takes whichever of a marked row and typed text the person touched last", () => {
+    const sent: QuestionAnswer[][] = [];
+    const container = renderCard({ onAnswer: (answers) => sent.push(answers) });
+    type(container, 1, "none");
 
-  it("clears the draft once the driver has acknowledged the answer", () => {
+    pick(container, 0, "develop");
+    type(container, 0, "a release branch");
+    fireEvent.click(answerButton(container));
+    pick(container, 0, "main");
+    fireEvent.click(answerButton(container));
+
+    expect(sent.map((answers) => answers[0])).toStrictEqual([
+      { kind: "typed", text: "a release branch" },
+      { kind: "picked", labels: ["main"] },
+    ]);
+  });
+});
+
+describe("a secret question", () => {
+  it("draws one masked field and sends its value only as a secret", () => {
+    // A `typed` answer is stored and a `secret` one is not, so a secret that left as
+    // `typed` would be written down.
+    const sent: QuestionAnswer[][] = [];
     const { container } = render(
-      <MountedWithDelivery
-        ask={pendingAsk()}
-        settled={{ status: "accepted", response: "land it on develop" }}
+      <QuestionCard
+        body={undefined}
+        question={OPEN_QUESTION}
+        questions={[TOKEN_QUESTION]}
+        delivery={UNSENT_ANSWER_DELIVERY}
+        onAnswer={(answers) => sent.push(answers)}
       />,
     );
+    const field = within(container).getByLabelText<HTMLInputElement>("Paste the deploy token");
 
-    sendFreeText(container, "land it on develop");
+    expect(field.type).toBe("password");
+    expect(container.querySelector(".meridian-input-ask__options")).toBeNull();
+    expect(container.textContent).not.toContain("Something else…");
 
-    expect(fieldOf(container).value).toBe("");
-    expect(container.textContent).toContain("The answer reached the driver.");
+    fireEvent.change(field, { target: { value: "tok-8f2c" } });
+    fireEvent.click(answerButton(container));
+
+    expect(sent).toStrictEqual([[{ kind: "secret", value: "tok-8f2c" }]]);
   });
+});
 
-  it("says it is waiting for the daemon rather than that the ask was answered", () => {
-    // The ask's terminal is the `driver_ask.responded` row's to state. A card that
-    // said "answered" here would settle an ask the daemon has not settled.
-    //
-    // Read off the BADGE, because that is where the words are: an inline absence
-    // carries its second line as the label's tooltip rather than as text — see
-    // `Nothing.tsx` — so a case reading `textContent` alone would report a wait this
-    // card never renders.
-    const container = renderCard(pendingAsk(), {
-      delivery: { status: "accepted", response: "develop" },
-    });
-    const badge = container.querySelector(".meridian-nothing__badge-label");
-    expect(badge?.textContent).toBe("The answer reached the driver.");
-    expect(badge?.getAttribute("title")).toContain("Waiting for this ask's own row");
-    expect(container.textContent).not.toContain("This ask was answered.");
-  });
-
-  it("dims every answer control while one answer is on the wire", () => {
-    const container = renderCard(
-      pendingAsk({ options: [{ value: "develop", label: undefined }] }),
-      { delivery: { status: "delivering", response: "develop" } },
+describe("another record", () => {
+  it("starts another record's card from empty drafts", () => {
+    const card = (question: QuestionReading): React.JSX.Element => (
+      <QuestionCard
+        body={undefined}
+        question={question}
+        questions={QUESTIONS}
+        delivery={UNSENT_ANSWER_DELIVERY}
+        onAnswer={() => undefined}
+      />
     );
-    expect(
-      container.querySelector<HTMLButtonElement>(".meridian-input-ask__option")?.disabled,
-    ).toBe(true);
-    expect(fieldOf(container).disabled).toBe(true);
+    const { container, rerender } = render(card(OPEN_QUESTION));
+    pick(container, 0, "develop");
+    type(container, 1, "the flaky test is known");
+
+    rerender(card({ ...OPEN_QUESTION, questionId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e12" }));
+
+    expect(optionRow(container, 0, "develop").getAttribute("aria-pressed")).toBe("false");
+    expect(fieldOf(container, 1).value).toBe("");
+  });
+});
+
+describe("what became of the answer", () => {
+  it("keeps the person's answers on screen when the answer was refused", () => {
+    // THE DEFECT, EXERCISED. The field once cleared the instant the callback returned,
+    // so a delivery that never reached the daemon left an empty box, a blocked run, and
+    // nothing to retry from.
+    const { container } = render(<MountedWithDelivery settled={REFUSED_DELIVERY} />);
+
+    pick(container, 0, "develop");
+    type(container, 1, "the flaky test is known");
+    fireEvent.click(answerButton(container));
+
+    expect(optionRow(container, 0, "develop").getAttribute("aria-pressed")).toBe("true");
+    expect(fieldOf(container, 1).value).toBe("the flaky test is known");
+    expect(container.textContent).toContain("call-rejected");
+    expect(container.textContent).toContain("The background service is not answering.");
+  });
+
+  it("leaves the controls usable after a refusal", () => {
+    // A refusal never hides the control that produced it. Without this the refusal
+    // would be readable and the retry unreachable.
+    const container = renderCard({ delivery: REFUSED_DELIVERY });
+    expect(fieldOf(container, 0).disabled).toBe(false);
+    expect(optionRow(container, 0, "main").disabled).toBe(false);
+  });
+
+  it("clears the answers once the daemon has taken them", () => {
+    const { container } = render(<MountedWithDelivery settled={{ status: "accepted" }} />);
+
+    pick(container, 0, "develop");
+    type(container, 1, "the flaky test is known");
+    fireEvent.click(answerButton(container));
+
+    expect(optionRow(container, 0, "develop").getAttribute("aria-pressed")).toBe("false");
+    expect(fieldOf(container, 1).value).toBe("");
+    expect(container.textContent).toContain("The answer was delivered.");
+  });
+
+  it("closes the controls while one answer is on the wire", () => {
+    const container = renderCard({ delivery: { status: "delivering" } });
+    expect(fieldOf(container, 0).disabled).toBe(true);
+    expect(optionRow(container, 0, "main").disabled).toBe(true);
     expect(container.textContent).toContain("Delivering this answer.");
   });
 
-  it("negative control: an ask nobody has answered says nothing about a delivery", () => {
+  it("negative control: a question nobody has answered says nothing about a delivery", () => {
     // Without this, a card that always drew a delivery line would print console
-    // bookkeeping under every open ask on the log.
-    const container = renderCard(pendingAsk());
+    // bookkeeping under every open question on the log.
+    const container = renderCard();
     expect(container.textContent).not.toContain("Delivering this answer.");
-    expect(container.textContent).not.toContain("reached the driver");
+    expect(container.textContent).not.toContain("was delivered");
     expect(container.querySelector(".meridian-refusal")).toBeNull();
   });
 });
 
-describe("the plan-owned body", () => {
+describe("the mount-owned body", () => {
   it("replaces the built-in card entirely once it is mounted", () => {
-    const container = renderCard(pendingAsk(), { body: () => <p>the real ask card</p> });
-    expect(container.textContent).toBe("the real ask card");
+    const container = renderCard({ body: () => <p>the real question card</p> });
+    expect(container.textContent).toBe("the real question card");
   });
 });

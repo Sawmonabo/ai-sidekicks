@@ -480,39 +480,24 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     contentLength: 1_640,
   }),
 
-  // THE OPEN ASK, and the reason it is the script's last beat. The architect lane's
-  // whole job is to leave something unfinished in the frame, and a provider blocked
-  // on a structured question is the one unfinished state that needs an answer FROM A
-  // PERSON rather than from the daemon — so a session ending here is the composition
-  // the input-ask card is measured against.
+  // THE OPEN QUESTION, and the reason it is the script's last beat. The architect lane's
+  // whole job is to leave something unfinished in the frame, and an agent blocked on a
+  // question is the one unfinished state that needs an answer FROM A PERSON rather than
+  // from the daemon — so a session ending here is the composition the question card is
+  // measured against.
   //
-  // EVERY MEMBER THE TAXONOMY MAKES REQUIRED OF A POST-AMENDMENT `requested` EMITTER
-  // IS HERE: the session, the run, the ask's own id, the kind, the state — which the
-  // taxonomy requires to equal the emitting type's suffix — and the stamped expiry,
-  // which `requested` alone must carry. `input` is deliberately absent: the taxonomy
-  // requires it on the PERMISSION arm, and this ask is an input one. `options` is the
-  // additive-optional choice set, present so the card's structured arm is reachable
-  // in the fixture; its free-text arm is unconditional and needs no beat to exist.
+  // The payload is the question record's plain half: its id, the run it holds, and its
+  // page count. The questions themselves are the record's personal-data half, which the
+  // event payload never carries.
   {
     atMs: 3_140,
-    kind: "driver_ask.requested",
+    kind: "question.asked",
     actorId: AGENT_ARCHITECT,
     payload: {
+      questionId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e11",
       sessionId: SESSION_ID,
       runId: RUN_ARCHITECT,
-      askId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e11",
-      kind: "input",
-      state: "requested",
-      prompt: "Which storage backend should the draft assume?",
-      options: [
-        { value: "sqlite", label: "The node-local SQLite database" },
-        { value: "postgres", label: "The control plane's Postgres" },
-      ],
-      // Ten minutes past the beat, stamped by the daemon at creation and never
-      // extended. Derived from the scenario's own base instant rather than written
-      // as a literal, so the countdown and the beat can never disagree about when
-      // the ask was raised.
-      expiresAt: composeScenarioInstant(startedAtMs, 3_140 + 600_000),
+      pageCount: 1,
     },
   },
 ];
@@ -564,17 +549,6 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
           },
         ],
       },
-    },
-    // The answer to the open ask. `DriverAckResult` is an ACKNOWLEDGEMENT that the
-    // answer reached the driver and never a settlement of the ask — the scenario
-    // scripts no `driver_ask.responded` beat behind it, because a fixture that
-    // settled the ask locally would be teaching the view the one thing it must
-    // never do. The registered ack is the EMPTY object — the acknowledgement is the
-    // reply's arrival and carries no members at all — so an invented `status` here
-    // would fail the strict parse the call goes through.
-    {
-      call: "driver.respondToRequest",
-      result: {},
     },
     {
       // `session.read`, not a `session.list`: the method registry carries no list

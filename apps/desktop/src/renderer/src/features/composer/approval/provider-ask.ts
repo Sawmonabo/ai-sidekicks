@@ -17,7 +17,7 @@ import { type StoredEntity } from "@renderer/store/session/entities/entities.js"
 
 /** One approval's provider-ask origin. */
 export interface ProviderAsk {
-  /** The originating `driver_ask` identifier, wire-verbatim. */
+  /** The daemon's durable id for the ask, wire-verbatim. */
   readonly askId: string;
 }
 

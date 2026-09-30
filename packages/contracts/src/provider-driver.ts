@@ -2315,15 +2315,14 @@ export type DriverTransportConfig =
 // — the same mistake forbids when it requires a capability flag to be minted
 // together with its consumer.
 //
-// The nine pairs below are exactly the nine names the daemon registers — the
-// six request/response verbs, the subscription leg, and the two console-parity
+// The eight pairs below are exactly the eight names the daemon registers — the
+// five request/response verbs, the subscription leg, and the two console-parity
 // verbs:
 //   `driver.listCapabilities`  DriverReadParams        -> ListCapabilitiesResult
 //   `driver.listModels`        ListModelsRequest       -> ListModelsResult
 //   `driver.listModes`         DriverReadParams        -> ListModesResult
 //   `driver.interruptRun`      InterruptRunParams      -> DriverAckResult
 //   `driver.applyIntervention` ApplyInterventionParams -> DriverInterventionResult
-//   `driver.respondToRequest`  RespondToRequestParams  -> DriverAckResult
 //   `driver.subscribeEvents`   DriverSubscribeEventsParams -> SubscribeAckResponse
 //   `driver.compactContext`    CompactContextRequest   -> DriverCompactionResult
 //   `driver.listProviderCommands` ListProviderCommandsRequest -> ProviderCommandListResult
@@ -2382,12 +2381,11 @@ export type DriverTransportConfig =
 //     one kind drift apart for no reason. Sized with 5x headroom over the pinned
 //     surfaces (the longest published model id at this spec's pins is 25
 //     characters).
-//   • DRIVER_WIRE_HANDLE_MAX_LEN (256) — the opaque provider correlation handles
-//     a client echoes BACK to the daemon: `RespondToRequestParams.requestId` and
-//     `SteerPayload.expectedTurnId`. Opaque-handle tier, deliberately roomier
-//     than the token tier because neither value is a label a human reads and
-//     neither is minted here — refusing a legitimate provider-minted handle
-//     would make an answerable request unanswerable.
+//   • DRIVER_WIRE_HANDLE_MAX_LEN (256) — the opaque provider correlation handle
+//     a client echoes BACK to the daemon: `SteerPayload.expectedTurnId`.
+//     Opaque-handle tier, deliberately roomier than the token tier because the
+//     value is not a label a human reads and is not minted here — refusing a
+//     legitimate provider-minted handle would make a valid steer unsendable.
 //   • DRIVER_WIRE_REASON_MAX_LEN (512) — the human-authored `reason` on
 //     `InterruptRunParams`, `InterruptPayload`, and `CancelPayload`. Short-prose
 //     tier, matching the `DRIVER_AUTH_DETAIL_MAX_LEN` sizing rather than the
@@ -2749,29 +2747,6 @@ export const ApplyInterventionParamsSchema: z.ZodType<
     .strict(),
 ]);
 
-// `driver.respondToRequest` — the client's answer to a provider-raised ask.
-//
-// `response` is `unknown` BY CONTRACT: the answer's shape is the provider's
-// question's shape, and this layer neither knows nor may narrow it. What it must
-// still enforce is PRESENCE, and `z.unknown()` cannot — `unknown` accepts
-// `undefined`, so a request that simply omits the key parses clean and the
-// daemon forwards "no answer" to a provider blocked on one. `z.custom` with an
-// explicit presence predicate is what makes a missing key a refusal while
-// leaving every legitimate JSON value — `null` and `false` included, both real
-// answers — untouched.
-export const RespondToRequestParamsSchema: z.ZodType<
-  RespondToRequestParams,
-  RespondToRequestParams
-> = z
-  .object({
-    runId: RunIdSchema,
-    requestId: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "RespondToRequestParams.requestId"),
-    response: z.custom<unknown>((value) => value !== undefined, {
-      message: "response is required (a missing answer is not an answer)",
-    }),
-  })
-  .strict();
-
 //
 // Run-scoped: a subscription is opened against one run's driver event stream,
 // so the request carries the run id and nothing else.
@@ -2943,11 +2918,6 @@ export interface DriverMethodDescriptors {
     ApplyInterventionParams,
     DriverInterventionResult
   >;
-  readonly "driver.respondToRequest": MethodDescriptor<
-    "driver.respondToRequest",
-    RespondToRequestParams,
-    DriverAckResult
-  >;
   readonly "driver.compactContext": MethodDescriptor<
     "driver.compactContext",
     CompactContextRequest,
@@ -2996,13 +2966,6 @@ export const DRIVER_METHOD_DESCRIPTORS: DriverMethodDescriptors = defineMethodDe
     mutating: true,
     requestSchema: ApplyInterventionParamsSchema,
     responseSchema: DriverInterventionResultSchema,
-  },
-  "driver.respondToRequest": {
-    method: "driver.respondToRequest",
-    procedureType: "mutation",
-    mutating: true,
-    requestSchema: RespondToRequestParamsSchema,
-    responseSchema: DriverAckResultSchema,
   },
   "driver.compactContext": {
     method: "driver.compactContext",

@@ -43,9 +43,7 @@
 //   • The WRAP-ADMISSION RATCHET over the LIVE `SessionEventSchema` union: a
 //     branch is required to carry the stamp exactly when it is run-scoped
 //     (its payload carries `runId`) AND belongs to an admitting family; any
-//     other branch must not carry the keys at all. Today every registered
-//     branch is in the must-not class and passes non-vacuously; the ratchet
-//     turns red
+//     other branch must not carry the keys at all. The ratchet turns red
 //     when a run-scoped branch of an admitting family lands unwrapped — a
 //     strict payload schema that skipped the wrap would reject a stamped row
 //     wherever the STRICT layer parses it (scoped honestly: the tolerant
@@ -522,16 +520,12 @@ const buildStandInBranch = <T extends SessionEventType, C extends EventCategory>
     })
     .strict();
 
-// The five late-append families, one representative member each — plus BOTH
-// members of the `interactive_request` closed pair, which is the only part of
-// that 15-member category the late-append window covers.
+// The four late-append families, one representative member each.
 const STAND_IN_MEMBERS: readonly (readonly [SessionEventType, EventCategory])[] = [
   ["assistant.message", "assistant_output"],
   ["tool.invoked", "tool_activity"],
   ["usage.token_count", "usage_telemetry"],
   ["artifact.published", "artifact_publication"],
-  ["driver_ask.requested", "interactive_request"],
-  ["driver_ask.canceled", "interactive_request"],
 ];
 
 const standInUnion = z.discriminatedUnion("type", [
@@ -539,8 +533,6 @@ const standInUnion = z.discriminatedUnion("type", [
   buildStandInBranch("tool.invoked", "tool_activity"),
   buildStandInBranch("usage.token_count", "usage_telemetry"),
   buildStandInBranch("artifact.published", "artifact_publication"),
-  buildStandInBranch("driver_ask.requested", "interactive_request"),
-  buildStandInBranch("driver_ask.canceled", "interactive_request"),
 ]);
 
 const buildStandInEvent = (eventType: SessionEventType, category: EventCategory) => ({
@@ -606,17 +598,12 @@ describe("stamped events validate end-to-end through a union (stand-in branches)
 // The wrap-admission ratchet over the LIVE SessionEventSchema union.
 // --------------------------------------------------------------------------
 
-// The four categories whose every run-scoped variant admits the stamp, plus
-// the two `interactive_request` members that do.
+// The four categories whose every run-scoped variant admits the stamp.
 const STAMP_ADMITTING_CATEGORIES: readonly EventCategory[] = [
   "assistant_output",
   "tool_activity",
   "usage_telemetry",
   "artifact_publication",
-];
-const STAMP_ADMITTING_TYPES: readonly SessionEventType[] = [
-  "driver_ask.requested",
-  "driver_ask.canceled",
 ];
 
 // The payload key that marks a variant run-scoped.
@@ -712,10 +699,8 @@ const readBranchFacts = (union: unknown): BranchFacts[] =>
 const admissionViolations = (branches: readonly BranchFacts[]): string[] => {
   const violations: string[] = [];
   for (const branch of branches) {
-    const inAdmittingFamily =
-      STAMP_ADMITTING_CATEGORIES.includes(branch.category as EventCategory) ||
-      STAMP_ADMITTING_TYPES.includes(branch.type as SessionEventType);
-    const mustAdmit = inAdmittingFamily && branch.runScoped;
+    const mustAdmit =
+      STAMP_ADMITTING_CATEGORIES.includes(branch.category as EventCategory) && branch.runScoped;
     if (mustAdmit && !(branch.stampKeyCount === 2 && branch.refined)) {
       violations.push(
         `${branch.type}: run-scoped ${branch.category} branch MUST be wrapped with withEpochStamp (found ${branch.stampKeyCount}/2 stamp keys, refinement ${branch.refined ? "present" : "absent"}) — a strict payload would reject a stamped row wherever SessionEventSchema parses it, while the tolerant EventEnvelopeSchema carrier accepts it either way`,
@@ -758,12 +743,8 @@ describe("wrap-admission ratchet over the live SessionEventSchema union", () => 
     // LEG 1 — the DESIGN FACT, asserted against the admission table itself.
     // Non-vacuous today, and it stays green when lifecycle branches
     // legitimately register, because it pins the RULE rather than the
-    // current branch roster. Both halves of the table are checked: a
-    // lifecycle type could otherwise slip in through the per-type list.
+    // current branch roster.
     expect(STAMP_ADMITTING_CATEGORIES).not.toContain("run_lifecycle");
-    for (const admittingType of STAMP_ADMITTING_TYPES) {
-      expect(SESSION_EVENT_CATEGORY_BY_TYPE.get(admittingType)).not.toBe("run_lifecycle");
-    }
 
     // LEG 2 — the same fact against the live union. It walks ZERO branches
     // today (no `run_lifecycle` variant is registered yet), so it cannot

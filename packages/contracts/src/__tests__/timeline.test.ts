@@ -1146,16 +1146,23 @@ describe("row category is pinned where the event is", () => {
 
 describe("run attribution is refused where it cannot be read, and pinned where it can", () => {
   it("F63 — the run-scoped type census is DERIVED from the taxonomy", () => {
-    // Membership spot-checks across all five contributing categories.
+    // Membership spot-checks across all six contributing categories.
     for (const runScopedType of [
       "run.completed",
       "assistant.message",
       "tool.result",
       "subagent.started",
       "intervention.applied",
-      "driver_ask.requested",
       "usage.context_compacted",
       "usage.model_rerouted",
+      "approval.requested",
+      "approval.approved",
+      "approval.rejected",
+      "approval.canceled",
+      "approval.remembered",
+      "approval.reviewer_denied",
+      "moderation.review_flagged",
+      "plan.proposed",
     ]) {
       expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.has(runScopedType)).toBe(true);
     }
@@ -1170,6 +1177,8 @@ describe("run attribution is refused where it cannot be read, and pinned where i
       // `runId?` optional — a message accepted before any run exists is
       // session-scoped.
       "user.message",
+      // `runId?` optional — a workflow step's question names its wait instead.
+      "question.asked",
       // Account-plane, bound to the node-scope sentinel session; no run at all.
       "usage.rate_limit_update",
       // `runId?` optional across the whole `artifact_publication` family.
@@ -1178,6 +1187,8 @@ describe("run attribution is refused where it cannot be read, and pinned where i
       // `runId?` optional in the shared usage shape.
       "usage.budget_warning",
       "usage.token_count",
+      // `runId?` optional: a rule is also revoked with no ask in flight.
+      "approval.rule_revoked",
       // Not run-attributed in any form.
       "session.created",
     ]) {
@@ -1192,7 +1203,7 @@ describe("run attribution is refused where it cannot be read, and pinned where i
     // one of those types carries no outer runId / position / epoch — so
     // rollback projection can never reach it and it renders as permanently
     // current.
-    for (const runScopedType of ["assistant.message", "tool.result", "driver_ask.requested"]) {
+    for (const runScopedType of ["assistant.message", "tool.result", "intervention.applied"]) {
       const misfiled = {
         ...generalRow,
         category: "assistant_output",

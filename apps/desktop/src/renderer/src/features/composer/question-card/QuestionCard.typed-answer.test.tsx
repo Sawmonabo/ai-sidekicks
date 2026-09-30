@@ -1,56 +1,49 @@
-// The free-text arm's DOM identity, and why two parallel runs may not share one.
+// The free-text arm's DOM identity, and why two cards on one page may not share one.
 //
 // DRIVEN THROUGH THE CARD RATHER THAN THE ARM, because the subject is what a document
-// holding two open asks contains: a provider mints its ask ids per provider session, so
-// two runs blocked at once legitimately raise `ask-01` each, and both cards are on
-// screen in the same transcript. An arm rendered alone can never show that.
+// holding two cards contains: one question can be drawn in two panes at once, and both
+// cards are then in the same document. An arm rendered alone can never show that.
 //
 // AND THE ASSERTION IS THE LABEL ASSOCIATION, not the id string. What a shared id costs
 // is exactly this: activating either label focuses the first matching field, so one
-// user's answer is typed into another run's question, and assistive technology
-// can associate neither label unambiguously. The ids are read only to say what went
-// wrong when the association fails.
+// user's answer is typed into another pane's field, and assistive technology can
+// associate neither label unambiguously. The ids are read only to say what went wrong
+// when the association fails.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+
+import type { QuestionPrompt } from "@ai-sidekicks/contracts";
 
 import {
   UNSENT_ANSWER_DELIVERY,
   type QuestionReading,
 } from "@renderer/store/session-events/question-reading.js";
 import { QuestionCard } from "./QuestionCard.js";
-import type { RunId } from "@ai-sidekicks/contracts";
 
-/** The provider-minted id both runs legitimately raise. */
-const SHARED_ASK_ID = "ask-01";
+const SHARED_QUESTION: QuestionReading = {
+  questionId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e11",
+  runId: undefined,
+  pageCount: 1,
+};
 
-const FIRST_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150001" as RunId;
-const SECOND_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150002" as RunId;
+const SHARED_PROMPT: QuestionPrompt = {
+  text: "Which branch should this land on?",
+  options: [],
+  severalAnswers: false,
+  secret: false,
+};
 
-const NOW_MILLISECONDS = Date.UTC(2026, 8, 2, 10, 0, 0);
-
-function askOn(runId: RunId): QuestionReading {
-  return {
-    askId: SHARED_ASK_ID,
-    runId,
-    state: "requested",
-    prompt: "Which branch should this land on?",
-    options: [],
-    expiresAt: undefined,
-    deliveredAnswer: undefined,
-  };
-}
-
-/** Both open asks in one document, exactly as one transcript window holds them. */
-function renderBothAsks(): HTMLElement {
+/** One question drawn twice in one document, as two panes hold it. */
+function renderQuestionTwice(): HTMLElement {
   const { container } = render(
     <>
-      {[FIRST_RUN_ID, SECOND_RUN_ID].map((runId) => (
+      {["first-pane", "second-pane"].map((pane) => (
         <QuestionCard
-          key={runId}
+          key={pane}
           body={undefined}
-          ask={askOn(runId)}
-          nowEpochMilliseconds={NOW_MILLISECONDS}
+          question={SHARED_QUESTION}
+          questions={[SHARED_PROMPT]}
           delivery={UNSENT_ANSWER_DELIVERY}
           onAnswer={() => {
             // The dispatch is another suite's subject; this one is about identity.
@@ -70,9 +63,9 @@ function labelsIn(container: HTMLElement): readonly HTMLLabelElement[] {
   return [...container.querySelectorAll("label")];
 }
 
-describe("TypedAnswerField — one field per ask, whatever the provider called it", () => {
-  it("negative control: two runs sharing an ask id do not share a field id", () => {
-    const container = renderBothAsks();
+describe("TypedAnswerField — one field per card, whatever question it draws", () => {
+  it("negative control: two cards for one question do not share a field id", () => {
+    const container = renderQuestionTwice();
 
     const [firstField, secondField] = fieldsIn(container);
 
@@ -80,7 +73,7 @@ describe("TypedAnswerField — one field per ask, whatever the provider called i
   });
 
   it("gives each label its own field to activate", () => {
-    const container = renderBothAsks();
+    const container = renderQuestionTwice();
 
     const [firstLabel, secondLabel] = labelsIn(container);
     const [firstField, secondField] = fieldsIn(container);
@@ -90,7 +83,7 @@ describe("TypedAnswerField — one field per ask, whatever the provider called i
   });
 
   it("names a field at all, so the label is an association and not decoration", () => {
-    const container = renderBothAsks();
+    const container = renderQuestionTwice();
 
     for (const field of fieldsIn(container)) {
       expect(field.id.length).toBeGreaterThan(0);

@@ -121,11 +121,14 @@ export const TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS: readonly string[] = Object.f
  *     identity is OPTIONAL: a message accepted before any run exists is
  *     legitimately session-scoped, so the type alone cannot decide and the
  *     payload-key leg decides per row.
+ *   * `question.asked` — `{questionId, sessionId, runId?, waitId?, …}`. An
+ *     agent's question names its run, and a workflow step's names its wait
+ *     instead, so the payload-key leg decides per row.
  *
  * Everything else in the category — the six `intervention.*` (required
- * `targetRunId`) and the four `driver_ask.*` (required `runId`) — is
- * unconditionally run-attributed, so the set below is derived by SUBTRACTING
- * these six from the category array rather than by re-listing the ten. A type
+ * `targetRunId`) — is unconditionally run-attributed, so the set below is
+ * derived by SUBTRACTING these seven from the category array rather than by
+ * re-listing the six. A type
  * added to that category therefore lands INSIDE the run-scoped set by default,
  * which is the fail-closed direction: an unknown interactive-request type is
  * refused from the attribution-free arm rather than silently admitted to it.
@@ -137,6 +140,7 @@ const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: ReadonlySet<string> = new 
   "queue_item.canceled",
   "queue_item.not_delivered",
   "user.message",
+  "question.asked",
 ]);
 
 /**
@@ -164,15 +168,40 @@ const USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze
 ] as const);
 
 /**
+ * The eight `approval_flow` types whose payload pins `runId` REQUIRED, listed
+ * positively because the category also holds types that name no run.
+ *
+ * An ask, its answer and its end all belong to the run that raised it:
+ * `approval.requested`, `.approved`, `.rejected`, `.canceled` and
+ * `.remembered`, a provider reviewer's block (`approval.reviewer_denied`), a
+ * Codex review flag (`moderation.review_flagged`) and a proposed plan
+ * (`plan.proposed`). The rest of the category cannot be taken with them:
+ * `approval.rule_revoked` leaves the run optional, because a rule is also
+ * revoked when no ask is in flight, so the payload-key leg decides it per row;
+ * `approval.denial_overridden`, `plan.accepted` and `plan.handed_off` name no
+ * run at all.
+ */
+const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze([
+  "approval.requested",
+  "approval.approved",
+  "approval.rejected",
+  "approval.canceled",
+  "approval.remembered",
+  "approval.reviewer_denied",
+  "moderation.review_flagged",
+  "plan.proposed",
+] as const);
+
+/**
  * Every canonical event type whose registered payload names a run
  * UNCONDITIONALLY — the type-side leg of the general arm's refusal.
  *
  * The members come from its own per-category arrays in `../event.js`, so a
  * type added to `run_lifecycle`, `assistant_output`, `tool_activity`, or
  * `interactive_request` enters this set by growing the taxonomy rather than
- * by anyone remembering to mirror it here. The count is pinned in
- * `../__tests__/timeline.test.ts` precisely so a taxonomy growth that SHOULD
- * change this set fails a test instead of changing it silently.
+ * by anyone remembering to mirror it here. The `usage_telemetry` and
+ * `approval_flow` members are listed by hand, because each of those categories
+ * also holds types that do not always name a run.
  *
  * WHY A TYPE LEG AT ALL, GIVEN THE PAYLOAD LEG. `payload` on a projected row
  * is the projector's own open record, not the canonical event payload
@@ -190,6 +219,7 @@ export const TIMELINE_RUN_SCOPED_EVENT_TYPES: ReadonlySet<string> = new Set<stri
     (eventType) => !INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN.has(eventType),
   ),
   ...USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN,
+  ...APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN,
 ]);
 
 /**
@@ -469,21 +499,21 @@ const requireMarkerToOutrankRow = (
  *      build's census has never seen (the higher-MINOR tolerance means
  *      `type` is an open vocabulary).
  *      {@link TIMELINE_RUN_LIFECYCLE_CATEGORY}.
- *   2. **Canonical type.** Four more categories carry run-attributed types —
+ *   2. **Canonical type.** Five more categories carry run-attributed types —
  *      `assistant_output`, `tool_activity`, the run-scoped part of
- *      `interactive_request`, and two `usage_telemetry` types — and their
- *      categories are NOT decisive, because three of them
- *      (`usage_telemetry`, `artifact_publication`, and the queue and
+ *      `interactive_request`, two `usage_telemetry` types, and eight
+ *      `approval_flow` types — and their categories are NOT decisive, because
+ *      three of them (`usage_telemetry`, `approval_flow`, and the queue and
  *      user-message parts of `interactive_request`) also hold legitimately
  *      session-scoped rows. So the decision is per type, against the derived
  *      {@link TIMELINE_RUN_SCOPED_EVENT_TYPES} census.
  *   3. **Payload attribution.** The types whose run identity is OPTIONAL —
- *      every `artifact_publication` type, five `usage_telemetry` types, and
- *      `user.message` — cannot be decided by their name, because the same
- *      type is run-scoped on one row and session-scoped on the next. They are
- *      decided by the row in hand: a payload naming a run
- *      ({@link TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS}) belongs to the run arm
- *      whatever its type.
+ *      every `artifact_publication` type, five `usage_telemetry` types,
+ *      `approval.rule_revoked`, and `user.message` — cannot be decided by
+ *      their name, because the same type is run-scoped on one row and
+ *      session-scoped on the next. They are decided by the row in hand: a
+ *      payload naming a run ({@link TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS})
+ *      belongs to the run arm whatever its type.
  *
  * Leg 3 also catches what leg 2 cannot see and vice versa: a projected
  * `payload` is the projector's own summary record rather than the canonical

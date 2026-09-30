@@ -57,6 +57,7 @@ import {
   classifyClaudeFrameFamilyForRouting,
   classifyClaudeUsageLimitSignal,
   composeClaudeWireFrameKind,
+  normalizeClaudeCanUseToolRequest,
   normalizeClaudeSubagentLifecycle,
   normalizeClaudeWireFrame,
   resolveClaudeEmissionReadiness,
@@ -260,22 +261,44 @@ describe("pinned control-request subtypes", () => {
     }
   });
 
-  it("maps the three human-facing asks into interactive_request/driver_ask.requested", () => {
-    const askSubtypes = ["can_use_tool", "elicitation", "request_user_dialog"] as const;
-    for (const subtype of askSubtypes) {
-      const frame = buildControlRequestFrame(subtype);
-      const normalization = expectNormalized(
-        normalizeClaudeWireFrame(composeClaudeWireFrameKind(frame.type, frame.request.subtype)),
-      );
-      expect(normalization.family).toBe("interactive_request");
-      expect(normalization.eventType).toBe("driver_ask.requested");
-    }
+  it("maps a permission frame to approval.requested and an elicitation to question.asked", () => {
+    const permissionFrame = buildControlRequestFrame("can_use_tool");
     expect(
-      expectNormalized(normalizeClaudeWireFrame("control_request/can_use_tool")).normalizedKind,
-    ).toBe("approval_request");
-    expect(
-      expectNormalized(normalizeClaudeWireFrame("control_request/elicitation")).normalizedKind,
-    ).toBe("user_input_request");
+      expectNormalized(
+        normalizeClaudeWireFrame(
+          composeClaudeWireFrameKind(permissionFrame.type, permissionFrame.request.subtype),
+        ),
+      ),
+    ).toMatchObject({
+      family: "approval_flow",
+      eventType: "approval.requested",
+      normalizedKind: "approval_request",
+    });
+    expect(expectNormalized(normalizeClaudeWireFrame("control_request/elicitation"))).toMatchObject(
+      {
+        family: "interactive_request",
+        eventType: "question.asked",
+        normalizedKind: "user_input_request",
+      },
+    );
+    expect(normalizeClaudeWireFrame("control_request/request_user_dialog").disposition).toBe(
+      "not-evented",
+    );
+  });
+
+  it("splits Claude Code's question tool off the permission ask by tool name", () => {
+    expect(expectNormalized(normalizeClaudeCanUseToolRequest("AskUserQuestion"))).toMatchObject({
+      frameKind: "control_request/can_use_tool",
+      family: "interactive_request",
+      eventType: "question.asked",
+      normalizedKind: "user_input_request",
+      emissionReadiness: "envelope-constructible",
+    });
+    expect(expectNormalized(normalizeClaudeCanUseToolRequest("Bash"))).toMatchObject({
+      family: "approval_flow",
+      eventType: "approval.requested",
+      normalizedKind: "approval_request",
+    });
   });
 
   it("treats every daemon-originated subtype as a reasoned non-emission", () => {
@@ -635,14 +658,6 @@ describe("family reachability ledger", () => {
     for (const entry of CLAUDE_FAMILY_REACHABILITY) {
       const actual = computed.get(entry.family) ?? [];
       expect([...entry.reachedBy].sort()).toStrictEqual([...actual].sort());
-    }
-
-    // Nothing normalizes into a family outside the ledger's six. This is a
-    // property of the CLAUDE table specifically, not of the taxonomy: the
-    // 35-kind census routes other kinds into `session_lifecycle` and
-    // `approval_flow`, which are deliberately out of the ledger's scope.
-    for (const family of computed.keys()) {
-      expect(REQUIRED_EVENT_FAMILIES).toContain(family);
     }
   });
 

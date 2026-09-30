@@ -1,99 +1,76 @@
-// The answer an input-ask row delivers, and where that delivery has got to.
+// The answer a question card delivers, and where that delivery has got to.
 //
-// A MODULE OF ITS OWN, APART FROM EVERY READ. `driver.respondToRequest`
-// is a run-changing method by the console's own classification, and a durable act that
-// reached the daemon has HAPPENED — the console's half of it is not the console's to
-// give up on, so a module that dispatches one has no business naming read cancellation
-// in any form. A read, by contrast, is on a line that ends, and it names the round
-// that ends it. The two therefore live apart: the split is what makes
-// each module's whole relationship with cancellation readable from its imports, and it
-// is what a reviewer holds every dispatcher to.
+// ONE CALL ANSWERS THE QUESTION. `question.resolve` takes every answer at once, one per
+// question in the record's own order, and the daemon refuses a list that does not
+// answer every question. The call is taken as an argument until the daemon serves it,
+// so this module constructs no wire of its own.
 //
-// THE METHOD IS A REGISTERED WIRE, which is why it is reached through `callDaemon`:
-// `driver.respondToRequest` has request and response schemas the contracts package
-// publishes, so a refusal here is a real refusal from a real parse.
-//
-// AND IT IS NOT FIRE-AND-FORGET. `callDaemon` answers `served` or `refused` for every
+// AND IT IS NOT FIRE-AND-FORGET. The call answers `served` or `refused` for every
 // outcome a transport can have, so a caller that ignored the reply would have decided
-// that a refusal looks exactly like a success — an answer that never reached the
-// driver left the run blocked with nothing on screen saying so. This hook holds what
-// came back, and the question card above renders it.
+// that a refusal looks exactly like a success — an answer that never reached the daemon
+// left the run blocked with nothing on screen saying so. This hook holds what came back,
+// and the question card renders it.
 
 import { useCallback, useState } from "react";
 
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import type { RunId } from "@ai-sidekicks/contracts";
+import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
+import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
+import type {
+  QuestionAnswer,
+  QuestionResolveRequest,
+  QuestionResolveResponse,
+} from "@ai-sidekicks/contracts";
 import {
   UNSENT_ANSWER_DELIVERY,
   type AnswerDelivery,
 } from "@renderer/store/session-events/question-reading.js";
 
-/** The wire method an answer travels, named once. */
-const ASK_ANSWER_METHOD = "driver.respondToRequest";
+/** The `question.resolve` call, supplied by the mount until the daemon serves it. */
+export type ResolveQuestionCall = (
+  request: QuestionResolveRequest,
+) => Promise<DaemonReply<QuestionResolveResponse>>;
 
-/** Where one ask's answer has got to, and the call that dispatches one. */
+/** Where one question's answer has got to, and the call that dispatches one. */
 export interface QuestionAnswerHandle {
   readonly delivery: AnswerDelivery;
-  /** Deliver an answer, or do nothing where this row has none to deliver. */
-  readonly answer: (response: string) => void;
+  /** Deliver one answer per question, or do nothing while one is out or already taken. */
+  readonly answer: (answers: QuestionAnswer[]) => void;
 }
 
 /**
- * Deliver an answer to a provider-raised ask, and hold what the wire said about it.
+ * Deliver a question record's answers, and hold what the reply said about them.
  *
- * The response travels as the `unknown`-typed member the contract declares, so an
- * option's `value` and a user's free text are one call rather than two paths.
- *
- * THE ACKNOWLEDGEMENT IS HELD AND THE TERMINAL IS NOT. `DriverAckResult` is an empty
- * envelope, so a served reply means exactly that the answer reached the driver — and
- * that is what `accepted` records. The ask's own terminal stays the
- * `driver_ask.responded` row's to state: this hook settles no ask, and the card reads
- * its state from the row rather than from here.
- *
- * SINGLE-FLIGHT, AND NO SECOND ANSWER AFTER ONE LANDED. A press while a call is in
- * flight is answered with the state already on screen; a press after the driver
- * acknowledged is refused too, because the ask is answered and a second delivery
- * would be a second answer to a question that has one. A REFUSED answer is the case
- * both of those exist to leave open — nothing reached the driver, so pressing again
- * dispatches again.
+ * SINGLE-FLIGHT, AND NO SECOND ANSWER AFTER ONE LANDED. A press while a call is in flight
+ * is answered with the state already on screen; a press after the daemon took an answer
+ * is refused too, because the question is answered and a second delivery would be a
+ * second answer to a question that has one. A REFUSED answer is the case both of those
+ * exist to leave open — nothing reached the daemon, so pressing again dispatches again.
  */
-export function useQuestionAnswer(runId: RunId | undefined, askId: string): QuestionAnswerHandle {
-  const bridge = usePlatformBridge();
+export function useQuestionAnswer(
+  questionId: string,
+  resolveQuestion: ResolveQuestionCall,
+): QuestionAnswerHandle {
   const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
   const answer = useCallback(
-    (response: string) => {
-      // BOTH GUARDS ARE FAIL-CLOSED AND NEITHER IS A CONVENIENCE. A row with no run
-      // attribution names no run to answer for, and an empty ask id is what a caller
-      // holds when the row it is on is not an ask at all — this hook is armed on every
-      // row by the rules of hooks, so the empty id is the ordinary case rather than the
-      // exceptional one. Sending either would put a request on the wire naming an ask
-      // the daemon has no record of.
-      if (runId === undefined || askId.length === 0) {
-        return;
-      }
+    (answers: QuestionAnswer[]) => {
       if (delivery.status === "delivering" || delivery.status === "accepted") {
         return;
       }
-      setDelivery({ status: "delivering", response });
-      // NO `catch` ARM, and its absence is `callDaemon`'s contract rather than an
-      // omission: `callDaemon` answers `served` or `refused` for every outcome a
-      // transport can have — a request the daemon would not accept, a rejected call,
-      // a reply the registered schema does not admit — so a `catch` here would be a
-      // branch nothing can reach.
-      void callDaemon(bridge, ASK_ANSWER_METHOD, {
-        runId,
-        requestId: askId,
-        response,
+      setDelivery({ status: "delivering" });
+      // NO `catch` ARM: the call answers `served` or `refused` for every outcome a
+      // transport can have, so a `catch` here would be a branch nothing can reach.
+      void resolveQuestion({
+        questionId: heldIdAsWireId(questionId),
+        answers,
       }).then((reply) => {
         setDelivery(
           reply.status === "served"
-            ? { status: "accepted", response }
-            : { status: "refused", response, refusal: reply.refusal },
+            ? { status: "accepted" }
+            : { status: "refused", refusal: reply.refusal },
         );
       });
     },
-    [askId, bridge, delivery.status, runId],
+    [delivery.status, questionId, resolveQuestion],
   );
 
   return { delivery, answer };

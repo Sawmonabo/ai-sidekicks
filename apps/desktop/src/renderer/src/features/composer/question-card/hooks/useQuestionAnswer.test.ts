@@ -1,130 +1,124 @@
-// The answer an ask row delivers, over a real bridge whose reply a case decides.
+// The answer a question card delivers, over a call whose reply a case decides.
 //
-// `bridgeAnswering` rather than a hand-built port, for `child-run-expansion.test.ts`'
-// reason: the hook reaches the console's own `callDaemon`, so a stand-in would prove
-// the case answers itself rather than that a refusal off the wire reaches the state
-// the question card renders.
-//
-// THE SUBJECT IS A REPLY THAT WAS CONSULTED FOR ITS SUCCESS ARM AND DISCARDED
-// OTHERWISE. The delivery stored nothing at all, so a refused answer left a blocked
-// run and an emptied draft. What every case below asks is what a SECOND press does,
-// and what the hook is holding when it is pressed.
-//
-// A `.tsx` FILE FOR A `.ts` MODULE, because the wrapper `renderHook` mounts is a
-// component and the hook resolves its bridge from context — there is no way to drive
-// it that does not render one.
+// THE SUBJECT IS A REPLY THAT MUST NOT BE DISCARDED. A refused answer that stored
+// nothing left a blocked run and an emptied draft. What every case below asks is what a
+// SECOND press does, and what the hook is holding when it is pressed.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { RunId } from "@ai-sidekicks/contracts";
+import type { QuestionAnswer, QuestionResolveRequest } from "@ai-sidekicks/contracts";
 
-import { bridgeFailingUntilCleared, callsTo, inBridge } from "@test/helpers/recoverable-bridge.js";
 import { settle } from "@test/helpers/settle.js";
-import { useQuestionAnswer } from "./useQuestionAnswer.js";
+import { useQuestionAnswer, type ResolveQuestionCall } from "./useQuestionAnswer.js";
 
-const SAMPLE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;
-const SAMPLE_ASK_ID = "ask-01";
-const ASK_ANSWER = "driver.respondToRequest";
+const SAMPLE_QUESTION_ID = "019b793b-7b60-7a21-9f14-6b0c2a7d0e11";
 
-/** The empty envelope `driver.respondToRequest` acknowledges with. */
-const DRIVER_ACK: Record<string, unknown> = {};
+const SAMPLE_ANSWERS: QuestionAnswer[] = [
+  { kind: "picked", labels: ["develop"] },
+  { kind: "typed", text: "the flaky test is known" },
+];
+
+/** A call that refuses until `recover` is called, and records every request it took. */
+function resolveFailingUntilCleared(): {
+  readonly resolveQuestion: ResolveQuestionCall;
+  readonly requests: QuestionResolveRequest[];
+  readonly recover: () => void;
+} {
+  const requests: QuestionResolveRequest[] = [];
+  let isServing = false;
+  return {
+    requests,
+    recover: () => {
+      isServing = true;
+    },
+    resolveQuestion: (request) => {
+      requests.push(request);
+      return Promise.resolve(
+        isServing
+          ? { status: "served", value: { questionId: request.questionId, state: "answered" } }
+          : {
+              status: "refused",
+              refusal: { code: "call-rejected", detail: "The daemon is down.", origin: "daemon" },
+            },
+      );
+    },
+  };
+}
 
 describe("useQuestionAnswer — an answer is a settled act", () => {
-  it("holds the refusal when the answer never reached the driver", async () => {
-    // THE DEFECT, EXERCISED. The reply was discarded, so a run blocked on an ask the
-    // daemon never received looked exactly like one waiting for somebody to type.
-    const { held } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
+  it("holds the refusal when the answer never reached the daemon", async () => {
+    const call = resolveFailingUntilCleared();
+    const { result } = renderHook(() =>
+      useQuestionAnswer(SAMPLE_QUESTION_ID, call.resolveQuestion),
+    );
 
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
 
-    expect(result.current.delivery.status).toBe("refused");
     expect(result.current.delivery).toMatchObject({
-      response: "develop",
+      status: "refused",
       refusal: { code: "call-rejected" },
     });
   });
 
-  it("settles as accepted when the driver acknowledges it", async () => {
-    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    recover();
-    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
+  it("settles as accepted when the daemon takes the answers, sent as they were given", async () => {
+    const call = resolveFailingUntilCleared();
+    call.recover();
+    const { result } = renderHook(() =>
+      useQuestionAnswer(SAMPLE_QUESTION_ID, call.resolveQuestion),
+    );
 
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
 
-    expect(result.current.delivery).toStrictEqual({ status: "accepted", response: "develop" });
-    expect(held.calls.find((call) => call.method === ASK_ANSWER)?.params).toEqual({
-      runId: SAMPLE_RUN_ID,
-      requestId: SAMPLE_ASK_ID,
-      response: "develop",
-    });
+    expect(result.current.delivery).toStrictEqual({ status: "accepted" });
+    expect(call.requests).toStrictEqual([
+      { questionId: SAMPLE_QUESTION_ID, answers: SAMPLE_ANSWERS },
+    ]);
   });
 
   it("dispatches again when a refused answer is retried", async () => {
-    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
+    const call = resolveFailingUntilCleared();
+    const { result } = renderHook(() =>
+      useQuestionAnswer(SAMPLE_QUESTION_ID, call.resolveQuestion),
+    );
 
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
-    recover();
+    call.recover();
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
 
-    expect(callsTo(held, ASK_ANSWER)).toBe(2);
+    expect(call.requests).toHaveLength(2);
     expect(result.current.delivery.status).toBe("accepted");
   });
 
-  it("negative control: an acknowledged ask is not answered twice", async () => {
-    // A second delivery would be a second answer to a question that has one, and the
-    // ask's terminal is the `driver_ask.responded` row's to state rather than a press's.
-    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    recover();
-    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
+  it("negative control: an answered question is not answered twice", async () => {
+    // A second delivery would be a second answer to a question that has one.
+    const call = resolveFailingUntilCleared();
+    call.recover();
+    const { result } = renderHook(() =>
+      useQuestionAnswer(SAMPLE_QUESTION_ID, call.resolveQuestion),
+    );
 
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
     act(() => {
-      result.current.answer("main");
+      result.current.answer([{ kind: "typed", text: "main" }]);
     });
     await settle();
 
-    expect(callsTo(held, ASK_ANSWER)).toBe(1);
-  });
-
-  it("negative control: a row carrying no ask id sends nothing", async () => {
-    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    recover();
-    const { result } = renderHook(() => useQuestionAnswer(SAMPLE_RUN_ID, ""), {
-      wrapper: inBridge(held),
-    });
-
-    act(() => {
-      result.current.answer("develop");
-    });
-    await settle();
-
-    expect(callsTo(held, ASK_ANSWER)).toBe(0);
-    expect(result.current.delivery.status).toBe("unsent");
+    expect(call.requests).toHaveLength(1);
   });
 });

@@ -148,7 +148,7 @@ describe("session-event streams — the table carries what the wire registers", 
 
     expect(queueKinds).toHaveLength(5);
     expect(sorted(carriedKindsOf(RUN_QUEUE_EVENT_STREAM))).toStrictEqual(sorted(queueKinds));
-    // The intervention, driver-ask, and user-message rows share that category and
+    // The intervention, user-message and question rows share that category and
     // ride no queue projection; a stream derived from the category alone would
     // have handed all of them to a queue subscriber.
     expect(carriedKindsOf(RUN_QUEUE_EVENT_STREAM).includes("intervention.requested")).toBe(false);

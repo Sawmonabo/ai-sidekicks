@@ -19,11 +19,8 @@
 //     the action row rather than behind a click. One implementation renders both —
 //     `ApprovalResource.tsx` — so the two placements cannot say different things.
 //
-// THE INPUT-KIND ASK IS NOT HERE. The `kind` discriminator on the originating ask
-// selects between these details and the input-ask card, so exactly one of the two
-// renders any given ask and neither has to guess. The input card belongs to the
-// transcript feature, and the `driver.respondToRequest` ingress that answers one is
-// reached from nowhere in the approval card.
+// A QUESTION IS NOT HERE. An agent's question is a different record with its own
+// card, so exactly one card renders any request and neither has to guess.
 
 import "./ProviderAskDetails.css";
 

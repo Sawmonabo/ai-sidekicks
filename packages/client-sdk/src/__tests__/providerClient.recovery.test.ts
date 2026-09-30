@@ -204,7 +204,7 @@ function createRecordingTransport(): ClientTransport & { readonly sentMethods: s
       if (!("id" in envelope)) {
         return;
       }
-      // `{}` satisfies the three read results' and both ack results' schemas;
+      // `{}` satisfies the three read results' and the ack result's schemas;
       // `subscriptionId` rides along for the subscribe ack. An over-broad reply
       // is harmless here because no assertion reads a result.
       deliverInbound({
@@ -241,11 +241,6 @@ describe("DriverClient — no client-facing route mints a replacement session", 
       client.listModels({ sessionId: TEST_SESSION_ID }),
       client.listModes(),
       client.interruptRun({ runId: TEST_RUN_ID }),
-      client.respondToRequest({
-        runId: TEST_RUN_ID,
-        requestId: "00000000-0000-4000-8000-000000000002",
-        response: { approved: true },
-      }),
       client.applyIntervention({
         type: "interrupt",
         targetRunId: TEST_RUN_ID,
@@ -260,8 +255,8 @@ describe("DriverClient — no client-facing route mints a replacement session", 
 
     // Every method was actually attempted — an empty or short list would make
     // the negative assertion below vacuously true.
-    expect(settled).toHaveLength(8);
-    expect(transport.sentMethods).toHaveLength(9);
+    expect(settled).toHaveLength(7);
+    expect(transport.sentMethods).toHaveLength(8);
 
     // A resume failure reaches a client as data on some other surface; whatever
     // it does with that data, minting a session is not among its options,
@@ -283,7 +278,6 @@ describe("DriverClient — no client-facing route mints a replacement session", 
       "driver.listModels",
       "driver.listModes",
       "driver.listProviderCommands",
-      "driver.respondToRequest",
       "driver.subscribeEvents",
     ]);
   });

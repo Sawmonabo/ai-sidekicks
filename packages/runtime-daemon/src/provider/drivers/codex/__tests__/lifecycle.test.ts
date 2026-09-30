@@ -6779,7 +6779,7 @@ describe("CodexDriver callback-tool withholding (leg 3, Codex arm)", () => {
   });
 });
 
-describe("Codex server-request routing census (`driver_ask` reachability)", () => {
+describe("Codex server-request routing census (ask reachability)", () => {
   it("routes the seven reachable ask methods and no others", () => {
     expect([...CODEX_ROUTED_SERVER_REQUEST_METHODS].sort()).toStrictEqual([
       "applyPatchApproval",
@@ -7003,23 +7003,23 @@ async function routedAskHarness(
     scheduler,
   };
 
-  let nextAskId = 9000;
+  let nextRequestId = 9000;
   const askProvider = async (
     method: string,
     params: unknown = {},
   ): Promise<Record<string, unknown>> => {
-    const askId = (nextAskId += 1);
+    const requestId = (nextRequestId += 1);
     const before = server.writtenLines.length;
     server.onData(
       "pty-session-1",
       new TextEncoder().encode(
-        `${JSON.stringify({ jsonrpc: "2.0", id: askId, method, params })}\r\n`,
+        `${JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params })}\r\n`,
       ),
     );
     await drainMicrotasks();
     for (const line of server.writtenLines.slice(before)) {
       const frame = JSON.parse(line) as Record<string, unknown>;
-      if (frame["id"] === askId) {
+      if (frame["id"] === requestId) {
         return frame;
       }
     }
@@ -7299,7 +7299,7 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     // session — the very shape the turn-keyed routes retain. Every value in the
     // turn-to-run map names the same run, so the attribution is unambiguous at
     // any turn count; a turn-count gate here dropped the run association, and
-    // its `driver_ask.requested` projection, in exactly the state the routing
+    // its `approval.requested` projection, in exactly the state the routing
     // supports.
     const attributedRunIds: Array<RunId | null> = [];
     const { harness, askProvider } = await routedAskHarness({
@@ -10200,13 +10200,13 @@ describe("Codex ask normalization at the session seam", () => {
       },
     });
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    let nextAskId = 4000;
+    let nextRequestId = 4000;
     const ask = async (method: string, params: unknown): Promise<void> => {
-      nextAskId += 1;
+      nextRequestId += 1;
       harness.server.onData(
         "pty-session-1",
         new TextEncoder().encode(
-          `${JSON.stringify({ jsonrpc: "2.0", id: nextAskId, method, params })}\r\n`,
+          `${JSON.stringify({ jsonrpc: "2.0", id: nextRequestId, method, params })}\r\n`,
         ),
       );
       await drainMicrotasks();

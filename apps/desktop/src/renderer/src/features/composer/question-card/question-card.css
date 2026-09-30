@@ -7,21 +7,28 @@
   min-width: 0;
 }
 
+.meridian-input-ask__question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-input-ask__header {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
 .meridian-input-ask__prompt {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.meridian-input-ask__countdown {
+.meridian-input-ask__heading {
   margin: 0;
   color: var(--meridian-text-muted);
-}
-
-.meridian-input-ask__arms {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
+  overflow-wrap: anywhere;
 }
 
 .meridian-input-ask__options {
@@ -34,9 +41,8 @@
 }
 
 /*
- * TWO PARTS ON ONE ROW: the provider's label, and the value the answer is composed
- * from. The value is never dropped at any width — it is what actually travels — so
- * the row wraps rather than truncating either half.
+ * TWO PARTS ON ONE ROW: the label, which is what the answer carries, and the
+ * description the agent wrote for it. The row wraps rather than truncating either.
  */
 .meridian-input-ask__option {
   display: flex;
@@ -51,12 +57,19 @@
   text-align: start;
 }
 
+.meridian-input-ask__option[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+}
+
+.meridian-input-ask__option-description {
+  color: var(--meridian-text-muted);
+}
+
 /*
  * Every answer control dims together while one answer is on the wire or has already
- * reached the driver. The refusal arm is deliberately NOT one of those states — rule
- * 9 keeps the control that produced a refusal on screen and pressable.
+ * reached the daemon. A refusal is deliberately not one of those states: the control
+ * that produced a refusal stays on screen and pressable.
  */
-
 .meridian-input-ask__option:disabled {
   cursor: default;
   opacity: 0.5;
