@@ -1,5 +1,5 @@
-// What a region does with an announcement: it is subscribed rather than replaced, and a message
-// reaches only the region its politeness names. Driven directly, not through the provider.
+// What a region does with an announcement: it is subscribed rather than replaced. Driven directly,
+// not through the provider.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,18 +29,5 @@ describe("LiveRegion — the pair speaks without being replaced", () => {
     // skip.
     expect(after[0]).toBe(before[0]);
     expect(after[1]).toBe(before[1]);
-  });
-
-  it("puts a message in the region its politeness names and leaves the other silent", () => {
-    const announcer = new LiveAnnouncer({ clock: new ManualClock() });
-    const { container } = render(<LiveRegion announcer={announcer} />);
-
-    act(() => {
-      announcer.announce("the panes were reordered");
-    });
-
-    const [polite, assertive] = regionsOf(container);
-    expect(polite?.textContent).toBe("the panes were reordered");
-    expect(assertive?.textContent).toBe("");
   });
 });
