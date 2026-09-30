@@ -1656,7 +1656,7 @@ interface ProviderCommandsUpdate {
 // The daemon-side fold of a run's normalized events into ordered turns (Spec-004 §The canonical
 // transcript is a projection, never a store). It never crosses a wire and is never persisted, so
 // only its IDENTITY is mirrored here: the per-turn element shape is authored by Plan-004 T3.19 in
-// `packages/contracts/src/provider-driver-transcript.ts` and is bounded by the Spec-005 normalized taxonomy,
+// `packages/runtime-daemon/src/provider/provider-driver.ts` and is bounded by the Spec-005 normalized taxonomy,
 // which is what makes "anything that never became an event is not in the transcript" true by
 // construction rather than by discipline.
 interface CanonicalTranscriptProjection {
