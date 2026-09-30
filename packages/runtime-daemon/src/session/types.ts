@@ -5,11 +5,12 @@
 import type { SessionState } from "@ai-sidekicks/contracts";
 
 /**
- * The input to `SessionService.append`: a `session_events` row minus the sealed and purge
- * columns, which the service leaves NULL. `monotonicNs` is supplied by the writer so tests can
- * drive non-monotonic values; `sequence`, not `monotonicNs`, is the replay key.
+ * One `session_events` row as the daemon writes and reads it: the input to `SessionService.append`
+ * and what `SessionService.readEvents` returns to the projector. The sealed and purge columns are
+ * left out and stay NULL on append. `monotonicNs` is supplied by the writer so tests can drive
+ * non-monotonic values; `sequence`, not `monotonicNs`, is the replay key.
  */
-export interface AppendableEvent {
+export interface StoredEvent {
   readonly id: string;
   readonly sessionId: string;
   readonly sequence: number;
@@ -22,22 +23,6 @@ export interface AppendableEvent {
   readonly correlationId: string | null;
   readonly causationId: string | null;
   readonly version: string; // semver "MAJOR.MINOR"
-}
-
-/** An event as `SessionService.readEvents` returns it and the projector consumes it. */
-export interface StoredEvent {
-  readonly id: string;
-  readonly sessionId: string;
-  readonly sequence: number;
-  readonly occurredAt: string;
-  readonly monotonicNs: bigint;
-  readonly category: string;
-  readonly type: string;
-  readonly actor: string | null;
-  readonly payload: Record<string, unknown>;
-  readonly correlationId: string | null;
-  readonly causationId: string | null;
-  readonly version: string;
 }
 
 /**
