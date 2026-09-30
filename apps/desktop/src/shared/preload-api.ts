@@ -1,6 +1,7 @@
 // What the Electron preload exposes on `window.desktopBridge`.
 //
-// No auth material (daemon session token, PASETO tokens, DPoP key) appears here:
+// Every namespace and `app` member is `readonly`, so a compromised renderer cannot reassign
+// `bridge.daemon`. No auth material (daemon session token, PASETO tokens, DPoP key) appears here:
 // `preload-api.test-d.ts` fails the typecheck when any property name at any depth matches
 // /token|dpop|secret/i. Paths reach the renderer only as opaque `FilePathRef` values, which
 // main mints and dereferences. Raw `ipcRenderer`, `require`, `process` and Node built-ins
