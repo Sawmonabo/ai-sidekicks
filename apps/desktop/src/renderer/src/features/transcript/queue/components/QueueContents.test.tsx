@@ -28,6 +28,7 @@ function readFeed(items: QueueFeed["items"]): QueueFeed {
   return {
     items,
     phase: "read",
+    readRefusal: undefined,
     pendingCancelIds: new Set(),
     cancelItem: () => Promise.resolve(),
   };

@@ -6,6 +6,7 @@
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
+import { findReadRefusal } from "@renderer/services/wire-reads/read-lifecycle.js";
 import type { QueueFeed } from "../queue-reading.js";
 import { QueueRow } from "./QueueRow.js";
 
@@ -29,6 +30,17 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   if (feed.phase === "reading") {
     return (
       <Nothing kind="not-loaded" placement="block" title="Reading what is waiting in the queue." />
+    );
+  }
+  const readRefusal = findReadRefusal(feed);
+  if (readRefusal !== undefined) {
+    return (
+      <Nothing
+        kind="error"
+        placement="block"
+        title={readRefusal.code}
+        detail={readRefusal.detail}
+      />
     );
   }
 
