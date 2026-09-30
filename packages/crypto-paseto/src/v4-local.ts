@@ -6,12 +6,14 @@ import { concatBytes, equalBytes, randomBytes } from "@noble/ciphers/utils.js";
 import { pae } from "./pae.js";
 import { InvalidKeyError, InvalidTokenError, MacMismatchError } from "./errors.js";
 import { base64UrlDecode } from "./internal/base64url.js";
-import { encryptV4LocalDeterministic } from "./internal/v4-local-deterministic.js";
+import {
+  encryptV4LocalDeterministic,
+  V4_LOCAL_AUTHENTICATION_INFO,
+  V4_LOCAL_ENCRYPTION_INFO,
+  V4_LOCAL_HEADER,
+  V4_LOCAL_HEADER_BYTES,
+} from "./internal/v4-local-deterministic.js";
 
-const HEADER = "v4.local.";
-const HEADER_BYTES = new TextEncoder().encode(HEADER);
-const ENC_INFO = new TextEncoder().encode("paseto-encryption-key");
-const AUTH_INFO = new TextEncoder().encode("paseto-auth-key-for-aead");
 const NONCE_LEN = 32; // PASETO v4.local n
 const TAG_LEN = 32; // BLAKE2b-MAC output
 
@@ -47,11 +49,11 @@ export function decryptV4Local(
     throw new InvalidKeyError("v4.local key must be 32 bytes");
   }
 
-  if (!token.startsWith(HEADER)) {
+  if (!token.startsWith(V4_LOCAL_HEADER)) {
     throw new InvalidTokenError("v4.local header mismatch");
   }
 
-  const remainder = token.slice(HEADER.length);
+  const remainder = token.slice(V4_LOCAL_HEADER.length);
   const parts = remainder.split(".");
   if (parts.length > 2) {
     throw new InvalidTokenError("v4.local token has too many segments");
@@ -101,15 +103,15 @@ export function decryptV4Local(
   const tag = body.subarray(body.length - TAG_LEN);
 
   // Same key derivation as the encrypt path.
-  const tmp = blake2b(concatBytes(ENC_INFO, nonce), { key, dkLen: 56 });
+  const tmp = blake2b(concatBytes(V4_LOCAL_ENCRYPTION_INFO, nonce), { key, dkLen: 56 });
   const ek = tmp.subarray(0, 32);
   const n2 = tmp.subarray(32, 56);
-  const ak = blake2b(concatBytes(AUTH_INFO, nonce), { key, dkLen: 32 });
+  const ak = blake2b(concatBytes(V4_LOCAL_AUTHENTICATION_INFO, nonce), { key, dkLen: 32 });
 
   // Verify the MAC before decrypting. The tag comparison must stay constant time: never `===`,
   // `Buffer.compare` or a short-circuiting loop.
   const ia = implicitAssertion ?? new Uint8Array(0);
-  const m2 = pae([HEADER_BYTES, nonce, ciphertext, tokenFooter, ia]);
+  const m2 = pae([V4_LOCAL_HEADER_BYTES, nonce, ciphertext, tokenFooter, ia]);
   const expectedTag = blake2b(m2, { key: ak, dkLen: TAG_LEN });
 
   if (!equalBytes(tag, expectedTag)) {
