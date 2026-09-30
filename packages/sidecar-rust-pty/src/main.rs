@@ -564,8 +564,8 @@ mod tests {
                 std::str::from_utf8(&snap)
                     .map(|s| s.contains("\"data_frame\""))
                     .unwrap_or(false),
-                "DataFrame was not drained while outbound_tx was alive (P1 regression: \
-                 writer hot-spun on closed dispatch_rx instead of polling outbound_rx). \
+                "DataFrame was not drained while outbound_tx was alive (the writer \
+                 hot-spun on closed dispatch_rx instead of polling outbound_rx). \
                  Buffer contents: {:?}",
                 String::from_utf8_lossy(&snap),
             );

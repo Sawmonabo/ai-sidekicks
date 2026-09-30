@@ -94,7 +94,7 @@ impl std::fmt::Display for PtySessionError {
             }
             Self::Io(e) => write!(f, "I/O error: {e}"),
             Self::WindowsKillNotImplemented => {
-                write!(f, "Windows kill-translation deferred to Phase 3")
+                write!(f, "Windows kill translation is not implemented")
             }
             Self::PidUnavailable(id) => write!(
                 f,
