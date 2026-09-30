@@ -131,7 +131,8 @@ export interface WorkflowRunListEntry extends WorkflowRunSnapshot {
   readonly definitionName: string;
   /**
    * That definition's newest version id when the enumeration answered. Optional: when absent
-   * the frozen-pin state is unknown and is reported as not stale, never guessed.
+   * the frozen-pin state is unknown and is reported as not stale, never guessed: calling a run
+   * current is a smaller error than calling it stale and inviting a repair the daemon would refuse.
    */
   readonly definitionLatestWorkflowVersionId?: string;
 }

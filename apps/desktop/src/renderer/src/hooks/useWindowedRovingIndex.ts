@@ -233,7 +233,9 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       const movedRow: MovedRow = { index: moved, rowSetIdentity };
       if (moved !== activeIndex) {
         // A boundary key at its boundary lands on the row already focused, so no claim is
-        // armed. The key is still consumed and the row still revealed.
+        // armed: arming and consuming it would call focus() on the focused row, which still
+        // moves scroll anchoring and :focus-visible. The key is still consumed and the row still
+        // revealed.
         pendingFocus.current = { movedRow, retriesRemaining: PENDING_FOCUS_RETRIES };
       }
       setMovedTo(movedRow);

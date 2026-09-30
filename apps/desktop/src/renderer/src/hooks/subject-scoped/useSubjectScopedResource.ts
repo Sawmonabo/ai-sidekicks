@@ -63,7 +63,9 @@ export function useSubjectScopedResource<TResource>(
       isClosed === undefined ? undefined : { isClosed, open, publish: held.publish },
     );
   }, [lifetime, close, isClosed, open, held.publish]);
-  // The resource is the only dependency: its replacement is what ends its lifetime.
+  // The resource is the only dependency: its replacement is what ends its lifetime. One that
+  // disposes itself while nothing else moves stays disposed; a caller wanting a fresh one
+  // publishes it.
   useEffect(() => lifetime.commit(value), [lifetime, value]);
   return held;
 }

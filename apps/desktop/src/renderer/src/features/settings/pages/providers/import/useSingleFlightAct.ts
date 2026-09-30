@@ -2,6 +2,9 @@
 //
 // The settlement is a closed union (nothing attempted, in flight, the answer) so a form can
 // tell "nothing happened" from "it worked", which a boolean `isSending` renders alike.
+//
+// One control, so no key; the act names no subject that can move, so no supersession; and it
+// changes nothing this feature copies, so no local application.
 
 import { useCallback, useSyncExternalStore } from "react";
 

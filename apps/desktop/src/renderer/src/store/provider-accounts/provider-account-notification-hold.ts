@@ -7,7 +7,9 @@
 // every frame is held, of any kind, and replayed once the snapshot is applied.
 //
 // Past the cap, `overflowed` is not a loss: the caller applies what is held, applies the
-// overflowing frame, and takes a fresh read whose own hold starts empty.
+// overflowing frame, and takes a fresh read whose own hold starts empty. Each overflow costs a full
+// buffer's worth of traffic, so the re-read rate is the tail's rate divided by the cap and falls as
+// the tail quiets.
 //
 // Holding is cumulative: `begin()` does not clear, because a second read begun while an
 // earlier one is still traveling (a `window-focus` trigger) would otherwise drop the frames the
