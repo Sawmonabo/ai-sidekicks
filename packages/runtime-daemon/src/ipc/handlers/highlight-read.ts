@@ -1,10 +1,7 @@
-// `highlight.read`: the color spans of one piece of code, from the daemon's one
-// colorer.
-//
-// The spans leave the daemon as the flat `[offset, length, class]` list the
-// colorer keeps. A span list too large for one reply frame is refused by the
-// method's response schema, so an oversized reply fails the read instead of
-// closing the connection; the surface then leaves the code plain.
+// `highlight.read`: the color spans of one piece of code, from the daemon's one colorer.
+// Spans go out as the flat `[offset, length, class]` list the colorer keeps. The response schema
+// refuses a list too big for one reply frame, so an oversized reply fails the read instead of
+// closing the connection.
 import { HIGHLIGHT_METHOD_DESCRIPTORS, HIGHLIGHT_READ_METHOD } from "@ai-sidekicks/contracts";
 import type { MethodRegistry } from "@ai-sidekicks/contracts";
 
@@ -16,7 +13,7 @@ export interface HighlightReadDependencies {
   readonly highlighter: Pick<CodeHighlighter, "readSpans">;
 }
 
-/** Bind `highlight.read`. */
+/** Binds `highlight.read` onto the registry. */
 export function registerHighlightRead(
   registry: MethodRegistry,
   dependencies: HighlightReadDependencies,

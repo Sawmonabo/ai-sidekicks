@@ -1,28 +1,24 @@
-// `session.subscribe` JSON-RPC handler: a session's event stream, replay then tail, sent to
-// the screen in batched frames.
-//
-// The request names the session and, in `afterCursor`, where to replay from; the response
-// carries only the `subscriptionId`. Each change after that travels as the `value` of a
-// `$/subscription/notify` frame keyed by that id, and the client tears the stream down with
+// `session.subscribe`: a session's event stream, replay then tail, sent to the screen in
+// batched frames. The request names the session and, in `afterCursor`, where to replay from;
+// the response carries only the `subscriptionId`. Each change then travels as the `value` of a
+// `$/subscription/notify` frame keyed by that id; the client ends the stream with
 // `$/subscription/cancel`.
 //
 // How changes reach the screen:
-//   * Batched. The first change opens a window of `SESSION_STREAM_WINDOW_MS`; the window's
-//     changes go out as one frame when it closes, or at once when it holds
-//     `STREAM_FRAME_MAX_CHANGES`. It is a throttle, not a debounce, so no change waits longer
-//     than one window however fast the session writes. Every change carries its cursor.
+//   * Batched. The first change opens a window of `SESSION_STREAM_WINDOW_MS`; its changes go out
+//     as one frame when it closes, or at once at `STREAM_FRAME_MAX_CHANGES`. It is a throttle,
+//     not a debounce, so no change waits longer than one window. Every change carries its cursor.
 //   * Never waiting for a screen. When the connection's outbound queue is full, the frame that
-//     would not fit is dropped for this connection and the next frame that fits carries the
-//     drop mark, so the screen learns of the loss at once and repairs from the daemon's record
-//     by cursor. If nothing new happens after a drop, the daemon sends one frame with no
-//     changes, the drop mark and the newest cursor as soon as the queue has room again, so a
-//     session that went quiet still tells the screen it is behind.
+//     would not fit is dropped and the next frame that fits carries the drop mark, so the
+//     screen repairs from the daemon's record by cursor. If nothing new happens after a drop,
+//     one frame with no changes, the drop mark and the newest cursor goes out as soon as the
+//     queue has room, so a session that went quiet still tells the screen it is behind.
 //   * Ordered after the ack. The upstream may replay synchronously inside this handler, so
 //     every frame goes through the subscribe-init barrier, which holds it until the response
 //     has been written.
 //
-// Why `mutating: false`: opening a subscription changes no session state, so a connection
-// whose protocol version is incompatible can still read.
+// The registration is not `mutating`, so a connection with an incompatible protocol version
+// can still read.
 
 import type {
   EventCursor,
@@ -61,7 +57,7 @@ type SessionFrame = SessionStreamFrame<SessionEvent>;
 export interface OutboundQueue {
   /** Whether the connection's outbound queue is full, so a frame sent now would not fit. */
   isFull(transportId: number): boolean;
-  /** Calls `listener` once, when the connection's outbound queue has room again. Returns a detach. */
+  /** Calls `listener` once the connection's outbound queue has room again. Returns a detach. */
   onceDrained(transportId: number, listener: () => void): () => void;
 }
 

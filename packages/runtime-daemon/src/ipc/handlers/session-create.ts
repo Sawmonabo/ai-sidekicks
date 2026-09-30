@@ -1,13 +1,9 @@
-// `session.create` JSON-RPC handler: starts a session where the request binds it, led by the
-// lead it names.
+// `session.create`: starts a session where the request binds it, led by the lead it names.
 //
 // The registry parses the request against the descriptor's schema before the handler runs, so
-// a malformed request never reaches `SessionCreateDeps.createSession`. A domain failure thrown
-// from the deps is mapped to the JSON-RPC error envelope by the registry's dispatch wrapper;
-// this file never builds an envelope itself.
-//
-// Why `mutating: true`: creating a session appends `session.created`, so the pre-handshake
-// mutating-op gate refuses it on a connection whose `daemon.hello` has not completed.
+// a malformed request never reaches `createSession`. A failure thrown from the deps is mapped
+// to the JSON-RPC error envelope outside this file. The descriptor is `mutating`, so the gate
+// refuses it on a connection whose `daemon.hello` has not completed.
 
 import type {
   MethodRegistry,
@@ -21,13 +17,10 @@ import { registerDescribedMethod } from "./register-described-method.js";
 /** What `session.create`'s handler calls. */
 export interface SessionCreateDeps {
   /**
-   * Creates the session and answers its id, shape and state.
-   *
-   * The session id is minted through the daemon-wide `mintUuidV7`
-   * (`runtime-daemon/src/ids/uuid-v7.ts`), as every daemon-side row and event id is. The
-   * wire schemas accept any UUID version only because control-plane ids are Postgres v4;
-   * that tolerance does not let a daemon id be v4. The implementation appends
-   * `session.created` before it answers.
+   * Creates the session and answers its id, shape and state. The implementation appends
+   * `session.created` before it answers, and mints the id with the daemon-wide `mintUuidV7`:
+   * the wire schemas accept any UUID version only because control-plane ids are v4, and a
+   * daemon id is never v4.
    */
   readonly createSession: (request: SessionCreateRequest) => Promise<SessionCreateResponse>;
 }

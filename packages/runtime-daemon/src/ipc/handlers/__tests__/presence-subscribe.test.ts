@@ -1,24 +1,8 @@
-// `presence.subscribe` handler test suite.
-//
-// Presence is the devices connected to this machine, held in memory and pushed
-// to the client as the whole list on each change; it never lands in
-// `session_events`. Tests: round-trip through dispatch → `{subscriptionId}`; a
-// pushed `MachinePresence` becomes a `$/subscription/notify` frame validated
-// against `MachinePresenceSchema`; a request that names a session is refused;
-// `mutating: false`; transportId required; duplicate-registration.
-//
-// Invariants verified:
-//   * Duplicate `registerPresenceSubscribe` is rejected at register-time.
-//   * Streaming validate-before-send — every pushed `MachinePresence` is
-//     validated against `MachinePresenceSchema` before the
-//     `$/subscription/notify` frame is sent; a malformed value throws
-//     `StreamingValidationError` from `sub.next(...)`.
-//   * Subscribe-init response precedes the first notification frame: updates
-//     fired during setup buffer and flush on a `setImmediate` boundary after
-//     the init `{subscriptionId}` response settles (also exercised by the
-//     replay-flush + live-tail crash guards).
-//   * Streaming-leak — `sub.onCancel(unsubscribe)` fires the upstream detach
-//     on wire-cancel + transport-disconnect; `complete()` does NOT fire it.
+// `presence.subscribe` through the method registry and a real streaming primitive: the whole
+// device list is pushed as `$/subscription/notify` frames, validated before send, after the
+// `{subscriptionId}` response. Also: a request naming a session is refused, a missing transport
+// id is refused, a bad pushed value cancels the subscription instead of crashing the daemon,
+// and cancel or disconnect (but not `complete()`) detaches the source.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -45,15 +29,11 @@ import { StreamingPrimitive, StreamingValidationError } from "../../streaming-pr
 
 import { registerPresenceSubscribe, type PresenceSubscribeDeps } from "../presence-subscribe.js";
 
-// ----------------------------------------------------------------------------
-// Shared fixtures
-// ----------------------------------------------------------------------------
-//
-// Static literal IDs chosen for human-readable failure output.
+// A fixed id, so a failure prints the same value every run.
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 
-/** A canonical-shape `MachinePresence`: one connected device. */
+/** A `MachinePresence` with one connected device. */
 function buildMachinePresence(): MachinePresence {
   return {
     devices: [
@@ -73,21 +53,14 @@ const MALFORMED_PRESENCE = {
   sessionId: TEST_SESSION_ID,
 } as unknown as MachinePresence;
 
-// ============================================================================
-// Local IPC bridge (presence.subscribe push slice)
-// ============================================================================
-
 describe("presence.subscribe — push slice round-trip + wire-frame emission", () => {
   it("dispatches subscribe; returns `{subscriptionId}`; sub.next(update) routes as a `$/subscription/notify` frame validated against MachinePresenceSchema", async () => {
-    // Arrange — a real StreamingPrimitive against a captured `send` mock.
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     const primitive = new StreamingPrimitive({ registry, send });
 
-    // Capture the upstream onUpdate callback the handler passes into
-    // `subscribeToPresence`. Holder-object pattern: TS narrows a closure-
-    // assigned `let foo: T | null = null` to `null` at outer reads; the
-    // holder object preserves the property type across reads.
+    // Captures the `onUpdate` the handler passes to `subscribeToPresence`. A holder object,
+    // because TypeScript narrows a closure-assigned `let` to `null` at the outer read.
     const onUpdateHolder: { current: ((update: MachinePresence) => void) | null } = {
       current: null,
     };
@@ -99,7 +72,6 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
     const deps: PresenceSubscribeDeps = { streamingPrimitive: primitive, subscribeToPresence };
     registerPresenceSubscribe(registry, deps);
 
-    // Act — dispatch with a transport-bound ctx.
     const transportId = 42;
     const ctx: HandlerContext = { transportId };
     const result = (await registry.dispatch(
@@ -108,7 +80,6 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
       ctx,
     )) as PresenceSubscribeResponse;
 
-    // Assert — the response carries an opaque `subscriptionId` (RFC 9562 UUID).
     expect(typeof result.subscriptionId).toBe("string");
     expect(result.subscriptionId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
@@ -117,22 +88,15 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
     expect(subscribeToPresence).toHaveBeenCalledTimes(1);
     expect(onUpdateHolder.current).not.toBeNull();
 
-    // Wire-ordering invariant — drain the `setImmediate` replay boundary so
-    // the init response lands first; no notify before the boundary.
+    // Nothing is pushed before the response is written.
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(send).not.toHaveBeenCalled();
 
-    // Act — drive a MachinePresence through the captured onUpdate. The handler
-    // routes it to `sub.next(update)`, which validates against
-    // `MachinePresenceSchema` (the streaming validate-before-send analog) and
-    // emits a
-    // `$/subscription/notify` frame on the captured `send`.
     const onUpdate = onUpdateHolder.current;
     if (onUpdate === null) throw new Error("unreachable — onUpdate captured above");
     const update = buildMachinePresence();
     onUpdate(update);
 
-    // Assert — exactly one notify frame with the canonical wire shape.
     expect(send).toHaveBeenCalledTimes(1);
     const call = send.mock.calls[0];
     if (call === undefined) throw new Error("unreachable");
@@ -146,18 +110,14 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
   });
 
   it("buffers updates fired synchronously during setup and flushes them AFTER the init response (wire-ordering invariant)", async () => {
-    // The deps' `subscribeToPresence` fires an update SYNCHRONOUSLY during
-    // setup (replay-window). The handler must buffer it and flush on the
-    // `setImmediate` boundary so the `{subscriptionId}` response lands on
-    // the wire BEFORE the notify — otherwise the notify hits the SDK's
-    // unknown-id silent-drop branch.
+    // The source fires an update during setup. The handler holds it until after the response,
+    // or the client would receive a notify for an id it does not know yet and drop it.
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     const primitive = new StreamingPrimitive({ registry, send });
 
     const syncUpdate = buildMachinePresence();
     const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>((onUpdate) => {
-      // Fire synchronously during the subscription-setup body.
       onUpdate(syncUpdate);
       return vi.fn<() => void>();
     });
@@ -167,11 +127,10 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
     const ctx: HandlerContext = { transportId: 7 };
     await registry.dispatch("presence.subscribe", {}, ctx);
 
-    // Immediately after dispatch resolves (response settled), no notify has
-    // been emitted yet — the synchronously-fired update is buffered.
+    // The update is still held.
     expect(send).not.toHaveBeenCalled();
 
-    // After the `setImmediate` boundary drains, the buffered update flushes.
+    // The held update is sent on the next `setImmediate`.
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(send).toHaveBeenCalledTimes(1);
     const call = send.mock.calls[0];
@@ -181,27 +140,19 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
   });
 
   it("a malformed pushed value throws StreamingValidationError from sub.next (MachinePresenceSchema validates before send)", async () => {
-    // Drive a value that is NOT a valid MachinePresence through the captured
-    // live-tail onUpdate. `sub.next(...)` validates against
-    // `MachinePresenceSchema` and throws; the handler's live-tail catch
-    // cancels the subscription and logs (it does NOT rethrow into the test).
-    // We assert the validation throw directly via a primitive-level
-    // subscription so the throw surfaces to the test (the handler swallows
-    // its own live-tail throw by design — see presence-subscribe.ts).
+    // Uses a primitive-level subscription, because the handler catches this throw, cancels the
+    // subscription and logs it, so it would not reach the test.
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     const primitive = new StreamingPrimitive({ registry, send });
 
-    // Allocate a primitive-level subscription wired with the SAME per-value
-    // schema the handler uses (`MachinePresenceSchema`). We assert the
-    // validation throw directly here because the handler swallows its own
-    // live-tail throw by design (cancel + log; see presence-subscribe.ts).
+    // The subscription uses the same per-value schema as the handler.
     const sub = primitive.createSubscription<MachinePresence>(99, MachinePresenceSchema);
 
-    // A list carrying an unknown key fails `MachinePresenceSchema.safeParse`.
+    // A list with an unknown key fails `MachinePresenceSchema`.
     const malformed = MALFORMED_PRESENCE;
     expect(() => sub.next(malformed)).toThrow(StreamingValidationError);
-    // No frame was emitted — validation short-circuits before send.
+    // Validation fails before anything is sent.
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -247,8 +198,7 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
     const deps: PresenceSubscribeDeps = { streamingPrimitive: primitive, subscribeToPresence };
     registerPresenceSubscribe(registry, deps);
 
-    // No transportId on ctx — the handler throws a plain Error (maps to
-    // -32603 on the wire); the upstream subscribe is NEVER reached.
+    // The handler throws a plain Error (an internal error on the wire) before subscribing.
     await expect(registry.dispatch("presence.subscribe", {}, {})).rejects.toThrow(
       /requires ctx\.transportId/,
     );
@@ -278,31 +228,17 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
   });
 });
 
-// ============================================================================
-// Push-slice crash guards (replay-flush + live-tail) + onCancel
-// upstream-detach. Faithful presence analogs of the `session-subscribe.ts`
-// regression tests (session-handlers.test.ts) — a regression dropping any
-// of these branches would pass every push-slice test above.
-// ============================================================================
-
 describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
-  // Restore all `vi.spyOn(...)` instances after EACH test so a console.error
-  // spy that survives a mid-test assertion failure doesn't leak into the next
-  // test's stdout. The runtime-daemon's vitest.config does NOT set
-  // `restoreMocks: true`, so explicit per-block hygiene is the right call
-  // (mirrors the session-subscribe crash-guard block).
+  // This package's vitest config does not restore mocks automatically, so a console spy left by
+  // a failed test would leak into the next one.
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it("replay-flush: a malformed update in the replay buffer is caught; subscription canceled; daemon survives", async () => {
-    // `subscribeToPresence` fires a MALFORMED update SYNCHRONOUSLY during
-    // setup, so it lands in the handler's `replayBuffer` (not the live-tail
-    // path). The setImmediate boundary then drains the buffer and the inner
-    // `sub.next(update)` throws `StreamingValidationError`. Without the
-    // replay-flush guard, that throw escapes setImmediate as uncaught and
-    // vitest's uncaught-exception hook FAILS the test. With the guard, the
-    // catch runs `sub.cancel()` + `console.error`.
+    // A bad update fired during setup is held, then fails validation when the `setImmediate`
+    // flush sends it. Without the handler's catch that throw would be uncaught and stop the
+    // daemon; with it, the subscription is canceled and the failure logged.
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     const primitive = new StreamingPrimitive({ registry, send });
@@ -310,8 +246,6 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
 
     const malformed = MALFORMED_PRESENCE;
     const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>((onUpdate) => {
-      // Fire SYNCHRONOUSLY — replay window. The buffered value flushes on
-      // the setImmediate boundary and fails `MachinePresenceSchema`.
       onUpdate(malformed);
       return () => undefined;
     });
@@ -326,15 +260,10 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
     )) as PresenceSubscribeResponse;
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    // Daemon survived (we got here; no uncaught throw aborted the test). The
-    // primitive's one-arg `cancelSubscription(id)` returns `false` because
-    // `sub.cancel()` already ran inside the replay-flush catch, draining both
-    // primitive maps.
+    // The subscription is already canceled, so canceling it again finds nothing.
     expect(primitive.cancelSubscription(result.subscriptionId)).toBe(false);
-    // The malformed update did NOT propagate to the wire.
     expect(send).not.toHaveBeenCalled();
-    // The tripwire fired: first arg the prefix (with the subscriptionId inlined
-    // per the presence handler), second arg the StreamingValidationError.
+    // The log carries the subscription id, then the validation error.
     expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
     const errCall = consoleErrorSpy.mock.calls[0];
     if (errCall === undefined) throw new Error("unreachable — tripwire log expected");
@@ -349,11 +278,8 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
   });
 
   it("live-tail: a malformed update after replay drain is caught; subscription canceled; daemon survives", async () => {
-    // `subscribeToPresence` captures `onUpdate` and returns immediately (no
-    // synchronous replay). After we drain the setImmediate boundary,
-    // `replayDrained === true`, so a subsequent `onUpdate(update)` lands the
-    // live-tail guard site. Without the guard, the `sub.next(update)` throw
-    // escapes the lambda as an uncaught exception.
+    // A bad update pushed after the first flush takes the live path. Without the handler's
+    // catch, the validation throw would escape the source's call as an uncaught exception.
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     const primitive = new StreamingPrimitive({ registry, send });
@@ -379,10 +305,7 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
     const onUpdate = onUpdateHolder.current;
     if (onUpdate === null) throw new Error("unreachable — onUpdate captured above");
 
-    // The lambda is a synchronous call from this test stack; the live-tail
-    // guard catches the throw and the call returns normally (cancel + log).
-    // Wrap in expect().not.toThrow() so a dropped guard surfaces as a clean
-    // failure rather than an uncaught exception that aborts the suite.
+    // `not.toThrow` makes a missing catch fail this test instead of aborting the suite.
     const malformed = MALFORMED_PRESENCE;
     expect(() => onUpdate(malformed)).not.toThrow();
 
@@ -404,11 +327,8 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
 
 describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (the streaming-leak invariant)", () => {
   it("wire-cancel (`$/subscription/cancel` from the same transport) fires the upstream unsubscribe", async () => {
-    // The handler-binding path registers the unsubscribe via
-    // `sub.onCancel(unsubscribe)`; the primitive's wire-cancel path (the
-    // registered `$/subscription/cancel` handler dispatching to
-    // `cancelSubscription`) must fire it. Without the onCancel wire-up, the
-    // entry would drain but the upstream presence-source watcher would leak.
+    // Without the handler's `sub.onCancel(unsubscribe)`, the subscription would be removed but
+    // the presence source's watcher would leak.
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     const primitive = new StreamingPrimitive({ registry, send });
@@ -426,15 +346,10 @@ describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (th
       {},
       ctx,
     )) as PresenceSubscribeResponse;
-    // Drain the replay-flush boundary so any post-init race is observable
-    // before we cancel.
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(unsubscribe).not.toHaveBeenCalled();
 
-    // Dispatch the wire-cancel through the registered cancel handler (the same
-    // path a real client's `$/subscription/cancel` notification walks). The
-    // cancel handler verifies transport-scoped ownership BEFORE calling
-    // `cancelSubscription`; matching `transportId` is required.
+    // The cancel handler checks that the subscription belongs to the calling transport.
     const cancelResult = await registry.dispatch(
       "$/subscription/cancel",
       { subscriptionId: result.subscriptionId },
@@ -446,10 +361,7 @@ describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (th
   });
 
   it("transport-disconnect (`cleanupTransport`) fires the upstream unsubscribe", async () => {
-    // The disconnect path runs through the bootstrap orchestrator's composed
-    // `onDisconnect` hook in production, which calls
-    // `streamingPrimitive.cleanupTransport(transportId)`. Direct invocation
-    // here models that hook firing.
+    // A closed connection calls `cleanupTransport`; the test calls it directly.
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     const primitive = new StreamingPrimitive({ registry, send });
@@ -468,16 +380,12 @@ describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (th
 
     primitive.cleanupTransport(transportId);
 
-    // The upstream watcher detached; without the onCancel wire-up it would
-    // remain registered against the now-dead transport.
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it("complete() does NOT fire the upstream unsubscribe (natural producer-driven termination is silent)", () => {
-    // Capture the producer handle directly so the test can call `complete()`
-    // on it (the handler returns the subscription via `createSubscription`; we
-    // exercise the same producer surface here). By contract, `complete()` MUST
-    // NOT fire onCancel handlers — the producer already knows the stream ended.
+    // `complete()` is called by the producer itself, which already knows the stream ended, so
+    // it must not run the cancel hooks.
     const registry = new MethodRegistryImpl();
     const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
     const primitive = new StreamingPrimitive({ registry, send });
@@ -487,8 +395,6 @@ describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (th
 
     sub.complete();
 
-    // The upstream watcher is NOT detached on natural completion. The hook
-    // only fires on externally-imposed cancellation.
     expect(unsubscribe).not.toHaveBeenCalled();
   });
 });

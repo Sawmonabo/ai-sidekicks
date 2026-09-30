@@ -1,7 +1,6 @@
-// Registers a query or mutation handler against its method's descriptor, so the
-// method name, its schemas and its version-gate flag all come from the one
-// contract that states them and a handler can never be bound to another
-// method's shapes.
+// Registers a query or mutation handler against its method's descriptor, so the method name,
+// schemas and version-gate flag all come from the contract and a handler cannot be bound to
+// another method's shapes.
 import type {
   AnyMethodDescriptor,
   Handler,
@@ -15,6 +14,10 @@ type SingleResultDescriptor = AnyMethodDescriptor & {
   readonly procedureType: "query" | "mutation";
 };
 
+/**
+ * Binds `handler` to `descriptor`'s method, schemas and `mutating` flag on `registry`. Its
+ * request and response types are inferred from the descriptor.
+ */
 export function registerDescribedMethod<Descriptor extends SingleResultDescriptor>(
   registry: MethodRegistry,
   descriptor: Descriptor,

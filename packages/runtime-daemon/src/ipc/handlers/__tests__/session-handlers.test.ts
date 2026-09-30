@@ -1,19 +1,6 @@
 // `session.create`, `session.read` and `session.subscribe` handler tests, driven through the
-// method registry.
-//
-//   * `session.create`: a dispatched request reaches the deps with its parsed params, a
-//     malformed one is refused as `-32602 InvalidParams` before the handler runs, and a second
-//     registration of the method is refused.
-//   * `session.read`: a known session answers its snapshot; an unknown one maps through
-//     `SessionNotFoundError` to `-32602` with `data.type: "session.not_found"`.
-//   * `session.subscribe`: the ack precedes every frame; changes go out batched, one frame per
-//     window or per full frame, each change with its cursor; a connection that falls behind is
-//     dropped for and told on the next frame that fits, or by one frame with no changes once it
-//     catches up; a malformed frame cancels the subscription without taking the daemon down;
-//     the upstream detaches when the subscription ends.
-//
-// The streaming primitive's own guarantees (cancel bookkeeping, transport ownership, cancel
-// handlers) are covered in `streaming-primitive.test.ts`.
+// method registry. The streaming primitive's own guarantees (cancel bookkeeping, transport
+// ownership, cancel handlers) are covered in `streaming-primitive.test.ts`.
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
@@ -66,35 +53,18 @@ import {
   type SessionSubscribeDeps,
 } from "../session-subscribe.js";
 
-// ----------------------------------------------------------------------------
-// Shared fixtures — canonical-shape SessionCreateResponse + SessionEvent
-// ----------------------------------------------------------------------------
-//
-// Both T1 and T3 need real RFC 9562 UUIDs in the response/event fixtures
-// because the registry's step 4 (`SessionCreateResponseSchema.safeParse(result)`)
-// and the streaming primitive's per-value validation
-// (`SessionEventSchema.safeParse(value)`) both consult the canonical schemas
-// — invalid UUIDs would fail those parses for the wrong reason and obscure
-// what we actually want to assert. The UUIDs below are static literals
-// chosen for human-readable test failure output; their byte values are
-// otherwise meaningless.
+// The fixtures use real RFC 9562 UUIDs: the registry parses the `session.create` result and the
+// streaming primitive parses every event, so an invalid UUID would fail those parses for the
+// wrong reason.
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const TEST_USER_ID = "660e8400-e29b-41d4-a716-446655440001";
-// Additional ID for the session-read fixtures. The value is a static
-// literal chosen for human-readable test failure output; its byte values
-// are otherwise meaningless beyond passing the schema's branded-UUID parse.
 const UNKNOWN_SESSION_ID = "aabbccdd-eeff-4011-8022-334455667788" as SessionId;
 const HELD_DRAFT = "Half a thought about the retry loop";
 /** A draft store holding no draft for any session. */
 const NO_DRAFTS: SessionReadDeps["draftStore"] = { read: () => "" };
 
-/**
- * Build a canonical-shape `SessionCreateResponse` matching every required
- * field on `SessionCreateResponseSchema`. The mock `createSession` callback
- * returns this verbatim so the registry's step-4 `safeParse(result)`
- * succeeds and the dispatched value reaches the test assertion intact.
- */
+/** A `SessionCreateResponse` that passes `SessionCreateResponseSchema`. */
 function buildSessionCreateResponse(): SessionCreateResponse {
   return {
     sessionId: TEST_SESSION_ID,
@@ -115,19 +85,7 @@ const SESSION_CREATE_REQUEST: SessionCreateRequest = {
   },
 };
 
-/**
- * Build a canonical-shape `session.created` `SessionEvent` matching every
- * required field on `SessionEventSchema`'s discriminated-union variant.
- * Inlined per the test-file's "no shared helper" directive AGAINST T3
- * frame-shape assertions; this fixture is the EVENT SHAPE that reaches the
- * primitive's `next()` and gets validated against `SessionEventSchema`.
- *
- * Inline-duplicated from `packages/contracts/src/__tests__/session-event.test.ts`
- * (the canonical fixture pattern in the contracts package's own tests).
- * Drift between the two would surface immediately as a Zod parse failure —
- * the schema is the single source of truth, and the test fixture is
- * downstream.
- */
+/** A `session.created` `SessionEvent` that passes `SessionEventSchema`. */
 function buildSessionCreatedEvent(): SessionEvent {
   return {
     id: "evt-0001",
@@ -158,12 +116,11 @@ function buildSessionCreatedEvent(): SessionEvent {
 }
 
 /**
- * Build the session log's side of a `session.read` answer: every snapshot member but the
- * draft, which the handler adds from the draft store.
+ * The session log's side of a `session.read` answer: every snapshot member but the draft, which
+ * the handler adds from the draft store.
  *
- * `timelineCursors.acknowledged` is intentionally omitted — it is optional per the
- * canonical interface and exercising the absent-key shape catches a regression where a
- * default of `undefined` would slip through and fail `.strict()` parsing.
+ * `timelineCursors.acknowledged` is omitted on purpose: an absent optional key catches a default
+ * of `undefined` that would fail `.strict()` parsing.
  */
 function buildSessionLogRead(): SessionLogRead {
   return {
@@ -179,13 +136,8 @@ function buildSessionLogRead(): SessionLogRead {
   };
 }
 
-// ----------------------------------------------------------------------------
-// `session.create` round-trip through the registry
-// ----------------------------------------------------------------------------
-
 describe("session.create round-trip through MethodRegistry dispatch", () => {
   it("dispatches `session.create` to the deps' createSession; returns the canonical response shape", async () => {
-    // Arrange — bind a mock `createSession` against a fresh registry.
     const registry = new MethodRegistryImpl();
     const expectedResponse = buildSessionCreateResponse();
     const mockCreateSession = vi.fn<(req: SessionCreateRequest) => Promise<SessionCreateResponse>>(
@@ -194,25 +146,18 @@ describe("session.create round-trip through MethodRegistry dispatch", () => {
     const deps: SessionCreateDeps = { createSession: mockCreateSession };
     registerSessionCreate(registry, deps);
 
-    // Act — dispatch a chat led by a provider binding.
     const directCtx: HandlerContext = {};
     const result = await registry.dispatch("session.create", SESSION_CREATE_REQUEST, directCtx);
 
-    // Assert — the deps callback ran exactly once with the parsed params.
     expect(mockCreateSession).toHaveBeenCalledTimes(1);
     expect(mockCreateSession).toHaveBeenCalledWith(SESSION_CREATE_REQUEST);
-
-    // Assert — the dispatched result equals the deps' return value
-    // (verbatim; the registry's step-4 `safeParse(result)` against
-    // `SessionCreateResponseSchema` re-parses but does not mutate fields).
+    // The registry re-parses the result against the schema but does not change it.
     expect(result).toStrictEqual(expectedResponse);
   });
 
   it("registers `session.create` with mutating: true (pre-handshake gate refuses)", () => {
-    // Sanity check — the slice contract names mutating: true; the negotiation
-    // gate predicate is `isMutating(method) === true`, so flipping this flag
-    // would break the security contract that pre-handshake mutating dispatch
-    // is refused.
+    // The negotiation gate refuses a method when `isMutating(method)` is true, so flipping this
+    // flag would let a mutating dispatch through before the handshake.
     const registry = new MethodRegistryImpl();
     const deps: SessionCreateDeps = {
       createSession: async () => buildSessionCreateResponse(),
@@ -222,17 +167,8 @@ describe("session.create round-trip through MethodRegistry dispatch", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-
 describe("malformed session.create payload (verifies handler NEVER runs maps to -32602)", () => {
   it("malformed payload rejects with `RegistryDispatchError(invalid_params)`; handler is NEVER invoked", async () => {
-    // Arrange — a mock `createSession` whose call count we WILL assert is
-    // zero after dispatch. The handler closure registered by
-    // `registerSessionCreate` passes the parsed request to `deps.createSession`;
-    // a zero call count on `mockCreateSession`
-    // proves the registry short-circuited at step 2 (params validation)
-    // before reaching step 3 (handler invocation).
     const registry = new MethodRegistryImpl();
     const mockCreateSession = vi.fn<(req: SessionCreateRequest) => Promise<SessionCreateResponse>>(
       async () => buildSessionCreateResponse(),
@@ -240,10 +176,8 @@ describe("malformed session.create payload (verifies handler NEVER runs maps to 
     const deps: SessionCreateDeps = { createSession: mockCreateSession };
     registerSessionCreate(registry, deps);
 
-    // Act — dispatch with a malformed payload. `SessionCreateRequestSchema`
-    // is `.strict()`; `{ bogus: true }` carries an unknown key the strict
-    // mode rejects. This forces the registry's step-2 `safeParse(params)`
-    // failure path with structured `error.issues`.
+    // `SessionCreateRequestSchema` is `.strict()`, so the unknown key `bogus` fails params
+    // validation.
     const directCtx: HandlerContext = {};
     let caught: unknown = null;
     try {
@@ -252,8 +186,6 @@ describe("malformed session.create payload (verifies handler NEVER runs maps to 
       caught = err;
     }
 
-    // Assert — the throw is `RegistryDispatchError("invalid_params")` per
-    // the registry's structured short-circuit.
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_params");
@@ -262,18 +194,12 @@ describe("malformed session.create payload (verifies handler NEVER runs maps to 
       expect(issues.length).toBeGreaterThan(0);
     }
 
-    // CRITICAL ASSERTION — the handler closure must NEVER have
-    // executed. If a regression moved the schema check after handler
-    // invocation, this assertion would fail.
     expect(mockCreateSession).not.toHaveBeenCalled();
   });
 
   it("`invalid_params` registry code maps to JSON-RPC `-32602` on the wire", () => {
-    // Sanity — confirm the daemon-internal registry code maps to the
-    // canonical JSON-RPC numeric. The mapping is owned by
-    // `jsonrpc-error-mapping.ts`; this test verifies the cross-file
-    // contract holds at the boundary between "registry throws structured
-    // error" and "wire emits sanitized envelope".
+    // The mapping is owned by `jsonrpc-error-mapping.ts`; this pins the boundary between the
+    // registry's structured error and the wire envelope.
     const err = new RegistryDispatchError("invalid_params", "params validation failed", [
       { marker: "session.create-malformed" },
     ]);
@@ -283,14 +209,9 @@ describe("malformed session.create payload (verifies handler NEVER runs maps to 
   });
 });
 
-// ----------------------------------------------------------------------------
-// `session.subscribe`: harness
-// ----------------------------------------------------------------------------
-//
-// The handler batches changes on a 16 ms window, so these tests fake
-// `setTimeout` / `clearTimeout` and leave `setImmediate` real: the ack barrier
-// crosses into the check phase with `setImmediate`, and a faked one would never
-// release it.
+// The handler batches changes on a timer window, so the `session.subscribe` tests fake
+// `setTimeout` / `clearTimeout` and leave `setImmediate` real: the ack barrier releases on
+// `setImmediate`, and a faked one would never release it.
 
 /** The primitive's per-connection send, as the tests capture it. */
 type SendFrame = (transportId: number, frame: JsonRpcNotification<unknown>) => void;
@@ -390,10 +311,6 @@ async function subscribeWith(
   if (onChange === null) throw new Error("unreachable — subscribeToSession ran during dispatch");
   return { send, primitive, subscriptionId: result.subscriptionId, onChange };
 }
-
-// ----------------------------------------------------------------------------
-// `session.subscribe`: the ack, and changes batched into frames
-// ----------------------------------------------------------------------------
 
 describe("session.subscribe batches a session's changes into frames", () => {
   afterEach(() => {
@@ -511,10 +428,6 @@ describe("session.subscribe batches a session's changes into frames", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// `session.subscribe`: a connection that falls behind is dropped for, and told
-// ----------------------------------------------------------------------------
-
 describe("session.subscribe never waits for a connection that falls behind", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -574,14 +487,9 @@ describe("session.subscribe never waits for a connection that falls behind", () 
   });
 });
 
-// ----------------------------------------------------------------------------
-// `session.subscribe`: a malformed frame never takes the daemon down
-// ----------------------------------------------------------------------------
-//
-// A frame the primitive refuses throws `StreamingValidationError` from a turn
-// no dispatch wrapper covers: the barrier's flush, or the upstream's own turn.
-// The barrier cancels the subscription and logs; these tests pin that for the
-// session stream on both sides of the ack.
+// A frame the primitive refuses throws `StreamingValidationError` from a turn no dispatch
+// wrapper covers: the barrier's flush, or the upstream's own turn. The barrier cancels the
+// subscription and logs; these tests pin that on both sides of the ack.
 
 describe("session.subscribe survives a malformed frame", () => {
   afterEach(() => {
@@ -624,10 +532,6 @@ describe("session.subscribe survives a malformed frame", () => {
     expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");
   });
 });
-
-// ----------------------------------------------------------------------------
-// `session.subscribe`: the upstream detaches when the subscription ends
-// ----------------------------------------------------------------------------
 
 describe("session.subscribe detaches the upstream when the subscription ends", () => {
   async function subscribeCountingDetach(transportId: number): Promise<{
@@ -677,9 +581,6 @@ describe("session.subscribe detaches the upstream when the subscription ends", (
   });
 });
 
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-
 describe("duplicate registerSessionCreate rejected at register-time", () => {
   it("calling registerSessionCreate twice throws RegistryRegistrationError(`duplicate_method`)", () => {
     const registry = new MethodRegistryImpl();
@@ -687,12 +588,8 @@ describe("duplicate registerSessionCreate rejected at register-time", () => {
       createSession: async () => buildSessionCreateResponse(),
     };
 
-    // First call — succeeds and binds `session.create`.
     registerSessionCreate(registry, deps);
 
-    // Second call — must throw at register-time. The throw surfaces
-    // synchronously from `MethodRegistryImpl.register` (no dispatch /
-    // no async tick required).
     let caught: unknown = null;
     try {
       registerSessionCreate(registry, deps);
@@ -711,32 +608,13 @@ describe("duplicate registerSessionCreate rejected at register-time", () => {
       createSession: async () => buildSessionCreateResponse(),
     };
     registerSessionCreate(registry, deps);
-    // `expect(() => fn()).toThrow(...)` requires the throw to be synchronous;
-    // a regression that moved the duplicate check into dispatch-time would
-    // surface only after an async dispatch attempt and this test would fail.
+    // A check moved to dispatch time would surface only after an async dispatch, so this fails.
     expect(() => registerSessionCreate(registry, deps)).toThrow(RegistryRegistrationError);
   });
 });
 
-// ----------------------------------------------------------------------------
-// `session.read` round-trip (AC-N2 +) (closure)
-// ----------------------------------------------------------------------------
-//
-// AC-N2 has two arms: (a) happy path — a known sessionId returns a
-// `SessionRead`-shape projection; (b) unknown sessionId — the deps throw
-// `SessionNotFoundError`, which `mapJsonRpcError` discriminates to the
-// canonical wire envelope `-32602 InvalidParams` + `data.type:
-// "session.not_found"`.
-//
-// Wire-mapping check is performed by passing the `RegistryDispatchError`
-// the registry rethrows through `mapJsonRpcError` and asserting the
-// envelope shape — mirrors T2's two-arm pattern (registry throw +
-// wire-mapping numeric) but adds the `data.type` projection check that
-// is the load-bearing AC-N2 contract.
-
 describe("session.read round-trip (AC-N2 +)", () => {
   it("dispatches a known sessionId to the readSession deps and answers it with the held draft", async () => {
-    // Arrange — bind a mock `readSession` and a draft store holding one draft.
     const registry = new MethodRegistryImpl();
     const logRead = buildSessionLogRead();
     const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
@@ -748,7 +626,6 @@ describe("session.read round-trip (AC-N2 +)", () => {
     };
     registerSessionRead(registry, deps);
 
-    // Act — dispatch with the canonical request body.
     const directCtx: HandlerContext = {};
     const result = await registry.dispatch(
       "session.read",
@@ -756,31 +633,23 @@ describe("session.read round-trip (AC-N2 +)", () => {
       directCtx,
     );
 
-    // Assert — the deps callback ran exactly once with the parsed params.
     expect(mockReadSession).toHaveBeenCalledTimes(1);
     expect(mockReadSession).toHaveBeenCalledWith({ sessionId: TEST_SESSION_ID });
 
-    // Assert — the log's read, with the draft the store holds for that session.
+    // The log's read, with the draft the store holds for that session.
     expect(result).toStrictEqual({
       ...logRead,
       session: { ...logRead.session, draft: HELD_DRAFT },
     });
 
-    // Assert — the response shape matches `SessionReadResponseSchema`
-    // (Standard-Schema-V1 round-trip check; catches a regression where a
-    // future fixture change drifts away from the wire contract).
+    // The answer also passes the wire schema.
     const parsed = SessionReadResponseSchema.safeParse(result);
     expect(parsed.success).toBe(true);
   });
 
   it("maps an unknown sessionId throw to -32602 + data.type session.not_found via SessionNotFoundError", async () => {
-    // Arrange — `readSession` throws `SessionNotFoundError` for the
-    // unknown sessionId. This is the typed deps-contract surface
-    // documented in `session-read.ts`'s `SessionReadDeps.readSession`
-    // JSDoc — unknown ids MUST throw this class (not a plain `Error`)
-    // so the discriminator branch in `mapJsonRpcError` produces the
-    // canonical envelope rather than collapsing to the `-32603
-    // InternalError` catch-all.
+    // `SessionReadDeps.readSession` must throw `SessionNotFoundError` (not a plain `Error`) for an
+    // unknown id, so `mapJsonRpcError` produces this envelope instead of the `-32603` catch-all.
     const registry = new MethodRegistryImpl();
     const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
       async () => {
@@ -792,13 +661,9 @@ describe("session.read round-trip (AC-N2 +)", () => {
     const deps: SessionReadDeps = { readSession: mockReadSession, draftStore: NO_DRAFTS };
     registerSessionRead(registry, deps);
 
-    // Act — dispatch. The registry's `dispatch()` does NOT wrap handler
-    // throws (only `method_not_found` / `invalid_params` / `invalid_result`
-    // surface as `RegistryDispatchError`; see `registry.ts:348-397`).
-    // Handler-side throws propagate verbatim up the await chain — which
-    // is exactly what the gateway needs: it passes the raw throw to
-    // `mapJsonRpcError` for the wire envelope (see
-    // `local-ipc-gateway.ts:1185-1214`).
+    // `dispatch()` does not wrap handler throws (only `method_not_found`, `invalid_params` and
+    // `invalid_result` become `RegistryDispatchError`), and the gateway passes the raw throw to
+    // `mapJsonRpcError`.
     const ctx: HandlerContext = {};
     let caught: unknown = null;
     try {
@@ -808,42 +673,26 @@ describe("session.read round-trip (AC-N2 +)", () => {
     }
     expect(caught).toBeInstanceOf(SessionNotFoundError);
 
-    // Act (wire-mapping) — walk through `mapJsonRpcError` exactly like
-    // the gateway would (the raw throw is what the discriminator must
-    // see). Mirrors T2's wire-mapping arm but the discriminator branch
-    // exercised here is the new `SessionNotFoundError` branch
-    // (`jsonrpc-error-mapping.ts` — added by this PR).
     const envelope = mapJsonRpcError(caught, 7);
 
-    // Assert — the canonical wire envelope.
     expect(envelope.id).toBe(7);
     expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
     expect(envelope.error.data).toBeDefined();
     const data = envelope.error.data;
     if (data === undefined) throw new Error("unreachable — envelope.error.data was asserted above");
     expect(data.type).toBe("session.not_found");
-    // The structured `fields` payload from the throw site projects
-    // through to `data.fields`. The `sessionId` value flows verbatim
-    // (after the `sanitizeFields` recursive walk, which preserves
-    // structurally-safe strings unchanged).
+    // The throw site's `fields` projects through to `data.fields`, with `sessionId` intact.
     const fields = data.fields;
     if (fields === undefined) throw new Error("unreachable — fields was passed at throw site");
-    // Bracket access — `Record<string, unknown>` requires index-signature
-    // access under `noPropertyAccessFromIndexSignature: true`.
+    // Bracket access: `noPropertyAccessFromIndexSignature` forbids dot access on a record.
     expect(fields["sessionId"]).toBe(UNKNOWN_SESSION_ID);
-    // The mock handler ran — confirms the throw originated from the
-    // deps layer and propagated through `dispatch()` unchanged (a
-    // regression that wrapped handler throws in
-    // `RegistryDispatchError("handler_threw")` would make the
-    // `instanceof SessionNotFoundError` assertion above fail; this
-    // assertion provides the orthogonal cross-check).
+    // The throw came from the deps layer, not from somewhere else in the registry.
     expect(mockReadSession).toHaveBeenCalledTimes(1);
   });
 
   it("registers `session.read` with mutating: false (pre-handshake gate passes through)", () => {
-    // Sanity — requires read-only compatibility to continue across
-    // version-mismatch. Flipping this flag to true would break the
-    // read-only-fallback contract.
+    // A read-only client must keep reading across a version mismatch, which a `true` flag would
+    // break.
     const registry = new MethodRegistryImpl();
     const deps: SessionReadDeps = {
       readSession: async () => buildSessionLogRead(),
@@ -854,24 +703,11 @@ describe("session.read round-trip (AC-N2 +)", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Local TypeScript suppressions — `Handler<...>` import is required by the
-// fixture-typing surface above (the per-deps callback shape mirrors
-// `Handler<SessionCreateRequest, SessionCreateResponse>` at the registry
-// boundary). The import is preserved even when the in-file references stay
-// implicit so the file's contract surface remains explicit for diff readers.
-// ----------------------------------------------------------------------------
-
-// Reference `Handler` type to keep the import stable; vitest's tsc pass
-// would otherwise error TS6133 (unused import) under
-// noUnusedParameters/Locals.
+// These references keep imports that nothing else in the file uses from failing the unused-import
+// check.
 type _HandlerSignaturePresent = Handler<SessionCreateRequest, SessionCreateResponse>;
-// Strip-only annotation; never invoked at runtime.
 const _typeProbe: _HandlerSignaturePresent | undefined = undefined;
 void _typeProbe;
-// Sanity — re-import surfaces typecheck cleanly under the daemon's
-// `verbatimModuleSyntax: true` (every type-only consumer above is a
-// `import type` at the top of file).
 void SessionCreateRequestSchema;
 void SessionCreateResponseSchema;
 void SessionReadRequestSchema;
