@@ -1,43 +1,33 @@
-// What a MODAL overlay puts in the window's airspace: the backdrop as well as the
-// popup.
+// What a modal overlay puts in the window's airspace: the backdrop as well as the popup.
 //
-// THE HAZARD THIS ANSWERS. A modal covers the window with a fixed, full-viewport
-// backdrop, and registering only the popup left that cover invisible to the airspace.
-// The visibility predicate a native view yields to (`browser/geometry/pane-geometry.ts`)
-// hides a view only where a registered rectangle OVERLAPS the pane, so a pane whose
-// box the dialog did not cross went on painting a live web page over the backdrop and
-// went on taking its input — including the backdrop press that dismisses the dialog.
-// The registry has no "suppress every native view" arm and does not need one: the
-// backdrop's own rectangle IS that suppression, because it is the whole window.
+// A modal covers the window with a fixed, full-viewport backdrop. The visibility predicate a
+// native view yields to (`features/preview/geometry/pane-geometry.ts`) hides a view only
+// where a registered rectangle overlaps the pane, so registering only the popup left a pane
+// the dialog did not cross painting over the backdrop and taking its input, including the
+// backdrop press that dismisses the dialog. The backdrop's rectangle is the suppression,
+// because it is the whole window.
 //
-// ONE OWNER FOR BOTH WRAPPERS. `OverlayDialogPopup` and `OverlayAlertDialogPopup` are
-// separate primitives for a reason the first of them records, but WHICH parts of a
-// modal are airspace is one decision and it is made here — two copies of it would
-// agree until the day one of them grew a part and the other did not.
+// `OverlayDialogPopup` and `OverlayAlertDialogPopup` share this one decision about which
+// parts of a modal are airspace.
 //
-// AND THE POPUP IS STILL REGISTERED, which is not redundancy. Base UI renders a
-// dialog's backdrop only where the dialog is not NESTED (`DialogBackdrop`'s own
-// `enabled: forceRender || !nested`, measured against the installed 1.7.0), so a
-// dialog opened inside another draws no backdrop at all. Registering the backdrop
-// alone would put that dialog in no airspace whatever — the fail-OPEN direction, and
-// the exact defect this module exists to close. Two rectangles where one modal is on
-// screen costs one more entry in a set the predicate scans; a modal in no airspace
-// costs a native view painted over it.
+// The popup is still registered: Base UI renders a dialog's backdrop only where the dialog
+// is not nested (`DialogBackdrop`'s `enabled: forceRender || !nested`, checked against the
+// installed 1.7.0), so a nested dialog draws none. Registering the backdrop alone would leave
+// that dialog in no airspace, which fails open. The extra rectangle costs one more entry in
+// a set the predicate scans.
 //
-// NON-MODAL OVERLAY KINDS DO NOT COME HERE. A menu, a select, and a combobox
-// are anchored boxes that cover what they cover, and a popup that claimed the whole
-// window would suppress every native view in it for the length of a menu press.
+// Non-modal kinds (a menu, a select, a combobox) do not come here: they are anchored boxes,
+// and a popup claiming the whole window would suppress every native view for the length of a
+// menu press.
 
 import { useAirspaceRegistration, type AirspaceOverlayRef } from "./useAirspaceRegistration.js";
 import type { AirspaceOverlayKind } from "@renderer/lib/airspace-registry.js";
 
 /**
- * The two refs a modal wrapper attaches — one per part that occupies the window.
+ * The two refs a modal wrapper attaches, one per part that occupies the window.
  *
- * Refs and not a hook result to wire up further, on {@link AirspaceOverlayRef}'s own
- * reasoning: each registration travels with the element it is put on, so the only
- * thing a wrapper can get wrong is failing to attach one, and the architecture gate
- * is what catches that.
+ * Each registration travels with the element it is put on, so the only thing a wrapper can
+ * get wrong is failing to attach one.
  */
 export interface ModalOverlayAirspace {
   /** Goes on the backdrop: the full-viewport cover, live-read like any other box. */
@@ -49,10 +39,8 @@ export interface ModalOverlayAirspace {
 /**
  * Register a modal's backdrop and popup as airspace of `kind`, for its lifetime.
  *
- * Both registrations carry the same kind, because the closed set of overlay kinds
- * (`AIRSPACE_OVERLAY_KINDS`) names what a thing IS on screen and both of these are
- * parts of one dialog — a backdrop is not a second kind of overlay, it is the half of
- * this one that covers the window.
+ * Both carry the same kind: `AIRSPACE_OVERLAY_KINDS` names what a thing is on screen, and a
+ * backdrop is the half of one dialog that covers the window.
  */
 export function useModalOverlayAirspace(kind: AirspaceOverlayKind): ModalOverlayAirspace {
   const backdropRef = useAirspaceRegistration(kind);

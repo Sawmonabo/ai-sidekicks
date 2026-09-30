@@ -1,22 +1,17 @@
-// A pane's read line ends with the render that owned it — asserted, both ways.
+// A pane's read line ends with the render that owned it, asserted both ways.
 //
-// The two facts the decision to build this rests on are the two cases here: a pane
-// that UNMOUNTS abandons its reads, and a pane RE-ADDRESSED at a new subject abandons
-// the reads taken against the old one. Neither is a claim about a promise being
-// ignored — that was already true — but about the signal the read is carrying, which
-// is what lets the seams below it stop working.
+// A pane that unmounts abandons its reads, and a pane re-addressed at a new subject abandons
+// the reads taken against the old one. Both are claims about the signal the read carries, so
+// the seams below can stop working; that the promise is ignored was already true.
 //
-// EVERY CASE IS PAIRED WITH THE READING TAKEN BEFORE THE ENDING. A hook that handed
-// out a born-aborted signal would satisfy "the signal is aborted after unmount"
-// perfectly, so each case first asserts the line is LIVE while the pane is on
-// screen. That pairing is the negative control, and it is why the assertions are two
-// and not one.
+// Every case first asserts the line is live while the pane is on screen: a hook that handed
+// out a born-aborted signal would otherwise satisfy "aborted after unmount". That pairing is
+// the negative control.
 //
-// The lifetime machinery underneath — the discarded pass, the double-mount corpse,
-// the disposal that is terminal — is `hooks/subject-scoped/useSubjectScopedResource.ts`'s and is asserted
-// in its own suites. What is asserted here is that a read scope is wired to it
-// correctly: that the disposal really is the terminal arm, and that the re-mint the
-// double mount forces produces a line a returning pane can read through.
+// The lifetime machinery (discarded pass, double-mount corpse, terminal disposal) is
+// `subject-scoped/useSubjectScopedResource.ts`'s and is asserted in its own suites. Here the
+// claim is that a read scope is wired to it correctly: the disposal is the terminal arm, and
+// the re-mint a double mount forces produces a line a returning pane can read through.
 
 import { render } from "@testing-library/react";
 import { type ReactElement } from "react";
@@ -40,9 +35,8 @@ interface ReadLineProbeProps {
 /**
  * A component that opens one round per render, as a pane's read effect would.
  *
- * Opening in the render body rather than in an effect is deliberate for a probe: it
- * makes the round observable on the pass that produced it, which is what lets a case
- * name "the round the first addressing opened" without reaching into an effect.
+ * Opening in the render body rather than an effect makes the round observable on the pass
+ * that produced it, so a case can name "the round the first addressing opened".
  */
 function ReadLineProbe({ subject, subjectKey, rounds }: ReadLineProbeProps): ReactElement {
   const scope = useReadScope(subject, subjectKey);
@@ -50,7 +44,7 @@ function ReadLineProbe({ subject, subjectKey, rounds }: ReadLineProbeProps): Rea
   return <span data-testid="read-line">{subjectKey}</span>;
 }
 
-/** The newest round a probe opened. Named so a failure says which reading was taken. */
+/** The newest round a probe opened; a failure names which reading was taken. */
 function newestRound(rounds: readonly ReadRound[]): ReadRound {
   const round = rounds.at(-1);
   if (round === undefined) {
@@ -87,9 +81,8 @@ describe("useReadScope — the line ends with the render that owned it", () => {
     const secondSubjectRound = newestRound(rounds);
     expect(secondSubjectRound).not.toBe(firstSubjectRound);
     expect(firstSubjectRound.signal.aborted).toBe(true);
-    // The new subject reads through a LIVE line: abandoning the old one must not
-    // leave the pane holding a corpse, which is the whole reason the disposal
-    // carries a reading beside it.
+    // The new subject reads through a live line: abandoning the old one must not leave the
+    // pane holding a closed scope, which is why the disposal carries a reading beside it.
     expect(secondSubjectRound.signal.aborted).toBe(false);
     expect(secondSubjectRound.isCurrent).toBe(true);
 
@@ -117,9 +110,9 @@ describe("useReadScope — the line ends with the render that owned it", () => {
 
     view.rerender(<ReadLineProbe subject={SUBJECT_ONE} subjectKey="alpha" rounds={rounds} />);
 
-    // The round supersedes, because a second read opened; the LINE did not end, which
-    // is what a re-render at the same addressing has to mean. A hook that minted a
-    // fresh scope per render would abandon a read that nothing replaced.
+    // The round supersedes because a second read opened; the line did not end, which is what
+    // a re-render at the same addressing means. A hook minting a fresh scope per render would
+    // abandon a read nothing replaced.
     const afterRerender = newestRound(rounds);
     expect(afterRerender.signal.aborted).toBe(false);
     expect(beforeRerender.signal.aborted).toBe(true);

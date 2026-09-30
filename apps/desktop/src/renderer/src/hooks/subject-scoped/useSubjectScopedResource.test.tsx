@@ -1,20 +1,13 @@
 // A resource the holder drops is closed once, whichever render dropped it.
 //
-// The case this module exists for is the render REACT THROWS AWAY, and it is driven
-// here the one way that is deterministic rather than timing-dependent: a state update
-// issued during the render body. React discards that pass and re-invokes the component
-// with the new state, which is exactly the shape the module describes — a pass that
-// really ran, really opened a resource, and never committed.
+// The render React throws away is driven with a state update during the render body: React
+// discards that pass and re-invokes the component, so the pass really ran and really opened
+// a resource without committing. The dropped and abandoned pass suites are
+// `useSubjectScopedState.dropped-pass.test.tsx` and `.abandoned-pass.test.tsx`.
 //
-// The publisher's own claim across a dropped pass — a resource published into a visit
-// that is over is opened and closed by nothing — is a third subject and lives in
-// `subject-scoped-dropped-pass.test.tsx`, beside the value hook's half of it.
-//
-// Every claim is paired with a NEGATIVE CONTROL driving the shape this replaced — the
-// plain holder with an effect that owns disposal — over the identical script. Without
-// it, "the discarded pass's resource was closed" would be a sentence about a test: a
-// hook that closed everything twice would satisfy it too, which is why the closes are
-// counted by name rather than merely looked for.
+// Each claim has a negative control over the identical script (the plain holder with an
+// effect that owns disposal). Closes are counted by name, since a hook that closed everything
+// twice would satisfy a bare "was closed".
 
 import { act, render } from "@testing-library/react";
 import { useEffect, useState, type ReactElement } from "react";
@@ -31,9 +24,8 @@ import {
 } from "./useSubjectScopedResource.test-support.js";
 import { useSubjectScopedState } from "./useSubjectScopedState.js";
 
-// Tripwires throw in a development build, so the one this file drives would reach the
-// caller's settlement as an escaping throw rather than as the record under test. The
-// recording arm is the one asserted, as it is in `subject-scoped-holder.test.ts`.
+// Tripwires throw in a development build, which would escape the caller's settlement; the
+// recording arm is the one asserted, as in `subject-scoped-holder.test.ts`.
 const THROW_ON_REPORT_BEFORE_THE_SUITE = import.meta.env.DEV;
 
 beforeEach(() => {
@@ -57,10 +49,9 @@ interface DiscardProbeProps {
 /**
  * A component whose first render pass is discarded, at a different subject.
  *
- * The `setPass` call is a render-phase update, which React answers by discarding this
- * pass's output and re-invoking the component. The holder is an external object, so
- * the discarded pass's `open` really ran and its resource was really installed —
- * which is the whole reachability question.
+ * The `setPass` call is a render-phase update: React discards this pass's output and
+ * re-invokes the component, but the holder is external, so the discarded pass's `open`
+ * really ran.
  */
 function DiscardedRenderProbe(props: DiscardProbeProps): ReactElement {
   const [pass, setPass] = useState(0);
@@ -78,10 +69,10 @@ function DiscardedRenderProbe(props: DiscardProbeProps): ReactElement {
 }
 
 /**
- * The shape this module replaced: the plain holder, disposal owned by an effect.
+ * Negative control: the plain holder with disposal owned by an effect.
  *
- * Not a stand-in for the hook — it is the code the two frame subsystems ran before
- * this module existed, kept only so the claims above it are shown to discriminate.
+ * Its effect never closes over a discarded pass's resource, which shows the claims above
+ * discriminate.
  */
 function EffectOnlyDisposalProbe(props: DiscardProbeProps): ReactElement {
   const [pass, setPass] = useState(0);
@@ -136,10 +127,9 @@ describe("useSubjectScopedResource — a render React discarded leaves nothing o
   });
 
   it("negative control: the shape this replaced leaves the discarded pass's resource open", () => {
-    // The identical script against the code the two frame subsystems ran before this
-    // module existed. Its effect never closed over the discarded pass's resource, so
-    // nothing ever closes it — which is the defect, and the reason the claim above is
-    // about this hook rather than about the script.
+    // The same script against a plain holder whose effect owns disposal. That effect never
+    // closed over the discarded pass's resource, so nothing closes it; this is what makes the
+    // claim above about the hook and not about the script.
     const ledger = new ResourceOpenCloseLog();
     const view = render(
       <EffectOnlyDisposalProbe
@@ -159,9 +149,9 @@ describe("useSubjectScopedResource — a render React discarded leaves nothing o
 
 describe("useSubjectScopedResource — a committed resource is closed once, by the effect", () => {
   it("closes the retired resource when the subject moves, and not twice", () => {
-    // The committed arm: this resource IS the one a live effect holds, so closing it
-    // during the render that replaces it would tear down what the frame on screen is
-    // still reading through — and that render may itself be discarded.
+    // This resource is the one a live effect holds; closing it during the render that
+    // replaces it would tear down what the frame on screen still reads, and that render may
+    // itself be discarded.
     const ledger = new ResourceOpenCloseLog();
     const view = render(<SwapProbe subject={DISCARDED_SUBJECT} ledger={ledger} />);
     expect(ledger.closed).toStrictEqual([]);
@@ -176,8 +166,8 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
   });
 
   it("opens and closes nothing on a re-render that changes nothing about the subject", () => {
-    // The control on every case above: a hook that opened per render would satisfy
-    // them all, and one that closed per render would leave the window with nothing.
+    // Control on every case above: a hook that opened per render would satisfy them all, and
+    // one that closed per render would leave the window with nothing.
     const ledger = new ResourceOpenCloseLog();
     const view = render(<SwapProbe subject={DISCARDED_SUBJECT} ledger={ledger} />);
 
@@ -192,10 +182,9 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
   });
 
   it("closes a resource a caller published over, on the same terms", () => {
-    // Publishing is how a window replaces a resource that has retired itself. The
-    // replacement is held and disposed exactly as one the holder seeded — and this
-    // is the control on the late-open case below: a hook that closed every published
-    // resource would leave both live callers with none.
+    // Publishing replaces a resource that retired itself; the replacement is held and
+    // disposed as one the holder seeded. Also the control on the late-open case below: a hook
+    // that closed every published resource would leave both live callers with none.
     const ledger = new ResourceOpenCloseLog();
     let publishInto: (next: OpenResource) => void = () => {};
     const view = render(
@@ -222,10 +211,9 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
 
 describe("useSubjectScopedResource — two publishes before one commit", () => {
   it("closes the resource the second publish replaced, and leaves the committed one to the effect", () => {
-    // The batched case: two direct settlements land in one event, so the first
-    // replacement is installed and replaced again with no commit in between. No
-    // effect ever closed over it and the re-addressing path never sees it — the
-    // holder's own write is the last moment anything can reach it.
+    // Two direct settlements in one event: the first replacement is installed and replaced
+    // with no commit in between, so no effect closed over it and the holder's own write is
+    // the last moment anything reaches it.
     const ledger = new ResourceOpenCloseLog();
     let publishInto: (next: OpenResource) => void = () => {};
     const view = render(
@@ -244,21 +232,19 @@ describe("useSubjectScopedResource — two publishes before one commit", () => {
     });
 
     expect(ledger.opened).toStrictEqual(["discarded", "published first", "published second"]);
-    // The middle one is the whole case. The committed resource is closed AFTER it, by
-    // the effect that was holding it — never during the publish, where the frame on
-    // screen is still reading through it and the pass may yet be discarded.
+    // The committed resource closes after it, by the effect holding it; never during the
+    // publish, where the frame on screen still reads it and the pass may yet be discarded.
     expect(ledger.closed).toStrictEqual(["published first", "discarded"]);
     expect(view.container.textContent).toBe("published second");
 
-    // And the survivor is the one on screen, closed once, at the mount's end.
+    // The survivor is on screen and closed once, at the mount's end.
     view.unmount();
     expect(ledger.closed).toStrictEqual(["published first", "discarded", "published second"]);
   });
 
   it("negative control: a single publish closes nothing before its own commit", () => {
-    // Without this, "the replaced resource was closed" would also be satisfied by a
-    // hook that closed every published value — which would close the resource the
-    // window just opened for the visit it is on.
+    // Control: a hook that closed every published value would also satisfy the case above,
+    // and would close the resource the window just opened for the visit it is on.
     const ledger = new ResourceOpenCloseLog();
     let publishInto: (next: OpenResource) => void = () => {};
     render(
@@ -283,11 +269,9 @@ describe("useSubjectScopedResource — two publishes before one commit", () => {
 
 describe("useSubjectScopedResource — an open that settles after the subject has moved", () => {
   it("closes the resource the late open produced, and installs nothing", () => {
-    // A caller opens a connection for the visit on screen, the component is
-    // re-addressed while that open is in flight, and the settlement names a visit
-    // that is over. Nothing installs it, so no commit and no effect will ever see it
-    // — the holder's refusal is the resource's last reachable moment, which is why
-    // this hook hands the holder its disposal rather than leaving a refusal a drop.
+    // The component is re-addressed while an open is in flight, and the settlement names a
+    // visit that is over. No commit or effect will see the resource, so the holder's refusal
+    // is its last reachable moment.
     const ledger = new ResourceOpenCloseLog();
     let publishInto: (next: OpenResource) => void = () => {};
     const treeAt = (subject: NamedFixtureSubject): ReactElement => (
@@ -309,7 +293,7 @@ describe("useSubjectScopedResource — an open that settles after the subject ha
 
     expect(ledger.opened).toStrictEqual(["discarded", "settled", "opened too late"]);
     expect(ledger.closed).toStrictEqual(["discarded", "opened too late"]);
-    // And the component goes on reading through the visit it is addressed at.
+    // The component goes on reading through the visit it is addressed at.
     expect(view.container.textContent).toBe("settled");
     expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
 

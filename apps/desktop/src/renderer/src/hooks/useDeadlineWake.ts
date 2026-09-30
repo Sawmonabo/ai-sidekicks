@@ -5,61 +5,40 @@ import type { Clock, ScheduledHandle } from "@renderer/lib/clock.js";
 import { earliestFutureDeadline, latestPassedDeadline } from "@renderer/lib/deadlines.js";
 
 /**
- * The largest delay a platform timer holds, and therefore the largest step this
- * module ever arms.
+ * The largest delay a platform timer holds, and so the largest step this module arms.
  *
- * `setTimeout` stores its delay in a signed 32-bit integer, so a delay above this
- * does not fire late — it fires on the NEXT TICK. Measured on Node 22: a delay of
- * `2 ** 31` warns `TimeoutOverflowWarning`, reports that the duration was set to 1,
- * and runs the callback two milliseconds later. The call form is deliberately not
- * spelled out above — the timer chokepoint gate reads source text, and a call in a
- * comment is indistinguishable from a call.
- *
- * A deadline more than about 24.8 days out is ordinary here — a clone scheduled for
- * disposal in two months, a lease held for a quarter — so an unclamped delay
- * would publish that far-future instant immediately and render every row in the list
- * past its deadline, permanently: with the instant beyond every threshold, nothing
- * is outstanding and nothing re-arms.
- *
- * It is a platform constant rather than a console cap, which is why it lives beside
- * the one module that arms against it rather than in the caps table.
+ * `setTimeout` stores its delay in a signed 32-bit integer; a larger delay is set to 1 (with
+ * a `TimeoutOverflowWarning`) and fires on the next tick. A deadline more than about 24.8
+ * days out is ordinary here (a clone disposed in two months), and an unclamped delay would
+ * publish that far-future instant at once and render every row past its deadline for good,
+ * with nothing outstanding to re-arm. A platform constant, not a console cap.
  */
 const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
 
 /**
  * The instant a component renders against, woken once at each outstanding deadline.
  *
- * The clock is the caller's rather than this module's, on the console's one clock
- * rule: a component that constructed its own would be a second time base beside the
- * scenario's frozen one, and a frozen tick only names one exact frame if nothing
- * reaches past it. Under the fixture the clock passed in is the scenario's, so a
- * screenshot's countdowns are byte-stable.
- *
- * A REPLACEMENT CLOCK IS A NEW TIME BASE, and the instant is re-read from it during
- * the render that first sees it: the previous clock's reading measures nothing on
- * this one, and holding it would put every deadline behind the component at once.
- *
- * At most one timeout is armed for the whole consumer, and none at all when nothing
- * is outstanding — which is what makes `ManualClock.pendingCount === 0` a checkable
- * statement about an idle console rather than an assertion about one.
+ * The clock is the caller's, so under a fixture it is the scenario's frozen one and a
+ * screenshot's countdowns are byte-stable. A replacement clock is a new time base: the
+ * instant is re-read from it during the render that first sees it, since the previous
+ * clock's reading would put every deadline behind the component. At most one timeout is
+ * armed for the whole consumer, and none when nothing is outstanding, which makes
+ * `ManualClock.pendingCount === 0` a checkable statement about an idle console.
  */
 export function useDeadlineWake(clock: Clock, deadlines: readonly number[]): number {
-  // Read once per CLOCK, during the render that first sees one. A render body that
-  // read the clock on every pass would be a render whose output depends on when it
-  // ran, which is the impurity the frozen clock exists to remove; a cell that read it
-  // only at mount would hold one clock's reading against another's deadlines. The
-  // subject holder is exactly that distinction, and the plain form of it — an instant
-  // is a value a drop releases, so there is nothing here to dispose.
+  // Read once per clock, during the render that first sees one: reading on every pass would
+  // make the output depend on when it ran, and reading only at mount would hold one clock's
+  // reading against another's deadlines. An instant is a value a drop releases, so there is
+  // nothing to dispose.
   const { value: wokeAtMilliseconds, publish: publishInstant } = useSubjectScopedState<number>(
     clock,
     undefined,
     () => clock.now(),
   );
   const dueAtMilliseconds = earliestFutureDeadline(deadlines, wokeAtMilliseconds);
-  // The live list, reachable from inside the effect without joining its dependencies.
-  // The effect deliberately depends on the earliest deadline as a NUMBER, so an array
-  // rebuilt with the same contents re-arms nothing; a ref is what lets the catch-up
-  // below read every deadline without giving that property up.
+  // The live list, reachable from the effect without joining its dependencies: the effect
+  // depends on the earliest deadline as a number, so an array rebuilt with the same contents
+  // re-arms nothing.
   const deadlinesRef = useRef(deadlines);
   deadlinesRef.current = deadlines;
 
@@ -67,23 +46,17 @@ export function useDeadlineWake(clock: Clock, deadlines: readonly number[]): num
     if (dueAtMilliseconds === undefined) {
       return undefined;
     }
-    // One deadline, armed in steps no longer than a timer can hold. Each step asks
-    // the clock again rather than counting its own, so a step that ran late or a
-    // host that slept moves the wake-up nowhere: the remaining time is always the
-    // difference between the deadline and what the clock says now.
+    // One deadline, armed in steps no longer than a timer can hold. Each step asks the clock
+    // again, so a late step or a host that slept moves the wake-up nowhere.
     let armedHandle: ScheduledHandle | undefined;
     const armNextStep = (): void => {
       const remainingMilliseconds = dueAtMilliseconds - clock.now();
       if (remainingMilliseconds <= 0) {
         armedHandle = undefined;
-        // A deadline the caller's own list carries, and never the clock's reading of
-        // now: the caller's rows turn on whether that instant has passed, and waking
-        // to one nothing is measured against would cross no threshold in the list.
-        // The LAST one crossed rather than the first, because a wake-up that arrives
-        // after several settles all of them here or settles one per render until the
-        // ceiling. `Math.max` rather than a bare assignment because two consumers of
-        // one clock can settle out of order and the instant is monotone by
-        // construction.
+        // A deadline from the caller's own list, never the clock's reading of now, so the
+        // caller's rows cross their threshold. The last one crossed, not the first, so a
+        // wake-up that arrives after several settles all of them. `Math.max` because two
+        // consumers of one clock can settle out of order.
         const crossedMilliseconds =
           latestPassedDeadline(deadlinesRef.current, clock.now()) ?? dueAtMilliseconds;
         publishInstant((heldMilliseconds) => Math.max(heldMilliseconds, crossedMilliseconds));
@@ -96,16 +69,14 @@ export function useDeadlineWake(clock: Clock, deadlines: readonly number[]): num
     };
     armNextStep();
     return () => {
-      // Canceled when the earliest deadline changes, when the wake-up has landed,
-      // and when the consumer unmounts — a timeout that outlived its consumer would
-      // set state on a component that is gone.
+      // Canceled when the earliest deadline changes, when the wake-up has landed, and on
+      // unmount, so no timeout sets state on a component that is gone.
       if (armedHandle !== undefined) {
         clock.cancel(armedHandle);
       }
     };
-    // `publishInstant` is captured per addressing rather than per render, so it moves
-    // exactly when the clock does — the same fact the first dependency names, and a
-    // publisher from a clock the consumer has left writes nowhere by construction.
+    // `publishInstant` is captured per addressing, so it moves exactly when the clock does; a
+    // publisher from a clock the consumer has left writes nowhere.
   }, [clock, dueAtMilliseconds, publishInstant]);
 
   return wokeAtMilliseconds;

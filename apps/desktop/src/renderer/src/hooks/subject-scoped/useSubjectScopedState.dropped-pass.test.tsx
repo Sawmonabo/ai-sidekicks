@@ -1,30 +1,23 @@
-// A publisher outlives no visit, including one a render React DROPPED.
+// A publisher outlives no visit, including one a render React dropped.
 //
-// Both subject hooks hand a caller a `publish` captured at render, and both memoize
-// it. The question this file is about is what that memo may be keyed on, and the
-// answer the pair alone gives is wrong in one direction: a view routed away and
-// back is at the same pair on two different visits, so a pass that re-addressed and
-// was then thrown away leaves the committed visit's publisher naming a visit that is
-// over. It publishes NOWHERE, silently — and where the value is a resource, it takes
-// whatever the caller had just opened for it down with it, because the holder's
-// discard callback runs from `address` and never from a publish.
+// Both subject hooks hand a caller a memoized `publish` captured at render. The question is
+// what the memo is keyed on, and the pair alone is wrong in one direction: a view routed
+// away and back is at the same pair on two visits, so a pass that re-addressed and was
+// thrown away leaves the committed visit's publisher naming a visit that is over. It then
+// publishes nowhere, silently, and for a resource takes whatever the caller just opened down
+// with it, because the holder's discard callback runs from `address` and never from a
+// publish.
 //
-// WHICH DISCARD, MEASURED RATHER THAN ASSUMED. The probe in
-// `useSubjectScopedResource.test.tsx` sets state during the render body, which React
-// answers by re-invoking the component and REUSING the hook cells that pass built —
-// so a memo whose dependencies moved in the dropped pass IS recomputed, and nothing
-// goes stale. That is the right driver for the claim it drives, which is about the
-// resource the pass opened. It is the wrong one here. A pass that SUSPENDS is a
-// work-in-progress fiber React throws away: the next render rebuilds every hook from
-// the last COMMITTED one, which is the arrangement that leaves a memo comparing this
-// visit's dependencies against a visit two addressings ago. That is the concurrent
-// discard `useSubjectScopedResource.ts`'s header names, driven the one way that is
-// deterministic rather than timing-dependent.
+// The driver is a pass that suspends, not the render-phase state update used in
+// `useSubjectScopedResource.test.tsx`. React answers that update by re-invoking the
+// component and reusing the hook cells the pass built, so a memo whose dependencies moved is
+// recomputed and nothing goes stale. A suspending pass is a work-in-progress fiber React
+// throws away; the next render rebuilds every hook from the last committed one, leaving a
+// memo comparing this visit's dependencies against a visit two addressings ago. That is the
+// concurrent discard described in `useSubjectScopedResource.ts`, driven deterministically.
 //
-// Both claims are paired with a NEGATIVE CONTROL over the identical script, driving
-// the dependency list this substrate shipped before the addressing was read live. A
-// control is what makes these claims about the memo key rather than about the script:
-// a publisher that never wrote anything at all would satisfy neither.
+// Both claims have a negative control over the identical script with a memo keyed on the
+// pair alone, so they are about the memo key and not the script.
 
 import { act, type RenderResult } from "@testing-library/react";
 import {
@@ -64,10 +57,10 @@ import { SubjectScopedHolder } from "@renderer/lib/subject-scoped/subject-scoped
 const PUBLISHED_RESOURCE_NAME = "published";
 
 /**
- * The shape this hook shipped before the addressing was read live: a PAIR-keyed memo.
+ * Negative control: a pair-keyed memo.
  *
- * Not a stand-in for the hook — it drives the real holder through the dependency list
- * the hook used to carry, which is the one thing these cases are about.
+ * Drives the real holder through a dependency list keyed on the pair alone, the one thing
+ * these cases are about.
  */
 function PairKeyedValueProbe(props: ValueProbeProps): ReactElement {
   const [holder] = useState(() => new SubjectScopedHolder<string>());
@@ -90,11 +83,11 @@ function PairKeyedValueProbe(props: ValueProbeProps): ReactElement {
 }
 
 /**
- * The shape the two frame subsystems ran: a plain holder, a pair-keyed publisher, and
- * disposal owned by an effect.
+ * Negative control for a resource: a plain holder, a pair-keyed publisher, and disposal
+ * owned by an effect.
  *
- * Its publisher names the first visit, so the resource the window opened to replace a
- * closed one is installed nowhere and closed by nothing.
+ * Its publisher names the first visit, so the resource the window opened to replace a closed
+ * one is installed nowhere and closed by nothing.
  */
 function PairKeyedResourceProbe(props: ResourceProbeProps): ReactElement {
   const [holder] = useState(() => new SubjectScopedHolder<OpenResource>());
@@ -144,9 +137,9 @@ async function driveValueDetour(
     SUBJECT_ONE,
     SUBJECT_TWO,
   );
-  // The dropped pass really ran: it addressed, and addressing is what seeds. How MANY
-  // addressings the round-trip costs is where the two arrangements part company, which
-  // is why each case states its own count rather than sharing one.
+  // The dropped pass really ran: it addressed, and addressing seeds. How many addressings the
+  // round-trip costs is where the two arrangements part company, so each case states its own
+  // count.
   expect(seedings).toBe(addressingsExpected);
   return {
     view,
@@ -193,10 +186,9 @@ async function driveResourceDetour(Probe: (props: ResourceProbeProps) => ReactEl
 
 describe("useSubjectScopedState — the publisher names the visit on screen", () => {
   it("publishes into the visit on screen after a dropped pass moved the addressing", async () => {
-    // TWO addressings, not three: the dropped pass proposed one and never committed
-    // it, so the render back at the first subject found the committed addressing
-    // already right and re-seeded nothing. That is the whole of what the hook does
-    // differently from the arrangement below.
+    // Two addressings, not three: the dropped pass proposed one and never committed it, so
+    // the render back at the first subject found the committed addressing right and
+    // re-seeded nothing.
     const detour = await driveValueDetour(DiscardedRenderValueProbe, 2);
     act(() => {
       detour.publish("the answer this visit read");
@@ -205,11 +197,10 @@ describe("useSubjectScopedState — the publisher names the visit on screen", ()
   });
 
   it("negative control: the pair-keyed memo publishes into a visit that is over", async () => {
-    // Three, because this holder is never told a render committed: every addressing
-    // is a proposal that retires the one before it, which is the arrangement the hook
-    // replaced. The pair is equal across the two committed visits, so the memo is not
-    // recomputed and the publisher is the FIRST visit's — which the holder correctly
-    // drops, leaving the component on the seed the third addressing produced.
+    // Three, because this holder is never told a render committed: every addressing is a
+    // proposal that retires the one before it. The pair is equal across the two committed
+    // visits, so the memo is not recomputed and the publisher is the first visit's, which the
+    // holder correctly drops, leaving the seed the third addressing produced.
     const detour = await driveValueDetour(PairKeyedValueProbe, 3);
     act(() => {
       detour.publish("the answer this visit read");
@@ -220,9 +211,8 @@ describe("useSubjectScopedState — the publisher names the visit on screen", ()
 
 describe("useSubjectScopedResource — a dropped publish is an open resource nobody holds", () => {
   it("installs a published resource after a dropped pass moved the addressing", async () => {
-    // The live callers' re-mint arm: a store that closed itself is replaced by
-    // publishing a freshly opened one, and that publish has to land or the
-    // connection it opened is held by nothing.
+    // The re-mint arm: a store that closed itself is replaced by publishing a freshly opened
+    // one, and that publish has to land or the connection it opened is held by nothing.
     const detour = await driveResourceDetour(DiscardedRenderResourceProbe);
     act(() => {
       detour.publish(detour.ledger.open(PUBLISHED_RESOURCE_NAME));
@@ -234,9 +224,9 @@ describe("useSubjectScopedResource — a dropped publish is an open resource nob
   });
 
   it("negative control: the pair-keyed shape opens that resource and closes nothing", async () => {
-    // The publish lands nowhere, so the component goes on reading through the resource
-    // it was replacing and the opened one is closed by no path at all — not on the
-    // publish, not on a later render, not at unmount.
+    // The publish lands nowhere, so the component keeps reading through the resource it was
+    // replacing and the opened one is closed by no path: not on publish, a later render, or
+    // unmount.
     const detour = await driveResourceDetour(PairKeyedResourceProbe);
     act(() => {
       detour.publish(detour.ledger.open(PUBLISHED_RESOURCE_NAME));

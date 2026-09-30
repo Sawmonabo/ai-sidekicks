@@ -1,7 +1,6 @@
 // The roving list with something else on the page to tab to.
 //
-// The steal the focus-claim suite is about is only observable against a second focus
-// target: "focus did not move" is a claim about where it stayed, and the body is where
+// "Focus did not move" is only observable against a second focus target; the body is where
 // focus goes when nothing holds it, which is also where a dropped claim leaves it.
 
 import { RovingList } from "./RovingList.test-support.js";

@@ -17,8 +17,7 @@ export interface AnnouncedRender<AnnouncingProps> {
 /**
  * The window's announcer, and a component announcing through it.
  *
- * One scaffold for every arity: the announcer, the provider, the two region readings
- * and the hold are the same for each, and only the component under it differs.
+ * One scaffold for every arity of the latch; only the component under the provider differs.
  */
 export function renderThroughAnnouncer<AnnouncingProps extends object>(
   AnnouncingComponent: (props: AnnouncingProps) => null,
@@ -38,9 +37,8 @@ export function renderThroughAnnouncer<AnnouncingProps extends object>(
     rerender: (next) => {
       rerender(mounted(next));
     },
-    // Past the announcer's hold, so a second sentence is published rather than
-    // queued behind the standing one. The hold is the announcer's own rule and this
-    // drives it rather than reaching around it.
+    // Past the announcer's hold, so a second sentence is published rather than queued
+    // behind the standing one.
     settle: () => {
       act(() => {
         clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);

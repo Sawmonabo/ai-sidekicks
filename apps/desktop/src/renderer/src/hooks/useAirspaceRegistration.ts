@@ -1,35 +1,19 @@
 // How an overlay primitive joins the window's airspace.
 //
-// The airspace rule: registration happens once, at the primitive layer, never per
-// overlay instance, and no consumer registers an overlay by hand at a call site. This
-// hook is the primitive layer's half of both — one registration site the overlay
-// primitives share, so a component that opens a dialog says which KIND of overlay it is
-// and nothing else.
+// Registration happens once, at the primitive layer, never per overlay or by hand at a call
+// site; this hook is that one site, so a component says which kind of overlay it opens and
+// nothing else. It arms size observation through `observeElementResize` because the element
+// arrives in its ref callback; motion sampling is armed by the native-view consumer through
+// `AirspaceRegistry.installMotionObserver`, which keeps a frame loop off a window with no
+// native view. The rectangle is read live, never captured: one taken at registration is where
+// the overlay was before it opened.
 //
-// THE REGISTRY IS A PLAIN MODULE AND THE OBSERVATION IS ARMED HERE. The set lives in
-// `lib/`, below everything that registers into it; the size observation is armed by
-// this hook, through the console's one `ResizeObserver` chokepoint, because the element
-// to observe arrives in this hook's ref callback. Motion sampling — an overlay carried
-// across the screen with its box unchanged — is armed by the native-view consumer
-// through `AirspaceRegistry.installMotionObserver`, which is what keeps a frame loop
-// off a window that is drawing no native view.
-//
-// THE RECTANGLE IS READ LIVE, never captured. A rectangle taken at registration is
-// where the overlay was before it opened, and a view that yielded to it would yield
-// to a box that has moved.
-//
-// A REF CALLBACK AND NOT AN EFFECT OVER AN `isOpen` FLAG, which is the shape that lets
-// the primitives own this rather than the views above them. Base UI unmounts a portal's
-// children when its popup closes (`keepMounted` defaults to false on every popup
-// component), so the element ARRIVING is the overlay opening and the element leaving is
-// it closing — the one fact a wrapper already holds. An effect keyed on an `isOpen`
-// argument would need that flag threaded in from wherever the open state lives, and
-// four of the console's five overlay kinds are opened by their own trigger and hold no
-// such flag anywhere: the wrappers would have to mint one and keep it in step with the
-// library's, which is a second source of truth for whether an overlay is on screen.
-// React 19 calls a ref callback's returned cleanup on detach and then does not call the
-// ref with `null`, so attach and release are one closure and neither can be forgotten
-// by a caller that never sees them.
+// A ref callback rather than an effect over an `isOpen` flag: Base UI unmounts a portal's
+// children when its popup closes (`keepMounted` defaults to false), so the element arriving
+// is the overlay opening. Most overlay kinds are opened by their own trigger and hold no such
+// flag, and minting one would duplicate the library's state. React 19 calls a ref callback's
+// returned cleanup on detach and does not call the ref with `null`, so attach and release are
+// one closure.
 
 import { useCallback } from "react";
 
@@ -40,10 +24,9 @@ import { observeElementResize } from "@renderer/lib/element-resize.js";
 /**
  * What an overlay primitive puts on the element it wants the airspace to yield to.
  *
- * A `ref` value and not a hook result a caller has to wire up further: the whole
- * registration — the live rectangle reader, the size arm, and the removal — travels
- * with the element, so the only thing a primitive can get wrong is failing to attach
- * it, which the architecture gate is what catches.
+ * A `ref` value, not a hook result to wire up further: the live rectangle reader, the size
+ * arm and the removal all travel with the element, so the only thing a primitive can get
+ * wrong is failing to attach it.
  */
 export type AirspaceOverlayRef = (element: Element | null) => (() => void) | undefined;
 
@@ -51,17 +34,15 @@ export type AirspaceOverlayRef = (element: Element | null) => (() => void) | und
  * Register whatever element is attached as an overlay of `kind`, for as long as it is
  * mounted.
  *
- * A detached or never-attached element registers nothing, which is the correct reading
- * of an overlay that is not on screen. The callback's identity is stable per kind, so
- * a re-render of the primitive does not detach and re-register the popup it is holding.
+ * A detached or never-attached element registers nothing. The callback's identity is stable
+ * per kind, so a re-render of the primitive does not detach and re-register its popup.
  */
 export function useAirspaceRegistration(kind: AirspaceOverlayKind): AirspaceOverlayRef {
   return useCallback(
     (element: Element | null) => {
       if (element === null) {
-        // Reached only if React ever detaches without honoring the cleanup this
-        // returns on every attach. Nothing was registered on that path, so nothing
-        // is released here.
+        // Reached only if React detaches without honoring the cleanup returned on attach;
+        // nothing was registered on that path.
         return undefined;
       }
       const registration = airspaceRegistryFor(element.ownerDocument).register(
@@ -72,10 +53,9 @@ export function useAirspaceRegistration(kind: AirspaceOverlayKind): AirspaceOver
         },
         element,
       );
-      // The size seam is armed here rather than inside the registry, and it reports
-      // through the registration's own `moved` so every change reaches the airspace by
-      // one path. A popover positioned after mount, a toast that grows as its text
-      // wraps, and a dialog that animates in are all this arm.
+      // Armed here rather than in the registry, and reported through the registration's own
+      // `moved` so every change reaches the airspace by one path (a popover positioned after
+      // mount, a toast that grows as its text wraps, a dialog that animates in).
       const detachResize = observeElementResize(element, () => {
         registration.moved();
       });

@@ -1,43 +1,21 @@
 // A read's settlement, said out loud exactly once.
 //
-// A view that renders `not-loaded` and then a list has told everyone who can see the
-// screen that its read landed, and nobody else. The console's live announcer exists for
-// that gap, and the discipline it needs is narrower than "call `announce` when the
-// state changes": a read that refreshes on focus settles again on every refresh, a
-// component re-renders for reasons that have nothing to do with its read, and a person
-// who navigates away and back did not ask to be told twice.
+// A view that renders `not-loaded` and then a list has told only the sighted that its read
+// landed. A read that refreshes on focus settles on every refresh and a component re-renders
+// for unrelated reasons, so the unit is the sentence, not the state: the caller composes one
+// sentence from its settled reading and this hook speaks it when it is new. That sentence
+// must not carry a figure that moves without the reading changing (a percent, a relative
+// timestamp), or every push is a new sentence; each caller's test pins that with a negative
+// control.
 //
-// SO THE UNIT IS THE SENTENCE, NOT THE STATE. A caller composes one sentence from
-// its settled reading and hands it over; this hook speaks it when it is new and stays
-// silent when it is not. That places one obligation on the caller and it is the
-// important one: the sentence must not carry a figure that moves without the reading
-// changing — a download percent, a relative timestamp — because a sentence that
-// changes on every push is a new sentence every time and this hook will say all of
-// them. Each caller's own test pins that with a negative control.
+// It lives in `hooks/` because several features and the layout read it and one feature never
+// imports another. It owns no latch: it composes over `useAnnounceOncePerSentence.ts`,
+// handing it `undefined` for an unsettled read (no claim), where the set arity hands an empty
+// array and so forgets what it said.
 //
-// IN `hooks/` BECAUSE SEVERAL FEATURES AND THE LAYOUT READ IT: `settings/` from the
-// mounted folder list and the updates block, `agents/` from the definition library,
-// and the notifications list from the attention read. One feature never imports
-// another, so no one of them can hold a hook the others call. The same reasoning puts
-// `ScreenNotice` in `components/` and `chord-format.ts` in `lib/`, and it is why this
-// is a shared hook rather than a settings module that grew readers.
-//
-// IT OWNS NO LATCH. `useAnnounceOncePerSentence.ts` beside it states the "once per
-// distinct sentence, replaced each pass" rule and holds the ref that enforces it; this
-// module is the SCALAR arity of the same rule and composes over that latch rather than
-// keeping a second copy of it. The place two copies of a latch drift is the comparison,
-// and a drifted comparison is a sentence a person hears twice with every test still
-// green. What is left here is the one thing the two arities genuinely disagree about:
-// an unsettled read makes NO claim, where a complete reading claims that nothing is
-// incomplete — so this module hands the latch `undefined` and the set arity hands it an
-// empty array, and only the second forgets what it said.
-//
-// WHY IT IS NOT `frame/composition/banner-announcements.ts`. That module diffs a LIST by id and
-// speaks into the assertive lane, because a refusal banner says the whole room's
-// capabilities moved. This one holds a single string and speaks politely, because a
-// view finishing its own read is news for the person reading that view and
-// nobody else. Folding them together would need a shape that is a set on one side and
-// a scalar on the other, and would put the two politeness lanes behind one call.
+// Unlike `layout/AppShell/hooks/useRefusalBannerAnnouncements.ts`, which diffs a list by id
+// and speaks assertively, this holds one string and speaks politely: a view finishing its own
+// read is news only for the person reading it.
 
 import { useMemo } from "react";
 
@@ -46,15 +24,13 @@ import { useAnnounceOncePerSentence } from "./useAnnounceOncePerSentence.js";
 /**
  * Announce a read's settlement, once per distinct sentence, in the polite lane.
  *
- * @param sentence What settled, in one sentence — or `undefined` while nothing has.
- *   `undefined` is the "still reading" arm and is deliberately not a silent empty
- *   string: an empty string is what the announcer publishes to CLEAR a region, and a
- *   caller that reached this hook with one would be asking for a clear rather than
- *   for silence.
+ * `sentence` is what settled, in one sentence, or `undefined` while nothing has. `undefined`
+ * is deliberately not an empty string: the announcer publishes an empty string to clear a
+ * region, so an empty string would ask for a clear rather than for silence.
  */
 export function useSettlementAnnouncement(sentence: string | undefined): void {
-  // Memoized on the sentence, so the latch's effect re-runs when the settlement moves
-  // and not once per render — which is what depending on a string gave before.
+  // Memoized on the sentence, so the latch's effect re-runs when the settlement moves and not
+  // once per render.
   const sentences = useMemo(() => (sentence === undefined ? undefined : [sentence]), [sentence]);
   useAnnounceOncePerSentence(sentences);
 }

@@ -1,25 +1,18 @@
 // How a suite drives the two phases a subject-scoped addressing is held in.
 //
-// `subject-scoped-holder.ts` mints an addressing during a render and confirms it when
-// that render commits, and those are two calls because React decides between them.
-// Every suite of the subject-scoped hooks therefore has to say which of the two it is
-// driving, and there are exactly two ways to say it: directly, with no renderer, in the
-// order React would; and through React, with a pass that really runs and really never
-// commits.
+// `subject-scoped-holder.ts` mints an addressing during a render and confirms it when that
+// render commits, so a suite must say which of the two it drives: directly, with no
+// renderer, in the order React would; or through React, with a pass that really runs and
+// never commits. Both live here because they are one role (putting a holder into a state a
+// claim is about) and because a test file may not import another test file.
 //
-// ONE HOME FOR BOTH, because they are one role — putting a holder into a state a
-// claim is about — and because a test file may not import another test file: that
-// would make one suite's cases a dependency of another's.
-//
-// THE ABANDONED PASS IS DRIVEN BY A TRANSITION THAT SUSPENDS AND IS NEVER RESOLVED.
-// A render-phase state update is the wrong driver for it: React answers that one by
-// re-invoking the component and REUSING the hook cells that pass built, so nothing
-// about the pass is thrown away except its output. A transition that suspends is a
-// work-in-progress fiber React parks — the tree on screen keeps its own frame, no
-// fallback is shown, and a later higher-priority render at another subject supersedes
-// it — which is the concurrent discard the substrate is written against. Leaving its
-// promise unresolved is what makes the case deterministic rather than a race between
-// React's retry and the test's next render.
+// The abandoned pass is driven by a transition that suspends and is never resolved. A
+// render-phase state update is the wrong driver: React answers it by re-invoking the
+// component and reusing the hook cells that pass built, so nothing is thrown away but its
+// output. A suspending transition is a work-in-progress fiber React parks: the tree on
+// screen keeps its own frame, no fallback shows, and a later higher-priority render at
+// another subject supersedes it. Leaving the promise unresolved makes the case
+// deterministic rather than a race between React's retry and the test's next render.
 
 import { act, render, type RenderResult } from "@testing-library/react";
 import { startTransition, type ReactElement } from "react";
@@ -27,8 +20,8 @@ import { startTransition, type ReactElement } from "react";
 /**
  * A promise nothing ever settles, so the pass that suspends on it never resumes.
  *
- * Minted by the CALLER and handed in as a prop: React refuses to treat one minted
- * inside a render body as a suspension it can retry.
+ * Minted by the caller and handed in as a prop: React refuses to treat one minted inside a
+ * render body as a suspension it can retry.
  */
 export class SuspensionGate {
   #open: (() => void) | undefined;
@@ -46,11 +39,11 @@ export class SuspensionGate {
 }
 
 /**
- * Drive one committed visit, one pass at another subject that is abandoned, and one
- * render back at the visit that committed.
+ * Drive one committed visit, one pass at another subject that is abandoned, and one render
+ * back at the visit that committed.
  *
- * The tree is the caller's, so a claim and its negative control run the identical
- * script and differ only in the arrangement under test.
+ * The tree is the caller's, so a claim and its negative control run the identical script and
+ * differ only in the arrangement under test.
  */
 export async function driveAbandonedPass<TSubject extends object>(
   treeAt: (subject: TSubject, suspendOn: Promise<void> | undefined) => ReactElement,
@@ -71,12 +64,12 @@ export async function driveAbandonedPass<TSubject extends object>(
 }
 
 /**
- * Drive one visit, one pass React DROPS at another subject, and one visit back.
+ * Drive one visit, one pass React drops at another subject, and one visit back.
  *
- * The suspension here is resolved rather than parked, which is what makes the pass a
- * DROPPED one rather than an abandoned one: React re-renders from the newest element
- * once the promise settles. The two are different drivers for different claims, and
- * the difference is exactly whether the discarded pass is ever retried.
+ * The suspension here is resolved rather than parked: React re-renders from the newest
+ * element once the promise settles, which is what makes the pass dropped rather than
+ * abandoned. The two drivers serve different claims and differ in whether the discarded pass
+ * is ever retried.
  */
 export async function driveDroppedPass<TSubject extends object>(
   treeAt: (subject: TSubject, suspendOn: Promise<void> | undefined) => ReactElement,

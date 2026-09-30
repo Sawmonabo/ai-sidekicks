@@ -1,8 +1,6 @@
 // The scans the roving-index suites read the list with, and the press they drive it by.
 //
-// Not a test file — no `include` glob reaches it; the three co-located suites import
-// it. The list itself is `RovingList.test-support.tsx` (one component per module, the
-// `apps/desktop` AGENTS.md rule the one-component gate enforces on support modules too).
+// Not a test file: no `include` glob reaches it. The list is `RovingList.test-support.tsx`.
 
 import { act } from "@testing-library/react";
 
@@ -11,9 +9,8 @@ import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers
 /**
  * The index of every row Tab would reach, read from the element that holds the stop.
  *
- * The stop is on the row's declared target rather than on the `<li>`, so the index is
- * read by climbing from it — which is also the assertion: a stop that was not inside
- * a row would produce an empty string here rather than quietly not being counted.
+ * The stop is on the row's declared target, not the `<li>`, so the index is read by climbing
+ * from it; a stop outside a row yields an empty string rather than going uncounted.
  */
 export function tabbableIndexes(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll<HTMLElement>('[tabindex="0"]')].map(

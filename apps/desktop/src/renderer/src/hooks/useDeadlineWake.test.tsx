@@ -1,12 +1,9 @@
 // One timer, at the earliest deadline, and none when nothing is outstanding.
 //
-// Every claim here is checked by COUNTING armed work on the clock seam rather than by
-// asserting it, which is the whole reason the seam exists: `ManualClock.pendingCount`
-// answers "does anything still have a timer armed?", and a counting subclass answers
-// the second question a re-arming chain raises — "how many times was one armed?".
-// That second number is what separates a hook whose effect depends on the earliest
-// deadline from one that depends on the caller's array identity, and the two are
-// indistinguishable from `pendingCount` alone.
+// Claims are checked by counting armed work on the clock seam. `ManualClock.pendingCount`
+// says whether anything is still armed; a counting subclass says how many times a timer was
+// armed, which separates a hook whose effect depends on the earliest deadline from one that
+// depends on the caller's array identity.
 
 import { act, render } from "@testing-library/react";
 import { useState } from "react";
@@ -23,12 +20,10 @@ import {
 } from "./useDeadlineWake.test-support.js";
 
 /**
- * The real clock, instrumented the same way — and the reason this file drives two.
+ * The real clock, instrumented the same way.
  *
- * `ManualClock` computes a due instant from the delay it is handed, so a delay no
- * platform timer could hold is a number it stores and honors. The defect this
- * subclass is here for lives one layer below that, in `setTimeout` itself, so the
- * clock under it has to be the one the console really runs on.
+ * `ManualClock` stores and honors a delay no platform timer could hold. The overflow lives
+ * in `setTimeout` itself, so the clock under it has to be the one the console really runs on.
  */
 class RecordingRealClock extends RealClock {
   public readonly armedDelaysMilliseconds: number[] = [];
@@ -45,11 +40,10 @@ const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
 const SIXTY_DAYS_MILLISECONDS = 60 * MILLISECONDS_PER_DAY;
 
 /**
- * The shape this hook shipped: one reading, taken at mount and never re-taken.
+ * Negative control: one reading taken at mount and never re-taken.
  *
- * Not a stand-in for the hook — it is the cell `useDeadlineWake` held, kept so the
- * claims about a replacement clock are shown to discriminate. It renders what the
- * hook would arm for, which is the whole of what the held instant decides.
+ * It renders what the hook would arm for, which is the whole of what the held instant
+ * decides.
  */
 function MountLifetimeInstantProbe(props: {
   readonly clock: Clock;
@@ -143,9 +137,8 @@ describe("useDeadlineWake — one timer, at the earliest deadline", () => {
 
 describe("useDeadlineWake — the dependency is the deadline, not the array", () => {
   it("re-arms nothing when the caller rebuilds an equal array", () => {
-    // The defect this hook is hoisted to remove: a caller mapping a store selection
-    // into deadlines hands a fresh array every render, and an effect keyed on that
-    // array cancels and re-arms a timer on every single one.
+    // A caller mapping a store selection into deadlines hands a fresh array every render, and
+    // an effect keyed on that array would cancel and re-arm a timer on every one.
     const clock = new CountingManualClock(MOUNTED_AT);
     const wake = renderDeadlineWake(clock, [5_000, 9_000]);
     expect(clock.armCount).toBe(1);
@@ -158,9 +151,8 @@ describe("useDeadlineWake — the dependency is the deadline, not the array", ()
   });
 
   it("negative control: a changed earliest deadline does re-arm", () => {
-    // Without this the assertion above would also be satisfied by a hook that armed
-    // once and never again, which is a wake-up that stops working the moment the
-    // rows change.
+    // Without this the assertion above would also be satisfied by a hook that armed once and
+    // never again.
     const clock = new CountingManualClock(MOUNTED_AT);
     const wake = renderDeadlineWake(clock, [5_000]);
     expect(clock.armCount).toBe(1);
@@ -171,8 +163,7 @@ describe("useDeadlineWake — the dependency is the deadline, not the array", ()
   });
 
   it("re-arms nothing when a LATER deadline changes under an unchanged earliest", () => {
-    // The earliest is what is armed for, so a set whose tail moved has not changed
-    // what this hook has to do.
+    // The earliest is what is armed for, so a moved tail changes nothing.
     const clock = new CountingManualClock(MOUNTED_AT);
     const wake = renderDeadlineWake(clock, [5_000, 9_000]);
     act(() => {
@@ -188,10 +179,9 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
   });
 
   it("arms no step longer than the platform ceiling, on the clock the console runs on", () => {
-    // The defect as arithmetic, driven against the REAL clock: without the clamp the
-    // one armed delay is the whole sixty days, which `setTimeout` truncates into a
-    // signed 32-bit integer and fires on the next tick — publishing an instant two
-    // months ahead and putting every row in the list past its deadline at mount.
+    // Against the real clock: without the clamp the one armed delay is the whole sixty days,
+    // which `setTimeout` overflows and fires on the next tick, publishing an instant two
+    // months ahead and putting every row past its deadline at mount.
     vi.useFakeTimers();
     vi.setSystemTime(MOUNTED_AT);
     const clock = new RecordingRealClock();
@@ -201,9 +191,8 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
   });
 
   it("negative control: a deadline inside the ceiling is armed for in full", () => {
-    // Without this the clamp above would also be satisfied by an implementation that
-    // chopped every deadline into ceiling-sized steps, which would re-arm a timer
-    // for a wake-up that is a minute away.
+    // Without this the clamp above would also be satisfied by chopping every deadline into
+    // ceiling-sized steps, re-arming a timer for a wake-up a minute away.
     vi.useFakeTimers();
     vi.setSystemTime(MOUNTED_AT);
     const clock = new RecordingRealClock();
@@ -212,10 +201,9 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
   });
 
   it("walks the deadline in ceiling-sized steps and wakes only when it is reached", () => {
-    // The second half of the fix: clamping alone would arm one step and stop, so the
-    // wake-up would simply never happen. Driven on the manual clock because it
-    // honors the delay it is handed — which is what makes "the step ran and another
-    // was armed" observable rather than a claim about `setTimeout`.
+    // Clamping alone would arm one step and stop, so the wake-up would never happen. Driven
+    // on the manual clock, which honors the delay it is handed, so "the step ran and another
+    // was armed" is observable.
     const clock = new CountingManualClock(MOUNTED_AT);
     const deadline = MOUNTED_AT + SIXTY_DAYS_MILLISECONDS;
     const wake = renderDeadlineWake(clock, [deadline]);
@@ -224,8 +212,8 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
     act(() => {
       clock.advance(MAXIMUM_TIMEOUT_MILLISECONDS);
     });
-    // The first step ran; the deadline is still ahead, so nothing was published and
-    // the next step is armed.
+    // The first step ran; the deadline is still ahead, so nothing was published and the next
+    // step is armed.
     expect(wake.instant()).toBe(MOUNTED_AT);
     expect(clock.armCount).toBe(2);
     expect(clock.pendingCount).toBe(1);
@@ -234,8 +222,7 @@ describe("useDeadlineWake — a deadline further out than a timer can hold", () 
       clock.advance(SIXTY_DAYS_MILLISECONDS - MAXIMUM_TIMEOUT_MILLISECONDS);
     });
     expect(wake.instant()).toBe(deadline);
-    // Nothing outstanding, so the chain stops — the same claim the near-deadline
-    // case makes, held across a walk of several steps.
+    // Nothing outstanding, so the chain stops, as in the near-deadline case.
     expect(clock.pendingCount).toBe(0);
   });
 });
@@ -246,10 +233,10 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
   const LATER_START = MOUNTED_AT + 10_000;
 
   it("re-reads the instant from a replacement clock and arms for it", () => {
-    // A mounted consumer handed another clock — a fixture scenario switching to one
-    // that starts earlier is the ordinary way. The reading taken from the clock it no
-    // longer has measures nothing on this one, so holding it put every deadline
-    // behind the component at once: nothing armed, every row expired, until unmount.
+    // A mounted consumer handed another clock (a fixture scenario switching to one that
+    // starts earlier). The reading from the old clock measures nothing on this one, and
+    // holding it would put every deadline behind the component at once: nothing armed, every
+    // row expired.
     const laterClock = new CountingManualClock(LATER_START);
     const earlierClock = new CountingManualClock(MOUNTED_AT);
     const wake = renderDeadlineWake(laterClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
@@ -270,9 +257,8 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
   });
 
   it("negative control: the cell this replaced goes on measuring against the old clock", () => {
-    // The identical script against the shape that shipped: its instant is the later
-    // clock's, so the deadline the hook above arms for reads as already crossed and
-    // nothing is left to wake up for.
+    // The identical script against the cell that never re-reads: its instant is the later
+    // clock's, so the deadline reads as already crossed and nothing is left to wake up for.
     const laterClock = new CountingManualClock(LATER_START);
     const earlierClock = new CountingManualClock(MOUNTED_AT);
     const view = render(
@@ -293,9 +279,8 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
   });
 
   it("negative control: a re-render on the SAME clock does not re-read it", () => {
-    // Without this, "re-read from the replacement" would also be satisfied by a hook
-    // that read the clock on every pass — a render whose output depends on when it
-    // ran, which is the impurity the frozen clock exists to remove.
+    // Without this, "re-read from the replacement" would also be satisfied by a hook that
+    // read the clock on every pass, making the render output depend on when it ran.
     const clock = new CountingManualClock(MOUNTED_AT);
     const wake = renderDeadlineWake(clock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
     act(() => {
@@ -310,9 +295,9 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
   });
 
   it("negative control: a replacement clock already past the deadline arms nothing", () => {
-    // The other direction, so the claim is about reading the replacement rather than
-    // about arming on every clock change — and the timer on the clock the consumer
-    // left is canceled rather than carried.
+    // The other direction, so the claim is about reading the replacement rather than arming
+    // on every clock change; the timer on the clock the consumer left is canceled, not
+    // carried.
     const earlierClock = new CountingManualClock(MOUNTED_AT);
     const laterClock = new CountingManualClock(LATER_START);
     const wake = renderDeadlineWake(earlierClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);

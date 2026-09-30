@@ -1,16 +1,14 @@
-// The ref moves at the COMMIT, so a pass React throws away moves nothing.
+// The ref moves at the commit, so a pass React throws away moves nothing.
 //
-// The claim is about a render that really runs and really never becomes a frame, so
-// the cases build one rather than describing it: a transition that re-props the tree
-// and suspends runs every component body in it and is then parked, with the committed
-// tree still on screen. Nothing in this package reaches that state today — the cases
-// are what keep the callbacks built from this hook correct for the first concurrent
-// feature that does.
+// A render that really runs and never becomes a frame is built, not described: a transition
+// that re-props the tree and suspends runs every component body in it and is then parked,
+// with the committed tree still on screen. Nothing in this package reaches that state today;
+// the cases keep callbacks built from this hook correct for the first concurrent feature
+// that does.
 //
-// The negative control is the shape this hook replaced, written out as a foil: a ref
-// assigned in the render body. It is not a stand-in for the module under test — the
-// claim cases drive the real hook — it is the arrangement that has to fail before a
-// green result from them means anything.
+// The negative control is a ref assigned in the render body. The claim cases drive the real
+// hook; the foil is the arrangement that has to fail before a green result from them means
+// anything.
 
 import { render, screen } from "@testing-library/react";
 import { useRef, useState } from "react";
@@ -51,7 +49,7 @@ function LatestRefHost(props: { readonly handles: ProbeHandles }): React.JSX.Ele
   );
 }
 
-/** The same tree with the render-body assignment this hook replaced. */
+/** The same tree with the ref assigned in the render body. */
 function RenderBodyRefHost(props: { readonly handles: ProbeHandles }): React.JSX.Element {
   const [value, setValue] = useState(COMMITTED_VALUE);
   const [suspend, setSuspend] = useState(false);
@@ -86,17 +84,16 @@ describe("the latest-committed ref", () => {
       handles.proposeAbandonedValue.current?.();
     });
 
-    // The committed tree is the one on screen — no fallback, no re-render — so a
-    // callback invoked right now must act on what that tree supplied.
+    // The committed tree is on screen (no fallback, no re-render), so a callback invoked now
+    // must act on what that tree supplied.
     expect(screen.queryByText(COMMITTED_VALUE)).not.toBeNull();
     expect(handles.readLatest.current?.()).toBe(COMMITTED_VALUE);
   });
 
   it("negative control: the render-body assignment this replaced takes the discarded value", async () => {
-    // Without this the case above would pass over any arrangement at all, including
-    // one that never wrote the ref. This is the shape the console shipped: the
-    // discarded pass ran, its body assigned, and the tree still on screen invoked
-    // against a value belonging to a render nobody ever saw.
+    // Without this the case above would pass over any arrangement, including one that never
+    // wrote the ref. The discarded pass ran and its body assigned, so the tree still on screen
+    // invokes against a value belonging to a render nobody saw.
     const handles = probeHandles();
     render(<RenderBodyRefHost handles={handles} />);
 
