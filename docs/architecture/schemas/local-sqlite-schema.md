@@ -629,9 +629,9 @@ CREATE TABLE approval_requests (
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
   resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-010 §Interfaces And Contracts, 'must include')
-  ask_id                TEXT,                 -- originating driver_ask askId, set iff the request was minted by the
-                                              -- CP-010-6 driver-ask normalizer; rebuilt from approval.requested.askId
-                                              -- at replay (D-010-6/D-010-7) so outcome routing to the native
+  ask_id                TEXT,                 -- originating provider permission ask's askId, set iff the request was
+                                              -- minted by the CP-010-6 permission-ask normalizer; rebuilt from
+                                              -- approval.requested.askId at replay (D-010-6/D-010-7) so outcome routing to the native
                                               -- ask survives restart with several in-flight asks on one run
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),

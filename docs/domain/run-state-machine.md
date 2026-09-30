@@ -34,7 +34,7 @@ The run state machine defines the lifecycle semantics of execution.
 - `resume` is valid only from `paused`.
 - Reattach after reconnect is not the same thing as `resume`.
 - Waiting for approval or input keeps the same run id; it does not create a replacement run.
-- A run's pending blocking work — a pending question, a pending driver ask or a pending pipeline approval request — grants the run a liveness exemption from the idle sweep for as long as the block stands, and no deadline bounds it: a question, an ask and an approval all wait until they are answered ([Spec-010 §Required Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior)). The exemption ends the moment the block resolves or is closed with the run that raised it — the answer, the cancellation that rides an interrupt, or the end of the provider process — and a closed block never counts as pending blocking work, so the run returns to the ordinary idle path the instant it is no longer waiting on a person. The startup-reconciliation divergence halt (`waiting_for_input` carrying `recovery-needed`) is a human-action halt rather than a pending question, ask or approval, and is outside this rule by design ([Spec-013 §Fallback Behavior](../specs/013-persistence-recovery-and-replay.md#fallback-behavior)).
+- A run's pending blocking work — a pending question, a pending permission ask or a pending pipeline approval request — grants the run a liveness exemption from the idle sweep for as long as the block stands, and no deadline bounds it: a question, an ask and an approval all wait until they are answered ([Spec-010 §Required Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior)). The exemption ends the moment the block resolves or is closed with the run that raised it — the answer, the cancellation that rides an interrupt, or the end of the provider process — and a closed block never counts as pending blocking work, so the run returns to the ordinary idle path the instant it is no longer waiting on a person. The startup-reconciliation divergence halt (`waiting_for_input` carrying `recovery-needed`) is a human-action halt rather than a pending question, ask or approval, and is outside this rule by design ([Spec-013 §Fallback Behavior](../specs/013-persistence-recovery-and-replay.md#fallback-behavior)).
 
 ## Relationships To Adjacent Concepts
 
@@ -73,7 +73,7 @@ Primary allowed transitions:
 - `running -> interrupted`
 - `running -> completed`
 - `running -> failed`
-- `waiting_for_approval -> running` (approval resolved; or a pending permission-ask's provider retraction, atomic with `driver_ask.canceled`, no outcome delivered)
+- `waiting_for_approval -> running` (approval resolved; or a pending permission-ask's provider retraction, atomic with `approval.canceled`, no outcome delivered)
 - `waiting_for_approval -> interrupted`
 - `waiting_for_input -> running` (the question answered, the question handler moving the run back as it writes the answer's `user.message` row; or the question canceled — the provider withdrew its held request — with no answer delivered)
 - `waiting_for_input -> interrupted`
@@ -129,7 +129,7 @@ The following table lists every allowed run state transition. It includes primar
 | `running` | `completed` | Execution finished | Run reaches successful terminal condition |
 | `running` | `failed` | Unrecovered error | Provider, transport, or internal error during execution |
 | `waiting_for_approval` | `running` | Approval resolved | Resolution outcome (approved or rejected) delivered to the run; a rejected outcome continues the run with the action refused — it does not terminate the run (Spec-010); an approval never settles on its own, so there is no time-based arm to this row (Spec-010 §Required Behavior) |
-| `waiting_for_approval` | `running` | Provider ask retraction | The provider withdrew its still-pending permission ask on the live leg — `driver_ask.canceled` settles at once, the associated approval request settles `approval.canceled` (no resolution row) in the same atomic pass, and the run resumes with no outcome delivered (Plan-010 T2.8's cancel ingress) |
+| `waiting_for_approval` | `running` | Provider ask retraction | The provider withdrew its still-pending permission ask on the live leg — its approval request settles `approval.canceled` (no resolution row) at once, and the run resumes with no outcome delivered in the same atomic pass (Plan-010 T2.8's cancel ingress) |
 | `waiting_for_approval` | `interrupted` | Interrupt or cancel intervention | User-initiated stop while waiting — which cancels the approval the run was holding open, the cancellation recorded (Spec-010 §Required Behavior) — or an undo, which cancels it the same way (§Rollback Transitions) |
 | `waiting_for_approval` | `failed` | Provider or transport failure | Failure occurs while run is blocked on approval |
 | `waiting_for_input` | `running` | Question answered | The person answered the question: the question handler writes the answer as an ordinary `user.message` row and moves the run back in the same step. A question waits until it is answered, so nothing reaches this row on elapsed time (Spec-010 §Required Behavior) |

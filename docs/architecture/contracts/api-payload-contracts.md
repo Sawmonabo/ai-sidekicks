@@ -2426,7 +2426,8 @@ interface RunSafetyBufferingUpdatedPayload {
 // session.notice of kind `provider_warning` (Spec-005 §Session Lifecycle): Codex's `warning`, whose
 // `message` becomes `text`, or its `deprecationNotice`, whose `summary` becomes `text` and whose
 // `details` are kept beside it. Recorded so the working line's warnings count and its list survive
-// a reload; it draws no flow row. `configWarning` and `guardianWarning` are not this kind.
+// a reload; it draws no flow row. `configWarning` and `guardianWarning` are not this kind, nor is
+// the `warning` right after `model/rerouted` in the same turn, which is that switch's `sentence`.
 interface SessionNoticeProviderWarning {
   sessionId: SessionId;
   kind: "provider_warning";
@@ -2687,8 +2688,9 @@ interface EventEnvelope {
 // delivery generation's always-superseding retained pair; Spec-003 §Required Behavior
 // owns the fence and generation-rotation mechanics) of the five late-append families
 // — assistant_output,
-// tool_activity, usage_telemetry, artifact_publication, and the interactive_request
-// pair (driver_ask.requested + driver_ask.canceled): sourceEpoch names the
+// tool_activity, usage_telemetry, artifact_publication, and approval_flow, whose closed
+// pair is approval.requested + approval.canceled (question.asked stays outside the window):
+// sourceEpoch names the
 // pre-rollback execution epoch, sourcePosition the normalized session position (the
 // Spec-003 targetPosition turn-boundary vocabulary) the row occupies within it —
 // registered because no run-scoped family payload carries a native position key, and
@@ -3264,61 +3266,6 @@ interface RunRolledBackEvent {
   targetPosition: number; // the turn-boundary anchor the run landed at (normalized session position)
 }
 
-// Provider-initiated mid-run asks (Spec-005 §Driver Ask Events): an
-// `interactive_request` subfamily. `state` is the closed DriverAskState enum and MUST equal the emitting
-// event type's suffix (requested / responded / canceled — a mismatch is an emitter bug, fail
-// loud). `kind` discriminates permission-approval asks (routed into the approval pipeline) from
-// structured-input asks (routed to the run's interactive surface). For kind 'permission', `input` MUST be
-// set — the normalized requested resource (command / path / tool arguments) the approval decision is about
-// (Spec-005 §Driver Ask Events shape line). `response` appears only on driver_ask.responded rows — the
-// delivered answer (permission decision or structured input) — and post-B1 responded emitters MUST set
-// it (a responded row with no delivered answer is an emitter bug); the refinement refuses it elsewhere.
-// AN ASK CARRIES NO DEADLINE. The daemon holds a provider's ask open with no timer, rebuilds its card on
-// a reload and on every linked device of the user, and lets the first answer settle it everywhere
-// (Spec-010 §Required Behavior). Moving the session's permission level to one that never asks ANSWERS an
-// open ask — the blocked call runs — so that path settles as `responded`, never as a cancellation. Only
-// two things cancel one: an interrupt or any other end of the run that raised it, and the provider
-// process ending. No expiry state, no deadline member and no sweep exists on this payload, and silence
-// can never be read as either an approval or a denial.
-// Variant-required fields are enforced at the EMISSION seam via the exported per-type refinement
-// (the normalizer bundle: `driverAskPayloadRefinementFor(eventType)`, sibling of Plan-010
-// T1.1's `approvalFlowPayloadRefinementFor`): kind 'permission' ⇒ `input` on
-// every state; responded ⇒ `response` — refused on the other two — so a malformed event fails at the
-// emission parse, never at peer/restart projection.
-// `options` is ADDITIVE-OPTIONAL and carries the closed choice set an input-kind ask
-// offers, where the provider's own ask declares one — the Codex item/tool/requestUserInput and MCP
-// elicitation surfaces can, the Claude control round-trip does not. Reported at the DRIVER's
-// normalize boundary and never synthesized by a consumer, so its absence means the provider offered
-// no choice set the driver could represent — never that a represented one was lost in transit. It
-// carries NO refinement on either kind or any state, deliberately: requiring it anywhere would
-// refuse a legitimate ask from the one mechanism that cannot supply it. Its reader is the Spec-011
-// input-ask card, whose free-text answer arm is unconditional for exactly that reason. Answers
-// travel on the already-registered `driver.respondToRequest`, whose `response` is unknown-typed —
-// no wire member is minted for them.
-// BOUNDED BEFORE APPEND. The choice set is provider- or MCP-authored and this payload is a durable
-// canonical event, so the array's CARDINALITY and both `value` and `label` are bounded in the
-// payload schema itself (`wireFreeFormString`: length + non-whitespace + NUL-rejection). Without
-// those bounds the event log's 32 KiB canonical ceiling would be the first guard, and an oversized
-// but schema-valid ask would fail only at append — leaving the run waiting on an input card that was
-// never recorded, which is the one outcome an interactive-request family must not produce. With
-// them the over-large set is refused at the driver's own boundary while the ask itself still
-// arrives: the driver reports the ask WITHOUT `options` and records a driver-band diagnostic naming
-// the drop, and the card's unconditional free-text arm carries the answer. That is why the absence
-// clause above is scoped to representability rather than to the provider's intent — a dropped set
-// is legible in the driver diagnostics, and no path both drops a set and reports nothing.
-interface DriverAskEvent {
-  sessionId: SessionId;
-  runId: RunId;
-  askId: string;
-  kind: "permission" | "input";
-  toolName?: string;
-  prompt?: string;
-  options?: ReadonlyArray<{ value: string; label?: string }>;
-  input?: unknown;
-  state: "requested" | "responded" | "canceled";
-  response?: unknown;
-}
-
 // Run-control mutations (Spec-003 §Required Behavior). `pause` interrupts the active run + persists conversation/run
 // state + queues a resume (orchestration-layer, never driver-gated per I-003-10); `resume` returns the
 // `paused` run to active execution with the SAME run id. Both carry a MANDATORY `expectedRunVersion`
@@ -3853,14 +3800,15 @@ type InvalidationTrigger =
 // remembered ⇒ approvalRequestId / approver / rememberedScope / ruleId / madeAtLevel;
 // rule_revoked ⇒ ruleId / invalidationTrigger —
 // a malformed event fails at the emission parse, never at restart projection (I-010-9).
-// Driver-ask-originated requested rows additionally carry `askId` — its PRESENCE is required at
-// the CP-010-6 normalizer seam (T2.8, the sole such emitter): the origin-blind refinement cannot
-// know whether a requested payload is driver-ask-originated, so it enforces nothing about it.
+// Requested rows a provider permission ask originates additionally carry `askId` — its PRESENCE is
+// required at the CP-010-6 normalizer seam (T2.8, the sole such emitter): the origin-blind
+// refinement cannot know whether a requested payload came from a provider ask, so it enforces
+// nothing about it.
 interface ApprovalFlowEventPayload {
   sessionId: SessionId;
   runId?: RunId; // absent on rule_revoked (no in-flight request)
   approvalRequestId?: ApprovalRequestId; // ditto
-  askId?: string; // present on approval.requested when the request originates from a provider permission ask: the originating DriverAskEvent.askId, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome must answer when several asks are in flight on one run; required at the CP-010-6 normalizer emission seam (T2.8 — the sole driver-ask-originated requester), set only by the daemon's in-process create from a provider ask, and never supplied by a client; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
+  askId?: string; // present on approval.requested when the request originates from a provider permission ask (Claude Code's can_use_tool for any tool but its question tool, or a Codex approval request), which it records once: the ask's id, persisted at creation as the durable ask↔approval association — restart/replay reconstructs which native ask an outcome must answer when several asks are in flight on one run, so the answer reaches the provider across a restart; required at the CP-010-6 normalizer emission seam (T2.8 — the sole requester a provider ask originates), set only by the daemon's in-process create from a provider ask, and never supplied by a client; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
   category: ApprovalCategory;
   scope: string;
   requestedBy?: string; // present on approval.requested — recorded requester actor (user or agent actor id, Spec-010 §Required Behavior)
