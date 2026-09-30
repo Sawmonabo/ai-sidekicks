@@ -64,7 +64,7 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 /**
  * Max length of a short identifier or label on this seam: model and mode `id` and `name`, and the
  * vocabulary tokens inside `capabilities`, `effortLevels` and `outputSpeedLevels`. Sized well above
- * the longest published model id.
+ * the longest published model id (25 characters at the pinned surfaces).
  */
 export const DRIVER_WIRE_TOKEN_MAX_LEN = 128;
 /**
@@ -91,7 +91,8 @@ export const DRIVER_WIRE_STEER_CONTENT_MAX_LEN = 16384;
  * Max entries in a per-driver model or mode list and in the token arrays inside a model. Unlike
  * `DRIVER_PROVIDER_COMMAND_ENTRIES_MAX` it rejects rather than truncates: these replies carry no
  * `complete` flag, and a silently short catalog would look like a provider publishing fewer
- * models. Sized far above the pinned surfaces, so tripping it means a daemon composition bug.
+ * models. Sized far above the pinned surfaces (8 models on Codex, 4 on Claude), so tripping it
+ * means a daemon composition bug.
  */
 export const DRIVER_WIRE_CATALOG_ENTRIES_MAX = 256;
 /**
