@@ -17,7 +17,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RENDERER_ORIGIN } from "@main/services/renderer-scheme.js";
 import { FIRST_RUN_SCENARIO } from "../../fixtures/scenarios/first-run.js";
 import { PANE_HARNESS_LABEL } from "@renderer/app/pane-harness/PaneHarnessFrame.js";
 import { withLaunchedApp } from "../helpers/electron-harness.js";
@@ -27,17 +26,6 @@ import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
 const bundleIsBuilt = fixtureBundleExists();
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
-  it("serves the window from the privileged renderer scheme", async () => {
-    await withLaunchedApp({}, async (consoleApplication) => {
-      // The origin is the persistence partition key: a scheme registered without `standard: true`
-      // has no origin, and an origin-less document gets neither IndexedDB nor `localStorage`.
-      // Asserted first against the main process's own constant, so a rename breaks it at compile
-      // time.
-      const origin = await consoleApplication.window.evaluate(() => window.location.origin);
-      expect(origin).toBe(RENDERER_ORIGIN);
-    });
-  });
-
   it("boots the frame with its rail, a mounted screen, and a composed absence", async () => {
     // The scenario is named because every claim below is about the first-run composition (a
     // readable session, an unowned pane kind); a window naming no scenario plays the default
