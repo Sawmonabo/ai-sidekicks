@@ -3,18 +3,16 @@
 // One lifecycle, run through the real modules in the order production runs them:
 //
 //   PII-carrying appends to two sessions through `EventLogService`
-//     → a purge of one session behind a real `MerkleAnchorService` anchor
-//     → the integrity verifier re-runs over every chain
+//     → a purge of one session
 //
-// and then asserts that stubbing the purged session leaves every signature and
-// every chain link intact: on the purged session, on the session that was kept,
-// and on the daemon-scope sentinel that holds the purge's receipt.
+// and then asserts that the purged session is stubbed with its PII columns
+// cleared, the kept session is whole and still decrypts, and the daemon-scope
+// sentinel holds the purge's one receipt.
 //
 // The read projection and `splitPii` are suite-local fixtures. Everything
-// else (the append path, the PII codec, the purge, the anchor service, the
-// signer) is the shipped code.
+// else (the append path, the PII codec, the purge, the content key store) is
+// the shipped code.
 
-import { ed25519 } from "@noble/curves/ed25519.js";
 import { blake3 } from "@noble/hashes/blake3.js";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -24,15 +22,12 @@ import {
   EventEnvelopeVersionSchema,
   NodeIdSchema,
   SessionIdSchema,
-  type EventEnvelope,
   type NodeId,
   type SessionId,
 } from "@ai-sidekicks/contracts";
 
 import { openDatabase } from "../../session/migration-runner.js";
-import { canonicalizeEvent, type CanonicalBytes } from "../canonicalizer.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
-import { MerkleAnchorService } from "../merkle-anchor-service.js";
 import { type PiiEncryptionRequest, type PiiEncryptor } from "../pii-indirection.js";
 import { __resetSessionAppendLocksForTest } from "../session-append-lock.js";
 import { SessionContentKeyStore } from "../session-content-key-store.js";
@@ -42,14 +37,6 @@ import {
   type SessionPurgeEventLog,
   type SessionPurgeResult,
 } from "../session-purge.js";
-import {
-  GENESIS_PREV_HASH,
-  verifyRow,
-  type Ed25519PrivateKey,
-  type Ed25519PublicKey,
-  type RowVerification,
-} from "../signer.js";
-import type { DaemonSigningKeySource } from "../signing-key-source.js";
 
 /** The session the person deletes. */
 const SESSION: SessionId = SessionIdSchema.parse("33333333-4444-4555-8666-777777777777");
@@ -66,16 +53,6 @@ const SECOND_USER = "44444444-5555-4666-8777-888888888899";
 
 const FIRST_USER_PLAINTEXT = "the-first-user-content";
 const SECOND_USER_PLAINTEXT = "the-second-user-content";
-
-const DAEMON_PRIVATE_KEY = new Uint8Array(32).fill(23) as Ed25519PrivateKey;
-const DAEMON_PUBLIC_KEY = ed25519.getPublicKey(DAEMON_PRIVATE_KEY) as Ed25519PublicKey;
-
-// Answers for every session, the daemon-scope sentinel included: the purge
-// appends its receipt on the sentinel partition through this same append path.
-const keySource: DaemonSigningKeySource = {
-  create: () => Promise.resolve({ publicKey: DAEMON_PUBLIC_KEY }),
-  read: () => Promise.resolve(DAEMON_PRIVATE_KEY),
-};
 
 // ----------------------------------------------------------------------------
 // Fixtures — encryptor and the `splitPii`
@@ -163,7 +140,6 @@ beforeEach(() => {
   codec = new UserKeyedPiiCodec(database);
   eventLog = new EventLogService({
     db: database,
-    signingKeySource: keySource,
     piiEncryptor: codec,
   });
   __resetSessionAppendLocksForTest();
@@ -183,7 +159,7 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// The stored row, hydrated for verification and for reading
+// The stored row, as read back
 // ----------------------------------------------------------------------------
 
 interface StoredRow {
@@ -199,88 +175,14 @@ interface StoredRow {
   readonly correlation_id: string | null;
   readonly causation_id: string | null;
   readonly version: string;
-  readonly prev_hash: Uint8Array;
-  readonly row_hash: Uint8Array;
-  readonly daemon_signature: Uint8Array;
   readonly pii_user_id: string | null;
   readonly retention_class: string | null;
-  readonly stub_signature: Uint8Array | null;
 }
 
 function storedRows(sessionId: SessionId = SESSION): ReadonlyArray<StoredRow> {
   return database
     .prepare("SELECT * FROM session_events WHERE session_id = ? ORDER BY sequence ASC")
     .all(sessionId) as ReadonlyArray<StoredRow>;
-}
-
-/** Rebuild the signed envelope FROM STORAGE — never from what the test appended. */
-function canonicalBytesOf(row: StoredRow): CanonicalBytes {
-  const envelope: EventEnvelope = {
-    id: row.id,
-    sessionId: SessionIdSchema.parse(row.session_id),
-    sequence: row.sequence,
-    occurredAt: row.occurred_at,
-    category: row.category as EventEnvelope["category"],
-    type: row.type,
-    actor: row.actor,
-    payload: JSON.parse(row.payload) as Record<string, unknown>,
-    version: EventEnvelopeVersionSchema.parse(row.version),
-    ...(row.correlation_id !== null ? { correlationId: row.correlation_id } : {}),
-    ...(row.causation_id !== null ? { causationId: row.causation_id } : {}),
-  };
-  return canonicalizeEvent(envelope);
-}
-
-/**
- * The integrity verifier re-run: `verifyRow` per live row, plus the
- * LINKAGE walk `verifyRow` explicitly leaves to its caller.
- */
-function verifyWholeChain(sessionId: SessionId = SESSION): {
-  readonly perRow: ReadonlyArray<RowVerification>;
-  readonly linkageDefect: string | undefined;
-} {
-  const rows = storedRows(sessionId);
-  const perRow: RowVerification[] = [];
-  let expectedSequence = 0;
-  let expectedPrevHash: Uint8Array = GENESIS_PREV_HASH;
-  let linkageDefect: string | undefined;
-
-  for (const row of rows) {
-    if (linkageDefect === undefined && row.sequence !== expectedSequence) {
-      linkageDefect = `sequence gap at ${String(row.sequence)}`;
-    }
-    if (linkageDefect === undefined && !bytesEqual(row.prev_hash, expectedPrevHash)) {
-      linkageDefect = `broken link at sequence ${String(row.sequence)}`;
-    }
-    expectedSequence = row.sequence + 1;
-    expectedPrevHash = row.row_hash;
-
-    // A purged row is out of `verifyRow`'s scope by row class: the purge
-    // discarded the bytes it would recompute from. Its commitment is the
-    // per-row `stub_signature`, checked separately below.
-    if (row.retention_class === null) {
-      perRow.push(
-        verifyRow(
-          canonicalBytesOf(row),
-          {
-            prevHash: row.prev_hash,
-            rowHash: row.row_hash,
-            daemonSignature: row.daemon_signature,
-          },
-          DAEMON_PUBLIC_KEY,
-        ),
-      );
-    }
-  }
-  return { perRow, linkageDefect };
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
 }
 
 /**
@@ -304,12 +206,10 @@ const KEPT_PII_EVENT_COUNT = 4;
 /** Every row of the purged session: the opener and its PII rows. */
 const PURGED_SESSION_ROW_COUNT = SESSION_OPENER_EVENT_COUNT + PURGED_PII_EVENT_COUNT;
 const KEPT_SESSION_ROW_COUNT = SESSION_OPENER_EVENT_COUNT + KEPT_PII_EVENT_COUNT;
-/** The sentinel partition after one purge: its receipt. */
-const SENTINEL_ROW_COUNT = 1;
 
 async function appendSessionOpener(sessionId: SessionId): Promise<void> {
   // A payload its own registered `session.created` variant accepts: the append
-  // path parses what it is about to sign.
+  // path parses what it is about to store.
   await eventLog.append({
     id: `evt-created-${sessionId.slice(-4)}`,
     sessionId,
@@ -329,7 +229,7 @@ async function appendPiiEvent(
   text: string,
 ): Promise<void> {
   // A real `assistant.message` payload: that type has a registered variant, and
-  // the sealing codec parses the composed row against it before signing.
+  // the sealing codec parses the composed row against it before storing.
   const { clear, pii } = splitPii({ sessionId, runId: `run-${String(index)}`, text });
   const envelope: UnsequencedEventEnvelope = {
     id: `evt-${sessionId.slice(-4)}-${String(index).padStart(4, "0")}`,
@@ -344,22 +244,15 @@ async function appendPiiEvent(
   await eventLog.append(envelope, { pii: { userId, piiPayload: pii } });
 }
 
-/** A purge over the real append path, the real anchor service and the real key store. */
+/** A purge over the real append path and the real key store. */
 function buildPurge(): SessionPurge {
   return new SessionPurge({
     db: database,
     nodeId: NODE,
-    signingKeySource: keySource,
     // `satisfies` rather than a cast: this is the one file that wires the
     // shipped append service into the seam, so a drift between them is caught
     // here at compile time.
     eventLog: eventLog satisfies SessionPurgeEventLog,
-    anchorSource: new MerkleAnchorService({
-      db: database,
-      nodeId: NODE,
-      signingKeySource: keySource,
-      now: () => new Date(PURGE_INSTANT),
-    }),
     contentKeyDisposer: new SessionContentKeyStore({
       database,
       masterKeySource: { read: async (): Promise<Uint8Array> => new Uint8Array(32).fill(11) },
@@ -387,7 +280,7 @@ async function runLifecycle(): Promise<SessionPurgeResult> {
 }
 
 describe("Session purge safety E2E: PII lifecycle through a whole-session purge", () => {
-  it("purges the session behind a real anchor and leaves the kept session whole", async () => {
+  it("purges the session and leaves the kept session whole", async () => {
     const purge = await runLifecycle();
 
     // The purge must have run: a refusal would make every assertion below vacuous.
@@ -413,41 +306,9 @@ describe("Session purge safety E2E: PII lifecycle through a whole-session purge"
     expect(kept.filter((row) => row.pii_user_id === SECOND_USER)).toHaveLength(
       KEPT_PII_EVENT_COUNT,
     );
-
-    // The anchor was queued over the purged span before any payload was destroyed.
-    const anchors = database
-      .prepare(
-        "SELECT start_sequence, end_sequence FROM pending_anchor_uploads WHERE session_id = ?",
-      )
-      .all(SESSION) as ReadonlyArray<{ start_sequence: number; end_sequence: number }>;
-    expect(anchors).toEqual([{ start_sequence: 0, end_sequence: PURGED_SESSION_ROW_COUNT - 1 }]);
   });
 
-  it("re-verifies every chain after the purge: every signature, every link", async () => {
-    const purge = await runLifecycle();
-    expect(purge.refusedReason).toBeUndefined();
-
-    // The purged session's links survive the stubbing of every row.
-    const purged = verifyWholeChain(SESSION);
-    expect(purged.perRow).toHaveLength(0);
-    expect(purged.linkageDefect).toBeUndefined();
-
-    // The kept session verifies row by row; canonical bytes bind `pii_payload`
-    // only through its digest.
-    const kept = verifyWholeChain(KEPT_SESSION);
-    expect(kept.perRow).toHaveLength(KEPT_SESSION_ROW_COUNT);
-    expect(kept.perRow.filter((verdict) => !verdict.valid)).toEqual([]);
-    expect(kept.linkageDefect).toBeUndefined();
-
-    // The sentinel partition holding the receipt verifies too; the count is
-    // pinned to the one receipt this purge appended.
-    const sentinel = verifyWholeChain(DAEMON_SCOPE_SENTINEL_SESSION_ID);
-    expect(sentinel.perRow).toHaveLength(SENTINEL_ROW_COUNT);
-    expect(sentinel.perRow.filter((verdict) => !verdict.valid)).toEqual([]);
-    expect(sentinel.linkageDefect).toBeUndefined();
-  });
-
-  it("keeps every stub's stub_signature valid over its stored bytes", async () => {
+  it("clears the PII columns of every stub", async () => {
     await runLifecycle();
 
     const purged = storedRows(SESSION);
@@ -455,13 +316,6 @@ describe("Session purge safety E2E: PII lifecycle through a whole-session purge"
     for (const row of purged) {
       expect(row.pii_payload).toBeNull();
       expect(row.pii_user_id).toBeNull();
-      expect(
-        ed25519.verify(
-          new Uint8Array(row.stub_signature ?? new Uint8Array()),
-          new TextEncoder().encode(row.payload),
-          DAEMON_PUBLIC_KEY,
-        ),
-      ).toBe(true);
     }
   });
 
@@ -489,31 +343,7 @@ describe("Session purge safety E2E: PII lifecycle through a whole-session purge"
     });
   });
 
-  it("proves the verifier CAN fail on a kept row tampered with after the purge", async () => {
-    // The negative control for the re-verification arm: every verdict above is
-    // `valid: true`, and a verifier wired to the wrong bytes would report that too.
-    await runLifecycle();
-    const kept = storedRows(KEPT_SESSION);
-    // A middle row: deleting the newest one leaves an intact prefix.
-    const target = kept[Math.floor(kept.length / 2)];
-    if (target === undefined) {
-      throw new Error("the kept session has no rows");
-    }
-
-    database
-      .prepare("UPDATE session_events SET payload = ? WHERE id = ?")
-      .run(JSON.stringify({ tampered: true }), target.id);
-    expect(verifyWholeChain(KEPT_SESSION).perRow.filter((verdict) => !verdict.valid)).toHaveLength(
-      1,
-    );
-
-    // The linkage half sees what no per-row check can: a hole.
-    database.prepare("DELETE FROM session_events WHERE id = ?").run(target.id);
-    expect(verifyWholeChain(KEPT_SESSION).linkageDefect).toBeDefined();
-    expect(verifyWholeChain(KEPT_SESSION).perRow.filter((verdict) => !verdict.valid)).toEqual([]);
-  });
-
-  it("never stubs the audit skeleton, and a repeated purge changes nothing", async () => {
+  it("never stubs the maintenance rows, and a repeated purge changes nothing", async () => {
     await runLifecycle();
     const sentinelBefore = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID);
     const purgedBefore = storedRows(SESSION);

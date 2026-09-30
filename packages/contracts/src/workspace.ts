@@ -62,9 +62,9 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 
 // Bound on the per-mode reason strings in
 // `WorkspaceExecutionModeCapabilitiesReadResponse.restrictions`. 512 is this
-// package's SHORT-HUMAN-REASON class (`AUDIT_INTEGRITY_DETAIL_MAX_LEN`), which
-// is the right class here: these values are short daemon-authored
-// explanations, never captured subprocess output.
+// package's SHORT-HUMAN-REASON class, which is the right class here: these
+// values are short daemon-authored explanations, never captured subprocess
+// output.
 export const EXECUTION_MODE_RESTRICTION_REASON_MAX_LEN = 512;
 
 // DELIBERATELY a different, far more generous class than the restriction reason

@@ -30,9 +30,6 @@ import { z } from "zod";
 // is required because `NodeIdSchema` composes into request schemas whose
 // Standard-Schema-V1 input inference must resolve to `NodeId` and not
 // `unknown` (same rationale as `EventCursorSchema`;./internal/branded.ts).
-//
-// `AnchorPayloadSchema` in event-anchor.ts relies on that annotation; dropping
-// the double-T would force an `as unknown as z.ZodType<T, T>` bridge onto it.
 export const NODE_ID_MAX_LEN = 256;
 export type NodeId = string & { readonly __brand: "NodeId" };
 export const NodeIdSchema: z.ZodType<NodeId, NodeId> = z

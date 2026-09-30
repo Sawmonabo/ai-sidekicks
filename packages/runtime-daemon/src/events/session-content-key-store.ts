@@ -51,8 +51,7 @@
 // {@link SessionContentKeyStore.resolve} is ASYNC because obtaining the daemon
 // master key can block on a human: wipes the in-memory master on an idle timer
 // and re-unwraps it via a keystore + PRF assertion or a passphrase prompt, so
-// the first read after an idle wipe can await a WebAuthn ceremony. That is the
-// same reason `DaemonSigningKeySealer`'s `unseal` is async.
+// the first read after an idle wipe can await a WebAuthn ceremony.
 //
 // {@link SessionContentKeyStore.rewrapAll} is SYNCHRONOUS and takes both master
 // keys as already-materialized bytes. This is not an oversight to be tidied
@@ -164,10 +163,9 @@ const SESSION_CONTENT_WRAP_INFO = "ais.session-content-wrap.v1";
 /**
  * The daemon master key, supplied by whoever owns its custody ladder.
  *
- * An INJECTED interface with no production implementation in this package —
- * the `DaemonSigningKeySealer` shape, for the same reason: the custody ladder
- * (`@napi-rs/keyring`, Keychain / Credential Manager / Secret Service) is the
- * elsewhere, and importing it here would pull a native binding into the append
+ * An INJECTED interface with no production implementation in this package: the
+ * custody ladder (`@napi-rs/keyring`, Keychain / Credential Manager / Secret
+ * Service) lives elsewhere, and importing it here would pull a native binding into the append
  * path's consumers and invert the dependency direction. This module holds the FORMAT and
  * the table; the key's provenance stays behind this seam.
  *
@@ -383,8 +381,8 @@ function readKeyVersion(value: unknown, sessionId: string): number {
  * The WRITE-PATH half of session-content-key custody — the narrow surface
  * `EventLogService` is annotated with.
  *
- * Declared separately from the class on the `DaemonSigningKeyProvisioner`
- * precedent: the append path needs exactly one operation, and handing it the
+ * Declared separately from the class because the append path needs exactly
+ * one operation, and handing it the
  * whole store would hand it {@link SessionContentKeyStore.rewrapAll} — a
  * rotation primitive that belongs to the erasure orchestrator and to nothing
  * on the append path.
@@ -782,21 +780,14 @@ export class SessionContentKeyStore
    * and roll back a rotation that had nothing to do with it. Keys that die with
    * their content keep the rotation's work proportional to the live corpus.
    *
-   * THE PREDICATE IS "ANY RETAINED CIPHERTEXT", NOT "ANY SIGNED DIGEST". The
-   * question asked is `content_payload IS NOT NULL`, over this session's rows.
-   * Three shapes are correctly excluded by it:
-   *   * A COMPACTED row. The stub replaced the payload and cleared the column
+   * THE PREDICATE IS "ANY RETAINED CIPHERTEXT". The question asked is
+   * `content_payload IS NOT NULL`, over this session's rows. Two shapes are
+   * correctly excluded by it:
+   *   * A PURGED row. The stub replaced the payload and cleared the column
    *     together, so nothing of the body survives to be opened.
-   *   * A RECEIVED row from a peer. Its signed `contentCiphertextDigest` is
-   *     bound under provenance with the column ABSENT by design — the body was
-   *     never sealed under THIS node's key, so this key's death costs it
+   *   * A RECEIVED row from a peer. Its column is absent by design — the body
+   *     was never sealed under THIS node's key, so this key's death costs it
    *     nothing.
-   *   * An origin row that carries a digest with a NULL column. No path in this
-   *     branch produces one: the codec writes the column and the digest in one
-   *     act, `EventLogService.append`'s step (2) refuses a pre-seeded digest on
-   *     the plain path, and compaction clears both. If one ever existed it would
-   *     already read `digest_unbound` on every read — a defect this sweep would
-   *     find, not cause.
    *
    * RACE SAFETY IS TWO LAYERS, and one of them is not optional. The transaction
    * is `IMMEDIATE`, which makes the check and the delete indivisible against any

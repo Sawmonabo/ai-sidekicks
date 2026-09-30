@@ -1,29 +1,13 @@
-// Outbound-credential seam, end to end.
+// Outbound-credential seam.
 //
-// This file covers the credential seam and the ONE shipped consumer of it —
-// `TrpcFetchAnchorUploadTransport`, whose call shape is the thing the
-// contract exists to constrain. It deliberately does NOT cover
-// `MerkleAnchorService`'s own behavior (cadence, force-fire, queue drain);
-// that is the file set.
-//
-// WHY THE CONSUMER'S CALL SHAPE IS PART OF THIS SEAM'S COVERAGE. RFC 9449 section 4.3
-// binds a DPoP proof to the request's method (`htm`) and target URI (`htu`). A
-// provider that mints a correct proof for the wrong method or URI has minted a
-// proof of nothing, and no type can express the agreement — it is a property of
-// what the caller PASSES versus what it then FETCHES. So the agreement is
-// asserted here by capturing both and comparing them, which is the only place
-// it is observable.
-//
-// The interface's implementation is deferred (PASETO auth), so what is
-// testable today is exactly: the refusing stub refuses with a diagnostic that
-// names the deferral, the consumer-side guard refuses a bearer or proofless
-// credential, and the transport's htm/htu agree with its own request.
-//
-// RFC 9449 section 4.3 + section 7.1.
+// The provider implementation is deferred (PASETO auth), so what is testable
+// today is: the refusing stub refuses with a diagnostic that names the
+// deferral and the attempt, and the consumer-side guard refuses a bearer or
+// proofless credential (RFC 9449 section 7.1) without echoing the token.
 
 import { describe, expect, it } from "vitest";
 
-import type { AnchorPayload, NodeId, SessionId } from "@ai-sidekicks/contracts";
+import type { NodeId, SessionId } from "@ai-sidekicks/contracts";
 
 import {
   assertDpopCredentialMaterial,
@@ -31,11 +15,8 @@ import {
   DPOP_AUTHORIZATION_SCHEME,
   DPOP_PROOF_HEADER_NAME,
   DeferredDaemonCredentialProvider,
-  type DaemonCredentialAttempt,
   type DaemonCredentialMaterial,
-  type DaemonCredentialProvider,
 } from "../daemon-credential-provider.js";
-import { TrpcFetchAnchorUploadTransport } from "../merkle-anchor-service.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -43,7 +24,7 @@ import { TrpcFetchAnchorUploadTransport } from "../merkle-anchor-service.js";
 
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001" as SessionId;
 const NODE_ID = "node-alpha" as NodeId;
-const ENDPOINT = "https://control-plane.test/trpc";
+const ATTEMPT_URI = "https://control-plane.test/trpc/session.read";
 
 function wellFormedMaterial(): DaemonCredentialMaterial {
   return {
@@ -54,47 +35,13 @@ function wellFormedMaterial(): DaemonCredentialMaterial {
   };
 }
 
-function anchorFixture(): AnchorPayload {
-  return {
-    sessionId: SESSION_ID,
-    nodeId: NODE_ID,
-    startSequence: 1,
-    endSequence: 1000,
-    merkleRoot: Buffer.alloc(32, 0x11).toString("base64"),
-    rootSignature: Buffer.alloc(64, 0x22).toString("base64"),
-    anchoredAt: "2026-08-04T00:00:00.000Z",
-  };
-}
-
-// A provider that records what it was asked for and returns what it was told to.
-class RecordingCredentialProvider implements DaemonCredentialProvider {
-  readonly attempts: DaemonCredentialAttempt[] = [];
-  readonly #material: DaemonCredentialMaterial;
-
-  constructor(material: DaemonCredentialMaterial = wellFormedMaterial()) {
-    this.#material = material;
-  }
-
-  mintForAttempt(attempt: DaemonCredentialAttempt): Promise<DaemonCredentialMaterial> {
-    this.attempts.push(attempt);
-    return Promise.resolve(this.#material);
-  }
-}
-
-function okResponse(stored: boolean): Response {
-  return new Response(JSON.stringify({ result: { data: { stored } } }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 // ----------------------------------------------------------------------------
 // The Refusing stub
 // ----------------------------------------------------------------------------
 
 describe("DeferredDaemonCredentialProvider", () => {
   it("refuses every mint rather than returning empty headers", async () => {
-    // A no-op provider returning `{}` would let the uploader issue an
+    // A no-op provider returning `{}` would let the caller issue an
     // unauthenticated request, and the operator would then debug a generic
     // control-plane 401 instead of the actual cause.
     const provider = new DeferredDaemonCredentialProvider();
@@ -103,30 +50,28 @@ describe("DeferredDaemonCredentialProvider", () => {
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         htm: "POST",
-        htu: `${ENDPOINT}/eventanchor.upload`,
+        htu: ATTEMPT_URI,
       }),
     ).rejects.toThrow(/deferred/);
   });
 
-  it("names the deferral, the plan obligation, and the attempt in the diagnostic", async () => {
+  it("names the deferral and the attempt in the diagnostic", async () => {
     const provider = new DeferredDaemonCredentialProvider();
     const rejection = await provider
       .mintForAttempt({
         sessionId: SESSION_ID,
         nodeId: NODE_ID,
         htm: "POST",
-        htu: `${ENDPOINT}/eventanchor.upload`,
+        htu: ATTEMPT_URI,
       })
       .catch((error: unknown) => error);
 
     expect(rejection).toBeInstanceOf(Error);
     const message = (rejection as Error).message;
-    expect(message).toContain("");
-    expect(message).toContain("");
-    expect(message).toContain(`${ENDPOINT}/eventanchor.upload`);
-    // The reassurance that matters operationally: a daemon running with this
-    // stub still ANCHORS correctly, it just never flushes.
-    expect(message).toContain("pending_anchor_uploads");
+    expect(message).toContain("deferred (PASETO auth)");
+    expect(message).toContain(`POST ${ATTEMPT_URI}`);
+    expect(message).toContain(SESSION_ID);
+    expect(message).toContain(NODE_ID);
   });
 });
 
@@ -201,11 +146,9 @@ describe("assertDpopCredentialMaterial", () => {
   });
 
   it("REFUSES a separator-less value WITHOUT echoing one byte of it", () => {
-    // The leak this closes: the scheme fallback used to treat a separator-less
-    // value as the scheme itself and interpolate it into the message. That
-    // message is persisted by `uploadPendingAnchors` into
-    // `pending_anchor_uploads.last_error` — so a whole PASETO token landed in
-    // cleartext on disk, outliving the request, the process, and the token.
+    // A scheme fallback that treated a separator-less value as the scheme
+    // itself would interpolate the whole token into the message, and a
+    // refusal message is the kind of text that gets logged or stored.
     const bareToken = "v4.public.SUPERSECRETTOKENBYTES.deadbeef";
     let raised: unknown;
     try {
@@ -266,176 +209,5 @@ describe("assertDpopCredentialMaterial", () => {
         },
       }),
     ).toThrow(new RegExp(`no ${DPOP_PROOF_HEADER_NAME} proof header`));
-  });
-});
-
-// ----------------------------------------------------------------------------
-// The consumer's call shape — the htm/htu binding
-// ----------------------------------------------------------------------------
-
-describe("TrpcFetchAnchorUploadTransport — the RFC 9449 section 4.3 htm/htu binding", () => {
-  it("mints the credential for EXACTLY the method and URI it then fetches", async () => {
-    // The agreement no type can express: a proof minted against a different
-    // method or URI is a proof of nothing. Both sides are captured and compared.
-    const provider = new RecordingCredentialProvider();
-    let fetchedUrl: string | undefined;
-    let fetchedMethod: string | undefined;
-
-    const transport = new TrpcFetchAnchorUploadTransport({
-      endpoint: ENDPOINT,
-      nodeId: NODE_ID,
-      credentialProvider: provider,
-      fetchImpl: (input, init) => {
-        fetchedUrl = String(input);
-        fetchedMethod = init?.method;
-        return Promise.resolve(okResponse(true));
-      },
-    });
-
-    await transport.upload(anchorFixture());
-
-    expect(provider.attempts).toHaveLength(1);
-    const attempt = provider.attempts[0];
-    expect(attempt).toBeDefined();
-    if (attempt === undefined) return;
-
-    expect(attempt.htm).toBe(fetchedMethod);
-    expect(attempt.htu).toBe(fetchedUrl);
-    // And the htu is the canonical form RFC 9449 section 4.3 wants: no query, no
-    // fragment. An unbatched tRPC mutation POSTs its input as the body, which is
-    // what makes that achievable here.
-    expect(attempt.htu).toBe(`${ENDPOINT}/eventanchor.upload`);
-    expect(attempt.htu).not.toContain("?");
-    expect(attempt.htu).not.toContain("#");
-    // The attempt is scoped to the anchor's own session and this daemon's node.
-    expect(attempt.sessionId).toBe(SESSION_ID);
-    expect(attempt.nodeId).toBe(NODE_ID);
-  });
-
-  it("merges the minted headers onto the outbound request", async () => {
-    const provider = new RecordingCredentialProvider();
-    let sentHeaders: Record<string, string> | undefined;
-
-    const transport = new TrpcFetchAnchorUploadTransport({
-      endpoint: ENDPOINT,
-      nodeId: NODE_ID,
-      credentialProvider: provider,
-      fetchImpl: (_input, init) => {
-        sentHeaders = init?.headers as Record<string, string>;
-        return Promise.resolve(okResponse(true));
-      },
-    });
-
-    await transport.upload(anchorFixture());
-
-    expect(sentHeaders?.[AUTHORIZATION_HEADER_NAME]).toContain(DPOP_AUTHORIZATION_SCHEME);
-    expect(sentHeaders?.[DPOP_PROOF_HEADER_NAME]).toBe("fake.dpop.proof");
-    expect(sentHeaders?.["Content-Type"]).toBe("application/json");
-  });
-
-  it("REFUSES a bearer-schemed provider BEFORE anything reaches the wire", async () => {
-    // Ordering is the assertion: the guard must fire before `fetch`, or the
-    // replayable credential has already left the process by the time anyone
-    // notices.
-    const provider = new RecordingCredentialProvider({
-      headers: {
-        [AUTHORIZATION_HEADER_NAME]: "Bearer v4.public.fake-paseto-token",
-        [DPOP_PROOF_HEADER_NAME]: "fake.dpop.proof",
-      },
-    });
-    let fetchCallCount = 0;
-
-    const transport = new TrpcFetchAnchorUploadTransport({
-      endpoint: ENDPOINT,
-      nodeId: NODE_ID,
-      credentialProvider: provider,
-      fetchImpl: () => {
-        fetchCallCount += 1;
-        return Promise.resolve(okResponse(true));
-      },
-    });
-
-    await expect(transport.upload(anchorFixture())).rejects.toThrow(/RFC 9449 section 7.1/);
-    expect(fetchCallCount).toBe(0);
-  });
-
-  it("mints a FRESH credential per attempt (a DPoP proof binds to one request)", async () => {
-    // RFC 9449 section 11.1: reusing a proof across attempts is replay, and a
-    // conforming control plane rejects it. Minting inside `upload` — rather than
-    // once at construction — is what makes each retry a new proof.
-    const provider = new RecordingCredentialProvider();
-    const transport = new TrpcFetchAnchorUploadTransport({
-      endpoint: ENDPOINT,
-      nodeId: NODE_ID,
-      credentialProvider: provider,
-      fetchImpl: () => Promise.resolve(okResponse(true)),
-    });
-
-    await transport.upload(anchorFixture());
-    await transport.upload(anchorFixture());
-    expect(provider.attempts).toHaveLength(2);
-  });
-
-  it("normalizes a trailing slash on the endpoint so the htu has no empty path segment", async () => {
-    const provider = new RecordingCredentialProvider();
-    const transport = new TrpcFetchAnchorUploadTransport({
-      endpoint: `${ENDPOINT}/`,
-      nodeId: NODE_ID,
-      credentialProvider: provider,
-      fetchImpl: () => Promise.resolve(okResponse(true)),
-    });
-
-    await transport.upload(anchorFixture());
-    expect(provider.attempts[0]?.htu).toBe(`${ENDPOINT}/eventanchor.upload`);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// The response envelope
-// ----------------------------------------------------------------------------
-
-describe("TrpcFetchAnchorUploadTransport — response handling", () => {
-  it("reads both idempotent-success arms out of the tRPC envelope", async () => {
-    for (const stored of [true, false]) {
-      const transport = new TrpcFetchAnchorUploadTransport({
-        endpoint: ENDPOINT,
-        nodeId: NODE_ID,
-        credentialProvider: new RecordingCredentialProvider(),
-        fetchImpl: () => Promise.resolve(okResponse(stored)),
-      });
-      await expect(transport.upload(anchorFixture())).resolves.toEqual({ stored });
-    }
-  });
-
-  it("throws on a non-2xx response rather than reporting a phantom success", async () => {
-    const transport = new TrpcFetchAnchorUploadTransport({
-      endpoint: ENDPOINT,
-      nodeId: NODE_ID,
-      credentialProvider: new RecordingCredentialProvider(),
-      fetchImpl: () =>
-        Promise.resolve(new Response("nope", { status: 503, statusText: "Service Unavailable" })),
-    });
-    await expect(transport.upload(anchorFixture())).rejects.toThrow(/HTTP 503/);
-  });
-
-  it("throws on an unrecognized envelope rather than reading undefined as false", async () => {
-    // The failure this prevents: a control plane that changed its envelope would
-    // otherwise yield `undefined`, which reads as "not stored" and would keep
-    // the anchor queued forever with no diagnostic.
-    const transport = new TrpcFetchAnchorUploadTransport({
-      endpoint: ENDPOINT,
-      nodeId: NODE_ID,
-      credentialProvider: new RecordingCredentialProvider(),
-      fetchImpl: () =>
-        Promise.resolve(
-          new Response(JSON.stringify({ result: { data: {} } }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-    });
-    await expect(transport.upload(anchorFixture())).rejects.toThrow(
-      /unrecognized response envelope/,
-    );
   });
 });

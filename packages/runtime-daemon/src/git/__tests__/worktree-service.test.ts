@@ -47,13 +47,11 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { JsonRpcErrorCode, WORKTREE_GIT_REF_MAX_LEN } from "@ai-sidekicks/contracts";
-import type { SessionId, WorkspaceState } from "@ai-sidekicks/contracts";
+import type { WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import type { EventLogAppendReceipt } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import type { DaemonDomainError } from "../../ipc/domain-error.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { RepoMountNotFoundError } from "../../workspace/repo-errors.js";
@@ -135,23 +133,6 @@ const MAIN_CHECKOUT_MUTATING_VERBS: readonly string[] = [
   "commit",
   "pull",
 ];
-
-/** A fixed-key signing source — enough for a suite that only ever signs. */
-const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(9) as Ed25519PrivateKey;
-
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = FIXED_DAEMON_PRIVATE_KEY;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(
-      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
-    );
-  }
-}
 
 // ----------------------------------------------------------------------------
 // The recording fake git
@@ -278,7 +259,6 @@ beforeEach(() => {
   const db: DatabaseType = openDatabase(join(tmpDir, "test.db"));
   const eventLog = new EventLogService({
     db,
-    signingKeySource: new FixedDaemonSigningKeySource(),
   });
   const executionRootsDirectory: string = join(tmpDir, "execution-roots");
   ctx = {

@@ -22,7 +22,7 @@
 //     constraint failure the production id source cannot produce.
 //   * A FAILING EMITTER subclass whose first `workspace.archived` append
 //     rejects, for the post-commit announcement path. That failure is
-//     environmental (a signing outage, a full disk) and has no other trigger.
+//     environmental (a size refusal, a full disk) and has no other trigger.
 //   * An INJECTED `platform`, so the win32 git-pinning guard is exercised on
 //     every CI leg rather than only on a Windows runner — the argument
 //     `repo-root-resolver.ts` already makes for its injected `path` module.
@@ -49,8 +49,6 @@ import type { NodeId, RepoMountId, SessionId } from "@ai-sidekicks/contracts";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
 import {
@@ -83,7 +81,7 @@ const USER_ACTOR: string = "0190f9a4-0000-7000-8000-000000000001";
 const DETACH_CORRELATION_ID: string = "0190f9a5-0000-7000-8000-000000000002";
 const RUN_ID: string = "0190f9a6-0000-7000-8000-000000000001";
 const OTHER_RUN_ID: string = "0190f9a6-0000-7000-8000-000000000002";
-// Stands in for a signing-key outage or a disk error at append time — the class
+// Stands in for a size refusal or a disk error at append time — the class
 // of post-commit failure the detach announcement loop has to survive.
 const SIMULATED_APPEND_FAILURE_MESSAGE: string = "simulated append failure";
 
@@ -108,25 +106,6 @@ const INJECTED_WORKSPACE_ID: string = "0190f9a2-0000-7000-8000-00000000aaaa";
 // for as `MOUNT_ID_POOL[0]`, which needs a cast to shed `| undefined` and quietly
 // couples the arm to the pool's first element.
 const INJECTED_MOUNT_ID: string = "0190f9a1-0000-7000-8000-00000000aaaa";
-
-const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(
-  11,
-) as Ed25519PrivateKey;
-
-/** Fixed-key signer — key custody is `signing-key-source.test.ts`'s beat. */
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = FIXED_DAEMON_PRIVATE_KEY;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(
-      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
-    );
-  }
-}
 
 /**
  * An emitter whose FIRST `workspace.archived` append rejects; later ones append
@@ -539,7 +518,6 @@ beforeEach(async () => {
   const emitter = new WorkspaceEventEmitter({
     sessionEvents: new EventLogService({
       db,
-      signingKeySource: new FixedDaemonSigningKeySource(),
     }),
   });
   const sessions = new SessionService(db, {
@@ -993,7 +971,6 @@ describe("RepoMountService.detach", () => {
     const emitter = new FirstArchiveAppendFailingEmitter({
       sessionEvents: new EventLogService({
         db: harness.db,
-        signingKeySource: new FixedDaemonSigningKeySource(),
       }),
     });
     const service = createService({ events: emitter });

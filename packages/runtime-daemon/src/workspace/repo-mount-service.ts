@@ -166,7 +166,7 @@ export type RepoMountServiceInvariantKind =
    * appends failed, so the log under-reports what the rows already did.
    *
    * Unlike its two siblings this is not necessarily a bug: an append can fail
-   * on a signing-key outage or a disk error. It shares the carrier because it
+   * on a size refusal or a disk error. It shares the carrier because it
    * shares the defining property — there is no registered wire code for "the
    * write succeeded but the announcement did not". The rows are the truth; see
    * {@link RepoMountService.detach} for what a caller can and cannot recover.

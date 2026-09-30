@@ -33,7 +33,6 @@ export * from "./daemon-status.js";
 export * from "./device.js";
 export * from "./driver-event.js";
 export * from "./error.js";
-export * from "./event-anchor.js";
 export * from "./event.js";
 export * from "./gitflow/index.js";
 export * from "./highlight.js";

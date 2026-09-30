@@ -1,9 +1,9 @@
 // One step of a workflow run: reading its input, output or log, the agent and human
-// steps' saved outputs, answering an approval step or a chain's question, verifying the
-// run's approval record, loading, saving and submitting a waiting form, and opening a
-// fix session on a failed step, with the refusals, the step events and the method
-// table. A step is addressed by its run, its node and which execution of that node,
-// because a loop runs one node many times. A descriptor registers nothing.
+// steps' saved outputs, answering an approval step or a chain's question, loading,
+// saving and submitting a waiting form, and opening a fix session on a failed step,
+// with the refusals, the step events and the method table. A step is addressed by its
+// run, its node and which execution of that node, because a loop runs one node many
+// times. A descriptor registers nothing.
 import { z } from "zod";
 
 import { ApprovalDecisionSchema, type ApprovalDecision } from "./approval.js";
@@ -204,15 +204,9 @@ export const WorkflowGateResolveRequestSchema: z.ZodType<
   })
   .strict();
 
-/**
- * The `workflow.gateResolve` result: the answer's place in the run's approval record.
- * `rowHash` chains this entry to the one before it: BLAKE3 over the previous hash and
- * this entry's RFC 8785 canonical JSON. The same pair is written on the matching
- * session event in the same write, so the record can be verified later.
- */
+/** The `workflow.gateResolve` result: the answer's entry in the run's approval record. */
 export interface WorkflowGateResolveResponse {
   gateResolutionId: string;
-  rowHash: string;
   decidedAt: string;
 }
 /** Wire schema for {@link WorkflowGateResolveResponse}. */
@@ -220,64 +214,9 @@ export const WorkflowGateResolveResponseSchema: z.ZodType<WorkflowGateResolveRes
   .object({
     gateResolutionId: z.string().min(1),
     deviceId: DeviceIdSchema,
-    rowHash: z.string().min(1),
     decidedAt: z.iso.datetime({ offset: true }),
   })
   .strict();
-
-// --------------------------------------------------------------------------
-// workflow.gateChainVerify
-// --------------------------------------------------------------------------
-
-/** The `workflow.gateChainVerify` input: the run whose approval record is checked. */
-export interface WorkflowGateChainVerifyRequest {
-  workflowRunId: WorkflowRunId;
-}
-/** Wire schema for {@link WorkflowGateChainVerifyRequest}. */
-export const WorkflowGateChainVerifyRequestSchema: z.ZodType<
-  WorkflowGateChainVerifyRequest,
-  WorkflowGateChainVerifyRequest
-> = z.object({ workflowRunId: WorkflowRunIdSchema }).strict();
-
-/**
- * The `workflow.gateChainVerify` result. It recomputes each entry's hash link in
- * sequence order and checks the matching session event. A failed check reports the
- * first divergence, not a bare fail: `firstDivergentSequence` and `divergence` are both
- * present exactly when `verified` is false.
- */
-export interface WorkflowGateChainVerifyResponse {
-  workflowRunId: WorkflowRunId;
-  verified: boolean;
-  rowsChecked: number;
-  firstDivergentSequence?: number | undefined;
-  divergence?:
-    | "row_hash_mismatch"
-    | "sequence_gap"
-    | "missing_event_anchor"
-    | "signature_invalid"
-    | undefined;
-}
-/** Wire schema for {@link WorkflowGateChainVerifyResponse}. */
-export const WorkflowGateChainVerifyResponseSchema: z.ZodType<WorkflowGateChainVerifyResponse> = z
-  .object({
-    workflowRunId: WorkflowRunIdSchema,
-    verified: z.boolean(),
-    rowsChecked: z.number().int().nonnegative(),
-    firstDivergentSequence: z.number().int().nonnegative().optional(),
-    divergence: z
-      .enum(["row_hash_mismatch", "sequence_gap", "missing_event_anchor", "signature_invalid"])
-      .optional(),
-  })
-  .strict()
-  .refine(
-    (reply) =>
-      reply.verified ===
-      (reply.firstDivergentSequence === undefined && reply.divergence === undefined),
-    {
-      path: ["divergence"],
-      message: "A failed check names its first divergence, and a passed check names none.",
-    },
-  );
 
 // --------------------------------------------------------------------------
 // workflow.humanFormRead, workflow.humanFormDraftSave, workflow.humanFormSubmit
@@ -496,9 +435,9 @@ export const WorkflowStepSkippedPayloadSchema: z.ZodType<WorkflowStepSkippedPayl
   .strict();
 
 /**
- * `workflow.gate_resolved`: the answer and its place in the approval record, written
- * with the record's entry in one step. `nodeId` names the approval step; a chain's
- * question names none. `deviceId` is the device that answered.
+ * `workflow.gate_resolved`: the answer, written with the approval record's entry in
+ * one step. `nodeId` names the approval step; a chain's question names none.
+ * `deviceId` is the device that answered.
  */
 export interface WorkflowGateResolvedPayload {
   sessionId: SessionId;
@@ -507,7 +446,6 @@ export interface WorkflowGateResolvedPayload {
   outcome: ApprovalDecision;
   gateResolutionId: string;
   deviceId: DeviceId;
-  rowHash: string;
 }
 /** Wire schema for {@link WorkflowGateResolvedPayload}. */
 export const WorkflowGateResolvedPayloadSchema: z.ZodType<WorkflowGateResolvedPayload> = z
@@ -518,7 +456,6 @@ export const WorkflowGateResolvedPayloadSchema: z.ZodType<WorkflowGateResolvedPa
     outcome: ApprovalDecisionSchema,
     gateResolutionId: z.string().min(1),
     deviceId: DeviceIdSchema,
-    rowHash: z.string().min(1),
   })
   .strict();
 
@@ -542,11 +479,6 @@ export interface WorkflowStepMethodDescriptors {
     "workflow.gateResolve",
     WorkflowGateResolveRequest,
     WorkflowGateResolveResponse
-  >;
-  readonly "workflow.gateChainVerify": MethodDescriptor<
-    "workflow.gateChainVerify",
-    WorkflowGateChainVerifyRequest,
-    WorkflowGateChainVerifyResponse
   >;
   readonly "workflow.humanFormRead": MethodDescriptor<
     "workflow.humanFormRead",
@@ -593,13 +525,6 @@ export const WORKFLOW_STEP_METHOD_DESCRIPTORS: WorkflowStepMethodDescriptors =
       mutating: true,
       requestSchema: WorkflowGateResolveRequestSchema,
       responseSchema: WorkflowGateResolveResponseSchema,
-    },
-    "workflow.gateChainVerify": {
-      method: "workflow.gateChainVerify",
-      procedureType: "query",
-      mutating: false,
-      requestSchema: WorkflowGateChainVerifyRequestSchema,
-      responseSchema: WorkflowGateChainVerifyResponseSchema,
     },
     "workflow.humanFormRead": {
       method: "workflow.humanFormRead",

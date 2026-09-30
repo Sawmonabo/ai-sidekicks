@@ -19,9 +19,6 @@ const STATUS = {
   memory: { residentBytes: 412_000_000, readAt: READ_AT },
   approvalRules: { version: 42, builtAt: "2026-09-20T00:00:00.000Z", source: "update" },
   fileScanning: "none",
-  haltedSessions: [
-    { sessionId: "550e8400-e29b-41d4-a716-446655440000", cause: "integrityCheckFailed" },
-  ],
   sidecarHashMismatch: null,
 } as const;
 
@@ -69,17 +66,11 @@ describe("daemon.status.read's reply", () => {
     ).toBe(false);
   });
 
-  it("refuses an approval-rules source or a halt cause out of its set", () => {
+  it("refuses an approval-rules source out of its set", () => {
     expect(
       DaemonStatusReadResponseSchema.safeParse({
         ...STATUS,
         approvalRules: { ...STATUS.approvalRules, source: "download" },
-      }).success,
-    ).toBe(false);
-    expect(
-      DaemonStatusReadResponseSchema.safeParse({
-        ...STATUS,
-        haltedSessions: [{ sessionId: "550e8400-e29b-41d4-a716-446655440000", cause: "paused" }],
       }).success,
     ).toBe(false);
   });

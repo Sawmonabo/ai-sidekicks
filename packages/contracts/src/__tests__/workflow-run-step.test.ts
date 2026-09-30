@@ -1,11 +1,9 @@
 // One step is answered and read from the run's step panel. These tests hold what that
 // panel depends on: an approval answered in the approvals' own words, for a step or a
-// chain's question, a form addressed by the step it waits on, and a verification that
-// names its first divergence exactly when it fails.
+// chain's question, and a form addressed by the step it waits on.
 import { describe, expect, it } from "vitest";
 
 import {
-  WorkflowGateChainVerifyResponseSchema,
   WorkflowGateResolveRequestSchema,
   WorkflowGateResolvedPayloadSchema,
   WorkflowHumanFormReadResponseSchema,
@@ -37,7 +35,6 @@ describe("workflow.gateResolve", () => {
       outcome: "approved",
       gateResolutionId: "gr-1",
       deviceId: "desktop-1",
-      rowHash: "b3:ab",
     };
     expect(WorkflowGateResolvedPayloadSchema.safeParse(event).success).toBe(true);
     const { deviceId: _deviceId, ...withoutDevice } = event;
@@ -45,34 +42,6 @@ describe("workflow.gateResolve", () => {
     expect(
       WorkflowGateResolvedPayloadSchema.safeParse({ ...event, scope: "workflow-phase" }).success,
     ).toBe(false);
-  });
-});
-
-describe("workflow.gateChainVerify", () => {
-  it("accepts a failed check naming its first divergence", () => {
-    const failed = {
-      workflowRunId: RUN_ID,
-      verified: false,
-      rowsChecked: 7,
-      firstDivergentSequence: 4,
-      divergence: "row_hash_mismatch",
-    };
-    expect(WorkflowGateChainVerifyResponseSchema.safeParse(failed).success).toBe(true);
-  });
-
-  it("refuses a failed check that names no divergence", () => {
-    const bare = { workflowRunId: RUN_ID, verified: false, rowsChecked: 7 };
-    expect(WorkflowGateChainVerifyResponseSchema.safeParse(bare).success).toBe(false);
-  });
-
-  it("refuses a passed check that names a divergence", () => {
-    const contradictory = {
-      workflowRunId: RUN_ID,
-      verified: true,
-      rowsChecked: 7,
-      divergence: "sequence_gap",
-    };
-    expect(WorkflowGateChainVerifyResponseSchema.safeParse(contradictory).success).toBe(false);
   });
 });
 

@@ -341,7 +341,7 @@ export type WorkspaceServiceInvariantKind =
   /**
    * The on-read floor derived a stale transition but could not make it
    * durable — the `UPDATE` or its `workspace.stale` append failed (a locked
-   * database, a full disk, a signing-key read that threw). The ROW is not the
+   * database, a full disk, a size refusal). The ROW is not the
    * defect here and inspecting it will show nothing wrong; the write path is.
    * Kept distinct from `workspace_row_unprojectable` for exactly that reason.
    */

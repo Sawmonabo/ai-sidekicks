@@ -17,14 +17,12 @@
 //        allow-list closes this path.
 //
 //   T3 — The 'development' row asserts the gate-PASS contract: the request
-//        reaches the tRPC router, which answers a GET to the
-//        `eventanchor.upload` mutation with 405 before any procedure runs, and
-//        the refusal logger is never invoked.
+//        reaches the tRPC router, which answers a path it does not serve with
+//        404, and the refusal logger is never invoked.
 //
 
 import { describe, expect, it } from "vitest";
 import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "../host.js";
-import { makeRefusalAssertingDeps } from "./_helpers.js";
 
 interface HarnessResult {
   readonly status: number;
@@ -34,14 +32,11 @@ interface HarnessResult {
 
 async function runGate(env: ControlPlaneEnv): Promise<HarnessResult> {
   const logs: string[] = [];
-  const handler = buildControlPlaneFetchHandler(makeRefusalAssertingDeps(), {
+  const handler = buildControlPlaneFetchHandler({
     refusalLogger: (msg) => logs.push(msg),
     requestIdGenerator: () => "req-test-1",
   });
-  const response = await handler(
-    new Request("https://control-plane.test/trpc/eventanchor.upload"),
-    env,
-  );
+  const response = await handler(new Request("https://control-plane.test/trpc/session.read"), env);
   return {
     status: response.status,
     body: await response.text(),
@@ -100,10 +95,10 @@ describe("T3 / gate #2: handler serves with both gates passing", () => {
       ENVIRONMENT: "development",
     });
     // Past both gates the request reaches the tRPC router, which turns away a
-    // GET to a mutation with 405 METHOD_NOT_SUPPORTED: proof the gates let the
+    // procedure it does not serve with 404 NOT_FOUND: proof the gates let the
     // request through rather than answering it themselves.
-    expect(result.status).toBe(405);
-    expect(result.body).toContain("METHOD_NOT_SUPPORTED");
+    expect(result.status).toBe(404);
+    expect(result.body).toContain("NOT_FOUND");
     expect(result.logs).toEqual([]);
   });
 });

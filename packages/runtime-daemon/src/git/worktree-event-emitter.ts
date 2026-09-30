@@ -200,8 +200,8 @@ type _EveryEventedStateIsReachable = _AssertExtends<
  * a module edge the declared consumes do not carry, for a three-line
  * interface.
  *
- * The append path awaits a signing-key unseal, and a better-sqlite3
- * transaction cannot span an `await` — so a producer that must commit a
+ * The append path is async (it awaits the per-session append lock), and a
+ * better-sqlite3 transaction cannot span an `await` — so a producer that must commit a
  * `worktrees` row write ATOMICALLY with its event row does not open its own
  * transaction. It hands that write down as `transactionalPrelude`, which the
  * append path runs inside the SAME transaction as the event-row INSERT,

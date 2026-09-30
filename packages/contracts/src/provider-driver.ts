@@ -1014,10 +1014,9 @@ export type RecoveryCondition = (typeof RECOVERY_CONDITIONS)[number];
 // when their owning plans author them — the `RecoveryStatusReadResponse` and the
 // `FailureDetailReadResponse`, which binds to IMPORT this symbol rather than redeclare it.
 //
-// `z.ZodType` rather than the `z.ZodEnum<...>` form `VerifierFailureModeSchema`
-// carries: no consumer derives from the enum surface here, and the narrower
-// annotation is that symbol's own stated default. The value set is reachable
-// through `RECOVERY_CONDITIONS`, which is the single source either way.
+// `z.ZodType` rather than a `z.ZodEnum<...>` annotation: no consumer derives from
+// the enum surface here. The value set is reachable through `RECOVERY_CONDITIONS`,
+// which is the single source either way.
 export const RecoveryConditionSchema: z.ZodType<RecoveryCondition, RecoveryCondition> =
   z.enum(RECOVERY_CONDITIONS);
 
@@ -1713,8 +1712,8 @@ export const DriverTranscriptReplayResultSchema: z.ZodType<
   // universal non-emptiness rule would delete it. What `applied` does NOT keep is
   // `conversation_history_summarized` — see the inverse rule below.
   // `.superRefine()` returns `this`, so the envelope stays a `ZodObject` and the
-  // Output/Input annotation above still holds — the same Zod-4 property the
-  // `audit_integrity_failed` arm in event.ts records.
+  // Output/Input annotation above still holds — the same Zod-4 property
+  // `withEpochStamp` in event.ts records.
   //
   // The two rules together make the kind an EXACT witness of the arm rather than
   // a one-way requirement. A one-way rule leaves `{status: 'applied',

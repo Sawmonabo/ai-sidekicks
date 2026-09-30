@@ -24,7 +24,7 @@
  * EXACT LOWERCASE string literals on a regex with no `i` flag, and its general
  * alternative could not rescue the Max UUID because a `[1-8]` version nibble
  * rejects `f`. So `FFFFFFFF-…` refused while `ffffffff-…` parsed. Producers of
- * daemon-scope anchoring sentinel are no longer OBLIGED to emit it lowercase
+ * the daemon-scope sentinel are no longer OBLIGED to emit it lowercase
  * for the parse to succeed — but they should still emit the canonical lowercase
  * form this helper outputs, for the Map-key reason below rather than for the
  * validator's.

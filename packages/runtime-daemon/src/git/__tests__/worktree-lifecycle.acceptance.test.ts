@@ -89,12 +89,8 @@ import { join, relative } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SessionId } from "@ai-sidekicks/contracts";
-
 import { EventLogService } from "../../events/event-log-service.js";
 import { __resetSessionAppendLocksForTest } from "../../events/session-append-lock.js";
-import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js";
-import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService } from "../../session/session-service.js";
 import { ExecutionRootService } from "../../workspace/execution-root-service.js";
@@ -170,23 +166,6 @@ const SENTINEL_HOOK_NAMES: readonly string[] = [
  * what proves that second flag is load-bearing rather than decorative.
  */
 const FSMONITOR_SENTINEL_MARKER: string = "fsmonitor-hook";
-
-/** A fixed-key signing source — enough for a suite that only ever signs. */
-const FIXED_DAEMON_PRIVATE_KEY: Ed25519PrivateKey = new Uint8Array(32).fill(7) as Ed25519PrivateKey;
-
-class FixedDaemonSigningKeySource implements DaemonSigningKeySource {
-  readonly #privateKey: Ed25519PrivateKey = FIXED_DAEMON_PRIVATE_KEY;
-
-  read(_sessionId: SessionId): Promise<Ed25519PrivateKey> {
-    return Promise.resolve(this.#privateKey);
-  }
-
-  create(_sessionId: SessionId): Promise<{ readonly publicKey: Ed25519PublicKey }> {
-    return Promise.reject(
-      new Error("FixedDaemonSigningKeySource.create is not used by this suite"),
-    );
-  }
-}
 
 // ----------------------------------------------------------------------------
 // Real git, fixture side
@@ -618,7 +597,6 @@ beforeEach(async () => {
   const db: DatabaseType = openDatabase(join(fixtureRoot, "acceptance.db"));
   const eventLog = new EventLogService({
     db,
-    signingKeySource: new FixedDaemonSigningKeySource(),
   });
 
   const workspaces = new WorkspaceService({

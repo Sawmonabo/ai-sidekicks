@@ -8,7 +8,6 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
 
 /** Where the service is in its own life. */
 export type DaemonProcessState = "running" | "starting" | "stopping" | "degraded";
@@ -60,19 +59,6 @@ export const DAEMON_FILE_SCANNING_KINDS: readonly DaemonFileScanning[] = Object.
   "amsi",
   "none",
 ]);
-
-/** Why a session stopped taking new events. */
-export type SessionHaltCause = "integrityCheckFailed" | "signingKeyReused";
-export const SESSION_HALT_CAUSES: readonly SessionHaltCause[] = Object.freeze([
-  "integrityCheckFailed",
-  "signingKeyReused",
-]);
-
-/** A session whose record failed its integrity check or whose signing key was found in reuse. */
-export interface DaemonHaltedSession {
-  sessionId: SessionId;
-  cause: SessionHaltCause;
-}
 
 /**
  * The terminal's sidecar binary refused at spawn because its hash did not match
@@ -127,8 +113,6 @@ export interface DaemonStatusReadResponse {
   memory: DaemonMemoryReading;
   approvalRules: DaemonApprovalRules;
   fileScanning: DaemonFileScanning;
-  /** One entry per halted session, oldest first; empty when none is halted. */
-  haltedSessions: DaemonHaltedSession[];
   /** The sidecar refused at its last spawn, or `null` when none was. */
   sidecarHashMismatch: DaemonSidecarHashMismatch | null;
   relay?: DaemonRelayStatus | undefined;
@@ -156,9 +140,6 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
       })
       .strict(),
     fileScanning: z.enum(DAEMON_FILE_SCANNING_KINDS),
-    haltedSessions: z.array(
-      z.object({ sessionId: SessionIdSchema, cause: z.enum(SESSION_HALT_CAUSES) }).strict(),
-    ),
     sidecarHashMismatch: z
       .object({
         path: StatusTextSchema,

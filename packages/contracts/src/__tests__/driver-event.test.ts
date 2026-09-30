@@ -53,7 +53,6 @@ const buildAssistantMessage = () => ({
     runId: RUN_ID,
     contentType: "text/markdown",
     contentLength: 4096,
-    contentCiphertextDigest: "a".repeat(64),
   },
 });
 

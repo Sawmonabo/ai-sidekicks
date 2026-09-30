@@ -1,26 +1,21 @@
 // EventLogService — the SOLE durable append path for
 // `session_events`.
 //
-// Everything that lands a row in the audit log goes through `append()`. That is
-// not a style preference: the append path holds four obligations that are only
+// Everything that lands a row in the log goes through `append()`. That is not a
+// style preference: the append path holds three obligations that are only
 // jointly satisfiable in one place, under one lock.
 //
-//   1. SERIALIZATION. `session_events` is a hash chain partitioned by session:
-//      a row's `prev_hash` is its predecessor's `row_hash` and its `sequence` is
-//      the predecessor's plus one. Producing a row means read-the-head then
-//      write-the-successor, and this path is async between those steps.
-//      `withSessionAppendLock` is what keeps two appends from deriving the same
-//      link. See `session-append-lock.ts` for why a mutex is unavoidable here.
-//   2. The ingest-halt gate must be consulted before any work, so a halted
-//      session cannot advance its chain head even by a row that would otherwise
-//      be perfectly valid.
-//   3. INTEGRITY. `prev_hash` / `row_hash` / `daemon_signature` are computed
-//      from the canonical bytes of the row being written, against the head this
-//      path just read. A writer that computed them elsewhere would be computing
-//      them against a head it does not hold.
-//   4. The `pii_payload` split, its digest, and the owner stamp are produced by
-//      the codec, which needs the `prev_hash` only this path can read — so this
-//      path invokes the codec rather than accepting its output.
+//   1. SERIALIZATION. A row's `sequence` is its predecessor's plus one.
+//      Producing a row means read-the-head then write-the-successor, and this
+//      path is async between those steps. `withSessionAppendLock` is what keeps
+//      two appends from allocating the same sequence. See
+//      `session-append-lock.ts` for why a mutex is unavoidable here.
+//   2. SERVICEABILITY. Every row's canonical form is held to
+//      `EVENT_CANONICAL_BYTES_MAX`, measured over the bytes of the row being
+//      written, so no stored row is too large to ride one relay frame.
+//   3. The `pii_payload` and `content_payload` partitions are sealed by the
+//      codec, whose output this path writes as a unit — so this path invokes the
+//      codec rather than accepting its output.
 //
 // SEQUENCE ALLOCATION LIVES HERE, and that is a deliberate move rather than an
 // incidental one. the emitter used to allocate by reading the log and adding
@@ -51,8 +46,8 @@
 // `append()` reuses that hold through owner-scoped reentrancy.
 //
 // WHAT THE PRELUDE HAS TO DO. A producer whose event PAYLOAD depends on a read
-// of its own state cannot run that read inside the write transaction: signing
-// depends on the payload, and signing is async. No ordering exists in which the
+// of its own state cannot run that read inside the write transaction: sealing
+// depends on the payload, and sealing is async. No ordering exists in which the
 // read is inside the transaction that ends with the INSERT.
 //
 // The append lock does NOT cover the resulting window, and it is important not
@@ -67,7 +62,7 @@
 // compare-and-swap `UPDATE`), inside `BEGIN IMMEDIATE`, and throws if it moved.
 // That throw aborts the whole transaction — durable write undone, INSERT never
 // reached, no sequence consumed, so a retry re-derives its sequence from the
-// durable chain head. This service supplies the mechanism (a synchronous prelude
+// durable head. This service supplies the mechanism (a synchronous prelude
 // inside an IMMEDIATE transaction whose throw rolls everything back); the
 // producers own the comparison and what an abort means, because only they know
 // what "unchanged" means for their state.
@@ -76,21 +71,14 @@
 // What this service does NOT do
 // ----------------------------------------------------------------------------
 //
-//   * It does not write `retention_class` or `stub_signature` — the
-//     compactor owns both columns and their migration.
+//   * It does not write `retention_class` — the purge owns that column.
 //   * It scaffolds no composition root. There is no production construction
-//     site for 005 producers yet, so wiring the halt registry into
-//     `bootstrap/index.ts` would be scaffolding a seam Phase 4's observer leg
-//     will author for real.
+//     site for its producers yet.
 //
 
 import {
   DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE,
-  DAEMON_INGEST_HALTED_CODE,
-  DAEMON_PII_SPLIT_BYPASS_CODE,
   DaemonEventCanonicalBytesExceededDetailsSchema,
-  DaemonIngestHaltedDetailsSchema,
-  DaemonPiiSplitBypassDetailsSchema,
   EVENT_CANONICAL_BYTES_MAX,
   JsonRpcErrorCode,
   type EventEnvelope,
@@ -100,12 +88,9 @@ import type { Database, Statement } from "better-sqlite3";
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { canonicalizeEvent, normalizeOccurredAt, type CanonicalBytes } from "./canonicalizer.js";
-import { NeverHaltedIngestHaltSource, type IngestHaltSource } from "./ingest-halt-source.js";
 import {
   assertNoCodecOwnedContentKeys,
   assertRegisteredVariantParses,
-  PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
-  PII_USER_ID_PAYLOAD_KEY,
   writeEventWithPii,
   type EventContentInput,
   type PiiEligibleCategory,
@@ -118,8 +103,6 @@ import type {
   SessionContentKeyDisposer,
   SessionContentKeySource,
 } from "./session-content-key-store.js";
-import { GENESIS_PREV_HASH, signRow, type Ed25519PrivateKey, type SignedRow } from "./signer.js";
-import type { DaemonSigningKeySource } from "./signing-key-source.js";
 
 /**
  * The append input: a canonical {@link EventEnvelope} MINUS its `sequence`.
@@ -144,14 +127,11 @@ export type UnsequencedEventEnvelope = Omit<EventEnvelope, "sequence">;
 export interface EventLogAppendReceipt {
   readonly id: string;
   readonly sequence: number;
-  /** 32 bytes — the new chain head, and the `prev_hash` of the next row. */
-  readonly rowHash: Uint8Array;
 }
 
 /**
  * The PII half of an append. Supplying this routes the write through the
- * codec (encrypt → digest → embed → canonicalize → sign) instead of the plain
- * canonicalize-then-sign path.
+ * sealing codec instead of the plain path.
  *
  * The partition itself (which fields are PII) is the `splitPii`
  * classification, performed by the CALLER.
@@ -159,7 +139,7 @@ export interface EventLogAppendReceipt {
 interface EventLogAppendPii {
   /** Whose content key seals `piiPayload`, and the value for the stamp column. */
   readonly userId: string;
-  /** The PII half of the split — encrypted into `pii_payload`, never hashed. */
+  /** The PII half of the split — encrypted into `pii_payload`. */
   readonly piiPayload: Record<string, unknown>;
 }
 
@@ -172,9 +152,9 @@ interface EventLogAppendPii {
  * handing every emitter a live session content key would put key material on
  * every call path that emits an assistant message, for no gain.
  *
- * `contentLength`, `contentTruncated`, and `contentCiphertextDigest` are NOT
- * here either — the sealing codec mints all three from the body it actually
- * sealed, and a producer that supplies one is refused.
+ * `contentLength` and `contentTruncated` are NOT here either — the sealing
+ * codec mints both from the body it actually sealed, and a producer that
+ * supplies one is refused.
  */
 interface EventLogAppendContent {
   /** The prose. Over-bound bodies are truncated at a codepoint boundary. */
@@ -217,8 +197,8 @@ export interface EventLogAppendOptions {
    *     this row's rollback — the exact non-atomic dual-write the seam exists
    *     to prevent.
    *   * WRITES ONLY, no decisions. A read whose result shapes THIS row's
-   *     payload is too late here: the payload was canonicalized and signed
-   *     before the transaction opened. Decide first, under the lock, then hand
+   *     payload is too late here: the payload was sealed and measured before
+   *     the transaction opened. Decide first, under the lock, then hand
    *     the resulting write down.
    *
    * A throwing prelude aborts the transaction before the INSERT, so no row
@@ -236,12 +216,12 @@ export interface EventLogAppendOptions {
 
   /**
    * The machine-authored content partition, when this row carries one. Routes
-   * through the SAME codec as `pii` — a row carrying both runs the
-   * encrypt-then-digest-then-sign order once over both partitions.
+   * through the SAME codec as `pii` — a row carrying both is sealed in one
+   * codec call over both partitions.
    *
    * Requires a `contentKeySource` on the service; an append that carries content
    * with no key source wired fails LOUD rather than silently dropping the prose
-   * or writing it into the hashed, signed `payload` column.
+   * or writing it into the plaintext `payload` column.
    *
    * ADMITTED ONLY ON THE FIVE BODY-BEARING EVENT TYPES, and enforced by the
    * CODEC rather than by this type. `BODY_BEARING_EVENT_TYPES` in
@@ -276,16 +256,6 @@ export interface EventLogAppendOptions {
 export interface EventLogServiceDeps {
   /** The connection every write lands on. Prepared statements are cached. */
   readonly db: Database;
-  /** Per-session Ed25519 signing key. Async — an unseal may await a ceremony. */
-  readonly signingKeySource: DaemonSigningKeySource;
-  /**
-   * The admission gate. Defaults to {@link NeverHaltedIngestHaltSource} —
-   * fail-OPEN, for the reason argued at that class: a daemon with no key-reuse
-   * observer wired has no evidence any session is compromised, and refusing
-   * every write in that configuration would also refuse the events an operator
-   * needs to diagnose it. Production wiring passes the `IngestHaltRegistry`.
-   */
-  readonly haltSource?: IngestHaltSource;
   /**
    * PII content-key encryptor (implemented elsewhere). Optional because most
    * deployments and nearly every test append no PII at all; omitting it makes
@@ -329,26 +299,19 @@ export interface EventLogServiceDeps {
 }
 
 /**
- * The chain head as read under the lock — absent for a session's first row.
+ * The head as read under the lock — absent for a session's first row.
  *
- * BOTH members are `unknown` rather than `bigint` / `Uint8Array` deliberately:
- * the columns are declared `INTEGER NOT NULL` / `BLOB NOT NULL`, but that
- * declaration is a claim TypeScript never checked, and the read below is where
- * both checks happen — the read-side stance `signing-key-source.ts` takes
- * toward `daemon_signing_keys`. Declaring the narrow types here would have made
- * every use downstream of the cast unchecked: SQLite's declared types give
- * AFFINITY, not enforcement, so a TEXT `row_hash` written by anything with
- * access to the file arrives as a JS `string` and would be chained into
- * `prev_hash` — signed, stored, and verifiable nowhere.
+ * `unknown` rather than `bigint` deliberately: the column is declared
+ * `INTEGER NOT NULL`, but SQLite's declared types give AFFINITY, not
+ * enforcement, and the read below is where the check happens.
  */
-interface ChainHeadRow {
+interface HeadRow {
   readonly sequence: unknown;
-  readonly row_hash: unknown;
 }
 
 export class EventLogService {
   readonly #insertStmt: Statement;
-  readonly #chainHeadStmt: Statement;
+  readonly #headStmt: Statement;
   // The transaction wrapper is prepared once and dispatched `.immediate()` at
   // call time. IMMEDIATE, not the `db.transaction` DEFERRED default: this body
   // writes from its first statement, and taking the RESERVED writer-intent lock
@@ -357,16 +320,12 @@ export class EventLogService {
   // `busy_timeout` cannot absorb) — the same discipline `RuntimeBindingStore`
   // documents.
   readonly #writeTxn: (bindings: InsertBindings, prelude: (() => void) | undefined) => void;
-  readonly #signingKeySource: DaemonSigningKeySource;
-  readonly #haltSource: IngestHaltSource;
   readonly #piiEncryptor: PiiEncryptor | undefined;
   readonly #contentKeySource: SessionContentKeySource | undefined;
   readonly #contentKeyDisposer: SessionContentKeyDisposer | undefined;
   readonly #monotonicNow: () => bigint;
 
   constructor(deps: EventLogServiceDeps) {
-    this.#signingKeySource = deps.signingKeySource;
-    this.#haltSource = deps.haltSource ?? new NeverHaltedIngestHaltSource();
     this.#piiEncryptor = deps.piiEncryptor;
     this.#contentKeySource = deps.contentKeySource;
     this.#contentKeyDisposer = deps.contentKeyDisposer;
@@ -377,28 +336,22 @@ export class EventLogService {
          id, session_id, sequence, occurred_at, monotonic_ns,
          category, type, actor, payload, pii_payload,
          correlation_id, causation_id, version,
-         prev_hash, row_hash, daemon_signature,
          pii_user_id, content_payload
        ) VALUES (
          @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
          @category, @type, @actor, @payload, @pii_payload,
          @correlation_id, @causation_id, @version,
-         @prev_hash, @row_hash, @daemon_signature,
          @pii_user_id, @content_payload
        )`,
     );
 
-    // The chain head: highest `sequence` and its `row_hash`, in ONE query, so
-    // the sequence allocated and the `prev_hash` chained to always come from
-    // the same row. Two queries could straddle a concurrent commit from another
-    // connection and produce a row whose `prev_hash` belongs to a different
-    // predecessor than its `sequence` implies — a chain fork that verifies
-    // nowhere. `safeIntegers` because `sequence` is INTEGER and the ceiling is
-    // `Number.MAX_SAFE_INTEGER` (EVENT_ENVELOPE_SEQUENCE_MAX); reading it as a
-    // bigint keeps the read lossless right up to that bound.
-    this.#chainHeadStmt = deps.db
+    // The head: the highest `sequence`. `safeIntegers` because `sequence` is
+    // INTEGER and the ceiling is `Number.MAX_SAFE_INTEGER`
+    // (EVENT_ENVELOPE_SEQUENCE_MAX); reading it as a bigint keeps the read
+    // lossless right up to that bound.
+    this.#headStmt = deps.db
       .prepare(
-        `SELECT sequence, row_hash
+        `SELECT sequence
            FROM session_events
           WHERE session_id = ?
           ORDER BY sequence DESC
@@ -419,7 +372,7 @@ export class EventLogService {
           // Unreachable through a plain INSERT (better-sqlite3 throws on
           // constraint failure rather than reporting zero changes), which is
           // exactly why it is checked: a silent zero here would mean the row is
-          // not durable while the chain head advanced in the caller's view.
+          // not durable while its sequence was reported to the caller.
           throw new Error(
             `EventLogService.append: expected 1 row inserted, got ${String(result.changes)} ` +
               `for session=${bindings.session_id} sequence=${String(bindings.sequence)}`,
@@ -436,34 +389,24 @@ export class EventLogService {
    * Append one event. The sole durable production write path for
    * `session_events`.
    *
-   * Allocates `sequence`, chains `prev_hash`, signs the canonical bytes, and
-   * commits the row — together with `options.transactionalPrelude`, if given —
-   * in one transaction, under the per-session append lock. Reentrant: a caller
-   * already holding that lock (the producers' `guard-swap-append` wrap
-   * observer's halt-and-record sequence) reuses its hold rather than
-   * deadlocking.
+   * Allocates `sequence`, seals any partitions, holds the canonical form to
+   * the size ceiling, and commits the row — together with
+   * `options.transactionalPrelude`, if given — in one transaction, under the
+   * per-session append lock. Reentrant: a caller already holding that lock
+   * reuses its hold rather than deadlocking.
    *
    * REFUSALS, in the order they are evaluated:
-   *   1. `daemon.ingest_halted` (409) — the session's ingest is administratively
-   *      halted. Evaluated FIRST under the lock, before canonicalization and
-   *      before any write, so a halted session's chain head never advances and
-   *      no partial row is produced.
-   *   2. `daemon.pii_split_bypass` (400) — the payload carries a reserved PII
-   *      key codec alone may write.
-   *   3. `CodecOwnedContentKeyError` — the payload pre-seeds one of the
-   *      three content members codec alone determines
-   *      (`contentCiphertextDigest`, `contentLength`, `contentTruncated`).
-   *      Evaluated in the same structural step as 2 and before the
-   *      plain-vs-codec branch choice, so a forged content claim cannot be
-   *      signed on either branch.
-   *   4. {@link assertRegisteredVariantParses} — a REGISTERED strict variant
-   *      whose payload does not parse. Raised inside `#signEvent`'s plain
-   *      branch, after the chain head is read and before canonicalization.
-   * The first two are typed `DaemonDomainError`s carrying schema-PARSED details,
-   * so `mapJsonRpcError` renders `data.type` beside `data.fields` with no mapper
-   * change. The last two are INTERNAL typed errors, not wire codes: neither has
-   * a row and reusing `daemon.pii_split_bypass` for either would make a
-   * registered contract describe a refusal it does not describe.
+   *   1. `CodecOwnedContentKeyError` — the payload pre-seeds one of the content
+   *      members the codec alone determines (`contentLength`,
+   *      `contentTruncated`). Evaluated before the plain-vs-codec branch choice,
+   *      so a false content claim cannot be stored on either branch.
+   *   2. {@link assertRegisteredVariantParses} — a REGISTERED strict variant
+   *      whose payload does not parse. Raised on the plain branch after the head
+   *      is read, and by the codec after the seal on the sealing branch.
+   *   3. `daemon.event_canonical_bytes_exceeded` (400) — the row's canonical
+   *      form is over `EVENT_CANONICAL_BYTES_MAX`.
+   * The first two are INTERNAL typed errors, not wire codes; the third is a
+   * typed `DaemonDomainError` carrying schema-PARSED details.
    */
   async append(
     envelope: UnsequencedEventEnvelope,
@@ -471,99 +414,47 @@ export class EventLogService {
   ): Promise<EventLogAppendReceipt> {
     const sessionId: SessionId = envelope.sessionId;
     return withSessionAppendLock(sessionId, async () => {
-      // (1) ADMISSION GATE — first, before everything. Synchronous, no I/O, no
-      // lock (the `IngestHaltSource` contract), so it costs nothing on the hot
-      // path. Placing it ahead of the structural guard below is deliberate: a
-      // halted session is refusing every write regardless of the write's shape,
-      // and reporting "your payload is malformed" to a caller whose session is
-      // halted would send it to fix the wrong thing.
-      if (this.#haltSource.isHalted(sessionId)) {
-        throw new DaemonDomainError(
-          `Ingest is administratively halted for session ${sessionId}: a daemon signing key ` +
-            `was observed under more than one identity, so rows signed for this session ` +
-            `cannot be attested. Writes are re-admitted when the collision leaves the ` +
-            `observable set.`,
-          {
-            code: DAEMON_INGEST_HALTED_CODE,
-            // InvalidRequest, not InvalidParams: the REQUEST is well-formed and
-            // would be accepted in another session state. That is the same
-            // distinction the notional 409 draws against the 400 below.
-            jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-            httpStatus: 409,
-            // PARSED, not cast. The detail is what `mapJsonRpcError` renders as
-            // `data.fields`, and a detail-less throw renders `undefined` there
-            // — so parsing is what makes the rendered shape a guarantee rather
-            // than a convention.
-            detail: DaemonIngestHaltedDetailsSchema.parse({ sessionId }),
-          },
-        );
-      }
-
-      // (2) RESERVED-KEY GUARDS — structural, before any work is spent, and
-      // BEFORE the plain-vs-codec branch choice `#signEvent` makes below. Both
-      // refuse a payload that pre-seeds a member only codec may write; they are
-      // split because only one of the two is a registered wire code.
-      this.#assertNoReservedPiiKeys(envelope.payload);
-      // The CONTENT trio. Shared with the codec's own refusal-2 third arm — one
+      // (1) The CONTENT pair. Shared with the codec's own refusal — one
       // definition, two call sites at the two ends of this one durable append
-      // path, never a copy. Placed here rather than in
-      // `#signEvent`'s plain branch because the branch choice is made from
-      // `options.content`, not from the payload: a caller that omits
-      // `options.content` and seeds `contentCiphertextDigest` takes the PLAIN
-      // branch, where nothing is sealed and the payload the caller supplied is
-      // the payload that gets signed — minting a permanently `digest_unbound`
-      // row, or false length/truncation metadata, under this daemon's signature.
-      // Guarding ahead of the choice means neither branch can be entered with a
-      // forged claim. Runs for tolerant carriers too, deliberately — see the
-      // guard's own note for that decision and for why it throws an internal
-      // typed error rather than a `DaemonDomainError`.
+      // path. Placed here rather than in `#composeRow`'s plain branch because
+      // the branch choice is made from `options.content`, not from the payload:
+      // a caller that omits `options.content` and seeds `contentLength` takes
+      // the PLAIN branch, where nothing is sealed and the payload the caller
+      // supplied is the payload that gets stored. Runs for tolerant carriers
+      // too — see the guard's own note.
       assertNoCodecOwnedContentKeys(envelope.payload, "EventLogService.append");
 
-      // (3) CHAIN HEAD. One query, under the lock, for both the sequence to
-      // allocate and the hash to chain to.
-      const head: ChainHeadRow | undefined = this.#chainHeadStmt.get(sessionId) as
-        | ChainHeadRow
-        | undefined;
+      // (2) HEAD. One query, under the lock, for the sequence to allocate.
+      const head: HeadRow | undefined = this.#headStmt.get(sessionId) as HeadRow | undefined;
       const sequence: number =
         head === undefined ? 0 : Number(narrowHeadSequence(head.sequence, sessionId)) + 1;
-      const prevHash: Uint8Array =
-        head === undefined ? GENESIS_PREV_HASH : narrowHeadRowHash(head.row_hash, sessionId);
 
-      //
       //   * `occurredAt` is normalized here and the NORMALIZED value is what
-      //     gets persisted — never the producer's raw input. Signing the
-      //     normalized spelling while storing the raw one produces a row whose
-      //     signature no verifier can reproduce from storage, and the
-      //     `occurred_at_not_canonical` check exists precisely to catch the
-      //     column drifting off canonical form.
+      //     gets persisted — never the producer's raw input — so the column
+      //     holds the canonical RFC 3339 UTC millisecond form.
       //   * `actor` is narrowed from the envelope's THREE states
       //     (`string | null | undefined`) to the TWO storage-representable ones
       //     (`string | null`). `session_events.actor` collapses absent and
       //     `null` onto one NULL column while the canonical bytes distinguish
-      //     them, so canonicalizing an ABSENT actor for a row that persists SQL
-      //     NULL emits bytes storage cannot reproduce. `canonicalizeEvent`
-      //     documents this as a PRECONDITION and names this path as its owner.
+      //     them, so the size ceiling is measured over the form storage holds.
       const normalizedOccurredAt: string = normalizeOccurredAt(envelope.occurredAt);
       const narrowedActor: string | null = envelope.actor ?? null;
 
-      // Either through the codec (PII path) or plain
-      // canonicalize-then-sign. Both produce the same four persistables.
-      const daemonSigningKey: Ed25519PrivateKey = await this.#signingKeySource.read(sessionId);
-      let signed: SignedEventRow;
+      // Either through the codec (sealing path) or plain. Both produce the same
+      // persistables.
+      let composed: ComposedEventRow;
       try {
-        signed = await this.#signEvent({
+        composed = await this.#composeRow({
           envelope,
           sequence,
           occurredAt: normalizedOccurredAt,
           actor: narrowedActor,
-          prevHash,
-          daemonSigningKey,
           ...(options?.pii !== undefined ? { pii: options.pii } : {}),
           ...(options?.content !== undefined ? { content: options.content } : {}),
         });
       } catch (error) {
         // THE MINT IS COMMITTED BY NOW AND NOTHING IS SEALED UNDER IT.
-        // `resolveForWrite` runs inside `#signEvent` and commits its own
+        // `resolveForWrite` runs inside `#composeRow` and commits its own
         // transaction, so every refusal raised after it — the strict-variant
         // check, the canonical-size ceiling, a codec fault — leaves a durable
         // wrapped DEK with no body. Reconciled here, while this append still
@@ -575,32 +466,28 @@ export class EventLogService {
         throw error;
       }
 
-      // (4) PERSIST — the prelude and the row, atomically. Everything bound
-      // here comes from `signed`, never from the caller's input: substituting
-      // any of the four (a re-canonicalized envelope, a re-read `prev_hash`, a
-      // stamp taken from anywhere else) yields an untampered row that can never
-      // verify, because the verifier recomputes from what was STORED.
+      // (3) PERSIST — the prelude and the row, atomically. Everything bound
+      // here comes from `composed`, never from the caller's input: the codec's
+      // envelope carries the normalized `occurredAt` and the content members,
+      // and its ciphertexts are the ones sealed under this row's nonces.
       try {
         this.#writeTxn(
           {
-            id: signed.envelope.id,
+            id: composed.envelope.id,
             session_id: sessionId,
             sequence,
-            occurred_at: signed.envelope.occurredAt,
+            occurred_at: composed.envelope.occurredAt,
             monotonic_ns: options?.monotonicNs ?? this.#monotonicNow(),
-            category: signed.envelope.category,
-            type: signed.envelope.type,
-            actor: signed.envelope.actor ?? null,
-            payload: JSON.stringify(signed.envelope.payload),
-            pii_payload: signed.piiPayload ?? null,
-            correlation_id: signed.envelope.correlationId ?? null,
-            causation_id: signed.envelope.causationId ?? null,
-            version: signed.envelope.version,
-            prev_hash: Buffer.from(signed.signedRow.prevHash),
-            row_hash: Buffer.from(signed.signedRow.rowHash),
-            daemon_signature: Buffer.from(signed.signedRow.daemonSignature),
-            pii_user_id: signed.piiUserId ?? null,
-            content_payload: signed.contentPayload ?? null,
+            category: composed.envelope.category,
+            type: composed.envelope.type,
+            actor: composed.envelope.actor ?? null,
+            payload: JSON.stringify(composed.envelope.payload),
+            pii_payload: composed.piiPayload ?? null,
+            correlation_id: composed.envelope.correlationId ?? null,
+            causation_id: composed.envelope.causationId ?? null,
+            version: composed.envelope.version,
+            pii_user_id: composed.piiUserId ?? null,
+            content_payload: composed.contentPayload ?? null,
           },
           options?.transactionalPrelude,
         );
@@ -616,9 +503,8 @@ export class EventLogService {
       }
 
       const receipt: EventLogAppendReceipt = {
-        id: signed.envelope.id,
+        id: composed.envelope.id,
         sequence,
-        rowHash: signed.signedRow.rowHash,
       };
 
       return receipt;
@@ -628,63 +514,6 @@ export class EventLogService {
   // ------------------------------------------------------------------------
   // Internal
   // ------------------------------------------------------------------------
-
-  /**
-   * Refuse a payload carrying either reserved PII key.
-   *
-   * This method covers the PII pair ONLY. Folding them together would force one
-   * of the two to misreport itself.
-   *
-   * BOTH keys are CODEC-OWNED. `writeEventWithPii` is the only thing that may
-   * embed `pii_ciphertext_digest` or `pii_user_id` into a payload, and
-   * this service invokes that codec itself (it holds the `prev_hash` the codec
-   * needs). So a payload arriving here with either key already present did not
-   * come through the split — which is precisely the `daemon.pii_split_bypass`
-   * defect, seen from whichever side the producer got wrong:
-   *
-   *   * OWNER STAMP present, no digest — the acceptance criterion's named case.
-   *     PII was tagged with an owner but its bytes were never encrypted, so the
-   *     plaintext would land in the hashed, signed, un-shreddable `payload`
-   *     column. Checked first so the named case reports the named path.
-   *   * DIGEST present — a claim about ciphertext this write does not hold.
-   *
-   * WHY THE RESERVED KEYS AND NOT A REGISTRY OF PII FIELD NAMES. the PII Data
-   * Map classifies PII SEMANTICALLY ("user messages, file paths, code
-   * snippets") and names no enumerable set of payload keys — so a key registry
-   * would have to be invented here, would be wrong the moment a payload shape
-   * changed, and would give a false sense of coverage. The reserved keys are
-   * the mechanical, already-committed vocabulary exports for exactly this
-   * consumer, and they detect the failure that actually matters: a write that
-   * routed around the split. A payload carrying unmarked PII with no reserved
-   * key is NOT caught here and cannot be — that is the `splitPii`
-   * classification obligation, upstream of this seam.
-   *
-   * `fieldPath` is a KEY PATH and never a value. That is the security property:
-   * the write is refused BECAUSE it carries PII outside the split, so echoing
-   * the value into an error envelope would complete the leak. The paths are
-   * built from the reserved-key CONSTANTS, so no payload content can reach the
-   * detail.
-   */
-  #assertNoReservedPiiKeys(payload: Record<string, unknown>): void {
-    if (Object.hasOwn(payload, PII_USER_ID_PAYLOAD_KEY)) {
-      throw piiSplitBypass(
-        `payload.${PII_USER_ID_PAYLOAD_KEY}`,
-        `payload carries the reserved PII owner stamp \`${PII_USER_ID_PAYLOAD_KEY}\` — ` +
-          `only the pii-indirection codec may embed it, and this write did not go through the ` +
-          `encrypt-then-digest-then-sign split. Pass the PII partition as append options ` +
-          `instead of embedding it in the payload.`,
-      );
-    }
-    if (Object.hasOwn(payload, PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY)) {
-      throw piiSplitBypass(
-        `payload.${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY}`,
-        `payload carries the reserved PII ciphertext digest ` +
-          `\`${PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY}\` — only the pii-indirection codec may embed ` +
-          `it, and a digest naming ciphertext this row does not hold can never verify. Pass ` +
-          `the PII partition as append options instead of embedding it in the payload.`,
-      );
-    }
-  }
 
   /**
    * Retire the wrapped DEK this append may have just minted, when the append
@@ -750,15 +579,13 @@ export class EventLogService {
   }
 
   /**
-   * Produce the four persistables for one row, by whichever of the two paths
-   * this append takes. Both return the SAME shape so the INSERT below has one
-   * binding site rather than a branch per column.
+   * Produce the persistables for one row, by whichever of the two paths this
+   * append takes. Both return the SAME shape so the INSERT has one binding site
+   * rather than a branch per column.
    */
-  async #signEvent(input: SignEventInput): Promise<SignedEventRow> {
+  async #composeRow(input: ComposeRowInput): Promise<ComposedEventRow> {
     // The envelope as it will be STORED: sequenced, with the normalized
-    // `occurredAt` and the narrowed `actor`. This is the object that gets
-    // canonicalized, so the bytes signed and the columns written agree by
-    // construction rather than by parallel maintenance.
+    // `occurredAt` and the narrowed `actor`.
     const storable: EventEnvelope = {
       ...input.envelope,
       sequence: input.sequence,
@@ -766,62 +593,33 @@ export class EventLogService {
       actor: input.actor,
     };
 
-    // THE PLAIN BRANCH IS "NEITHER PARTITION", not "no PII". Phase 3B widened
-    // this predicate rather than adding a third branch, and the widening is the
-    // structural point of the change: `assistant.*` and `tool.*` rows carry
-    // machine prose and usually no user PII at all, so before it the
-    // common content-bearing row took this branch and never reached the codec —
-    // the column could exist and nothing would ever write to it.
+    // THE PLAIN BRANCH IS "NEITHER PARTITION", not "no PII": `assistant.*` and
+    // `tool.*` rows carry machine prose and usually no user PII at all, and
+    // they must reach the codec.
     if (input.pii === undefined && input.content === undefined) {
-      // PARSE WHAT WILL BE SIGNED, on the branch that seals nothing. The defect
-      // is a property of the ROW, not of which column was written: a registered
-      // type under the wrong category, or with a `payload` its own variant
-      // refuses, canonicalizes and signs exactly as happily here as it does
-      // through the codec, and comes back out unreadable as anything but a
-      // stub. The SAME function the sealing branch calls at its refusal 9 —
-      // imported, never copied, because two implementations would be two
-      // answers to "which rows may be signed" and would diverge on the first
-      // variant that lands.
-      //
-      // The TOLERANT-CARRIER SKIP rides along inside it rather than being
-      // restated here: a `type` with no registered payload variant is waved
-      // through, because `packages/contracts/src/event.ts` is explicit that a
-      // reader "MUST persist an envelope whose `type` it cannot interpret as a
-      // version stub — never drop or reject it", while the STRICT layer is "the
-      // interpretation surface, where unknown types and category/type
-      // mismatches fail loud at parse time". Refusing an unregistered census
-      // type here would reject exactly the envelopes the stub path exists to
-      // preserve.
-      //
-      // AFTER `#assertNoReservedPiiKeys`, which ran back in `append` before
-      // this method was reached, and the order is load-bearing now that the
-      // strict layer REGISTERS both reserved keys as optional members: a
-      // caller-embedded `pii_user_id` parses cleanly here, so the typed
-      // `daemon.pii_split_bypass` refusal — which names the field path and the
-      // remedy — is the one that must see it first. This guard catches what
-      // that one cannot express.
+      // PARSE WHAT WILL BE STORED, on the branch that seals nothing — the SAME
+      // function the codec calls, imported, never copied. A type with no
+      // registered payload variant is waved through inside it: a reader "MUST
+      // persist an envelope whose `type` it cannot interpret as a version stub
+      // — never drop or reject it".
       assertRegisteredVariantParses(storable, {
         name: "EventLogService.append",
         timing:
-          "Refused before canonicalization, on a path that seals nothing: the payload the caller supplied is the payload that would be signed.",
+          "Refused before canonicalization, on a path that seals nothing: the payload the caller supplied is the payload that would be stored.",
       });
 
       const canonical: CanonicalBytes = canonicalizeEvent(storable);
-      // The `EVENT_CANONICAL_BYTES_MAX` serviceability ceiling (2026-08-11
-      // amendment): a row whose canonical form cannot ride one relay frame is
-      // refused before any row is written — never truncated, never silently
-      // accepted. Checked against the very bytes `signRow` is about to cover,
-      // not against the caller's payload. The PII branch below runs the same
-      // check against the codec's measurement of the DIGEST-BEARING form —
-      // the bytes THAT path signs — which can exceed the ceiling even when
-      // the caller's plain payload would not, because the embed step widens
-      // the canonical member set by the digest and the owner stamp.
+      // The `EVENT_CANONICAL_BYTES_MAX` serviceability ceiling: a row whose
+      // canonical form cannot ride one relay frame is refused before any row
+      // is written — never truncated, never silently accepted. The sealing
+      // branch below runs the same check against the codec's measurement of the
+      // stored form, which can exceed the ceiling even when the caller's plain
+      // payload would not, because the codec adds the content members.
       if (canonical.length > EVENT_CANONICAL_BYTES_MAX) {
         throw eventCanonicalBytesExceeded(canonical.length, storable.id);
       }
       return {
         envelope: storable,
-        signedRow: signRow(canonical, input.prevHash, input.daemonSigningKey),
         piiPayload: undefined,
         piiUserId: undefined,
         contentPayload: undefined,
@@ -831,7 +629,7 @@ export class EventLogService {
     if (input.pii !== undefined && this.#piiEncryptor === undefined) {
       // The alternative — dropping the partition, or writing it into the plain
       // payload — would either lose user data silently or persist it
-      // unencrypted in a hashed, signed, un-shreddable column. A plain Error,
+      // unencrypted in an un-shreddable column. A plain Error,
       // not a typed refusal: this is a WIRING defect (the encryptor was never
       // injected), not something a caller can correct by changing its request.
       throw new Error(
@@ -845,22 +643,21 @@ export class EventLogService {
       // FAIL LOUD, on the encryptor guard's logic applied to the other
       // partition. The alternatives are dropping the prose — which makes the
       // canonical transcript unauthoritative for exactly the turns it exists to
-      // hold — or writing it into `payload`, which is hashed, signed, and never
+      // hold — or writing it into `payload`, which is plaintext and never
       // shredded. A plain Error rather than a typed refusal: this is a wiring
       // defect (the key source was never injected), not a request a caller can
       // correct.
       throw new Error(
         "EventLogService.append received a content partition but no SessionContentKeySource " +
           "is wired. Refusing rather than dropping machine-authored prose or persisting it in " +
-          "the signed payload column. Construct the service with `contentKeySource`.",
+          "the plaintext payload column. Construct the service with `contentKeySource`.",
       );
     }
 
     // The session content key, resolved BEFORE the codec runs because resolving
     // it can block on a human (the daemon master key's custody ladder wipes its
     // in-memory copy on an idle timer). The codec takes MATERIAL, so the await
-    // happens out here rather than inside the module that owns the
-    // canonicalization order. Minted lazily on this session's first
+    // happens out here rather than inside the sealing module. Minted lazily on this session's first
     // content-bearing append, which is why a session that never runs an agent
     // stores no key.
     const contentPartition: EventContentInput | undefined =
@@ -871,13 +668,11 @@ export class EventLogService {
             contentKey: (await this.#contentKeySource.resolveForWrite(storable.sessionId)).key,
           };
 
-    // The codec owns steps 1-6 of the encrypt-then-digest-then-sign order;
-    // step 7 (the INSERT) is this service's, which is why the codec is invoked
-    // here rather than by the caller: it needs the `prevHash` only the append
-    // path can read under the lock. The category cast is narrowing, and the
-    // codec re-checks it at runtime (layer 2) — the two refused categories
-    // throw there rather than being silently admitted, so a wrong category is
-    // a loud failure and not an unchecked assumption.
+    // The codec seals; the INSERT is this service's, and the codec is invoked
+    // here rather than by the caller because the sequence it seals under is
+    // allocated only under the lock. The category cast is narrowing, and the
+    // codec re-checks it at runtime — the refused category throws there rather
+    // than being silently admitted.
     const codecCommonFields = {
       id: storable.id,
       sessionId: storable.sessionId,
@@ -925,7 +720,6 @@ export class EventLogService {
 
     const written: PiiEventWriteResult = await writeEventWithPii(
       codecInput,
-      input.prevHash,
       // A REFUSING STUB rather than `undefined` behind a cast. A content-only row
       // never calls the encryptor — the codec skips the PII stage when no
       // partition is present — and the guard above already refuses a PII
@@ -934,27 +728,20 @@ export class EventLogService {
       // `TypeError` on `undefined.encrypt` from inside the codec; the stub
       // surfaces the same defect by name, at the boundary that owns it.
       this.#piiEncryptor ?? UNWIRED_PII_ENCRYPTOR,
-      input.daemonSigningKey,
     );
 
-    // The same ceiling as the plain branch, on the DIGEST-BEARING canonical
-    // form the codec measured at its own step 5 — the exact bytes `written.
-    // signedRow` covers. Post-encrypt by construction (see
-    // `PiiEventWriteResult.canonicalByteLength` for why no earlier point can
-    // measure it), still upstream of the INSERT: a refusal here writes
-    // nothing, and the spent AEAD seal and signature are discarded with the
-    // result.
+    // The same ceiling as the plain branch, on the stored form the codec
+    // measured. A refusal here writes nothing, and the spent seals are
+    // discarded with the result.
     if (written.canonicalByteLength > EVENT_CANONICAL_BYTES_MAX) {
       throw eventCanonicalBytesExceeded(written.canonicalByteLength, storable.id);
     }
 
     // PERSIST THESE AS A UNIT — the codec's caller obligation. Every value below
     // comes from `written`; none is re-derived from the input, and neither
-    // ciphertext is re-sealed (both digests inside the signed payload commit to
-    // exactly these arrays).
+    // ciphertext is re-sealed.
     return {
       envelope: written.envelope,
-      signedRow: written.signedRow,
       piiPayload: written.piiPayload === undefined ? undefined : Buffer.from(written.piiPayload),
       piiUserId: written.piiUserId,
       contentPayload:
@@ -968,50 +755,19 @@ export class EventLogService {
 // --------------------------------------------------------------------------
 
 /**
- * The `row_hash` width `signer.ts` enforces, re-spelled here for the chain-head
- * read guard rather than imported — `signer.ts` keeps its own
- * `CHAIN_HASH_LENGTH` module-private, and `pii-indirection.ts` re-spells it for
- * the same reason rather than widening that export surface for one integer.
+ * The stored head `sequence`, checked rather than asserted.
  *
- * DRIFT HERE IS ONE-DIRECTIONAL AND LOUD: this value only ever refuses a stored
- * head, and `signRow` re-checks the `prev_hash` it produces, so a stale value
- * can cause a false refusal — never a signature over a wrong-width chain link.
- */
-const CHAIN_HASH_LENGTH = 32;
-
-/**
- * The stored chain-head `sequence`, checked rather than asserted.
- *
- * `#chainHeadStmt` is prepared `.safeIntegers(true)`, so an INTEGER column
+ * `#headStmt` is prepared `.safeIntegers(true)`, so an INTEGER column
  * arrives as a `bigint` and anything else means the column does not hold an
  * integer at all: INTEGER affinity coerces only text that LOOKS numeric, so a
  * non-numeric TEXT value stays TEXT and a REAL one stays REAL. Either would
  * survive `Number(...) + 1` — as `NaN` and as a fractional sequence — and be
- * INSERTed as this row's `sequence` and signed into its canonical bytes.
+ * INSERTed as this row's `sequence`.
  */
 function narrowHeadSequence(value: unknown, sessionId: SessionId): bigint {
   if (typeof value !== "bigint") {
     throw new Error(
       `session_events.sequence for session ${sessionId} is not an INTEGER: got a value of type ${typeof value}. The column is declared INTEGER NOT NULL and this statement reads it with safeIntegers, so a non-bigint value means the row was written or altered outside this module. Refusing here rather than allocating the next sequence from it.`,
-    );
-  }
-  return value;
-}
-
-/**
- * The stored chain-head `row_hash`, checked rather than asserted — this value
- * becomes the next row's `prev_hash`, so a wrong-shaped one is chained into the
- * canonical bytes and signed. Refused here, where the diagnostic can still name
- * the column, rather than at `signRow`, whose message names an argument.
- */
-function narrowHeadRowHash(value: unknown, sessionId: SessionId): Uint8Array {
-  if (!(value instanceof Uint8Array) || value.length !== CHAIN_HASH_LENGTH) {
-    throw new Error(
-      `session_events.row_hash for session ${sessionId} is not a ${CHAIN_HASH_LENGTH}-byte BLOB: got ${
-        value instanceof Uint8Array
-          ? `${value.length} bytes`
-          : `a non-Uint8Array value of type ${typeof value}`
-      }. The column is declared BLOB NOT NULL and this module writes a 32-byte BLAKE3 chain hash, so a wrong-shaped value means the row was written or altered outside this module.`,
     );
   }
   return value;
@@ -1032,54 +788,30 @@ interface InsertBindings {
   readonly correlation_id: string | null;
   readonly causation_id: string | null;
   readonly version: string;
-  readonly prev_hash: Buffer;
-  readonly row_hash: Buffer;
-  readonly daemon_signature: Buffer;
   readonly pii_user_id: string | null;
   readonly content_payload: Buffer | null;
 }
 
-interface SignEventInput {
+interface ComposeRowInput {
   readonly envelope: UnsequencedEventEnvelope;
   readonly sequence: number;
   readonly occurredAt: string;
   readonly actor: string | null;
-  readonly prevHash: Uint8Array;
-  readonly daemonSigningKey: Ed25519PrivateKey;
   readonly pii?: EventLogAppendPii;
   readonly content?: EventLogAppendContent;
 }
 
 /** The persistables, whichever path produced them. */
-interface SignedEventRow {
+interface ComposedEventRow {
   readonly envelope: EventEnvelope;
-  readonly signedRow: SignedRow;
   readonly piiPayload: Buffer | undefined;
   readonly piiUserId: string | undefined;
   readonly contentPayload: Buffer | undefined;
 }
 
 /**
- * Build the `daemon.pii_split_bypass` refusal. Factored so both arms parse the
- * detail through the same schema — a second hand-built detail object is exactly
- * how one of two sibling refusals ends up rendering a different `data.fields`
- * shape than the other.
- */
-function piiSplitBypass(fieldPath: string, message: string): DaemonDomainError {
-  return new DaemonDomainError(message, {
-    code: DAEMON_PII_SPLIT_BYPASS_CODE,
-    // InvalidParams, not InvalidRequest: the request is STRUCTURALLY invalid
-    // and no session state makes it admissible — the 400/409 distinction the
-    // error-contracts rows draw between this refusal and the ingest halt.
-    jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-    httpStatus: 400,
-    detail: DaemonPiiSplitBypassDetailsSchema.parse({ fieldPath }),
-  });
-}
-
-/**
- * {@link piiSplitBypass}: both append branches raise it, and a second
- * hand-built detail object is exactly how sibling refusals drift apart.
+ * Build the `daemon.event_canonical_bytes_exceeded` refusal. Both append
+ * branches raise it, so one builder keeps their `data.fields` shape identical.
  *
  * The detail carries the two SIZES and nothing else — never payload content,
  * which on this code path is precisely the oversized value nothing should
@@ -1098,9 +830,8 @@ function eventCanonicalBytesExceeded(
       `move bulk content behind a reference instead of inlining it.`,
     {
       code: DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE,
-      // InvalidParams like its `daemon.pii_split_bypass` sibling, and for the
-      // same reason: STRUCTURAL, so no session state change makes the write
-      // admissible.
+      // InvalidParams: the refusal is STRUCTURAL, so no session state change
+      // makes the write admissible.
       jsonRpcCode: JsonRpcErrorCode.InvalidParams,
       httpStatus: 400,
       detail: DaemonEventCanonicalBytesExceededDetailsSchema.parse({

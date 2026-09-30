@@ -1008,7 +1008,6 @@ describe("timeline.bodyRead", () => {
     envelope: storedEnvelope,
     contentPayload: null,
     retentionClass,
-    receivedFromNodeId: null,
   });
   const contentReader = new SessionContentReader({
     keyReader: {

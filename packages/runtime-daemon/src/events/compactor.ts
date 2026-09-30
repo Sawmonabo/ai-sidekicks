@@ -1,10 +1,9 @@
 // The background compactor: the idle-time maintenance pass over the event log.
 //
 // It is lossless. It never rewrites a committed column of `session_events`, so
-// every row a transcript draws stays byte-for-byte what was signed, and every
-// row stays on the ordinary chain-and-signature check. Removing a session's
-// content is the whole-session purge's job (`session-purge.ts`), which runs only
-// when a person deletes the session.
+// every row a transcript draws stays byte-for-byte what was written. Removing a
+// session's content is the whole-session purge's job (`session-purge.ts`), which
+// runs only when a person deletes the session.
 //
 // Its one job today is retiring wrapped session content keys that no sealed
 // body uses any more. A key is left behind when the purge's own disposal did not

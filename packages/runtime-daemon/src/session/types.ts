@@ -8,11 +8,6 @@
 // `state` reuses `SessionState` from `@ai-sidekicks/contracts` so daemon
 // code cannot drift from the wire vocabulary. The canonical enum is
 // `provisioning | active | archived | closed | purge_requested | purged`.
-//
-// Hash-chain placeholders: the `session_events` table in `daemon-schema.ts`
-// requires the integrity columns. The append path writes zero-fill integrity
-// bytes and real `monotonic_ns` so the NOT NULL constraints hold without
-// claiming real hash-chain semantics.
 
 import type { SessionState } from "@ai-sidekicks/contracts";
 
@@ -20,11 +15,10 @@ import type { SessionState } from "@ai-sidekicks/contracts";
 // Internal envelope (write-side input to SessionService.append)
 // --------------------------------------------------------------------------
 //
-// Mirrors the canonical `session_events` row shape minus the integrity
-// columns the service materializes itself (prev_hash/row_hash/signature
-// are filled with zero placeholders by the writer). `monotonic_ns` is also
-// writer-supplied so tests can drive non-monotonic values: `sequence` is
-// the canonical replay key, not `monotonic_ns`.
+// Mirrors the canonical `session_events` row shape minus the sealed and
+// purge columns the service leaves NULL. `monotonic_ns` is writer-supplied so
+// tests can drive non-monotonic values: `sequence` is the canonical replay
+// key, not `monotonic_ns`.
 
 export interface AppendableEvent {
   readonly id: string;

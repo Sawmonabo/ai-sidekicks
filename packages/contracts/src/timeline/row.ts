@@ -281,11 +281,10 @@ const buildTimelineRowCommonShape = () => ({
  *
  * Deliberately WITHOUT the `__proto__` pre-guard `EventEnvelopeSchema` applies
  * to its own payload. That guard exists because the envelope's parse output is
- * hashed: a key Zod's record parser silently drops would collapse two distinct
- * wire byte-strings onto one `row_hash`. A timeline row is a read projection —
- * never hashed, never chained, never signed ("timeline rows are read
- * projections, not canonical events themselves") — so the collapse hazard does
- * not reach it, and the anti- pollution drop Zod performs is the whole of the
+ * what the log stores: a key Zod's record parser silently drops would collapse
+ * two distinct wire byte-strings onto one stored row. A timeline row is a read
+ * projection, never stored as a canonical event, so the collapse hazard does
+ * not reach it, and the anti-pollution drop Zod performs is the whole of the
  * security requirement here.
  */
 const projectedPayloadSchema = z.record(z.string(), z.unknown());
@@ -685,7 +684,7 @@ const timelineRollbackBoundaryArmSchema = z
   .strict()
   // The three-way agreement. `.superRefine()` returns `this`, so this stays a
   // ZodObject and remains a valid `z.discriminatedUnion` option (the same Zod-4
-  // property `event.ts`'s `audit_integrity_failed` arm relies on).
+  // property `event.ts`'s `withEpochStamp` relies on).
   //
   // The payload-presence guard is deliberate and MEASURED rather than assumed:
   // zod 4.3.6 skips a schema's checks once the shape parse has failed (probed

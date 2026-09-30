@@ -57,9 +57,8 @@ function seedRow(options: {
     .prepare(
       `INSERT INTO session_events
          (id, session_id, sequence, occurred_at, monotonic_ns, category, type, actor, payload,
-          pii_payload, correlation_id, causation_id, version, prev_hash, row_hash,
-          daemon_signature, pii_user_id, content_payload)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          pii_payload, correlation_id, causation_id, version, pii_user_id, content_payload)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .run(
       `evt-${options.sessionId.slice(-4)}-${String(options.sequence)}`,
@@ -75,9 +74,6 @@ function seedRow(options: {
       "corr-1",
       "caus-1",
       "1.0",
-      Buffer.alloc(32),
-      Buffer.alloc(32, options.sequence + 1),
-      Buffer.alloc(64, 9),
       "user-abc",
       options.contentPayload === undefined ? null : Buffer.from(options.contentPayload),
     );
