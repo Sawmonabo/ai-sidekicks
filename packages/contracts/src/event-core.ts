@@ -1,7 +1,7 @@
 // The leaf of the session-event contracts: the envelope-version brand, the shared per-field
-// length cap and the canonical `CapabilityDetails` snapshot. `event.ts` re-exports all of it.
+// length cap and the canonical `CapabilityDetails` snapshot. `event-envelope.ts` re-exports all of it.
 //
-// This module must never import `./event.js`, directly or through what it imports. Every schema
+// This module must never import an `event*.js` module, directly or through what it imports. Every schema
 // here is an eager module-scope initializer, and a cycle among those throws at import time.
 import { z } from "zod";
 
@@ -36,7 +36,7 @@ export type EventEnvelopeVersion = string & {
  * Parses an {@link EventEnvelopeVersion}, checking length and format only. An out-of-range
  * version is refused at the protocol handshake with `version.floor_exceeded` or
  * `version.ceiling_exceeded`, never here. Its ordering, `compareEventEnvelopeVersion`, lives in
- * `event.ts`: it is a pure function, so it closes no cycle.
+ * `event-envelope.ts`: it is a pure function, so it closes no cycle.
  */
 export const EventEnvelopeVersionSchema: z.ZodType<EventEnvelopeVersion> = z
   .string()
