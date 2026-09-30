@@ -25,8 +25,3 @@ export function subscribeToComposerFocus(takeFocus: () => void): Unsubscribe {
     takeFocus();
   });
 }
-
-/** How many composers are listening. Read by tests; never a branch in shipped code. */
-export function composerFocusListenerCount(): number {
-  return composerFocusRequests.sinkCount;
-}

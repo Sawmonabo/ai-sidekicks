@@ -1,6 +1,6 @@
-// The requested resource as a structured value. The card shows it behind a disclosure and the
-// provider-ask framing shows it inline, so one renderer serves both. The member is required on
-// the wire, so the reachable empty case is a descriptor with no members, which is said in words.
+// The requested resource as a structured value, which the card shows behind a disclosure. The
+// member is required on the wire, so the reachable empty case is a descriptor with no members,
+// which is said in words.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatWireDescriptor } from "@renderer/lib/wire-figures.js";
