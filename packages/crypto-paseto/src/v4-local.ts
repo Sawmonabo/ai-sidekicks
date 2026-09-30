@@ -2,9 +2,10 @@ import { xchacha20 } from "@noble/ciphers/chacha.js";
 import { blake2b } from "@noble/hashes/blake2.js";
 // `equalBytes` (constant time) lives in @noble/ciphers, not @noble/hashes; `randomBytes` is in
 // both.
-import { equalBytes, randomBytes } from "@noble/ciphers/utils.js";
+import { concatBytes, equalBytes, randomBytes } from "@noble/ciphers/utils.js";
 import { pae } from "./pae.js";
 import { InvalidKeyError, InvalidTokenError, MacMismatchError } from "./errors.js";
+import { base64UrlDecode } from "./internal/base64url.js";
 import { encryptV4LocalDeterministic } from "./internal/v4-local-deterministic.js";
 
 const HEADER = "v4.local.";
@@ -80,7 +81,7 @@ export function decryptV4Local(
     } catch {
       throw new InvalidTokenError("footer base64url decode failed");
     }
-    if (!bytesEqualStructural(expF, tokenFooter)) {
+    if (!equalBytes(expF, tokenFooter)) {
       throw new InvalidTokenError("footer mismatch");
     }
   }
@@ -100,10 +101,10 @@ export function decryptV4Local(
   const tag = body.subarray(body.length - TAG_LEN);
 
   // Same key derivation as the encrypt path.
-  const tmp = blake2b(concat(ENC_INFO, nonce), { key, dkLen: 56 });
+  const tmp = blake2b(concatBytes(ENC_INFO, nonce), { key, dkLen: 56 });
   const ek = tmp.subarray(0, 32);
   const n2 = tmp.subarray(32, 56);
-  const ak = blake2b(concat(AUTH_INFO, nonce), { key, dkLen: 32 });
+  const ak = blake2b(concatBytes(AUTH_INFO, nonce), { key, dkLen: 32 });
 
   // Verify the MAC before decrypting. The tag comparison must stay constant time: never `===`,
   // `Buffer.compare` or a short-circuiting loop.
@@ -117,30 +118,4 @@ export function decryptV4Local(
 
   // XChaCha20 is a stream cipher, so decrypting is the same call as encrypting.
   return xchacha20(ek, n2, ciphertext);
-}
-
-function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
-}
-
-function base64UrlDecode(s: string): Uint8Array {
-  // PASETO requires strictly canonical unpadded base64url. Node's `Buffer.from(s, "base64url")`
-  // tolerates `=` padding and silently skips invalid characters, so different token strings could
-  // decode to the same bytes and defeat replay or revocation checks keyed by token text. Decoding
-  // then re-encoding and comparing to the input rejects any deviation.
-  const decoded = new Uint8Array(Buffer.from(s, "base64url"));
-  if (Buffer.from(decoded).toString("base64url") !== s) {
-    throw new InvalidTokenError("base64url input is not strictly canonical");
-  }
-  return decoded;
-}
-
-// The footer is public, so this comparison need not be constant time.
-function bytesEqualStructural(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
 }
