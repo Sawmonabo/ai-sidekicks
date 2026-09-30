@@ -16,7 +16,6 @@
 
 import type { RunState } from "@ai-sidekicks/contracts";
 
-import { driverAskIdentitySegments } from "./driver-ask-identity.js";
 import { structuralKey } from "@renderer/lib/structural-key.js";
 import type { ProjectedSessionEvent } from "../entities/entities.js";
 
@@ -88,32 +87,20 @@ const RUN_CORRELATION_MEMBER = "runId";
 /**
  * One request-scoped lifecycle: what opens it, what closes it, and where its id is.
  *
- * A table rather than three `if` branches because the correlation member is the part
- * that must be right — an approval correlates on `approvalRequestId`, a provider ask on
- * `askId`, an intervention on `interventionId`, and reading the wrong one would silently
- * open an ask that nothing could ever close.
+ * A table rather than two `if` branches because the correlation member is the part
+ * that must be right — an approval correlates on `approvalRequestId` and an intervention
+ * on `interventionId`, and reading the wrong one would silently open an ask that nothing
+ * could ever close. A provider's permission ask opens an approval, so it has no lifecycle
+ * of its own.
  */
 export interface RequestLifecycle {
   readonly openedBy: string;
   readonly closedBy: readonly string[];
-  /** The payload member every event in this lifecycle carries the request id on. */
-  readonly correlationMember: string;
   /**
-   * The payload member that SCOPES that id, where the wire's id is not unique on its
-   * own — absent where it is.
-   *
-   * Exactly one lifecycle carries one today and that is not a coincidence: an approval
-   * request id and an intervention id are DAEMON-minted and unique within the session,
-   * while an `askId` is the PROVIDER's, minted per provider session, so two runs blocked
-   * at once legitimately raise the same one. Keyed on that id alone, either run's
-   * terminal settled the single entry both had opened, and the bar printed its all-clear
-   * line over a run still waiting on somebody.
-   *
-   * A second scoped lifecycle would be a second wire whose ids the daemon does not mint,
-   * and the module that composes ITS segments would be named the way
-   * `core/driver-ask-identity.ts` is.
+   * The payload member every event in this lifecycle carries the request id on. Both ids
+   * are minted by the daemon and unique within the session.
    */
-  readonly scopeMember?: string;
+  readonly correlationMember: string;
 }
 
 /**
@@ -132,15 +119,6 @@ export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
     openedBy: "approval.requested",
     closedBy: ["approval.approved", "approval.rejected", "approval.canceled"],
     correlationMember: "approvalRequestId",
-  },
-  {
-    openedBy: "driver_ask.requested",
-    closedBy: ["driver_ask.responded", "driver_ask.canceled"],
-    correlationMember: "askId",
-    // `runId` is required on all four `driver_ask.*` shapes, which is what
-    // makes the scope readable off the payload here rather than off a row this register
-    // never sees.
-    scopeMember: RUN_CORRELATION_MEMBER,
   },
   {
     openedBy: "intervention.requested",
@@ -170,11 +148,10 @@ export function isAttentionRunState(state: string | undefined): boolean {
 /**
  * The key an event takes when the wire named nothing that identifies it.
  *
- * FAIL-CLOSED, and the direction matters. An ask that arrived without a correlation id —
- * or, on a scoped lifecycle, without its scope — cannot be matched to its own terminal,
- * so it is held open under a key of its own: its position in the log, which is unique.
+ * FAIL-CLOSED, and the direction matters. An ask that arrived without a correlation id
+ * cannot be matched to its own terminal, so it is held open under a key of its own: its position in the log, which is unique.
  * Dropping it instead would clear a block the console never saw resolved, which is the
- * exact failure this register exists to end. A resolution event missing either closes
+ * exact failure this register exists to end. A resolution event missing one closes
  * nothing, for the same reason: it names no ask.
  *
  * Through the same encoder every other key here takes, so an unidentified ask and an
@@ -188,39 +165,23 @@ export function uncorrelatedKey(event: ProjectedSessionEvent): string {
  * The key one request of this lifecycle is filed under, or `undefined` where the wire
  * named nothing that identifies it.
  *
- * NAMESPACED BY THE EVENT THAT OPENS THE LIFECYCLE, because the three id spaces are
- * three wires: nothing says a daemon-minted intervention id and a provider-minted ask id
- * cannot spell the same string, and this one map holds all three.
- *
- * AND SCOPED WHERE THE LIFECYCLE SAYS ITS ID IS NOT UNIQUE ON ITS OWN. Which segments a
- * driver ask is identified by, and in which order, is `driver-ask-identity.ts`' and
- * is deliberately not spelled here — the transcript's ask card keys its own terminal fold on
- * the same pair, and one view answering that question differently from the other is
- * how an answer given in one run settles a card in another.
+ * NAMESPACED BY THE EVENT THAT OPENS THE LIFECYCLE, because the two id spaces are two
+ * wires: nothing says an approval request id and an intervention id cannot spell the
+ * same string, and this one map holds both.
  */
 export function identifiedRequestKeyOf(
   event: ProjectedSessionEvent,
   lifecycle: RequestLifecycle,
 ): string | undefined {
   const requestId = correlationIdOf(event, lifecycle.correlationMember);
-  if (lifecycle.scopeMember === undefined) {
-    return requestId === undefined ? undefined : structuralKey([lifecycle.openedBy, requestId]);
-  }
-  const identitySegments = driverAskIdentitySegments(
-    correlationIdOf(event, lifecycle.scopeMember),
-    requestId,
-  );
-  return identitySegments === undefined
-    ? undefined
-    : structuralKey([lifecycle.openedBy, ...identitySegments]);
+  return requestId === undefined ? undefined : structuralKey([lifecycle.openedBy, requestId]);
 }
 
 /**
  * Which request lifecycle, if any, this event belongs to.
  *
  * Matched on the event KIND and never on which correlation member the payload happens to
- * carry: `askId` rides `approval.requested` as well, so a payload-first match would open a provider ask that no `driver_ask.*`
- * terminal could ever close.
+ * carry.
  */
 export function lifecycleFor(kind: string): RequestLifecycle | undefined {
   return REQUEST_LIFECYCLES.find(

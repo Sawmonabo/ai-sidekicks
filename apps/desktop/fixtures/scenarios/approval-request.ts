@@ -54,11 +54,12 @@ const APPROVAL_PENDING_WRITE = "019b7a33-3300-7f01-8130-d1a4c1150523";
 const APPROVAL_PENDING_ASK = "019b7a33-3300-7f01-8140-d1a4c1150524";
 
 /**
- * The originating driver ask, carried on the `approval.requested` EVENT payload.
+ * The daemon's durable id for the permission ask, carried on the `approval.requested`
+ * EVENT payload.
  *
  * Registered there and persisted on the request row.
  */
-const DRIVER_ASK_ID = "ask-permission-force-push";
+const PERMISSION_ASK_ID = "ask-permission-force-push";
 
 export const APPROVAL_REQUEST_SCENARIO: Scenario = {
   id: "approval-request",
@@ -222,7 +223,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
         sessionId: SESSION_ID,
         sequence: 7,
         // The second pending request, and the one that arrived as a provider
-        // permission ask: `askId` is the originating `driver_ask` identifier, and it
+        // permission ask: `askId` is the daemon's durable id for the ask, and it
         // reaches the console HERE and on no read. The pane learns the origin by
         // joining its projection row to the `approval` entity this beat folds into,
         // so the framing it renders comes from the event and never from the reply.
@@ -233,7 +234,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
           sessionId: SESSION_ID,
           runId: RUN_ID,
           approvalRequestId: APPROVAL_PENDING_ASK,
-          askId: DRIVER_ASK_ID,
+          askId: PERMISSION_ASK_ID,
           category: "tool_execution",
           scope: "run",
           requestedBy: AGENT_IMPLEMENTER,

@@ -27,10 +27,6 @@ import {
   APPROVAL_FLOW_PROJECTORS,
 } from "@renderer/store/session-events/approval-flow-projection.js";
 import {
-  QUESTION_SETTLEMENT_PROJECTOR_OWNER,
-  QUESTION_SETTLEMENT_PROJECTORS,
-} from "@renderer/store/session-events/question-settlement-projection.js";
-import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
 } from "@renderer/store/session-events/run-lifecycle-projector.js";
@@ -97,7 +93,6 @@ describe("registerFeatureContributions", () => {
   it.each([
     ["run lifecycle", RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER],
     ["approval flow", APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER],
-    ["question settlement", QUESTION_SETTLEMENT_PROJECTORS, QUESTION_SETTLEMENT_PROJECTOR_OWNER],
   ])("folds every %s event kind under its owner", (_fold, projectorTable, owner) => {
     const registries = ownedRegistries();
 

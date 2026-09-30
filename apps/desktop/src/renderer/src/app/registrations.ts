@@ -21,10 +21,6 @@ import {
   APPROVAL_FLOW_PROJECTORS,
 } from "@renderer/store/session-events/approval-flow-projection.js";
 import {
-  QUESTION_SETTLEMENT_PROJECTOR_OWNER,
-  QUESTION_SETTLEMENT_PROJECTORS,
-} from "@renderer/store/session-events/question-settlement-projection.js";
-import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
 } from "@renderer/store/session-events/run-lifecycle-projector.js";
@@ -86,7 +82,6 @@ export function registerFeatureContributions(registries: ContributionRegistries)
 
   projectors.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);
   projectors.registerAll(APPROVAL_FLOW_PROJECTORS, APPROVAL_FLOW_PROJECTOR_OWNER);
-  projectors.registerAll(QUESTION_SETTLEMENT_PROJECTORS, QUESTION_SETTLEMENT_PROJECTOR_OWNER);
 
   registerTranscriptScreens(screens, { sessionScreen: SessionScreen });
   registerSessionsFlyout(screens);

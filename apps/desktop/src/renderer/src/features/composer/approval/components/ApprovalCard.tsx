@@ -59,9 +59,9 @@ export interface ApprovalCardProps {
   readonly refusal: Refusal | undefined;
   readonly onResolve: (request: ApprovalResolveRequest) => void;
   /**
-   * Extra body between the header and the action row — where a permission-kind
-   * `driver_ask` lands: a permission-kind ask normalizes into the approval model and
-   * belongs to this view rather than to the transcript.
+   * Extra body between the header and the action row — where a provider's permission
+   * ask is framed: the ask is recorded as this approval and belongs to this view rather
+   * than to the transcript.
    */
   readonly children?: React.ReactNode;
 }

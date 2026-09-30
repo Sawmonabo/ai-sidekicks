@@ -83,14 +83,6 @@ describe("the vocabulary this register keys on — wire truth", () => {
     ]);
   });
 
-  it("scopes exactly the lifecycle whose ids the daemon does not mint", () => {
-    expect(
-      REQUEST_LIFECYCLES.filter((lifecycle) => lifecycle.scopeMember !== undefined).map(
-        (lifecycle) => [lifecycle.openedBy, lifecycle.correlationMember, lifecycle.scopeMember],
-      ),
-    ).toStrictEqual([["driver_ask.requested", "askId", "runId"]]);
-  });
-
   it("negative control: the census is a real set, and a made-up kind is not in it", () => {
     expect(REGISTERED_EVENT_TYPES.size).toBeGreaterThan(100);
     expect(REGISTERED_EVENT_TYPES.has("run.started")).toBe(false);
@@ -116,7 +108,7 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
   });
 
   it("reports the request classes as unread where the read opened partway through", () => {
-    // Nothing on a base state carries a provider ask, an approval, or an intervention,
+    // Nothing on a base state carries an approval or an intervention,
     // so a window that starts mid-log cannot answer for them at all — which is a third
     // state and not a zero.
     const journal = new WaitingOnPersonRegister();

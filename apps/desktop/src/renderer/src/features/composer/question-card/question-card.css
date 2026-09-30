@@ -7,61 +7,6 @@
   min-width: 0;
 }
 
-.meridian-input-ask__prompt {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.meridian-input-ask__countdown {
-  margin: 0;
-  color: var(--meridian-text-muted);
-}
-
-.meridian-input-ask__arms {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-input-ask__options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/*
- * TWO PARTS ON ONE ROW: the provider's label, and the value the answer is composed
- * from. The value is never dropped at any width — it is what actually travels — so
- * the row wraps rather than truncating either half.
- */
-.meridian-input-ask__option {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--meridian-space-2);
-  width: 100%;
-  background: none;
-  border-color: var(--meridian-edge);
-  color: inherit;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  text-align: start;
-}
-
-/*
- * Every answer control dims together while one answer is on the wire or has already
- * reached the driver. The refusal arm is deliberately NOT one of those states — rule
- * 9 keeps the control that produced a refusal on screen and pressable.
- */
-
-.meridian-input-ask__option:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
 .meridian-input-ask__free-text {
   display: flex;
   flex-direction: column;
