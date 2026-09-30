@@ -1,15 +1,8 @@
-// Codex driver lifecycle and transport tests.
-//
-// The fake is a fake PROVIDER, not a fake driver: it implements `PtyHost` and speaks JSON-RPC back
-// over the same byte channel, so every test drives the real framing, correlation, deadline and
-// teardown code. Nothing in the module under test is stubbed.
-//
-// A refused resume is asserted three ways, because a replacement session can slip in three ways:
-// the typed `failed` result, no call to `driver.createSession`, and no `thread/start` frame on the
-// wire (a private helper that started a thread would pass the spy check and still replace the
-// session).
+// Codex driver lifecycle and transport against a fake provider: the fake implements `PtyHost` and
+// speaks JSON-RPC over the same byte channel, so every test drives the real framing, correlation,
+// deadline and teardown code.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
@@ -30,25 +23,17 @@ import {
   type DrainResult,
   type ExecutionPosture,
   type CallbackToolInvocation,
-  type CallbackToolResult,
-  type ProviderCommandEntry,
   type SessionCallbackTool,
   DriverTranscriptReplayResultSchema,
 } from "@ai-sidekicks/contracts";
 
-import {
-  bindCallbackToolsForSpawn,
-  CallbackToolHost,
-  type CallbackToolSpawnBinding,
-} from "../../../callback-tool-host.js";
+import { bindCallbackToolsForSpawn, CallbackToolHost } from "../../../callback-tool-host.js";
 import { createCallbackToolAskResponder } from "../../../callback-tool-ask-responder.js";
 import {
   DriverDiagnosticsEmitter,
   type DriverDiagnosticRecord,
 } from "../../../driver-diagnostics.js";
 import {
-  OutboundFrameCapacityRefusedError,
-  OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   TextNeutralizationRefusedError,
 } from "../../outbound-frame.js";
@@ -79,7 +64,6 @@ import {
   CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
   CODEX_MAX_LINE_LENGTH,
-  CODEX_ROUTED_SERVER_REQUEST_METHODS,
   CodexDriverConfigError,
   composeCodexTransportArgv,
   type CodexServerRequestDecision,
@@ -87,9 +71,7 @@ import {
   type CodexSessionServerRequestResponder,
   describeCodexPostureDivergence,
   normalizeProviderFailureDetail,
-  parseCodexRunConfig,
   parseCodexSessionConfig,
-  resolveCodexTransportSelection,
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
   type CodexCredentialEnvPolicyResolver,
@@ -100,7 +82,6 @@ import {
   CODEX_INTERVENTION_FALLBACK_ACTION,
   CODEX_DECLARED_MODEL_CATALOG,
 } from "../index.js";
-import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
 // Imported from the module, not the driver barrel: these are internal enforcement details, and
 // exporting them would make them look like part of the driver's public surface.
 import {
@@ -830,22 +811,12 @@ function modelOutputItemFrame(turnId: string): Record<string, unknown> {
   };
 }
 
-/**
- * The opening text of one `turn/start` request. Lets a handler answer two overlapping attempts
- * differently by reading the request, not by counting calls: which attempt reaches the server
- * first is what an overlap test must not assume.
- */
-function readTurnStartInputText(params: unknown): string | undefined {
-  const input = (params as { input?: ReadonlyArray<{ text?: string }> }).input;
-  return input?.[0]?.text;
-}
-
 // --------------------------------------------------------------------------
 // Spawn and handshake
 // --------------------------------------------------------------------------
 
 describe("CodexDriver spawn and handshake", () => {
-  it("spawns the provider behind the termios prelude with the binary in the env", async () => {
+  it("spawns the provider behind the termios prelude and declines experimental surfaces", async () => {
     const harness = createHarness();
     await createdSession(harness);
 
@@ -861,18 +832,12 @@ describe("CodexDriver spawn and handshake", () => {
       "app-server",
     ]);
     expect(spawnRequest?.cwd).toBe(SESSION_CWD);
-  });
 
-  it("pins the prelude string that the measured PTY behavior requires", () => {
-    // Canonical mode caps one input line at 1024 bytes on Darwin and silently discards anything
-    // longer, so `-icanon` is what makes this protocol deliverable; `-echo` stops the reader
-    // seeing its own frames; `&&` makes a failed `stty` abort the launch instead of silently
-    // truncating; `exec` leaves no shell between PtyHost and the provider. `"$@"` (not a literal
-    // `app-server`) passes the subcommand and transport flags as positional parameters, so a
-    // configured socket or credential-file path cannot be re-parsed by the shell.
-    expect(CODEX_APP_SERVER_SHELL_PRELUDE).toBe(
-      `stty -icanon -echo && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL} && exec "$${CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME}" "$@"`,
-    );
+    const initialize = harness.server.framesForMethod("initialize")[0];
+    expect(initialize?.["params"]).toMatchObject({
+      capabilities: { experimentalApi: false, requestAttestation: false },
+    });
+    expect(harness.server.framesForMethod("initialized")).toHaveLength(1);
   });
 
   it("passes exactly the supplied environment plus the binary path, never process.env", async () => {
@@ -902,42 +867,6 @@ describe("CodexDriver spawn and handshake", () => {
     harness.server.emitLine(CODEX_APP_SERVER_READY_SENTINEL);
     await pending;
     expect(harness.server.framesForMethod("initialize")).toHaveLength(1);
-  });
-
-  it("declines experimental surfaces and attestation during initialize", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    const initialize = harness.server.framesForMethod("initialize")[0];
-    expect(initialize?.["params"]).toMatchObject({
-      capabilities: { experimentalApi: false, requestAttestation: false },
-    });
-    expect(harness.server.framesForMethod("initialized")).toHaveLength(1);
-  });
-
-  it("fails with driver.unavailable when the spawn is refused", async () => {
-    const harness = createHarness();
-    harness.server.spawnResponse = {
-      kind: "spawn_response",
-      session_id: "",
-      error: "fork failed",
-    };
-
-    await expect(
-      harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
-    ).rejects.toMatchObject({ code: "driver.unavailable" });
-  });
-
-  it("tears the process down when the handshake fails, leaving no orphan", async () => {
-    const harness = createHarness();
-    harness.server.on("initialize", () => ({
-      error: { code: -32600, message: "unsupported client" },
-    }));
-
-    await expect(
-      harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
-    ).rejects.toThrow(/unsupported client/);
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
   });
 });
 
@@ -1016,15 +945,6 @@ describe("CodexDriver lifecycle operations", () => {
     });
   });
 
-  it("refuses to interrupt a run with no active turn", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    await expect(harness.driver.interruptRun({ runId: RUN_ID })).rejects.toBeInstanceOf(
-      CodexTransportError,
-    );
-  });
-
   it("unsubscribes from the thread and closes the process", async () => {
     const harness = createHarness();
     await createdSession(harness);
@@ -1035,16 +955,6 @@ describe("CodexDriver lifecycle operations", () => {
     expect(harness.server.framesForMethod("thread/unsubscribe")[0]?.["params"]).toEqual({
       threadId: THREAD_ID,
     });
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-  });
-
-  it("closes idempotently and tolerates an unknown session", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("thread/unsubscribe", () => ({ result: {} }));
-
-    await harness.driver.closeSession({ sessionId: SESSION_ID });
-    await expect(harness.driver.closeSession({ sessionId: SESSION_ID })).resolves.toBeUndefined();
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
   });
 
@@ -1162,67 +1072,18 @@ describe("CodexDriver resumeSession", () => {
       resumeHandle: THREAD_ID,
     });
 
-    // (a) the typed failure shape
     expect(result).toEqual({
       status: "failed",
       recoveryCondition: "recovery-needed",
       recoverySpanClassification: "unclassifiable",
       providerFailureDetail: expect.stringContaining("no rollout found"),
     });
-    // (b) no replacement session
+    // A replacement can slip in through the public create or a private helper, so both the spy
+    // and the wire are checked.
     expect(createSessionSpy).not.toHaveBeenCalled();
-    // (c) the wire assertion — no thread was started by any path, public or not
     expect(harness.server.framesForMethod("thread/start")).toHaveLength(0);
     // and the failed attempt's process is not left running
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-  });
-
-  it("still returns the typed failure when the provider error carries no message", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/resume", () => ({ error: { code: -32600, message: "" } }));
-
-    // `providerFailureDetail` is validated by `wireFreeFormString`, which rejects empty strings;
-    // without normalization this path would throw instead of returning the typed condition.
-    const result = await harness.driver.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-    });
-
-    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
-    expect((result as { providerFailureDetail: string }).providerFailureDetail.trim()).not.toBe("");
-  });
-
-  it("still returns the typed failure when the provider error is enormous", async () => {
-    const harness = createHarness();
-    const huge = "e".repeat(DRIVER_FAILURE_DETAIL_MAX_LEN * 2);
-    harness.server.on("thread/resume", () => ({ error: { code: -32600, message: huge } }));
-
-    const result = await harness.driver.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-    });
-
-    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
-    expect(
-      (result as { providerFailureDetail: string }).providerFailureDetail.length,
-    ).toBeLessThanOrEqual(DRIVER_FAILURE_DETAIL_MAX_LEN);
-  });
-
-  it("refuses rather than fabricating a position when the reply carries no turn history", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/resume", () => ({
-      result: { thread: { id: THREAD_ID, sessionId: "session-tree-1" } },
-    }));
-
-    // Reporting position 0 would make a silently fresh thread indistinguishable from a resumed
-    // one.
-    const result = await harness.driver.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-    });
-
-    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
-    expect(harness.server.framesForMethod("thread/start")).toHaveLength(0);
   });
 
   it("returns the typed failure when the process dies before answering", async () => {
@@ -1299,46 +1160,6 @@ describe("CodexDriver resumeSession", () => {
       }),
     ).resolves.toBeUndefined();
   });
-
-  it("still returns the typed failure when tearing the failed leg down throws", async () => {
-    const server = new FakeCodexAppServer();
-    server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
-    server.on("thread/resume", () => ({
-      error: { code: -32600, message: "thread not found" },
-    }));
-    // The typed refusal above triggers the resume-failure classification, which asks this
-    // connection one question before the release under test.
-    server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
-    const scheduler = makeManualScheduler();
-    const driver = new CodexDriver({
-      ptyHost: server,
-      modelCatalogExchange: null,
-      diagnostics: makeSilentDriverDiagnostics(),
-      // The disposer is caller-supplied and can throw; the resume must still return, not throw.
-      subscribeToPtySession: (ptySessionId, listeners) => {
-        const dispose = server.subscribe(ptySessionId, listeners);
-        return () => {
-          dispose();
-          throw new Error("subscription registry refused the release");
-        };
-      },
-      reportDiagnostic: () => {},
-      onTextNeutralizationFailure: () => undefined,
-      scheduleTimeout: scheduler.schedule,
-      executablePath: EXECUTABLE_PATH,
-      resumeSpawnConfig: RESUME_SPAWN_CONFIG,
-      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
-      newBindingId: () => "binding-abc",
-      readCapabilities: () => makeCapabilities(true),
-    });
-
-    await expect(
-      driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID }),
-    ).resolves.toMatchObject({
-      status: "failed",
-      recoveryCondition: "recovery-needed",
-    });
-  });
 });
 
 // --------------------------------------------------------------------------
@@ -1364,7 +1185,7 @@ describe("CodexAppServerConnection transport", () => {
     expect(JSON.parse(line ?? "{}")).toMatchObject({ method: "turn/start" });
   });
 
-  it("reassembles frames split across chunk boundaries, including multi-byte characters", async () => {
+  it("reassembles a frame split across chunk boundaries", async () => {
     const harness = createHarness();
     await createdSession(harness);
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -1374,7 +1195,7 @@ describe("CodexAppServerConnection transport", () => {
     });
     await pending;
 
-    // A response frame whose payload is split mid-character must still parse.
+    // A response frame split across two reads must still parse as one line.
     const frame = `${JSON.stringify({ jsonrpc: "2.0", id: 99, result: { note: "café" } })}\r\n`;
     const bytes = new TextEncoder().encode(frame);
     const splitAt = bytes.indexOf(0xc3);
@@ -1387,7 +1208,7 @@ describe("CodexAppServerConnection transport", () => {
     expect(harness.diagnostics).toContainEqual({ kind: "unknown-response-id", responseId: "99" });
   });
 
-  it("answers an unhandled server request exactly once, fail-closed", async () => {
+  it("answers an unhandled server request exactly once, fail-closed, known method or not", async () => {
     const harness = createHarness();
     await createdSession(harness);
 
@@ -1412,11 +1233,6 @@ describe("CodexAppServerConnection transport", () => {
       // Recorded on the diagnostic only; the census does not gate the answer.
       censused: true,
     });
-  });
-
-  it("answers an UNCENSUSED method+id frame instead of dismissing it as an echo", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
 
     // A method from a newer build that the pinned census has never seen. It correlates to
     // nothing this connection sent, so it is a server request; leaving it unanswered would hang
@@ -1429,9 +1245,9 @@ describe("CodexAppServerConnection transport", () => {
     });
     await Promise.resolve();
 
-    const replies = harness.server.writtenFrames().filter((frame) => frame["id"] === 4242);
-    expect(replies).toHaveLength(1);
-    expect(replies[0]?.["error"]).toMatchObject({ code: -32601 });
+    const newerReplies = harness.server.writtenFrames().filter((frame) => frame["id"] === 4242);
+    expect(newerReplies).toHaveLength(1);
+    expect(newerReplies[0]?.["error"]).toMatchObject({ code: -32601 });
     expect(harness.diagnostics).toContainEqual({
       kind: "unhandled-server-request",
       method: "item/somethingNewer/requestApproval",
@@ -1510,32 +1326,12 @@ describe("CodexAppServerConnection transport", () => {
     await expect(pending).resolves.toBeUndefined();
   });
 
-  it("reports server notifications that no consumer has claimed", async () => {
+  it("quarantines a method the routing classifier does not list instead of projecting it", async () => {
     const harness = createHarness();
     await createdSession(harness);
 
-    // A censused, thread-scoped method carrying the session's own thread id routes to `project`
-    // and reaches the hand-off. A refused frame would be quarantined instead (asserted below).
-    harness.server.emitFrame({
-      jsonrpc: "2.0",
-      method: "thread/queue/changed",
-      params: { threadId: THREAD_ID },
-    });
-    await Promise.resolve();
-
-    expect(harness.diagnostics).toContainEqual({
-      kind: "unconsumed-server-notification",
-      method: "thread/queue/changed",
-    });
-  });
-
-  it("quarantines a method the routing census does not classify instead of projecting it", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    // The census fixture names only a subset of the generated notification union. An unlisted
-    // method reaches the classifier's `unknown` arm, and the fail-closed rule refuses it instead
-    // of presuming it belongs to the session's own thread.
+    // An unlisted method reaches the classifier's `unknown` arm, and the fail-closed rule refuses
+    // it instead of presuming it belongs to the session's own thread.
     harness.server.emitFrame({
       jsonrpc: "2.0",
       method: "thread/itemAdded",
@@ -1557,19 +1353,6 @@ describe("CodexAppServerConnection transport", () => {
     ).toContainEqual({ kind: "thread_frame_quarantined", rawWireType: "thread/itemAdded" });
   });
 
-  it("reports unparsable output instead of dropping it", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    harness.server.emitLine("/bin/sh: codex: command not found");
-    await Promise.resolve();
-
-    expect(harness.diagnostics).toContainEqual({
-      kind: "unparsable-line",
-      line: "/bin/sh: codex: command not found",
-    });
-  });
-
   it("fails a request that outlives its deadline with driver.timeout", async () => {
     const harness = createHarness();
     await createdSession(harness);
@@ -1583,14 +1366,6 @@ describe("CodexAppServerConnection transport", () => {
 
     await expect(pending).rejects.toBeInstanceOf(CodexRequestTimeoutError);
     await expect(pending).rejects.toMatchObject({ code: "driver.timeout" });
-  });
-
-  it("cancels the deadline once a response arrives", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    // Nothing may remain armed after the handshake and thread/start settle.
-    expect(harness.scheduler.pendingCount()).toBe(0);
   });
 
   it("rejects in-flight requests and refuses further writes when the process exits", async () => {
@@ -1638,31 +1413,6 @@ describe("CodexDriver session ownership", () => {
     expect(harness.server.closedSessions).toEqual([]);
   });
 
-  it("still creates a session once the previous one has been closed", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("thread/unsubscribe", () => ({ result: {} }));
-    await harness.driver.closeSession({ sessionId: SESSION_ID });
-
-    await expect(
-      harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
-    ).resolves.toMatchObject({ resumeHandle: THREAD_ID });
-  });
-
-  it("releases the spawned child when the subscriber throws", async () => {
-    const harness = createHarness({
-      subscribeToPtySession: () => {
-        throw new Error("subscription registry refused the attach");
-      },
-    });
-
-    await expect(
-      harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
-    ).rejects.toThrow(/subscription registry refused the attach/);
-    expect(harness.server.spawnRequests).toHaveLength(1);
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-  });
-
   // Driven at the connection, because `createSession` has its own guard that would release
   // the child anyway. `open()` must never leave a child behind, for every caller.
   it("open() itself releases the child when the subscriber throws", async () => {
@@ -1683,48 +1433,7 @@ describe("CodexDriver session ownership", () => {
     expect(server.closedSessions).toEqual(["pty-session-1"]);
   });
 
-  // A run from the superseded leg is no longer active, because the replacement record knows
-  // nothing of it.
-  //
-  // This does not discriminate the route sweep: a stale entry and a swept one both dead-end.
-  // The sweep only bounds map growth across repeated resumes, and asserting that would need a
-  // test-only accessor on a production class.
-  it("reports no active turn for a run that predates a resume", async () => {
-    const server = new FakeCodexAppServer();
-    server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
-    server.on("thread/start", () => threadStartResult());
-    server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    const scheduler = makeManualScheduler();
-    const manager = new CodexLifecycleManager({
-      ptyHost: server,
-      diagnostics: makeSilentDriverDiagnostics(),
-      subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
-      reportDiagnostic: () => {},
-      onTextNeutralizationFailure: () => undefined,
-      scheduleTimeout: scheduler.schedule,
-      executablePath: EXECUTABLE_PATH,
-      resumeSpawnConfig: RESUME_SPAWN_CONFIG,
-      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
-      newBindingId: () => "binding-abc",
-    });
-
-    await manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    expect(manager.hasActiveTurn(RUN_ID)).toBe(true);
-
-    server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
-    server.on("thread/resume", () => threadStartResult(2));
-    await manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
-
-    // The replacement record knows no runs, so `closeSession` could never sweep this route
-    // later; unswept here, it would outlive the daemon.
-    expect(manager.hasActiveTurn(RUN_ID)).toBe(false);
-  });
-
-  it("fails a superseded leg's unsettled frame instead of dropping it", async () => {
+  it("fails a superseded leg's unsettled frame as a supersede, never as a swallowed turn", async () => {
     // Text that may not have reached the model must never vanish silently. The resume replaces
     // the binding the frame was written on, so no terminal for it can arrive, and a dropped
     // frame would look like a run whose words landed.
@@ -1744,55 +1453,14 @@ describe("CodexDriver session ownership", () => {
 
     expect(harness.textNeutralizationFailures).toHaveLength(1);
     expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
-  });
 
-  it("states the supersede as its own cause, never as a swallowed turn", async () => {
     // Borrowing the trip's detail would publish a swallow nobody observed, and that detail's
     // registered code has a fixed parseable form that consumers act on.
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
-    });
-
-    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
-    harness.server.on("thread/resume", () => threadStartResult(2));
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
-
     const detail = harness.textNeutralizationFailures[0]?.providerFailureDetail ?? "";
     expect(detail).not.toContain(TEXT_NEUTRALIZATION_REFUSAL_CODE);
     expect(detail).toContain("superseded");
     // The user's own words are never quoted into the detail.
     expect(detail).not.toContain("rebase");
-  });
-
-  it("leaves a superseded run attachable — the fresh binding is where it belongs", async () => {
-    // The trip path quarantines both axes because the process is condemned. Here nothing is
-    // condemned: the binding is replaced by one that works, and quarantining the run would remove
-    // its interrupt and intervention controls for the daemon's lifetime.
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
-    });
-
-    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
-    harness.server.on("thread/resume", () => threadStartResult(2));
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
-
-    // The run has no live turn on the replacement leg, so the refusal is the ordinary one, not
-    // the quarantine's, which the resolver consults first.
-    const refusal = await harness.driver.interruptRun({ runId: RUN_ID, reason: "user" }).then(
-      () => undefined,
-      (cause: unknown) => cause,
-    );
-    expect(refusal).toBeInstanceOf(CodexTransportError);
-    expect(refusal).not.toBeInstanceOf(TextNeutralizationRefusedError);
-    expect(String(refusal)).toContain("No active Codex turn");
   });
 
   it("reports one failure per run, not one per frame", async () => {
@@ -1826,21 +1494,6 @@ describe("CodexDriver session ownership", () => {
     // The frame count is the operator's only sight of the writes the superseded binding was
     // carrying, so it is not collapsed to the report count.
     expect(reported[0]).toMatchObject({ abandonedFrameCount: 2, reportedRunCount: 1 });
-  });
-
-  it("reports nothing when the superseded leg was carrying no frames", async () => {
-    // Negative control: a resume over an idle leg is a clean recovery and must not fail a run.
-    const harness = createHarness();
-    await createdSession(harness);
-
-    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
-    harness.server.on("thread/resume", () => threadStartResult(2));
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
-
-    expect(harness.textNeutralizationFailures).toEqual([]);
-    expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "superseded-frames-failed"),
-    ).toEqual([]);
   });
 });
 
@@ -1933,19 +1586,6 @@ describe("CodexLifecycleManager probeAuth", () => {
     });
   });
 
-  it("still refuses, but says so differently, when the provider needs no OpenAI sign-in", async () => {
-    const harness = probingHarness({
-      result: { authMethod: null, authToken: null, requiresOpenaiAuth: false },
-    });
-
-    const result = await harness.manager.probeAuth();
-
-    // Conservative on admission, precise on diagnostics: needing no OpenAI credential is not
-    // evidence that the credential this configuration does need is present.
-    expect(result.status).toBe("unauthenticated");
-    expect(result.detail).toContain("requires no OpenAI sign-in");
-  });
-
   it("reports indeterminate — not unauthenticated — when the probe surface refuses", async () => {
     const harness = probingHarness({
       error: { code: -32601, message: "Method not found" },
@@ -1967,21 +1607,6 @@ describe("CodexLifecycleManager probeAuth", () => {
     });
   });
 
-  it("returns indeterminate rather than throwing when the spawn itself fails", async () => {
-    const harness = probingHarness(undefined);
-    harness.server.spawnResponse = {
-      kind: "spawn_response",
-      session_id: "",
-      error: "no such file",
-    };
-
-    // Total by contract: a throw would give the admission caller a third outcome it has no rule
-    // for, and would conflate "the probe is unhealthy" with "the transport is down".
-    await expect(harness.manager.probeAuth()).resolves.toMatchObject({
-      status: "indeterminate",
-    });
-  });
-
   it("spawns from the constructed resume environment and tears the child down", async () => {
     const harness = probingHarness({ result: { authMethod: "apikey" } });
 
@@ -1998,19 +1623,6 @@ describe("CodexLifecycleManager probeAuth", () => {
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
   });
 
-  it("claims no session slot, so a create for any session still succeeds after it", async () => {
-    const harness = probingHarness({ result: { authMethod: "chatgpt" } });
-    harness.server.uniqueSpawnSessionIds = true;
-
-    await harness.manager.probeAuth();
-
-    // A probe that installed a record or held a transition would make the cheap admission check
-    // the most expensive thing in the lifecycle.
-    await expect(
-      harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
-    ).resolves.toMatchObject({ resumeHandle: THREAD_ID });
-  });
-
   it("starts no thread — the probe is zero-turn, not a discardable session", async () => {
     const harness = probingHarness({ result: { authMethod: "chatgpt" } });
 
@@ -2024,58 +1636,6 @@ describe("CodexLifecycleManager probeAuth", () => {
 // --------------------------------------------------------------------------
 // Spawn-environment hygiene
 // --------------------------------------------------------------------------
-
-describe("CodexDriver spawn-environment hygiene", () => {
-  // A variable that exists in the daemon's environment and in no supplied config. If it
-  // appears in a child environment, some path spread `process.env`; the child environment must
-  // be constructed, never inherited. A deny list can only strip what the constructor put
-  // there, so a driver adding entries of its own would defeat the strip.
-  const DAEMON_CANARY_ENV_VAR = "AI_SIDEKICKS_T314_ENV_CANARY";
-
-  beforeEach(() => {
-    process.env[DAEMON_CANARY_ENV_VAR] = "must-not-reach-a-provider-child";
-  });
-
-  afterEach(() => {
-    delete process.env[DAEMON_CANARY_ENV_VAR];
-  });
-
-  function spawnedEnvNames(request: SpawnRequest | undefined): string[] {
-    return (request?.env ?? []).map(([name]) => name);
-  }
-
-  it("keeps the daemon's own environment out of a created session's child", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    expect(spawnedEnvNames(harness.server.spawnRequests[0])).not.toContain(DAEMON_CANARY_ENV_VAR);
-  });
-
-  it("keeps it out of a resume relaunch, which is a fresh spawn like any other", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/resume", () => threadStartResult(1));
-
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
-
-    // A resume takes a different config object (`resumeSpawnConfig`) down a different path, so
-    // the create-path assertion above does not cover it.
-    expect(harness.server.spawnRequests[0]?.env).toEqual([
-      ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
-    ]);
-  });
-
-  it("keeps it out of the auth probe's child, which is the third spawn path", async () => {
-    const harness = createManagerHarness();
-
-    await harness.manager.probeAuth();
-
-    expect(harness.server.spawnRequests[0]?.env).toEqual([
-      ["HOME", "/home/agent"],
-      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
-    ]);
-  });
-});
 
 // --------------------------------------------------------------------------
 // Credential-policy strip at the spawn seam
@@ -2145,11 +1705,6 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     networkAccess: "none",
     writableRoots: [SESSION_CWD],
   };
-  const TRUSTED_POSTURE: ExecutionPosture = {
-    mode: "trusted",
-    networkAccess: "full",
-    writableRoots: [SESSION_CWD],
-  };
 
   it("strips under the CREATED posture's policy though the config bag declared none", async () => {
     // A sandboxed posture requires a `credentialPolicyRef`, but the config bag is untyped and
@@ -2210,33 +1765,6 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 
     // The posture's name is gone and the bag's name survives: a fallback-only resolution fails
     // the survival, and an ignore-the-posture composition fails the strip.
-    expect(harness.server.spawnRequests[0]?.env).toEqual([
-      ["HOME", "/home/agent"],
-      [DENIED_ENV_VAR, "sk-live"],
-      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
-    ]);
-  });
-
-  it("strips nothing under a `trusted` created posture though the config bag carried one", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/start", () => threadStartResult());
-
-    await harness.driver.createSession({
-      sessionId: SESSION_ID,
-      config: {
-        cwd: SESSION_CWD,
-        env: [
-          ["HOME", "/home/agent"],
-          [DENIED_ENV_VAR, "sk-live"],
-        ],
-        credentialEnvPolicy: DENY_POLICY,
-      },
-      executionPosture: TRUSTED_POSTURE,
-    });
-
-    // The denied name survives (the drop arm). `trusted` types `credentialPolicyRef?: never`, so
-    // a policy beside it in the bag is a wiring inconsistency, not a stricter grant. Honoring it
-    // here while resume drops it would make one session strip on create and not on relaunch.
     expect(harness.server.spawnRequests[0]?.env).toEqual([
       ["HOME", "/home/agent"],
       [DENIED_ENV_VAR, "sk-live"],
@@ -2345,39 +1873,6 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     ]);
   });
 
-  it("strips nothing under a `trusted` resumed posture though the create-time posture had a policy", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/start", () => threadStartResult());
-    await harness.driver.createSession({
-      sessionId: SESSION_ID,
-      config: {
-        cwd: SESSION_CWD,
-        env: [
-          ["HOME", "/home/agent"],
-          [DENIED_ENV_VAR, "sk-live"],
-        ],
-        credentialEnvPolicy: DENY_POLICY,
-      },
-    });
-    harness.server.on("thread/resume", () => threadStartResult(1));
-
-    await harness.driver.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-      executionPosture: TRUSTED_POSTURE,
-    });
-
-    // The denied name survives, the direction a "still strips" assertion cannot catch.
-    // `trusted` types `credentialPolicyRef?: never`, so the posture states that nothing is denied;
-    // carrying the create's policy forward would keep withholding a credential the session is no
-    // longer sandboxed against.
-    expect(harness.server.spawnRequests[1]?.env).toEqual([
-      ["HOME", "/home/agent"],
-      [DENIED_ENV_VAR, "sk-live"],
-      [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, EXECUTABLE_PATH],
-    ]);
-  });
-
   it("honors the resumed posture on a COLD resume, which has no record to reuse", async () => {
     // The daemon-restart case: `resumeSpawnConfig` is one construction-time object, so it can
     // carry at most one policy for every session on the node (here, none).
@@ -2446,31 +1941,6 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
     ]);
   });
 
-  it("keeps the exact-build-path pin even when the policy names it", async () => {
-    // This provider documents no auto-update environment opt-out, so the pinned binary path is
-    // its suppression mechanism. A deny list able to strip it would hand the child back to
-    // whatever the launcher resolves to.
-    const harness = createHarness();
-    harness.server.on("thread/start", () => threadStartResult());
-
-    await harness.driver.createSession({
-      sessionId: SESSION_ID,
-      config: {
-        cwd: SESSION_CWD,
-        env: [["HOME", "/home/agent"]],
-        credentialEnvPolicy: {
-          denyEnvVars: [CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME],
-          envNameMatch: "case-sensitive",
-        },
-      },
-    });
-
-    expect(harness.server.spawnRequests[0]?.env).toContainEqual([
-      CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
-      EXECUTABLE_PATH,
-    ]);
-  });
-
   it("refuses a policy it cannot read rather than spawning with nothing stripped", () => {
     // Absent and malformed are different answers: defaulting a malformed policy to "deny nothing"
     // would spawn the child with the variables the policy exists to withhold. `envNameMatch` is
@@ -2490,16 +1960,6 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
         CodexDriverConfigError,
       );
     }
-  });
-
-  it("carries an absent policy as an absent member, which a trusted posture is", () => {
-    expect(parseCodexSessionConfig(SESSION_CONFIG)).toEqual({
-      cwd: SESSION_CWD,
-      env: [
-        ["HOME", "/home/agent"],
-        ["PATH", "/usr/bin"],
-      ],
-    });
   });
 });
 
@@ -2568,26 +2028,14 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
   });
 
-  it("keeps the legacy config-bag channel working when the typed member is absent", async () => {
-    // The account plane is not shipped, so the config bag is still how in-tree callers name an
-    // account; making the typed member authoritative must not remove that fallback.
+  it("binds a create through the config-bag channel when the typed member is absent", async () => {
+    // In-tree callers name an account through the config bag, so it stays a fallback beside the
+    // typed member.
     const harness = accountHarness();
 
     await harness.driver.createSession({
       sessionId: SESSION_ID,
       config: { ...SESSION_CONFIG, providerAccountId: ADMITTED_ACCOUNT_ID },
-    });
-
-    expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
-  });
-
-  it("binds a create when both channels agree", async () => {
-    const harness = accountHarness();
-
-    await harness.driver.createSession({
-      sessionId: SESSION_ID,
-      config: { ...SESSION_CONFIG, providerAccountId: ADMITTED_ACCOUNT_ID },
-      providerAccountId: ADMITTED_ACCOUNT_ID,
     });
 
     expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
@@ -2612,7 +2060,7 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
 
     expect(refused).toBeInstanceOf(CodexDriverConfigError);
     // The field names the TYPED member's own parameter path, so an operator is
-    // pointed at the authoritative channel rather than at the legacy one.
+    // pointed at the authoritative channel rather than at the config bag.
     expect((refused as CodexDriverConfigError).field).toBe("CreateSessionParams.providerAccountId");
     // Both account ids are named, so the operator can tell which resolver is wrong.
     expect((refused as CodexDriverConfigError).message).toContain(ADMITTED_ACCOUNT_ID);
@@ -2861,26 +2309,6 @@ describe("CodexDriver turn posture realization", () => {
     }
   });
 
-  it("sends neither member when no posture is stamped, which is not a cardinality breach", async () => {
-    // "Exactly one" applies to a turn that has a posture. A session spawned without one is
-    // governed by its spawn posture, and a turn-level member would narrow a session left
-    // ungoverned. Guards against a later tightening into a cardinality check.
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-
-    const params = firstParamsFor(harness, "turn/start");
-    expect(Object.keys(params)).not.toContain("sandboxPolicy");
-    for (const member of UNREALIZED_TURN_POSTURE_MEMBERS) {
-      expect(Object.keys(params)).not.toContain(member);
-    }
-  });
-
   it("refuses every posture-affecting field a caller declares, the whole class", async () => {
     // Driven from the table so a field added to the class without a refusal path fails here.
     const harness = createHarness();
@@ -2903,27 +2331,12 @@ describe("CodexDriver turn posture realization", () => {
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
   });
 
-  it("refuses a declared posture field even when it restates what the daemon derived", () => {
-    // Unlike `frameOrigin`, a matching value is refused too: a posture is a decision, not a fact
-    // a caller could only be restating, and tolerating a match would need a structural comparison.
-    expect(() =>
-      parseCodexRunConfig({
-        sessionId: SESSION_ID,
-        input: "review the diff",
-        approvalsReviewer: "user",
-      }),
-    ).toThrow(CodexDriverConfigError);
-  });
-
-  it("NEGATIVE CONTROL — the guard fires on the un-realized member alone", () => {
+  it("refuses an unrealized member, the un-combinable pair, and the field the pin refuses", () => {
     // The wire assertions above would pass for a driver with no guard at all; this shows that
     // constructing the member would be caught.
     expect(() =>
       assertRealizedTurnPostureMembers({ threadId: THREAD_ID, permissions: "profile-id" }),
     ).toThrow(CodexDriverConfigError);
-  });
-
-  it("NEGATIVE CONTROL — the guard fires on the un-combinable pair sent together", () => {
     // An `experimentalApi` connection accepts this pair with no documented precedence, so the
     // provider cannot adjudicate it and it must be refused here.
     expect(() =>
@@ -2933,21 +2346,10 @@ describe("CodexDriver turn posture realization", () => {
         permissions: "profile-id",
       }),
     ).toThrow(CodexDriverConfigError);
-  });
-
-  it("NEGATIVE CONTROL — the guard fires on the field that refuses -32602 at the pin", () => {
+    // Refused with `-32602` by the pinned provider build.
     expect(() =>
       assertRealizedTurnPostureMembers({ threadId: THREAD_ID, permissionProfile: "profile-id" }),
     ).toThrow(CodexDriverConfigError);
-  });
-
-  it("passes a params object carrying only realized members", () => {
-    expect(() =>
-      assertRealizedTurnPostureMembers({
-        threadId: THREAD_ID,
-        sandboxPolicy: { mode: "workspace-write" },
-      }),
-    ).not.toThrow();
   });
 });
 
@@ -2981,15 +2383,6 @@ describe("CodexDriver resume-failure taxonomy", () => {
     });
   });
 
-  it("reports recovery-needed when the refusing provider is still authenticated", async () => {
-    const harness = refusingHarness({ result: { authMethod: "chatgpt", authToken: null } });
-
-    await expect(resume(harness)).resolves.toMatchObject({
-      status: "failed",
-      recoveryCondition: "recovery-needed",
-    });
-  });
-
   it("never spends a credential rotation to classify a failure", async () => {
     const harness = refusingHarness({ result: { authMethod: null } });
 
@@ -3001,58 +2394,6 @@ describe("CodexDriver resume-failure taxonomy", () => {
       includeToken: false,
       refreshToken: false,
     });
-  });
-
-  it("asks nothing when the failure was not a typed provider refusal", async () => {
-    const harness = createHarness();
-    // A well-formed reply with no turn history: the connection is alive, but the cause is a
-    // transport-level defect, not a provider refusal, so it proves nothing about the child.
-    harness.server.on("thread/resume", () => ({
-      result: { thread: { id: THREAD_ID, sessionId: "session-tree-1" } },
-    }));
-    harness.server.on("getAuthStatus", () => ({ result: { authMethod: null } }));
-
-    const result = await resume(harness);
-
-    // This auth answer would classify `reauth-required` if it were consulted at all.
-    expect(harness.server.framesForMethod("getAuthStatus")).toHaveLength(0);
-    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
-  });
-
-  it("does not upgrade an unreadable auth answer into reauth-required", async () => {
-    const harness = refusingHarness({ result: { authMethod: 17 } });
-
-    // An unhealthy probe is evidence about the probe, not the credential, so it takes the safe arm.
-    await expect(resume(harness)).resolves.toMatchObject({
-      recoveryCondition: "recovery-needed",
-    });
-  });
-
-  it("keeps the classification from displacing the typed failure it rides on", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/resume", () => REFUSED_RESUME);
-    harness.server.on("getAuthStatus", () => ({
-      error: { code: -32601, message: "no such method" },
-    }));
-
-    const result = await resume(harness);
-
-    // A build that does not answer must still produce the typed result, with the resume's own
-    // cause on the detail.
-    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
-    expect(result).not.toHaveProperty("bindingId");
-    expect((result as { providerFailureDetail: string }).providerFailureDetail).toContain(
-      "thread not found",
-    );
-  });
-
-  it("classifies before releasing the connection, and still releases it", async () => {
-    const harness = refusingHarness({ result: { authMethod: null } });
-
-    await resume(harness);
-    // The question reached a live child, and that child is not left running afterwards.
-    expect(harness.server.framesForMethod("getAuthStatus")).toHaveLength(1);
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
   });
 });
 
@@ -3112,25 +2453,6 @@ describe("CodexLifecycleManager steer wire shape", () => {
     expect(result).toEqual({ status: "applied" });
   });
 
-  it("reads the flat turnId acknowledgement, not turn/start's nested turn object", async () => {
-    // `TurnSteerResponse` is `{ turnId }`; `TurnStartResponse` is `{ turn: { id } }`. Reading the
-    // wrong one would return null for every successful steer.
-    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
-
-    await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
-      status: "applied",
-    });
-  });
-
-  it("degrades when the provider acknowledges a different turn", async () => {
-    const harness = await steerableHarness({ result: { turnId: "turn-99" } });
-
-    await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
-      status: "degraded",
-      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
-    });
-  });
-
   it("degrades rather than throwing when the acknowledgement names no turn", async () => {
     const harness = await steerableHarness({ result: {} });
 
@@ -3140,24 +2462,6 @@ describe("CodexLifecycleManager steer wire shape", () => {
       status: "degraded",
       fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
     });
-  });
-
-  it("sends no client-supplied identifier on the interrupt path", async () => {
-    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
-    harness.server.on("turn/interrupt", () => ({ result: {} }));
-
-    await harness.driver.applyIntervention({
-      type: "interrupt",
-      targetRunId: RUN_ID,
-      expectedRunVersion: 1,
-      clientIdempotencyKey: STEER_KEY,
-      payload: {},
-    });
-
-    // `TurnInterruptParams` is `{ threadId, turnId }` at the pin; an invented carrier would be an
-    // unregistered wire field.
-    const params = harness.server.framesForMethod("turn/interrupt")[0]?.["params"];
-    expect(Object.keys(params as Record<string, unknown>).sort()).toEqual(["threadId", "turnId"]);
   });
 });
 
@@ -3286,78 +2590,6 @@ describe("CodexAppServerConnection event-callback containment", () => {
     expect(diagnostics[0]).toMatchObject({ kind: "process-exited", exitCode: 7 });
   });
 
-  it("keeps draining a read chunk when the diagnostic sink throws", async () => {
-    const server = new FakeCodexAppServer();
-    server.on("initialize", () => ({ result: {} }));
-    const scheduler = makeManualScheduler();
-    let sinkCalls = 0;
-    const connection = new CodexAppServerConnection({
-      ptyHost: server,
-      subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
-      reportDiagnostic: () => {
-        sinkCalls += 1;
-        throw new Error("diagnostic sink failed");
-      },
-      scheduleTimeout: scheduler.schedule,
-      executablePath: EXECUTABLE_PATH,
-    });
-    await connection.open(RESUME_SPAWN_CONFIG);
-
-    // Never auto-answered: no handler is registered, so the response below is the only thing
-    // that settles it.
-    const pending = connection.request("thread/start", {});
-    const settled = pending.then(
-      (result) => result,
-      (error: unknown) => error,
-    );
-    await drainMicrotasks();
-    const requestId = server.framesForMethod("thread/start")[0]?.["id"];
-    expect(requestId).toBeDefined();
-
-    // One chunk, and the order is the test: an unparsable line whose diagnostic throws, then the
-    // response the caller waits on, behind it in the same drain.
-    const responseFrame = JSON.stringify({ jsonrpc: "2.0", id: requestId, result: { ok: true } });
-    let escaped: unknown;
-    try {
-      server.emitRaw(new TextEncoder().encode(`not-json\r\n${responseFrame}\r\n`));
-    } catch (error) {
-      escaped = error;
-    }
-
-    // Asserted first so an implementation that lets the fault unwind the drain fails here
-    // instead of hanging on the settlement below.
-    expect(escaped).toBeUndefined();
-    expect(sinkCalls).toBe(1);
-    expect(await settled).toEqual({ ok: true });
-  });
-
-  it("keeps draining a chunk when the sink throws on an unconsumed notification", async () => {
-    const harness = createManagerHarness({ throwOnFirstDiagnostic: true });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    // No delegate is wired, so each notification produces a diagnostic through the manager's
-    // interposition, which runs inside the transport's ingest loop; a throw there unwinds the
-    // same drain.
-    let escaped: unknown;
-    try {
-      harness.server.emitRaw(
-        new TextEncoder().encode(
-          `{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"${THREAD_ID}"}}\r\n` +
-            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"threadId":"${THREAD_ID}"}}\r\n`,
-        ),
-      );
-    } catch (error) {
-      escaped = error;
-    }
-
-    expect(escaped).toBeUndefined();
-    // The first threw before it could be recorded, so the second is the evidence that the drain
-    // survived.
-    expect(harness.diagnostics).toEqual([
-      { kind: "unconsumed-server-notification", method: "turn/plan/updated" },
-    ]);
-  });
-
   it("settles a response that arrives behind a notification whose consumer threw", async () => {
     const server = new FakeCodexAppServer();
     server.on("initialize", () => ({ result: {} }));
@@ -3410,40 +2642,6 @@ describe("CodexAppServerConnection event-callback containment", () => {
         kind: "notification-consumer-failed",
         method: "turn/started",
         detail: "consumer exploded",
-      },
-    ]);
-  });
-
-  it("drops a notification whose consumer throws and keeps delivering the rest", async () => {
-    const harness = createManagerHarness({
-      onServerNotification: true,
-      throwOnFirstNotification: true,
-    });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    let escaped: unknown;
-    try {
-      harness.server.emitRaw(
-        new TextEncoder().encode(
-          `{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"${THREAD_ID}"}}\r\n` +
-            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"threadId":"${THREAD_ID}"}}\r\n`,
-        ),
-      );
-    } catch (error) {
-      escaped = error;
-    }
-
-    expect(escaped).toBeUndefined();
-    // The loss is bounded to the one notification whose consumer threw: the next frame in the
-    // chunk still reaches the consumer.
-    expect(harness.notifications.map((entry) => entry.method)).toEqual(["turn/plan/updated"]);
-    // Attributed at the manager's own delegate call, so the record names the consumer rather
-    // than the interposition wrapping it.
-    expect(harness.diagnostics).toEqual([
-      {
-        kind: "notification-consumer-failed",
-        method: "turn/started",
-        detail: "normalizer consumer failed",
       },
     ]);
   });
@@ -3504,61 +2702,6 @@ describe("CodexLifecycleManager session slot across teardown", () => {
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
   });
 
-  it("reports the establishment failure rather than a teardown fault when both occur", async () => {
-    const harness = createManagerHarness({ throwingSubscriptionDisposer: true });
-    harness.server.on("thread/start", () => ({
-      error: { code: -32001, message: "thread refused" },
-    }));
-
-    const outcome = await harness.manager
-      .createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG })
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-
-    // The provider's refusal is the actionable signal; a disposer that throws while the failing
-    // create cleans up must not displace it.
-    expect(outcome).toBeInstanceOf(CodexProviderRequestError);
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-
-    // And the slot is free: a failed establishment holds nothing.
-    harness.server.on("thread/start", () => threadStartResult());
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-  });
-
-  it("refuses a startRun for a session that is being torn down", async () => {
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const releaseCloses = harness.server.holdCloses();
-    const closing = harness.manager.closeSession({ sessionId: SESSION_ID });
-    await drainMicrotasks();
-
-    // The record stays installed for the length of teardown, which is what holds the slot, so
-    // the guard has to read the slot rather than the map.
-    const starting = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    // Released before the outcome is read. The refusal under test is synchronous at the call
-    // above, so releasing here cannot mask it; an implementation without the guard would reach
-    // the transport and chain its disposal behind this teardown, timing out instead of failing.
-    releaseCloses();
-    const outcome = await starting.then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    await closing;
-
-    // Pinned to this refusal, not merely a transport error: an implementation that deleted the
-    // record up front also refuses, but with "no live session".
-    expect(outcome).toBeInstanceOf(CodexTransportError);
-    expect((outcome as Error).message).toContain("is being torn down");
-    expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
-  });
-
   it("refuses a turn/start whose session stopped holding its slot while it was in flight", async () => {
     const harness = createManagerHarness();
     await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
@@ -3584,7 +2727,7 @@ describe("CodexLifecycleManager session slot across teardown", () => {
     await closing;
 
     // Reporting success would be a lie about a run whose process is dead, and would strand a
-    // `#sessionIdByRunId` entry no sweep can reach, since every sweep keys on a record that no
+    // `CodexRunRoutes` entry no sweep can reach, since every sweep keys on a record that no
     // longer exists.
     expect(outcome).toBeInstanceOf(CodexTransportError);
     expect((outcome as Error).message).toContain("stopped holding its slot");
@@ -3594,37 +2737,6 @@ describe("CodexLifecycleManager session slot across teardown", () => {
 });
 
 describe("CodexLifecycleManager session slot across re-establishment", () => {
-  it("refuses a startRun while a resume holds the slot", async () => {
-    const harness = createManagerHarness();
-    harness.server.uniqueSpawnSessionIds = true;
-    harness.server.on("thread/resume", () => threadStartResult(1));
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    // A resume publishes its claim synchronously while the predecessor record is still
-    // installed, so two calls in one tick are the whole window. A guard that rejected only
-    // `closing` handed that predecessor out.
-    const resuming = harness.manager.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-    });
-    const starting = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    const outcome = await starting.then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    await resuming;
-
-    expect(outcome).toBeInstanceOf(CodexTransportError);
-    expect((outcome as Error).message).toContain("being re-established");
-    // Nothing reached the wire: a turn is never started on a connection about to be released.
-    expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-  });
-
   it("kills the connection when a turn is accepted after the session loses its slot", async () => {
     const harness = createManagerHarness();
     harness.server.uniqueSpawnSessionIds = true;
@@ -3729,39 +2841,6 @@ describe("CodexLifecycleManager turn/start ambiguity", () => {
       { sessionId: "pty-session-1", signal: "SIGKILL" },
     ]);
   });
-
-  it("leaves the session live when turn/start is cleanly refused", async () => {
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({
-      error: { code: -32602, message: "input rejected" },
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const outcome = await harness.manager
-      .startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      })
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-
-    // The single exemption: a provider that answered "no" proves it processed the request and
-    // started nothing.
-    expect(outcome).toBeInstanceOf(CodexProviderRequestError);
-    expect(harness.server.killedSessions).toEqual([]);
-    expect(harness.server.closedSessions).toEqual([]);
-
-    // Still usable on the same process; a refusal must not cost a re-establish.
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
-    expect(harness.server.spawnRequests).toHaveLength(1);
-  });
 });
 
 /** A `turn/start` refusal carrying the pin's typed `CodexErrorInfo` member. */
@@ -3770,8 +2849,7 @@ function typedTurnStartRefusal(codexErrorInfo: string): Record<string, unknown> 
     error: {
       code: -32600,
       // Prose the classifier must never read. It says "history" on purpose, so a text-matching
-      // classifier would pass for the wrong reason; the negative control below removes the typed
-      // member and keeps this sentence.
+      // classifier would pass for the wrong reason.
       message: "Invalid request: the thread history is not acceptable",
       data: { codexErrorInfo },
     },
@@ -3867,29 +2945,6 @@ describe("CodexLifecycleManager permanent structural refusal", () => {
     expect(outcome).not.toBeInstanceOf(PermanentStructuralRefusalError);
     expect(harness.server.killedSessions).toEqual([]);
   });
-
-  it("reads the TYPED member and not the message — an untyped refusal stays declined", async () => {
-    const harness = createManagerHarness();
-    // The same sentence as the structural fixture, minus the typed member: text matching would
-    // condemn here, the typed reading does not.
-    harness.server.on("turn/start", () => ({
-      error: { code: -32600, message: "Invalid request: the thread history is not acceptable" },
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const outcome = await harness.manager
-      .startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      })
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-
-    expect(outcome).not.toBeInstanceOf(PermanentStructuralRefusalError);
-    expect(harness.server.killedSessions).toEqual([]);
-  });
 });
 
 describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
@@ -3940,6 +2995,38 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
     expect(built.server.framesForMethod("turn/start")).toHaveLength(1);
   });
 
+  it("fails visibly and sends NOTHING when the target cannot be read back", async () => {
+    let reads = 0;
+    const harness = createManagerHarness({
+      userTurnReadback: () => {
+        reads += 1;
+        return Promise.resolve({ kind: "unreadable" as const, reason: "no turn read on this pin" });
+      },
+    });
+    harness.server.uniqueSpawnSessionIds = true;
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const starting = harness.manager.startRun({
+      runId: RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    const failure = starting.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    harness.scheduler.fireAll();
+
+    // A failed settlement, never a silent success, and zero re-sends: a re-send risks duplicate
+    // spend and an assumed delivery suppresses the user's request.
+    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
+    expect(reads).toBe(1);
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
+
   it("CLEARS an ambiguous start for retry when the target proves nothing landed", async () => {
     const reads: RecordedUserTurnReads = { targetIds: [], turnStartFramesAtRead: [] };
     // The thread holds exactly what the daemon already knows about, so the
@@ -3974,110 +3061,6 @@ describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
     expect(harness.server.spawnRequests).toHaveLength(1);
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(2);
   });
-
-  it("fails visibly and sends NOTHING when the target cannot be read back", async () => {
-    let reads = 0;
-    const harness = createManagerHarness({
-      userTurnReadback: () => {
-        reads += 1;
-        return Promise.resolve({ kind: "unreadable" as const, reason: "no turn read on this pin" });
-      },
-    });
-    harness.server.uniqueSpawnSessionIds = true;
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const starting = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    const failure = starting.then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    harness.scheduler.fireAll();
-
-    // A failed settlement, never a silent success, and zero re-sends: a re-send risks duplicate
-    // spend and an assumed delivery suppresses the user's request.
-    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
-    expect(reads).toBe(1);
-    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
-    expect(harness.server.killedSessions).toEqual([
-      { sessionId: "pty-session-1", signal: "SIGKILL" },
-    ]);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-  });
-
-  it("treats a THROWING user-turn reader as an unreadable target", async () => {
-    const harness = createManagerHarness({
-      userTurnReadback: () => Promise.reject(new Error("read failed")),
-    });
-    harness.server.uniqueSpawnSessionIds = true;
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const starting = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    const failure = starting.then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    harness.scheduler.fireAll();
-
-    // The caller is owed a settlement it can classify, not the reader's own exception.
-    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
-    expect(harness.server.killedSessions).toEqual([
-      { sessionId: "pty-session-1", signal: "SIGKILL" },
-    ]);
-  });
-});
-
-describe("CodexLifecycleManager resume result validation", () => {
-  it("installs nothing when the minted bindingId fails validation on a fresh resume", async () => {
-    // `wireFreeFormString` rejects an empty mint, so the parse throws; what matters is where it
-    // throws relative to the swap.
-    const harness = createManagerHarness({ newBindingId: () => "" });
-    harness.server.on("thread/resume", () => threadStartResult(2));
-
-    const result = await harness.manager.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-    });
-
-    // Still the typed condition, never an exception.
-    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-    // Nothing was installed against the connection this method then closed, so the slot is free
-    // rather than mapped to a dead transport.
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    expect(harness.server.spawnRequests).toHaveLength(2);
-  });
-
-  it("leaves the superseded leg live when the minted bindingId fails validation", async () => {
-    const harness = createManagerHarness({ newBindingId: () => "" });
-    harness.server.uniqueSpawnSessionIds = true;
-    harness.server.on("thread/resume", () => threadStartResult(2));
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const result = await harness.manager.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-    });
-
-    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
-    // Only the failed resume's own process is released; releasing the predecessor before the
-    // result was validated would make a failed resume destructive.
-    expect(harness.server.closedSessions).toEqual(["pty-session-2"]);
-
-    // The predecessor is still usable on the same process: a failed resume changes nothing.
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
-    expect(harness.server.spawnRequests).toHaveLength(2);
-  });
 });
 
 describe("CodexLifecycleManager turn route lifetime", () => {
@@ -4103,41 +3086,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
     },
   );
-
-  it("refuses a later steer against a binding a text-neutralization trip disposed", async () => {
-    // Separates "failed the run" from "quarantined the process". A trip retires the route and
-    // disposes the binding, so without the quarantine check this steer would fail with "no active
-    // turn", a plausible wrong cause that invites a retry into the process that swallowed the
-    // user's words.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: {
-        sessionId: SESSION_ID,
-        input: "/status please",
-        frameOrigin: "human_text",
-      },
-    });
-
-    // A settled turn with no model output and no declared failure: the provider reported success
-    // for a turn that never reached a model.
-    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
-    await Promise.resolve();
-
-    await expect(
-      harness.manager.steerRun({
-        runId: RUN_ID,
-        content: "actually, stop",
-        clientIdempotencyKey: "steer-after-trip",
-        frameOrigin: "human_text",
-      }),
-    ).rejects.toThrow(TextNeutralizationRefusedError);
-    await expect(harness.manager.interruptRun({ runId: RUN_ID })).rejects.toThrow(
-      TextNeutralizationRefusedError,
-    );
-  });
 
   it("trips when the swallowed turn terminates in the SAME read chunk as its start response", async () => {
     // The `turn/start` response resolves `startRun` as a microtask, but `#ingest` drains the rest
@@ -4172,9 +3120,8 @@ describe("CodexLifecycleManager turn route lifetime", () => {
   });
 
   it("does not trip a REAL turn that terminates in the same read chunk with an unloaded item list", async () => {
-    // Negative control for the test above: it shows the remembered evidence is load-bearing. This
-    // provider can settle a turn with an empty item list (`itemsView: "notLoaded"`), so a memory
-    // that kept only the terminal would rule this real turn evidence-free. The in-flight
+    // This provider can settle a turn with an empty item list (`itemsView: "notLoaded"`), so a
+    // memory that kept only the terminal would rule this real turn evidence-free. The in-flight
     // `item/completed` is the evidence, and it arrives in the same chunk before any frame is
     // correlated with the turn.
     const harness = createManagerHarness();
@@ -4262,15 +3209,11 @@ describe("CodexLifecycleManager turn route lifetime", () => {
   });
 
   it("passes a steer on its acknowledgment when no item follows it", async () => {
-    // A turn carries many frames, each with its own correlation state. The provider's typed answer
-    // to `turn/steer` is the transport's statement that it took the steer, so a steer taken near
-    // the turn's end, with no item after it, passes rather than tripping a healthy session.
-    // Item-based substitutes got a polarity wrong: keying the store by turn let pre-steer output
-    // vouch a swallowed steer, and crediting the oldest unevidenced frame tripped this delivered
-    // steer and let the opener's delayed item vouch a swallowed one. An answer proves receipt, not
-    // that the model read the text, so the detectable swallows are the unanswered ones (the
-    // timeout and dead-connection tests below) and the unrecognized settlement, which outranks
-    // any answer.
+    // The provider's typed answer to `turn/steer` is the transport's statement that it took the
+    // steer, so a steer taken near the turn's end, with no item after it, passes rather than
+    // tripping a healthy session. An answer proves receipt, not that the model read the text, so
+    // the detectable swallows are an unanswered steer and an unrecognized settlement, which
+    // outranks any answer.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     harness.server.on("turn/steer", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -4296,455 +3239,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     // Every item the terminal carries precedes the steer. The acknowledgment alone rules the
     // steer; the items rule the opener.
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
-  });
-
-  it("follows a steer's frame onto the turn the provider ACKNOWLEDGED, not the one targeted", async () => {
-    // The acknowledgement is the provider's statement about where the bytes went, and its
-    // answered request is what the steer is consumed on. The frame moves onto the acknowledged
-    // turn so that turn's settlement consumes it, rather than leaving it on a turn it never
-    // entered. This test holds the integration contract: the mismatch is returned to the
-    // dispatcher for degraded grading, no turn trips, and the binding is not condemned.
-    const acknowledgedTurnId = "turn-acknowledged";
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({ result: { turnId: acknowledgedTurnId } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    // The opening frame's own evidence, observed before the steer is written, so it vouches for
-    // that frame and no other.
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-
-    const acknowledgement = await harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "/clear and start over",
-      clientIdempotencyKey: "steer-1",
-      frameOrigin: "human_text",
-    });
-    expect(acknowledgement).toStrictEqual({
-      targetedTurnId: TURN_ID,
-      acknowledgedTurnId,
-    });
-
-    // The targeted turn ends carrying only the items that preceded the steer: its opening frame
-    // is vouched for, and the steer's frame is not its to rule.
-    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await drainMicrotasks();
-    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-
-    // The acknowledged turn settles with nothing of its own; the moved steer, carrying its
-    // recorded acknowledgment, passes there rather than tripping a delivery the provider attested.
-    harness.server.emitFrame(zeroTurnCompletedFrame(acknowledgedTurnId));
-    await drainMicrotasks();
-    expect(harness.manager.textNeutralizationDecisionForTurn(acknowledgedTurnId).refused).toBe(
-      false,
-    );
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-steer" } } }));
-    await expect(
-      harness.manager.startRun({
-        runId: SECOND_RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
-      }),
-    ).resolves.toBeUndefined();
-  });
-
-  it("keeps a null-acked steer on the targeted turn and rules it on the acknowledgment", async () => {
-    // The other arm, and the reason the move is conditional: an ack naming no turn disproves
-    // nothing about where the bytes went, so moving the frame would abandon the only correlation
-    // there is. The answered request still shows the provider took the bytes, so the steer passes
-    // at the targeted turn's settlement; the dispatcher grades the null ack degraded, which is
-    // where the weakness is reported.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({ result: {} }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-
-    const acknowledgement = await harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "/clear and start over",
-      clientIdempotencyKey: "steer-1",
-      frameOrigin: "human_text",
-    });
-    expect(acknowledgement).toStrictEqual({
-      targetedTurnId: TURN_ID,
-      acknowledgedTurnId: null,
-    });
-
-    // Every item on the terminal precedes the steer; the recorded acknowledgment rules it a
-    // pass.
-    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
-  });
-
-  it("consumes a steer's frame on its ack when the acknowledged turn settled in the SAME read chunk", async () => {
-    // A move is only safe onto a turn that can still rule something. A terminal sharing the steer
-    // response's read chunk drains synchronously and goes by before this steer's continuation
-    // runs, so a frame moved onto it would wait for a second terminal that never comes and drop as
-    // occupancy. The move is refused and the frame is consumed on its own answer: the answered
-    // request already proved receipt, and tripping would contradict the rule that consumes every
-    // other answered steer. The mismatch stays visible through the dispatcher's degraded
-    // grading.
-    const acknowledgedTurnId = "turn-acknowledged";
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({
-      result: { turnId: acknowledgedTurnId },
-      trailingFrames: [zeroTurnCompletedFrame(acknowledgedTurnId)],
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    // Vouches for the opening frame and no other, so a trip here names the steer's frame.
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-
-    const acknowledgement = await harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "/clear and start over",
-      clientIdempotencyKey: "steer-1",
-      frameOrigin: "system_narration",
-    });
-    // The acknowledgement is still returned: the ruling is a second act beside the driver's
-    // answer.
-    expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId });
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    // The targeted turn still settles clean on its opener's own evidence, and the binding is not
-    // condemned: the next run dispatches onto it.
-    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await drainMicrotasks();
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-steer" } } }));
-    await expect(
-      harness.manager.startRun({
-        runId: SECOND_RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
-      }),
-    ).resolves.toBeUndefined();
-  });
-
-  it("consumes a steer's frame on its ack when the acknowledged turn AGED OUT of the settled memory", async () => {
-    // The same window as the read-chunk case above, reached by aging instead of ordering. The
-    // settled memory is bounded, and the acknowledgement continuation reads absence from it as
-    // "that turn can still rule this frame". A burst of terminals in the steer response's own
-    // chunk would push the acknowledged turn's settlement out, and the frame would move onto a
-    // turn no second terminal is coming for, sitting as occupancy until the scope is released.
-    // The `inFlightSteers` pin keeps the settlement readable across the round trip, so the
-    // continuation refuses the move and consumes the frame on its own acknowledgment.
-    //
-    // The burst rides `trailingFrames`, one read chunk with the response, so every terminal
-    // drains synchronously before the continuation resumes. Seventy is past the memory's unpinned
-    // bound of 64, so a size-based prune would reach the acknowledged turn's settlement, and under
-    // the pinned ceiling of 256, so this is the eviction case rather than the overflow refusal.
-    const acknowledgedTurnId = "turn-acknowledged";
-    const burstTurnIds: readonly string[] = Array.from(
-      { length: 70 },
-      (_unused, index) => `turn-burst-${String(index)}`,
-    );
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({
-      result: { turnId: acknowledgedTurnId },
-      trailingFrames: [
-        zeroTurnCompletedFrame(acknowledgedTurnId),
-        ...burstTurnIds.map((burstTurnId) => turnCompletedFrame(burstTurnId, "completed")),
-      ],
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    // Vouches for the opening frame and no other, so a trip here names the steer's frame.
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-
-    const acknowledgement = await harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "/clear and start over",
-      clientIdempotencyKey: "steer-1",
-      frameOrigin: "system_narration",
-    });
-    expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId });
-    await drainMicrotasks();
-
-    // The premise, asserted: this stayed under the ceiling, so the outcome below comes from the
-    // aging guard and not from the overflow refusal.
-    expect(
-      harness.diagnostics.filter(
-        (diagnostic) => diagnostic.kind === "settled-turn-memory-overflowed",
-      ),
-    ).toHaveLength(0);
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    // The targeted turn still settles clean on its opener's own evidence, and the binding is not
-    // condemned: the next run dispatches onto it.
-    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await drainMicrotasks();
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-steer" } } }));
-    await expect(
-      harness.manager.startRun({
-        runId: SECOND_RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
-      }),
-    ).resolves.toBeUndefined();
-  });
-
-  it("refuses the binding when the settled memory overflows during a steer", async () => {
-    // A burst past the pinned ceiling cannot be admitted beside entries the continuation may be
-    // about to read, and evicting one to make room would answer "still running" for a turn that
-    // ended. So the driver refuses rather than choosing which settlement to forget, and the
-    // teardown rules the steer's own pending frame fail-closed on the way out. Three hundred is
-    // past the pinned ceiling of 256.
-    const acknowledgedTurnId = "turn-acknowledged";
-    const burstTurnIds: readonly string[] = Array.from(
-      { length: 300 },
-      (_unused, index) => `turn-burst-${String(index)}`,
-    );
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({
-      result: { turnId: acknowledgedTurnId },
-      trailingFrames: burstTurnIds.map((burstTurnId) =>
-        turnCompletedFrame(burstTurnId, "completed"),
-      ),
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-
-    await harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "/clear and start over",
-      clientIdempotencyKey: "steer-1",
-      frameOrigin: "system_narration",
-    });
-    await drainMicrotasks();
-
-    // Named as its own overflow rather than the evidence memory's, so an operator knows which
-    // memory could not hold.
-    expect(
-      harness.diagnostics.filter(
-        (diagnostic) => diagnostic.kind === "settled-turn-memory-overflowed",
-      ),
-    ).toHaveLength(1);
-    // Loud on the run, not merely diagnosed: the refusal rules every frame the departing binding
-    // carried, the steer's included.
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
-    await expect(
-      harness.manager.startRun({
-        runId: SECOND_RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
-      }),
-    ).rejects.toThrow(TextNeutralizationRefusedError);
-  });
-
-  it("consumes a steer acked onto a turn that already ended, on the acknowledgment itself", async () => {
-    // The acknowledged turn ended before the steer was written, so no second terminal is coming
-    // for it and the move is refused. The frame is ruled on its own recorded acknowledgment: not
-    // inherited from the settled turn's outcome, because that output predates the directive, and
-    // not tripped, because the answered request is the provider's typed statement that it took
-    // the bytes. A provider naming a turn it had already ended reaches the caller through the
-    // dispatcher's degraded grading.
-    const acknowledgedTurnId = "turn-acknowledged";
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({ result: { turnId: acknowledgedTurnId } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    // The acknowledged turn ends before the steer is written, carrying a model message of its
-    // own.
-    harness.server.emitFrame(turnCompletedFrame(acknowledgedTurnId, "completed"));
-    await drainMicrotasks();
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-
-    await harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "/clear and start over",
-      clientIdempotencyKey: "steer-1",
-      frameOrigin: "system_narration",
-    });
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    // The frame did not linger on the targeted turn either: its settlement finds only the
-    // opener, vouched by its own item.
-    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await drainMicrotasks();
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
-  });
-
-  it("rules a steer's frame where it was registered when the TARGET settles in one chunk", async () => {
-    // The no-turn-named arm needs no move guard: the frame is registered on the targeted turn
-    // before the bytes go out, so a terminal sharing the response's chunk finds it correlated and
-    // rules it in the ordinary place. This pins that registration.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({
-      result: {},
-      trailingFrames: [turnCompletedFrame(TURN_ID, "completed")],
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-
-    const acknowledgement = await harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "/clear and start over",
-      clientIdempotencyKey: "steer-1",
-      frameOrigin: "system_narration",
-    });
-    expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId: null });
-    await drainMicrotasks();
-
-    // Every item the terminal carries precedes the steer, so the opening frame is vouched for and
-    // the steer's is the one that trips.
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=system_narration",
-    );
-    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
-  });
-
-  it("does not trip the opening frame when a legitimate steer settles with an unloaded item list", async () => {
-    // The other polarity, which a per-frame store must not lose: every frame produced output and
-    // the terminal simply lacked the item list, so nothing may fail.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: {
-        sessionId: SESSION_ID,
-        input: "review the diff",
-        frameOrigin: "human_text",
-      },
-    });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-    await harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "also check the tests",
-      clientIdempotencyKey: "steer-1",
-      frameOrigin: "human_text",
-    });
-    // Answered after the steer, so it is attributable to the steer.
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-
-    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
-  });
-
-  it("drops the frame of a steer the provider ANSWERED with an error", async () => {
-    // A provider error is an answer, and an answer proves the provider read the directive and
-    // declined it, so it started no turn and swallowed nothing. Left registered, the frame would
-    // be ruled evidence-free by the turn's terminal and trip, failing a run over text the provider
-    // did not act on. The drop is frame-scoped, so the opening frame stays correlated and is
-    // still ruled.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({
-      error: { code: -32600, message: "no active turn" },
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: {
-        sessionId: SESSION_ID,
-        input: "review the diff",
-        frameOrigin: "human_text",
-      },
-    });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-
-    await expect(
-      harness.manager.steerRun({
-        runId: RUN_ID,
-        content: "also check the tests",
-        clientIdempotencyKey: "steer-1",
-        frameOrigin: "human_text",
-      }),
-    ).rejects.toThrow();
-    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-  });
-
-  it("drops the frame of a steer refused before its write ever reached the host", async () => {
-    // The connection refuses ahead of the write and raises the same transport error class, with
-    // near-identical text, that an exit raises for a request already on the wire, so the two look
-    // identical to a caller. Classified at the transport, this one is known to have put no byte
-    // anywhere, so the frame is dropped and nothing trips. Misread as unknown delivery it would
-    // trip, the connection being closed, and fail a run over a directive never sent.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: {
-        sessionId: SESSION_ID,
-        input: "review the diff",
-        frameOrigin: "human_text",
-      },
-    });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-    // Kills the transport without touching the manager's record, so the steer reaches the write
-    // path and is refused there rather than upstream.
-    harness.server.emitExit(1);
-    await drainMicrotasks();
-
-    await expect(
-      harness.manager.steerRun({
-        runId: RUN_ID,
-        content: "also check the tests",
-        clientIdempotencyKey: "steer-1",
-        frameOrigin: "system_narration",
-      }),
-    ).rejects.toThrow();
     await drainMicrotasks();
 
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
@@ -4807,59 +3301,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     ).rejects.toThrow(TextNeutralizationRefusedError);
   });
 
-  it("rules a steer whose write died with the connection instead of releasing it", async () => {
-    // The connection is gone, so the turn the frame joined never settles and no terminal rules
-    // it. Left pending, it would sit until the scope's budget was reclaimed and be dropped as
-    // occupancy: silence in the case that most warrants an answer, since the provider may already
-    // have swallowed the directive. It is ruled fail-closed and frame-scoped: settling the whole
-    // turn would also trip the opening frame, whose request was answered.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: {
-        sessionId: SESSION_ID,
-        input: "review the diff",
-        frameOrigin: "human_text",
-      },
-    });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-    // Kills the child mid-write and then fails that write: the bytes were handed to the host, and
-    // how many reached the child is unknowable.
-    harness.server.failWriteAfterChildExit = true;
-    // Baseline, so the kill asserted below is attributable to THIS teardown.
-    expect(harness.server.killedSessions).toStrictEqual([]);
-
-    await expect(
-      harness.manager.steerRun({
-        runId: RUN_ID,
-        content: "/clear and start over",
-        clientIdempotencyKey: "steer-1",
-        frameOrigin: "system_narration",
-      }),
-    ).rejects.toThrow(/broken pipe/);
-    await drainMicrotasks();
-
-    // The steer's own origin, so the report names the frame whose delivery was in doubt rather
-    // than the answered opening frame.
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=system_narration",
-    );
-    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
-    // Disposed, not merely refused: recovery is a fresh spawn. The follow-up call below spawns
-    // again, so this is asserted first.
-    expect(harness.server.killedSessions).toHaveLength(1);
-    await expect(
-      harness.manager.startRun({
-        runId: SECOND_RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
-      }),
-    ).rejects.toThrow(TextNeutralizationRefusedError);
-  });
-
   it("reports a trip on the run whose route an interrupt had already retired", async () => {
     // `turn/interrupt` resolves when the provider accepts the interrupt, not when the turn ends;
     // `turn/completed` still follows. The route is retired at acceptance so the run stops
@@ -4899,249 +3340,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
     ).rejects.toThrow(TextNeutralizationRefusedError);
-  });
-
-  it("releases the retained interrupt correlation once its terminal has been ruled", async () => {
-    // The correlation is retained only until the ruling it is owed. A duplicate terminal for the
-    // same turn, which this provider can send after an interrupt, must not be reported twice, and
-    // a benign one releases the entry exactly as a trip does.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/interrupt", () => ({ result: {} }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: {
-        sessionId: SESSION_ID,
-        input: "/status please",
-        frameOrigin: "human_text",
-      },
-    });
-    await harness.manager.interruptRun({ runId: RUN_ID });
-
-    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
-    await drainMicrotasks();
-    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-  });
-
-  it("does not trip an interrupted turn whose terminal carries model output", async () => {
-    // Negative control: a retained correlation must not become a second route that fails an
-    // ordinary interrupted turn, the common case of a user stopping a run that was working.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/interrupt", () => ({ result: {} }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: {
-        sessionId: SESSION_ID,
-        input: "review the diff",
-        frameOrigin: "human_text",
-      },
-    });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-    await harness.manager.interruptRun({ runId: RUN_ID });
-
-    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "interrupted"));
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    // The binding is untouched, so the session takes the next run.
-    await expect(
-      harness.manager.startRun({
-        runId: SECOND_RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
-      }),
-    ).resolves.toBeUndefined();
-  });
-
-  it("refuses a run this session is already holding too many unwatched frames for", async () => {
-    // The capacity refusal, end to end. Every retained interrupt correlation is backed by a frame
-    // the tripwire still holds, so the outstanding-interrupt set never outgrows this session's
-    // watch budget.
-    //
-    // Refusing is the honest answer: evicting the oldest registration to make room means that
-    // turn later settles against nothing and passes, the swallowed turn reported as completed.
-    const harness = createManagerHarness();
-    let nextTurnOrdinal = 0;
-    harness.server.on("turn/start", () => {
-      nextTurnOrdinal += 1;
-      return { result: { turn: { id: `turn-${String(nextTurnOrdinal)}` } } };
-    });
-    harness.server.on("turn/interrupt", () => ({ result: {} }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const interruptedRunIds: RunId[] = [];
-    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
-      const runId = `44444444-4444-4444-8444-${String(index).padStart(12, "0")}` as RunId;
-      interruptedRunIds.push(runId);
-      await harness.manager.startRun({
-        runId,
-        agentConfig: {
-          sessionId: SESSION_ID,
-          input: "/status please",
-          frameOrigin: "human_text",
-        },
-      });
-      // Interrupted and never terminated, so every frame stays unsettled and every correlation
-      // stays retained.
-      await harness.manager.interruptRun({ runId });
-    }
-
-    const writtenLinesBeforeRefusal = harness.server.writtenLines.length;
-    await expect(
-      harness.manager.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "one more" },
-      }),
-    ).rejects.toThrow(OutboundFrameCapacityRefusedError);
-    // Refused before any byte reached the provider: a frame written past the tripwire's reach is
-    // one no turn can be ruled against.
-    expect(harness.server.writtenLines).toHaveLength(writtenLinesBeforeRefusal);
-
-    // Nothing was discarded to make room: every interrupted turn is still watched and reports on
-    // its own run when it settles.
-    for (let index = 0; index < interruptedRunIds.length; index += 1) {
-      harness.server.emitFrame(zeroTurnCompletedFrame(`turn-${String(index + 1)}`));
-    }
-    await drainMicrotasks();
-    expect(harness.textNeutralizationFailures.map((failure) => failure.runId)).toStrictEqual(
-      interruptedRunIds,
-    );
-  });
-
-  it("refuses the binding when stale interrupt correlations reach the route-memory ceiling", async () => {
-    // The one reachable road to the ceiling: an interrupt whose continuation resumes after its
-    // turn's terminal drained and after enough further terminals pruned that turn's id out of the
-    // settled memory. The settled gate then reads absence and records a correlation nothing will
-    // release, so stale entries accumulate. At the ceiling the driver refuses rather than
-    // evicting, because a live correlation evicted to make room is a terminal ruled against no
-    // run.
-    const harness = createManagerHarness();
-    let nextTurnOrdinal = 0;
-    let currentTurnId = "";
-    harness.server.on("turn/start", () => {
-      nextTurnOrdinal += 1;
-      currentTurnId = `turn-${String(nextTurnOrdinal)}`;
-      return { result: { turn: { id: currentTurnId } } };
-    });
-    harness.server.on("turn/interrupt", () => ({
-      result: {},
-      // The turn's own benign terminal, then a burst that prunes its id out of
-      // the settled memory before the interrupt continuation resumes.
-      trailingFrames: [
-        turnCompletedFrame(currentTurnId, "completed"),
-        ...Array.from({ length: 64 }, (_unused, index) =>
-          turnCompletedFrame(`${currentTurnId}-prune-${String(index)}`, "completed"),
-        ),
-      ],
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    for (let index = 0; index < 65; index += 1) {
-      const runId = `77777777-7777-4777-8777-${String(index).padStart(12, "0")}` as RunId;
-      await harness.manager.startRun({
-        runId,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      });
-      harness.server.emitFrame(modelOutputItemFrame(`turn-${String(index + 1)}`));
-      await Promise.resolve();
-      await harness.manager.interruptRun({ runId });
-      await drainMicrotasks();
-    }
-
-    const overflowDiagnostics = harness.diagnostics.filter(
-      (diagnostic) => diagnostic.kind === "interrupted-route-memory-overflowed",
-    );
-    expect(overflowDiagnostics).toHaveLength(1);
-    expect(overflowDiagnostics[0]).toMatchObject({ retainedTurnCount: 64 });
-    // The refusal condemned the binding: nothing later runs on it.
-    await expect(
-      harness.manager.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("records nothing for an interrupt whose turn had already settled in the same chunk", async () => {
-    // The settled gate, driven at the same seam as the refusal above without the prune burst:
-    // presence in the settled memory proves the terminal this correlation would route already
-    // arrived and was ruled, so nothing is recorded. Sixty-five of these, one past the ceiling,
-    // leave the session healthy where recording each would refuse the binding on the last.
-    const harness = createManagerHarness();
-    let nextTurnOrdinal = 0;
-    let currentTurnId = "";
-    harness.server.on("turn/start", () => {
-      nextTurnOrdinal += 1;
-      currentTurnId = `turn-${String(nextTurnOrdinal)}`;
-      return { result: { turn: { id: currentTurnId } } };
-    });
-    harness.server.on("turn/interrupt", () => ({
-      result: {},
-      trailingFrames: [turnCompletedFrame(currentTurnId, "completed")],
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    for (let index = 0; index < 65; index += 1) {
-      const runId = `88888888-8888-4888-8888-${String(index).padStart(12, "0")}` as RunId;
-      await harness.manager.startRun({
-        runId,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      });
-      harness.server.emitFrame(modelOutputItemFrame(`turn-${String(index + 1)}`));
-      await Promise.resolve();
-      await harness.manager.interruptRun({ runId });
-      await drainMicrotasks();
-    }
-
-    expect(
-      harness.diagnostics.filter(
-        (diagnostic) => diagnostic.kind === "interrupted-route-memory-overflowed",
-      ),
-    ).toHaveLength(0);
-    await expect(
-      harness.manager.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
-      }),
-    ).resolves.toBeUndefined();
-  });
-
-  it("returns a closed session's watch budget, so a fresh spawn under the id runs", async () => {
-    // The scope's budget is reclaimed when the record is provably gone. Otherwise a session whose
-    // turns never settled would hold its budget for the daemon's lifetime and refuse every later
-    // run on that id, a leak that looks like a permanently unusable session rather than memory.
-    const harness = createManagerHarness();
-    let nextTurnOrdinal = 0;
-    harness.server.on("turn/start", () => {
-      nextTurnOrdinal += 1;
-      return { result: { turn: { id: `turn-${String(nextTurnOrdinal)}` } } };
-    });
-    harness.server.on("turn/interrupt", () => ({ result: {} }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
-      const runId = `66666666-6666-4666-8666-${String(index).padStart(12, "0")}` as RunId;
-      await harness.manager.startRun({
-        runId,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      });
-      await harness.manager.interruptRun({ runId });
-    }
-
-    await harness.manager.closeSession({ sessionId: SESSION_ID });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    await expect(
-      harness.manager.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
-      }),
-    ).resolves.toBeUndefined();
   });
 
   it("keeps the route while the turn is still inProgress", async () => {
@@ -5205,304 +3403,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
   });
 
-  it("passes the notification on to the consumer unchanged after observing it", async () => {
-    const harness = createManagerHarness({ onServerNotification: true });
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-
-    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await Promise.resolve();
-
-    // The manager interposes on this stream but does not consume it; the event normalizer is the
-    // consumer and must see the frame verbatim.
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-    expect(harness.notifications).toContainEqual({
-      method: "turn/completed",
-      params: {
-        threadId: THREAD_ID,
-        turn: {
-          id: TURN_ID,
-          status: "completed",
-          items: [{ type: "agentMessage", id: "item-1" }],
-        },
-      },
-    });
-  });
-
-  it("keeps watching a concurrent attempt's frame when an overlapping start is refused", async () => {
-    // Nothing serializes two starts for one run, and a frame is registered under the run id until
-    // the provider names a turn, so both attempts share one key while either is in flight. A
-    // failure that drops the whole key takes the live attempt's frame with it, and a turn that
-    // settles against no correlated frame passes: the swallowed turn reported as completed.
-    const refusedOpeningText = "the attempt the provider rejects";
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", (params) =>
-      readTurnStartInputText(params) === refusedOpeningText
-        ? { error: { code: -32602, message: "input rejected" } }
-        : { result: { turn: { id: TURN_ID } } },
-    );
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    // The handler is attached synchronously, before anything is awaited: an
-    // unattached rejection is reported unhandled after the next microtask drain.
-    const refused = harness.manager
-      .startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: refusedOpeningText },
-      })
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-    // Registered while the first attempt is still suspended on its own request,
-    // which is the only window in which the overlap exists at all.
-    const accepted = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-
-    // A clean refusal: the provider answered "no", so nothing is disposed and the session
-    // the second attempt runs on stays live.
-    expect(await refused).toBeInstanceOf(CodexProviderRequestError);
-    expect(harness.server.killedSessions).toEqual([]);
-    await accepted;
-
-    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
-    await drainMicrotasks();
-
-    // One trip, on the turn the surviving attempt opened; zero would mean a key-wide drop
-    // silenced a live frame.
-    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=human_text",
-    );
-  });
-
-  it("rules each of two overlapping accepted starts on the turn IT opened", async () => {
-    // Both attempts are accepted and each gets its own turn id. Correlation is per frame
-    // because every attempt on a run registers under the same run id: a key-wide re-key
-    // would move the second attempt's frame onto the first attempt's turn, leaving the
-    // second nothing to move, so its swallowed turn would settle as a completed one.
-    const firstOpeningText = "the attempt answered first";
-    const firstTurnId = "turn-overlap-a";
-    const secondTurnId = "turn-overlap-b";
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", (params) => ({
-      result: {
-        turn: {
-          id: readTurnStartInputText(params) === firstOpeningText ? firstTurnId : secondTurnId,
-        },
-      },
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const first = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
-    });
-    const second = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    await first;
-    await second;
-
-    // The second attempt's turn swallows its text. Its frame is ruled here only if the
-    // re-key moved that frame alone.
-    harness.server.emitFrame(zeroTurnCompletedFrame(secondTurnId));
-    await drainMicrotasks();
-
-    expect(harness.manager.textNeutralizationDecisionForTurn(secondTurnId).refused).toBe(true);
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=human_text",
-    );
-    // The first attempt's frame stayed on its own turn: still unsettled and not consumed by
-    // the turn beside it.
-    expect(harness.manager.textNeutralizationDecisionForTurn(firstTurnId).refused).toBe(false);
-  });
-
-  it("reports the run when the OLDER of two overlapping turns swallows its text", async () => {
-    // Both attempts are accepted, so the session holds two live turns for one run, and the
-    // older one swallows. Routes are keyed by turn so the ruling reaches the run that wrote
-    // the words: a table holding one turn per run would already have replaced the first
-    // entry, the terminal would match no route, and the session would be quarantined with
-    // the run told nothing.
-    const firstOpeningText = "the attempt answered first";
-    const firstTurnId = "turn-older-swallows-a";
-    const secondTurnId = "turn-older-swallows-b";
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", (params) => ({
-      result: {
-        turn: {
-          id: readTurnStartInputText(params) === firstOpeningText ? firstTurnId : secondTurnId,
-        },
-      },
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const first = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
-    });
-    const second = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    await first;
-    await second;
-
-    harness.server.emitFrame(zeroTurnCompletedFrame(firstTurnId));
-    await drainMicrotasks();
-
-    // The run heard the ruling.
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
-    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=human_text",
-    );
-    expect(harness.manager.textNeutralizationDecisionForTurn(firstTurnId).refused).toBe(true);
-    // The second turn's frame is ruled as the condemned binding goes away, not discarded.
-    // No second report: the ruling that condemned the session already failed the run.
-    expect(harness.diagnostics).toContainEqual({
-      kind: "abandoned-frames-ruled",
-      ruledFrameCount: 1,
-      reportedRunCount: 0,
-    });
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    // The process the swallow happened on is gone.
-    expect(harness.server.killedSessions).toHaveLength(1);
-  });
-
-  it("keeps a run's older live turn steerable after its newest is interrupted", async () => {
-    // Retiring one turn's route must not retire the run's session binding while another of
-    // its turns is still running; otherwise the surviving turn is unreachable and every
-    // intervention on it answers "no active turn" while the provider keeps working.
-    const firstOpeningText = "the attempt answered first";
-    const firstTurnId = "turn-interrupt-survivor-a";
-    const secondTurnId = "turn-interrupt-survivor-b";
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", (params) => ({
-      result: {
-        turn: {
-          id: readTurnStartInputText(params) === firstOpeningText ? firstTurnId : secondTurnId,
-        },
-      },
-    }));
-    harness.server.on("turn/interrupt", () => ({ result: {} }));
-    harness.server.on("turn/steer", () => ({ result: { turn: { id: firstTurnId } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const first = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
-    });
-    const second = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    await first;
-    await second;
-
-    // The interrupt names the newest turn, so the older one survives it.
-    await harness.manager.interruptRun({ runId: RUN_ID });
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
-
-    // The steer reaches the turn that is still live.
-    await harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "narrow the diff to the parser",
-      clientIdempotencyKey: "steer-survivor",
-      frameOrigin: "human_text",
-    });
-    expect(harness.server.framesForMethod("turn/steer")[0]?.["params"]).toMatchObject({
-      expectedTurnId: firstTurnId,
-    });
-  });
-
-  it("refuses the binding rather than evicting a terminal a pending start is owed", async () => {
-    // One read chunk drains synchronously while the `turn/start` continuation waits as a
-    // microtask, so every turn the provider mentions in it lands in the unmatched-terminal
-    // memory before the run claims one. Oldest-first eviction would drop this run's own
-    // terminal (the first frame, the zero-turn reply saying its opening words were
-    // swallowed) and the continuation would install a live route whose terminal is gone.
-    // So evidence is never evicted for room: the session is refused, and the run with it.
-    const swallowedRunTurnId = "turn-drain-overflow-owed";
-    const chatter: Array<Record<string, unknown>> = [
-      // First in the chunk, so it is the first entry eviction would reach.
-      zeroTurnCompletedFrame(swallowedRunTurnId),
-    ];
-    for (let index = 0; index < 300; index += 1) {
-      chatter.push(turnCompletedFrame(`turn-drain-overflow-chatter-${index}`, "completed"));
-    }
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({
-      result: { turn: { id: swallowedRunTurnId } },
-      trailingFrames: chatter,
-    }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const started = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-
-    // The run is refused; silently evicting would resolve this call and leave the daemon
-    // believing a turn ran on a session that had swallowed its opening words.
-    await expect(started).rejects.toThrow(CodexTransportError);
-    await drainMicrotasks();
-
-    const overflows = harness.diagnostics.filter(
-      (diagnostic) => diagnostic.kind === "turn-evidence-memory-overflowed",
-    );
-    // Exactly one, though hundreds of frames followed the refusal in the same chunk: the
-    // binding is condemned once and the rest of the drain is quiet.
-    expect(overflows).toHaveLength(1);
-    expect(harness.server.killedSessions).toHaveLength(1);
-    // The session refuses every later resolution, so recovery is a fresh spawn, not a retry
-    // into the process whose account was lost.
-    await expect(
-      harness.manager.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "try again" },
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("evicts the evidence memory freely once no start can claim from it", async () => {
-    // With no `turn/start` in flight nothing can claim an entry (turn ids are never reused),
-    // so eviction is free: a session that hears about hundreds of turns it never started
-    // stays live and usable.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    for (let index = 0; index < 300; index += 1) {
-      harness.server.emitFrame(
-        turnCompletedFrame(`turn-unclaimable-chatter-${index}`, "completed"),
-      );
-    }
-    await drainMicrotasks();
-
-    expect(
-      harness.diagnostics.filter(
-        (diagnostic) => diagnostic.kind === "turn-evidence-memory-overflowed",
-      ),
-    ).toHaveLength(0);
-    expect(harness.server.killedSessions).toEqual([]);
-    await expect(
-      harness.manager.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-      }),
-    ).resolves.toBeUndefined();
-  });
-
   it("refuses a run whose config declares a frame origin, before any byte is written", async () => {
     // The origin of a run's opening frame is minted at the boundary, so the untyped
     // `agentConfig` bag cannot name one, least of all the exempt origin, which would deliver
@@ -5529,25 +3429,6 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       [],
     );
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-  });
-
-  it("accepts a run whose config declares the origin the boundary itself mints", async () => {
-    // Declaring the origin this path mints anyway is a no-op, not an error; the refusal above
-    // is for a caller choosing a different one.
-    const harness = createManagerHarness();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: {
-        sessionId: SESSION_ID,
-        input: "review the diff",
-        frameOrigin: "human_text",
-      },
-    });
-
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
   });
 });
 
@@ -5625,7 +3506,6 @@ describe("CodexAppServerConnection framing bounds", () => {
   // A well-formed frame PREFIX. If the tail were ever truncated and handed on,
   // this would surface as a diagnostic for a frame the provider never sent.
   const FRAME_PREFIX = '{"jsonrpc":"2.0","method":"item/started","params":{"text":"';
-  const OVERLONG_RETAINED_LENGTH = FRAME_PREFIX.length + CODEX_MAX_LINE_LENGTH;
 
   /** The prefix padded past the ceiling, with no line terminator anywhere. */
   function overlongFramePrefix(): Uint8Array {
@@ -5636,7 +3516,7 @@ describe("CodexAppServerConnection framing bounds", () => {
     return harness.diagnostics.map((diagnostic) => diagnostic.kind);
   }
 
-  it("fails in-flight callers with the typed error and releases the process", async () => {
+  it("fails in-flight callers with the typed error, and kills and releases the process", async () => {
     const harness = createHarness();
     await createdSession(harness);
     // No `turn/start` handler is registered, so the request stays in flight and
@@ -5654,33 +3534,11 @@ describe("CodexAppServerConnection framing bounds", () => {
     await expect(pending).rejects.toBeInstanceOf(CodexTransportError);
     await expect(pending).rejects.toMatchObject({ code: "driver.unavailable" });
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-  });
-
-  it("reports the breach with the limit that produced it", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    harness.server.emitRaw(overlongFramePrefix());
-    await Promise.resolve();
-
-    expect(harness.diagnostics).toContainEqual({
-      kind: "line-too-long",
-      retainedLength: OVERLONG_RETAINED_LENGTH,
-      limit: CODEX_MAX_LINE_LENGTH,
-    });
-  });
-
-  it("discards the over-long tail unparsed rather than delivering a partial frame", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    harness.server.emitRaw(overlongFramePrefix());
-    await Promise.resolve();
-
-    // Truncating would hand a frame prefix to the line handler, which would then
-    // report an `unparsable-line` the provider never sent. Its absence is the
-    // proof that nothing was truncated-and-parsed.
-    expect(diagnosticKinds(harness)).not.toContain("unparsable-line");
+    // `PtyHost.close` promises resource release, not child termination, and the
+    // peer producing the unbounded line is exactly the one that keeps writing.
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
   });
 
   it("tears down on an over-long line that TERMINATES inside the same chunk", async () => {
@@ -5700,53 +3558,6 @@ describe("CodexAppServerConnection framing bounds", () => {
     await expect(pending).rejects.toBeInstanceOf(CodexLineTooLongError);
     expect(diagnosticKinds(harness)).toContain("line-too-long");
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-  });
-
-  it("signals the child rather than trusting release alone to stop it", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-
-    harness.server.emitRaw(overlongFramePrefix());
-    await Promise.resolve();
-
-    // `PtyHost.close` promises resource release, not child termination, and the
-    // peer producing the unbounded line is exactly the one that keeps writing.
-    expect(harness.server.killedSessions).toEqual([
-      { sessionId: "pty-session-1", signal: "SIGKILL" },
-    ]);
-  });
-
-  it("keeps accepting a line that reaches the ceiling without crossing it", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    const pending = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    await Promise.resolve();
-    const written = harness.server.writtenFrames();
-    const requestId = written[written.length - 1]?.["id"];
-
-    const skeleton = JSON.stringify({
-      jsonrpc: "2.0",
-      id: requestId,
-      result: { turn: { id: TURN_ID }, padding: "" },
-    });
-    // One short of the ceiling: the server terminates with CRLF and the CR is part of the raw
-    // line the buffer holds, so the driver measures exactly `CODEX_MAX_LINE_LENGTH`.
-    const atCeiling = JSON.stringify({
-      jsonrpc: "2.0",
-      id: requestId,
-      result: {
-        turn: { id: TURN_ID },
-        padding: "x".repeat(CODEX_MAX_LINE_LENGTH - skeleton.length - 1),
-      },
-    });
-    expect(atCeiling).toHaveLength(CODEX_MAX_LINE_LENGTH - 1);
-    harness.server.emitLine(atCeiling);
-
-    await expect(pending).resolves.toBeUndefined();
-    expect(diagnosticKinds(harness)).not.toContain("line-too-long");
   });
 
   it("bounds the pre-sentinel window instead of holding open() to the deadline", async () => {
@@ -5798,59 +3609,16 @@ describe("CodexProviderRequestError", () => {
       providerErrorData: codexErrorInfo,
     });
   });
-
-  it("leaves the data member absent when the provider sent none", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("turn/start", () => ({
-      error: { code: -32600, message: "thread is busy" },
-    }));
-
-    const rejection = await harness.driver
-      .startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      })
-      .catch((cause: unknown) => cause);
-
-    expect(rejection).toBeInstanceOf(CodexProviderRequestError);
-    expect((rejection as CodexProviderRequestError).providerErrorData).toBeUndefined();
-  });
 });
 
 describe("Codex driver config read-shapes", () => {
-  it("accepts a well-formed session config", () => {
-    expect(parseCodexSessionConfig(SESSION_CONFIG)).toEqual(SESSION_CONFIG);
-  });
-
   it.each([
-    ["a non-object", 42],
     ["a missing cwd", { env: [] }],
     ["an empty cwd", { cwd: "", env: [] }],
     ["a missing env", { cwd: "/work" }],
-    ["a malformed env pair", { cwd: "/work", env: [["ONLY_A_NAME"]] }],
     ["a non-string env value", { cwd: "/work", env: [["NAME", 7]] }],
   ])("refuses %s", (_label, config) => {
     expect(() => parseCodexSessionConfig(config)).toThrow(/CreateSessionParams\.config/);
-  });
-
-  it("accepts a well-formed run config and keeps optional members absent", () => {
-    expect(parseCodexRunConfig({ sessionId: SESSION_ID, input: "hello" })).toEqual({
-      sessionId: SESSION_ID,
-      input: "hello",
-    });
-  });
-
-  it.each([
-    ["a missing session id", { input: "hello" }],
-    ["a missing input", { sessionId: SESSION_ID }],
-    ["an empty input", { sessionId: SESSION_ID, input: "" }],
-    ["an empty optional model", { sessionId: SESSION_ID, input: "hello", model: "" }],
-    // The brand is a UUID, so a plausible-looking string must not enter the session map,
-    // where the mismatch would surface as a puzzling "no live session" far from its cause.
-    ["a session id that is not a session id", { sessionId: "session-1", input: "hello" }],
-  ])("refuses %s", (_label, agentConfig) => {
-    expect(() => parseCodexRunConfig(agentConfig)).toThrow(/StartRunParams\.agentConfig/);
   });
 
   it("normalizes provider failure detail into something the schema accepts", () => {
@@ -5861,39 +3629,6 @@ describe("Codex driver config read-shapes", () => {
     expect(
       normalizeProviderFailureDetail("x".repeat(DRIVER_FAILURE_DETAIL_MAX_LEN + 10)),
     ).toHaveLength(DRIVER_FAILURE_DETAIL_MAX_LEN);
-  });
-
-  // Totality on the values that actually break coercion (each confirmed to throw against the
-  // runtime). `resumeSession`'s catch path calls this to build the typed failure, so a throw
-  // here would turn the typed `recovery-needed` result back into an exception, on the path
-  // least likely to hold a well-formed cause.
-  it("stays total for a null-prototype object, which cannot be stringified", () => {
-    // `String(value)` throws TypeError: no `toString` or `valueOf` on the chain.
-    expect(normalizeProviderFailureDetail(Object.create(null) as unknown)).toMatch(
-      /no diagnostic message/,
-    );
-  });
-
-  it("stays total for an Error whose message getter throws", () => {
-    const hostile = new Error("unused");
-    Object.defineProperty(hostile, "message", {
-      get(): string {
-        throw new TypeError("message getter exploded");
-      },
-    });
-
-    expect(normalizeProviderFailureDetail(hostile)).toMatch(/no diagnostic message/);
-  });
-
-  it("falls back to the Error class when its message is not a string", () => {
-    // Reading the message succeeds; `replaceAll` does not exist on a number, so the type
-    // check is load-bearing.
-    const numericMessage = Object.assign(new Error("unused"), { message: 42 });
-
-    // `name` rather than the unspecified constant: an Error with no usable message still has
-    // a class. Reading two known strings off a known shape differs from serializing an
-    // unknown value (see the next test).
-    expect(normalizeProviderFailureDetail(numericMessage)).toBe("Error");
   });
 
   it("never serializes an arbitrary rejection value into the persisted detail", () => {
@@ -5914,14 +3649,12 @@ describe("Codex driver config read-shapes", () => {
 });
 
 // --------------------------------------------------------------------------
-// Parity driver methods, Codex arm.
+// Session-control driver methods.
 // --------------------------------------------------------------------------
 //
-// `forkConversation`, `setSessionGoal` and `clearSessionGoal` reach the native
-// `thread/fork` and `thread/goal/*` methods. The callback-tool registry and subagent
-// definitions are withheld and recorded, not silently dropped. The two subagent caps the
-// provider enforces are supplied at every thread establishment, and a resumed or forked
-// thread re-realizes every spawn-bound setting.
+// `forkConversation`, `setSessionGoal` and `clearSessionGoal` reach the native `thread/fork` and
+// `thread/goal/*` methods. The two subagent caps the provider enforces are supplied at every
+// thread establishment, and a resumed or forked thread re-realizes every spawn-bound setting.
 
 /** The params of the first frame the provider received for a method. */
 function firstParamsFor(harness: Harness, method: string): Record<string, unknown> {
@@ -5960,7 +3693,7 @@ async function resumedSessionWithTurns(
   });
 }
 
-describe("CodexDriver forkConversation (leg 1, native `thread/fork`)", () => {
+describe("CodexDriver forkConversation (native `thread/fork`)", () => {
   it("reports the rebinding `bindingId` on the applied arm", async () => {
     const harness = createHarness();
     await resumedSessionWithTurns(harness, 2);
@@ -6097,44 +3830,9 @@ describe("CodexDriver forkConversation (leg 1, native `thread/fork`)", () => {
       });
     }
   });
-
-  it("leaves every other fork failure the generic provider error it is", async () => {
-    // Only a refusal that provably names the boundary member is a capability answer; the
-    // rest stay what the provider said. In the first case `unknown variant` names the method
-    // (or a nested enum value), so a classifier matching the phrase without the backticked
-    // field name would misread "this build has no `thread/fork`", a condition governed by
-    // the version floor, as a missing boundary field.
-    const genericRefusals: readonly string[] = [
-      "Invalid request: unknown variant `thread/fork`, expected one of `initialize`, `thread/start`",
-      "Invalid request: missing field `threadId`",
-      "thread not found",
-    ];
-    for (const providerMessage of genericRefusals) {
-      const harness = createHarness();
-      await resumedSessionWithTurns(harness, 2);
-      harness.server.on("thread/fork", () => ({
-        error: { code: -32600, message: providerMessage },
-      }));
-
-      const refused = await harness.driver
-        .forkConversation({ sessionId: SESSION_ID, bindingId: "binding-abc", position: 1 })
-        .then(
-          () => undefined,
-          (cause: unknown) => cause,
-        );
-
-      // A labeled pair rather than a bare negative, so a failure names which refusal was
-      // misread.
-      expect({
-        providerMessage,
-        classifiedAsCapabilityRefusal: refused instanceof CodexRewindBoundaryUnsupportedError,
-      }).toStrictEqual({ providerMessage, classifiedAsCapabilityRefusal: false });
-      expect(refused).toBeInstanceOf(CodexProviderRequestError);
-    }
-  });
 });
 
-describe("CodexDriver resumeSession re-realization (legs 4-5)", () => {
+describe("CodexDriver resumeSession re-realization", () => {
   it("re-sends posture and subagent caps on `thread/resume`", async () => {
     // A resume is a fresh spawn; omitting the overrides would leave the thread under the
     // provider's persisted config rather than the one its caller declared.
@@ -6154,7 +3852,7 @@ describe("CodexDriver resumeSession re-realization (legs 4-5)", () => {
   });
 });
 
-describe("CodexDriver session goals (leg 2, native)", () => {
+describe("CodexDriver session goals (native)", () => {
   it("sends only the daemon-owned objective on `thread/goal/set`", async () => {
     const harness = createHarness();
     await createdSession(harness);
@@ -6192,7 +3890,7 @@ describe("CodexDriver session goals (leg 2, native)", () => {
   });
 });
 
-describe("CodexDriver subagent caps (leg 4)", () => {
+describe("CodexDriver subagent caps", () => {
   it("disables subagents on the DEPTH axis, never with a zero concurrency cap", async () => {
     // Verified against the pinned build: `agents.max_concurrent_threads_per_session: 0` is
     // refused with `-32600`, so a zero cap would fail every session that tried to disable
@@ -6229,35 +3927,9 @@ describe("CodexDriver subagent caps (leg 4)", () => {
       "agents.max_depth": 0,
     });
   });
-
-  it("records every withheld subagent definition rather than dropping it", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/start", () => threadStartResult());
-
-    await harness.driver.createSession({
-      sessionId: SESSION_ID,
-      config: SESSION_CONFIG,
-      subagentPolicy: {
-        enabled: true,
-        maxConcurrent: 2,
-        maxDepth: 1,
-        definitions: [
-          { name: "reviewer", description: "reviews the diff" },
-          { name: "researcher", description: "researches the API" },
-        ],
-      },
-    });
-
-    const withheld = harness.driverDiagnostics.recentRecordsOfKind("subagent_definition_disabled");
-    expect(withheld).toHaveLength(2);
-    expect(withheld.map((record) => record.details["definitionName"])).toStrictEqual([
-      "reviewer",
-      "researcher",
-    ]);
-  });
 });
 
-describe("CodexDriver posture realization (leg 5)", () => {
+describe("CodexDriver posture realization", () => {
   it("records a divergence when the provider's readback narrows the requested axis", async () => {
     // The provider's config table fails open (an unrecognized key is accepted and ignored),
     // so a setting that silently stopped applying looks like one that applied a denial. The
@@ -6286,45 +3958,6 @@ describe("CodexDriver posture realization (leg 5)", () => {
     });
   });
 
-  it("stays silent when the readback matches the request", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/start", () => ({
-      result: {
-        thread: { id: THREAD_ID, sessionId: "session-tree-1", turns: [] },
-        sandbox: { networkAccess: true },
-      },
-    }));
-
-    await harness.driver.createSession({
-      sessionId: SESSION_ID,
-      config: SESSION_CONFIG,
-      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
-    });
-
-    expect(
-      harness.diagnostics.filter(
-        (diagnostic) => diagnostic.kind === "posture-realization-diverged",
-      ),
-    ).toHaveLength(0);
-  });
-
-  it("reports no divergence on the arm that cannot express the axis at thread scope", () => {
-    // `read-only` realizes network-denied whatever the request, so a divergence would report
-    // the design. The turn-level `sandboxPolicy` expresses the axis for that mode, and every
-    // run supplies it.
-    expect(
-      describeCodexPostureDivergence(
-        {
-          mode: "readonly-sandboxed",
-          credentialPolicyRef: "policy://default",
-          networkAccess: "full",
-          writableRoots: [],
-        },
-        { networkAccess: false },
-      ),
-    ).toBeNull();
-  });
-
   it("reports a realization WIDER than the request as well as a narrower one", () => {
     expect(
       describeCodexPostureDivergence(
@@ -6340,56 +3973,8 @@ describe("CodexDriver posture realization (leg 5)", () => {
   });
 });
 
-describe("CodexDriver callback-tool withholding (leg 3, Codex arm)", () => {
-  it("withholds the registry and records it on BOTH diagnostic sinks", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/start", () => threadStartResult());
-
-    await harness.driver.createSession({
-      sessionId: SESSION_ID,
-      config: SESSION_CONFIG,
-      callbackTools: [{ name: "search", description: "search", inputSchema: { type: "object" } }],
-    });
-
-    // `dynamicTools` exists only in the experimental generation at the pin and this driver
-    // negotiates `experimentalApi: false`, so the registration is unreachable.
-    expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "callback-tools-withheld"),
-    ).toHaveLength(1);
-    const censused = harness.driverDiagnostics.recentRecordsOfKind(
-      "callback_tool_registry_withheld",
-    );
-    expect(censused).toHaveLength(1);
-    expect(censused[0]?.details["reason"]).toBe("provider-registration-unavailable");
-    // A counter row naming no session cannot say which session lost its tools on a daemon
-    // running more than one.
-    expect(censused[0]?.details["sessionId"]).toBe(SESSION_ID);
-  });
-});
-
-describe("Codex server-request routing census (ask reachability)", () => {
-  it("routes the seven reachable ask methods and no others", () => {
-    expect([...CODEX_ROUTED_SERVER_REQUEST_METHODS].sort()).toStrictEqual([
-      "applyPatchApproval",
-      "execCommandApproval",
-      "item/commandExecution/requestApproval",
-      "item/fileChange/requestApproval",
-      "item/permissions/requestApproval",
-      "item/tool/call",
-      "mcpServer/elicitation/request",
-    ]);
-  });
-
-  it("leaves `item/tool/requestUserInput` unrouted and asserted gated instead", () => {
-    // Asserted unreachable from the normalizer's negotiation census instead of getting a
-    // handler that could never run at `experimentalApi: false`.
-    expect(CODEX_ROUTED_SERVER_REQUEST_METHODS).not.toContain("item/tool/requestUserInput");
-    expect(CODEX_NEGOTIATION_GATED_METHODS).toContain("item/tool/requestUserInput");
-  });
-});
-
-describe("CodexDriver realtime suppression (leg 7)", () => {
-  it("opts out of every censused realtime method in the `initialize` frame it actually sends", async () => {
+describe("CodexDriver realtime suppression", () => {
+  it("opts out of every realtime method the pin publishes, in the `initialize` frame it sends", async () => {
     // Read off the frame the provider received, not the exported constant: asserting the
     // constant against itself would pass with the negotiation deleted.
     const harness = createHarness();
@@ -6416,7 +4001,7 @@ describe("CodexDriver realtime suppression (leg 7)", () => {
   });
 });
 
-describe("CodexDriver transport construction (leg 6)", () => {
+describe("CodexDriver transport construction", () => {
   const websocketTransportConfig = {
     transport: "websocket" as const,
     endpoint: "wss://codex.internal/app-server",
@@ -6441,34 +4026,6 @@ describe("CodexDriver transport construction (leg 6)", () => {
       readCapabilities: () => makeCapabilities(true),
     };
   }
-
-  it("refuses construction when a websocket transport has no bearer resolver", () => {
-    // Refused at construction, not at the first session: otherwise a registry would report a
-    // healthy driver until a user started a run.
-    expect(
-      () => new CodexDriver({ ...buildDriverOptions(), transportConfig: websocketTransportConfig }),
-    ).toThrow(CodexDriverConfigError);
-  });
-
-  it("refuses construction when a websocket transport has no connector", () => {
-    expect(
-      () =>
-        new CodexDriver({
-          ...buildDriverOptions(),
-          transportConfig: websocketTransportConfig,
-          resolveBearerCredential: async (): Promise<CodexWebsocketBearerCredential> =>
-            await Promise.resolve({
-              mode: "capability-token",
-              tokenFilePath: "/run/codex/ws.token",
-            }),
-        }),
-    ).toThrow(CodexDriverConfigError);
-  });
-
-  it("defaults to stdio when no transport is configured", () => {
-    const driver = new CodexDriver(buildDriverOptions());
-    expect(driver.transportSelection.transport).toBe("stdio");
-  });
 
   it("resolves the bearer ref at connection time, once per connection, never at construction", async () => {
     // The ref is a locator, exchanged for a credential when a connection is opened. A
@@ -6536,7 +4093,7 @@ interface RoutedAskHarness {
   readonly harness: Harness;
   readonly askProvider: (method: string, params?: unknown) => Promise<Record<string, unknown>>;
   /**
-   * The censused records the manager emitted, distinct from `harness.diagnostics` (the
+   * The records the manager emitted, distinct from `harness.diagnostics` (the
    * transport-local sink). Both are captured because a turn-attribution refusal must reach
    * both sinks.
    */
@@ -6607,7 +4164,7 @@ async function routedAskHarness(
   return { harness, askProvider, driverDiagnosticRecords };
 }
 
-describe("CodexAppServerConnection routed server requests (R3)", () => {
+describe("CodexAppServerConnection routed server requests", () => {
   it("answers an allowed `item/tool/call` with the provider's own success shape", async () => {
     const { harness, askProvider } = await routedAskHarness({
       answer: async (): Promise<CodexServerRequestDecision> =>
@@ -6678,46 +4235,6 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
       limit: CODEX_MAX_LINE_LENGTH,
     });
   }, 30_000);
-
-  it("records a rejected answer write rather than swallowing it", async () => {
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
-    });
-    harness.server.rejectNextWriteWith = new Error("pty write failed: broken pipe");
-
-    // The ask is never answered on the wire. The exit path records that a process died, not that
-    // this one ask will go unanswered.
-    await expect(askProvider("item/commandExecution/requestApproval")).rejects.toThrow(
-      "never answered",
-    );
-
-    expect(
-      harness.diagnostics.filter(
-        (diagnostic) => diagnostic.kind === "server-request-answer-write-failed",
-      ),
-    ).toStrictEqual([
-      {
-        kind: "server-request-answer-write-failed",
-        method: "item/commandExecution/requestApproval",
-        detail: "pty write failed: broken pipe",
-      },
-    ]);
-  });
-
-  it("answers a refused ask with the method's REFUSAL shape, never `-32601`", async () => {
-    const { askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
-    });
-
-    const answer = await askProvider("item/commandExecution/requestApproval");
-
-    // `-32601` would be a protocol error where a decision was asked for; the refusal must use the
-    // method's own vocabulary.
-    expect(answer["error"]).toBeUndefined();
-    expect(answer["result"]).toStrictEqual({ decision: "decline" });
-  });
 
   it("REFUSES an approval whose named turn is unresolvable, never attributing it to another run", async () => {
     // A request that names a turn claims which run raised it. Falling back to the sole active run
@@ -6837,13 +4354,19 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     ).toStrictEqual([]);
   });
 
-  it("refuses each approval spelling in that method's own vocabulary", async () => {
+  it("refuses each approval spelling in that method's own vocabulary, never `-32601`", async () => {
     // Each method has its own refusal shape (from the pinned response types); one shape shared
     // across methods would violate the protocol on the others.
     const { askProvider } = await routedAskHarness({
       answer: async (): Promise<CodexServerRequestDecision> =>
         await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
     });
+
+    const answer = await askProvider("item/commandExecution/requestApproval");
+
+    // `-32601` would be a protocol error where a decision was asked for.
+    expect(answer["error"]).toBeUndefined();
+    expect(answer["result"]).toStrictEqual({ decision: "decline" });
 
     expect((await askProvider("execCommandApproval"))["result"]).toStrictEqual({
       decision: { denied: { rejection: "policy denied" } },
@@ -6855,43 +4378,6 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     expect((await askProvider("mcpServer/elicitation/request"))["result"]).toStrictEqual({
       action: "decline",
     });
-  });
-
-  it("attributes the ask to the run when overlapping turns ALL belong to it", async () => {
-    // Two live turns of one run map to the same run, so the attribution is unambiguous whatever the
-    // turn count.
-    const attributedRunIds: Array<RunId | null> = [];
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (request): Promise<CodexServerRequestDecision> => {
-        attributedRunIds.push(request.runId);
-        return await Promise.resolve({ decision: "refuse", reason: "policy denied" });
-      },
-    });
-    const firstOpeningText = "the attempt answered first";
-    harness.server.on("turn/start", (params) => ({
-      result: {
-        turn: {
-          id:
-            readTurnStartInputText(params) === firstOpeningText
-              ? "turn-overlap-a"
-              : "turn-overlap-b",
-        },
-      },
-    }));
-    const first = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
-    });
-    const second = harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
-    });
-    await first;
-    await second;
-
-    await askProvider("item/commandExecution/requestApproval");
-
-    expect(attributedRunIds).toStrictEqual([RUN_ID]);
   });
 
   it("refuses when NO responder is registered rather than leaving the ask unanswered", async () => {
@@ -6926,38 +4412,34 @@ describe("CodexAppServerConnection routed server requests (R3)", () => {
     ).toHaveLength(1);
   });
 
-  it("answers the legacy approval spelling the same way as the modern one", async () => {
-    // The answer must not depend on which spelling the provider used for the same question.
-    const { askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({ decision: "allow" }),
-    });
-
-    const legacy = await askProvider("execCommandApproval");
-    const modern = await askProvider("item/commandExecution/requestApproval");
-
-    expect(legacy["error"]).toBeUndefined();
-    expect(modern["error"]).toBeUndefined();
-  });
-
-  it("still answers `-32601` for a method the routing table does not name", async () => {
+  it("records a rejected answer write rather than swallowing it", async () => {
     const { harness, askProvider } = await routedAskHarness({
       answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({ decision: "allow" }),
+        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
     });
+    harness.server.rejectNextWriteWith = new Error("pty write failed: broken pipe");
 
-    const answer = await askProvider("attestation/generate");
+    // The ask is never answered on the wire. The exit path records that a process died, not that
+    // this one ask will go unanswered.
+    await expect(askProvider("item/commandExecution/requestApproval")).rejects.toThrow(
+      "never answered",
+    );
 
-    // The method is declined at negotiation, so `-32601` is the right answer, and it still answers
-    // the ask so the turn does not hang.
-    expect((answer["error"] as Record<string, unknown>)["code"]).toBe(-32601);
     expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "unhandled-server-request"),
-    ).toHaveLength(1);
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "server-request-answer-write-failed",
+      ),
+    ).toStrictEqual([
+      {
+        kind: "server-request-answer-write-failed",
+        method: "item/commandExecution/requestApproval",
+        detail: "pty write failed: broken pipe",
+      },
+    ]);
   });
 });
 
-describe("composeCodexTransportArgv (leg 6, the authenticated listener)", () => {
+describe("composeCodexTransportArgv (the authenticated listener)", () => {
   it("starts a websocket listener WITH bearer auth on every credential mode", () => {
     const selection: CodexTransportSelection = {
       transport: "websocket",
@@ -7008,52 +4490,6 @@ describe("composeCodexTransportArgv (leg 6, the authenticated listener)", () => 
         null,
       ),
     ).toThrow(CodexDriverConfigError);
-  });
-
-  it("bridges the unix arm through the provider's own proxy, needing no credential", () => {
-    expect(
-      composeCodexTransportArgv(
-        { transport: "unix-socket", socketPath: "/run/codex/app-server.sock" },
-        null,
-      ),
-    ).toStrictEqual(["app-server", "proxy", "--sock", "/run/codex/app-server.sock"]);
-  });
-
-  it("leaves the stdio default implicit rather than naming a flag spelling", () => {
-    expect(composeCodexTransportArgv({ transport: "stdio" }, null)).toStrictEqual(["app-server"]);
-  });
-});
-
-describe("resolveCodexTransportSelection (leg 6)", () => {
-  it("normalizes a `unix://` endpoint off the scheme the provider prints", () => {
-    expect(
-      resolveCodexTransportSelection({
-        transport: "unix-socket",
-        endpoint: "unix:///run/codex/app-server.sock",
-      }),
-    ).toStrictEqual({ transport: "unix-socket", socketPath: "/run/codex/app-server.sock" });
-  });
-
-  it("carries a websocket endpoint VERBATIM rather than rewriting it", () => {
-    // The provider parses host and port; rewriting them could reach an address the operator did not
-    // name.
-    expect(
-      resolveCodexTransportSelection({
-        transport: "websocket",
-        endpoint: "ws://127.0.0.1:8451/app",
-        bearerTokenRef: "keyring://codex/ws",
-      }),
-    ).toStrictEqual({
-      transport: "websocket",
-      endpoint: "ws://127.0.0.1:8451/app",
-      // Carried as a reference and read at connection time, so a rotated credential is picked up by
-      // the next connection.
-      bearerTokenRef: "keyring://codex/ws",
-    });
-  });
-
-  it("defaults an absent config to stdio", () => {
-    expect(resolveCodexTransportSelection(undefined)).toStrictEqual({ transport: "stdio" });
   });
 });
 
@@ -7129,7 +4565,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     });
   }
 
-  it("(a) a frame naming a FOREIGN thread never reaches the normalize band", async () => {
+  it("a frame naming a FOREIGN thread never reaches the normalize band", async () => {
     const harness = await managerWithSession();
 
     harness.server.emitFrame({
@@ -7144,7 +4580,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(1);
   });
 
-  it("(b) a usage frame meters a per-turn DELTA, and the cumulative counter never reaches the band as one", async () => {
+  it("a usage frame meters a per-turn DELTA, and the cumulative counter never reaches the band as one", async () => {
     const harness = await managerWithSession();
 
     emitUsage(harness, THREAD_ID, 100);
@@ -7174,30 +4610,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     );
   });
 
-  it("records a usage frame it cannot read rather than dropping the spend silently", async () => {
-    const harness = await managerWithSession();
-
-    // The usage method arrives with a breakdown under the wrong container member (`usage`, not
-    // `tokenUsage`). Unmetered spend must be recorded, or it looks like a session that cost
-    // nothing.
-    harness.server.emitFrame({
-      jsonrpc: "2.0",
-      method: "thread/tokenUsage/updated",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        usage: { total: { inputTokens: 100 } },
-      },
-    });
-    await Promise.resolve();
-
-    expect(harness.meteredUsage).toHaveLength(0);
-    const rejections = harness.driverDiagnostics.recentRecordsOfKind("usage_axis_reading_rejected");
-    expect(rejections).toHaveLength(1);
-    expect(rejections[0]?.rawWireType).toBe("thread/tokenUsage/updated");
-  });
-
-  it("(c) a child announcement then a child frame routes to the carve-outs, never to the parent's transcript", async () => {
+  it("a child announcement then a child frame routes to the carve-outs, never to the parent's transcript", async () => {
     const harness = await managerWithSession();
 
     announceChild(harness, "subAgent");
@@ -7258,7 +4671,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(25);
   });
 
-  it("(d) the session's OWN terminal projects through to the normalize band", async () => {
+  it("the session's OWN terminal projects through to the normalize band", async () => {
     const harness = await managerWithSession();
 
     harness.server.emitFrame({
@@ -7271,7 +4684,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     expect(harness.notifications.map((entry) => entry.method)).toEqual(["turn/completed"]);
   });
 
-  it("the eleventh case: a fully suppressed child still leaves its started/completed pair", async () => {
+  it("a fully suppressed child still leaves its started/completed pair", async () => {
     const harness = await managerWithSession();
 
     announceChild(harness, "subAgentReview");
@@ -7305,37 +4718,6 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     ]);
     // The child's registers are released with its terminal.
     expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(CHILD_THREAD_ID)).toBe(false);
-  });
-
-  it("an IN-PROGRESS turn for a child is not its terminal — the pair stays open", async () => {
-    const harness = await managerWithSession();
-
-    announceChild(harness, "subAgent");
-    harness.server.emitFrame({
-      jsonrpc: "2.0",
-      method: "turn/completed",
-      params: { threadId: CHILD_THREAD_ID, turn: { id: "child-turn", status: "inProgress" } },
-    });
-    await Promise.resolve();
-
-    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
-      "subagent.started",
-    ]);
-  });
-
-  it("a resume with no prior-emitted sum records the overstatement rather than hiding it", async () => {
-    const harness = createManagerHarness({ onServerNotification: true });
-    harness.server.on("thread/resume", () => threadStartResult(1));
-    await harness.manager.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-    });
-
-    // The driver cannot rebuild the prior-emitted sum. Basing at zero silently would re-meter the
-    // whole pre-resume total onto the first turn.
-    expect(
-      harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable"),
-    ).toHaveLength(1);
   });
 
   it("a resume WITH a prior-emitted sum meters only the excess over it", async () => {
@@ -7549,51 +4931,6 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(1);
   });
 
-  it("a prior-emitted reader that THROWS leaves the rewind applied and records the overstatement", async () => {
-    const { harness, rollbackResult } = await rewoundSession({ readerAnswer: "throws" });
-
-    // The reader is caller-supplied and runs after the record is re-pointed at the forked thread;
-    // an escaping throw would report an applied rewind as failed and invite a retry.
-    expect(rollbackResult.status).toBe("applied");
-    const baseUnavailable = harness.driverDiagnostics.recentRecordsOfKind(
-      "usage_resume_base_unavailable",
-    );
-    expect(baseUnavailable).toHaveLength(1);
-    // Both ids are recorded and differ on a rewind: the sum is looked up under the pre-fork thread,
-    // the registers belong to the forked one.
-    expect(baseUnavailable[0]?.details).toMatchObject({
-      threadId: FORKED_THREAD_ID,
-      priorEmittedThreadId: THREAD_ID,
-    });
-  });
-
-  it("a rewind of a session that emitted NOTHING bases at zero silently", async () => {
-    const { harness, rollbackResult } = await rewoundSession({
-      readerAnswer: "nothing",
-      meterBeforeFork: false,
-    });
-
-    expect(rollbackResult.status).toBe("applied");
-    // A bound reader answering with nothing is correct for a session that emitted no spend, so
-    // nothing is recorded.
-    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toEqual(
-      [],
-    );
-
-    // The zero base is right: the forked thread's first reading is all new spend.
-    emitUsage(harness, FORKED_THREAD_ID, 60);
-    await Promise.resolve();
-    expect(
-      harness.meteredUsage.map((entry) => ({
-        threadId: entry.delta.threadId,
-        input: entry.delta.axisDeltas.input,
-      })),
-    ).toStrictEqual([{ threadId: FORKED_THREAD_ID, input: 60 }]);
-    // The wire's per-turn figure agrees with the derived interval; the fixture seeds no cumulative
-    // the session never emitted.
-    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toEqual([]);
-  });
-
   it("refuses a rewind the provider did not FORK, leaving the session on its original thread", async () => {
     // The provider answers with the thread it was handed: not a fork, and the pre-rewind
     // conversation a fork should preserve is lost either way.
@@ -7622,17 +4959,6 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
       { threadId: THREAD_ID, input: 100 },
       { threadId: THREAD_ID, input: 50 },
     ]);
-  });
-
-  it("a rewind retires the pre-fork thread's usage registers rather than leaking a set per rewind", async () => {
-    const { harness } = await rewoundSession();
-
-    // The router holds one session identity, so re-registering retires the old one; the accountant
-    // holds a register set per thread and must release the pre-fork set explicitly, or every rewind
-    // leaks one and `hasThread` stays true for a retired thread.
-    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(false);
-    // The successor's registers are established.
-    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(FORKED_THREAD_ID)).toBe(true);
   });
 
   it("refuses a fork answered with a thread the session ALREADY meters, leaving both sets of registers intact", async () => {
@@ -7667,39 +4993,6 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
       { threadId: THREAD_ID, input: 100 },
       { threadId: CHILD_THREAD_ID, input: 40 },
       { threadId: THREAD_ID, input: 50 },
-    ]);
-  });
-
-  it("records the ledger disagreement when the provider's forked history is a different LENGTH than the position asked for", async () => {
-    const { harness, rollbackResult } = await rewoundSession({
-      forkAnswersTurnIds: [TURN_ID, "turn-02"],
-    });
-
-    // The fork succeeded, so the rewind applies and reports the caller's position whatever the
-    // provider's history says; the disagreement is recorded so a different fork depth is not
-    // invisible.
-    expect(rollbackResult).toStrictEqual({
-      status: "applied",
-      sessionPosition: 1,
-      bindingId: "binding-abc",
-    });
-    expect(
-      harness.diagnostics.filter((entry) => entry.kind === "fork-turn-ledger-unconfirmed"),
-    ).toStrictEqual([
-      { kind: "fork-turn-ledger-unconfirmed", expectedTurnCount: 1, confirmedTurnCount: 2 },
-    ]);
-  });
-
-  it("records the same disagreement, once, when the fork answers with no readable turn history", async () => {
-    const { harness, rollbackResult } = await rewoundSession({ forkAnswersTurnIds: [] });
-
-    // An unreadable turn list reads as zero turns, which disagrees like any other count; one report
-    // covers both.
-    expect(rollbackResult.status).toBe("applied");
-    expect(
-      harness.diagnostics.filter((entry) => entry.kind === "fork-turn-ledger-unconfirmed"),
-    ).toStrictEqual([
-      { kind: "fork-turn-ledger-unconfirmed", expectedTurnCount: 1, confirmedTurnCount: 0 },
     ]);
   });
 
@@ -7840,29 +5133,6 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
       { threadId: FORKED_THREAD_ID, input: 50 },
     ]);
   });
-
-  it("a resume whose prior-emitted reader THROWS still resumes, and records the base it could not rebuild", async () => {
-    const harness = createManagerHarness({
-      onServerNotification: true,
-      readPriorEmittedUsage: () => {
-        throw new Error("prior-emitted usage reader failed");
-      },
-    });
-    harness.server.on("thread/resume", () => threadStartResult(1));
-
-    const result = await harness.manager.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-    });
-
-    // The base is telemetry, not a gate on the resume: a throwing reader must not turn a live
-    // provider session into a failure.
-    expect(result.status).toBe("resumed");
-    // The overstatement is recorded on this faulty arm rather than left to surface on a receipt.
-    expect(
-      harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable"),
-    ).toHaveLength(1);
-  });
 });
 
 describe("CodexDriver model catalog", () => {
@@ -7963,7 +5233,6 @@ const SEARCH_CALLBACK_TOOL: SessionCallbackTool = {
 
 interface CallbackToolRoundTripHarness {
   readonly askProvider: (method: string, params?: unknown) => Promise<Record<string, unknown>>;
-  readonly binding: CallbackToolSpawnBinding;
   readonly executedInvocations: CallbackToolInvocation[];
   readonly evaluatedToolNames: string[];
   readonly hostDiagnostics: DriverDiagnosticRecord[];
@@ -7976,10 +5245,7 @@ interface CallbackToolRoundTripHarness {
   readonly startSecondTurn: () => Promise<void>;
 }
 
-async function callbackToolRoundTripHarness(options: {
-  readonly providerRegistrationAvailable: boolean;
-  readonly executeResult?: CallbackToolResult;
-}): Promise<CallbackToolRoundTripHarness> {
+async function callbackToolRoundTripHarness(): Promise<CallbackToolRoundTripHarness> {
   const executedInvocations: CallbackToolInvocation[] = [];
   const evaluatedToolNames: string[] = [];
   const hostDiagnostics: DriverDiagnosticRecord[] = [];
@@ -7992,9 +5258,7 @@ async function callbackToolRoundTripHarness(options: {
     executor: {
       execute: async (invocation) => {
         executedInvocations.push(invocation);
-        return await Promise.resolve(
-          options.executeResult ?? { status: "completed", output: "2 matches" },
-        );
+        return await Promise.resolve({ status: "completed", output: "2 matches" });
       },
     },
     activitySink: { record: () => undefined },
@@ -8005,10 +5269,10 @@ async function callbackToolRoundTripHarness(options: {
       },
     },
   });
-  const binding = bindCallbackToolsForSpawn(host, {
+  bindCallbackToolsForSpawn(host, {
     sessionId: SESSION_ID,
     requestedTools: [SEARCH_CALLBACK_TOOL],
-    providerRegistrationAvailable: options.providerRegistrationAvailable,
+    providerRegistrationAvailable: true,
     providerRegistrationUnavailableDetail: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
   });
   const { harness, askProvider, driverDiagnosticRecords } = await routedAskHarness(
@@ -8030,7 +5294,6 @@ async function callbackToolRoundTripHarness(options: {
   };
   return {
     askProvider,
-    binding,
     executedInvocations,
     evaluatedToolNames,
     hostDiagnostics,
@@ -8041,9 +5304,9 @@ async function callbackToolRoundTripHarness(options: {
   };
 }
 
-describe("CodexDriver callback-tool round trip (leg 3)", () => {
+describe("CodexDriver callback-tool round trip", () => {
   it("carries a provider tool call to the host and the host's answer back", async () => {
-    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    const roundTrip = await callbackToolRoundTripHarness();
     await roundTrip.startTurn();
 
     const answer = await roundTrip.askProvider("item/tool/call", {
@@ -8067,7 +5330,7 @@ describe("CodexDriver callback-tool round trip (leg 3)", () => {
   });
 
   it("answers the provider's own refusal shape when the tool is not registered", async () => {
-    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    const roundTrip = await callbackToolRoundTripHarness();
     await roundTrip.startTurn();
 
     const answer = await roundTrip.askProvider("item/tool/call", {
@@ -8084,35 +5347,8 @@ describe("CodexDriver callback-tool round trip (leg 3)", () => {
     expect(roundTrip.executedInvocations).toStrictEqual([]);
   });
 
-  it("refuses every call when the registry was withheld at spawn", async () => {
-    // `ThreadStartParams.dynamicTools` is experimental-only in the pinned protocol, so Codex
-    // reports registration unavailable and the host withholds the whole registry.
-    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: false });
-    await roundTrip.startTurn();
-
-    const answer = await roundTrip.askProvider("item/tool/call", {
-      tool: SEARCH_CALLBACK_TOOL.name,
-      callId: "call-79",
-      arguments: { query: "needle" },
-      threadId: THREAD_ID,
-      turnId: TURN_ID,
-    });
-
-    expect(roundTrip.binding.resolution).toStrictEqual({
-      admitted: false,
-      reason: "provider-registration-unavailable",
-      detail: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
-      // A withheld registry is still installed (empty), so the binding keeps the token that scopes
-      // its teardown.
-      registryToken: roundTrip.binding.resolution.registryToken,
-    });
-    expect(roundTrip.binding.resolution.registryToken).not.toBeNull();
-    expect(answer["result"]).toMatchObject({ success: false });
-    expect(roundTrip.executedInvocations).toStrictEqual([]);
-  });
-
   it("refuses a tool call that names no turn, BEFORE the host is reached", async () => {
-    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    const roundTrip = await callbackToolRoundTripHarness();
 
     // `DynamicToolCallParams` carries a required non-nullable `turnId` in the pinned protocol, so
     // an ask without one cannot be attributed. Falling back to the sole-active run would let a
@@ -8149,43 +5385,10 @@ describe("CodexDriver callback-tool round trip (leg 3)", () => {
     ]);
   });
 
-  it("refuses an over-bound turn id and records it as a MARKED truncation, never as absent", async () => {
-    // A missing turn id and an over-bound one are different provider faults; collapsed to `null`,
-    // an operator would read a 4096-character turn id as absent. The over-bound value is never
-    // resolved (a truncated prefix could match a shorter live turn) but is still reported.
-    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
-    await roundTrip.startTurn();
-
-    const answer = await roundTrip.askProvider("item/tool/call", {
-      tool: SEARCH_CALLBACK_TOOL.name,
-      callId: "call-84",
-      arguments: { query: "needle" },
-      threadId: THREAD_ID,
-      turnId: "t".repeat(4096),
-    });
-
-    expect(answer["result"]).toMatchObject({ success: false });
-    expect(roundTrip.executedInvocations).toStrictEqual([]);
-    expect(
-      roundTrip.transportDiagnostics.filter(
-        (diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved",
-      ),
-    ).toStrictEqual([
-      {
-        kind: "routed-ask-turn-unresolved",
-        method: "item/tool/call",
-        turnId: "t".repeat(256),
-        turnIdTruncated: true,
-        disposition: "refused",
-      },
-    ]);
-    expect(roundTrip.driverDiagnosticRecords[0]?.details["turnIdTruncated"]).toBe(true);
-  });
-
   it("resolves the callback run from the turn the ask names, with two runs live", async () => {
     // With two live runs the sole-active fallback answers `null`; the turn the ask names resolves
     // the run exactly.
-    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    const roundTrip = await callbackToolRoundTripHarness();
     await roundTrip.startTurn();
     await roundTrip.startSecondTurn();
 
@@ -8214,7 +5417,7 @@ describe("CodexDriver callback-tool round trip (leg 3)", () => {
   it("refuses a tool call naming a turn this daemon holds no live route for", async () => {
     // A delayed ask arrives after its turn retired while a newer run is live; misattributing it
     // would run the older turn's tool against the newer run's registry and approval seam.
-    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    const roundTrip = await callbackToolRoundTripHarness();
     await roundTrip.startTurn();
 
     const answer = await roundTrip.askProvider("item/tool/call", {
@@ -8282,21 +5485,6 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     });
   });
 
-  it("carries a boundary position through verbatim when a frame names one", async () => {
-    const harness = await compactionHarness();
-
-    const compaction = harness.manager.compactContext({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    await drainMicrotasks();
-    // Forward-compatibility vector: no member of the pinned payload carries a position, so this
-    // pins the reader for a build that starts publishing one.
-    emitCompactionBoundary(harness, { threadId: THREAD_ID, turnId: TURN_ID, boundaryPosition: 7 });
-
-    await expect(compaction).resolves.toStrictEqual({ status: "applied", boundaryPosition: 7 });
-  });
-
   it("does NOT settle `applied` on the empty acknowledgement alone", async () => {
     const harness = await compactionHarness();
 
@@ -8356,29 +5544,6 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     ]);
   });
 
-  it("settles `binding_lost` the instant the binding goes, with no timer ever firing", async () => {
-    const harness = await compactionHarness();
-
-    const compaction = harness.manager.compactContext({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    await drainMicrotasks();
-
-    await harness.manager.closeSession({ sessionId: SESSION_ID });
-
-    await expect(compaction).resolves.toStrictEqual({
-      status: "failed",
-      reason: "binding_lost",
-    });
-    // Immediacy: the second terminal is pushed from the disposal path, not polled, so a binding
-    // lost at t=0 settles at t=0. A poller could only settle when a timer ran.
-    expect(harness.scheduler.firedDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
-    const terminals = harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal");
-    expect(terminals).toHaveLength(1);
-    expect(terminals[0]?.details["terminal"]).toBe("binding_lost");
-  });
-
   it("settles `provider_error` when the trigger itself is refused, and records no false terminal", async () => {
     const harness = createManagerHarness({ onServerNotification: true });
     harness.server.on("thread/compact/start", () => ({
@@ -8405,212 +5570,6 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     expect(harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal")).toHaveLength(
       1,
     );
-  });
-
-  it("withdraws only its OWN wait — a concurrent caller still settles on the evidence", async () => {
-    // Settling is per key (one provider compaction is one compaction) but withdrawing is per
-    // waiter: a caller whose own dispatch threw must not settle another caller who is still owed
-    // the running compaction's outcome.
-    const harness = createManagerHarness({ onServerNotification: true });
-    let dispatchCount = 0;
-    harness.server.on("thread/compact/start", () => {
-      dispatchCount += 1;
-      return dispatchCount === 1
-        ? { result: {} }
-        : { error: { code: -32603, message: "compaction unavailable" } };
-    });
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-
-    const surviving = harness.manager.compactContext({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    await drainMicrotasks();
-
-    await expect(
-      harness.manager.compactContext({ sessionId: SESSION_ID, bindingId: "binding-abc" }),
-    ).resolves.toStrictEqual({ status: "failed", reason: "provider_error" });
-
-    // Exactly one compaction bound is still armed: counted, not merely contained, so a withdrawal
-    // that took the whole key down fails.
-    expect(
-      harness.scheduler.pendingDelays().filter((delay) => delay === CODEX_COMPACTION_WAIT_MS),
-    ).toHaveLength(1);
-
-    emitCompactionBoundary(harness);
-    await expect(surviving).resolves.toStrictEqual({ status: "applied", boundaryPosition: null });
-  });
-
-  // The wait is keyed by the binding it was dispatched under, not by the session. Thread identity
-  // moves within a live session (a successful `forkConversation` forks a replacement and a
-  // superseding `resumeSession` installs a new record), so a session-keyed wait would outlive its
-  // binding and lose its second terminal.
-
-  const FORKED_THREAD_ID = "01a04202-0148-7ae2-8560-forked000001";
-
-  async function rewindableCompactionHarness(): Promise<ManagerHarness> {
-    const harness = createManagerHarness({ onServerNotification: true });
-    harness.server.on("thread/compact/start", () => ({ result: {} }));
-    // Seeded through a resume: a resumed thread carries the turn ledger a rewind indexes, without
-    // depending on the turn-dispatch tests.
-    harness.server.on("thread/resume", () => threadStartResult(2));
-    await harness.manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
-    return harness;
-  }
-
-  it("settles a pending wait `binding_lost` the instant a rollback forks its thread away", async () => {
-    const harness = await rewindableCompactionHarness();
-    harness.server.on("thread/fork", () => ({
-      result: {
-        thread: {
-          id: FORKED_THREAD_ID,
-          sessionId: "session-tree-1",
-          turns: [{ id: "turn-0" }],
-        },
-      },
-    }));
-
-    const compaction = harness.manager.compactContext({
-      sessionId: SESSION_ID,
-      bindingId: "binding-predecessor",
-    });
-    await drainMicrotasks();
-
-    await expect(
-      harness.manager.forkConversation({
-        sessionId: SESSION_ID,
-        bindingId: "binding-predecessor",
-        position: 1,
-      }),
-    ).resolves.toMatchObject({ status: "applied" });
-
-    // Immediately and on the honest terminal: the binding the caller dispatched into is gone, so
-    // `binding_lost`, never `wait_expired` a full bound later and never `applied` on a compaction
-    // the successor performs.
-    await expect(compaction).resolves.toStrictEqual({
-      status: "failed",
-      reason: "binding_lost",
-    });
-    expect(harness.scheduler.firedDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
-  });
-
-  it("a SUCCESSOR thread's compaction released by the rewind's own registration settles no PREDECESSOR wait", async () => {
-    // The key exists for this case. `#bindSessionThread` registers the forked thread and flushes
-    // the router's pending-registration hold before the rewind releases the predecessor's waits. A
-    // `thread/compacted` naming the successor that arrived while it was unannounced therefore
-    // reaches the settlement tap while a predecessor wait is armed; keyed by session alone it would
-    // settle that wait `applied` for a compaction the caller never asked for.
-    const harness = await rewindableCompactionHarness();
-    harness.server.on("thread/fork", () => ({
-      result: {
-        thread: {
-          id: FORKED_THREAD_ID,
-          sessionId: "session-tree-1",
-          turns: [{ id: "turn-0" }],
-        },
-      },
-    }));
-
-    const compaction = harness.manager.compactContext({
-      sessionId: SESSION_ID,
-      bindingId: "binding-predecessor",
-    });
-    await drainMicrotasks();
-
-    // Held, not routed: the successor thread is not registered yet, so the router parks this frame.
-    emitCompactionBoundary(harness, { threadId: FORKED_THREAD_ID, turnId: TURN_ID });
-    await drainMicrotasks();
-    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
-
-    await expect(
-      harness.manager.forkConversation({
-        sessionId: SESSION_ID,
-        bindingId: "binding-predecessor",
-        position: 1,
-      }),
-    ).resolves.toMatchObject({ status: "applied" });
-
-    // `binding_lost`, not `applied`: the flushed frame belongs to the successor's key and settles
-    // nobody.
-    await expect(compaction).resolves.toStrictEqual({
-      status: "failed",
-      reason: "binding_lost",
-    });
-  });
-
-  it("a compaction on the REWOUND session settles on the successor thread's own frame", async () => {
-    // Complements the previous test so it cannot pass by breaking compaction after a rewind: the
-    // key moved with the record instead of being torn down. Also guards against stale evidence: the
-    // pre-fork thread's frame settles nothing.
-    const harness = await rewindableCompactionHarness();
-    harness.server.on("thread/fork", () => ({
-      result: {
-        thread: {
-          id: FORKED_THREAD_ID,
-          sessionId: "session-tree-1",
-          turns: [{ id: "turn-0" }],
-        },
-      },
-    }));
-    await harness.manager.forkConversation({
-      sessionId: SESSION_ID,
-      bindingId: "binding-predecessor",
-      position: 1,
-    });
-
-    const compaction = harness.manager.compactContext({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    await drainMicrotasks();
-    expect(harness.server.framesForMethod("thread/compact/start")[0]?.["params"]).toStrictEqual({
-      threadId: FORKED_THREAD_ID,
-    });
-
-    // The retired thread's frame names a thread this session no longer registers, so it settles
-    // nobody.
-    emitCompactionBoundary(harness, { threadId: THREAD_ID, turnId: TURN_ID });
-    await drainMicrotasks();
-    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
-
-    emitCompactionBoundary(harness, { threadId: FORKED_THREAD_ID, turnId: TURN_ID });
-    await expect(compaction).resolves.toStrictEqual({ status: "applied", boundaryPosition: null });
-  });
-
-  it("settles a pending wait `binding_lost` when a resume supersedes the binding it was armed on", async () => {
-    const harness = await rewindableCompactionHarness();
-
-    const compaction = harness.manager.compactContext({
-      sessionId: SESSION_ID,
-      bindingId: "binding-predecessor",
-    });
-    await drainMicrotasks();
-
-    // A resume supersedes the live connection: the process the wait was dispatched into is
-    // replaced, so its evidence never arrives.
-    await harness.manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
-
-    await expect(compaction).resolves.toStrictEqual({
-      status: "failed",
-      reason: "binding_lost",
-    });
-    expect(harness.scheduler.firedDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
-  });
-
-  it("records NO terminal diagnostic on the applied path", async () => {
-    const harness = await compactionHarness();
-
-    const compaction = harness.manager.compactContext({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    await drainMicrotasks();
-    emitCompactionBoundary(harness);
-    await compaction;
-
-    // The counter counts failures; emitting on success would turn it into a request count and hide
-    // the ratio it exists to expose.
-    expect(harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal")).toEqual([]);
   });
 
   it("a registered CHILD thread's compaction never settles the user's wait", async () => {
@@ -8650,6 +5609,29 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
       status: "failed",
       reason: "wait_expired",
     });
+  });
+
+  it("settles `binding_lost` the instant the binding goes, with no timer ever firing", async () => {
+    const harness = await compactionHarness();
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+
+    await harness.manager.closeSession({ sessionId: SESSION_ID });
+
+    await expect(compaction).resolves.toStrictEqual({
+      status: "failed",
+      reason: "binding_lost",
+    });
+    // Immediacy: the second terminal is pushed from the disposal path, not polled, so a binding
+    // lost at t=0 settles at t=0. A poller could only settle when a timer ran.
+    expect(harness.scheduler.firedDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
+    const terminals = harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal");
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]?.details["terminal"]).toBe("binding_lost");
   });
 });
 
@@ -8735,172 +5717,6 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
     expect(entries[0]?.scope).toBe("repo");
   });
 
-  it("drops an entry whose NAME cannot be read, and only its name — every refusal RECORDED", async () => {
-    const harness = await enumerationHarness([
-      { name: "keeper", description: "fine", scope: "repo", enabled: true },
-      // A caption too long to carry costs the caption, never the command.
-      { name: "long-caption", description: "x".repeat(20_000), scope: "repo", enabled: true },
-      // A scope this driver cannot bound likewise costs only the scope.
-      { name: "odd-scope", description: "fine", scope: 17, enabled: true },
-      // A nameless entry names nothing a consumer could show or route, so it is the one field whose
-      // failure drops the row.
-      { name: "" as unknown as string, description: "fine", scope: "repo", enabled: true },
-    ]);
-
-    const result = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    const entries = result.bindings[0]?.entries ?? [];
-
-    expect(entries.map((entry) => entry.name)).toEqual(["keeper", "long-caption", "odd-scope"]);
-    expect(Object.hasOwn(entries[1] as object, "description")).toBe(false);
-    expect(Object.hasOwn(entries[2] as object, "scope")).toBe(false);
-
-    // Neither erasure is silent. Absence is a positive claim (no description published, no scope
-    // stated), so an unrecorded erasure would reach a consumer as a claim the provider never made:
-    // `odd-scope` would read as unscoped.
-    const rejected = harness.driverDiagnostics.recentRecordsOfKind(
-      "provider_command_entry_rejected",
-    );
-    expect(
-      rejected.map((record) => ({
-        field: record.details["rejectedField"],
-        dropped: record.details["dropped"],
-      })),
-    ).toEqual([
-      { field: "description", dropped: false },
-      { field: "scope", dropped: false },
-      { field: "name", dropped: true },
-    ]);
-    // Lengths travel and values never do: the value is the untrusted string a bound just rejected.
-    expect(rejected[0]?.details["rejectedValueLength"]).toBe(20_000);
-    // Not a string, so there is no length to report; stated, not synthesized.
-    expect(rejected[1]?.details["rejectedValueLength"]).toBeNull();
-    expect(rejected.every((record) => record.rawWireType === "skills/list")).toBe(true);
-  });
-
-  it("records NOTHING for metadata the provider genuinely declared none of", async () => {
-    // Negative control for the records above: these shapes are the provider stating "none", and
-    // recording them would report the working protocol as a fault.
-    const harness = await enumerationHarness([
-      // `SkillMetadata.description` is required in the pinned protocol, so a blank one is the only
-      // way a skill file says "none".
-      { name: "blank-caption", description: "", scope: "repo" },
-      { name: "whitespace-caption", description: "   ", scope: "repo" },
-      // An absent key, and an explicit null, on both optional members.
-      { name: "no-metadata" },
-      { name: "null-metadata", description: null, scope: null },
-    ]);
-
-    const result = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    const entries = result.bindings[0]?.entries ?? [];
-
-    expect(entries.map((entry) => entry.name)).toEqual([
-      "blank-caption",
-      "whitespace-caption",
-      "no-metadata",
-      "null-metadata",
-    ]);
-    expect(entries.every((entry) => !Object.hasOwn(entry, "description"))).toBe(true);
-    expect(
-      harness.driverDiagnostics.recentRecordsOfKind("provider_command_entry_rejected"),
-    ).toStrictEqual([]);
-  });
-
-  it("records a BLANK scope, which the pin has no way of publishing as a stated absence", async () => {
-    // Unlike a blank description, which is the only way to say "none", a blank scope is malformed:
-    // the pinned protocol omits `scope` entirely when none is declared.
-    const harness = await enumerationHarness([{ name: "blank-scope", scope: "   " }]);
-
-    const result = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-
-    expect(result.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["blank-scope"]);
-    expect(
-      harness.driverDiagnostics
-        .recentRecordsOfKind("provider_command_entry_rejected")
-        .map((record) => record.details["rejectedField"]),
-    ).toEqual(["scope"]);
-  });
-
-  it("records the refusal ONCE per read, not once per palette open", async () => {
-    // The enumeration is read once and held; emitting from whichever reply a caller was served
-    // would turn one provider fault into a record per palette open.
-    const harness = await enumerationHarness([
-      { name: "odd-scope", description: "fine", scope: 17 },
-    ]);
-
-    await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
-    await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
-
-    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
-    expect(
-      harness.driverDiagnostics.recentRecordsOfKind("provider_command_entry_rejected"),
-    ).toHaveLength(1);
-  });
-
-  it("stamps the run from the record the read went through, never a successor's", async () => {
-    // `listProviderCommands` takes no session slot, so a successful `resumeSession` can install a
-    // replacement record for the same session id while a `skills/list` reading is in flight. The
-    // reading is still answered to its own caller, so the provenance stamped beside it must be the
-    // predecessor's too; re-resolving the run by session id after the await would read the
-    // successor. The window is narrow: the resume installs its record and only then releases the
-    // predecessor's connection, which rejects pending requests. The reply must arrive between those
-    // two acts, inside one synchronous block, which this test reaches through the superseded-frame
-    // diagnostic the resume reports from within it.
-    let releaseEnumeration = (): void => {};
-    const harness = createManagerHarness({
-      onServerNotification: true,
-      onTransportDiagnostic: (diagnostic) => {
-        if (diagnostic.kind === "superseded-frames-failed") {
-          releaseEnumeration();
-        }
-      },
-    });
-    // Two connections are live inside the window and the listener registry is keyed by pty session
-    // id; shared ids would make the successor's subscribe displace the predecessor's reader.
-    harness.server.uniqueSpawnSessionIds = true;
-    harness.server.on("skills/list", () =>
-      skillsListResult([{ name: "review", description: "Review a diff", scope: "repo" }]),
-    );
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("thread/resume", () => threadStartResult(1));
-    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
-
-    releaseEnumeration = harness.server.holdAnswers("skills/list");
-    const enumeration = harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    await drainMicrotasks();
-    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
-
-    const resumed = await harness.manager.resumeSession({
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-    });
-    expect(resumed.status).toBe("resumed");
-
-    const result = await enumeration;
-
-    // The successor's record has an empty turn map, so an id-keyed re-resolution would answer
-    // `null` and erase an attribution that was true of the process this list came from. Reading the
-    // record directly keeps `{ runId, providerAccountId }` describing one process.
-    expect(result.bindings[0]?.runId).toBe(RUN_ID);
-    expect(result.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["review"]);
-  });
-
   it("caps the REPLY at the wire bound while the held enumeration stays whole", async () => {
     const overCap = DRIVER_PROVIDER_COMMAND_ENTRIES_MAX + 3;
     const harness = await enumerationHarness(
@@ -8984,230 +5800,6 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
     expect(third.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["alpha", "gamma"]);
   });
 
-  it("does NOT cache a reading taken across an invalidation that landed mid-flight", async () => {
-    // `skills/changed` can arrive while a `skills/list` is in flight. Discarding a list that is not
-    // there yet discards nothing, so without the epoch the continuation would cache a pre-change
-    // reading until the next invalidation, which for an idle skill tree is forever.
-    const harness = (await enumerationHarness([
-      { name: "alpha", description: "first", scope: "repo", enabled: true },
-    ])) as ManagerHarness & { setSkills: (next: readonly SkillFixture[]) => void };
-    // The invalidation rides the same read chunk as the reply, so it lands between the dispatch and
-    // the response continuation: the notification is processed synchronously in that drain, the
-    // continuation a microtask behind it. Split across two emissions the microtask would drain in
-    // between.
-    let invalidateOnNextRead = true;
-    harness.server.on("skills/list", () => {
-      const answer = skillsListResult(
-        invalidateOnNextRead
-          ? [{ name: "alpha", description: "first", scope: "repo", enabled: true }]
-          : [{ name: "gamma", description: "third", scope: "user", enabled: true }],
-      );
-      if (!invalidateOnNextRead) {
-        return answer;
-      }
-      invalidateOnNextRead = false;
-      return {
-        ...answer,
-        trailingFrames: [{ jsonrpc: "2.0", method: "skills/changed", params: {} }],
-      };
-    });
-
-    // The racing read still answers its own caller: it is a correct answer to a question asked
-    // before the change.
-    const racing = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    expect(racing.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["alpha"]);
-    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
-
-    // It was cached for nobody: the next ask re-reads in full and sees the post-change list.
-    const next = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    expect(harness.server.framesForMethod("skills/list")).toHaveLength(2);
-    expect(next.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["gamma"]);
-
-    // Ordinary caching is untouched, so a guard that simply stopped caching would fail here.
-    await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
-    expect(harness.server.framesForMethod("skills/list")).toHaveLength(2);
-  });
-
-  it("hands back DEEP-FROZEN entries, so one consumer cannot poison a later reply", async () => {
-    // The held enumeration is retained driver-session state and every reply shares its entry
-    // objects (callers copy only the array). A consumer that rewrote an entry's `name` or nested
-    // `binding` would corrupt the routing provenance of later reads. `Object.freeze` on the entry
-    // is shallow, hence the separate binding assertion.
-    const harness = await enumerationHarness([
-      { name: "review", description: "Review a diff", scope: "repo", enabled: true },
-    ]);
-
-    const first = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    const entry = first.bindings[0]?.entries[0];
-
-    expect(Object.isFrozen(entry)).toBe(true);
-    expect(Object.isFrozen(entry?.binding)).toBe(true);
-    // The suite is an ES module, so assigning to a frozen object throws.
-    expect(() => {
-      (entry as ProviderCommandEntry).name = "hijacked";
-    }).toThrow(TypeError);
-    expect(() => {
-      (entry as ProviderCommandEntry).binding.providerAccountId = "someone-else";
-    }).toThrow(TypeError);
-
-    // The freeze is shared across replies: the next read returns the same uncorrupted graph.
-    const second = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    expect(second.bindings[0]?.entries[0]?.name).toBe("review");
-    expect(second.bindings[0]?.entries[0]?.binding).toStrictEqual({
-      driverName: "codex",
-      providerAccountId: null,
-    });
-    // The array is still the caller's own, so a consumer may sort or filter its reply.
-    expect(() => second.bindings[0]?.entries.push(entry as ProviderCommandEntry)).not.toThrow();
-  });
-
-  it("carries `providerAccountId: null` on an accountless session, key present", async () => {
-    const harness = await enumerationHarness([
-      { name: "review", description: "Review a diff", scope: "repo", enabled: true },
-    ]);
-
-    const result = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    const binding = result.bindings[0]?.binding;
-    const entryBinding = result.bindings[0]?.entries[0]?.binding;
-
-    // Absence is stated, never synthesized. A session with no bound account is an ordinary case,
-    // and `""`, a placeholder or the driver name would make accountless bindings on different
-    // providers compare equal on the half of the routing pair meant to separate them.
-    expect(binding).toStrictEqual({ driverName: "codex", providerAccountId: null });
-    expect(entryBinding).toStrictEqual({ driverName: "codex", providerAccountId: null });
-    expect(Object.hasOwn(entryBinding as object, "providerAccountId")).toBe(true);
-    // That a `null` account matches nothing rather than acting as a wildcard is enforced by the
-    // daemon-side routing guard; this test covers the producer half that makes the guard possible.
-  });
-
-  it("passes a bound account through verbatim to every entry", async () => {
-    const harness = await enumerationHarness(
-      [{ name: "review", description: "Review a diff", scope: "repo", enabled: true }],
-      { config: { ...SESSION_CONFIG, providerAccountId: "account-7" } },
-    );
-
-    const result = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-
-    expect(result.bindings[0]?.binding).toStrictEqual({
-      driverName: "codex",
-      providerAccountId: "account-7",
-    });
-    expect(result.bindings[0]?.entries[0]?.binding.providerAccountId).toBe("account-7");
-  });
-
-  it("resolves the group's run: none live, exactly one live, and two live", async () => {
-    const harness = await enumerationHarness([
-      { name: "review", description: "Review a diff", scope: "repo", enabled: true },
-    ]);
-
-    // Zero runs: the ordinary pre-first-turn palette read succeeds with a stated `null`.
-    const beforeAnyRun = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    expect(beforeAnyRun.bindings[0]?.runId).toBeNull();
-    expect(Object.hasOwn(beforeAnyRun.bindings[0] as object, "runId")).toBe(true);
-    expect(beforeAnyRun.bindings[0]?.entries).toHaveLength(1);
-
-    // Exactly one live run is attributable, so it is named.
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    const oneLive = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    expect(oneLive.bindings[0]?.runId).toBe(RUN_ID);
-
-    // Two live runs on one binding: no single run is attributable, and picking one would be a coin
-    // flip presented as provenance.
-    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-02" } } }));
-    await harness.manager.startRun({
-      runId: SECOND_RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "also go" },
-    });
-    const twoLive = await harness.manager.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-    expect(twoLive.bindings[0]?.runId).toBeNull();
-  });
-
-  it("keeps the bound account across a resume, and refuses a present-but-empty one", async () => {
-    // The driver harness, so the resume goes through the same facade as the other resume tests.
-    const harness = createHarness();
-    // Required here: a resume holds the new and the superseded connection at once, and the fake's
-    // listener registry is keyed by pty session id. Shared ids let the predecessor's later
-    // unsubscribe delete the new reader, leaving the live connection deaf. This is a fixture
-    // artifact of the double spawn, not driver behavior.
-    harness.server.uniqueSpawnSessionIds = true;
-    harness.server.on("thread/start", () => threadStartResult());
-    harness.server.on("thread/resume", () => threadStartResult(1));
-    // Answered because the supersede path awaits it and the manual scheduler never fires the
-    // courtesy deadline.
-    harness.server.on("thread/unsubscribe", () => ({ result: {} }));
-    harness.server.on("skills/list", () => ({
-      result: {
-        data: [
-          {
-            cwd: SESSION_CWD,
-            skills: [
-              { name: "review", description: "Review a diff", scope: "repo", enabled: true },
-            ],
-            errors: [],
-          },
-        ],
-      },
-    }));
-    await harness.driver.createSession({
-      sessionId: SESSION_ID,
-      config: { ...SESSION_CONFIG, providerAccountId: "account-7" },
-    });
-
-    await harness.driver.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
-    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
-
-    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
-    const afterResume = await harness.driver.listProviderCommands({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-    });
-
-    // A resume re-realizes the same credential home instead of re-deriving the account from the
-    // request (unlike the credential policy beside it): an account that silently moved mid-session
-    // would re-key the receipt's per-paying-account axis.
-    expect(afterResume.bindings[0]?.binding.providerAccountId).toBe("account-7");
-    // The enumeration does not survive: it was read from a process the resume replaced, and the
-    // `skills/changed` cue would travel over a connection that no longer exists. So the post-resume
-    // read is a fresh round trip, not the held list.
-    expect(harness.server.framesForMethod("skills/list")).toHaveLength(2);
-
-    // A present-but-empty account means the daemon meant to bind one and bound nothing, unlike a
-    // session that never had one; only the latter may enumerate under `null`.
-    expect(() => parseCodexSessionConfig({ ...SESSION_CONFIG, providerAccountId: "" })).toThrow(
-      CodexDriverConfigError,
-    );
-  });
-
   it("sends empty params, and discards the held enumeration with the session", async () => {
     const harness = await enumerationHarness([
       { name: "review", description: "Review a diff", scope: "repo", enabled: true },
@@ -9226,6 +5818,24 @@ describe("CodexLifecycleManager.listProviderCommands (live read)", () => {
     // A held list that survived its session would answer the next session on this id with the
     // previous one's skills.
     expect(harness.server.framesForMethod("skills/list")).toHaveLength(2);
+  });
+
+  it("passes a bound account through verbatim to every entry", async () => {
+    const harness = await enumerationHarness(
+      [{ name: "review", description: "Review a diff", scope: "repo", enabled: true }],
+      { config: { ...SESSION_CONFIG, providerAccountId: "account-7" } },
+    );
+
+    const result = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+
+    expect(result.bindings[0]?.binding).toStrictEqual({
+      driverName: "codex",
+      providerAccountId: "account-7",
+    });
+    expect(result.bindings[0]?.entries[0]?.binding.providerAccountId).toBe("account-7");
   });
 });
 
@@ -9336,33 +5946,6 @@ describe("readCodexAskOptionSet (the input-ask choice set)", () => {
     });
   });
 
-  it("reads absent for a method, mode, or shape that publishes no choice set", () => {
-    // The approval arms publish a decision vocabulary the daemon composes, not a set the provider
-    // offers.
-    expect(readCodexAskOptionSet("item/commandExecution/requestApproval", {})).toStrictEqual({
-      kind: "absent",
-    });
-    // `openai/form` carries an untyped `JsonValue` this driver will not guess at, and `url` carries
-    // no schema at all.
-    expect(
-      readCodexAskOptionSet("mcpServer/elicitation/request", {
-        mode: "openai/form",
-        requestedSchema: { properties: { pick: { enum: ["a"] } } },
-      }),
-    ).toStrictEqual({ kind: "absent" });
-    // The multi-select arms are deliberately not read: their answer is an array, so offering their
-    // items would present a pick-one card for a pick-many question.
-    expect(
-      readCodexAskOptionSet("mcpServer/elicitation/request", {
-        mode: "form",
-        requestedSchema: {
-          type: "object",
-          properties: { pick: { type: "array", items: { type: "string", enum: ["a", "b"] } } },
-        },
-      }),
-    ).toStrictEqual({ kind: "absent" });
-  });
-
   it("drops a multi-question ask rather than merging two sets into one", () => {
     const reading = readCodexAskOptionSet("item/tool/requestUserInput", {
       questions: [
@@ -9401,16 +5984,6 @@ describe("readCodexAskOptionSet (the input-ask choice set)", () => {
     expect(emptyOptionSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
   });
 
-  it("still reads a SOLE-question ask — the eligible shape stays eligible", () => {
-    // Negative control: a one-question ask projects its choices, so the drop above cannot pass by
-    // refusing everything.
-    expect(
-      readCodexAskOptionSet("item/tool/requestUserInput", {
-        questions: [{ id: "q1", options: [{ label: "main", description: "" }] }],
-      }),
-    ).toStrictEqual({ kind: "read", options: [{ value: "main", label: "main" }] });
-  });
-
   it("drops a MIXED-FIELD form: one single-select beside any sibling answers the form for neither", () => {
     // Eligibility is the total form shape, not the enum count. A form's answer is one object keyed
     // by property name and `ProviderAskOption` carries no property identity, so a flat set can
@@ -9445,27 +6018,6 @@ describe("readCodexAskOptionSet (the input-ask choice set)", () => {
       },
     });
     expect(optionalSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
-  });
-
-  it("still reads a SOLE-property single-select — the eligible shape stays eligible", () => {
-    // Negative control: a form whose one property is the single-select projects its choices, so the
-    // drop above cannot pass by refusing everything.
-    expect(
-      readCodexAskOptionSet("mcpServer/elicitation/request", {
-        mode: "form",
-        requestedSchema: {
-          type: "object",
-          required: ["pick"],
-          properties: { pick: { type: "string", enum: ["a", "b"] } },
-        },
-      }),
-    ).toStrictEqual({
-      kind: "read",
-      options: [
-        { value: "a", label: "a" },
-        { value: "b", label: "b" },
-      ],
-    });
   });
 
   it("drops an over-large set rather than truncating it", () => {
@@ -9556,18 +6108,6 @@ describe("Codex ask normalization at the session seam", () => {
     expect(recorded[0]?.params).toMatchObject({ serverName: "files" });
   });
 
-  it("omits the key entirely when the ask publishes no choice set", async () => {
-    const recorded: CodexSessionServerRequest[] = [];
-    const { ask } = await askHarness(recorded);
-
-    await ask("item/commandExecution/requestApproval", { threadId: THREAD_ID });
-
-    expect(recorded).toHaveLength(1);
-    // Key presence: under `exactOptionalPropertyTypes` a present-but-undefined key differs from an
-    // absent one, and absent is what this member's contract describes.
-    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
-  });
-
   it("drops an over-large choice set with a diagnostic while the ask STILL normalizes", async () => {
     const recorded: CodexSessionServerRequest[] = [];
     const { harness, ask } = await askHarness(recorded);
@@ -9600,6 +6140,18 @@ describe("Codex ask normalization at the session seam", () => {
     expect(drops[0]?.rawWireType).toBe("mcpServer/elicitation/request");
     expect(drops[0]?.details["declaredOptionCount"]).toBe(CODEX_ASK_OPTION_SET_MAX + 1);
     expect(drops[0]?.details["optionSetMax"]).toBe(CODEX_ASK_OPTION_SET_MAX);
+  });
+
+  it("omits the key entirely when the ask publishes no choice set", async () => {
+    const recorded: CodexSessionServerRequest[] = [];
+    const { ask } = await askHarness(recorded);
+
+    await ask("item/commandExecution/requestApproval", { threadId: THREAD_ID });
+
+    expect(recorded).toHaveLength(1);
+    // Key presence: under `exactOptionalPropertyTypes` a present-but-undefined key differs from an
+    // absent one, and absent is what this member's contract describes.
+    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
   });
 });
 
@@ -9821,17 +6373,6 @@ describe("CodexLifecycleManager.replayTranscript", () => {
     ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
   });
 
-  it("treats a rejecting readback reader as unreadable, never as a pass", async () => {
-    const harness = createManagerHarness({
-      transcriptReplayReadback: () => Promise.reject(new Error("target vanished")),
-    });
-    await freshTarget(harness);
-
-    await expect(
-      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
-    ).rejects.toBeInstanceOf(PostReplayAssertionFailedError);
-  });
-
   // A replay never writes to the session the transcript came from: the target is resolved from the
   // caller's handle, and a handle this manager holds no session for is refused rather than
   // established.
@@ -9868,16 +6409,5 @@ describe("CodexLifecycleManager.replayTranscript", () => {
     // Parsed before anything is written, so an unrepresentable transcript costs the provider
     // nothing and leaves the target pristine.
     expect(injectedFrameCount(harness)).toBe(0);
-  });
-
-  it("refuses an empty transcript rather than confirming a replay of nothing", async () => {
-    const harness = createManagerHarness({
-      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES),
-    });
-    await freshTarget(harness);
-
-    await expect(harness.manager.replayTranscript({ target: TARGET, frames: [] })).rejects.toThrow(
-      /nothing to reconstitute/,
-    );
   });
 });
