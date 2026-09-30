@@ -1,6 +1,6 @@
-// A sealed secret must be one the keychain kept, since a record written over a value
-// the keychain dropped names a secret that no run can resolve. These cases hold the
-// read-back check behind every seal and the cause a refusal carries.
+// A sealed secret must be one the keychain kept, since a record written over a dropped value
+// names a secret no run can resolve. These cases hold the read-back check behind every seal and
+// the cause a refusal carries.
 import type { WorkflowSecretId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 

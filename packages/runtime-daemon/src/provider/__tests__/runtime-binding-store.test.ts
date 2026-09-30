@@ -1,41 +1,20 @@
-// RuntimeBindingStore behavior.
-//
-// Exercises CRUD + the provider-output write-seam validation over a REAL Local
-// SQLite handle via `openDatabase(":memory:")` — so BOTH the Zod write-seam
-// layer AND the DB CHECK constraints from `session/daemon-schema.ts` fire
-// end-to-end. A fresh private in-memory DB is opened per test (the schema is
-// applied each time; the WAL pragma is a silent no-op on
-// `:memory:`), so there is no tmp-file/unlink lifecycle to manage.
-//
-// Coverage map (cites are the authoritative contract, not just the ACs):
-//   * nullability round-trips; length-edge accept/reject; whitespace-only + NUL
-//     rejection (the /\S/ + NUL hardening beyond the DB CHECK).
-//   * The store operates entirely over the local handle — every assertion below
-//     reads/writes the local DB, with no provider round-trip.
-//   * const↔Zod↔SQL-CHECK coherence: boundary fixtures are derived FROM the
-//     exported consts and INSERTed through `create()` (a real INSERT), so a
-//     const bumped above the SQL CHECK literal would pass Zod but fail the DB
-//     CHECK — making this test fail. The coherence is enforced, not commented.
-//   * `spawn_config` (recovery seam): the daemon-owned spawn-bound record is
-//     written at EVERY create and read back through the closed-key-set parser,
-//     so the resume assembly can rebuild `ResumeSessionParams`' data legs from
-//     the row rather than from a client request recovery does not have. A
-//     malformed record FAILS LOUD — a silently-empty posture would relaunch
-//     UNSANDBOXED — on the read paths AND on `update()`, whose in-transaction
-//     parse refuses to commit a patch onto a record this store cannot read back.
-//   * `cli_version_raw` / `cli_version_semver`: the binding record stores the
-//     handshake report as a PAIR; the both-or-neither DDL CHECK is exercised
-//     directly, an invalid report is refused at the write seam as a TYPED error
-//     before any row lands, and a half-present row staged out-of-band reads
-//     back as `null` rather than as a fabricated member.
-//   * Spawned-version carriers (invariant): the reading taken from the
-//     dereferenced build reaches the ROW — asserted by reading back out of
-//     the database under launcher drift, which the projection helpers
-//     alone cannot show.
-//   * `findByRuns` (ack-barrier input): batch lookup is synchronous,
-//     order-deterministic, duplicate-tolerant, and returns superseded history
-//     unfiltered — the caller owns the liveness intersection.
-//
+/**
+ * Tests for `RuntimeBindingStore` over a real in-memory SQLite handle, so both the Zod
+ * write-seam checks and the DDL CHECK constraints fire end to end. Each test opens a fresh
+ * database.
+ *
+ * - Boundary fixtures derive from the exported length constants and go through a real INSERT,
+ *   so a constant raised above its SQL CHECK literal fails here.
+ * - `spawn_config` is written at every create and read back through a closed-key-set parser.
+ *   A malformed record fails loudly, on the read paths and on `update()`, because a silently
+ *   empty posture would relaunch unsandboxed.
+ * - `cli_version_raw` / `cli_version_semver` are a pair: the DDL CHECK requires both or
+ *   neither, an invalid report is refused as a typed error before any row lands, and a
+ *   half-present row staged out of band reads back as `null`.
+ * - The reading taken from the dereferenced build reaches the stored row under launcher drift.
+ * - `findByRuns` is synchronous, order-deterministic and duplicate-tolerant, and returns
+ *   superseded history unfiltered; the caller owns the liveness intersection.
+ */
 
 import type {
   CallbackToolResult,
@@ -68,10 +47,6 @@ import {
   toBindingVersionCarriers,
 } from "../version-gate.js";
 
-// ----------------------------------------------------------------------------
-// Fixtures + per-test lifecycle
-// ----------------------------------------------------------------------------
-
 const RUN_ID: string = "run-01J0ND0000NN5J5J5J5J5J5J";
 const OTHER_RUN_ID: string = "run-01J0ND0000NN5K5K5K5K5K5K";
 const DRIVER_NAME: string = "claude";
@@ -89,9 +64,8 @@ afterEach(() => {
   }
 });
 
-// An ADVANCING clock: each call returns a distinct timestamp, so a "createdAt
-// preserved while updatedAt bumped" assertion is non-vacuous (a constant clock
-// could not distinguish the two timestamps).
+// An advancing clock: each call returns a distinct timestamp, so "createdAt preserved while
+// updatedAt bumped" cannot pass vacuously.
 function makeAdvancingClock(): () => string {
   let minute: number = 0;
   return () => {
@@ -101,7 +75,6 @@ function makeAdvancingClock(): () => string {
   };
 }
 
-// A collision-free deterministic id source.
 function makeIdSource(): () => string {
   let counter: number = 0;
   return () => `binding-${(counter++).toString()}`;
@@ -111,18 +84,14 @@ function makeStore(now: () => string = makeAdvancingClock()): RuntimeBindingStor
   return new RuntimeBindingStore(db, { now, newId: makeIdSource() });
 }
 
-// A CONSTANT clock — every row shares one `created_at`, which is what makes the
-// `findByRuns` ordering assertions test the `run_id` and `id` sort keys rather
-// than incidentally passing on a monotonic timestamp.
+// A constant clock gives every row one `created_at`, so the `findByRuns` ordering tests
+// exercise the `run_id` and `id` sort keys.
 function makeConstantClock(): () => string {
   return () => "2026-06-02T12:00:00.000Z";
 }
 
-// A fully-populated spawn-bound record: every member of the closed key set,
-// including the two minted-now/valued-later strings. Shaped as real contract
-// values (a `trusted` posture, a disabled subagent policy) rather than
-// placeholders, so the round-trip is over the shape the resume assembly will
-// actually rebuild.
+// A fully-populated spawn-bound record: every member of the closed key set, shaped as real
+// contract values.
 const EXECUTION_POSTURE: ExecutionPosture = {
   networkAccess: "none",
   writableRoots: ["/workspace/repo"],
@@ -144,10 +113,8 @@ const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
 
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 
-// Direct-SQL row insert, bypassing the store's write seam entirely. This is the
-// ONLY way to stage the two states the seam makes unrepresentable — a corrupt
-// `spawn_config` value and a half-present CLI-version pair — so the read path
-// and the DB CHECK can be tested for what they do when the seam is not there.
+// Direct-SQL insert that bypasses the write seam: the only way to stage a corrupt
+// `spawn_config` or a half-present CLI-version pair.
 function insertRawBinding(overrides: {
   id?: string;
   runId?: string;
@@ -174,12 +141,9 @@ function insertRawBinding(overrides: {
   return id;
 }
 
-// Stage a HALF-PRESENT CLI-version pair — a row the DDL CHECK makes unreachable
-// through EVERY ordinary write path (the CHECK test below pins exactly that), so
-// the read fold's both-columns requirement can only be exercised from here.
-// `PRAGMA ignore_check_constraints` is connection-scoped and is turned back OFF
-// in the same call, so no other statement in the test ever runs unchecked — the
-// pragma stages corrupt storage, it does not relax the suite.
+// Stages a half-present CLI-version pair, which the DDL CHECK makes unreachable through
+// ordinary writes. `ignore_check_constraints` is connection-scoped and turned back off in the
+// same call, so no other statement runs unchecked.
 function insertHalfPairBindingOutOfBand(overrides: {
   id?: string;
   runId?: string;
@@ -194,9 +158,8 @@ function insertHalfPairBindingOutOfBand(overrides: {
   }
 }
 
-// Corrupt a LANDED row's `spawn_config` behind the store's back. Both write
-// seams parse before they commit, so this is the only way to produce the state
-// the update path must refuse: a record already durable and already unreadable.
+// Corrupts a landed row's `spawn_config`. Both write seams parse before committing, so this is
+// the only way to get a durable, unreadable record.
 function corruptSpawnConfigOutOfBand(id: string, rawSpawnConfig: string): void {
   const info = db
     .prepare(`UPDATE runtime_bindings SET spawn_config = ? WHERE id = ?`)
@@ -206,8 +169,8 @@ function corruptSpawnConfigOutOfBand(id: string, rawSpawnConfig: string): void {
   }
 }
 
-// Raw column reads — the store's own accessors parse, so proving what actually
-// landed in the column needs a read that does not go through them.
+// Raw column reads: the store's accessors parse, so what actually landed needs a read that
+// bypasses them.
 function readRawSpawnConfig(id: string): string {
   const row = db.prepare(`SELECT spawn_config FROM runtime_bindings WHERE id = ?`).get(id) as
     | { spawn_config: string }
@@ -231,9 +194,8 @@ function readRawCliVersion(id: string): {
   return row;
 }
 
-// The mutable columns `update()` writes, read raw — required for the corrupt-row
-// case, where the store's own accessors refuse the row and so cannot report what
-// (if anything) the refused transaction left behind.
+// Reads the mutable columns raw: the store's accessors refuse a corrupt row, so they cannot
+// show what a refused transaction left behind.
 function readRawMutableColumns(id: string): {
   contract_version: string;
   resume_handle: string | null;
@@ -264,10 +226,6 @@ function countBindings(): number {
   };
   return row.total;
 }
-
-// ----------------------------------------------------------------------------
-// CRUD round-trips
-// ----------------------------------------------------------------------------
 
 describe("RuntimeBindingStore — CRUD round-trips", () => {
   it("create → findById round-trips every column", () => {
@@ -343,16 +301,13 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
     expect(updated).toBeDefined();
     expect(updated?.contractVersion).toBe("1.1.0");
     expect(updated?.runtimeMetadata).toEqual({ a: 2, b: 3 });
-    // Immutable columns unchanged.
     expect(updated?.id).toBe(created.id);
     expect(updated?.runId).toBe(created.runId);
     expect(updated?.driverName).toBe(created.driverName);
     expect(updated?.createdAt).toBe(created.createdAt);
-    // updatedAt bumped past createdAt (advancing clock).
     expect(updated?.updatedAt).not.toBe(created.updatedAt);
     expect(updated?.updatedAt).not.toBe(updated?.createdAt);
 
-    // The mutation is durable.
     expect(store.findById(created.id)).toEqual(updated);
   });
 
@@ -409,16 +364,10 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Accept-edge pinning (symmetric — pin BOTH sides so a <=→< off-by-one cannot
-// survive). Boundary fixtures are derived FROM the consts and round-trip through
-// a real INSERT, enforcing const↔Zod↔SQL-CHECK coherence.
-// ----------------------------------------------------------------------------
-
+// Both sides of each limit are pinned so a `<=` to `<` off-by-one cannot survive.
 describe("RuntimeBindingStore — length boundary (const-derived, end-to-end)", () => {
   it("accepts a CONTRACT_VERSION_MAX_LEN-length canonical semver and round-trips it", () => {
-    // A valid prerelease semver of exactly CONTRACT_VERSION_MAX_LEN chars:
-    // "1.0.0-" (6) + (MAX - 6) prerelease-identifier chars.
+    // `"1.0.0-"` is 6 characters; the rest pads the prerelease identifier to the maximum.
     const maxVersion: string = "1.0.0-" + "a".repeat(CONTRACT_VERSION_MAX_LEN - 6);
     expect(maxVersion.length).toBe(CONTRACT_VERSION_MAX_LEN);
 
@@ -477,10 +426,6 @@ describe("RuntimeBindingStore — length boundary (const-derived, end-to-end)", 
   });
 });
 
-// ----------------------------------------------------------------------------
-// Semver canonical-identity contract (pin the accept/reject sets exactly).
-// ----------------------------------------------------------------------------
-
 describe("RuntimeBindingStore — contract_version canonical-semver identity", () => {
   const accept: string[] = ["1.2.3", "1.0.0", "2.1.0-rc.1", "1.0.0-alpha.1"];
   const reject: string[] = ["1.0", "1", "01.2.3", "v1.2.3", " 1.2.3 ", "1.2.3+build.5", ""];
@@ -518,10 +463,6 @@ describe("RuntimeBindingStore — contract_version canonical-semver identity", (
     });
   }
 });
-
-// ----------------------------------------------------------------------------
-// resume_handle nullability + hardening.
-// ----------------------------------------------------------------------------
 
 describe("RuntimeBindingStore — resume_handle nullability + hardening", () => {
   it("omitted resumeHandle persists NULL and round-trips as null", () => {
@@ -580,10 +521,6 @@ describe("RuntimeBindingStore — resume_handle nullability + hardening", () => 
   });
 });
 
-// ----------------------------------------------------------------------------
-// runtime_metadata round-trip.
-// ----------------------------------------------------------------------------
-
 describe("RuntimeBindingStore — runtime_metadata", () => {
   it("round-trips a non-trivial nested object", () => {
     const metadata = {
@@ -615,11 +552,8 @@ describe("RuntimeBindingStore — runtime_metadata", () => {
     expect(store.findById(created.id)?.runtimeMetadata).toEqual({});
   });
 
-  // FIX 5: create() must return the JSON-ROUND-TRIPPED metadata so it agrees with
-  // findById() / update() (which reconstruct via JSON.parse). A value JSON
-  // normalizes away — here `{ b: undefined }` — is the discriminator: pre-fix
-  // create() returns the original object (key `b` PRESENT, value undefined),
-  // findById() returns the round-tripped form (key `b` ABSENT), so they disagree.
+  // create() returns the JSON-round-tripped metadata so it agrees with findById() and update().
+  // `{ b: undefined }` is the discriminator: JSON drops the key.
   it("create() returns runtime_metadata round-tripped, matching findById() (DB-as-source-of-truth)", () => {
     const store = makeStore();
     const created = store.create({
@@ -627,26 +561,19 @@ describe("RuntimeBindingStore — runtime_metadata", () => {
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
       spawnConfig: {},
-      // `b: undefined` is dropped by JSON.stringify, so the persisted/round-tripped
-      // form is `{ a: 1 }`. Pre-fix create() returned `{ a: 1, b: undefined }`.
+      // `b: undefined` is dropped by JSON.stringify, so the persisted form is `{ a: 1 }`.
       runtimeMetadata: { a: 1, b: undefined },
     });
 
     const found = store.findById(created.id);
     expect(found).toBeDefined();
-    // `toStrictEqual` (NOT `toEqual`) — `toEqual` IGNORES undefined-valued keys, so
-    // it would pass even pre-fix; `toStrictEqual` distinguishes a present
-    // undefined-valued key from an absent one, which is what makes this fail-before.
+    // `toStrictEqual`, not `toEqual`: `toEqual` ignores undefined-valued keys and would pass
+    // even if create() returned the unrounded object.
     expect(created.runtimeMetadata).toStrictEqual(found?.runtimeMetadata);
-    // And the round-tripped form is exactly `{ a: 1 }` (key `b` absent).
     expect(created.runtimeMetadata).toStrictEqual({ a: 1 });
     expect("b" in created.runtimeMetadata).toBe(false);
   });
 });
-
-// ----------------------------------------------------------------------------
-// findResumableBindings (recovery seam — functional now).
-// ----------------------------------------------------------------------------
 
 describe("RuntimeBindingStore — findResumableBindings", () => {
   it("returns only bindings with a non-null resume_handle", () => {
@@ -658,7 +585,7 @@ describe("RuntimeBindingStore — findResumableBindings", () => {
       spawnConfig: {},
       resumeHandle: "resumable-1",
     });
-    // No handle → must NOT appear.
+    // No handle: must not appear.
     store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
@@ -692,10 +619,6 @@ describe("RuntimeBindingStore — findResumableBindings", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// update revalidation (a rejected patch leaves the row unchanged).
-// ----------------------------------------------------------------------------
-
 describe("RuntimeBindingStore — update revalidation", () => {
   it("rejects an update to a non-canonical contract_version and leaves the row unchanged", () => {
     const store = makeStore();
@@ -711,7 +634,7 @@ describe("RuntimeBindingStore — update revalidation", () => {
       ProviderOutputValidationError,
     );
 
-    // Validation runs BEFORE the transaction, so the row is untouched.
+    // Validation runs before the transaction, so the row is untouched.
     const after = store.findById(created.id);
     expect(after?.contractVersion).toBe("1.0.0");
     expect(after?.updatedAt).toBe(created.updatedAt);
@@ -737,12 +660,10 @@ describe("RuntimeBindingStore — update revalidation", () => {
   });
 
   it("REFUSES an update onto a row whose stored spawn_config is unreadable, and commits NOTHING", () => {
-    // The read-side twin of the create seam's pre-INSERT parse. Committing a
-    // patch onto an unreadable record would make it newer, still unreadable, and
-    // now stamped with an `updated_at` implying this daemon wrote it — hiding
-    // the corruption from the recovery read that eventually trips over it. The
-    // parse therefore runs INSIDE the transaction, before the UPDATE, and its
-    // throw rolls the whole thing back.
+    // Committing a patch onto an unreadable record would make it newer, still unreadable, and
+    // stamped with an `updated_at` implying this daemon wrote it, hiding the corruption from
+    // the recovery read. So the parse runs inside the transaction before the UPDATE, and its
+    // throw rolls everything back.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,
@@ -761,33 +682,29 @@ describe("RuntimeBindingStore — update revalidation", () => {
       thrown = error;
     }
 
-    // A plain internal-invariant Error naming the row — corrupt DAEMON-WRITTEN
-    // storage, not provider input to reject at a trust boundary.
+    // A plain internal-invariant Error naming the row: corrupt daemon-written storage, not
+    // provider input.
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
     expect((thrown as Error).message).toContain(created.id);
     expect((thrown as Error).message).toContain("spawn_config");
 
-    // Nothing committed — read RAW, because the store's own accessors refuse
-    // this row and so could not distinguish "rolled back" from "unreadable".
+    // Read raw: the store's accessors refuse this row and could not tell "rolled back" from
+    // "unreadable".
     const raw = readRawMutableColumns(created.id);
     expect(raw.contract_version).toBe("1.0.0");
     expect(raw.resume_handle).toBe("handle-before");
     expect(raw.runtime_metadata).toBe(JSON.stringify({ attempt: 1 }));
-    // `updated_at` is the sharpest witness: the merge computed a fresh stamp
-    // from the advancing clock, so an UPDATE that reached the DB would have
-    // moved it even where the other three columns happened to match.
+    // `updated_at` is the sharpest witness: an UPDATE that reached the DB would have moved it
+    // from the advancing clock even if the other columns matched.
     expect(raw.updated_at).toBe(created.updatedAt);
     expect(readRawSpawnConfig(created.id)).toBe("{not json at all");
   });
 
   it("validates the patch BEFORE the existence check: absent id + invalid patch THROWS", () => {
-    // Precedence contract: the patch-shape asserts are an unconditional
-    // precondition on the argument and run before the existence lookup. So an
-    // invalid patch against a non-existent id THROWS (the patch is malformed
-    // regardless of whether the target row exists — fail fast on the real caller
-    // bug) rather than silently returning `undefined`. Contrast: an absent id
-    // with a VALID patch returns `undefined` (pinned in the CRUD block).
+    // The patch-shape asserts run before the existence lookup, so an invalid patch against an
+    // absent id throws (a caller bug) instead of returning `undefined`. An absent id with a
+    // valid patch returns `undefined` (pinned in the CRUD block).
     const store = makeStore();
     expect(() => store.update("absent-id", { contractVersion: "1.0" })).toThrow(
       ProviderOutputValidationError,
@@ -795,24 +712,17 @@ describe("RuntimeBindingStore — update revalidation", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// findByRuns — batch lookup (the local ack-barrier input).
-// ----------------------------------------------------------------------------
-
 describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
   it("empty input short-circuits to [] WITHOUT executing the statement", () => {
     const store = makeStore();
-    // Close the handle FIRST. Any statement execution against a closed
-    // connection throws, so a passing assertion below is positive proof that no
-    // query ran — not merely that the result happened to be empty.
+    // Close the handle first: any statement against a closed connection throws, so the passing
+    // assertion proves no query ran.
     db.close();
 
     expect(store.findByRuns([])).toEqual([]);
 
-    // Negative control ON THE CONTROL: the same call with a NON-empty list DOES
-    // execute, and therefore throws on the closed handle. Without this, a
-    // `findByRuns` that never queried at all would also pass the assertion
-    // above, and the test would prove nothing about the short-circuit.
+    // Negative control: the same call with a non-empty list does execute, and throws on the
+    // closed handle. Without it, a `findByRuns` that never queried would also pass.
     expect(() => store.findByRuns([RUN_ID])).toThrow();
   });
 
@@ -849,10 +759,8 @@ describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
   });
 
   it("returns SUPERSEDED pre-relaunch bindings alongside the current one", () => {
-    // A relaunch mints a NEW binding row and the pre-relaunch row is retained as
-    // history. The store owns no liveness column by design, so BOTH rows come
-    // back and the CALLER owns the liveness intersection — that unfiltered
-    // return is the contract, not a leak.
+    // A relaunch mints a new binding row and retains the old one as history. The store has no
+    // liveness column, so both come back and the caller owns the liveness intersection.
     const store = makeStore();
     const beforeRelaunch = store.create({
       runId: RUN_ID,
@@ -874,10 +782,9 @@ describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
   });
 
   it("orders by run_id, then created_at, then id — independent of input order", () => {
-    // A CONSTANT clock gives every row the same `created_at`, and the two runs
-    // are interleaved at creation time, so neither insertion order nor timestamp
-    // can explain the result: only the `run_id, id` sort keys can. The argument
-    // list is deliberately passed in the OPPOSITE run order.
+    // A constant clock gives every row the same `created_at`, and the two runs are interleaved
+    // at creation, so only the `run_id, id` sort keys can explain the result. The argument list
+    // is passed in the opposite run order.
     const store = makeStore(makeConstantClock());
     const otherFirst = store.create({
       runId: OTHER_RUN_ID,
@@ -928,10 +835,9 @@ describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
   });
 
   it("accepts an arity far beyond SQLITE_MAX_VARIABLE_NUMBER (the json_each design claim)", () => {
-    // The whole reason the run-id list travels as ONE json_each parameter rather
-    // than N generated `?` placeholders. SQLite's default parameter ceiling is
-    // 32766, so this list would be un-bindable as placeholders; through
-    // `json_each` it is a single argument and the ceiling does not apply.
+    // The run-id list travels as one `json_each` parameter rather than N `?` placeholders.
+    // SQLite's default parameter ceiling is 32766, so this list could not be bound as
+    // placeholders.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,
@@ -950,10 +856,6 @@ describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// spawn_config — recovery seam.
-// ----------------------------------------------------------------------------
-
 describe("RuntimeBindingStore — spawn_config", () => {
   it("round-trips the FULL spawn-bound record on create and on read", () => {
     const store = makeStore();
@@ -964,23 +866,17 @@ describe("RuntimeBindingStore — spawn_config", () => {
       spawnConfig: FULL_SPAWN_CONFIG,
     });
 
-    // `toStrictEqual` (not `toEqual`) so a member silently dropped to
-    // `undefined` by the parser cannot pass.
+    // `toStrictEqual`, so a member the parser silently dropped to `undefined` cannot pass.
     expect(created.spawnConfig).toStrictEqual(FULL_SPAWN_CONFIG);
     expect(store.findById(created.id)?.spawnConfig).toStrictEqual(FULL_SPAWN_CONFIG);
-    // And the batch reader parses it identically (one `#rowToDomain` for all
-    // four read paths).
+    // The batch reader parses it identically (one `#rowToDomain` serves every read path).
     expect(store.findByRuns([RUN_ID])[0]?.spawnConfig).toStrictEqual(FULL_SPAWN_CONFIG);
   });
 
   it("NEGATIVE CONTROL: a create carrying an executionPosture never leaves the raw column at '{}'", () => {
-    // The defect this pins is the one row calls out by name: a spawn that
-    // realizes a spawn-bound surface but persists nothing, leaving the column at
-    // its schema DEFAULT. Recovery would then rebuild a posture-less resume —
-    // an UNSANDBOXED relaunch — while every accessor above reported a successful
-    // create. Read through a RAW SELECT, because the store's own accessor parses
-    // `'{}'` into a perfectly valid empty record and could not tell the two
-    // apart.
+    // A spawn that realizes a spawn-bound surface but persists nothing would leave the column
+    // at its default `'{}'`, and recovery would relaunch without a posture, unsandboxed. Read
+    // with a raw SELECT, because the accessor parses `'{}'` into a valid empty record.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,
@@ -998,10 +894,8 @@ describe("RuntimeBindingStore — spawn_config", () => {
   });
 
   it("an EXPLICIT empty record is written as '{}' and reads back as all-absent", () => {
-    // The documented ambiguity: a genuinely-empty LIVE record and a DEFAULT row
-    // are indistinguishable by value. Pinned here so the ambiguity is a known
-    // property rather than a surprise — spawn writers always record
-    // `resolvedExecutablePath`, which is what resolves it in practice.
+    // A genuinely empty live record and a default row are indistinguishable by value; pinned
+    // as a known property.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,
@@ -1016,12 +910,9 @@ describe("RuntimeBindingStore — spawn_config", () => {
   });
 
   it("an untyped caller OMITTING spawnConfig is refused loudly — never a silent '{}' write", () => {
-    // The type system already makes omission unrepresentable for TS callers;
-    // this pins the runtime arm. A `?? {}` floor here would be the one
-    // live-write path into the pre-B10 ambiguity class pinned above, and its
-    // recovery-side failure mode is a posture-less resume relaunching
-    // unsandboxed — so the store refuses (internal-invariant Error, not a
-    // provider refusal) and no row lands.
+    // TypeScript callers cannot omit `spawnConfig`; this pins the runtime arm. A `?? {}` floor
+    // would write the ambiguous empty record, and a posture-less resume relaunches unsandboxed,
+    // so the store refuses with an internal-invariant Error and no row lands.
     const store = makeStore();
     const inputWithoutSpawnConfig = {
       runId: RUN_ID,
@@ -1048,9 +939,8 @@ describe("RuntimeBindingStore — spawn_config", () => {
   });
 
   it("create() returns the ROUND-TRIPPED record, matching findById() (DB-as-source-of-truth)", () => {
-    // Same discriminator as the runtime_metadata case above: a member JSON
-    // normalizes away must be absent from BOTH accessors, or `create()` and
-    // `findById()` disagree about what was stored.
+    // Same discriminator as the runtime_metadata case: a member JSON drops must be absent from
+    // both accessors.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,
@@ -1083,10 +973,9 @@ describe("RuntimeBindingStore — spawn_config", () => {
 
   for (const { label, raw } of malformed) {
     it(`FAILS LOUD on ${label} in the stored column`, () => {
-      // Loud failure is a SECURITY property, not tidiness: consumer rebuilds
-      // ResumeSessionParams from this record, and a silently-empty posture would
-      // resume UNSANDBOXED. The only safe reading of a record we cannot read is
-      // a refusal.
+      // Loud failure is a security property: the resume assembly rebuilds
+      // `ResumeSessionParams` from this record, and a silently empty posture would resume
+      // unsandboxed.
       const store = makeStore();
       const rawId = insertRawBinding({ id: "corrupt-row-1", spawnConfig: raw });
 
@@ -1098,9 +987,8 @@ describe("RuntimeBindingStore — spawn_config", () => {
       }
 
       expect(thrown).toBeInstanceOf(Error);
-      // A plain internal-invariant Error — NOT the provider-output type. This
-      // value is DAEMON-WRITTEN local state, so a malformation is corrupt
-      // storage, not misbehaving provider input to reject at a trust boundary.
+      // A plain internal-invariant Error, not the provider-output type: this is daemon-written
+      // local state, so a malformation is corrupt storage.
       expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
       // The row is named, so the operator can find the corrupt record.
       expect((thrown as Error).message).toContain(rawId);
@@ -1109,12 +997,9 @@ describe("RuntimeBindingStore — spawn_config", () => {
   }
 
   it("refuses an unreadable record at CREATE and lands no row", () => {
-    // Reachable only from an untyped caller (the closed key set is enforced by
-    // the input type), but the write path parses the serialized record BEFORE
-    // the INSERT anyway — the same "a rejected input never opens a write"
-    // discipline the provider-output seam follows. Without it, a record this
-    // store cannot read back would land durably and only fail on the read that
-    // recovery performs, which is the worst possible moment to find out.
+    // Reachable only from an untyped caller (the input type enforces the closed key set), but
+    // the write path parses the serialized record before the INSERT, so an unreadable record
+    // never lands durably to fail later in recovery.
     const store = makeStore();
     expect(() =>
       store.create({
@@ -1136,16 +1021,11 @@ describe("RuntimeBindingStore — spawn_config", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// cli_version_raw / cli_version_semver — the handshake version pair.
-// ----------------------------------------------------------------------------
-
 describe("RuntimeBindingStore — cliVersion pair", () => {
   it("rejects a bounded-but-unparseable semver and a non-canonical form at the seam", () => {
-    // A bounded garbage semver stored now poisons floor
-    // comparison at a call site far from the row that produced it. The seam
-    // applies the module's one semver predicate (`semver.valid(v) === v`, the same
-    // one the floor gate uses), so the two layers cannot disagree.
+    // A bounded garbage semver stored now would poison floor comparison far from the row that
+    // produced it. The seam applies the module's one semver predicate (`semver.valid(v) === v`,
+    // the floor gate's), so the layers cannot disagree.
     const store = makeStore();
     for (const unparseableSemver of ["not-a-version", "v1.2.3", " 1.2.3", "1.2"]) {
       let thrown: unknown;
@@ -1169,8 +1049,7 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
   });
 
   it("a THROWING accessor on the report surfaces as the typed leak-safe refusal", () => {
-    // The property reads are inside the getter/Proxy threat model: a throwing
-    // accessor must never escape as the caller object's own exception text.
+    // A throwing accessor must not escape as the caller object's own exception text.
     const store = makeStore();
     const reportWithThrowingAccessor = {
       get raw(): string {
@@ -1233,10 +1112,9 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
   });
 
   it("the DDL CHECK rejects a HALF-PRESENT pair written directly via SQL", () => {
-    // The seam makes a half-pair unrepresentable (one optional member carries
-    // both values), so this is the only way to test the column-layer guarantee
-    // the type-level one mirrors. Both directions, because the CHECK is an
-    // equality between two IS NULL tests and a one-sided version would pass one.
+    // The seam makes a half-pair unrepresentable (one optional member carries both values), so
+    // this is the only way to test the column-layer guarantee. Both directions, because the
+    // CHECK is an equality of two IS NULL tests.
     expect(() =>
       insertRawBinding({ id: "half-1", cliVersionRaw: CLI_VERSION.raw, cliVersionSemver: null }),
     ).toThrow(/CHECK constraint failed/);
@@ -1247,13 +1125,10 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
   });
 
   it("validates and persists ONE snapshot of the report — a getter cannot swap the value after validation", () => {
-    // TOCTOU. The report is PROVIDER-shaped input, so nothing stops its members
-    // being getters (or a Proxy). The seam therefore reads each member exactly
-    // once, into a plain object, BEFORE validating — and validates, binds, and
-    // returns that same object. A second read at bind time would let this
-    // fixture persist its SECOND value, which no validator ever saw: the DDL
-    // CHECK's length+NUL bounds would be all that stood between a hostile
-    // driver and a stored lie about which build answered the handshake.
+    // TOCTOU: the report is provider-shaped input, so its members may be getters or a Proxy.
+    // The seam reads each member once into a plain object before validating, then validates,
+    // binds and returns that same object. A second read at bind time would persist a value no
+    // validator saw.
     let rawReads: number = 0;
     const mutatingReport: DriverCliVersionReport = {
       get raw(): string {
@@ -1274,9 +1149,9 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
       spawnConfig: {},
     });
 
-    // The mechanism: exactly ONE read of the provider's member.
+    // Exactly one read of the provider's member.
     expect(rawReads).toBe(1);
-    // …and its consequences, at all three surfaces the snapshot feeds.
+    // The snapshot reaches the row, the return value and the re-read.
     expect(readRawCliVersion(created.id)).toEqual({
       cli_version_raw: CLI_VERSION.raw,
       cli_version_semver: CLI_VERSION.semver,
@@ -1286,13 +1161,10 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
   });
 
   it("reads a HALF-PRESENT stored pair as null — never a fabricated member", () => {
-    // Only reachable by out-of-band corruption (the CHECK test above pins that),
-    // which is exactly why the fold READS the both-or-neither guarantee instead
-    // of assuming it. Defaulting the absent sibling to `""` would manufacture a
-    // report the provider never gave — and an empty `semver` is precisely the
-    // value the floor gate cannot compare, so the fabrication would travel as a
-    // real reading rather than as an absent one. Both directions, because a fold
-    // keyed on one column alone passes one of them by accident.
+    // Only reachable by out-of-band corruption, which is why the fold reads the both-or-neither
+    // guarantee instead of assuming it. Defaulting the absent sibling to `""` would manufacture
+    // a report the provider never gave; an empty `semver` is exactly what the floor gate cannot
+    // compare. Both directions, because a fold keyed on one column alone passes one by accident.
     const store = makeStore();
     const rawOnlyId = insertHalfPairBindingOutOfBand({
       id: "half-pair-raw-only",
@@ -1306,8 +1178,8 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
       cliVersionSemver: CLI_VERSION.semver,
     });
 
-    // The staging really did land half-present rows (a pragma that silently
-    // failed would make the assertions below vacuous).
+    // The staging really landed half-present rows; a silently failed pragma would make the
+    // assertions vacuous.
     expect(readRawCliVersion(rawOnlyId)).toEqual({
       cli_version_raw: CLI_VERSION.raw,
       cli_version_semver: null,
@@ -1319,7 +1191,7 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 
     expect(store.findById(rawOnlyId)?.cliVersion).toBeNull();
     expect(store.findById(semverOnlyId)?.cliVersion).toBeNull();
-    // …through every read path, since all four share one `#rowToDomain`.
+    // Through every read path, since all share one `#rowToDomain`.
     expect(store.findByRun(RUN_ID)[0]?.cliVersion).toBeNull();
     expect(store.findByRuns([RUN_ID, OTHER_RUN_ID]).map((binding) => binding.cliVersion)).toEqual([
       null,
@@ -1328,9 +1200,8 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
   });
 
   it("the two-column CHECK survives an UPDATE that names neither column", () => {
-    // SQLite re-evaluates every CHECK on the row for EVERY write to it, not only
-    // for writes that name the constrained column. The update path must
-    // therefore carry the pair through untouched rather than dropping half of it.
+    // SQLite re-evaluates every CHECK on a row for every write to it, so the update path must
+    // carry the pair through untouched.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,
@@ -1428,19 +1299,17 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
         thrown = error;
       }
 
-      // A TYPED, leak-safe refusal — never a raw SqliteError from the DDL CHECK.
+      // A typed, leak-safe refusal, never a raw SqliteError from the DDL CHECK.
       expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
       const validationError = thrown as ProviderOutputValidationError;
       expect(validationError.fields?.["field"]).toBe(field);
-      // The daemon-controlled driver name is carried (which driver misbehaved);
-      // the provider-supplied VALUES are not. The message is a fixed sentence
-      // and the structured detail names the field + constraint only, so neither
-      // half of the error surface can carry the offending value.
+      // The daemon-controlled driver name is carried; the provider-supplied values are not. The
+      // message is a fixed sentence and the detail names the field and constraint only.
       expect(validationError.fields?.["driverName"]).toBe(DRIVER_NAME);
       expect(validationError.message).toBe("Invalid provider cli_version report.");
       const errorSurface: string = `${validationError.message} ${JSON.stringify(validationError.fields)}`;
-      // The empty-string fixtures are skipped: every string contains "", so the
-      // assertion would be vacuously false rather than meaningful.
+      // Empty-string fixtures are skipped: every string contains "", so the check would prove
+      // nothing.
       if (report.raw !== "") {
         expect(errorSurface).not.toContain(report.raw);
       }
@@ -1454,14 +1323,9 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
   }
 
   it("refuses a structurally malformed report object (runtime type erasure)", () => {
-    // Reachable only from an untyped caller — which is exactly the case the
-    // guard exists for: the static type is erased at runtime, so a malformed
-    // driver can ship `null` where the report belongs. `null` is passed
-    // DIRECTLY (no cast through `unknown`): the guard's parameter IS `unknown`,
-    // deliberately, so that a malformed report is a runtime judgment rather
-    // than a static assumption. Asserted here rather than in a validator-local
-    // module because this package has no dedicated `provider-output-validation`
-    // test file.
+    // Reachable only from an untyped caller: the static type is erased at runtime, so a
+    // malformed driver can ship `null`. `null` is passed directly because the guard's parameter
+    // is `unknown`, making a malformed report a runtime judgment.
     let thrown: unknown;
     try {
       assertValidCliVersionReport(DRIVER_NAME, null);
@@ -1474,25 +1338,17 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// The spawned-build reading reaches the ROW
-// ----------------------------------------------------------------------------
-
 describe("RuntimeBindingStore — spawned-version carriers", () => {
-  // `version-gate.test.ts` proves the READING is taken from the dereferenced
-  // build. This proves the value that reading produced is what a later reader
-  // gets back OUT OF THE DATABASE — through `create()`'s report validation, the
-  // both-or-neither DDL CHECK, and the closed-key-set `spawn_config` parser,
-  // none of which the in-memory projection helpers exercise. That end-to-end
-  // claim is what and invariant state: the version compared, the version
-  // recorded on the binding, and the version of the process that runs the
-  // session are ONE reading.
+  // `version-gate.test.ts` proves the reading is taken from the dereferenced build. This proves
+  // that value is what a later reader gets back out of the database, through `create()`'s
+  // report validation, the both-or-neither DDL CHECK and the `spawn_config` parser, none of
+  // which the in-memory projection helpers exercise: the version compared, the version
+  // recorded and the version run are one reading.
   const LAUNCHER_PATH: string = "/opt/homebrew/bin/claude";
   const DEREFERENCED_BUILD_PATH: string = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
 
-  // Keyed BY RESOLVED PATH — the launcher answers a build BELOW the ratified
-  // floor, so a resolver that failed to dereference would not merely record the
-  // wrong version: the read would REFUSE. Every assertion below therefore also
+  // Keyed by resolved path. The launcher answers a build below the version floor, so a
+  // resolver that failed to dereference would make the read refuse; every assertion also
   // witnesses which process was asked.
   const REPORTED_VERSION_BY_PATH: ReadonlyMap<string, string> = new Map([
     [LAUNCHER_PATH, "2.1.198"],
@@ -1509,10 +1365,9 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
     return { version: reportedVersion, buildTime: "2026-08-20T00:00:00Z" };
   }
 
-  // Injected rather than filesystem-backed: the drift is expressed as "realpath
-  // answers a different path than the candidate", which is the whole semantic
-  // content of a launcher symlink and runs on every platform (the real-symlink
-  // fixture in `version-gate.test.ts` is posix-gated).
+  // Injected rather than filesystem-backed: drift is "realpath answers a different path than
+  // the candidate", which runs on every platform (the real-symlink fixture in
+  // `version-gate.test.ts` is posix-only).
   const DRIFTING_RESOLVER = {
     isExecutableFile: async (): Promise<boolean> => true,
     realpath: async (candidate: string): Promise<string> =>
@@ -1541,20 +1396,18 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
       ),
     );
 
-    // Read back out of the DATABASE — `create()`'s return value is not the
-    // claim; the persisted row is.
+    // Read back out of the database: the persisted row is the claim, not `create()`'s return.
     const found = store.findById(created.id);
     expect(found?.cliVersion).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
     expect(found?.spawnConfig.resolvedExecutablePath).toBe(DEREFERENCED_BUILD_PATH);
-    // The launcher's own build appears NOWHERE in the row — not in the version
-    // pair, and not in the spawn-bound record the resume assembly rebuilds from.
+    // The launcher's build appears nowhere in the row, neither in the version pair nor in the
+    // spawn-bound record.
     expect(JSON.stringify(found)).not.toContain("2.1.198");
   });
 
   it("persists a Codex reading whose raw IS its semver (the extracted-token shape)", async () => {
-    // A Codex version is EXTRACTED from the composite `userAgent`, so its `raw`
-    // and `semver` are the same string — a combination the write seam's report
-    // validation and the both-or-neither DDL CHECK have no other test for.
+    // A Codex version is extracted from the composite `userAgent`, so its `raw` and `semver` are
+    // the same string, a combination no other test covers at the write seam and DDL CHECK.
     const codexBuildPath: string = "/opt/homebrew/Cellar/codex/0.149.1/bin/codex";
     const reading = await readSpawnedProviderVersion({
       driverName: "codex",
@@ -1577,8 +1430,8 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
           runId: RUN_ID,
           driverName: "codex",
           contractVersion: CONTRACT_VERSION,
-          // Declares the SAME executable the reading resolved — the agreement
-          // arm of the carrier merge, exercised here against a real INSERT.
+          // Declares the same executable the reading resolved (the agreement arm of the carrier
+          // merge).
           spawnConfig: { ...FULL_SPAWN_CONFIG, resolvedExecutablePath: codexBuildPath },
           resumeHandle: "thread-abc",
         },
@@ -1588,8 +1441,7 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
 
     const found = store.findById(created.id);
     expect(found?.cliVersion).toStrictEqual({ raw: "0.149.1", semver: "0.149.1" });
-    // The rest of the spawn-bound record survives the carrier merge unchanged —
-    // the merge REPLACES `resolvedExecutablePath` and touches nothing else.
+    // The merge replaces `resolvedExecutablePath` and touches nothing else.
     expect(found?.spawnConfig).toStrictEqual({
       ...FULL_SPAWN_CONFIG,
       resolvedExecutablePath: codexBuildPath,
@@ -1598,18 +1450,10 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// R4 — the resumed leg's spawn-bound surface, re-realized from the row.
-// ----------------------------------------------------------------------------
-//
-// Spec coverage under test:
-//   a resumed leg runs under the same
-//     spawn-bound surface the original spawn declared.: resume is a FRESH
-//     process spawn, so every leg is re-supplied or the relaunch sheds it — a
-//     posture-less resume relaunches UNSANDBOXED.
-//   A binding that names no resumable provider session refuses
-//     locally and classifiably rather than pushing an empty handle at the
-//     provider.
+// Resume is a fresh process spawn, so each spawn-bound leg must be re-supplied from the row or
+// the relaunch sheds it; a posture-less resume would run unsandboxed. A binding with no
+// resumable provider session refuses locally and classifiably instead of pushing an empty
+// handle at the provider.
 
 describe("composeResumeSessionParams (R4)", () => {
   const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
@@ -1646,10 +1490,9 @@ describe("composeResumeSessionParams (R4)", () => {
   });
 
   it("carries no `relaunch-input` member onto the resume params", () => {
-    // A spread from `spawnConfig` would carry members the params shape does not
-    // declare — the resolved executable path, which the relaunch path owns
-    // rather than the resume path. The paying account is NOT in that class as
-    // of: the driver is handed it on the params, and the relaunch reads it too.
+    // A spread from `spawnConfig` would carry members the params shape does not declare, such
+    // as the resolved executable path, which the relaunch path owns. `providerAccountId` is on
+    // the params because the driver is handed it.
     const store = makeStore();
     const binding = store.create({
       runId: RUN_ID,
@@ -1686,8 +1529,8 @@ describe("composeResumeSessionParams (R4)", () => {
   });
 
   it("refuses a binding with no resume handle, typed for the recovery dispatcher", () => {
-    // The dispatcher's only correct response is to relaunch fresh rather than
-    // retry, and it cannot make that choice off a message string.
+    // The dispatcher must relaunch fresh rather than retry, and cannot decide that from a
+    // message string.
     const store = makeStore();
     const binding = store.create({
       runId: RUN_ID,
@@ -1709,8 +1552,8 @@ describe("composeResumeSessionParams (R4)", () => {
   });
 
   it("re-realizes a leg a row that stored NOTHING leaves absent, rather than inventing one", () => {
-    // The honest absent case: an empty `spawn_config` yields absent legs, which
-    // the driver then treats as "not declared" — never as a default posture.
+    // An empty `spawn_config` yields absent legs, which the driver treats as "not declared",
+    // never as a default posture.
     const store = makeStore();
     const binding = store.create({
       runId: RUN_ID,
@@ -1729,13 +1572,10 @@ describe("composeResumeSessionParams (R4)", () => {
   });
 
   it("re-realizes the accelerated-output leg, which a resume would otherwise shed", () => {
-    // The FIFTH resume leg, and the reason it is one rather than a
-    // `relaunch-input`: the accelerated-output axis is realized at spawn on the
-    // one provider that publishes it, and it is a parameter the DRIVER takes —
-    // unlike the paying account and the resolved binary, which the spawn
-    // resolution consumes before the driver is ever called. A resume that
-    // dropped it would relaunch at the provider's default speed while every
-    // layer above still read the operator's accepted choice.
+    // The accelerated-output level is realized at spawn and is a parameter the driver takes,
+    // unlike the paying account and resolved binary, which spawn resolution consumes before the
+    // driver is called. A resume that dropped it would relaunch at the provider's default speed
+    // while everything above still showed the accepted choice.
     const store = makeStore();
     const binding = store.create({
       runId: RUN_ID,
@@ -1751,12 +1591,9 @@ describe("composeResumeSessionParams (R4)", () => {
   });
 
   it("stores the REQUESTED level and never a provider observation", () => {
-    // `cooldown` is a state the Claude surface REPORTS and that no user
-    // may request — it is a rate-limit condition, not a setting. It reaches the
-    // daemon on the binding-held `ProviderOutputSpeedState`, which is discarded
-    // with the session. If it could ever reach this column, a restart would
-    // re-realize a spawn asking for a level the provider does not accept, and a
-    // transient condition would read as an accepted choice forever.
+    // `cooldown` is a state the Claude surface reports, never one a user may request; it lives
+    // on the binding-held `ProviderOutputSpeedState`, which is discarded with the session. If it
+    // reached this column, a restart would ask the provider for a level it does not accept.
     const store = makeStore();
     const binding = store.create({
       runId: RUN_ID,
@@ -1771,10 +1608,6 @@ describe("composeResumeSessionParams (R4)", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// Provider-account identity through the `spawn_config` carrier
-// --------------------------------------------------------------------------
-
 describe("provider-account identity at spawn and resume", () => {
   const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
   const NO_FUNCTION_LEGS = {
@@ -1785,9 +1618,8 @@ describe("provider-account identity at spawn and resume", () => {
   const LATER_DEFAULT_ACCOUNT_ID = "acct-01K7XXXXXXXXXXXXXXXXXXXXXX";
 
   it("leaves a NO-IDENTIFIER create byte-identical to the pre-amendment column", () => {
-    // Additive-optional means the unchanged path is unchanged all the way down
-    // to the stored bytes: no key, so nothing downstream can read an unbound
-    // account as a bound-but-empty one.
+    // With no key, the unchanged path is unchanged down to the stored bytes, so nothing
+    // downstream can read an unbound account as bound-but-empty.
     const store = makeStore();
     const preAmendmentSpawnConfig: RuntimeBindingSpawnConfig = {
       executionPosture: EXECUTION_POSTURE,
@@ -1822,9 +1654,8 @@ describe("provider-account identity at spawn and resume", () => {
     expect(JSON.parse(readRawSpawnConfig(binding.id))).toMatchObject({
       providerAccountId: ADMITTED_ACCOUNT_ID,
     });
-    // Read back through the store's own typed accessor — never by re-parsing the
-    // column at the call site, which would be a second reader of a closed key
-    // set with its own idea of what the members mean.
+    // Read through the store's typed accessor, not by re-parsing the column at the call site,
+    // which would be a second reader of the closed key set.
     const reread = store.findById(binding.id);
     expect(reread?.spawnConfig.providerAccountId).toBe(ADMITTED_ACCOUNT_ID);
     expect(
@@ -1833,11 +1664,9 @@ describe("provider-account identity at spawn and resume", () => {
   });
 
   it("REBINDS to the ADMITTED account after the provider default changed mid-session", () => {
-    // The failure this task exists to prevent is a BILLING one, not a lost
-    // capability: a resume that re-resolved "whichever account is default now"
-    // would move a live run's spend onto an account it was never admitted
-    // against, while the receipt's per-paying-account key still named the
-    // original. The durable row is the source, so the default may move freely.
+    // A resume that re-resolved "whichever account is default now" would move a live run's
+    // spend to an account it was never admitted against. The durable row is the source, so the
+    // default may move freely.
     const store = makeStore();
     let nodeResolvedDefaultAccountId = ADMITTED_ACCOUNT_ID;
     const binding = store.create({
@@ -1861,9 +1690,9 @@ describe("provider-account identity at spawn and resume", () => {
   });
 
   it("records the SERVER-RESOLVED value, never the client's request for one", () => {
-    // A client-supplied identifier is an INPUT to resolution. What is stored,
-    // and therefore what a relaunch re-realizes, is the value the daemon
-    // resolved — so a client cannot pin a run to an account by asking.
+    // A client-supplied identifier is an input to resolution. The stored value, which a
+    // relaunch re-realizes, is the one the daemon resolved, so a client cannot pin a run to an
+    // account by asking.
     const clientRequestedAccountId = "acct-client-asked-for-this";
     const resolveProviderAccountId = (requested: string): string => {
       expect(requested).toBe(clientRequestedAccountId);
@@ -1890,10 +1719,9 @@ describe("provider-account identity at spawn and resume", () => {
   });
 
   it("refuses a non-string identity at the closed-key-set parse seam", () => {
-    // The member check is `typeof value === "string"`, so a row corrupted behind
-    // the store's back surfaces as an unreadable `spawn_config` rather than
-    // reaching a spawn as a structure a driver might try to interpret — the
-    // opacity rule enforced at the read, not merely written above the member.
+    // The member check is `typeof value === "string"`, so a corrupted row surfaces as an
+    // unreadable `spawn_config` instead of reaching a spawn as a structure a driver might
+    // interpret.
     const store = makeStore();
     const created = store.create({
       runId: RUN_ID,

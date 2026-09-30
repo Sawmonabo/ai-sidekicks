@@ -1,9 +1,6 @@
-// Outbound-credential seam.
-//
-// The provider implementation is deferred (PASETO auth), so what is testable
-// today is: the refusing stub refuses with a diagnostic that names the
-// deferral and the attempt, and the consumer-side guard refuses a bearer or
-// proofless credential (RFC 9449 section 7.1) without echoing the token.
+// Tests for the outbound-credential seam. No real provider exists yet, so these cover the
+// refusing stub, which names the attempt in its diagnostic, and the consumer-side guard, which
+// refuses a bearer or proofless credential (RFC 9449 section 7.1) without echoing the token.
 
 import { describe, expect, it } from "vitest";
 
@@ -18,10 +15,6 @@ import {
   type DaemonCredentialMaterial,
 } from "../daemon-credential-provider.js";
 
-// ----------------------------------------------------------------------------
-// Fixtures
-// ----------------------------------------------------------------------------
-
 const SESSION_ID = "01970000-0000-7000-8000-00000000a001" as SessionId;
 const NODE_ID = "node-alpha" as NodeId;
 const ATTEMPT_URI = "https://control-plane.test/trpc/session.read";
@@ -35,15 +28,10 @@ function wellFormedMaterial(): DaemonCredentialMaterial {
   };
 }
 
-// ----------------------------------------------------------------------------
-// The Refusing stub
-// ----------------------------------------------------------------------------
-
 describe("DeferredDaemonCredentialProvider", () => {
   it("refuses every mint rather than returning empty headers", async () => {
-    // A no-op provider returning `{}` would let the caller issue an
-    // unauthenticated request, and the operator would then debug a generic
-    // control-plane 401 instead of the actual cause.
+    // Empty headers would let the caller send an unauthenticated request, and the operator
+    // would then chase a generic control-plane 401 instead of the real cause.
     const provider = new DeferredDaemonCredentialProvider();
     await expect(
       provider.mintForAttempt({
@@ -75,20 +63,14 @@ describe("DeferredDaemonCredentialProvider", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// The consumer-side guard — RFC 9449 section 7.1
-// ----------------------------------------------------------------------------
-
 describe("assertDpopCredentialMaterial", () => {
   it("accepts a DPoP-schemed token accompanied by a proof header", () => {
     expect(() => assertDpopCredentialMaterial(wellFormedMaterial())).not.toThrow();
   });
 
   it("REFUSES a Bearer-schemed credential", () => {
-    // The load-bearing arm. A bearer credential on this path is replayable by
-    // anyone who reads it from a log, a proxy buffer, or a crash dump — and this
-    // endpoint writes the audit log's integrity witness. It would also SUCCEED
-    // against a permissive control plane, so nothing else would catch it.
+    // A bearer credential is replayable by anyone who reads it from a log, a proxy buffer or a
+    // crash dump, and a permissive control plane would accept it, so nothing else catches it.
     expect(() =>
       assertDpopCredentialMaterial({
         headers: {
@@ -100,8 +82,8 @@ describe("assertDpopCredentialMaterial", () => {
   });
 
   it("accepts a case-varied scheme spelling (RFC 9110 section 11.1 makes schemes case-insensitive)", () => {
-    // Refusing `dpop` would reject a CONFORMING provider. The guard exists to
-    // catch `Bearer`, not to police capitalization.
+    // Refusing `dpop` would reject a conforming provider; the guard targets `Bearer`, not
+    // capitalization.
     for (const scheme of ["dpop", "DPOP", "DPoP"]) {
       expect(() =>
         assertDpopCredentialMaterial({
@@ -130,11 +112,9 @@ describe("assertDpopCredentialMaterial", () => {
   });
 
   it("reads the headers case-insensitively (a Headers-derived provider lowercases them)", () => {
-    // RFC 9110 section 5.1: header names are case-insensitive, and `Headers` normalizes
-    // every name it stores to lowercase. An exact-match read would refuse this
-    // CONFORMING provider while reporting "no Authorization header" — naming the
-    // wrong cause, on the one boundary whose diagnostics an operator has to
-    // trust.
+    // Header names are case-insensitive (RFC 9110 section 5.1) and `Headers` lowercases every
+    // name it stores. An exact-match read would refuse this conforming provider and report "no
+    // Authorization header", naming the wrong cause.
     expect(() =>
       assertDpopCredentialMaterial({
         headers: {
@@ -146,9 +126,8 @@ describe("assertDpopCredentialMaterial", () => {
   });
 
   it("REFUSES a separator-less value WITHOUT echoing one byte of it", () => {
-    // A scheme fallback that treated a separator-less value as the scheme
-    // itself would interpolate the whole token into the message, and a
-    // refusal message is the kind of text that gets logged or stored.
+    // Treating a separator-less value as the scheme would put the whole token in the message,
+    // and a refusal message gets logged or stored.
     const bareToken = "v4.public.SUPERSECRETTOKENBYTES.deadbeef";
     let raised: unknown;
     try {
@@ -166,8 +145,8 @@ describe("assertDpopCredentialMaterial", () => {
     const message = (raised as Error).message;
     expect(message).toContain("no scheme separator");
 
-    // Not merely "does not contain the whole token" — NO substring of it. A
-    // message quoting any run of the credential is still a credential on disk.
+    // No substring of the token may appear, not just the whole token: any run of the credential
+    // in a stored message is still a leak.
     for (let start = 0; start < bareToken.length; start += 1) {
       for (let end = start + 6; end <= bareToken.length; end += 1) {
         expect(message).not.toContain(bareToken.slice(start, end));
@@ -176,9 +155,8 @@ describe("assertDpopCredentialMaterial", () => {
   });
 
   it("REFUSES a bare scheme with no token after it", () => {
-    // This passed the old guard outright: `indexOf(" ") === -1` made the whole
-    // value the scheme, `"DPoP"` compared equal, and an empty credential went to
-    // the wire to come back as a generic 401.
+    // Without this check, a value with no space would be read as the scheme alone, `"DPoP"`
+    // would compare equal, and an empty credential would reach the wire.
     expect(() =>
       assertDpopCredentialMaterial({
         headers: {
@@ -199,9 +177,8 @@ describe("assertDpopCredentialMaterial", () => {
   });
 
   it("REFUSES a DPoP-schemed token with no proof header", () => {
-    // Without the proof the token is bearer-equivalent in practice while
-    // CLAIMING otherwise, which is worse than an honest bearer token: every
-    // reviewer downstream sees `DPoP` and assumes possession was proven.
+    // Without the proof the token is bearer-equivalent while claiming otherwise, which is worse
+    // than an honest bearer token: a reader who sees `DPoP` assumes possession was proven.
     expect(() =>
       assertDpopCredentialMaterial({
         headers: {

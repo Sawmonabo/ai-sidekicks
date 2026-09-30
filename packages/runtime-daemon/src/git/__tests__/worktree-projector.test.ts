@@ -1,16 +1,6 @@
-// worktree-projector behavior.
-//
-// No database, no temp directory, no clock: the module under test performs no
-// I/O, so every branch is driven by handing it rows directly.
-//
-// What is covered:
-//   * The switcher lists the trees still standing: every state but `retired` is
-//     carried in the order handed in, and a `retired` row is left out.
-//   * The fold carries each field and figure across, and leaves an optional one
-//     absent, by key, whether the caller sent `null` or never selected it.
-//   * The read's folder binding: a row on another project's folder is refused.
-//   * The parse boundary can fail: a state outside the closed vocabulary, a
-//     non-ISO instant and a non-UUID id each throw with the `ZodError` as cause.
+// The projector does no I/O, so every branch is driven by handing it rows directly.
+// Covered: the listing (every state but `retired`, in the caller's order), the field fold
+// (optional fields absent by key), the folder binding, and the parse boundary.
 
 import { randomUUID } from "node:crypto";
 
@@ -28,8 +18,7 @@ import type { WorktreeStatusReading, WorktreeStatusRow } from "../worktree-proje
 // Fixtures
 // ----------------------------------------------------------------------------
 
-// Real UUIDs: every id is parsed through a branded UUID schema at the
-// projection's parse boundary, so counters would fail for the wrong reason.
+// Real UUIDs: the projection parses every id through a UUID schema.
 const SESSION_ID: string = randomUUID();
 const CREATING_SESSION_ID: string = randomUUID();
 const MOUNT_A_ID: string = randomUUID();
@@ -80,9 +69,8 @@ function reading(
 }
 
 /**
- * A row as a query that FORGOT a column hands it over: the key is absent, so
- * the field reads `undefined` rather than `null`. The row interface cannot
- * express that, hence the one cast in this file.
+ * A row as a query that forgot a column hands it over: the key is absent, so the field reads
+ * `undefined` rather than `null`. The row interface cannot express that, hence the cast.
  */
 function withColumnOmitted(
   row: WorktreeStatusRow,
@@ -92,7 +80,7 @@ function withColumnOmitted(
   return withoutColumn as WorktreeStatusRow;
 }
 
-/** A read of folder A, built through the contract's schema so its ids are real parses. */
+/** A read of folder A, with the request built through the contract's schema. */
 function project(input: WorktreeStatusReading, sessionId?: string): WorktreeStatusReadResponse {
   const request = WorktreeStatusReadRequestSchema.parse(
     sessionId === undefined ? { repoMountId: MOUNT_A_ID } : { repoMountId: MOUNT_A_ID, sessionId },
@@ -100,7 +88,7 @@ function project(input: WorktreeStatusReading, sessionId?: string): WorktreeStat
   return projectWorktreeStatusRead(request, input);
 }
 
-/** The single record of a one-row projection; throws rather than letting an absence check pass vacuously. */
+/** The single record of a one-row projection; throws so an absence check cannot pass vacuously. */
 function onlyWorktreeRecord(
   response: WorktreeStatusReadResponse,
 ): WorktreeStatusReadResponse["worktrees"][number] {
@@ -193,8 +181,8 @@ describe("projectWorktreeStatusRead — field by field", () => {
 
   it("leaves an optional field absent by key, whether null or never selected", () => {
     const nulls = onlyWorktreeRecord(project(reading([worktreeRow()])));
-    // Seeded non-null before the column is dropped, so a helper that stopped
-    // omitting would leave the value in place and fail here.
+    // Seeded non-null before the column is dropped, so a projector that stopped omitting fails
+    // here.
     const unselected = onlyWorktreeRecord(
       project(
         reading([
@@ -221,7 +209,7 @@ describe("projectWorktreeStatusRead — field by field", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The folder binding — the fail-closed guard
+// The folder binding
 // ----------------------------------------------------------------------------
 
 describe("projectWorktreeStatusRead — the read's folder", () => {

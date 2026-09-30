@@ -1,15 +1,7 @@
-// MCP Tasks durable recovery handle — write seam.
-//
-// Spec coverage under test:
-//   • a task-augmented MCP call's receiver-generated `taskId` is durably
-//     recorded on its `command_receipts` row, so recovery polls `tasks/get` +
-//     `tasks/result` instead of halting. Asserted end-to-end from each driver's
-//     observation seam through the recorder to the column.
-//
-// Verifies invariant: every path that fails to record a handle leaves the
-// column NULL, which is the state that keeps the receipt on the
-// `manual_reconcile_only` halt. No path truncates a handle, and no path fails a
-// turn.
+// The write seam for an MCP task handle. A task-augmented MCP call's receiver-generated `taskId`
+// is recorded on its `command_receipts` row so recovery can poll `tasks/get` and `tasks/result`.
+// Every path that fails to record a handle leaves the column NULL (the receipt stays on the
+// `manual_reconcile_only` halt), never truncates a handle, and never fails a turn.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,8 +35,7 @@ import {
 } from "../mcp-task-handle-recorder.js";
 import { applyMigrations, applyPragmas } from "../../session/migration-runner.js";
 
-// Built rather than typed: a raw U+0000 in source is invisible in every editor
-// and diff, and this is the conjunct a reader can least verify by eye.
+// Built rather than typed: a raw U+0000 in source is invisible in editors and diffs.
 const NUL_CODE_UNIT = String.fromCharCode(0);
 
 const COMMAND_ID = "command-7";
@@ -105,16 +96,13 @@ describe("McpTaskHandleRecorder", () => {
       expect(recorder.record(observation("task-9"))).toEqual({ status: "recorded" });
 
       expect(storedHandle(COMMAND_ID)).toBe("task-9");
-      // A success emits nothing: the diagnostic band is for consequence, and a
-      // recorded handle has none.
+      // A success emits no diagnostic.
       expect(loggedRecords).toEqual([]);
     });
 
     it("leaves NULL when the acceptance never arrived — the crash case", () => {
-      // A crash before the receiver's acceptance is durably stored reaches the
-      // observation seam with no `CreateTaskResult` to parse. Nothing is
-      // offered to the recorder, so the column stays NULL and the receipt stays
-      // on the manual_reconcile_only halt.
+      // A crash before the acceptance is stored leaves no `CreateTaskResult` to parse, so nothing
+      // reaches the recorder and the receipt stays on the `manual_reconcile_only` halt.
       observeCodexMcpTaskAcceptance(
         recorder.asSink(),
         { commandId: COMMAND_ID, serverName: "filesystem", toolName: "read_file" },
@@ -126,14 +114,12 @@ describe("McpTaskHandleRecorder", () => {
     });
 
     it("carries a handle from each driver's observation seam through to the column", () => {
-      // The recorder is provider-neutral and both drivers' seams are separate
-      // modules, so the wiring is asserted for each rather than for one and
-      // assumed for the other.
+      // The recorder is provider-neutral and each driver has its own seam module, so both are
+      // exercised.
       insertReceipt("command-claude");
 
-      // Bound at each driver's OWN exported sink type rather than passed
-      // anonymously. The recorder's sink shape and the drivers' coincide today
-      // and nothing but these two annotations says they have to.
+      // Typed as each driver's own exported sink type; these annotations are what keep the
+      // recorder's sink shape and the drivers' equal.
       const codexSink: CodexMcpTaskHandleSink = recorder.asSink();
       const claudeSink: ClaudeMcpTaskHandleSink = recorder.asSink();
 
@@ -160,8 +146,8 @@ describe("McpTaskHandleRecorder", () => {
       expect(recorder.record(observation("task-9"))).toEqual({ status: "already-recorded" });
 
       expect(storedHandle(COMMAND_ID)).toBe("task-9");
-      // An idempotent replay is not a refusal and must not be counted as one —
-      // otherwise a retried dispatch reads as a receiver that changed its mind.
+      // A replay is not a refusal; counting it as one would make a retried dispatch look like a
+      // receiver that changed its mind.
       expect(refusalCount()).toBe(0);
     });
 
@@ -173,9 +159,8 @@ describe("McpTaskHandleRecorder", () => {
         reason: "handle_conflict",
       });
 
-      // The stored handle is the durable poll target for a task that may
-      // already be running; losing it is exactly what the column exists to
-      // prevent, so last-writer-wins is the wrong rule here.
+      // The stored handle is the poll target for a task that may already be running, so
+      // last-writer-wins would lose it.
       expect(storedHandle(COMMAND_ID)).toBe("task-first");
       expect(refusalCount()).toBe(1);
       expect(loggedRecords[0]?.dispositionReason).toBe("handle_conflict");
@@ -204,9 +189,7 @@ describe("McpTaskHandleRecorder", () => {
         reason: expectedReason,
       });
 
-      // Refused, never truncated. A truncated handle names a different task or
-      // no task, and recovery would poll `tasks/get` against it and act on the
-      // answer — NULL is the only safe degradation.
+      // Refused, never truncated: recovery would poll a truncated handle and act on the answer.
       expect(storedHandle(COMMAND_ID)).toBeNull();
       expect(refusalCount()).toBe(1);
       expect(loggedRecords[0]?.provider).toBe("codex");
@@ -214,17 +197,15 @@ describe("McpTaskHandleRecorder", () => {
     });
 
     it("admits a handle exactly at the bound — the positive control for the three refusals", () => {
-      // Without this the three assertions above would pass against a guard that
-      // rejects everything.
+      // Guards against the refusals above passing because everything is rejected.
       const boundLengthHandle = "a".repeat(MCP_TASK_ID_MAX_LENGTH);
       expect(recorder.record(observation(boundLengthHandle))).toEqual({ status: "recorded" });
       expect(storedHandle(COMMAND_ID)).toBe(boundLengthHandle);
     });
 
     it("measures the bound in code points, exactly as the column's length() does", () => {
-      // 256 astral characters: 256 to SQLite, 512 to `String.prototype.length`.
-      // The column's length() admits it, so a guard counting UTF-16 code units
-      // would refuse a handle the database accepts.
+      // 256 astral characters are 256 to SQLite but 512 to `String.prototype.length`; a guard
+      // counting UTF-16 code units would refuse a handle the database accepts.
       const astralHandle = "\u{1F600}".repeat(MCP_TASK_ID_MAX_LENGTH);
       expect(astralHandle.length).toBe(MCP_TASK_ID_MAX_LENGTH * 2);
 
@@ -245,30 +226,26 @@ describe("McpTaskHandleRecorder", () => {
       recorder.record(observation(overlongHandle));
 
       const details = loggedRecords[0]?.details ?? {};
-      // The cap, not the true length: measuring the refused handle exactly
-      // would hand the peer the full traversal the bounded scan declined, so
-      // the diagnostic reports MCP_TASK_ID_MAX_LENGTH + 1 — "at least 257".
+      // The scan stops at the cap, so the diagnostic reports MCP_TASK_ID_MAX_LENGTH + 1 ("at
+      // least 257"), not the true length.
       expect(details["handleCodePointsScanned"]).toBe(MCP_TASK_ID_MAX_LENGTH + 1);
       expect(details["commandId"]).toBe(COMMAND_ID);
       expect(details["serverName"]).toBe("filesystem");
       expect(details["toolName"]).toBe("read_file");
-      // Refusing an unbounded handle and then logging it verbatim would defeat
-      // the refusal — the whole point is to keep it out of durable surfaces.
+      // The refused handle must stay out of durable surfaces.
       expect(Object.values(details)).not.toContain(overlongHandle);
     });
   });
 
   describe("well-formedness, which the column's CHECK cannot see", () => {
-    // A lone surrogate is the one defect that reaches the column looking valid.
-    // Escaped rather than typed: an unpaired surrogate renders as a replacement
-    // glyph in most editors, indistinguishable from the U+FFFD it would become.
+    // A lone surrogate is the one defect that passes the column's CHECK. Escaped rather than
+    // typed: editors render it as a replacement glyph.
     const LONE_HIGH_SURROGATE = "task-\uD800-9";
     const LONE_LOW_SURROGATE = "task-\uDC00-9";
 
     it("proves the hazard is real before asserting the guard against it", () => {
-      // The negative control for this whole describe. Written STRAIGHT to the
-      // column, bypassing the recorder: if the round trip were lossless the
-      // refusals below would be guarding against nothing.
+      // Written straight to the column, bypassing the recorder: if the round trip were lossless
+      // the refusals below would guard nothing.
       db.prepare("UPDATE command_receipts SET mcp_task_id = ? WHERE command_id = ?").run(
         LONE_HIGH_SURROGATE,
         COMMAND_ID,
@@ -276,13 +253,10 @@ describe("McpTaskHandleRecorder", () => {
 
       const readBack = storedHandle(COMMAND_ID);
       expect(readBack).not.toBe(LONE_HIGH_SURROGATE);
-      // U+FFFD REPLACEMENT CHARACTER — the lone surrogate has no UTF-8
-      // encoding, so the row now holds a handle the receiver never issued and
-      // the CHECK passed it without complaint. HOW MANY replacement characters
-      // stand in for the surrogate is platform-dependent (one per surrogate on
-      // macOS, one per WTF-8 byte on the Linux CI runners), so the assertion
-      // pins the corruption — replacement characters present, the surrogate's
-      // frame intact around them — and deliberately not its exact width.
+      // A lone surrogate has no UTF-8 encoding, so the row holds U+FFFD replacement characters
+      // in place of a handle the receiver never issued. How many depends on the platform (one per
+      // surrogate on macOS, one per WTF-8 byte on the Linux CI runners), so the width is not
+      // pinned.
       expect(readBack).toMatch(/^task-\uFFFD+-9$/);
     });
 
@@ -301,9 +275,8 @@ describe("McpTaskHandleRecorder", () => {
     });
 
     it("accepts a WELL-FORMED surrogate pair — the positive control", () => {
-      // Without this, the refusals above would pass against a guard that
-      // rejects every string containing any surrogate code unit at all, which
-      // would reject every emoji a receiver is entitled to put in a handle.
+      // Guards against refusing every string that contains a surrogate code unit, which would
+      // reject emoji a receiver may put in a handle.
       const astralHandle = "task-\u{1F600}-9";
       expect(recorder.record(observation(astralHandle))).toEqual({ status: "recorded" });
       expect(storedHandle(COMMAND_ID)).toBe(astralHandle);
@@ -326,32 +299,25 @@ describe("classifyMcpTaskIdRefusal", () => {
   });
 
   it("reports a long NOT-WELL-FORMED handle by its surrogate, not by its length", () => {
-    // The representation-before-size ordering, asserted rather than assumed.
-    // Both defects are present; naming the length would send an operator
-    // hunting for an over-long handle when the real fault is a handle whose
-    // stored bytes would not be the receiver's.
+    // Both defects are present; the well-formedness check comes first so an operator is not sent
+    // hunting for an over-long handle when the stored bytes would not be the receiver's.
     expect(classifyMcpTaskIdRefusal("\uD800".repeat(MCP_TASK_ID_MAX_LENGTH + 1))).toBe(
       "handle_not_well_formed",
     );
   });
 
   it("reports a long NUL-bearing handle by its NUL, which SQLite's length() cannot see", () => {
-    // `length()` STOPS at an embedded NUL, so this 300-code-point value measures
-    // 5 in the database. Classifying by length first would call it well-sized
-    // when the real defect is the NUL — and the column would still refuse it,
-    // on a conjunct the diagnostic had not named.
+    // SQLite's `length()` stops at an embedded NUL, so this 300-code-point value measures 5
+    // there; classifying by length first would miss the NUL.
     const longNulBearingHandle = `task-${NUL_CODE_UNIT}${"b".repeat(294)}`;
     expect(longNulBearingHandle.length).toBeGreaterThan(MCP_TASK_ID_MAX_LENGTH);
     expect(classifyMcpTaskIdRefusal(longNulBearingHandle)).toBe("handle_contains_nul");
   });
 
   it("stops scanning once refusal is inevitable, so a hostile taskId cannot buy a full traversal", () => {
-    // A multi-megabyte handle from a buggy or hostile MCP server. A scan that
-    // traversed it whole would still refuse it, so the assertion here is about
-    // COST, made observable through the reported reason: the NUL sits past the
-    // size bound, and only a scan that stopped at the bound reports
-    // handle_too_long instead of walking two million code units to find the
-    // NUL that outranks it.
+    // A multi-megabyte handle from a hostile MCP server. The NUL sits past the size bound, so
+    // only a scan that stops at the bound reports handle_too_long; one that walked two million
+    // code units would find the NUL and report handle_contains_nul.
     const hostileHandle = `${"a".repeat(2_000_000)}${NUL_CODE_UNIT}tail`;
     expect(classifyMcpTaskIdRefusal(hostileHandle)).toBe("handle_too_long");
   });
@@ -359,15 +325,10 @@ describe("classifyMcpTaskIdRefusal", () => {
 
 describe("the observation shapes the recorder and the two drivers each declare", () => {
   it("stays structurally interchangeable in BOTH directions", () => {
-    // A compile-time pin: the annotated assignments below ARE the assertion and
-    // the expectations only keep the bindings live. Three modules declare this
-    // shape independently — each driver its own, the recorder a third — and
-    // nothing else holds them equivalent.
-    //
-    // Both directions are asserted because either one alone is satisfied by a
-    // shape that GREW a required member: assigning a driver observation into the
-    // recorder's record still compiles when the driver adds a field, and that is
-    // exactly the divergence that would leave the new field silently unread.
+    // A compile-time pin: the annotated assignments are the assertion. Three modules declare
+    // this shape independently (each driver, and the recorder). Both directions are needed
+    // because assigning a driver observation into the recorder's record still compiles when the
+    // driver adds a field, which would leave that field unread.
     const recorderRecord: McpTaskHandleObservationRecord = {
       commandId: COMMAND_ID,
       serverName: "filesystem",
@@ -386,12 +347,8 @@ describe("the observation shapes the recorder and the two drivers each declare",
 });
 
 describe("storage-failure containment", () => {
-  // The seam's contract is that observing a handle cannot fail a turn, and a
-  // malformed handle is only half of what could go wrong. These cover the other
-  // half: the handle was storable and the DATABASE refused it. Every arm asserts
-  // the same two things — nothing propagates, and the failure is diagnosed
-  // rather than swallowed — because a silently dropped handle and a successfully
-  // written one leave the caller looking at the identical `void`.
+  // The handle was storable but the database failed. Each case asserts that nothing propagates
+  // and the failure is diagnosed, because the caller sees the same `void` either way.
 
   let temporaryDirectory: string;
   let loggedRecords: DriverDiagnosticRecord[];
@@ -438,9 +395,7 @@ describe("storage-failure containment", () => {
 
   it("does not throw through asSink() when the database is READ-ONLY, and diagnoses it", () => {
     const readOnlyDatabase = new Database(migratedFileDatabase(), { readonly: true });
-    // Constructed against the read-only handle deliberately: `prepare` succeeds
-    // on a readable schema, so the failure lands where it must — at the write,
-    // inside a turn — and not at wiring time.
+    // `prepare` succeeds on a read-only handle, so the failure lands at the write, inside a turn.
     const sink = buildRecorder(readOnlyDatabase).asSink();
 
     expect(() => {
@@ -455,18 +410,13 @@ describe("storage-failure containment", () => {
     expect(loggedRecords).toHaveLength(1);
     expect(loggedRecords[0]?.kind).toBe("mcp_task_handle_write_failed");
     expect(loggedRecords[0]?.provider).toBe("claude");
-    // The SQLite result code, which is the diagnosis. Asserted by prefix rather
-    // than equality because SQLite reports extended codes here
-    // (`SQLITE_READONLY_DBMOVED` and friends) and pinning one of them would
-    // make this a test of the platform's error taxonomy, not of containment.
+    // Matched by prefix because SQLite reports extended codes such as `SQLITE_READONLY_DBMOVED`.
     expect(loggedRecords[0]?.dispositionReason).toMatch(/^SQLITE_READONLY/);
     expect(failureCount()).toBe(1);
 
     readOnlyDatabase.close();
 
-    // The conservative floor: the receipt stayed NULL, so the call stays on
-    // the `manual_reconcile_only` halt rather than pointing recovery at a
-    // handle that was never durably stored.
+    // The receipt stayed NULL, so recovery is not pointed at a handle that was never stored.
     const verifier = new Database(join(temporaryDirectory, "daemon.sqlite"), { readonly: true });
     expect(
       verifier
@@ -477,10 +427,8 @@ describe("storage-failure containment", () => {
   });
 
   it("contains a NON-SqliteError too, and names it rather than hiding it", () => {
-    // A closed handle raises a plain `TypeError` from better-sqlite3, which
-    // stands in for the wider class this catch deliberately covers: a defect in
-    // this module must not fail a provider turn either. What keeps it from
-    // being indistinguishable from a sick database is `errorName`.
+    // A closed handle raises a plain `TypeError`, standing in for any defect in this module,
+    // which must not fail a turn either; `errorName` tells it apart from a sick database.
     const database = new Database(":memory:");
     applyPragmas(database);
     applyMigrations(database);
@@ -504,8 +452,7 @@ describe("storage-failure containment", () => {
   });
 
   it("reports the failure as a distinct outcome arm, never as a refusal", () => {
-    // The arms are separate so a caller — and an operator reading the counter —
-    // can tell "the peer sent us garbage" from "our database is read-only".
+    // Keeps "the peer sent garbage" apart from "our database is read-only".
     const readOnlyDatabase = new Database(migratedFileDatabase(), { readonly: true });
     const outcome = buildRecorder(readOnlyDatabase).record({
       commandId: COMMAND_ID,

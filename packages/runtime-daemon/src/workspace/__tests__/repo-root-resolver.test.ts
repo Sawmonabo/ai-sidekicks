@@ -1,67 +1,41 @@
-// repo-root-resolver.test.ts — resolution, classification, and fail-closed
-// pins for the canonical repo-root resolver.
+// repo-root-resolver.test.ts: resolution, classification and fail-closed pins for the canonical
+// repo-root resolver.
 //
-//   * "Repo attach must resolve and persist the canonical repository root, not
-//     only the user-entered path." →.
-//   * "Repo attach should not assume that the user-selected path is already the
-//     repo root." →.
-//   * "If canonical root resolution fails, repo attach must fail
-//     explicitly rather than guessing." →. A path that is not a git repository
-//     is refused the same way.
+// * Every non-resolution rejects with a typed, path-free `RepoRootResolutionError`; no call
+//   returns a partial or guessed root, including one completed from the daemon's own state: a
+//   relative path from its working directory, `~` from its home, a driveless Windows root from its
+//   current drive.
+// * `not_a_git_repository` is reported only on a positive not-a-repository verdict from git
+//   itself; a missing, non-executable, killed, or otherwise broken git is `vcs_error`.
 //
-// Invariants covered (canonical text):
-//   * Every non-resolution REJECTS with a typed, path-free
-//     `RepoRootResolutionError`; no call returns a partial or guessed root —
-//     including the root the daemon would produce by completing an incomplete
-//     input from its own state: a relative path from its working directory,
-//     `~` from its home, a driveless Windows root from its current drive.
-//   * `not_a_git_repository` is reported only on a positive not-a-repository
-//     verdict from git itself; a missing, non-executable, killed, or
-//     otherwise broken git is `vcs_error`.
+// Real git runs against real temp directories for every shape it can produce: a nested
+// subdirectory, a symlink, a plain directory, the three shapes where `.git` is a file (linked
+// worktree, submodule, `--separate-git-dir`), a bare repository, a regular file, and both
+// `core.worktree` redirect shapes, where real git answers with a tree the caller never named. The
+// injected executor covers only shapes real git cannot be made to emit on demand (wording or
+// exit-code drift, a killed process that still carries an exit code, a root that reports one thing
+// and then another) and argv or environment inspection. The missing-git case uses the real
+// `execFile` with `gitExecutablePath` pointing at a nonexistent file, so it discriminates Node's
+// own `ENOENT`.
 //
-// Real git against real temp directories for everything real git can produce
-// (nested subdirectory, symlink, plain directory, the three `.git`-is-a-FILE
-// shapes — a linked worktree, a submodule, and a `--separate-git-dir`
-// repository — bare repository, regular file, and both `core.worktree`
-// REDIRECT shapes, whose whole point is that real git really does answer with
-// a tree the caller never named); the injected executor seam only for shapes
-// real git cannot be made to emit on demand (wording/exit-code drift, a corpse
-// that still carries an exit code, a root that reports one thing and then
-// another) and for argv/environment inspection. The missing-git case runs
-// through the REAL `execFile` with `gitExecutablePath` pointed at a
-// nonexistent file, so the headline test discriminates a genuine Node `ENOENT`
-// rather than a hand-written imitation of one, and needs no platform gate.
+// `platformPath` makes platform shapes testable: injecting `path.win32` drives the resolver's
+// Windows branch on a POSIX runner, so the driveless-root refusal is asserted in CI.
 //
-// The third seam, `platformPath`, exists so PLATFORM shapes are testable the
-// same way: injecting `path.win32` drives the resolver's Windows branch on a
-// POSIX runner. Without it the driveless-root refusal — the one gate case that
-// only Windows can produce — would be asserted nowhere in CI.
+// `probeDirectoryReadable` is driven mostly by real fixtures (the `0111` root that traverses but
+// does not list, the three damaged-metadata shapes, and the dangling `.git` symlink as their
+// absence-side control). It is injected for resolved roots that exist nowhere on the host, for
+// `finish`'s errno mapping, and for the metadata gate's two readings. Those are different
+// mappings, and a stub written for one misleads the other: `finish` classifies a rejection into a
+// resolution failure, while the not-a-repository arm's metadata gate reads `ENOENT` as absence
+// (`not_a_git_repository`) and a successful open as damage (`vcs_error`). A mode bit is a no-op
+// under root, so each mode-dependent fixture case has a seam-driven twin that runs everywhere.
 //
-// The fourth, `probeDirectoryReadable`, is inverted from the rest: its cases
-// are driven mostly by REAL on-disk fixtures — the `0111` repository root that
-// traverses but does not list, the three damaged-metadata shapes, and the
-// dangling `.git` SYMLINK that is their absence-side control — rather than by
-// injection. It is injected for resolved roots that exist nowhere on the host
-// (the trailing-space pair), and to drive `finish`'s errno mapping and the
-// metadata gate's two readings without mode bits.
-//
-// The seam is read under TWO mappings, and a stub written for one will mislead
-// the other: `finish` classifies a rejection into a resolution failure, while
-// the not-a-repository arm's metadata gate reads `ENOENT` as absence
-// (`not_a_git_repository`) and a SUCCESSFUL open as damage (`vcs_error`). A
-// mode bit is also a no-op under root, so each mode-dependent fixture case has
-// a seam-driven twin that runs everywhere.
-//
-// Fixture git runs under its own hermetic environment (`GIT_CONFIG_NOSYSTEM`,
-// `HOME`/`XDG_CONFIG_HOME`/`GIT_CONFIG_GLOBAL` inside the temp root, explicit
-// author/committer identity) so a developer's global git config cannot change
-// what these tests observe. That environment is NOT the resolver's, and the
-// difference is deliberate rather than incidental: a TEST fixture wants
-// hermeticity, so it redirects config away from the developer's; the RESOLVER
-// is production behavior, so it honors an operator's own redirection on the
-// same trust plane as `PATH` and strips only key INJECTION
-// (`GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS`, the two independent
-// channels). The resolver's environment is asserted separately below.
+// Fixture git runs under a hermetic environment (`GIT_CONFIG_NOSYSTEM`, `HOME`, `XDG_CONFIG_HOME`
+// and `GIT_CONFIG_GLOBAL` inside the temp root, explicit identity) so a developer's git config
+// cannot change what the tests observe. The resolver's environment differs on purpose: it trusts
+// an operator's own config redirection as it trusts `PATH`, and strips only the discovery
+// redirectors and the two config-injection channels (`GIT_CONFIG_COUNT`,
+// `GIT_CONFIG_PARAMETERS`). It is asserted separately below.
 
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
@@ -94,55 +68,30 @@ import {
   type GitFileExecutor,
   type PlatformPathModule,
 } from "../repo-root-resolver.js";
-// The readability seam is DECLARED and imported by the resolver, so its type
-// comes from there for this suite too — the shared declaration is the point (see
-// either module's twin note).
+// The probe type has one declaration, shared with the resolver.
 import type { DirectoryReadabilityProbe } from "../trust-envelope.js";
 
-// Three classes of case need a POSIX host. Everything else in this file runs
-// everywhere, including all classification pins. Note that Windows PATH
-// HANDLING is not in the POSIX-only set: it is covered from POSIX by injecting
-// `path.win32` into the gate rather than waiting on a Windows runner.
-//
-// CI is ubuntu-only today, so the skips are latent; `.github/workflows/ci.yml`
-// names the widening intent, and a green Windows leg on day one is worth more
-// than two cases that were only ever true by accident of the runner.
+// Windows path handling is covered from POSIX by injecting `path.win32`, so only cases that need
+// POSIX itself (mode bits, `\r` in names, `/bin/sh` scripts) are skipped on Windows. CI runs the
+// daemon tests on ubuntu only, so those skips never fire there today.
 const onPosix = describe.skipIf(process.platform === "win32");
 const itOnPosix = it.skipIf(process.platform === "win32");
 
 /**
- * POSIX, and not running as ROOT — the gate for the permission-mode fixtures.
- *
- * A mode bit asserts nothing under a uid that ignores it: root opens a `0111`
- * directory happily, so these cases would pass while testing nothing. CI
- * containers commonly run as root, which is exactly why each of them has a
- * seam-driven twin that runs on every platform and every uid; what the real
- * fixtures add is proof that the mode produces the errno the twin injects.
+ * POSIX and not running as root: the gate for permission-mode fixtures. Root opens a `0111`
+ * directory, so those cases would pass while testing nothing; each has a seam-driven twin that
+ * runs on every platform and uid.
  */
 const itOnPosixAsNonRoot = it.skipIf(process.platform === "win32" || process.geteuid?.() === 0);
 
 /**
- * Whether the filesystem under `os.tmpdir()` is case-INsensitive, established by
- * creating a directory in one spelling and stat-ing the other.
+ * Whether the filesystem under `os.tmpdir()` is case-insensitive, probed by creating a directory
+ * in one spelling and stat-ing the other.
  *
- * PROBED rather than derived from `process.platform`, because the two do not
- * agree: APFS can be formatted case-sensitive, and Linux can mount a
- * case-insensitive volume. A platform gate would silently skip the case tests on
- * the first host and silently fail them on the second — the two failure modes a
- * gate exists to prevent.
- *
- * CI does not exercise what this gates. The daemon test job's matrix is
- * `os: [ubuntu-latest]` (the macOS job runs the hook guards only, and never
- * installs or runs this suite), so on CI the probe reports case-SENSITIVE and
- * these tests skip — the same accepted latency class as the seam-gated win32
- * paths.
- *
- * Two guards cover the seam on CI instead, and between them they catch the
- * import swap both directly and by consequence: the default-implementation pin
- * below, which asserts the identity and fails on every platform; and the
- * trust-envelope suite's symlink-escape tests, which fail under a JS-walk
- * substitution for a reason that has nothing to do with casing — that walk
- * collapses `..` inside itself rather than against the resolved target.
+ * Probed rather than derived from `process.platform`: APFS can be formatted case-sensitive and
+ * Linux can mount a case-insensitive volume. The CI test job runs on ubuntu only, so it reports
+ * case-sensitive and the tests this gates skip there; the default-implementation pin below fails
+ * on every platform if the realpath seam is swapped.
  */
 const filesystemIsCaseInsensitive: boolean = ((): boolean => {
   const probeRoot = mkdtempSync(join(tmpdir(), "repo-root-resolver-case-probe-"));
@@ -164,18 +113,11 @@ const itOnCaseInsensitiveFilesystem = it.skipIf(!filesystemIsCaseInsensitive);
 // ----------------------------------------------------------------------------
 
 /**
- * Everything the resolver strips, spelled out INDEPENDENTLY of the resolver's
- * own list rather than re-exported from it — the census below pins the two
- * together, and a mirror that imported its expectation would have nothing to
- * pin. Five direct discovery redirectors, then `GIT_OBJECT_DIRECTORY` — which
- * bends what git ACCEPTS as a repository rather than where it looks, in both
- * directions, and whose behavioral pair below is the only strip on this list
- * driven against real git in BOTH the hazard and the fix — plus the two
- * INDEPENDENT env-borne config-injection channels: `GIT_CONFIG_COUNT`, the
- * switch that makes `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` pairs live, and
- * `GIT_CONFIG_PARAMETERS`, which is not gated on that count. Those last two are
- * stripped as defense in depth rather than on a demonstrated redirection — the
- * resolver's own list documents the empirical severity of each.
+ * Every env key the resolver strips, spelled out independently of the resolver's own list so the
+ * set-equality test below has two sides to compare. Five are direct discovery redirectors;
+ * `GIT_OBJECT_DIRECTORY` bends what git accepts as a repository, in both directions;
+ * `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS` are the two separate config-injection channels,
+ * stripped as defense in depth.
  */
 const EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS = [
   "GIT_DIR",
@@ -189,10 +131,9 @@ const EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS = [
 ];
 
 /**
- * The environment FIXTURE git runs under. Hermetic by construction: no system
- * config, no global config, a `HOME` inside the temp root, and an explicit
- * identity so the seed commit needs no `user.name` on the host. Distinct from
- * the environment the RESOLVER builds, which is deliberately production-shaped.
+ * The environment fixture git runs under: no system or global config, a `HOME` inside the temp
+ * root, and an explicit identity so the seed commit needs no host `user.name`. Not the resolver's
+ * environment, which is production-shaped.
  */
 function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env };
@@ -202,8 +143,8 @@ function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv {
   environment["HOME"] = fixtureRoot;
   environment["XDG_CONFIG_HOME"] = join(fixtureRoot, "xdg");
   environment["GIT_CONFIG_NOSYSTEM"] = "1";
-  // A path that does not exist, INSIDE the temp root — platform-agnostic where
-  // `/dev/null` is not.
+  // A path that does not exist, inside the temp root; unlike `/dev/null` it works on every
+  // platform.
   environment["GIT_CONFIG_GLOBAL"] = join(fixtureRoot, "absent-global-gitconfig");
   environment["GIT_TERMINAL_PROMPT"] = "0";
   environment["LC_ALL"] = "C";
@@ -233,9 +174,9 @@ function runGitDirectly(
       { encoding: "utf8", env: environment, timeout: 30_000 },
       (error, stdout, stderr) => {
         if (error !== null) {
-          // A non-zero exit RESOLVES with its code rather than rejecting: the
-          // negative controls below assert on git's failure output, and it is
-          // `runGitOrThrow` that turns a failed fixture command into a throw.
+          // A non-zero exit resolves with its code instead of rejecting: negative controls assert
+          // on git's failure output, and `runGitOrThrow` turns a failed fixture command into a
+          // throw.
           const exitCode: unknown = (error as { code?: unknown }).code;
           resolve({ stdout, stderr, exitCode });
           return;
@@ -296,10 +237,9 @@ interface Fixtures {
 let fixtures: Fixtures;
 
 /**
- * Writes an executable `/bin/sh` stand-in for git. The timeout script uses
- * `exec` so the sleeping process IS the direct child: a forked grandchild would
- * survive the kill still holding the stdio pipes, and `execFile`'s callback
- * would not fire until they closed.
+ * Writes an executable `/bin/sh` stand-in for git. The timeout script uses `exec` so the sleeping
+ * process is the direct child: a forked grandchild would survive the kill holding the stdio
+ * pipes, and `execFile`'s callback would not fire until they closed.
  */
 async function writeExecutableScript(path: string, body: string): Promise<void> {
   await writeFile(path, `#!/bin/sh\n${body}\n`, "utf8");
@@ -307,16 +247,11 @@ async function writeExecutableScript(path: string, body: string): Promise<void> 
 }
 
 beforeAll(async () => {
-  // Realpath the temp root ONCE, and derive every expected value from it: on
-  // macOS `os.tmpdir()` is `/var/folders/...`, itself a symlink to
-  // `/private/var/folders/...`. That aliasing is precisely what the resolver
-  // canonicalizes, so an expectation built from the un-resolved mkdtemp output
-  // would mismatch on every assertion.
+  // Realpath the temp root once and derive every expected value from it: on macOS `os.tmpdir()` is
+  // a symlink into `/private/var/folders/...`, which the resolver canonicalizes.
   //
-  // Resolved with the module's OWN primitive — `node:fs/promises.realpath`, the
-  // seam default. Canonicalizing fixtures under a different implementation would
-  // let a temp-root spelling difference resurface as a fixture-versus-module
-  // mismatch that appears only on macOS and reads like a module bug.
+  // Resolved with the module's own primitive (`node:fs/promises.realpath`, the seam default), so a
+  // spelling difference cannot surface as a fixture-versus-module mismatch on macOS only.
   const fixtureRoot = await realpath(await mkdtemp(join(tmpdir(), "repo-root-resolver-")));
   const environment = buildFixtureEnvironment(fixtureRoot);
 
@@ -335,10 +270,9 @@ beforeAll(async () => {
   const symlinkToNestedDirectory = join(fixtureRoot, "link-to-nested");
   await symlink(nestedDirectory, symlinkToNestedDirectory);
 
-  // Deliberately mixed-case, so a test can attach it under a spelling that
-  // differs only in case. On a case-insensitive filesystem the mis-spelling
-  // resolves; on a case-sensitive one it does not exist, which is why the test
-  // that uses it is gated on the probe rather than on the platform.
+  // Deliberately mixed-case, so a test can attach it under a spelling that differs only in case.
+  // That spelling resolves only on a case-insensitive filesystem, which is why its test is gated
+  // on the probe.
   const mixedCaseRepositoryRoot = join(fixtureRoot, "MixedCaseRepo");
 
   const bareRepository = join(fixtureRoot, "bare.git");
@@ -346,8 +280,8 @@ beforeAll(async () => {
   await runGitOrThrow(["init", "-q", repositoryRoot], environment);
   await runGitOrThrow(["init", "-q", mixedCaseRepositoryRoot], environment);
   await runGitOrThrow(["init", "-q", "--bare", bareRepository], environment);
-  // It is the fixture that proves the mechanism choice: inside it, `.git` is a
-  // FILE, so the parent-walk alternative rejects would find no repository here.
+  // Inside the linked worktree `.git` is a file, so a parent-walk for a `.git` directory would
+  // find no repository.
   await runGitOrThrow(
     ["-C", repositoryRoot, "commit", "-q", "--allow-empty", "-m", "seed"],
     environment,
@@ -357,14 +291,10 @@ beforeAll(async () => {
     environment,
   );
 
-  // Submodule fixture — the SECOND `.git`-is-a-FILE shape, and the one whose
-  // answer attach persists for a nested checkout. `protocol.file.allow=always`
-  // is required from git 2.38.1 onward (CVE-2022-39253 hardening): without it a
-  // local-path `submodule add` dies with "transport 'file' not allowed" (exit
-  // 128, observed on git 2.50.1). Scoped to this one invocation via `-c`, over a
-  // source repository this suite created inside its own temp root, so it relaxes
-  // nothing outside the fixture. Older git ignores the unknown key, so the flag
-  // is safe in both directions.
+  // Submodule fixture, the second shape where `.git` is a file. `protocol.file.allow=always` is
+  // required from git 2.38.1 on, or a local-path `submodule add` dies with "transport 'file' not
+  // allowed" (exit 128, seen on git 2.50.1). It is scoped to this one invocation over a source
+  // repository inside the temp root, and older git ignores the unknown key.
   const superprojectRoot = join(fixtureRoot, "superproject");
   const submoduleRoot = join(superprojectRoot, "vendor", "library");
   const submoduleNestedDirectory = join(submoduleRoot, "nested", "deep");
@@ -387,16 +317,13 @@ beforeAll(async () => {
     ],
     environment,
   );
-  // The source repository carries only an empty seed commit, so the checkout is
-  // empty; the nested directory is what makes the input a path BELOW the
-  // submodule root rather than the root itself.
+  // The source repository has only an empty seed commit, so the checkout is empty; the nested
+  // directory makes the input a path below the submodule root.
   await mkdir(submoduleNestedDirectory, { recursive: true });
 
-  // The THIRD `.git`-is-a-FILE shape, and the honest one: `--separate-git-dir`
-  // leaves the gitfile in the toplevel and sets no `core.worktree`, so git
-  // self-reports and the root verification passes. It is the control that keeps
-  // the two redirect fixtures below from reading as "separate git directories
-  // are refused" — what is refused is a work tree pointed somewhere else.
+  // The third shape where `.git` is a file: `--separate-git-dir` leaves the gitfile in the
+  // toplevel and sets no `core.worktree`, so git self-reports and root verification passes. It
+  // shows that separate git directories are not refused, only a work tree pointed elsewhere.
   const separateGitDirRoot = join(fixtureRoot, "separate-gitdir-worktree");
   await runGitOrThrow(
     [
@@ -408,17 +335,14 @@ beforeAll(async () => {
     environment,
   );
 
-  // Redirect fixtures — a repository whose OWN config file moves
-  // `--show-toplevel`. The gitfile shape is what makes the config reachable
-  // without owning the tree it will name, and `core.worktree` in it really does
-  // redirect where the command-scope channels do not (git 2.50.1 — both halves
-  // of that asymmetry are pinned by controls below, and the resolver's header
-  // separates what is observed from what is merely inferred about it). One
-  // fixture per verification leg, because neither leg catches both shapes.
+  // Redirect fixtures: a repository whose own config sets `core.worktree`, which moves
+  // `--show-toplevel`. The gitfile shape makes that config reachable without owning the tree it
+  // names. In git 2.50.1 `core.worktree` in the repository's config redirects where the
+  // command-scope channels do not; controls below pin both halves. One fixture per verification
+  // check, because neither check catches both shapes.
   //
-  // SIBLING — pointed at the fixture REPOSITORY rather than an inert directory,
-  // deliberately: a real repository self-reports, so this shape would satisfy
-  // the fixpoint and only containment refuses it.
+  // Sibling: pointed at the fixture repository rather than an inert directory. A real repository
+  // self-reports, so only containment refuses this shape.
   const siblingRedirectRoot = join(fixtureRoot, "sibling-redirect");
   await runGitOrThrow(
     [
@@ -434,9 +358,9 @@ beforeAll(async () => {
     environment,
   );
 
-  // ANCESTOR — pointed at the attached directory's own PARENT, so the input
-  // really does sit inside the reported root and containment passes. Only the
-  // fixpoint refuses it, since the parent does not report itself as a toplevel.
+  // Ancestor: pointed at the attached directory's own parent, so the input sits inside the
+  // reported root and containment passes. Only the self-report check refuses it, since the parent
+  // does not report itself as a toplevel.
   const ancestorRedirectContainer = join(fixtureRoot, "ancestor-container");
   const ancestorRedirectRoot = join(ancestorRedirectContainer, "attached");
   await runGitOrThrow(
@@ -453,14 +377,12 @@ beforeAll(async () => {
     environment,
   );
 
-  // A directory whose name genuinely ends in `\r`, beside one spelled without
-  // it. The PAIR is what makes the terminator rule observable: eating the `\r`
-  // does not merely invent an unresolvable path, it lands on a sibling that
-  // EXISTS — the wrong-tree outcome, silently.
+  // A directory whose name really ends in `\r`, beside one spelled without it. The pair makes the
+  // terminator rule observable: stripping the `\r` lands on the sibling, which exists, and
+  // silently returns the wrong tree.
   //
-  // POSIX-only construction: `\r` is legal in a POSIX filename and forbidden by
-  // NTFS, so creating this on a Windows runner would fail the whole `beforeAll`
-  // rather than one gated test.
+  // Created on POSIX only: NTFS forbids `\r` in names, so on Windows it would fail the whole
+  // `beforeAll`.
   const carriageReturnDirectory = join(fixtureRoot, "carriage-return-root\r");
   const carriageReturnSiblingDirectory = join(fixtureRoot, "carriage-return-root");
   if (process.platform !== "win32") {
@@ -468,20 +390,15 @@ beforeAll(async () => {
     await mkdir(carriageReturnSiblingDirectory);
   }
 
-  // A repository root that TRAVERSES but does not LIST — POSIX mode `0111`.
-  // Discovery stats and reads `.git` entries and never lists the toplevel, so
-  // it still answers `--show-toplevel` (git 2.50.1) and reaches `finish`.
+  // A repository root that traverses but does not list (mode `0111`). Discovery never lists the
+  // toplevel, so git still answers `--show-toplevel` (git 2.50.1) and reaches `finish`.
   //
-  // It keeps a READABLE nested directory, which is what makes its test
-  // discriminating: the attach supplies a path that opens fine and still
-  // resolves to a root that does not, so only a probe reading the OUTGOING root
-  // refuses it.
+  // It keeps a readable nested directory: the attached path opens fine while the resolved root
+  // does not, so only a probe of the outgoing root refuses it.
   //
-  // The mode is applied HERE rather than inside the test so that no failing
-  // assertion can leave it behind; `afterAll` lifts it before the recursive
-  // delete, which cannot descend into a `0111` directory (`force` suppresses
-  // ENOENT, not EACCES). Skipped on win32, where the mode bits do not carry
-  // this meaning and the tests that read them skip too.
+  // The mode is applied here so no failing assertion can leave it behind; `afterAll` lifts it
+  // before the recursive delete, which cannot descend into a `0111` directory. Skipped on win32,
+  // where mode bits mean something else.
   const unreadableRepositoryRoot = join(fixtureRoot, "unreadable-repo");
   const unreadableRepositoryNestedDirectory = join(unreadableRepositoryRoot, "nested");
   await runGitOrThrow(["init", "-q", unreadableRepositoryRoot], environment);
@@ -490,43 +407,34 @@ beforeAll(async () => {
     await chmod(unreadableRepositoryRoot, 0o111);
   }
 
-  // DAMAGED METADATA — three directories git calls "not a git repository" with
-  // the anchored marker at code 128, exactly as it does for an honest
-  // non-repository (git 2.50.1). Stderr cannot tell them apart, which is the
-  // whole finding: without the consistency gate all three are refused as
-  // `not_a_git_repository`, reporting a damaged checkout as no repository.
-  //
-  // Each carries a `.git` entry, and the three differ in what the gate's probe
-  // meets there: EACCES, a successful open, and ENOTDIR respectively.
+  // Damaged metadata: three directories that git reports as "not a git repository" with the
+  // anchored marker at exit 128, exactly as for an honest non-repository (git 2.50.1). Stderr
+  // cannot tell them apart, so without the consistency gate all three would be refused as
+  // `not_a_git_repository`. Each has a `.git` entry that the gate's probe meets as EACCES, a
+  // successful open, and ENOTDIR respectively.
   const damagedMetadataUnreadable = join(fixtureRoot, "damaged-unreadable-dotgit");
   const damagedMetadataEmpty = join(fixtureRoot, "damaged-empty-dotgit");
   const damagedMetadataDanglingGitfile = join(fixtureRoot, "damaged-dangling-gitfile");
   await mkdir(join(damagedMetadataUnreadable, ".git"), { recursive: true });
   await mkdir(join(damagedMetadataEmpty, ".git"), { recursive: true });
   await mkdir(damagedMetadataDanglingGitfile, { recursive: true });
-  // A `gitdir:` pointer to a target that does not exist. git reports
-  // `fatal: not a git repository: <target>` — marker-matching, so it reaches
-  // the not-a-repository arm — while the probe meets a FILE and gets ENOTDIR.
+  // A `gitdir:` pointer to a target that does not exist. git reports `fatal: not a git repository:
+  // <target>`, which matches the marker, while the probe meets a file and gets ENOTDIR.
   await writeFile(
     join(damagedMetadataDanglingGitfile, ".git"),
     `gitdir: ${join(fixtureRoot, "no-such-gitdir-target")}\n`,
     "utf8",
   );
-  // Mode `000`, not `0111`: the gate must refuse a metadata directory it cannot
-  // OPEN, and unlike the traverse-only roots above nothing here needs to
-  // resolve a name through it. Lifted by `afterAll` before the recursive
-  // delete, for the same reason the `0111` roots are.
+  // Mode `000`, not `0111`: the gate must refuse a metadata directory it cannot open. `afterAll`
+  // lifts it before the recursive delete.
   if (process.platform !== "win32") {
     await chmod(join(damagedMetadataUnreadable, ".git"), 0o000);
   }
 
-  // ABSENCE CONTROL for those three, and the one shape where a real filesystem
-  // and a synthetic `ENOENT` could disagree: `.git` exists here as a NAME but
-  // names nothing. Reaching `ENOENT` requires FOLLOWING the link, so a probe
-  // that examined the link itself would call the metadata present and report
-  // `vcs_error` for a directory git calls a non-repository. Not a fourth
-  // damaged shape — git reads it as absence too, which the test asserts before
-  // it asserts the verdict.
+  // Absence control for those three: `.git` exists as a name but names nothing. The probe must
+  // follow the link to reach ENOENT; one that examined the link itself would call the metadata
+  // present and report `vcs_error` for a directory git calls a non-repository. git reads it as
+  // absence too, which the test asserts before the verdict.
   const absentMetadataDanglingSymlink = join(fixtureRoot, "dangling-dotgit-symlink");
   await mkdir(absentMetadataDanglingSymlink, { recursive: true });
   await symlink(
@@ -581,12 +489,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (fixtures !== undefined) {
-    // Lift the unopenable modes FIRST. `rm` cannot descend into a `0111` or
-    // `000` directory, and `force: true` suppresses ENOENT rather than EACCES,
-    // so leaving them would fail teardown and strand the temp tree — including
-    // the repository fixture, which has a `.git` underneath it to remove. The
-    // restore is best-effort so that a teardown failure cannot mask, or
-    // pre-empt, a real test failure.
+    // Lift the unopenable modes first: `rm` cannot descend into a `0111` or `000` directory, and
+    // `force` suppresses ENOENT, not EACCES, so teardown would fail and strand the temp tree. The
+    // restore is best-effort so a teardown failure cannot mask a real test failure.
     for (const unopenableDirectory of [
       fixtures.unreadableRepositoryRoot,
       join(fixtures.damagedMetadataUnreadable, ".git"),
@@ -614,9 +519,8 @@ interface SyntheticFailureShape {
 }
 
 /**
- * A rejection shaped like `execFile`'s. The wording below is what real git
- * emits — pinned from observed output, not copied from the resolver's matcher,
- * so a test that passes is evidence about git rather than about itself.
+ * A rejection shaped like `execFile`'s. The wording is what real git emits, taken from observed
+ * output rather than copied from the resolver's matcher.
  */
 function syntheticGitFailure(shape: SyntheticFailureShape): GitCommandFailure {
   return Object.assign(new Error("synthetic git failure"), shape);
@@ -641,14 +545,10 @@ interface RecordedInvocation {
 }
 
 /**
- * Captures every invocation, then answers each with the same real, resolvable
- * toplevel.
- *
- * One resolution makes TWO invocations — the discovery query on the input and
- * the verification query on the root it reported — and a constant answer serves
- * both: a root that answers with itself is exactly what the fixpoint leg
- * requires. Cases that need the two answers to DIFFER use the
- * directory-answering executor below.
+ * Captures every invocation and answers each with the same real toplevel. One resolution makes
+ * two invocations (discovery on the input, verification on the reported root), and a constant
+ * answer serves both because the self-report check needs a root that answers with itself. Cases
+ * needing different answers use the directory-answering executor.
  */
 function recordingExecutor(recorded: RecordedInvocation[], stdout: string): GitFileExecutor {
   return (file: string, args: readonly string[], options: GitCommandOptions) => {
@@ -658,13 +558,9 @@ function recordingExecutor(recorded: RecordedInvocation[], stdout: string): GitF
 }
 
 /**
- * Answers each invocation from its own `-C` directory, which is `args[1]` of
- * the fixed argv this module emits.
- *
- * Keying on the directory rather than on a call counter is what lets a case say
- * what it means — "the input reports X, and X reports Y" — instead of encoding
- * the resolver's call ORDER into the fixture and silently passing if that order
- * ever changed.
+ * Answers each invocation from its `-C` directory (`args[1]`). Keying on the directory rather
+ * than a call counter lets a case say "the input reports X, and X reports Y" without encoding the
+ * resolver's call order.
  */
 function directoryAnsweringExecutor(
   recorded: RecordedInvocation[],
@@ -677,11 +573,8 @@ function directoryAnsweringExecutor(
 }
 
 /**
- * Answers the discovery query, then FAILS the verification query.
- *
- * The one double that keys on call ORDER rather than on the `-C` directory,
- * because that is exactly what its cases are about: what the resolver does when
- * the second spawn does not come back with a usable answer.
+ * Answers the discovery query, then fails the verification query. The one double keyed on call
+ * order, because its cases are about the second spawn failing.
  */
 function failingVerificationExecutor(
   discoveryStdout: string,
@@ -698,22 +591,15 @@ function failingVerificationExecutor(
 }
 
 /**
- * A readability probe that always succeeds, for the cases whose resolved root
- * does not EXIST on this host.
- *
- * Exactly two need it, both trailing-space-name cases: they answer discovery
- * with a synthetic path and pair it with an identity `realpath`, so `finish`
- * would otherwise probe a directory nobody created and refuse a case that is
- * about string handling. Every other successful resolution in this file lands
- * on a real fixture directory and keeps the REAL default probe, which is what
- * keeps the gate under test rather than stubbed away wholesale.
+ * A readability probe that always succeeds, for the two trailing-space-name cases whose synthetic
+ * resolved root exists nowhere on the host. Every other successful resolution lands on a real
+ * fixture and keeps the real probe.
  */
 const alwaysReadableProbe: DirectoryReadabilityProbe = () => Promise.resolve();
 
 /**
- * Asserts the rejection is the typed carrier with the expected reason. The
- * `reason` parameter takes the union itself rather than a hand-listed subset,
- * so a member added to `RepoRootResolutionReason` is usable here with no edit.
+ * Asserts the rejection is the typed carrier with the expected reason. `reason` takes the full
+ * union, so a new member needs no edit here.
  */
 async function expectResolutionFailure(
   resolving: Promise<unknown>,
@@ -734,13 +620,9 @@ async function expectResolutionFailure(
   return failure;
 }
 
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-
 describe("canonical resolution against real git", () => {
   it("resolves a nested subdirectory to the repository toplevel", async () => {
-    // The case names: the user-selected path is not the repo root, and the
-    // resolver must walk to the real toplevel.
+    // The user-selected path is not the repo root; the resolver must walk to the real toplevel.
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures.nestedDirectory);
     expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
     expect(resolution.canonicalRoot).not.toBe(fixtures.nestedDirectory);
@@ -749,22 +631,18 @@ describe("canonical resolution against real git", () => {
   it("resolves the repository root itself to the same value", async () => {
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures.repositoryRoot);
     expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
-    // The "physical path" includes SPELLING: the persisted root carries the
-    // filesystem's own casing for every component, which is what lets the
-    // `canonical_root`-keyed uniqueness recognize two attaches of one
-    // repository as duplicates.
+    // The persisted root carries the filesystem's own casing for every component, so two attaches
+    // of one repository get the same `canonical_root`.
     expect(resolution.canonicalRoot).toBe(realpathSync.native(fixtures.repositoryRoot));
   });
 
   itOnCaseInsensitiveFilesystem(
     "accepts a mis-cased attach and persists the on-disk casing",
     async () => {
-      // The containment check compares component strings without folding, so
-      // this passes only because the realpath seam normalizes the input's
-      // casing before git is asked. A JS-walk realpath preserves the caller's
-      // spelling, and this attach would then be refused `root_mismatch` — an
-      // honest repository turned away with a security-shaped error on the
-      // default macOS filesystem.
+      // Containment compares component strings without case folding, so this passes only because
+      // the realpath seam normalizes the input's casing before git is asked. A JS-walk realpath
+      // keeps the caller's spelling, and this attach would be refused `root_mismatch`: an honest
+      // repository turned away on the default macOS filesystem.
       const misCasedSpelling = join(fixtures.fixtureRoot, "mixedcaserepo");
       const resolution = await new RepoRootResolver().resolveCanonicalRoot(misCasedSpelling);
       expect(resolution).toEqual({
@@ -776,9 +654,8 @@ describe("canonical resolution against real git", () => {
   );
 
   it("resolves a linked worktree to the worktree root, where .git is a FILE", async () => {
-    // A parent-walk looking for a `.git` DIRECTORY finds none here (`.git`
-    // is a file holding a `gitdir:` pointer), which is why ratifies
-    // `rev-parse` instead.
+    // `.git` is a file holding a `gitdir:` pointer here, so a parent-walk for a `.git` directory
+    // would find nothing; `rev-parse` handles it.
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(
       fixtures.linkedWorktreeRoot,
     );
@@ -786,12 +663,10 @@ describe("canonical resolution against real git", () => {
   });
 
   it("resolves a path inside a submodule to the SUBMODULE root, not the superproject", async () => {
-    // The second `.git`-is-a-FILE shape, and the one persistence turns on: a
-    // submodule is its own repository, so a checkout nested inside one
-    // canonicalizes to the submodule root. Answering with the superproject
-    // would put the mount's trust envelope around a wider tree than the
-    // operator attached, and would collide on uniqueness index with a separate
-    // attach of the superproject itself.
+    // The second shape where `.git` is a file. A submodule is its own repository, so a checkout
+    // nested in one canonicalizes to the submodule root. Answering with the superproject would put
+    // the mount's trust envelope around a wider tree than was attached and collide with a separate
+    // attach of the superproject.
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(
       fixtures.submoduleNestedDirectory,
     );
@@ -800,8 +675,8 @@ describe("canonical resolution against real git", () => {
   });
 
   it("refuses a plain directory with not_a_git_repository", async () => {
-    // git's positive verdict on a directory with no `.git` entry, and the ONLY
-    // route to `not_a_git_repository`.
+    // git's positive verdict on a directory with no `.git` entry; the only route to
+    // `not_a_git_repository`.
     await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot(fixtures.plainDirectory),
       "not_a_git_repository",
@@ -823,9 +698,6 @@ describe("canonical resolution against real git", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
-
 describe("symlink canonicalization", () => {
   it("resolves a symlink to a repo subdirectory to the symlink-resolved toplevel", async () => {
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(
@@ -836,16 +708,15 @@ describe("symlink canonicalization", () => {
   });
 
   it("hands git the realpath'd input, never the alias the caller supplied", async () => {
-    // Order is load-bearing: canonicalizing BEFORE the query is what makes the
-    // symlink guarantee structural rather than a side effect of git's own
-    // getcwd() behavior.
+    // Canonicalizing before the query is what makes the symlink guarantee structural rather than a
+    // side effect of git's own getcwd() behavior.
     const recorded: RecordedInvocation[] = [];
     const resolver = new RepoRootResolver({
       executeFile: recordingExecutor(recorded, `${fixtures.repositoryRoot}\n`),
     });
     await resolver.resolveCanonicalRoot(fixtures.symlinkToNestedDirectory);
-    // Two invocations: discovery on the realpath'd input, then verification on
-    // the root it reported. Neither ever sees the alias the caller supplied.
+    // Two invocations: discovery on the realpath'd input, then verification on the root it
+    // reported. Neither sees the alias.
     expect(recorded.map((invocation) => invocation.args)).toEqual([
       ["-C", fixtures.nestedDirectory, "rev-parse", "--show-toplevel"],
       ["-C", fixtures.repositoryRoot, "rev-parse", "--show-toplevel"],
@@ -858,15 +729,13 @@ describe("symlink canonicalization", () => {
 // ----------------------------------------------------------------------------
 
 describe("non-absolute input is refused before resolution", () => {
-  // `realpath` resolves a relative path against the DAEMON process's working
-  // directory. That is a base directory the daemon supplied from its own state,
-  // and under the cross-node model it is not the author's context — so the root
-  // it produces is a guess, and a plausible-looking one. These cases pin the
-  // refusal, and pin that it happens BEFORE any resolution work.
+  // `realpath` resolves a relative path against the daemon's working directory, so the root it
+  // produced would be a plausible guess from daemon state, not the author's context. These cases
+  // pin the refusal and that it happens before any resolution work.
 
   it("refuses a bare relative path with not_absolute, not a filesystem reason", async () => {
-    // The specificity is the point. `path_not_found` or `vcs_error` here would
-    // mean the gate did not fire and the input merely failed later, by luck.
+    // `path_not_found` or `vcs_error` here would mean the gate did not fire and the input failed
+    // later by luck.
     const failure = await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot("src/workspace"),
       "not_absolute",
@@ -877,31 +746,22 @@ describe("non-absolute input is refused before resolution", () => {
   });
 
   it("never returns the daemon-cwd-resolved root for a relative input", async () => {
-    // The exact silent-wrong-answer shape this gate exists to stop: a relative
-    // input that a daemon-supplied base directory WOULD complete to a real,
-    // resolvable repo path — without the gate, resolution succeeds and answers
-    // about whatever tree the daemon happens to be running in.
+    // Without the gate, a daemon-side base directory would complete the relative input to a real
+    // repo path and resolution would succeed, answering about whatever tree the daemon runs in.
     const relativeInput = "nested/deep";
     const settled = await new RepoRootResolver().resolveCanonicalRoot(relativeInput).then(
       (value: RepoRootResolution) => ({ resolved: true as const, value }),
       (error: unknown) => ({ resolved: false as const, value: error }),
     );
     expect(settled.resolved).toBe(false);
-    // The reason assertion is what keeps this test's mutation power now that
-    // the input is fixture-relative: with the gate removed, `nested/deep`
-    // is unresolvable against the live process cwd and the call would still
-    // reject — as `path_not_found`. Pinning `not_absolute` means a bypassed
-    // gate flips this test red instead of passing by coincidence.
+    // The reason assertion keeps this test's mutation power: with the gate removed, `nested/deep`
+    // is unresolvable against the process cwd and would still reject, as `path_not_found`. Pinning
+    // `not_absolute` makes a bypassed gate fail the test.
     expect(settled.value).toBeInstanceOf(RepoRootResolutionError);
     expect((settled.value as RepoRootResolutionError).reason).toBe("not_absolute");
-    // Negative control — completed against a daemon-side base directory, the
-    // SAME input resolves, so the refusal above is a real refusal and not an
-    // artifact of the input being unresolvable anywhere. The base is the
-    // test's own fixture repo, not the live checkout the daemon's cwd sits
-    // in: the control's premise is "this input is resolvable once completed",
-    // and pinning it to fixture state keeps the test hermetic — no
-    // process.cwd(), no dependency on the surrounding checkout's tree or on
-    // ambient GIT_* environment reaching a git spawned against it.
+    // Negative control: completed against a fixture repo as base directory, the same input
+    // resolves, so the refusal above is real. The base is the fixture repo, not the live checkout,
+    // keeping the test hermetic (no `process.cwd()`, no ambient `GIT_*`).
     const baseCompletedRoot = await new RepoRootResolver().resolveCanonicalRoot(
       resolvePath(fixtures.repositoryRoot, relativeInput),
     );
@@ -910,10 +770,9 @@ describe("non-absolute input is refused before resolution", () => {
   });
 
   it("refuses a `~`-prefixed path with not_absolute — loudly, not by accident", async () => {
-    // `~` is never expanded here, so absent the gate the filesystem is asked
-    // for a literal directory of that name: the refusal would be contingent on
-    // no such directory existing, and a machine that had one would RESOLVE,
-    // silently substituting the daemon's filesystem for the author's.
+    // `~` is never expanded. Without the gate the filesystem would be asked for a literal
+    // directory of that name, and a machine that had one would resolve, substituting the daemon's
+    // filesystem for the author's.
     await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot("~/some-repo"),
       "not_absolute",
@@ -932,14 +791,13 @@ describe("non-absolute input is refused before resolution", () => {
   });
 
   it("refuses the empty path as not_absolute", async () => {
-    // The empty string names nothing at all, so the same rule refuses it —
-    // rather than a filesystem probe reporting it merely missing, which would
-    // describe the wrong defect.
+    // The empty string names nothing; refusing it as `not_absolute` describes the defect, where a
+    // missing-path reason would not.
     await expectResolutionFailure(new RepoRootResolver().resolveCanonicalRoot(""), "not_absolute");
   });
 
   it("never spawns git for a non-absolute input", async () => {
-    // Structural proof the gate precedes resolution: no executor call at all.
+    // No executor call at all: the gate precedes resolution.
     const recorded: RecordedInvocation[] = [];
     const resolver = new RepoRootResolver({
       executeFile: recordingExecutor(recorded, `${fixtures.repositoryRoot}\n`),
@@ -976,21 +834,15 @@ describe("non-absolute input is refused before resolution", () => {
 // ----------------------------------------------------------------------------
 
 describe("win32 driveless roots are refused, complete roots admitted", () => {
-  // `path.win32.isAbsolute` short-circuits on a leading separator before it
-  // ever looks for a drive, so `\repos\foo` reports absolute while naming no
-  // volume. Resolving it takes the volume from the daemon process's CURRENT
-  // DRIVE — the same guessed-root defect as a relative path taking the cwd,
-  // and reachable with ordinary Windows CLI input. makes Windows a V1 tier,
-  // so "covered only on a Windows runner" would mean uncovered.
+  // `path.win32.isAbsolute` short-circuits on a leading separator before looking for a drive, so
+  // `\repos\foo` reports absolute while naming no volume. Resolving it would take the volume from
+  // the daemon's current drive: the same guessed-root defect as a relative path taking the cwd.
   //
-  // Every case here injects a platform `path` — `path.win32`, except the
-  // closing scoping control, which injects `path.posix` to pin that the
-  // root-length rule did not leak across. Note what these tests CANNOT assert:
-  // a full successful resolution, because `finish` re-checks the outgoing root
-  // with the real `node:path` (deliberately — it is the backstop for a broken
-  // seam) and no win32 path is absolute to a POSIX `isAbsolute`. So an admitted
-  // input is pinned by the reason it fails with LATER: `path_not_found` from
-  // `realpath` means step 1 passed it through.
+  // Every case injects `path.win32`, except the closing scoping control, which injects
+  // `path.posix`. A full successful resolution cannot be asserted here: `finish` re-checks the
+  // outgoing root with the real `node:path` (a backstop for a broken seam), and no win32 path is
+  // absolute to a POSIX `isAbsolute`. An admitted input is pinned by how it fails later:
+  // `path_not_found` from `realpath` means the gate passed it through.
 
   it("refuses a backslash-rooted path that names no drive", async () => {
     await expectResolutionFailure(
@@ -1002,8 +854,7 @@ describe("win32 driveless roots are refused, complete roots admitted", () => {
   });
 
   it("refuses the forward-slash spelling of the same driveless root", async () => {
-    // Windows accepts `/` as a separator, so this is the identical shape and
-    // must not slip through on spelling.
+    // Windows accepts `/` as a separator, so this is the identical shape.
     await expectResolutionFailure(
       new RepoRootResolver({ platformPath: win32Path }).resolveCanonicalRoot("/repos/foo"),
       "not_absolute",
@@ -1011,9 +862,8 @@ describe("win32 driveless roots are refused, complete roots admitted", () => {
   });
 
   it("refuses a drive-RELATIVE path", async () => {
-    // `C:foo` means "foo, relative to the current directory ON drive C" —
-    // incomplete in a second way. `isAbsolute` already reports false, so this
-    // pins that the added root-length rule did not accidentally admit it.
+    // `C:foo` is relative to the current directory on drive C. `isAbsolute` already reports false;
+    // this pins that the root-length rule did not admit it.
     await expectResolutionFailure(
       new RepoRootResolver({ platformPath: win32Path }).resolveCanonicalRoot("C:foo"),
       "not_absolute",
@@ -1035,15 +885,12 @@ describe("win32 driveless roots are refused, complete roots admitted", () => {
   });
 
   itOnPosix("admits a UNC share path", async () => {
-    // A UNC root (`\\server\share\`) names a complete location without any
-    // drive letter, which is why the rule reads the parsed root's length
-    // rather than looking for a `:`.
+    // A UNC root (`\\server\share\`) names a complete location without a drive letter, which is
+    // why the rule reads the parsed root's length rather than looking for `:`.
     //
-    // POSIX-only: the assertion is that step 1 PASSED this through, read off
-    // the reason it fails with later. On a POSIX host `realpath` cannot find
-    // `\\server\share\repo` and returns ENOENT, so `path_not_found` is a
-    // reliable proxy. A Windows host would actually attempt the network name —
-    // slow, and failing with an errno that maps to `not_readable` instead.
+    // POSIX-only: admission is read off the later `path_not_found` (ENOENT from `realpath` on a
+    // POSIX host). A Windows host would try the network name, slowly, and fail with an errno that
+    // maps to `not_readable`.
     await expectResolutionFailure(
       new RepoRootResolver({ platformPath: win32Path }).resolveCanonicalRoot(
         String.raw`\\server\share\repo`,
@@ -1077,15 +924,11 @@ describe("win32 driveless roots are refused, complete roots admitted", () => {
   });
 
   itOnPosix("keeps the root-length rule win32-only — a POSIX `/` root stays complete", async () => {
-    // The scoping control. POSIX `/` parses to a root of length 1, exactly like
-    // the win32 `\` refused above; if the length test were applied on both
-    // platforms it would refuse every absolute POSIX path. Reaching
-    // `path_not_found` proves it did not.
+    // Scoping control: POSIX `/` parses to a root of length 1, like the refused win32 `\`. Had the
+    // length test applied on both platforms, it would refuse every absolute POSIX path.
     //
-    // POSIX-only because it injects `path.posix` and then feeds it real fixture
-    // paths. On Windows those are `C:\...`, which `path.posix.isAbsolute`
-    // rejects — both halves would throw `not_absolute` and the control would
-    // report a scoping failure that is really just a host mismatch.
+    // POSIX-only because it feeds real fixture paths to `path.posix`, which rejects Windows
+    // `C:\...` paths and would report a host mismatch as a scoping failure.
     await expectResolutionFailure(
       new RepoRootResolver({ platformPath: posixPath }).resolveCanonicalRoot(
         join(fixtures.fixtureRoot, "no-such-directory"),
@@ -1098,9 +941,6 @@ describe("win32 driveless roots are refused, complete roots admitted", () => {
     expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
   });
 });
-
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
 
 describe("explicit failure on an unusable path", () => {
   it("throws path_not_found for a nonexistent path", async () => {
@@ -1118,9 +958,8 @@ describe("explicit failure on an unusable path", () => {
   });
 
   it("throws not_readable when the path cannot be traversed", async () => {
-    // Driven through the seam rather than `chmod 000`: a real permission
-    // fixture is a no-op under root, which is how CI containers commonly run,
-    // so the real-filesystem form would silently stop testing anything.
+    // Driven through the seam, not `chmod 000`: a permission fixture is a no-op under root, as CI
+    // containers commonly run.
     const resolver = new RepoRootResolver({
       realpath: () =>
         Promise.reject(Object.assign(new Error("permission denied"), { code: "EACCES" })),
@@ -1142,24 +981,21 @@ describe("explicit failure on an unusable path", () => {
   });
 
   itOnPosixAsNonRoot("throws not_readable when the git-reported ROOT does not list", async () => {
-    // The shape that discriminates WHICH value `finish` probes: the supplied
-    // path is a readable nested directory, so the input opens fine and only the
-    // reported toplevel refuses. A probe reading its input rather than its
-    // output passes this premise and still admits the broken mount.
+    // Discriminates which value `finish` probes: the supplied path is a readable nested directory,
+    // so only the reported toplevel refuses. A probe reading its input would pass this premise and
+    // still admit the broken mount.
     //
-    // The control comes first because the case is only meaningful if discovery
-    // genuinely succeeds — git stats and reads `.git` entries and never lists
-    // the toplevel, so the mode does not stop it. Were that to change, the
-    // refusal below would arrive as `vcs_error` and this assertion would say so.
+    // The control comes first because the case means something only if discovery succeeds: git
+    // never lists the toplevel, so the mode does not stop it. Otherwise the refusal would arrive
+    // as `vcs_error`.
     const discovered = await runGitOrThrow(
       ["-C", fixtures.unreadableRepositoryNestedDirectory, "rev-parse", "--show-toplevel"],
       fixtures.environment,
     );
     expect(discovered.stdout.trim()).toBe(fixtures.unreadableRepositoryRoot);
 
-    // The second half of the premise: the SUPPLIED path opens fine, so a probe
-    // reading its input would find nothing to refuse here. Asserted rather than
-    // described, because it is the whole discriminating power of this case.
+    // The supplied path opens fine, so a probe reading its input would find nothing to refuse.
+    // Asserted because it is this case's whole discriminating power.
     const suppliedPathHandle = await opendir(fixtures.unreadableRepositoryNestedDirectory);
     await suppliedPathHandle.close();
 
@@ -1170,9 +1006,7 @@ describe("explicit failure on an unusable path", () => {
   });
 
   it("maps a probe EACCES on the outgoing root to not_readable", async () => {
-    // The seam-driven twin of the fixture case above, for the same reason
-    // the traversal case gives: it runs on every platform and under every uid,
-    // including a root-owned CI container where a mode bit means nothing.
+    // Seam-driven twin of the fixture case above; it runs on every platform and uid.
     const resolver = new RepoRootResolver({
       probeDirectoryReadable: () =>
         Promise.reject(Object.assign(new Error("permission denied"), { code: "EACCES" })),
@@ -1184,11 +1018,9 @@ describe("explicit failure on an unusable path", () => {
   });
 
   it("maps a probe ENOENT on the outgoing root to path_not_found", async () => {
-    // The root VANISHED between discovery and the gate. It reads as a missing
-    // path rather than as a VCS failure even though a git query has by now run
-    // AND succeeded — a filesystem errno is never evidence about that query,
-    // which is the reasoning `classifyRealpathFailure` records for both of its
-    // call sites.
+    // The root vanished between discovery and the gate. It reads as a missing path, not a VCS
+    // failure, even though a git query succeeded: a filesystem errno is never evidence about that
+    // query (see `classifyRealpathFailure`).
     const resolver = new RepoRootResolver({
       probeDirectoryReadable: () =>
         Promise.reject(Object.assign(new Error("no such file or directory"), { code: "ENOENT" })),
@@ -1200,8 +1032,8 @@ describe("explicit failure on an unusable path", () => {
   });
 
   it("leaks no path into the thrown carrier", async () => {
-    // bars this code from echoing the attempted path removes the channel, and
-    // this confirms the resolver adds none.
+    // The carrier must not echo the attempted path; this confirms the resolver adds no such
+    // channel.
     const secretPath = join(fixtures.fixtureRoot, "private-clients", "acme-payments");
     const failure = await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot(secretPath),
@@ -1210,8 +1042,8 @@ describe("explicit failure on an unusable path", () => {
     expect(failure.message).not.toContain(secretPath);
     expect(failure.message).not.toMatch(/[/\\]/);
     expect(JSON.stringify(failure.detail)).not.toContain("acme-payments");
-    // Negative control — the same assertions DO flag an echoing message, so a
-    // clean result above is not vacuous.
+    // Negative control: the same assertions flag an echoing message, so the clean result above is
+    // not vacuous.
     expect(`resolution failed: ${secretPath}`).toMatch(/[/\\]/);
   });
 });
@@ -1222,9 +1054,8 @@ describe("explicit failure on an unusable path", () => {
 
 describe("a git that cannot run is vcs_error, never not_a_git_repository", () => {
   it("surfaces vcs_error when the git executable does not exist", async () => {
-    // REAL `execFile` against a path that is not there: the ENOENT this
-    // discriminates is Node's own, not a hand-built imitation. A host without
-    // git must not report a real repository as not being one.
+    // Real `execFile` against a nonexistent path, so the ENOENT is Node's own, not a hand-built
+    // imitation. A host without git must not report a real repository as not being one.
     const resolver = new RepoRootResolver({
       gitExecutablePath: fixtures.missingGitExecutable,
     });
@@ -1235,9 +1066,8 @@ describe("a git that cannot run is vcs_error, never not_a_git_repository", () =>
   });
 
   it("surfaces vcs_error for a REPOSITORY when git is missing, not a non-repository", async () => {
-    // The same input the happy path resolves. If the missing binary produced
-    // `not_a_git_repository` here, a real repository would be reported as not
-    // being one — the exact breach.
+    // The same input the happy path resolves; `not_a_git_repository` here would report a real
+    // repository as not being one.
     const resolver = new RepoRootResolver({
       gitExecutablePath: fixtures.missingGitExecutable,
     });
@@ -1257,8 +1087,8 @@ describe("a git that cannot run is vcs_error, never not_a_git_repository", () =>
   });
 
   it("surfaces vcs_error on a spawn errno rather than an exit code", async () => {
-    // `execFile` puts an errno STRING in the same `code` slot an exit code
-    // occupies. The classifier must never confuse the two.
+    // `execFile` puts an errno string in the same `code` slot an exit code occupies; the
+    // classifier must not confuse the two.
     const resolver = new RepoRootResolver({
       executeFile: rejectingExecutor(
         syntheticGitFailure({ code: "ENOENT", stderr: "", stdout: "" }),
@@ -1342,8 +1172,8 @@ describe("fail-closed not-a-repository classification", () => {
   });
 
   it("refuses the verdict when the marker sits inside a quoted path, not at line start", async () => {
-    // A directory can be NAMED "not a git repository". Without the line anchor
-    // its own error message would be read as git's not-a-repository verdict.
+    // A directory can be named "not a git repository"; without the line anchor its own error
+    // message would be read as git's verdict.
     const resolver = new RepoRootResolver({
       executeFile: rejectingExecutor(
         syntheticGitFailure({
@@ -1428,8 +1258,8 @@ describe("fail-closed not-a-repository classification", () => {
   });
 
   it("refuses a bare repository as vcs_error, not as a non-repository", async () => {
-    // Real git: exit 128, "this operation must be run in a work tree". A bare
-    // repository has no work tree to mount, which is not the absence of one.
+    // Real git: exit 128, "this operation must be run in a work tree". A bare repository has no
+    // work tree to mount, which is not the absence of a repository.
     await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot(fixtures.bareRepository),
       "vcs_error",
@@ -1437,8 +1267,8 @@ describe("fail-closed not-a-repository classification", () => {
   });
 
   it("refuses a regular file rather than persisting it as a canonical root", async () => {
-    // Real git cannot chdir into a file; its stderr says "Not a directory",
-    // which carries no marker, so the fail-closed default applies.
+    // Real git cannot chdir into a file; its stderr says "Not a directory", which carries no
+    // marker, so the fail-closed default applies.
     await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot(fixtures.regularFile),
       "vcs_error",
@@ -1452,28 +1282,21 @@ describe("fail-closed not-a-repository classification", () => {
 // ----------------------------------------------------------------------------
 
 /**
- * The gap these tests close: git's not-a-repository verdict is POSITIVE
- * evidence about git's view, and `classifyGitFailure` reads it correctly — but
- * a checkout whose metadata is damaged produces the very same exit code and the
- * very same anchored stderr as an honest non-repository. Nothing in the string
- * distinguishes them, so the verdict needs a second observation.
+ * A checkout with damaged metadata produces the same exit code and anchored stderr as an honest
+ * non-repository, so `classifyGitFailure`'s verdict needs a second observation.
  *
- * The absence CONTROLS keep this gate from turning every not-a-repository
- * verdict into `vcs_error` — a directory with no `.git` must still be refused
- * as `not_a_git_repository`. Three of them, narrowing: the "reports
- * not_a_git_repository on git's real exit-128" test above and the real-git
- * `plainDirectory` refusal (no `.git` at all); the dangling-`.git`-symlink case
- * below (the name exists and resolves to nothing, which is the shape a
- * synthetic errno cannot prove, since only a probe that FOLLOWS the link reaches
- * `ENOENT`); and the seam twin after it, which runs that same reading on every
- * platform and uid.
+ * The absence controls keep this gate from turning every not-a-repository verdict into
+ * `vcs_error`; a directory with no `.git` must still be refused as `not_a_git_repository`. There
+ * are three: the exit-128 classification test above together with the real-git `plainDirectory`
+ * refusal (no `.git` at all); the dangling-symlink case below (the name exists and resolves to
+ * nothing, which a synthetic errno cannot prove); and the seam twin after it, which runs that
+ * reading on every platform and uid.
  */
 describe("damaged repository metadata is vcs_error, never not_a_git_repository", () => {
   it("refuses a directory whose `.git` is an EMPTY directory", async () => {
-    // Shape 2. Nothing is unreadable here — the probe OPENS the metadata
-    // directory successfully — which is why the reason is `vcs_error` and not
-    // `not_readable`. Ungated: no mode bits are involved, so this runs on every
-    // platform and every uid.
+    // Empty `.git` directory. Nothing is unreadable: the probe opens the metadata directory, so
+    // the reason is `vcs_error`, not `not_readable`. No mode bits, so it runs on every platform
+    // and uid.
     await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot(fixtures.damagedMetadataEmpty),
       "vcs_error",
@@ -1481,11 +1304,10 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   });
 
   it("refuses a `.git` gitfile whose `gitdir:` target does not exist", async () => {
-    // Shape 4, and the premise is verified INLINE rather than assumed: this
-    // shape must reach the not-a-repository arm (marker-matching stderr) for the
-    // gate to be what refuses it. If a future git changed the wording, the
-    // resolver would refuse for a DIFFERENT reason and this test would still
-    // pass while testing nothing — so the marker is asserted here.
+    // Dangling gitfile. The premise is verified inline: the shape must reach the not-a-repository
+    // arm (marker-matching stderr) for the gate to be what refuses it. If a future git changed the
+    // wording, the resolver would refuse for another reason and the test would pass while testing
+    // nothing.
     const rawGitOutcome = await runGitDirectly(
       ["-C", fixtures.damagedMetadataDanglingGitfile, "rev-parse", "--show-toplevel"],
       fixtures.environment,
@@ -1500,10 +1322,8 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   });
 
   itOnPosixAsNonRoot("refuses a checkout whose `.git` directory cannot be opened", async () => {
-    // Shape 1, the permission-damaged case. Gated on a non-root POSIX euid for
-    // the reason the `0111` tests are: root opens a mode-`000` directory, so
-    // under root the probe succeeds, git's own read succeeds too, and the
-    // premise the test rests on does not exist.
+    // Permission-damaged `.git`. Gated on non-root POSIX because root opens a mode-`000`
+    // directory: the probe and git's own read would both succeed, and the premise would not exist.
     const rawGitOutcome = await runGitDirectly(
       ["-C", fixtures.damagedMetadataUnreadable, "rev-parse", "--show-toplevel"],
       fixtures.environment,
@@ -1518,20 +1338,14 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   });
 
   it("classifies a `.git` symlink that points nowhere as absence, not damage", async () => {
-    // The absence side on a REAL dangling symlink, which is what the synthetic
-    // `ENOENT` twin below cannot prove: reaching `ENOENT` requires the probe to
-    // FOLLOW the link, and one that examined the link itself would find a
-    // symlink and call the metadata present.
+    // A real dangling symlink, which the synthetic ENOENT twin below cannot prove: reaching ENOENT
+    // needs the probe to follow the link, and one that examined the link itself would call the
+    // metadata present.
     //
-    // Premise asserted first, because it is the whole reason
-    // `not_a_git_repository` is the consistent answer rather than a hole in the
-    // gate: git reads this as absence too, and says so in the GENERIC wording an
-    // honest non-repository gets. The dangling GITFILE above is the contrast —
-    // git names its unreachable target there, distinguishing "no metadata" from
-    // "metadata pointing nowhere". If a future git narrowed this one the same
-    // way, the wording would stop matching the not-a-repository marker, the
-    // resolver would refuse it for a different reason, and this assertion is
-    // what catches that rather than letting the verdict silently change meaning.
+    // The premise is asserted first: git reads this as absence too, in the generic wording an
+    // honest non-repository gets. The dangling gitfile above is the contrast, where git names its
+    // unreachable target. If a future git changed this wording, the resolver would refuse for
+    // another reason, and this assertion catches it.
     const rawGitOutcome = await runGitDirectly(
       ["-C", fixtures.absentMetadataDanglingSymlink, "rev-parse", "--show-toplevel"],
       fixtures.environment,
@@ -1548,10 +1362,9 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   });
 
   it("reads ENOENT on the `.git` path as absence, through the seam", async () => {
-    // The seam half of the gate, driven synthetically so it runs on every
-    // platform and uid. A probe that rejects ENOENT for the metadata path and
-    // resolves for the root itself is exactly what a genuine non-repository
-    // presents, and it must still be refused as `not_a_git_repository`.
+    // The seam half of the gate, synthetic so it runs on every platform and uid. A probe that
+    // rejects ENOENT for the metadata path and resolves for the root is what a genuine
+    // non-repository presents, and it must still be refused as `not_a_git_repository`.
     const resolver = new RepoRootResolver({
       executeFile: rejectingExecutor(
         syntheticGitFailure({
@@ -1572,10 +1385,9 @@ describe("damaged repository metadata is vcs_error, never not_a_git_repository",
   });
 
   it("reads a SUCCESSFUL open of the `.git` path as presence, through the seam", async () => {
-    // The inverted half. This is the reading that makes the seam's two
-    // consumers differ: for `finish` a resolving probe is a PASS, here it is
-    // damaged metadata. A stub written for one misleads the other, which is why
-    // the deps member documents both.
+    // The inverted reading: for `finish` a resolving probe is a pass, here it means damaged
+    // metadata. A stub written for one misleads the other, which is why `probeDirectoryReadable`
+    // documents both.
     const resolver = new RepoRootResolver({
       executeFile: rejectingExecutor(
         syntheticGitFailure({
@@ -1625,13 +1437,9 @@ describe("malformed git success", () => {
   });
 
   it("strips only the line terminator, preserving a trailing space in a directory name", async () => {
-    // `.trim()` here would invent a path that does not exist — a plausible but
-    // unresolvable root, the worst failure shape for a value attach persists.
-    //
-    // The input is the root itself (with an identity `realpath`, since no such
-    // directory exists), so the root verification is satisfied by a value that
-    // still carries its trailing space: trimming would fail the assertion below
-    // AND the containment check, from opposite directions.
+    // `.trim()` would invent a path that does not exist, a plausible but unresolvable root. The
+    // input is the root itself with an identity `realpath` (no such directory exists), so trimming
+    // would fail the assertion below and the containment check, from opposite directions.
     const rootEndingInSpace = `${join(fixtures.fixtureRoot, "trailing-space-root")} `;
     const resolver = new RepoRootResolver({
       executeFile: succeedingExecutor(`${rootEndingInSpace}\n`),
@@ -1648,16 +1456,12 @@ describe("malformed git success", () => {
 // ----------------------------------------------------------------------------
 
 /**
- * A `platformPath` double reporting win32's SEPARATOR over POSIX path shapes.
+ * A `platformPath` double with win32's separator over POSIX path shapes, for the `\r` strip,
+ * whose only observable is a path the host filesystem must resolve. `path.win32` cannot produce
+ * that, since every check on an outgoing value reads the real `node:path`.
  *
- * It exists for one branch: the `\r` strip, whose only observable is a path
- * that the HOST filesystem must then resolve. Injecting `path.win32` cannot
- * produce that, because every check guarding an outgoing value reads the real
- * `node:path` — on a POSIX runner no `C:\...` value survives them.
- *
- * NOT reusable for step-1 refusal cases: `parse` corresponds to no real
- * platform, so it says nothing about which roots win32 would refuse. Those
- * belong `path.win32` itself.
+ * Not for gate-refusal cases: its `parse` matches no real platform, so those use `path.win32`
+ * itself.
  */
 const win32SeparatorOverPosixPaths: PlatformPathModule = {
   sep: win32Path.sep,
@@ -1667,23 +1471,21 @@ const win32SeparatorOverPosixPaths: PlatformPathModule = {
 
 describe("the default realpath implementation is pinned", () => {
   it("is `node:fs/promises.realpath`, never the JS-walk implementation", () => {
-    // Structural deliberately. The casing behavior this protects is observable
-    // only on a case-insensitive filesystem, which CI's ubuntu-only daemon leg
-    // is not — so the probe-gated tests cannot catch a quiet swap there, and
-    // this assertion, which fails on every platform, is what does.
+    // Structural on purpose. The casing behavior this protects shows only on a case-insensitive
+    // filesystem, which CI's ubuntu-only daemon leg is not, so the probe-gated tests cannot catch
+    // a quiet swap there; this assertion fails on every platform.
     //
-    // The hazard is specific: `node:fs`'s callback `realpath` is the
-    // implementation Node documents as performing "No case conversion ... on
-    // case-insensitive file systems". Defaulting to it would leave every other
-    // test in this file green on CI while mis-cased attach broke on macOS.
+    // The hazard: Node documents `node:fs`'s callback `realpath` as doing no case conversion on
+    // case-insensitive file systems. Defaulting to it would leave every other test green on CI
+    // while a mis-cased attach broke on macOS.
     expect(DEFAULT_REALPATH).toBe(realpath);
   });
 });
 
 describe("line terminator stripping is platform-scoped", () => {
   it("strips a CRLF terminator on win32, where no name can end in a CR", async () => {
-    // NTFS forbids control characters in names, so on win32 a `\r` before the
-    // final `\n` can only be terminator noise from a shim or console layer.
+    // NTFS forbids control characters in names, so on win32 a `\r` before the final `\n` is
+    // terminator noise from a shim or console layer.
     const resolver = new RepoRootResolver({
       platformPath: win32SeparatorOverPosixPaths,
       executeFile: succeedingExecutor(`${fixtures.repositoryRoot}\r\n`),
@@ -1693,9 +1495,8 @@ describe("line terminator stripping is platform-scoped", () => {
   });
 
   it("preserves a trailing space on win32, where only the CR is terminator noise", async () => {
-    // The intersection the surrounding tests leave open: the win32 branch drops
-    // a `\r`, and a name ending in a SPACE has to survive that. A `.trim()` here
-    // would satisfy every other test in this block and fail only this one.
+    // A name ending in a space must survive the win32 branch that drops a `\r`; `.trim()` would
+    // satisfy every other test in this block and fail only this one.
     const rootEndingInSpace = `${join(fixtures.fixtureRoot, "trailing-space-root")} `;
     const resolver = new RepoRootResolver({
       platformPath: win32SeparatorOverPosixPaths,
@@ -1708,11 +1509,10 @@ describe("line terminator stripping is platform-scoped", () => {
   });
 
   itOnPosix("keeps a CR that is the last character of a POSIX directory name", async () => {
-    // git terminates plumbing output with a bare LF on every platform, so on
-    // POSIX — where `\r` is a legal filename character — a `\r` before that LF
-    // is part of the NAME. The fixture pair makes the stakes concrete: the
-    // sibling spelled without the `\r` exists, so eating it would resolve, and
-    // would persist a real but entirely different directory as the mount root.
+    // git ends plumbing output with a bare LF on every platform, so on POSIX, where `\r` is legal
+    // in a name, a `\r` before that LF belongs to the name. The sibling spelled without `\r`
+    // exists, so stripping it would resolve and persist a real but different directory as the
+    // mount root.
     const resolver = new RepoRootResolver({
       executeFile: succeedingExecutor(`${fixtures.carriageReturnDirectory}\n`),
     });
@@ -1722,8 +1522,8 @@ describe("line terminator stripping is platform-scoped", () => {
       vcsType: "git",
     });
     expect(resolution.canonicalRoot).not.toBe(fixtures.carriageReturnSiblingDirectory);
-    // Negative control — the sibling really is resolvable, so the assertion
-    // above is about the strip and not about a path that could not resolve.
+    // Negative control: the sibling is resolvable, so the assertion above is about the strip and
+    // not about an unresolvable path.
     expect(
       await new RepoRootResolver({
         executeFile: succeedingExecutor(`${fixtures.carriageReturnSiblingDirectory}\n`),
@@ -1732,8 +1532,8 @@ describe("line terminator stripping is platform-scoped", () => {
   });
 
   itOnPosix("still strips the bare LF terminator on POSIX", async () => {
-    // The scoping control: only the `\r` is platform-conditional. A toplevel
-    // whose LF survived would name a directory that does not exist.
+    // Only the `\r` is platform-conditional; a toplevel whose LF survived would name a directory
+    // that does not exist.
     const resolver = new RepoRootResolver({
       executeFile: succeedingExecutor(`${fixtures.repositoryRoot}\n`),
     });
@@ -1748,13 +1548,11 @@ describe("line terminator stripping is platform-scoped", () => {
 
 describe("a redirected toplevel is refused, never persisted", () => {
   itOnPosix("negative control — raw git IS redirected by a repo's own core.worktree", async () => {
-    // Proves the hazard reproduces on this host's git. Without it the two
-    // refusals below could pass because git stopped honoring `core.worktree`
-    // at all, and the checks they cover would be dead code asserted green.
+    // Proves the hazard reproduces on this host's git; otherwise the two refusals below could pass
+    // because git stopped honoring `core.worktree`.
     //
-    // POSIX-only because it reads RAW git stdout: on Windows `rev-parse`
-    // answers with forward slashes, which no fixture path is spelled with. The
-    // refusals themselves assert on resolver output and run everywhere.
+    // POSIX-only because it reads raw git stdout, which on Windows uses forward slashes that no
+    // fixture path is spelled with. The refusals assert on resolver output and run everywhere.
     const redirected = await runGitOrThrow(
       ["-C", fixtures.siblingRedirectRoot, "rev-parse", "--show-toplevel"],
       fixtures.environment,
@@ -1764,18 +1562,12 @@ describe("a redirected toplevel is refused, never persisted", () => {
   });
 
   itOnPosix("mirror control — command-scope core.worktree does NOT redirect", async () => {
-    // The other half of the asymmetry the resolver documents, pinned so the
-    // module rests on an observation rather than on inference about when git
-    // reads which config. It is worth pinning precisely because the DOCUMENTED
-    // precedence predicts the opposite: git-config describes the numbered
-    // environment pairs as overriding values in configuration files, and `git
-    // -c` as outranking even those. Both channels are exercised here and
-    // neither moves the toplevel on this version — which is why the resolver's
-    // environment strip is defense in depth and the two legs below are what
-    // actually close the vector.
+    // The other half of the asymmetry: neither `git -c` nor `GIT_CONFIG_COUNT` pairs move the
+    // toplevel on this version, although git's config documentation ranks both above config files.
+    // So the resolver's environment strip is defense in depth, and the two verification checks are
+    // what close the vector.
     //
-    // POSIX-only for the reason the control above is: it reads RAW git stdout,
-    // which on Windows comes back forward-slashed.
+    // POSIX-only for the reason above: it reads raw git stdout.
     const commandScopeInjections = [
       {
         label: "git -c",
@@ -1803,12 +1595,10 @@ describe("a redirected toplevel is refused, never persisted", () => {
   });
 
   it("refuses a sibling redirect with root_mismatch", async () => {
-    // Attaching this would persist a `canonical_root` naming a tree the
-    // operator never supplied, and the validator would then admit binds all
-    // over it. The redirect target here is the fixture REPOSITORY, which
-    // self-reports honestly, so the fixpoint leg would have admitted this
-    // shape — containment is what refuses it, and that is what makes the leg
-    // load-bearing rather than redundant.
+    // Attaching this would persist a `canonical_root` naming a tree the operator never supplied,
+    // and binds under it would then be admitted. The redirect target is the fixture repository,
+    // which self-reports honestly, so the self-report check would admit this shape; containment is
+    // what refuses it.
     await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot(fixtures.siblingRedirectRoot),
       "root_mismatch",
@@ -1816,12 +1606,11 @@ describe("a redirected toplevel is refused, never persisted", () => {
   });
 
   it("refuses an ancestor redirect with root_mismatch", async () => {
-    // The widening shape, and the reason containment alone is not enough: the
-    // supplied path really does sit inside the reported root, so containment
-    // passes. Persisting it would put the mount's trust envelope around a tree
-    // that merely CONTAINS what was attached — `core.worktree=/` being the
-    // limit case. The fixpoint refuses it, because a parent directory does not
-    // report itself as a toplevel.
+    // The widening shape, and the reason containment alone is not enough: the supplied path sits
+    // inside the reported root, so containment passes. Persisting it would put the mount's trust
+    // envelope around a tree that merely contains what was attached (`core.worktree=/` is the
+    // limit). The self-report check refuses it, because a parent directory does not report itself
+    // as a toplevel.
     await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot(fixtures.ancestorRedirectRoot),
       "root_mismatch",
@@ -1829,9 +1618,9 @@ describe("a redirected toplevel is refused, never persisted", () => {
   });
 
   it("never resolves a redirected root", async () => {
-    // Leg of the refusal. In both shapes the verification query reports
-    // not-a-repository, the SAME verdict that yields `not_a_git_repository` on
-    // the discovery query; here it must refuse the claimed root.
+    // The self-report check. In both shapes the verification query reports not-a-repository, the
+    // same verdict that yields `not_a_git_repository` on the discovery query; here it must refuse
+    // the claimed root.
     for (const redirectedInput of [fixtures.siblingRedirectRoot, fixtures.ancestorRedirectRoot]) {
       const settled = await new RepoRootResolver().resolveCanonicalRoot(redirectedInput).then(
         (value: RepoRootResolution) => ({ resolved: true as const, value }),
@@ -1842,10 +1631,9 @@ describe("a redirected toplevel is refused, never persisted", () => {
   });
 
   it("accepts a --separate-git-dir repository whose gitfile sits in its toplevel", async () => {
-    // The boundary of the refusal, and the control that keeps it honest: a
-    // separate git directory is not the hazard — a work tree pointed away from
-    // the directory holding the gitfile is. `git init --separate-git-dir` sets
-    // no `core.worktree`, so this self-reports and resolves.
+    // The boundary of the refusal: a separate git directory is not the hazard, a work tree pointed
+    // away from the gitfile's directory is. `--separate-git-dir` sets no `core.worktree`, so this
+    // self-reports and resolves.
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(
       fixtures.separateGitDirRoot,
     );
@@ -1867,8 +1655,8 @@ describe("root verification is two independent legs", () => {
       resolver.resolveCanonicalRoot(fixtures.nestedDirectory),
       "root_mismatch",
     );
-    // ONE invocation. Containment runs first, so a root that does not contain
-    // the input never becomes the `-C` argument of a second git spawn.
+    // One invocation: containment runs first, so a root that does not contain the input never
+    // becomes the `-C` argument of a second spawn.
     expect(recorded).toHaveLength(1);
   });
 
@@ -1893,10 +1681,9 @@ describe("root verification is two independent legs", () => {
   });
 
   it("refuses when the verification query reports not-a-repository", async () => {
-    // The shape both real redirects produce: the claimed root is not a
-    // repository at all. That is the SAME verdict the discovery query reports
-    // as `not_a_git_repository`; here it is about the claimed root, not the
-    // supplied path, so it is `root_mismatch`.
+    // The shape both real redirects produce: the claimed root is not a repository. The discovery
+    // query reports the same verdict as `not_a_git_repository`; about the claimed root it is
+    // `root_mismatch`.
     const resolver = new RepoRootResolver({
       executeFile: failingVerificationExecutor(
         `${fixtures.repositoryRoot}\n`,
@@ -1914,10 +1701,9 @@ describe("root verification is two independent legs", () => {
   });
 
   it("keeps vcs_error when the verification query cannot complete", async () => {
-    // A second spawn that fails ABNORMALLY verified nothing either way, so the
-    // reason stays honest about what happened rather than claiming a mismatch
-    // verdict git never delivered. Both outcomes refuse; only the wire
-    // discriminant differs.
+    // A second spawn that fails abnormally verified nothing, so the reason stays `vcs_error`
+    // rather than claiming a mismatch git never delivered. Both refuse; only the wire discriminant
+    // differs.
     const resolver = new RepoRootResolver({
       executeFile: failingVerificationExecutor(
         `${fixtures.repositoryRoot}\n`,
@@ -1944,8 +1730,7 @@ describe("root verification is two independent legs", () => {
   });
 
   it("refuses a plain directory after one spawn — no second query", async () => {
-    // The not-a-repository arm refuses on the discovery answer alone, so there
-    // is no root git could be asked to confirm.
+    // The not-a-repository arm refuses on the discovery answer alone; there is no root to confirm.
     const recorded: RecordedInvocation[] = [];
     const resolver = new RepoRootResolver({
       executeFile: (file: string, args: readonly string[], options: GitCommandOptions) => {
@@ -1973,10 +1758,9 @@ describe("root verification is two independent legs", () => {
 
 describe("ambient GIT_* variables cannot redirect discovery", () => {
   it("negative control — raw git IS hijacked by GIT_DIR", async () => {
-    // Proves the hazard is real: with GIT_DIR exported, git answers about the
-    // ambient repository and reports the plain directory as a git toplevel. If
-    // this control ever stops reproducing, the strip-list tests below become
-    // vacuous and should be re-derived.
+    // Proves the hazard is real: with GIT_DIR exported, git answers about the ambient repository
+    // and reports the plain directory as a toplevel. If this stops reproducing, the strip-list
+    // tests below become vacuous.
     const hijacked = await runGitDirectly(
       ["-C", fixtures.plainDirectory, "rev-parse", "--show-toplevel"],
       { ...fixtures.environment, GIT_DIR: join(fixtures.repositoryRoot, ".git") },
@@ -2010,21 +1794,18 @@ describe("ambient GIT_* variables cannot redirect discovery", () => {
   });
 
   it("still resolves a repository with GIT_CEILING_DIRECTORIES exported", async () => {
-    // The mirror-image breach: an ambient ceiling makes git report
-    // not-a-repository for a REAL repository, which would faithfully become a
-    // `not_a_git_repository` refusal. Stripping is what prevents it.
+    // The mirror-image breach: an ambient ceiling makes git report not-a-repository for a real
+    // repository, which would become a `not_a_git_repository` refusal. Stripping prevents it.
     vi.stubEnv("GIT_CEILING_DIRECTORIES", join(fixtures.repositoryRoot, "nested"));
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures.nestedDirectory);
     expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
   });
 
   it("negative control — raw git IS blinded by GIT_OBJECT_DIRECTORY", async () => {
-    // The SECOND mirror-image hazard, by a different mechanism than the ceiling
-    // above: the variable is substituted into git's own is-this-a-repository
-    // predicate, so a value naming nothing accessible makes every candidate fail
-    // it. Confirmed on git 2.50.1 — and note the wording is the ANCHORED
-    // `fatal: not a git repository`, i.e. exactly what `classifyGitFailure`
-    // reads as a POSITIVE not-a-repository verdict.
+    // A second mirror-image hazard, by a different mechanism: the variable enters git's own
+    // is-this-a-repository predicate, so a value naming nothing accessible makes every candidate
+    // fail it (git 2.50.1). The wording is the anchored `fatal: not a git repository`, which
+    // `classifyGitFailure` reads as a positive verdict.
     const blinded = await runGitDirectly(
       ["-C", fixtures.nestedDirectory, "rev-parse", "--show-toplevel"],
       {
@@ -2037,20 +1818,18 @@ describe("ambient GIT_* variables cannot redirect discovery", () => {
   });
 
   it("still resolves a repository with GIT_OBJECT_DIRECTORY exported", async () => {
-    // The breach the strip closes. Attaching a NESTED subdirectory routes the
-    // blinded verdict to the not-a-repository arm — the consistency gate looks
-    // for `<supplied>/.git`, and a subdirectory has none — so without the strip
-    // a live repository is refused as `not_a_git_repository`.
+    // The breach the strip closes. A nested subdirectory routes the blinded verdict to the
+    // not-a-repository arm (the consistency gate looks for `<supplied>/.git`, which a subdirectory
+    // lacks), so without the strip a live repository is refused as `not_a_git_repository`.
     vi.stubEnv("GIT_OBJECT_DIRECTORY", join(fixtures.fixtureRoot, "absent-object-directory"));
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures.nestedDirectory);
     expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
   });
 
   it("still resolves a repository root with GIT_OBJECT_DIRECTORY exported", async () => {
-    // The root-attach half of the same hazard: without the strip
-    // `<supplied>/.git` exists, so the consistency gate turns the blinded
-    // verdict into `vcs_error`. Pinned alongside the nested case so the strip is
-    // asserted on both arms of the consistency gate.
+    // The root-attach half of the same hazard: `<supplied>/.git` exists, so without the strip the
+    // consistency gate turns the blinded verdict into `vcs_error`. With the nested case, the strip
+    // is asserted on both arms of the gate.
     vi.stubEnv("GIT_OBJECT_DIRECTORY", join(fixtures.fixtureRoot, "absent-object-directory"));
     const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures.repositoryRoot);
     expect(resolution).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
@@ -2063,12 +1842,9 @@ describe("ambient GIT_* variables cannot redirect discovery", () => {
 
 describe("git invocation shape", () => {
   /**
-   * Both invocations of one successful resolution, in order: the discovery
-   * query on the input, then the verification query on the root it reported.
-   *
-   * Returning the pair rather than the first is what lets the hardening
-   * assertions cover BOTH spawns — an environment or bound asserted only on
-   * `recorded[0]` would say nothing about the query that runs after it.
+   * Both invocations of one successful resolution, in order: discovery on the input, then
+   * verification on the reported root. Returning the pair lets the hardening assertions cover
+   * both spawns.
    */
   async function captureInvocations(): Promise<readonly [RecordedInvocation, RecordedInvocation]> {
     const recorded: RecordedInvocation[] = [];
@@ -2102,9 +1878,8 @@ describe("git invocation shape", () => {
       "timeout",
       "windowsHide",
     ]);
-    // Compile-time leg: adding a `shell` member to the options type would flip
-    // this to `false` and fail typecheck, so the runtime check above cannot be
-    // quietly outgrown.
+    // Compile-time check: adding a `shell` member to the options type flips this to `false` and
+    // fails typecheck, so the runtime check above cannot be outgrown.
     const optionsCarryNoShell: "shell" extends keyof GitCommandOptions ? false : true = true;
     expect(optionsCarryNoShell).toBe(true);
   });
@@ -2117,9 +1892,8 @@ describe("git invocation shape", () => {
   });
 
   it("pins the locale and blocks terminal prompting", async () => {
-    // The not-a-repository verdict is read off git's stderr, and git translates
-    // its messages; an operator's localized shell must not change how that
-    // verdict is read.
+    // The not-a-repository verdict is read off git's stderr and git translates its messages, so a
+    // localized shell must not change how it is read.
     const [invocation] = await captureInvocations();
     expect(invocation.options.env["LC_ALL"]).toBe("C");
     expect(invocation.options.env["LANG"]).toBe("C");
@@ -2127,11 +1901,9 @@ describe("git invocation shape", () => {
   });
 
   it("pins its roster to the resolver's exported strip list — set equality both ways", () => {
-    // The assertion below loops over the LOCAL roster, so it only ever proves
-    // what this file already knows to name: a key the resolver starts
-    // stripping would go silently uncovered. Set equality against the
-    // resolver's exported list closes that direction, and the two spellings
-    // stay independent so neither side can drift alone.
+    // The loop in the next test covers only the local roster, so a key the resolver starts
+    // stripping would go uncovered. Set equality against the resolver's exported list closes that
+    // direction; the two spellings stay independent.
     expect([...EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS].sort()).toStrictEqual(
       [...DISCOVERY_REDIRECTING_GIT_ENV_KEYS].sort(),
     );
@@ -2149,13 +1921,12 @@ describe("git invocation shape", () => {
   });
 
   it("strips a redirecting variable inherited under ANY casing", async () => {
-    // A Windows process environment BLOCK is case-insensitive, so `Git_Dir`
-    // functions as `GIT_DIR` for the child. A copy-then-delete strip would miss
-    // it: the copy preserves each inherited key's original spelling, and
-    // `delete environment["GIT_DIR"]` matches only that one spelling.
+    // A Windows environment block is case-insensitive, so `Git_Dir` works as `GIT_DIR` for the
+    // child. A copy-then-delete strip would miss it: the copy keeps each inherited key's spelling,
+    // and `delete environment["GIT_DIR"]` matches one spelling.
     //
-    // The assertion is over the WHOLE built environment rather than the seeded
-    // keys, so a strip that missed some other casing fails here too.
+    // The assertion covers the whole built environment, so a strip that missed some other casing
+    // fails too.
     vi.stubEnv("Git_Dir", "/ambient/hijack");
     vi.stubEnv("git_work_tree", "/ambient/hijack");
     vi.stubEnv("Git_Config_Parameters", "'core.worktree=/ambient/hijack'");
@@ -2167,15 +1938,14 @@ describe("git invocation shape", () => {
     for (const key of Object.keys(invocation.options.env)) {
       expect(strippedKeys.has(key.toUpperCase()), `${key} survived the strip`).toBe(false);
     }
-    // Negative control — a mixed-case key that is NOT on the list survives, so
-    // the loop above is passing on a strip rather than on an empty environment.
+    // Negative control: a mixed-case key not on the list survives, so the loop passes on a strip
+    // and not on an empty environment.
     expect(invocation.options.env["Repo_Root_Resolver_Probe"]).toBe("inherited");
   });
 
   it("hardens the verification query exactly like the discovery query", async () => {
-    // The second spawn is where a redirected root gets checked, so it must run
-    // under the same stripped, locale-pinned, bounded shape. Asserting only
-    // `recorded[0]` would leave the query that does the checking unexamined.
+    // The second spawn is where a redirected root is checked, so it must run under the same
+    // stripped, locale-pinned, bounded shape.
     for (const key of EXPECTED_DISCOVERY_REDIRECTING_GIT_ENV_KEYS) {
       vi.stubEnv(key, "/ambient/hijack");
     }
@@ -2196,8 +1966,8 @@ describe("git invocation shape", () => {
   });
 
   it("still inherits the rest of the environment, PATH included", async () => {
-    // Deleting the discovery variables must not amount to a scrubbed
-    // environment: a bare `git` is resolved through the child's own PATH.
+    // The strip must not amount to a scrubbed environment: a bare `git` is resolved through the
+    // child's PATH.
     vi.stubEnv("REPO_ROOT_RESOLVER_PROBE", "inherited");
     const [invocation] = await captureInvocations();
     expect(invocation.options.env["REPO_ROOT_RESOLVER_PROBE"]).toBe("inherited");
@@ -2214,9 +1984,6 @@ describe("git invocation shape", () => {
     expect(recorded[0]?.options.env["REPO_ROOT_RESOLVER_PROBE"]).toBe("set-after-construction");
   });
 });
-
-// ----------------------------------------------------------------------------
-// ----------------------------------------------------------------------------
 
 describe("no unresolved or guessed root ever escapes", () => {
   it("rejects — never resolves — for every failing input shape", async () => {

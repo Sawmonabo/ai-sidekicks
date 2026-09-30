@@ -1,24 +1,21 @@
-// The daemon's one colorer: shiki's core with its JavaScript regex engine,
-// grammars loaded the first time a language is asked for, and a span cache
-// keyed on what the source holds.
+// The daemon's one colorer: shiki's core with its JavaScript regex engine, grammars loaded the
+// first time a language is asked for, and a span cache keyed on what the source holds.
 //
-// SPANS ARE KEPT PACKED. A source's spans are one `Uint32Array` of
-// `[offset, length, class]` triples, adjacent spans of one class merged and
-// plain text left out, which holds a source's colors in well under a byte per
-// source byte where one object per token holds several. The cache is bounded
-// by those bytes, at 1/2048 of the machine's physical memory, and keyed by the
-// language and a digest of the source, so the same code asked for twice is
-// colored once and the cache never holds the source itself.
+// Spans are kept packed. A source's spans are one `Uint32Array` of `[offset, length, class]`
+// triples, adjacent spans of one class merged and plain text left out, which holds a source's
+// colors in well under a byte per source byte where one object per token holds several. The
+// cache is bounded by those bytes (1/2048 of physical memory) and keyed by the language and a
+// digest of the source, so the same code asked for twice is colored once and the cache never
+// holds the source itself.
 //
-// THE EVENT LOOP IS NEVER HELD FOR A WHOLE FILE. Tokenizing costs about 2 ms a
-// kilobyte, so a large file colored in one call would stall every other
-// request the daemon is serving. The source is tokenized in slices of
-// `TOKENIZE_SLICE_LENGTH` characters, cut at line ends, each slice resuming the
-// grammar's state where the last one stopped and yielding to the event loop
-// before the next.
+// The event loop is never held for a whole file. Tokenizing costs about 2 ms a kilobyte, so a
+// large file colored in one call would stall every other request the daemon serves. The source
+// is tokenized in slices of `TOKENIZE_SLICE_LENGTH` characters cut at line ends, each slice
+// resuming the grammar state where the last stopped and yielding to the event loop before the
+// next.
 //
-// THE GRAMMAR TABLE IS A CLOSED MAP OF LOADERS, keyed by the contract's
-// language set, so a request can never make the daemon load a module it names.
+// The grammar table is a closed map of loaders keyed by the contract's language set, so a
+// request can never make the daemon load a module it names.
 import { createHash } from "node:crypto";
 import { totalmem } from "node:os";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
@@ -50,19 +47,17 @@ const GRAMMAR_LOADERS: Readonly<Record<HighlightLanguage, GrammarLoader>> = {
 };
 
 /**
- * Characters tokenized between yields. Measured on this repository's own
- * TypeScript, a slice this long holds the event loop at most about 20 ms once
- * the grammar is warm, inside a frame or so of the session stream the same
- * event loop drives; a slice four times longer held it up to 45 ms.
+ * Characters tokenized between yields. Measured on TypeScript, a slice this long holds the
+ * event loop at most about 20 ms once the grammar is warm; a slice four times longer held it
+ * up to 45 ms.
  */
 const TOKENIZE_SLICE_LENGTH = 1024;
 
 /**
- * Lines longer than this are left plain rather than tokenized: VS Code's own
- * default for the same limit. A minified line is the case it exists for. This
- * length, not a clock, bounds a line's work: shiki's default cuts a line off
- * after 500 ms, so a busy machine would color the same source differently and
- * the cache would keep the half-colored copy.
+ * Lines longer than this are left plain rather than tokenized (VS Code's default for the same
+ * limit); a minified line is the case it exists for. A length bounds a line's work instead of a
+ * clock because shiki's default cuts a line off after 500 ms, so a busy machine would color the
+ * same source differently and the cache would keep the half-colored copy.
  */
 const TOKENIZE_MAX_LINE_LENGTH = 20_000;
 
@@ -74,11 +69,13 @@ function defaultSpanCacheByteBudget(): number {
   return Math.floor(totalmem() / 2048);
 }
 
+/** What the span cache's fetch method tokenizes on a miss. */
 interface SpanCacheFetchContext {
   readonly source: string;
   readonly language: HighlightLanguage;
 }
 
+/** Construction options for `CodeHighlighter`. */
 export interface CodeHighlighterOptions {
   /** Bytes of packed spans the cache may hold. Defaults to 1/2048 of physical memory. */
   readonly spanCacheByteBudget?: number;
@@ -93,18 +90,17 @@ export class CodeHighlighter {
   constructor(options: CodeHighlighterOptions = {}) {
     this.#spanCache = new LRUCache<string, Uint32Array, SpanCacheFetchContext>({
       maxSize: options.spanCacheByteBudget ?? defaultSpanCacheByteBudget(),
-      // A source with no colored text packs to no spans; it still costs its
-      // entry, so an empty list is charged one byte rather than nothing.
+      // A source with no colored text packs to no spans but still costs its entry, so an empty
+      // list is charged one byte.
       sizeCalculation: (spans) => Math.max(spans.byteLength, 1),
       fetchMethod: (_key, _stale, { context }) => this.#tokenize(context.source, context.language),
     });
   }
 
   /**
-   * The packed spans of `source` as `language`: `[offset, length, class]`
-   * triples in source order, offsets and lengths in UTF-16 code units. Two
-   * reads of the same code share one tokenization, whether the first has
-   * finished or is still running.
+   * The packed spans of `source` as `language`: `[offset, length, class]` triples in source
+   * order, offsets and lengths in UTF-16 code units. Two reads of the same code share one
+   * tokenization, whether the first has finished or is still running.
    */
   async readSpans(source: string, language: HighlightLanguage): Promise<Uint32Array> {
     const cacheKey = `${language}:${createHash("sha256").update(source).digest("base64url")}`;
@@ -139,8 +135,8 @@ export class CodeHighlighter {
   #resolveHighlighter(): Promise<HighlighterCore> {
     if (this.#highlighter === undefined) {
       const creating = createHighlighter();
-      // A core that failed to start is dropped, so the next read tries again;
-      // the failure itself still reaches the read that is waiting on it.
+      // A core that failed to start is dropped so the next read retries; the failure still
+      // reaches the read waiting on it.
       creating.catch(() => {
         this.#highlighter = undefined;
       });
@@ -178,8 +174,8 @@ async function createHighlighter(): Promise<HighlighterCore> {
 }
 
 /**
- * Where the slice starting at `sliceStart` ends: just past the first line end
- * at or after `TOKENIZE_SLICE_LENGTH` characters, or the end of the source.
+ * Where the slice starting at `sliceStart` ends: just past the first line end at or after
+ * `TOKENIZE_SLICE_LENGTH` characters, or the end of the source.
  */
 function endOfSlice(source: string, sliceStart: number): number {
   const lineEnd = source.indexOf("\n", sliceStart + TOKENIZE_SLICE_LENGTH);
@@ -187,9 +183,8 @@ function endOfSlice(source: string, sliceStart: number): number {
 }
 
 /**
- * Append a slice's colored tokens as packed spans, offsets moved from the
- * slice to the whole source. A span that starts where the last one ended, in
- * the same class, extends it.
+ * Appends a slice's colored tokens as packed spans, offsets moved from the slice to the whole
+ * source. A span that starts where the last one ended, in the same class, extends it.
  */
 function appendPackedSpans(
   packedSpans: number[],

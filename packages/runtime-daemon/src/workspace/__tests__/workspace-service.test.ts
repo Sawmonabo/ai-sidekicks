@@ -1,31 +1,17 @@
-// WorkspaceService behavior.
+// WorkspaceService behavior, driven against a real temp-file SQLite database, the real
+// `EventLogService` append path and real directories, so a vanished execution root is an
+// actual `rmSync`.
 //
-// Drives the real service against a real temp-file SQLite database (canonical
-// `openDatabase` factory → per-test tmp dir → `afterEach` close + unlink), a
-// real `EventLogService` append path, and REAL directories on disk, so that
-// "the execution root vanished" is an actual `rmSync` rather than a mocked
-// verdict.
+// Test-only mechanisms reach states production code refuses to write or cannot be raced into:
+//   * `PRAGMA ignore_check_constraints` plants an out-of-vocabulary `workspaces.state`.
+//   * An injected `probePath` returns a probe the service did not build, to reach the
+//     projector's subject-binding guard (the production probe stamps `probedPath` itself).
+//   * Interference probes mutate the row or its mount before a seam resolves, so a
+//     compare-and-swap race lands in one exact await window. Each arm names its window.
 //
-// Three deliberate test-only mechanisms, used ONLY to reach states the
-// production code refuses to write or cannot be raced into on a single thread:
-//   * `PRAGMA ignore_check_constraints` plants an out-of-vocabulary
-//     `workspaces.state`. The column's CHECK makes that shape otherwise
-//     unreachable, and the projector's positive-membership refusal exists
-//     precisely for a row that reached the daemon past that constraint.
-//   * An injected `probePath` returns a probe this service did not build. It is
-//     the only way to reach the projector's subject-binding guard, because the
-//     production probe stamps `probedPath` from its own argument.
-//   * INTERFERENCE PROBES — a seam (`probePath`, `trustEnvelope`, the emitter)
-//     that mutates the row or its mount BEFORE resolving, so the interleaving
-//     lands in one exact await window. Every compare-and-swap in this service
-//     exists for a race between two readers, and a race left to real
-//     concurrency is either flaky or never reached; driving the interleaving
-//     from a seam makes it deterministic. Each such arm names the window it
-//     opens, because the window is the thing under test.
-//
-// Negative controls accompany the guards that could otherwise pass vacuously —
-// the redaction ORDER, both bind orderings, and the stale-transition
-// persistence each have an arm proving the wrong behavior would be observable.
+// Negative controls accompany guards that could otherwise pass vacuously: the redaction
+// order, the reachability-before-containment order in `bind`, and stale-transition
+// persistence.
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, realpath } from "node:fs/promises";
@@ -57,26 +43,29 @@ import {
   normalizeWorkspaceLastError,
   scrubCredentials,
   truncateWorkspaceLastError,
+  WORKSPACE_LAST_ERROR_TRUNCATION_MARKER,
+} from "../workspace-last-error.js";
+import {
   WorkspaceBusyError,
   WorkspaceModeUnsupportedError,
   WorkspaceNotFoundError,
-  WorkspaceService,
   WorkspaceServiceInvariantError,
   WorkspaceStaleError,
-  WORKSPACE_LAST_ERROR_TRUNCATION_MARKER,
   WORKSPACE_SERVICE_ERROR_CODES,
-  type FilesystemPathProbeFn,
+} from "../workspace-service-errors.js";
+import {
+  WorkspaceService,
   type SessionExistenceReader,
   type WorkspaceServiceDeps,
 } from "../workspace-service.js";
+import { type FilesystemPathProbeFn } from "../workspace-row-guards.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
 // ----------------------------------------------------------------------------
 
-// Every id crosses a branded UUID schema on some path, so the fixtures are real
-// UUIDs rather than opaque scalars — and they are branded here so the request
-// shapes are satisfied without a cast at each call site.
+// Real UUIDs, because every id crosses a branded UUID schema on some path; branded here so
+// request shapes need no cast at each call site.
 const SESSION_ID: SessionId = "0190f8b0-0000-7000-8000-000000000001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "0190f8b0-0000-7000-8000-000000000002" as SessionId;
 const GIT_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000001" as RepoMountId;
@@ -88,8 +77,7 @@ const UNKNOWN_WORKSPACE_ID: string = "0190f8b2-0000-7000-8000-00000000ffff";
 const RUN_ID: string = "0190f8b3-0000-7000-8000-000000000001";
 const OTHER_RUN_ID: string = "0190f8b3-0000-7000-8000-000000000002";
 
-// A pool of real UUIDs for the injected id source. A counter would fail
-// `WorkspaceIdSchema.parse`, which is exactly why that parse is there.
+// Real UUIDs for the injected id source; a counter would fail `WorkspaceIdSchema.parse`.
 const WORKSPACE_ID_POOL: readonly string[] = [
   "0190f8b2-0000-7000-8000-000000000001",
   "0190f8b2-0000-7000-8000-000000000002",
@@ -129,12 +117,7 @@ interface TestHarness {
 
 let harness: TestHarness;
 
-/**
- * Build a service over the harness database, optionally overriding one seam.
- *
- * The default construction injects no probe and no validator, so the default
- * arms measure real directories through the production primitives.
- */
+/** Builds a service over the harness database, optionally overriding one seam. */
 function createService(overrides: Partial<WorkspaceServiceDeps> = {}): WorkspaceService {
   return new WorkspaceService({
     database: harness.db,
@@ -181,10 +164,7 @@ function insertMount(fixture: MountFixture): void {
     });
 }
 
-/**
- * Bind a bound-root workspace and complete it onto the mount's own root — the
- * `ready` row a bound-root prepare leaves behind.
- */
+/** Binds a bound-root workspace and completes it onto the mount's own root, leaving `ready`. */
 async function bindReady(repoMountId: RepoMountId, mountRoot: string): Promise<string> {
   const bound = await harness.service.bind({
     sessionId: SESSION_ID,
@@ -236,11 +216,8 @@ async function captureRejection(body: () => Promise<unknown>): Promise<unknown> 
 }
 
 /**
- * Plant a row shape the schema's CHECK constraints refuse.
- *
- * Test-only, and scoped to a single statement: the corruption these arms
- * describe is exactly "a row that reached the daemon past its constraints", and
- * the projector's fail-closed guards have no other way to be reached.
+ * Plants a row shape the schema's CHECK constraints refuse, for one statement. The projector's
+ * fail-closed guards are unreachable any other way.
  */
 function withCheckConstraintsDisabled(mutate: () => void): void {
   harness.db.pragma("ignore_check_constraints = ON");
@@ -262,12 +239,9 @@ function mispairedProbe(probedPathOverride: string): FilesystemPathProbeFn {
 }
 
 /**
- * A probe seam that runs `interfere()` ONCE before answering truthfully.
- *
- * The interleaving driver: `#observeState` awaits this probe, so whatever
- * `interfere` writes lands after the service read the row and before it acts on
- * that read. Later calls answer normally, so an arm that reads again afterwards
- * measures reality rather than the fixture.
+ * A probe seam that runs `interfere()` once before answering truthfully. `#observeState`
+ * awaits this probe, so the write lands after the service read the row and before it acts on
+ * that read. Later calls answer normally.
  */
 function interferingProbe(interfere: () => void, reachable: boolean): FilesystemPathProbeFn {
   let fired = false;
@@ -298,7 +272,7 @@ function readEventPayloads(type: string): ReadonlyArray<Record<string, unknown>>
   return rows.map((row) => JSON.parse(row.payload) as Record<string, unknown>);
 }
 
-/** One instance of each carrier, in `` row order. */
+/** One instance of each error carrier the service raises. */
 function everyCarrier(): readonly DaemonDomainError[] {
   return [
     new WorkspaceNotFoundError(UNKNOWN_WORKSPACE_ID),
@@ -313,14 +287,9 @@ function everyCarrier(): readonly DaemonDomainError[] {
 // ----------------------------------------------------------------------------
 
 beforeEach(async () => {
-  // Canonicalized, and with the SAME primitive the validator's default seam
-  // uses (`node:fs/promises.realpath`) — the precedent `trust-envelope.test.ts`
-  // set for the same hazard. On macOS `os.tmpdir()` is `/var/folders/…`, and
-  // `/var` is a symlink to `private/var`; an uncanonicalized fixture root would
-  // make the validator's step-4 realpath disagree with the step-5 anchor and
-  // turn EVERY bind here into a spurious `repo.outside_trust_envelope` — a
-  // failure that would not reproduce on Linux CI, where `/tmp` is a real
-  // directory.
+  // Canonicalized with the validator's own `realpath`: on macOS `os.tmpdir()` sits under the
+  // `/var` symlink, and an uncanonicalized root would turn every bind into a spurious
+  // `repo.outside_trust_envelope`.
   const tmpDir: string = await realpath(
     await mkdtemp(join(tmpdir(), "ai-sidekicks-workspace-service-test-")),
   );
@@ -331,11 +300,8 @@ beforeEach(async () => {
     }),
   });
 
-  // Real directories. `gitMountRoot` carries a real subdirectory so the
-  // `directory` argument has something legitimate to resolve to, and
-  // `siblingRoot` EXISTS so the traversal arm fails on containment rather than
-  // on absence — a rejection that only happened because the escape target was
-  // missing would prove nothing about the boundary.
+  // `gitMountRoot` has a real subdirectory for `directory` to resolve to. `siblingRoot`
+  // exists so the traversal arm fails on containment rather than on absence.
   const gitMountRoot: string = join(tmpDir, "repos", "git-mount");
   const secondGitMountRoot: string = join(tmpDir, "repos", "second-git-mount");
   const siblingRoot: string = join(tmpDir, "repos", "sibling");
@@ -361,9 +327,8 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a module singleton; a leftover queue entry
-  // would stall the next case against the same session id and present as an
-  // unrelated timeout.
+  // The per-session append lock is a module singleton; a leftover queue entry would stall the
+  // next case on the same session id.
   __resetSessionAppendLocksForTest();
   harness.db.close();
   rmSync(harness.tmpDir, { recursive: true, force: true });
@@ -384,16 +349,14 @@ describe("bind", () => {
   });
 
   it("has a canonical fixture root, so a containment refusal is about the boundary", async () => {
-    // Without this, every refusal below could just as well be the temp root
-    // disagreeing with its own realpath — and every containment arm in this
-    // block would pass for a reason that has nothing to do with the boundary.
+    // Without this, a containment refusal could just be the temp root disagreeing with its
+    // own realpath.
     expect(await realpath(harness.gitMountRoot)).toBe(harness.gitMountRoot);
     expect(await realpath(harness.siblingRoot)).toBe(harness.siblingRoot);
   });
 
   it("refuses a session that does not exist, before any probe or write", async () => {
-    // A valid, attached mount, so "nothing was written" discriminates: without
-    // the session check this bind would succeed.
+    // A valid, attached mount, so "nothing was written" discriminates.
     const probePath = vi.fn<FilesystemPathProbeFn>();
 
     const refusal = await captureRejection(() =>
@@ -413,8 +376,7 @@ describe("bind", () => {
   });
 
   it("rejects a traversal escape on the `directory` argument", async () => {
-    // The escape target EXISTS on disk, so the refusal is containment, not
-    // absence.
+    // The escape target exists on disk, so the refusal is containment, not absence.
     await expect(
       harness.service.bind({
         sessionId: SESSION_ID,
@@ -434,7 +396,6 @@ describe("bind", () => {
       }),
     ).rejects.toBeInstanceOf(TrustEnvelopeViolationError);
 
-    // Refused BEFORE any row or event exists.
     expect(countRows("workspaces")).toBe(0);
     expect(readEventTypes()).toEqual([]);
   });
@@ -455,8 +416,8 @@ describe("bind", () => {
   });
 
   it("rejects an absolute directory pointing at a DETACHED mount's root", async () => {
-    // A detached mount's root is outside the attached set, and it is also
-    // outside the anchor — both halves refuse, and neither may admit it.
+    // A detached mount's root is outside both the attached set and the anchor; neither may
+    // admit it.
     await expect(
       harness.service.bind({
         sessionId: SESSION_ID,
@@ -479,9 +440,8 @@ describe("bind", () => {
 
     const row = readWorkspaceRow(response.workspaceId);
     expect(row?.state).toBe("preparing" satisfies WorkspaceState);
-    // The validated root is DISCARDED rather than persisted: neither mode
-    // executes in the requested directory, and storing it would hand an
-    // approval scope the workspace never uses.
+    // The validated root is discarded: neither mode executes in the requested directory, and
+    // storing it would hand an approval scope the workspace never uses.
     expect(row?.fs_root).toBeNull();
     expect(row?.execution_mode).toBe("provisioned-worktree" satisfies ExecutionMode);
     expect(row?.session_id).toBe(SESSION_ID);
@@ -512,10 +472,8 @@ describe("bind", () => {
       }),
     );
 
-    // The discriminating assertion. With the envelope query unscoped, this bind
-    // would SUCCEED against a detached mount; with the query scoped but the
-    // not-found check absent, the anchor would fail admission and the caller
-    // would get `repo.outside_trust_envelope` (403) — an escape accusation for
+    // Discriminating: with the envelope query unscoped this bind would succeed; with the
+    // not-found check absent the caller would get a 403 `repo.outside_trust_envelope` for
     // using a stale bookmark.
     expect(refusal).toBeInstanceOf(RepoMountNotFoundError);
     expect(refusal).not.toBeInstanceOf(TrustEnvelopeViolationError);
@@ -526,12 +484,10 @@ describe("bind", () => {
   // -- The mid-flight detach window --
 
   it("refuses a bind whose mount is detached DURING the containment await", async () => {
-    // The window: `bind` reads the mount, then awaits a filesystem probe and
-    // the containment validator. A `repo.detach` cascade landing in there has
-    // already passed over this workspace, and the foreign key is no help — a
-    // detach moves the mount's `state`, it does not delete the row. Without the
-    // insert's attachment predicate this commits a workspace on a detached
-    // mount that the cascade never archives.
+    // Window: `bind` reads the mount, then awaits a filesystem probe and the containment
+    // validator. A detach landing there moves the mount's `state` without deleting the row, so
+    // the foreign key does not help. Without the insert's attachment predicate this commits a
+    // workspace on a detached mount that the detach cascade never archives.
     const validator = new TrustEnvelopeValidator();
     const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
     vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
@@ -550,15 +506,13 @@ describe("bind", () => {
       }),
     ).rejects.toBeInstanceOf(WorkspaceServiceInvariantError);
 
-    // The whole write rolled back — no orphan row, and no
-    // `workspace.preparing` announcing a workspace that does not exist.
+    // The whole write rolled back: no orphan row and no `workspace.preparing` event.
     expect(countRows("workspaces")).toBe(0);
     expect(readEventTypes()).toEqual([]);
   });
 
   it("positive control: the same seam without the detach binds normally", async () => {
-    // Proves the refusal above is caused by the DETACH and not by the injected
-    // validator, the spy, or the extra service instance.
+    // Proves the refusal above comes from the detach, not from the injected validator or spy.
     const validator = new TrustEnvelopeValidator();
     const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
     vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce((candidate) =>
@@ -596,12 +550,9 @@ describe("bind", () => {
   });
 
   it("negative control: the validator alone calls the same vanished root a 403", async () => {
-    // The paired observation that makes the arm above meaningful. Run the OTHER
-    // order — containment first — over the identical fixture and watch it
-    // produce `repo.outside_trust_envelope`: `realpath` cannot resolve a missing
-    // path, so the validator refuses it as unprovable. That is the wrong answer
-    // for an unmounted volume, and it is exactly what `bind` would return if its
-    // probe ran second.
+    // The paired observation: with containment first, `realpath` cannot resolve a missing
+    // path, so the validator refuses it as unprovable. That is the wrong answer for an
+    // unmounted volume, and is what `bind` would return if its probe ran second.
     rmSync(harness.gitMountRoot, { recursive: true, force: true });
 
     const refusal = await captureRejection(() =>
@@ -620,8 +571,8 @@ describe("bind", () => {
     writeFileSync(filePath, "");
     insertMount({ id: FILE_MOUNT_ID, canonicalRoot: filePath });
 
-    // The probe opens the path for enumeration, so a regular file is
-    // unreachable by the same measure a missing directory is.
+    // The probe opens the path for enumeration, so a regular file is unreachable like a
+    // missing directory.
     await expect(
       harness.service.bind({
         sessionId: SESSION_ID,
@@ -664,8 +615,8 @@ describe("list", () => {
       new Set([String(GIT_MOUNT_ID), String(SECOND_GIT_MOUNT_ID)]),
     );
 
-    // The response is representable — validates outbound payloads, so a
-    // projection that only satisfies TypeScript is not enough.
+    // Validates the outbound payload, so a projection that only satisfies TypeScript is not
+    // enough.
     expect(() => WorkspaceListResponseSchema.parse(response)).not.toThrow();
   });
 
@@ -699,13 +650,12 @@ describe("list", () => {
 
     const first = await harness.service.list({ sessionId: SESSION_ID });
     expect(first.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
-    // The persistence half. A response-only verdict would leave the next
-    // reader — and `assertWritable` — believing the row is still `ready`.
+    // Persistence half: a response-only verdict would leave the next reader, and
+    // `assertWritable`, believing the row is still `ready`.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale");
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
 
-    // Exactly one event per real transition: a second read observes the same
-    // fact and must not re-announce it.
+    // One event per real transition: a second read must not re-announce it.
     const second = await harness.service.list({ sessionId: SESSION_ID });
     expect(second.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
@@ -719,8 +669,8 @@ describe("list", () => {
     mkdirSync(harness.gitMountRoot, { recursive: true });
     const afterRepair = await harness.service.list({ sessionId: SESSION_ID });
 
-    // Repair is an explicit reprovision, not an accident of a read — the same
-    // posture `computeWorkspaceHealth` holds.
+    // Repair is an explicit reprovision, not a side effect of a read, matching
+    // `computeWorkspaceHealth`.
     expect(afterRepair.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale");
   });
@@ -758,11 +708,10 @@ describe("list", () => {
   it("source 3: propagates a probe that measured a different path", async () => {
     const workspaceId = await bindReady(GIT_MOUNT_ID, harness.gitMountRoot);
 
-    // A LYING probe seam — the only way to reach the subject-binding guard,
-    // because the production probe stamps `probedPath` from its own argument
-    // and this service re-resolves nothing between the row and the probe (the
-    // verbatim-probe-subject obligation). A service that DID re-resolve would
-    // fail this arm on every row rather than only on the planted one.
+    // A lying probe seam is the only way to reach the subject-binding guard: the production
+    // probe stamps `probedPath` from its own argument, and the service re-resolves nothing
+    // between the row and the probe. A service that did re-resolve would fail this arm on
+    // every row.
     const failure = await captureRejection(() =>
       createService({ probePath: mispairedProbe(harness.secondGitMountRoot) }).list({
         sessionId: SESSION_ID,
@@ -779,8 +728,8 @@ describe("list", () => {
   });
 
   it("source 4: propagates an unrepresentable identifier", async () => {
-    // `workspaces.id` carries no format constraint, so a corrupt id needs no
-    // pragma — it is the most reachable of the four in practice.
+    // `workspaces.id` carries no format constraint, so a corrupt id needs no pragma; this is
+    // the most reachable of the four in practice.
     harness.db
       .prepare(
         `INSERT INTO workspaces (
@@ -816,14 +765,14 @@ describe("list", () => {
 
     expect(failure).toBeInstanceOf(WorkspaceServiceInvariantError);
     const invariantFailure = failure as WorkspaceServiceInvariantError;
-    // NOT `workspace_row_unprojectable`. The row projected perfectly; the WRITE
-    // of that projection failed. Labeling it the other way sends an operator
-    // to inspect a healthy row for what is a locked database.
+    // Not `workspace_row_unprojectable`: the row projected fine and the write of that
+    // projection failed. The wrong label would send an operator to inspect a healthy row for
+    // a locked database.
     expect(invariantFailure.kind).toBe("stale_transition_durability_failure");
     expect(invariantFailure.workspaceId).toBe(workspaceId);
     expect((invariantFailure.cause as Error).message).toBe("database is locked");
-    // Not swallowed: reporting `stale` for a row the database still calls
-    // `ready` is precisely what the persistence half forbids.
+    // Not swallowed: reporting `stale` for a row the database still calls `ready` is what
+    // the persistence half forbids.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
   });
 
@@ -834,9 +783,8 @@ describe("list", () => {
 
     await harness.service.list({ sessionId: SESSION_ID });
 
-    // Every other arm reads event TYPES only, so an emit naming the wrong
-    // workspace would pass the entire suite while telling a timeline reader
-    // that a healthy workspace went stale.
+    // Other arms read event types only; an emit naming the wrong workspace would pass them
+    // all while telling a timeline reader that a healthy workspace went stale.
     const stalePayloads = readEventPayloads("workspace.stale");
     expect(stalePayloads).toHaveLength(1);
     expect(stalePayloads[0]?.["workspaceId"]).toBe(doomed);
@@ -849,10 +797,9 @@ describe("list", () => {
     const corrupted = await bindReady(SECOND_GIT_MOUNT_ID, harness.secondGitMountRoot);
     harness.db.prepare("UPDATE workspaces SET fs_root = NULL WHERE id = ?").run(corrupted);
 
-    // The whole point of the containment decision: the caller gets a LOUD
-    // failure, never a two-row roster that quietly became one. A shortened list
-    // is the outcome an operator would act on wrongly — deciding a mount is safe
-    // to detach because the workspace blocking it is no longer shown.
+    // The caller gets a loud failure, never a two-row roster that quietly became one; a
+    // shortened list could lead an operator to detach a mount because the workspace blocking
+    // it is no longer shown.
     await expect(harness.service.list({ sessionId: SESSION_ID })).rejects.toBeInstanceOf(
       WorkspaceServiceInvariantError,
     );
@@ -862,6 +809,7 @@ describe("list", () => {
 });
 
 // ----------------------------------------------------------------------------
+// reprovision cycle
 // ----------------------------------------------------------------------------
 
 describe("reprovision cycle", () => {
@@ -880,18 +828,17 @@ describe("reprovision cycle", () => {
     await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
     const midCycle = readWorkspaceRow(workspaceId);
     expect(midCycle?.state).toBe("preparing" satisfies WorkspaceState);
-    // The released root does not linger: would otherwise keep matching
-    // approvals against a root the workspace no longer owns.
+    // The released root must not linger, or approvals would keep matching a root the
+    // workspace no longer owns.
     expect(midCycle?.fs_root).toBeNull();
-    // The target mode is persisted at BEGIN because `completeRootPreparation` takes
-    // no mode argument — nothing downstream could persist it.
+    // The target mode is persisted at begin because `completeRootPreparation` takes no mode
+    // argument.
     expect(midCycle?.execution_mode).toBe("provisioned-worktree" satisfies ExecutionMode);
 
     await harness.service.completeRootPreparation(workspaceId, worktreeRoot);
     const afterCycle = readWorkspaceRow(workspaceId);
 
-    // The invariant, stated three ways: same id, same row count, and a state
-    // that cycled rather than a row that was replaced.
+    // Same id, same row count, and a state that cycled rather than a row that was replaced.
     expect(afterCycle?.id).toBe(workspaceId);
     expect(countRows("workspaces")).toBe(rowsBefore);
     expect(afterCycle?.state).toBe("ready" satisfies WorkspaceState);
@@ -904,10 +851,9 @@ describe("reprovision cycle", () => {
   });
 
   it("adopts an execution root OUTSIDE the mount, without re-checking containment", async () => {
-    // A worktree lives outside the mount's canonical root by construction, so
-    // re-running the containment validator here would reject every mode
-    // it exists to support. The root's legitimacy is its provenance: the
-    // provisioner created it under daemon control.
+    // A worktree lives outside the mount's canonical root by construction, so re-running
+    // containment here would reject the mode it exists to support. The root's legitimacy is
+    // its provenance: the provisioner created it under daemon control.
     const outsideRoot = join(harness.tmpDir, "worktrees", "outside");
     mkdirSync(outsideRoot, { recursive: true });
 
@@ -920,10 +866,9 @@ describe("reprovision cycle", () => {
   it("refuses an execution root that does not name one complete location", async () => {
     await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
 
-    // Provenance does not make an incomplete path safe: approvals are scoped
-    // against this value, and each shape below is missing a piece only the
-    // daemon's own context could supply — a working directory, a home
-    // directory, a drive.
+    // Provenance does not make an incomplete path safe: approvals are scoped against this
+    // value, and each shape below lacks a piece only the daemon's context could supply (a
+    // working directory, a home directory, a drive).
     for (const incompleteRoot of ["worktrees/relative", "~/worktrees", "\\worktrees\\app"]) {
       const refusal = await captureRejection(() =>
         harness.service.completeRootPreparation(workspaceId, incompleteRoot),
@@ -931,13 +876,12 @@ describe("reprovision cycle", () => {
       expect(refusal).toBeInstanceOf(WorkspaceServiceInvariantError);
       expect((refusal as WorkspaceServiceInvariantError).kind).toBe("non_absolute_execution_root");
     }
-    // Refused BEFORE the write, so the cycle is still open and retryable.
+    // Refused before the write, so the cycle stays open and retryable.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("preparing" satisfies WorkspaceState);
     expect(readWorkspaceRow(workspaceId)?.fs_root).toBeNull();
 
-    // The negative control: a guard that refused everything would pass the loop
-    // above. The check reads the path's shape only, so the Windows forms pass
-    // on a POSIX host too.
+    // Negative control: a guard that refused everything would pass the loop above. The check
+    // reads path shape only, so the Windows forms pass on a POSIX host too.
     const completeRoots = ["/repos/app", "C:\\repos\\app", "C:/repos/app", "\\\\server\\share"];
     for (const completeRoot of completeRoots) {
       await harness.service.completeRootPreparation(workspaceId, completeRoot);
@@ -959,8 +903,8 @@ describe("reprovision cycle", () => {
     expect(typeof lastError).toBe("string");
     expect(lastError).not.toContain("ghp_abcdefghijklmnop");
     expect(lastError).not.toContain("octocat:");
-    // The diagnostic survives the redaction — a scrubber that ate the message
-    // would pass the two assertions above and be useless.
+    // The diagnostic survives redaction; a scrubber that ate the message would pass the
+    // assertions above.
     expect(lastError).toContain("fatal: could not read from");
     expect(readEventTypes()).toEqual([
       ...READY_BIND_EVENTS,
@@ -976,7 +920,7 @@ describe("reprovision cycle", () => {
     const response = await harness.service.list({ sessionId: SESSION_ID });
     expect(response.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
     expect(response.workspaces[0]?.lastError).toContain("worktree add failed");
-    // Persisted AND representable: the pairing the `lastError` cap exists for.
+    // Persisted and representable: the pairing the `lastError` cap exists for.
     expect(() => WorkspaceListResponseSchema.parse(response)).not.toThrow();
   });
 
@@ -988,16 +932,14 @@ describe("reprovision cycle", () => {
     await harness.service.failRootPreparation(workspaceId, "fatal: first attempt failed");
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeDefined();
 
-    // the switch may be retried, and a failed switch left the row `stale`. A
-    // gate that refused `stale` would make the documented retry impossible.
+    // A failed switch leaves the row `stale`, and the switch may be retried; a gate that
+    // refused `stale` would make retry impossible.
     await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
 
-    // MID-RETRY, before the outcome is known. `packages/contracts/src/workspace.ts`
-    // makes `lastError` "present iff the workspace went `stale` from a recorded
-    // failure" an emitter obligation on this module, and a `preparing` row is
-    // not that. Clearing only at completion would leave the whole in-flight
-    // window advertising the PREVIOUS attempt's failure — and a `markStale` from
-    // here would land a `stale` row carrying a superseded detail.
+    // Mid-retry, `lastError` must already be cleared: it is present only when the workspace
+    // went `stale` from a recorded failure, and a `preparing` row is not that. Clearing only
+    // at completion would advertise the previous attempt's failure for the whole retry, and a
+    // `markStale` from here would land a `stale` row carrying a superseded detail.
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
     const midRetry = await harness.service.list({ sessionId: SESSION_ID });
     expect(midRetry.workspaces[0]?.state).toBe("preparing" satisfies WorkspaceState);
@@ -1006,8 +948,7 @@ describe("reprovision cycle", () => {
     await harness.service.completeRootPreparation(workspaceId, worktreeRoot);
 
     expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
-    // A `ready` workspace still advertising a fixed failure reports something
-    // that is no longer true.
+    // A `ready` workspace must not keep advertising a failure that was fixed.
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
   });
 
@@ -1041,7 +982,6 @@ describe("reprovision cycle", () => {
     await expect(harness.service.failRootPreparation(workspaceId, "boom")).rejects.toBeInstanceOf(
       WorkspaceServiceInvariantError,
     );
-    // Nothing was written and nothing was announced.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
     expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
   });
@@ -1061,23 +1001,19 @@ describe("reprovision cycle", () => {
 // `metadata.lastError` — SCRUB before TRUNCATE
 // ----------------------------------------------------------------------------
 
-// Built rather than spelled: a literal NUL in source is invisible in review and
-// hostile to every tool that reads this file.
+// Built rather than spelled: a literal NUL in source is invisible in review and breaks tools.
 const NUL_CHARACTER: string = String.fromCharCode(0);
 
 describe("lastError normalization", () => {
-  // An OPAQUE password inside a URL: no vendor prefix, no keyword nearby, so the
-  // userinfo pattern is the ONLY thing that can catch it. That is what makes the
-  // ordering observable — a truncation that lands mid-userinfo destroys the `@`
-  // anchor and the pattern stops matching.
+  // An opaque password inside a URL: no vendor prefix and no keyword, so only the userinfo
+  // pattern can catch it. That makes the ordering observable: a truncation inside the userinfo
+  // destroys the `@` anchor and the pattern stops matching.
   const OPAQUE_SECRET: string = "Xq7bT2mR9wLpZ4nC8vKd";
   const CREDENTIAL_URL: string = `https://deploy:${OPAQUE_SECRET}@git.internal/acme/repo.git`;
 
   /**
-   * A detail whose credential straddles the truncation boundary.
-   *
-   * The filler is sized so the cut lands INSIDE the secret with eleven of its
-   * characters retained and the trailing `@` removed — the precise shape that
+   * A detail whose credential straddles the truncation boundary: the cut lands inside the
+   * secret with eleven of its characters kept and the trailing `@` removed, which
    * discriminates the two orderings.
    */
   function detailWithCredentialAtBoundary(): string {
@@ -1091,8 +1027,8 @@ describe("lastError normalization", () => {
     expect(normalized).not.toBeNull();
     expect(normalized).toHaveLength(WORKSPACE_LAST_ERROR_MAX_LEN);
     expect(normalized).toContain(WORKSPACE_LAST_ERROR_TRUNCATION_MARKER);
-    // Not the whole secret, and not ANY leading fragment of it either — a
-    // truncated secret is still a secret's prefix.
+    // Neither the whole secret nor any leading fragment: a truncated secret is still a
+    // secret's prefix.
     expect(normalized).not.toContain(OPAQUE_SECRET);
     for (let prefixLength = 6; prefixLength <= OPAQUE_SECRET.length; prefixLength += 1) {
       expect(normalized).not.toContain(OPAQUE_SECRET.slice(0, prefixLength));
@@ -1102,27 +1038,22 @@ describe("lastError normalization", () => {
   it("negative control: cutting BEFORE scrubbing leaks a fragment of the same secret", () => {
     const raw = detailWithCredentialAtBoundary();
 
-    // Composed from the SAME exported functions the production path uses, in the
-    // wrong order. A control that reimplemented the scrubber would prove regexes
-    // work, not that this module orders its two steps correctly.
+    // Composed from the same exported functions in the wrong order; reimplementing the
+    // scrubber would prove the regexes work, not that this module orders its steps correctly.
     const wrongOrder = scrubCredentials(truncateWorkspaceLastError(raw));
 
-    // The truncation removed the `@` that anchors the userinfo pattern, so the
-    // scrubber no longer recognizes what is left — and what is left is a live
-    // prefix of the secret.
+    // The truncation removed the `@` that anchors the userinfo pattern, so what is left, a
+    // live prefix of the secret, is no longer recognized.
     expect(wrongOrder).toContain(OPAQUE_SECRET.slice(0, 6));
-    // Paired with the production order over the identical input, which does not.
+    // The production order over the identical input does not leak it.
     expect(normalizeWorkspaceLastError(raw)).not.toContain(OPAQUE_SECRET.slice(0, 6));
   });
 
   it("scrubs the credential shapes a provisioning failure realistically carries", () => {
-    // The vendor-prefixed suffixes are deliberately LOW-ENTROPY, visibly-fake
-    // stand-ins sitting at or above the scrubber pattern's own `{8,}` bound.
-    // The pattern keys on the prefix, not the suffix, so these exercise exactly
-    // what a real-length token would — while a real-format high-entropy fixture
-    // would fire every secret scanner that ever reads this line (the gitleaks
-    // pre-commit gate did, and GitHub push protection scans history the same
-    // way), burying real findings under permanent fixture noise.
+    // The vendor-prefixed suffixes are low-entropy, visibly fake stand-ins at or above the
+    // pattern's `{8,}` bound. The pattern keys on the prefix, so they exercise what a real
+    // token would, while real-format fixtures would trip every secret scanner that reads this
+    // file (the pre-commit gitleaks gate and GitHub push protection).
     expect(scrubCredentials("remote: https://user:hunter2@example.com/x.git")).not.toContain(
       "hunter2",
     );
@@ -1132,8 +1063,8 @@ describe("lastError normalization", () => {
     expect(scrubCredentials("x-access-token:ghs_aaaabbbbccccdddd")).not.toContain("ghs_");
     expect(scrubCredentials("token=glpat-aaaabbbbcccc")).not.toContain("glpat-");
     expect(scrubCredentials("leaked ghp_aaaabbbbccccdddd here")).not.toContain("ghp_");
-    // Negative control for the scrubber itself: ordinary output survives, so a
-    // scrubber that simply redacted everything would fail here.
+    // Negative control: ordinary output survives, so a scrubber that redacted everything fails
+    // here.
     expect(scrubCredentials("fatal: not a git repository")).toBe("fatal: not a git repository");
   });
 
@@ -1143,9 +1074,9 @@ describe("lastError normalization", () => {
     await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
     await harness.service.failRootPreparation(workspaceId, "  \n\t   ");
 
-    // `wireFreeFormString` demands `.min(1)`, at least one non-whitespace
-    // character, and no NUL. Persisting an illegal value would make the very
-    // list response that reports this failure unrepresentable.
+    // `wireFreeFormString` requires `.min(1)`, one non-whitespace character and no NUL;
+    // persisting an illegal value would make the list response that reports this failure
+    // unrepresentable.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
 
@@ -1161,36 +1092,31 @@ describe("lastError normalization", () => {
   });
 
   it("strips the NUL BEFORE scrubbing, so a split token is not reassembled after", () => {
-    // The fixture has to be one whose ANCHOR the NUL breaks. A NUL inside a URL
-    // userinfo does not qualify: NUL is not `\s`, so `[^\s/@]+` matches straight
-    // across it and both orderings redact identically — an arm that cannot fail.
-    // A prefixed vendor token does qualify: `gh\0p_` is not `ghp_`, so the
-    // prefix pattern misses it entirely.
+    // The fixture must be one whose anchor the NUL breaks. A NUL inside URL userinfo does not
+    // qualify: NUL is not `\s`, so `[^\s/@]+` matches across it and both orderings redact
+    // identically. `gh\0p_` is not `ghp_`, so the prefix pattern misses it.
     const splitToken = `fatal: remote rejected gh${NUL_CHARACTER}p_0123456789abcdefgh`;
 
-    // Production order (strip, then scrub): the halves rejoin into a token the
-    // scrubber recognizes, and it is redacted.
+    // Production order (strip, then scrub): the halves rejoin into a recognized token, which
+    // is redacted.
     const normalized = normalizeWorkspaceLastError(splitToken);
     expect(normalized).not.toContain("ghp_");
     expect(normalized).not.toContain("0123456789abcdefgh");
     expect(normalized).toContain("fatal: remote rejected");
 
-    // Negative control, from the SAME exported functions in the wrong order:
-    // scrubbing first sees a token that matches nothing, and the later strip
-    // then reassembles a live, recognisable credential.
+    // Negative control, the same functions in the wrong order: scrubbing first sees a token
+    // that matches nothing, and the later strip reassembles a live credential.
     const wrongOrder = scrubCredentials(splitToken).replace(new RegExp(NUL_CHARACTER, "g"), "");
     expect(wrongOrder).toContain("ghp_0123456789abcdefgh");
   });
 
   it("records nothing when only whitespace survives the scrub, even over the cap", () => {
-    // The emptiness test runs on the SCRUBBED value, not the truncated one. Run
-    // it after truncation and an over-cap whitespace-only detail passes, because
-    // the truncation marker it just appended supplies the only `\S` in the
-    // string — persisting thousands of spaces plus `...[truncated]` as the
-    // failure an operator is meant to read.
+    // The emptiness test runs on the scrubbed value, not the truncated one: after truncation
+    // an over-cap whitespace-only detail would pass, because the appended marker supplies the
+    // only `\S`, and thousands of spaces plus `...[truncated]` would be persisted.
     const overCapWhitespace = " ".repeat(WORKSPACE_LAST_ERROR_MAX_LEN + 100);
     expect(normalizeWorkspaceLastError(overCapWhitespace)).toBeNull();
-    // The under-cap leg of the same rule, which held before and still holds.
+    // The under-cap leg of the same rule.
     expect(normalizeWorkspaceLastError("  \n\t   ")).toBeNull();
   });
 
@@ -1201,9 +1127,8 @@ describe("lastError normalization", () => {
   });
 
   it("never splits a surrogate pair at the cut", () => {
-    // An emoji is two UTF-16 units; a naive cut at the cap boundary can land
-    // between them and leave a lone high surrogate, which is not valid text and
-    // which `wireFreeFormString` would carry onto the wire.
+    // An emoji is two UTF-16 units; a naive cut at the cap can land between them and leave a
+    // lone high surrogate, which `wireFreeFormString` would carry onto the wire.
     const emoji = "\u{1F680}";
     const fillerLength =
       WORKSPACE_LAST_ERROR_MAX_LEN - WORKSPACE_LAST_ERROR_TRUNCATION_MARKER.length - 1;
@@ -1217,6 +1142,7 @@ describe("lastError normalization", () => {
 });
 
 // ----------------------------------------------------------------------------
+// assertWritable
 // ----------------------------------------------------------------------------
 
 describe("assertWritable", () => {
@@ -1251,16 +1177,15 @@ describe("assertWritable", () => {
     await expect(harness.service.assertWritable(workspaceId)).rejects.toBeInstanceOf(
       WorkspaceStaleError,
     );
-    // The refusal is not a private verdict: the next reader sees it too, which
-    // is what makes the "observably stale" true.
+    // The refusal is not a private verdict: the next reader sees the row stale too.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
   it("passes a busy workspace, leaving the precise refusal to the hold primitive", async () => {
     await harness.service.markBusy(workspaceId, RUN_ID);
-    // Duplicating `workspace.busy` here would refuse a caller that never
-    // contends for the hold, for a reason that does not apply to it.
+    // Duplicating `workspace.busy` here would refuse a caller that never contends for the
+    // hold.
     await expect(harness.service.assertWritable(workspaceId)).resolves.toBeUndefined();
   });
 
@@ -1269,8 +1194,8 @@ describe("assertWritable", () => {
     const provisioningRefusal = await captureRejection(() =>
       harness.service.assertWritable(workspaceId),
     );
-    // No registered `workspace.*` code names either state, and minting one is
-    // banned — so these reach the wire as anonymous internal errors by design.
+    // No registered `workspace.*` code names either state, so these reach the wire as
+    // anonymous internal errors.
     expect(provisioningRefusal).toBeInstanceOf(WorkspaceServiceInvariantError);
     expect((provisioningRefusal as WorkspaceServiceInvariantError).kind).toBe(
       "illegal_state_transition",
@@ -1306,8 +1231,8 @@ describe("run holds", () => {
 
     expect(readWorkspaceRow(workspaceId)?.state).toBe("busy" satisfies WorkspaceState);
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
-    // Carves `busy` out of the six-type registry deliberately; the run's
-    // own `run.*` events carry the hold's timeline visibility.
+    // `busy` is deliberately outside the six-type event registry; the run's own `run.*`
+    // events carry the hold's timeline visibility.
     expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
   });
 
@@ -1321,8 +1246,8 @@ describe("run holds", () => {
     expect(refusal).toBeInstanceOf(WorkspaceBusyError);
     expect((refusal as WorkspaceBusyError).code).toBe("workspace.busy");
     expect((refusal as WorkspaceBusyError).httpStatus).toBe(409);
-    // The only repair affordance the loser has: `repo.detach_conflict` names the
-    // blocking workspaces, and nothing else names who holds them.
+    // The loser's only repair affordance: `repo.detach_conflict` names the blocking
+    // workspaces, and nothing else names who holds them.
     expect((refusal as WorkspaceBusyError).holdingRunId).toBe(RUN_ID);
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
   });
@@ -1333,12 +1258,11 @@ describe("run holds", () => {
     await expect(harness.service.markBusy(workspaceId, RUN_ID)).rejects.toBeInstanceOf(
       WorkspaceStaleError,
     );
-    // Taking the hold and discovering the truth mid-run is strictly worse.
+    // Taking the hold first and finding out mid-run would be worse.
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBeUndefined();
-    // The one place the two rules meet: the hold itself emits nothing (closed
-    // registry), while the on-read floor it drove emits a REAL `workspace.stale`.
-    // Asserting the list proves "no event for the hold" is not "no event at all".
+    // The hold itself emits nothing, but the on-read floor it drove emits a real
+    // `workspace.stale`, so "no event for the hold" is not "no event at all".
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
@@ -1354,8 +1278,8 @@ describe("run holds", () => {
   it("treats a double release as a benign no-op", async () => {
     await harness.service.markBusy(workspaceId, RUN_ID);
     expect(harness.service.releaseBusy(workspaceId)).toBe(true);
-    // The call site is a `finally`; throwing there would replace the run's real
-    // failure with a bookkeeping complaint.
+    // The call site is a `finally`; throwing there would replace the run's real failure with a
+    // bookkeeping complaint.
     expect(harness.service.releaseBusy(workspaceId)).toBe(false);
     expect(harness.service.releaseBusy(UNKNOWN_WORKSPACE_ID)).toBe(false);
     expect(readWorkspaceRow(workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
@@ -1369,13 +1293,13 @@ describe("run holds", () => {
 
     const response = await harness.service.list({ sessionId: SESSION_ID });
 
-    // Refusing this transition would make false for exactly the rows doing
-    // damage: a live run writing into a root that no longer exists.
+    // Refusing this transition would hide exactly the rows doing damage: a live run writing
+    // into a root that no longer exists.
     expect(response.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
-    // The hold attribution goes with it: a `stale` workspace is held by nobody,
-    // and a lingering id would let a later refusal name a run that is long gone.
+    // A stale workspace is held by nobody; a lingering id would let a later refusal name a
+    // run that is long gone.
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBeUndefined();
   });
 
@@ -1384,7 +1308,7 @@ describe("run holds", () => {
     rmSync(harness.gitMountRoot, { recursive: true, force: true });
     await harness.service.list({ sessionId: SESSION_ID });
 
-    // The corollary of the decision above: releasing is not a health verdict.
+    // Releasing is not a health verdict.
     expect(harness.service.releaseBusy(workspaceId)).toBe(false);
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
   });
@@ -1393,7 +1317,7 @@ describe("run holds", () => {
     expect(await harness.service.markStale(workspaceId)).toBe(true);
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
 
-    // Already stale — no second transition, so no second event.
+    // Already stale: no second transition, so no second event.
     expect(await harness.service.markStale(workspaceId)).toBe(false);
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
 
@@ -1409,13 +1333,11 @@ describe("run holds", () => {
   // -- Two readers racing ONE stale transition --
 
   it("appends exactly ONE workspace.stale when a second reader wins the race", async () => {
-    // The window this opens: `markStale` reads the row, sees a live state, and
-    // only THEN opens the append. A reader that stales the row inside that
-    // window leaves this call's compare-and-swap matching nothing — and the
-    // append path INSERTs its event row unconditionally once the prelude
-    // returns, so declining has to be a THROW. A prelude that merely recorded
-    // "no row matched" in a flag and returned would commit a second
-    // `workspace.stale` behind the winner's, for one real transition.
+    // Window: `markStale` reads the row, sees a live state, and only then opens the append. A
+    // reader that stales the row in between makes this call's compare-and-swap match nothing.
+    // The append path inserts its event row unconditionally once the prelude returns, so
+    // declining has to be a throw; a prelude that only flagged "no row matched" would commit a
+    // second `workspace.stale` for one real transition.
     const concurrentReader = createService();
     const concurrentOutcomes: boolean[] = [];
     const emitStaleOriginal = harness.emitter.emitWorkspaceStale.bind(harness.emitter);
@@ -1426,8 +1348,8 @@ describe("run holds", () => {
 
     const lostTheRace = await harness.service.markStale(workspaceId);
 
-    // The winner wrote its transition and announced it; the loser wrote nothing
-    // and announced nothing, and says so in its return value.
+    // The winner wrote and announced its transition; the loser wrote and announced nothing and
+    // returns false.
     expect(concurrentOutcomes).toEqual([true]);
     expect(lostTheRace).toBe(false);
     expect(readWorkspaceRow(workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
@@ -1435,11 +1357,10 @@ describe("run holds", () => {
   });
 
   it("declines before the append when the row was already staled by another reader", async () => {
-    // The other half of the same rule, one step earlier: interference landing
-    // BEFORE `markStale`'s read is caught by the already-stale guard, so no
-    // append is opened at all. Both legs are needed — the guard alone leaves
-    // the sentinel's window open, and the sentinel alone would make every
-    // already-stale read pay for a transaction it then rolls back.
+    // The other half of the rule, one step earlier: interference before `markStale`'s read is
+    // caught by the already-stale guard, so no append opens. Both legs are needed: the guard
+    // alone leaves the window open, and the throw alone would make every already-stale read pay
+    // for a transaction it rolls back.
     const service = createService({
       probePath: interferingProbe(() => {
         forceWorkspaceState(workspaceId, "stale");
@@ -1455,10 +1376,10 @@ describe("run holds", () => {
   // -- markBusy losing its compare-and-swap, one arm per re-read verdict --
 
   it("answers a lost hold race with the REASON, not the mechanism", async () => {
-    // The window: `markBusy` observes `ready` through the probe, then runs its
-    // compare-and-swap. Interference inside the probe lands between the two, so
-    // the CAS matches nothing and the re-read decides what to report. Every
-    // branch below is unreachable from a single-threaded suite without it.
+    // Window: `markBusy` observes `ready` through the probe, then runs its compare-and-swap.
+    // Interference inside the probe lands between the two, so the swap matches nothing and the
+    // re-read decides what to report. These branches are unreachable from a single-threaded
+    // suite otherwise.
     const takenByAnother = createService({
       probePath: interferingProbe(() => {
         harness.db
@@ -1474,8 +1395,8 @@ describe("run holds", () => {
     const refusal = await captureRejection(() => takenByAnother.markBusy(workspaceId, RUN_ID));
 
     expect(refusal).toBeInstanceOf(WorkspaceBusyError);
-    // The re-read is what makes this answer actionable: "the CAS changed zero
-    // rows" names nothing a caller can chase.
+    // The re-read makes the answer actionable; "the swap changed zero rows" names nothing a
+    // caller can chase.
     expect((refusal as WorkspaceBusyError).holdingRunId).toBe(OTHER_RUN_ID);
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(OTHER_RUN_ID);
   });
@@ -1515,8 +1436,8 @@ describe("run holds", () => {
       reprovisionedUnderfoot.markBusy(workspaceId, RUN_ID),
     );
 
-    // No registered `workspace.*` code names "it went back to provisioning",
-    // and minting one is banned — so this reaches the wire anonymously.
+    // No registered `workspace.*` code names "went back to provisioning", so this reaches the
+    // wire anonymously.
     expect(refusal).toBeInstanceOf(WorkspaceServiceInvariantError);
     expect((refusal as WorkspaceServiceInvariantError).kind).toBe("illegal_state_transition");
     expect(readWorkspaceRow(workspaceId)?.state).toBe("preparing" satisfies WorkspaceState);
@@ -1524,12 +1445,13 @@ describe("run holds", () => {
 });
 
 // ----------------------------------------------------------------------------
+// error carriers
 // ----------------------------------------------------------------------------
 
 describe("error carriers", () => {
   it("emit exactly WORKSPACE_SERVICE_ERROR_CODES — no orphan row, no invented code", () => {
-    // Every carrier the helper enumerates mints a code the roster lists, and
-    // the roster lists no code without a carrier.
+    // Every carrier the helper enumerates mints a code the roster lists, and the roster lists
+    // no code without a carrier.
     const emittedCodes = everyCarrier().map((carrier) => carrier.code);
     expect([...emittedCodes].sort()).toEqual([...WORKSPACE_SERVICE_ERROR_CODES].sort());
   });
@@ -1538,7 +1460,7 @@ describe("error carriers", () => {
     expect(new WorkspaceNotFoundError(UNKNOWN_WORKSPACE_ID)).toMatchObject({
       code: "workspace.not_found",
       httpStatus: 404,
-      // The one carrier with a ratified numeric, matching `repo.not_found`.
+      // The one carrier with its own numeric code, matching `repo.not_found`.
       jsonRpcCode: -32602,
     });
     expect(new WorkspaceStaleError(UNKNOWN_WORKSPACE_ID)).toMatchObject({
@@ -1556,8 +1478,8 @@ describe("error carriers", () => {
       httpStatus: 400,
     });
 
-    // The three unratified rows take the mapper's `-32603` default rather than a
-    // numeric this module selected — the discipline `./repo-errors.js` sets.
+    // The other three take the mapper's `-32603` default rather than a numeric this module
+    // selected, as `repo-errors.ts` does.
     expect(new WorkspaceStaleError(null).jsonRpcCode).toBeUndefined();
     expect(new WorkspaceBusyError(UNKNOWN_WORKSPACE_ID, null).jsonRpcCode).toBeUndefined();
     expect(
@@ -1567,11 +1489,10 @@ describe("error carriers", () => {
   });
 
   it("copies availableModes, so a later mutation cannot rewrite a thrown error", () => {
-    // `RepoDetachConflictError`'s discipline, applied to the one carrier here
-    // that accepts an array: both the own field and the wire `detail` hold
-    // copies. A caller that keeps mutating the array it passed — the capability
-    // matrix's `availableModes` is a shared value — must not be able to change
-    // what an already-thrown refusal says it offered.
+    // Like `RepoDetachConflictError`: both the own field and the wire `detail` hold copies, so
+    // a caller that keeps mutating the array it passed (the capability matrix's
+    // `availableModes` is a shared value) cannot change what an already-thrown refusal says it
+    // offered.
     const availableModes: ExecutionMode[] = ["bound-root"];
     const refusal = new WorkspaceModeUnsupportedError(
       "provisioned-worktree",
@@ -1598,9 +1519,8 @@ describe("error carriers", () => {
       cause: new Error("root cause"),
     });
 
-    // Deliberately NOT a `DaemonDomainError`: minting an unregistered
-    // `workspace.*` code is banned, and borrowing a registered one would tell a
-    // caller to repair the wrong thing.
+    // Deliberately not a `DaemonDomainError`: minting an unregistered `workspace.*` code is
+    // banned, and borrowing a registered one would tell a caller to repair the wrong thing.
     expect(invariantFailure).toBeInstanceOf(Error);
     expect("code" in invariantFailure).toBe(false);
     expect(invariantFailure.name).toBe("WorkspaceServiceInvariantError");

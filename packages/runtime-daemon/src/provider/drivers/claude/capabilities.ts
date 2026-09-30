@@ -1,98 +1,12 @@
 /**
- * Claude driver capability declaration.
+ * Claude driver capability declaration: the `getCapabilities()` answer (flags, contract version,
+ * tools, CLI version report) and the refresh trigger that hands a fresh reading to the sink.
  *
- * Owns the Claude driver's `getCapabilities()` answer — the V1
- * `GetCapabilitiesResult` wrapper (flags + contract version, tool metadata,
- * CLI version report) — and the refresh trigger that hands a fresh reading to
- * the capability-declaration sink, which stores it.
- *
- * ## Declaration is TOTAL, and absence never means "supported"
- *
- * A driver declares its capabilities explicitly; a flag the driver does not
- * declare is unsupported, and no caller may infer support from a method
- * existing on the provider's wire. Two things realize that here:
- *
- *   1. {@link CLAUDE_CAPABILITY_FLAGS} is annotated
- *      `Record<DriverCapabilityFlag, boolean>` and written as an explicit
- *      literal — every canonical flag present, each with a decided boolean.
- *      A flag added to `DRIVER_CAPABILITY_FLAGS` in `@ai-sidekicks/contracts`
- *      therefore breaks THIS file's compilation until someone decides its
- *      value for Claude. That is the point: the failure mode this rule
- *      forbids is a new flag silently reading as absent, and a
- *      missing-property error is the cheapest place to catch it.
- *   2. Nothing here is derived, inferred, or defaulted. There is no
- *      `?? false`, no partial record spread over a base, and no "unknown
- *      flags are false" fallback — a fallback would make the absence of a
- *      decision indistinguishable from a decision, which is exactly the
- *      inference the invariant prohibits.
- *
- * Each flag below carries the mechanism that makes its value true (or the
- * absence that makes it false), so a reviewer can check the declaration
- * against the provider's own wire surface rather than against this file's own
- * say-so.
- *
- * ## Deliberately NOT here (scope boundaries, not omissions)
- *
- * * **`transcript_replay`'s PROBED value** — LANDED. The capability matrix
- *   records this cell as `probe`, not as a constant, because no stable seeding
- *   contract is published for this provider, and it is the ONLY cell in that
- *   matrix whose value is decided at runtime. {@link CLAUDE_CAPABILITY_FLAGS}
- *   keeps `false` as the matrix reading — the honest answer for a probe that has
- *   not run — and {@link ClaudeCapabilityReporter.getCapabilities} REPLACES it
- *   with {@link ClaudeTranscriptReplayProbe}'s own reading, in both directions.
- *   That single cell is therefore composed differently from every other flag,
- *   which intersect through `applyCapabilityDetection`'s withdraw-only rule; the
- *   difference is deliberate and is exactly what a `probe`-valued matrix cell
- *   means. Withdraw-only cannot express it: an intersection can never carry a
- *   `false` constant up to `true`, so a probe-decided cell composed that way
- *   would answer `false` on every build forever and the probe would be
- *   decoration.
- *
- *   The guard withdraw-only exists to provide — never declare a capability with
- *   no implementation behind it — is kept, structurally rather than by rule: the
- *   probe's supported arm CARRIES the seeding surface
- *   ({@link ClaudeTranscriptReplayReading}), so "flag is `true` and no surface is
- *   bound" is unrepresentable rather than merely forbidden. An unbound or
- *   refusing probe answers `false`, the flag declares `false`, and reconstitution
- *   routes to the memo floor — a supported outcome, not a failure.
- * * **Probe-based declaration + `detectionSource`** — LANDED. Every flag
- *   carrying an *admissible* probe is read from the installed build and carries
- *   its detection source on the report. `../../capability-probe.ts` owns the
- *   mechanism table, the probes, their negative control, and the withdraw-only
- *   resolution; what this module owns is the ORDERING — floor first, probe
- *   second, compose third — so
- *   no probe is ever issued against a build the daemon has already refused.
- *   {@link CLAUDE_CAPABILITY_FLAGS} remains the declaration a probe INTERSECTS
- *   with: a probe may withdraw a flag from a build that turns out not to carry
- *   the surface, and may never grant one this driver does not implement.
- *   `detectionSource` is composed only on this live read; the writer's
- *   `hydrate()` reconstruction leaves it absent, which is specified to read as
- *   cache reconstruction rather than as unknown provenance.
- * * **The refresh cadence** — the 15-minute poll and its pairing with the
- *   zero-turn auth probe are the `CapabilityRefreshScheduler`'s
- *   (`../../capability-refresh.ts`). {@link
- *   ClaudeCapabilityReporter.refreshDeclaration} is the declaration seam that
- *   scheduler drives, not the scheduler. The CLI-version FLOOR, by
- *   contrast, is enforced HERE: {@link
- *   ClaudeCapabilityReporter.getCapabilities} refuses a below-floor reading
- *   fail-closed (`driver.cli_version_below_floor`) through the shared
- *   `assertCliVersionMeetsFloor` seam, so attach and refresh both hit the
- *   gate; the unparseable refusal (`driver.cli_version_unparseable`) fires at
- *   report construction (`parseCliVersionReport`), inside the reading of the
- *   spawned process.
- * * **Resolution, the spawn, and the in-band read** — `../../version-gate.ts`
- *   owns them. The reporter's injected dependency is a
- *   `SpawnedProviderVersionReading` reader rather than a bare report reader, so
- *   a declaration composed from a version that did not come from the spawned
- *   build is unrepresentable rather than merely discouraged: the version a
- *   driver reports is the version that spawned. The reader is called on EVERY
- *   declaration, so a refresh takes a new reading rather than replaying the
- *   attach-time one.
- * * **Validation of the reported wrapper** — the write seam owns it
- *   (`assertValidGetCapabilitiesResultShape`, `assertValidCapabilityFlags`,
- *   `assertValidContractVersion`, `assertValidCliVersionReport` in
- *   `../../provider-output-validation.ts`), and re-validating here would fork
- *   the leak-safe rejection surface into two places that could disagree.
+ * - {@link CLAUDE_CAPABILITY_FLAGS} is total over `DriverCapabilityFlag`; an undeclared flag is
+ *   unsupported, and support is never inferred from a method existing on the provider's wire.
+ * - Order is version floor, then probe, then compose, so a refused build is never probed. A probe
+ *   may withdraw a declared flag but never grant one, except `transcript_replay`, which it sets
+ *   both ways. `detectionSource` is set only on this live read.
  */
 
 import {
@@ -125,147 +39,58 @@ import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getClaudeToolMetadata } from "./tools.js";
 
-// --------------------------------------------------------------------------
-// Identity
-// --------------------------------------------------------------------------
-
-/**
- * The registry key for this driver. The capability writer keys
- * `driver_capabilities` / `driver_tools` / `driver_contract_meta` on it, so it
- * is daemon-controlled identity — never provider output.
- */
+/** The registry and capability-table key: daemon-controlled identity, never provider output. */
 export const CLAUDE_DRIVER_NAME = "claude" as const;
 
-/**
- * The Claude driver's capability-contract version: a canonical semver the
- * capability writer compares to detect change, bumped whenever the declared shape
- * changes so a node holding a cached row re-reads it.
- */
+/** The semver the writer compares to detect change; bump it when the declared shape changes. */
 export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
 
-// --------------------------------------------------------------------------
-// The declaration
-// --------------------------------------------------------------------------
-
 /**
- * Claude's V1 capability declaration. TOTAL over `DRIVER_CAPABILITY_FLAGS` by
- * type annotation — see this module's header for why that is the invariant's
- * enforcement rather than its documentation.
- *
- * Frozen, and `Readonly` at the type level, so a consumer that reads the
- * constant rather than copying it cannot corrupt every later declaration
- * process-wide. `getCapabilities()` still hands out a fresh spread: the freeze
- * hardens the module's own state, the copy protects the contract's mutable
- * `flags` field.
+ * Claude's capability declaration, total over `DRIVER_CAPABILITY_FLAGS` so a new flag breaks
+ * compilation until decided. Frozen; `getCapabilities()` hands out a fresh spread.
  */
 export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
   Object.freeze({
-    // `--resume` / `--resume-session-at` on the pinned CLI surface.
+    // `--resume` / `--resume-session-at`.
     resume: true,
-    // FALSE: no mid-turn content injection exists on the programmatic surface.
-    // The steer intervention degrades to queue + interrupt, which is a REPORTED
-    // degradation — declaring `true` here would silently convert that into a
-    // lost directive.
+    // No mid-turn content injection exists on the programmatic surface. Steer degrades to queue
+    // plus interrupt, a reported degradation; declaring `true` would turn it into a lost directive.
     steer: false,
     // Control-request registry: tool-permission and clarification requests.
     interactive_requests: true,
-    // `--mcp-config`. Support is not visibility: this says the provider can
-    // invoke MCP tools, NOT that the daemon knows their census — an
+    // `--mcp-config`. The provider can invoke MCP tools, but the daemon has no census of them: an
     // MCP-discovered tool still floors to `manual_reconcile_only` (`./tools.ts`).
     mcp: true,
-    // Structured tool/function calling is the provider's native execution mode.
     tool_calls: true,
-    // TRUE for Claude (and false for Codex): thinking/reasoning blocks are
-    // exposed on the streamed output surface.
     reasoning_stream: true,
-    // Model selection is mutable across turns on the pinned surface.
     model_mutation: true,
     // `--json-schema` constrains the final output to a supplied schema.
     structured_output: true,
-    // Composed natively from resume-at + `--fork-session`: a fork of the
-    // conversation.
+    // Composed from resume-at plus `--fork-session`.
     rollback: true,
-    // FALSE: this driver exposes no goal operation.
     session_goals: false,
-    // Daemon-hosted ephemeral MCP server surfaces callback tools into the run.
     callback_tools: true,
     // `--agents` AgentDefinitions (provider-native in-session subagents).
     subagents: true,
-    // The MATRIX reading, and NOT this driver's declared answer: the Claude
-    // cell for this flag is `probe`, and `getCapabilities` replaces this entry
-    // with the probe's own reading in both directions (see the header note).
-    // `false` is the right value to sit here because it is what an
-    // unprobed build declares — no stable prior-turn seeding contract is
-    // published for this provider, and an unprobed `true` would route a switch
-    // into a replay the target may silently discard.
+    // The matrix reading: `getCapabilities` replaces it with the probe's reading, and an unprobed
+    // build declares `false` because no seeding contract is published.
     transcript_replay: false,
-    // TRUE, and EMULATED: the provider publishes no compaction method, so this
-    // driver dispatches the provider's OWN compaction command as a
-    // `driver_command` frame — the one tripwire-exempt origin, admitted only
-    // against the two guards required of it (pre-dispatch presence in the
-    // provider's own enumeration, post-dispatch typed evidence). The flag
-    // answers "does the driver deliver it", and it does; the grade records that
-    // the delivery is not a native method.
+    // Emulated: dispatches the provider's own compaction command as a `driver_command` frame,
+    // checked against the command enumeration before and typed evidence after.
     context_compaction: true,
-    // TRUE: the session handshake enumerates the provider's own command and
-    // skill sets, so the enumeration is a read of what the provider published
-    // rather than anything this driver composes.
     provider_commands: true,
-    // TRUE for Claude (and false for Codex): the handshake declares an
-    // accelerated-output state, and — when that state is not the requested one —
-    // a machine-readable reason. Declaring the flag does NOT promise the mode is
-    // available: what the provider actually declared is a separate binding-held
-    // observation, and the two are never rewritten into each other.
+    // The handshake declares an accelerated-output state; the flag does not promise the mode is
+    // available (the binding holds what the provider declared).
     output_speed: true,
   });
 
 /**
- * Claude's output-speed value vocabulary — the SETTABLE levels.
- *
- * A driver declaring `output_speed` publishes this set, and it comes from a
- * static table rather than from the provider: obtaining the provider's declared
- * state costs a turn-bearing request, which is the very conjunct that makes the
- * flag `static`, so a vocabulary sourced by reading would contradict its own
- * detection source.
- *
- * The VALUES live in `../../driver-output-speed.ts`, which also carries the
- * settable-vs-reportable doctrine, because the durable capability cache's
- * hydration path publishes this same member with no driver in hand. This is the
- * driver-local spelling of that one table, never a second copy of it.
+ * Claude's settable output-speed levels, from a static table because the provider's declared state
+ * costs a turn-bearing request. Shared with the capability cache's hydration path.
  */
 export const CLAUDE_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_LEVELS.claude;
 
-// --------------------------------------------------------------------------
-// Seams
-// --------------------------------------------------------------------------
-
-/**
- * Takes one in-band reading of the Claude build this node spawns — resolve,
- * spawn, `get_binary_version`, floor-compare — normally
- * `readSpawnedProviderVersion` bound to this node's configured command
- * (`../../version-gate.ts`). Injected because `getCapabilities()` takes
- * no arguments on the `ProviderDriver` interface, so the dependency is
- * constructor-bound.
- *
- * It reads a READING and not a bare report deliberately: the reading names the
- * resolved executable that answered, which is what ties this declaration to the
- * build the session will actually run and to the version the run's
- * `runtime_bindings` row records.
- *
- * A malformed report is NOT rejected here — it is rejected at the write seam
- * with the leak-safe typed error (`assertValidCliVersionReport`), which is
- * the one place provider-shaped input is adjudicated.
- */
-/**
- * One transcript frame handed to a Claude seeding surface, provider-neutral.
- *
- * Deliberately the same three members {@link SeededTranscriptFrame} carries and
- * deliberately a separate type: this one is an INPUT the driver hands the
- * surface, that one is the RECORD the assertion compares against. Collapsing
- * them would make the daemon's expectation and the surface's argument one
- * object, and a surface free to mutate what it was given would then be able to
- * move the expectation it is about to be checked against.
- */
+// Separate from `SeededTranscriptFrame` so a surface cannot mutate what it is checked against.
 interface ClaudeTranscriptSeedFrame {
   readonly position: number;
   readonly role: CanonicalTranscriptTurn["role"];
@@ -273,144 +98,58 @@ interface ClaudeTranscriptSeedFrame {
 }
 
 /**
- * What a seeding surface reports about one frame.
- *
- * Three arms and no boolean, because the two failure arms mean different things
- * to the target's lifecycle and the difference is not recoverable later.
- * `refused` is a structural rejection the surface OBSERVED — the frame did not
- * land — while `ambiguous` is a delivery whose outcome is unknown, which is the
- * state a lost acknowledgment leaves behind. Both abandon the target; only
- * `ambiguous` leaves a target that may or may not hold the frame, and a surface
- * that reported it as `refused` would be asserting something it cannot know.
+ * What a seeding surface reports about one frame: `refused` (it did not land) or `ambiguous`
+ * (unknown outcome, such as a lost acknowledgment). Both abandon the target; only `ambiguous` may
+ * have left the frame in it.
  */
 export type ClaudeTranscriptSeedOutcome =
   | { readonly delivery: "applied" }
   | { readonly delivery: "refused"; readonly reason: string }
   | { readonly delivery: "ambiguous"; readonly reason: string };
 
-/**
- * The prior-turn seeding surface of an installed Claude build.
- *
- * Both operations, and no third: a surface that could also CLAIM or MARK a
- * target would be re-introducing durable delivery state the memo floor beside it
- * deliberately ships without.
- */
+/** The prior-turn seeding surface of an installed Claude build: seed a frame, read turns back. */
 export interface ClaudeTranscriptSeedingSurface {
-  /** Append one transcript frame to the named target's model-visible history. */
   seedFrame(
     targetProviderSessionId: string,
     frame: ClaudeTranscriptSeedFrame,
   ): Promise<ClaudeTranscriptSeedOutcome>;
-  /**
-   * Read the target's turns back, as text, for the post-replay assertion. The
-   * same reader shape the memo floor reconciles through — one question, one
-   * answer shape.
-   */
+  /** Reads the target's turns back for the post-replay assertion. */
   readonly readBack: ReplayTargetReadbackReader;
 }
 
-/**
- * What the transcript-replay probe found on the installed build.
- *
- * The supported arm CARRIES the surface rather than merely asserting one exists.
- * That is the whole design: it makes "declared `true` with nothing behind it"
- * unrepresentable, so the guarantee `capability-probe.ts`'s withdraw-only rule
- * gives every other flag is kept here by the type rather than by a convention
- * this one cell is exempt from.
- */
+/** The probe's finding; the supported arm carries the surface, so a `true` flag needs one. */
 export type ClaudeTranscriptReplayReading =
   | { readonly supported: false; readonly reason: string }
   | { readonly supported: true; readonly surface: ClaudeTranscriptSeedingSurface };
 
 /**
- * Reads whether the build at `boundExecutablePath` carries a prior-turn seeding
- * surface this driver can drive.
- *
- * A READING OF THE INSTALLED BUILD, taken against the executable the version
- * handshake resolved — the same binding every other detection entry is held to,
- * so a `PATH` change between reads cannot compose one build's flags onto
- * another's version.
- *
- * Called from TWO places by design — the capability composition, which turns the
- * reading into the declared flag, and the replay leg, which needs the surface the
- * same reading carries. An implementation is free to memoize per executable path
- * and is expected to; what it may not do is answer for a build it did not read.
- *
- * UNBOUND at this pin, and that is a recorded residual rather than an oversight:
- * no published Claude build exposes a prior-turn seeding contract, so there is
- * nothing for a production binding to drive. The unbound state is the honest
- * `false`, not a hole — the same posture `MemoTargetGateway` holds beside it.
+ * Reads whether the build at `boundExecutablePath` carries a seeding surface; it may memoize per
+ * path but must not answer for a build it did not read. No production code binds one yet: no
+ * published build exposes a seeding contract.
  */
 export type ClaudeTranscriptReplayProbe = (
   boundExecutablePath: string,
 ) => Promise<ClaudeTranscriptReplayReading>;
 
-/**
- * The same reading, as the REPLAY LEG needs it: with the build already named.
- *
- * The capability composition knows which executable it resolved; the driver's
- * replay leg does not — it is handed a provider-session handle, not a build — so
- * the two consumers cannot share one signature without one of them inventing an
- * argument. They share the READING instead, which is what actually has to agree.
- *
- * A composed daemon binds this as a closure over the same
- * {@link ClaudeTranscriptReplayProbe} and the same resolved executable path that
- * the capability read uses. That is what keeps the declared flag and the
- * driver's behavior from disagreeing about one build: two independently-sourced
- * readings could differ, and a caller that passed the capability gate would then
- * be refused by the driver behind it. Sharing the surface-carrying reading also
- * keeps the structural guarantee intact — a `true` flag and an absent surface
- * stay unrepresentable on both sides.
- */
+/** The same reading for the replay leg, bound over the same probe and executable path. */
 export type ClaudeTranscriptReplaySurfaceReader = () => Promise<ClaudeTranscriptReplayReading>;
 
+/** Constructor dependencies of {@link ClaudeCapabilityReporter}. */
 export interface ClaudeCapabilityReporterDependencies {
+  /**
+   * One in-band reading of the spawned build (normally `readSpawnedProviderVersion`); its resolved
+   * executable ties the declaration to the build the session will run.
+   */
   readonly readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
-  /**
-   * The zero-turn probe transport — a control-request exchange against
-   * the same resolved build `readSpawnedVersion` read. Injected as the SEAM and
-   * not as a reading, because every declaration re-probes: the refresh cadence
-   * drives {@link ClaudeCapabilityReporter.refreshDeclaration}, and a detection
-   * reading captured once would report attach-time provenance for a build that
-   * may since have been replaced.
-   *
-   * REQUIRED, with no default. A default would let a caller compose a
-   * declaration whose provenance claims a probe nobody ran.
-   */
+  /** The zero-turn probe transport; a seam, since a reading captured once could go stale. */
   readonly probe: CapabilityProbeExchange;
-  /**
-   * The daemon diagnostic channel the detection read reports withdrawals on.
-   *
-   * REQUIRED for the same reason the refresh scheduler's emitter is: a flag a
-   * build silently stopped carrying is exactly the class of condition the
-   * closed-kind-plus-counter pairing exists to keep metered, and an optional
-   * emitter would let a whole node's withdrawals go uncounted. Constructor-bound
-   * because `getCapabilities()` takes no arguments, and reported from THERE
-   * rather than from the refresh entry point so attach and refresh meter the
-   * same fact through the same counter.
-   */
+  /** Reports flag withdrawals; required so they cannot go uncounted. */
   readonly diagnostics: DriverDiagnosticsEmitter;
-  /**
-   * The transcript-replay probe whose reading DECIDES the
-   * `transcript_replay` flag.
-   *
-   * OPTIONAL, and absent means `false`. Optional rather than required-nullable
-   * because there is exactly one honest answer for a caller that has nothing to
-   * bind — no published build carries a seeding surface — and forcing every
-   * construction site to write `null` to say so would be ceremony over a
-   * decision none of them gets to make differently. The reading is composed
-   * fail-closed either way: absent, refusing, and throwing all land on `false`.
-   */
+  /** Decides `transcript_replay`; absent, refusing and throwing all land on `false`. */
   readonly transcriptReplayProbe?: ClaudeTranscriptReplayProbe | undefined;
 }
 
-/**
- * Reports and re-declares the Claude driver's capabilities.
- *
- * Stateless with respect to the declaration itself (the flags and the tool
- * catalog are module constants); the instance exists to carry the injected
- * CLI-version reader.
- */
+/** Reports and re-declares the Claude driver's capabilities. */
 export class ClaudeCapabilityReporter {
   readonly #readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
   readonly #probe: CapabilityProbeExchange;
@@ -424,23 +163,8 @@ export class ClaudeCapabilityReporter {
     this.#diagnostics = dependencies.diagnostics;
   }
 
-  /**
-   * Reads the `transcript_replay` declaration off the installed build.
-   *
-   * Fail-closed on all three non-answers — unbound, refusing, and throwing —
-   * because every one of them means the same thing to a caller: nothing here can
-   * be shown to seed a target, so reconstitution belongs on the memo floor.
-   *
-   * A THROW is diagnosed rather than swallowed, and it reuses
-   * `capability_flag_withdrawn` rather than minting a kind of its own. The reuse
-   * is exact rather than convenient: the record that kind carries is "this build
-   * does not carry the surface the flag declares, so the flag is withdrawn
-   * fail-closed", and a probe that faulted leaves precisely that state — the
-   * `disposition` detail is what separates a fault from a clean refusal for a
-   * reader who needs to. An UNBOUND probe emits nothing, because no build was
-   * asked anything and a diagnostic there would meter a configuration, not a
-   * condition.
-   */
+  // Unbound, refusing and throwing all answer `false`, so reconstitution uses the memo floor. A
+  // throw emits `capability_flag_withdrawn` (`probe-faulted`); an unbound probe emits nothing.
   async #readTranscriptReplayDeclaration(boundExecutablePath: string): Promise<boolean> {
     const probe: ClaudeTranscriptReplayProbe | undefined = this.#transcriptReplayProbe;
     if (probe === undefined) {
@@ -453,8 +177,7 @@ export class ClaudeCapabilityReporter {
       this.#diagnostics.emit({
         provider: CLAUDE_DRIVER_NAME,
         kind: "capability_flag_withdrawn",
-        // No wire name: the fault is the probe's own, not one frame's, and
-        // naming a frame that may never have been sent would be an invention.
+        // No wire name: the fault is the probe's own, not one frame's.
         rawWireType: null,
         dispositionReason:
           "transcript-replay probe faulted, and a probe that could not answer is never read as availability; flag withdrawn fail-closed",
@@ -470,27 +193,12 @@ export class ClaudeCapabilityReporter {
   }
 
   /**
-   * The driver's V1 `getCapabilities()` answer.
-   *
-   * Every member of the returned wrapper is a FRESH object: the module
-   * constants are the source of truth for the process, and a caller that
-   * mutates a reply (the writer normalizes and sorts `tools` in place-adjacent
-   * ways, and callers hold replies across refreshes) must not be able to
-   * rewrite the next caller's declaration.
-   *
-   * The floor gate sits between the read and the composition: a reading
-   * below the ratified Claude floor refuses fail-closed
-   * (`driver.cli_version_below_floor`) before any report exists for the
-   * registry or the writer to cache — the attach path and the refresh path
-   * both flow through this method, so one gate covers both. The version gate
-   * compares at the READ too; the comparison is pure and idempotent, so the
-   * second one closes the refresh door rather than restating a decision.
+   * The driver's `getCapabilities()` answer; every member is a fresh object. Throws
+   * `driver.cli_version_below_floor` before any report exists, gating attach and refresh alike.
    */
   async getCapabilities(): Promise<GetCapabilitiesResult> {
     const reading = await this.#readSpawnedVersion();
-    // A reading taken from another driver's build would compose Claude's flags
-    // against a foreign version — a daemon wiring fault, not provider
-    // misbehavior, so it is an internal-invariant `Error`.
+    // A reading from another driver's build is a daemon wiring fault, not provider misbehavior.
     if (reading.driverName !== CLAUDE_DRIVER_NAME) {
       throw new Error(
         `ClaudeCapabilityReporter: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
@@ -498,37 +206,23 @@ export class ClaudeCapabilityReporter {
     }
     const cliVersion: DriverCliVersionReport = reading.report;
     assertCliVersionMeetsFloor(CLAUDE_DRIVER_NAME, cliVersion);
-    // STRICTLY AFTER the floor gate. Every use of a below-floor build beyond
-    // the version handshake itself is refused, and a probe is such a use — so a
-    // build this daemon has already refused is never asked what it can do.
-    // Sequencing this read rather than racing it with the version read is what
-    // makes that ordering structural.
+    // Strictly after the floor gate, so a build the daemon has already refused is never probed.
     const detection: CapabilityDetectionReading = await readCapabilityDetection({
       driverName: CLAUDE_DRIVER_NAME,
-      // Bound to the executable the version handshake resolved, taken from that
-      // same reading rather than resolved again — so the version and the flags
-      // are provably about one build even if a `PATH` change or an installer
-      // swap lands between the two reads.
+      // The executable the version handshake resolved, not resolved again, so the version and the
+      // flags describe one build even if a `PATH` change lands between the reads.
       boundExecutablePath: reading.resolvedExecutablePath,
       exchange: this.#probe,
     });
     emitCapabilityDetectionDiagnostics(this.#diagnostics, detection);
-    // Bound to the SAME executable the version handshake resolved and the
-    // control-request detection read, for the same reason those two are: a
-    // declaration composed across two builds describes neither.
     const transcriptReplay: boolean = await this.#readTranscriptReplayDeclaration(
       reading.resolvedExecutablePath,
     );
     const capabilities: DriverCapabilities = {
       flags: {
         ...applyCapabilityDetection(CLAUDE_CAPABILITY_FLAGS, detection),
-        // The ONE cell composed outside the withdraw-only intersection, because
-        // the Claude matrix cell for it is `probe` rather than a constant.
-        // See the header note: an intersection can never carry a
-        // `false` constant up, so a probe-decided cell resolved that way would
-        // answer `false` on every build forever and the probe would be
-        // decoration. The override is placed AFTER the spread deliberately —
-        // reversing the two would let the matrix's unprobed reading silently win.
+        // Outside the withdraw-only intersection: the probe decides this cell in both directions.
+        // After the spread so the matrix's unprobed `false` cannot win.
         transcript_replay: transcriptReplay,
       },
       contractVersion: CLAUDE_CAPABILITY_CONTRACT_VERSION,
@@ -538,34 +232,15 @@ export class ClaudeCapabilityReporter {
       tools: getClaudeToolMetadata(),
       cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
       detectionSource: { ...detection.detectionSource },
-      // Present iff the flag is, and a FRESH array on every reply.
-      //
-      // The two mechanisms do different jobs and the split is worth stating,
-      // because attributing the protection to the copy alone would be wrong.
-      // The FREEZE is what makes corruption impossible: the module constant is
-      // shared, and a consumer that pushed onto it would rewrite every later
-      // reply process-wide — so a reply handing back the constant itself would
-      // instead throw a TypeError into a caller composing on a value it believes
-      // it owns. The COPY is what keeps the published member an ordinary mutable
-      // array, so a consumer may sort, filter, or extend its own copy without a
-      // surprising throw and without reaching any other reader.
+      // A fresh array per reply: the freeze blocks in-place edits of the constant, the copy stays
+      // mutable for the consumer.
       ...(CLAUDE_CAPABILITY_FLAGS.output_speed
         ? { outputSpeedLevels: [...CLAUDE_OUTPUT_SPEED_LEVELS] }
         : {}),
     };
   }
 
-  /**
-   * The refresh trigger: re-read the declaration and hand it to
-   * the sink, which decides `created` / `changed` / `unchanged` by comparing
-   * against the stored row. This method deliberately does NOT decide that —
-   * change detection lives with the stored state, and a second opinion here
-   * could disagree with the row.
-   *
-   * WHEN this runs is not this module's business either: the 15-minute
-   * cadence and its pairing with the auth probe belong to the refresh
-   * scheduler. This is the seam that cadence drives.
-   */
+  /** Re-reads the declaration and hands it to `sink`, which decides whether it changed. */
   async refreshDeclaration(
     sink: DriverCapabilityDeclarationSink,
   ): Promise<DeclareDriverCapabilitiesResult> {
@@ -574,58 +249,7 @@ export class ClaudeCapabilityReporter {
   }
 }
 
-// --------------------------------------------------------------------------
-// The model catalog
-// --------------------------------------------------------------------------
-
-/**
- * GOLDEN VECTOR — the Claude model catalog this driver declares.
- *
- *   Pin             : Claude Code 2.1.251
- *   Provenance      : Binary probe. One live `claude -p --input-format
- *                     stream-json` control request `{"subtype":"list_models"}`
- *                     against the on-disk build on 2026-08-30. Zero-turn: no
- *                     user message is sent, `num_turns` stays 0, and nothing is
- *                     billed.
- *   Trust           : Verified at 2.1.251. Every id, name, and effort level
- *                     below is a reading, not an illustration.
- *
- * WHY A DECLARATION EXISTS AT ALL, given the read is admissible.
- *
- * A value obtainable by a zero-turn, non-mutating, decisive read must be READ
- * from the installed build rather than declared. This catalog is exactly that,
- * which is why {@link ClaudeModelCatalogExchange} is the preferred source and
- * why this constant is NOT presented as truth about the running build. It is the answer for a
- * composition that has bound no exchange — a real state while no production
- * composition root exists — and it is stamped above so a reader can tell a
- * reading from a declaration without trusting this file's say-so.
- *
- * WHAT IS DELIBERATELY NOT COPIED FROM THE PROBE.
- *
- * * **Alias rows.** The wire answers five entries for four models: `default`
- *   and `opus[1m]` both resolve to `claude-opus-5[1m]`. The reserved pointer
- *   `default` names whichever model is currently default rather than naming a
- *   model, so it is collapsed — see {@link normalizeClaudeModelCatalog}.
- * * **Two of the per-model auxiliary axes** (`supportsAdaptiveThinking`,
- *   `supportsAutoMode`). They are recorded here rather than flattened into
- *   `capabilities`, which carries no registered vocabulary anywhere and is read
- *   by nothing: populating it would mint a tag set ahead of its reader. The
- *   third, `supportsFastMode`, is the model's `fast` member. At the pin, both
- *   `claude-opus-5[1m]` rows carry all three; `claude-fable-5` and
- *   `claude-sonnet-5` carry adaptive-thinking and auto-mode but not fast-mode;
- *   `claude-haiku-4-5-20251001` carries none.
- * * **A provider-wide effort vocabulary.** There is none to copy: the levels
- *   are a per-model list, and `claude-haiku-4-5-20251001` publishes no effort
- *   surface at all — the live instance of the registered "absent = the model
- *   exposes no effort selection" reading.
- */
-/**
- * One declared catalog entry, frozen at construction.
- *
- * `capabilities` is `[]` by CONSTRUCTION rather than by omission — the helper
- * takes no argument for it, so no declaration can populate a member that has no
- * registered vocabulary and nothing reads.
- */
+// `capabilities` is always `[]`: it has no registered vocabulary and nothing reads it.
 function declaredClaudeModel(
   id: string,
   name: string,
@@ -643,26 +267,14 @@ function declaredClaudeModel(
   });
 }
 
-/**
- * Freeze one nested catalog array WITHOUT widening its declared type.
- *
- * `Object.freeze` on the entry alone is shallow: it stops `entry.effortLevels =
- * […]` and does nothing about `entry.effortLevels.push(…)`, so a process-wide
- * constant re-exported from this driver's barrel was one `push` away from being
- * rewritten for every later caller. `ProviderModel` declares these members as
- * MUTABLE `string[]`, and this returns the same declared type rather than
- * `readonly string[]` on purpose: making the contract type deep-readonly would
- * ripple through every driver-constructed catalog and every normalizer that
- * builds one, to fix a hazard that only exists for the two shared constants.
- * The freeze is therefore a runtime property of these declarations, enforced by
- * a mutation-attempt test rather than by the type.
- */
+// Freezing the entry alone is shallow; a deep-readonly contract type would ripple through every
+// driver's catalog.
 function freezeDeclaredModelArray(values: string[]): string[] {
   Object.freeze(values);
   return values;
 }
 
-/** The effort vocabulary every effort-bearing Claude model publishes at the pin. */
+/** The effort levels every effort-bearing model in the declared catalog publishes. */
 const CLAUDE_PINNED_EFFORT_LEVELS: readonly string[] = Object.freeze([
   "low",
   "medium",
@@ -670,38 +282,26 @@ const CLAUDE_PINNED_EFFORT_LEVELS: readonly string[] = Object.freeze([
   "xhigh",
   "max",
 ]);
-
+/**
+ * The declared catalog for a composition with no live `list_models` exchange; prefer the live read.
+ * Ids, names and effort levels are what Claude Code 2.1.251 answered, alias rows collapsed as
+ * {@link normalizeClaudeModelCatalog} does; effort levels are per model (Haiku has none).
+ */
 export const CLAUDE_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
   declaredClaudeModel("claude-opus-5[1m]", "Opus (1M context)", true, CLAUDE_PINNED_EFFORT_LEVELS),
   declaredClaudeModel("claude-fable-5", "Fable", false, CLAUDE_PINNED_EFFORT_LEVELS),
   declaredClaudeModel("claude-sonnet-5", "Sonnet", false, CLAUDE_PINNED_EFFORT_LEVELS),
-  // No `effortLevels`, and that is the reading rather than an omission: this
-  // row answers with no `supportsEffort` and no `supportedEffortLevels`.
+  // No `effortLevels`: this row publishes no effort selection.
   declaredClaudeModel("claude-haiku-4-5-20251001", "Haiku", false),
 ]);
 
 /**
- * The live model-catalog read seam — one `list_models` control request against
- * the build this driver spawns.
- *
- * Returns `unknown` for the same reason {@link CapabilityProbeExchange} does:
- * everything it yields is UNTRUSTED provider output. The implementer dispatches
- * against the connection it already holds and owns the deadline; THIS module
- * composes and adjudicates, so the normalization is testable without a process
- * and a wire-shape change surfaces here rather than in a transport.
- *
- * Deliberately payload-free and turn-free: like the capability probe, a billed
- * turn is not merely forbidden, it is unrepresentable.
+ * One `list_models` control request against the spawned build. Returns `unknown`: the reply is
+ * untrusted provider output that this module validates.
  */
 export type ClaudeModelCatalogExchange = () => Promise<unknown>;
 
-/**
- * A `list_models` reply that could not be read as a catalog.
- *
- * Carries no `code`, on the capability-probe module's reasoning: this is a
- * provider-surface fault with no registered wire code, and inventing one would
- * mint an error contract this task may not mint.
- */
+/** A `list_models` reply that could not be read as a catalog (a provider fault). */
 export class ClaudeModelCatalogUnreadableError extends Error {
   constructor(detail: string) {
     super(`Claude list_models reply is not a readable model catalog: ${detail}`);
@@ -718,34 +318,9 @@ function readNonEmptyString(source: Record<string, unknown>, key: string): strin
 }
 
 /**
- * Normalize one `list_models` reply into the contract's model shape.
- *
- * STRICT, not tolerant. The accepted shape is the one the pinned build answers
- * — `{ models: [...] }` — and nothing else; a reply that merely resembles it is
- * refused rather than partially read, because a tolerant reader would answer a
- * short catalog for a shape change and nothing downstream could tell a provider
- * that dropped a model from a parser that failed to see it.
- *
- * Three rules the wire forces, each the reason the corresponding branch exists:
- *
- *   1. **Alias collapse.** Entries are keyed by `resolvedModel`, not by
- *      `value`: at the pin, four of five `value`s are short aliases
- *      (`sonnet` → `claude-sonnet-5`), so keying on `value` would publish
- *      selector strings as model ids — and a same-agent provider switch
- *      validates its model against this list, so an alias admitted here is a
- *      switch whose target can move under the user.
- *      Where several entries resolve to one model, the reserved
- *      `default` pointer loses to a row that names the model, and it is kept
- *      only when it is that model's only row.
- *   2. **Effort presence is copied, never defaulted.** `effortLevels` is
- *      emitted only where the row publishes a non-empty level list AND does not
- *      explicitly say `supportsEffort: false`. An absent list stays absent: the
- *      contract reads that as "no effort selection", which is precisely what
- *      the Haiku row means.
- *   3. **`fast` is the row's `supportsFastMode`.** An absent flag reads as no
- *      fast mode, as it does on the rows that publish none; a flag that is
- *      present and not a boolean refuses, because reading it as either answer
- *      would publish a claim the provider never made.
+ * Normalizes one `list_models` reply into the contract's model shape. Strict: anything but the
+ * pinned `{ models: [...] }` shape throws {@link ClaudeModelCatalogUnreadableError}, so a dropped
+ * model stays distinguishable from a parser failure.
  */
 export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
   if (typeof payload !== "object" || payload === null) {
@@ -756,9 +331,7 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
     throw new ClaudeModelCatalogUnreadableError("reply has no `models` array");
   }
 
-  // Insertion-ordered, so the catalog keeps the provider's own ordering — the
-  // provider lists its recommended model first and a reordering here would
-  // silently re-rank what a client renders.
+  // Insertion-ordered, so the catalog keeps the provider's ordering (its recommended model first).
   const byResolvedModel = new Map<string, { model: ProviderModel; fromPointer: boolean }>();
   for (const rawEntry of rawModels) {
     if (typeof rawEntry !== "object" || rawEntry === null) {
@@ -777,9 +350,8 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
     }
     const fromPointer = entry["value"] === CLAUDE_DEFAULT_MODEL_POINTER;
     const existing = byResolvedModel.get(resolvedModel);
-    // A row that names the model beats the reserved pointer, in either arrival
-    // order — the pointer arrives first at the pin, and relying on that would
-    // make the rule an accident of the vendor's ordering.
+    // Keyed by `resolvedModel`, not `value`: `value` is often a short alias, and a provider switch
+    // validates against this list. A row that names the model beats the reserved `default` pointer.
     if (existing !== undefined && (fromPointer || !existing.fromPointer)) {
       continue;
     }
@@ -795,6 +367,7 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
       capabilities: [],
       fast: supportsFastMode === true,
     };
+    // Effort levels are copied, never defaulted; absent means the model has no effort selection.
     const effortLevels = entry["supportedEffortLevels"];
     if (
       entry["supportsEffort"] !== false &&
@@ -815,26 +388,14 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
 }
 
 /**
- * Answer the Claude driver's `listModels()`.
- *
- * @param exchange The live read, or an EXPLICIT `null` for a composition that
- *   binds none. Null rather than optional so a construction site cannot arrive
- *   at the declaration by never having decided — the reasoning that makes the
- *   capability probe and the credential-env policy required options rather than
- *   defaulted ones.
- *
- * A bound exchange that FAILS is never quietly answered from the declaration.
- * Serving a stale catalog under the appearance of a live read is the one
- * confusion the detection-source doctrine exists to prevent, so a read failure
- * propagates and only an unbound exchange reaches the declaration.
+ * Answers `listModels()`: the live read when `exchange` is bound, else the declared catalog. A
+ * bound exchange that fails propagates; a stale catalog must not pass for a live read.
  */
 export async function resolveClaudeModelCatalog(
   exchange: ClaudeModelCatalogExchange | null,
 ): Promise<ProviderModel[]> {
   if (exchange === null) {
-    // Fresh copies: the constant is frozen and shared process-wide, and
-    // `ProviderModel` carries mutable arrays a caller could otherwise rewrite
-    // for every later caller.
+    // Fresh copies, so a caller gets ordinary mutable arrays and never touches the frozen constant.
     return CLAUDE_DECLARED_MODEL_CATALOG.map((model) => ({
       id: model.id,
       name: model.name,

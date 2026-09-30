@@ -1,11 +1,7 @@
 /**
- * Claude tool metadata — the conservative idempotency default.
- *
- * These tests drive THIS module's closing helper, deliberately not the
- * contract's `ProviderToolMetadataSchema` default: the schema's
- * `.optional().default("manual_reconcile_only")` is a second, independent
- * application of the same rule at the write seam, and asserting on it would
- * prove the contract works while proving nothing about the driver.
+ * Claude tool metadata: the conservative idempotency default. The tests call the driver's own
+ * closing helper, not the contract schema's default, which would prove the contract and not the
+ * driver.
  */
 
 import { describe, expect, it } from "vitest";
@@ -60,9 +56,8 @@ describe("Claude tool metadata — the conservative default", () => {
   });
 
   it("floors an UNRECOGNIZED class rather than passing it through or throwing", () => {
-    // The static type is erased at runtime; MCP-discovered tools route through
-    // this helper, so an out-of-vocabulary value is reachable. A value
-    // outside the vocabulary declares nothing, so it takes absence's treatment.
+    // Types are erased at runtime and MCP-discovered tools route through this helper, so an
+    // out-of-vocabulary value is reachable. It declares nothing, so it floors like an absent one.
     const hostile = {
       name: "HostileTool",
       idempotency_class: "idempotent ",
@@ -114,10 +109,8 @@ describe("Claude tool metadata — the conservative default", () => {
 
 describe("Claude tool catalog", () => {
   it("keeps the floor LOAD-BEARING on shipped declarations", () => {
-    // Guards against a vacuous version of the test above: if every shipped
-    // declaration were annotated, the default would be untested in production
-    // data. At least one real Claude tool must rely on it, and every such
-    // tool must appear floored in the catalog.
+    // If every shipped declaration were annotated the default would go untested on real data, so
+    // at least one must rely on it and appear floored in the catalog.
     const unannotated = CLAUDE_TOOL_DECLARATIONS.filter(
       (declaration) => declaration.idempotency_class === undefined,
     );
@@ -136,8 +129,7 @@ describe("Claude tool catalog", () => {
   });
 
   it("annotates exactly the pure local reads as idempotent", () => {
-    // `idempotent` means a pure read. Adding a name here is a decision to
-    // re-execute that tool during recovery.
+    // `idempotent` means a pure read; adding a name here lets recovery re-execute that tool.
     const idempotent = CLAUDE_TOOL_CATALOG.filter(
       (tool) => tool.idempotency_class === "idempotent",
     ).map((tool) => tool.name);
@@ -164,8 +156,7 @@ describe("Claude tool catalog", () => {
   });
 
   it("is accepted verbatim by the contract's tool-metadata schema", () => {
-    // The write seam parses each entry; a name that violates the contract's
-    // bounds would be rejected there, so it must be rejected here first.
+    // The write seam parses each entry and would reject a name outside the contract's bounds.
     for (const tool of CLAUDE_TOOL_CATALOG) {
       const parsed = ProviderToolMetadataSchema.safeParse(tool);
       expect(parsed.success, `${tool.name} must parse`).toBe(true);
@@ -187,8 +178,8 @@ describe("Claude tool catalog", () => {
   });
 
   it("hands out fresh, mutable rows through getClaudeToolMetadata()", () => {
-    // `GetCapabilitiesResult.tools` is mutable on the contract, so the accessor
-    // — not the constant — is what may cross the driver boundary.
+    // `GetCapabilitiesResult.tools` is mutable, so the accessor, not the frozen constant, crosses
+    // the driver boundary.
     const first = getClaudeToolMetadata();
     const second = getClaudeToolMetadata();
 
@@ -210,10 +201,6 @@ describe("Claude tool catalog", () => {
     }
   });
 });
-
-// ==========================================================================
-// MCP idempotency floor + dormant task-handle seam + status census
-// ==========================================================================
 
 describe("Claude MCP idempotency floor", () => {
   it("classifies an MCP-discovered tool manual_reconcile_only with no annotations", () => {
@@ -237,8 +224,7 @@ describe("Claude MCP idempotency floor", () => {
   });
 
   it("composes with the closing helper: an MCP row carrying a floor class stays floored", () => {
-    // The classifier is the ONLY source of MCP classes, and the closing
-    // helper it composes with never widens — belt and braces at two seams.
+    // The classifier is the only source of MCP classes and the closing helper never widens one.
     const closed = closeToolIdempotencyClass({
       name: "mcp_probe_tool",
       idempotency_class: classifyMcpDiscoveredTool({ readOnlyHint: true }),
@@ -262,10 +248,9 @@ describe("Claude durable MCP task-handle seam", () => {
   });
 
   it("hands the sink the dispatch identity with the handle, and nothing otherwise", () => {
-    // `commandId` reaches the sink verbatim: it is the `command_receipts` row
-    // the handle is written to, and the MCP identity pair names no row. The
-    // handle-less dispatch calls nothing, leaving the column NULL and the
-    // receipt on the manual_reconcile_only halt.
+    // `commandId` reaches the sink verbatim: it names the `command_receipts` row the handle is
+    // written to, which the MCP server and tool names cannot. A dispatch without a handle calls
+    // nothing, so the column stays NULL and the receipt halts as manual_reconcile_only.
     const observations: McpTaskHandleObservation[] = [];
     const collectingSink = (observation: McpTaskHandleObservation): void => {
       observations.push(observation);

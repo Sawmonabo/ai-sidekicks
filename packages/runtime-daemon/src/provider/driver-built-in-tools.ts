@@ -2,10 +2,9 @@
  * Each driver's built-in tools, keyed by registry name: the one table
  * `driver.listCapabilities` reads them from.
  *
- * Like the output-speed vocabulary, the list is a constant of the driver and never
- * a fact about a reading, so the capability cache composes it on every read and
- * nothing stores it. TOTAL over `FlooredDriverName` by type annotation, so a
- * driver added to the floor table without a tool list is a compile error here.
+ * The list is a constant of the driver, not a fact about a reading, so the capability cache
+ * composes it on every read and nothing stores it. Total over `FlooredDriverName` by type
+ * annotation: a floored driver without a tool list is a compile error here.
  */
 
 import type { FlooredDriverName } from "./capability-refresh.js";
@@ -22,10 +21,9 @@ const DRIVER_BUILT_IN_TOOLS: Readonly<Record<FlooredDriverName, readonly string[
 /**
  * Resolve a driver's built-in tools by registry name.
  *
- * THROWS for a name this table does not carry: a driver with a cached capability
- * set and no tool list was registered without an entry here, which is a daemon
- * wiring fault, and a report missing the list would still look well-formed.
- * `Object.hasOwn` so an inherited key such as `constructor` is refused too.
+ * Throws for a name this table does not carry: a driver with a cached capability set and no
+ * tool list is a wiring fault, and a report missing the list would still look well-formed.
+ * `Object.hasOwn` also refuses an inherited key such as `constructor`.
  */
 export function builtInToolsFor(driverName: string): readonly string[] {
   if (!Object.hasOwn(DRIVER_BUILT_IN_TOOLS, driverName)) {

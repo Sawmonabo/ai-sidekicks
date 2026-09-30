@@ -1,26 +1,14 @@
-// Contract coverage for `EventLogService` — the sole durable append
-// path.
+// Contract coverage for `EventLogService`, the sole durable append path. Four properties fail
+// silently unless asserted here:
 //
-// FOUR PROPERTIES THIS FILE IS RESPONSIBLE FOR, each of which fails silently if
-// nobody asserts it:
-//
-//   1. PII INDIRECTION at the persistence boundary: the owner reaches its
-//      durable column and the ciphertext reaches `pii_payload`, never the
-//      plaintext `payload` column.
-//   2. THE TYPED REFUSAL, asserted through `mapJsonRpcError` rather than through
-//      `instanceof`. `daemon.event_canonical_bytes_exceeded` exists to reach a
-//      CLIENT, and the thing a client reads is `data.type` beside `data.fields`.
-//      An arm that stops at the throw would stay green through a detail that
-//      never got parsed and therefore renders `undefined`.
-//   3. SERIALIZATION. Concurrent appends on one session must not derive the same
-//      sequence, reentrant appends must not deadlock, and a throwing
-//      `transactionalPrelude` must consume no sequence.
-//   4. THE HEAD READ BOUNDARY. A declared SQLite column type is AFFINITY and not
-//      enforcement, so the head's `sequence` is read back as `unknown` and
-//      narrowed. The next row's `sequence` is derived from that one read, which
-//      is what makes a wrong-typed head a value that gets stored rather than
-//      refused.
-//
+//   1. PII indirection: the owner reaches its durable column and the ciphertext reaches
+//      `pii_payload`, never the plaintext `payload` column.
+//   2. The typed refusal, asserted through `mapJsonRpcError`: a client reads `data.type` beside
+//      `data.fields`, which a check that stops at the throw would never see.
+//   3. Serialization: concurrent appends on one session never derive the same sequence, reentrant
+//      appends do not deadlock, and a throwing `transactionalPrelude` consumes no sequence.
+//   4. The head read boundary: a SQLite column type is affinity, not enforcement, so the head's
+//      `sequence` is read as `unknown` and narrowed; the next sequence derives from that read.
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -56,20 +44,17 @@ const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b
 const OTHER_SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11");
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 
-// A UUID rather than a readable slug: `pii_user_id` is plain TEXT and the append
-// types the id as a bare `string`, but the contracts' `UserIdSchema` is a UUID.
+// A UUID, because the contracts' `UserIdSchema` is one, though `pii_user_id` is plain TEXT.
 const USER = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
 
 let database: DatabaseType;
 
 beforeEach(() => {
-  // The production migration runner, never hand-rolled DDL: the terminal-key
-  // triggers and the `UNIQUE(session_id, sequence)` key are all part of what these arms assert
-  // against, and a bespoke CREATE TABLE would quietly drop them.
+  // The production migration runner, not hand-rolled DDL: the terminal-key triggers and the
+  // `UNIQUE(session_id, sequence)` key are part of what these tests assert.
   database = openDatabase(":memory:");
-  // The append lock is a module SINGLETON that survives the database, so a case
-  // that leaves a queue entry behind would otherwise surface as an unrelated
-  // timeout in the next one.
+  // The append lock is a module singleton that outlives the database; a leftover queue entry
+  // would surface as an unrelated timeout in the next test.
   __resetSessionAppendLocksForTest();
 });
 
@@ -92,11 +77,8 @@ function tick(): Promise<void> {
 /**
  * Whether `work` settles within `turns` macrotasks.
  *
- * The lock arms below assert BOTH directions — that something proceeds and that
- * something else waits — and the waiting direction has no natural assertion: a
- * hold that leaks manifests as a promise that never settles, which an ordinary
- * `await` turns into a suite-wide timeout rather than a named failure. Sampling a
- * bounded number of turns reports the defect where it happened.
+ * A leaked hold shows as a promise that never settles, which a plain `await` turns into a
+ * suite-wide timeout; sampling a bounded number of turns fails the named test instead.
  */
 async function settlesWithin(work: Promise<unknown>, turns: number): Promise<boolean> {
   let settled = false;
@@ -109,15 +91,10 @@ async function settlesWithin(work: Promise<unknown>, turns: number): Promise<boo
 }
 
 /**
- * Stub: an XOR over a BLAKE3 keystream seeded by
- * `userId || eventId`.
+ * Stub encryptor: an XOR over a BLAKE3 keystream seeded by the user id and event id.
  *
- * Not an AEAD and not trying to be. It is DETERMINISTIC, which is what lets an
- * arm name expected bytes instead of re-deriving them, and it binds the two
- * identifiers in the one observable way a stub can — a ciphertext minted for one
- * (user, event) pair differs bytewise from every other pair's.
- * `writeEventWithPii` stores whatever bytes it is handed and asserts nothing
- * about their width, as an interface that fixes no AEAD requires.
+ * Not an AEAD. It is deterministic, so tests can name expected bytes, and the ciphertext differs
+ * for every (user, event) pair. `writeEventWithPii` stores whatever bytes it is handed.
  */
 class DeterministicPiiEncryptor implements PiiEncryptor {
   encryptCallCount = 0;
@@ -141,13 +118,8 @@ interface ServiceFixture {
 }
 
 /**
- * A content-key seam that always answers, so the SEALING branch of `#composeRow`
- * is genuinely reachable in this file.
- *
- * Deliberately not the real {@link SessionContentKeyStore}: the arm that uses it
- * asserts WHERE a guard runs, and a store would drag the wrap format, the master
- * key and the mint race into a placement test. `session-content-partition.test.ts`
- * owns the real store against a real table.
+ * A content-key source that always answers, so the sealing branch of `#composeRow` is reachable.
+ * Not the real store, which `session-content-partition.test.ts` covers against a real table.
  */
 const ALWAYS_RESOLVING_CONTENT_KEY_SOURCE: SessionContentKeySource = {
   resolveForWrite: (sessionId) =>
@@ -217,12 +189,8 @@ function readRawRows(sessionId: SessionId): ReadonlyArray<RawEventRow> {
 }
 
 /**
- * Rebuild the canonical bytes FROM STORAGE, never from the input the test handed
- * `append()`.
- *
- * That direction is the whole point: a reader recomputes from what was
- * PERSISTED, so an arm that canonicalized its own input would stay green through
- * a service that measured one form of the row and stored another.
+ * Rebuild the canonical bytes from storage, never from the input handed to `append()`, so a
+ * service that measured one form of the row and stored another cannot pass.
  */
 function hydrate(row: RawEventRow): HydratedRow {
   const envelope: EventEnvelope = {
@@ -230,8 +198,7 @@ function hydrate(row: RawEventRow): HydratedRow {
     sessionId: SessionIdSchema.parse(row.session_id),
     sequence: row.sequence,
     occurredAt: row.occurred_at,
-    // The column is TEXT and TypeScript knows nothing about which canonical
-    // category it holds; the append path already refused anything else.
+    // The column is TEXT; the append path already refused any other category.
     category: row.category as EventEnvelope["category"],
     type: row.type,
     actor: row.actor,
@@ -248,7 +215,7 @@ function hydrate(row: RawEventRow): HydratedRow {
   };
 }
 
-/** The refusal as a CLIENT sees it. */
+/** The refusal as a client sees it. */
 async function mappedRefusalOf(work: Promise<unknown>): Promise<JsonRpcErrorResponse> {
   try {
     await work;
@@ -290,20 +257,12 @@ describe("EventLogService — sequence allocation", () => {
 // ----------------------------------------------------------------------------
 // The head read boundary — `sequence` read as `unknown`, then narrowed
 // ----------------------------------------------------------------------------
-//
-// The HEALTHY direction is already pinned by the sequence arms above, which
-// allocate every row from the narrowed head. What is left is the refusal
-// direction.
 
 describe("EventLogService — head read boundary", () => {
   it("refuses a head whose sequence is not an INTEGER rather than allocating from it", async () => {
-    // An edit to the file can leave TEXT in `sequence`, and SQLite orders TEXT
-    // above every INTEGER, which is what makes the corrupted row the head that
-    // `ORDER BY sequence DESC` selects.
-    //
-    // TWO rows seeded and the LOWER one corrupted, deliberately: with a single
-    // row the corrupt value is the head whatever the query orders by, so the arm
-    // would stay green through a head read that lost its `ORDER BY` entirely.
+    // SQLite orders TEXT above every INTEGER, so a TEXT `sequence` becomes the head that
+    // `ORDER BY sequence DESC` selects. Two rows, the lower one corrupted: with one row the corrupt
+    // value is the head whatever the query orders by, so a lost `ORDER BY` would go unnoticed.
     const { service } = buildService();
     await service.append(makeEnvelope());
     await service.append(makeEnvelope());
@@ -317,8 +276,7 @@ describe("EventLogService — head read boundary", () => {
     await expect(service.append(makeEnvelope())).rejects.toThrow(
       /session_events\.sequence for session .+ is not an INTEGER: got a value of type string/,
     );
-    // Unnarrowed, `Number('x') + 1` is `NaN` — bound as this row's `sequence`,
-    // written into its canonical bytes, and stored.
+    // Unnarrowed, `Number('x') + 1` is `NaN`, which would be stored as the next sequence.
     expect(readRawRows(SESSION)).toHaveLength(2);
   });
 });
@@ -332,10 +290,8 @@ describe("EventLogService — PII indirection", () => {
     const { service, encryptor } = buildService();
 
     const receipt = await service.append(
-      // A real `assistant.message` payload rather than `{}`: that type has a
-      // registered `SessionEventSchema` variant, and the codec parses the
-      // COMPOSED row against it before storing. An empty payload would be
-      // refused for the two members the variant requires.
+      // A real `assistant.message` payload: the codec parses the composed row against that
+      // type's registered variant, which an empty payload would fail.
       makeEnvelope({
         category: "assistant_output",
         type: "assistant.message",
@@ -388,14 +344,10 @@ describe("EventLogService — PII indirection", () => {
 
 describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
   /**
-   * An envelope whose STORED canonical form is exactly `targetBytes` long.
+   * An envelope whose stored canonical form is exactly `targetBytes` long.
    *
-   * Computed from the same storable shape the service canonicalizes — the
-   * input plus `sequence` — and padded with an ASCII filler, so every added
-   * character is exactly one canonical byte and the arithmetic is byte-exact.
-   * `sequence` is a parameter because its DECIMAL WIDTH is inside the
-   * canonical form: a fixture computed at sequence 0 is one byte short of its
-   * target at sequence 10.
+   * Padded with ASCII filler so each added character is one canonical byte. `sequence` is a
+   * parameter because its decimal width is part of the canonical form.
    */
   function envelopeOfCanonicalSize(
     targetBytes: number,
@@ -418,9 +370,7 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
     expect(rows).toHaveLength(1);
     const [row] = rows;
     if (row === undefined) return;
-    // Byte-exact and FROM STORAGE: the stored row re-canonicalizes to exactly
-    // the ceiling — the bound is inclusive, and an off-by-one here is precisely
-    // the defect the exact fixture exists to catch.
+    // The stored row re-canonicalizes to exactly the ceiling: the bound is inclusive.
     expect(hydrate(row).canonical.length).toBe(EVENT_CANONICAL_BYTES_MAX);
   });
 
@@ -448,8 +398,7 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
       service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX + 1, 1)),
     ).rejects.toThrow(/EVENT_CANONICAL_BYTES_MAX/);
 
-    // No partial row, and the NEXT admitted append takes sequence 1 rather
-    // than a number the refusal burned.
+    // No partial row, and the next admitted append takes sequence 1.
     expect(readRawRows(SESSION)).toHaveLength(1);
     const readmitted = await service.append(makeEnvelope());
     expect(readmitted.sequence).toBe(1);
@@ -462,16 +411,13 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
       service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX + 1, 0)),
     );
 
-    // The detail is two SIZES and the message names the id and the bound. The
-    // filler must appear nowhere: an error envelope echoing a 32 KiB payload
-    // would defeat the ceiling at the exact moment it fired.
+    // The filler must appear nowhere: echoing a payload of about 32 KiB would defeat the ceiling.
     expect(JSON.stringify(mapped)).not.toContain("xxxxxxxx");
   });
 });
 
 // ----------------------------------------------------------------------------
-// PARSE WHAT WILL BE STORED, on the branch that seals nothing — the plain-append
-// half of the shared `assertRegisteredVariantParses` seam
+// The plain branch, which seals nothing, parses what it stores (`assertRegisteredVariantParses`)
 // ----------------------------------------------------------------------------
 
 describe("EventLogService — the plain branch parses what it stores", () => {
@@ -516,9 +462,8 @@ describe("EventLogService — the plain branch parses what it stores", () => {
   });
 
   it("refuses BEFORE writing — no row, no burnt sequence", async () => {
-    // The positional claim, asserted rather than narrated: a refusal that
-    // happened after the INSERT would leave the row behind, and one that
-    // happened after sequencing would push the next append to 1.
+    // A refusal after the INSERT would leave the row behind; one after sequencing would push the
+    // next append to 1.
     const { service } = buildService();
 
     await expect(
@@ -533,8 +478,7 @@ describe("EventLogService — the plain branch parses what it stores", () => {
   });
 
   it("admits the same REGISTERED type once its payload matches (positive control)", async () => {
-    // Without this the refusals above could come from an unsatisfiable rule
-    // rather than from the defect.
+    // Without this the refusals above could come from an unsatisfiable rule.
     const { service } = buildService();
 
     const receipt = await service.append(
@@ -546,11 +490,9 @@ describe("EventLogService — the plain branch parses what it stores", () => {
   });
 
   it("still stores an UNREGISTERED census type carrying an ad-hoc payload", async () => {
-    // THE TOLERANT-CARRIER CONTROL ON THIS PATH. `session.updated` is a census
-    // member with no registered payload variant, and a reader must
-    // "persist an envelope whose `type` it cannot interpret as a version
-    // stub — never drop or reject it". A guard that refused here would reject
-    // exactly the envelopes the stub path exists to preserve.
+    // `session.updated` has no registered payload variant, and an envelope whose type cannot be
+    // interpreted is stored as a version stub, never rejected. A guard that refused here would
+    // break that.
     const { service } = buildService();
 
     const receipt = await service.append(
@@ -563,15 +505,13 @@ describe("EventLogService — the plain branch parses what it stores", () => {
 });
 
 // ----------------------------------------------------------------------------
-// The codec-owned CONTENT members on the plain path
+// The codec-owned content members on the plain path
 // ----------------------------------------------------------------------------
 //
-// The plain-vs-codec branch is chosen from `options.content`, NOT from the
-// payload. A caller that omits `options.content` and seeds `contentLength`
-// therefore takes the plain branch, where nothing is sealed and the payload the
-// caller supplied is the payload that gets stored — minting a row whose account
-// of its own body describes prose the column does not hold. The reader echoes
-// those members rather than recomputing them, so the refusal is at the write.
+// The plain-vs-codec branch is chosen from `options.content`, not from the payload. A caller that
+// omits `options.content` and seeds `contentLength` would take the plain branch and store a row
+// whose account of its own body describes prose the column does not hold. The reader echoes those
+// members instead of recomputing them, so the refusal has to happen at the write.
 
 describe("EventLogService — codec-owned content keys are refused before the branch", () => {
   const validSessionCreatedPayload = {
@@ -597,10 +537,9 @@ describe("EventLogService — codec-owned content keys are refused before the br
   ];
 
   it.each(forgeableMembers)("refuses a payload pre-seeding %s", async (key, value) => {
-    // BOTH: `contentLength` and `contentTruncated` are the row's own account of
-    // how much prose there was and whether the bound fired, and a stored lie
-    // about either is read back as truth by `SessionContentReader`, which
-    // echoes them from the stored payload rather than recomputing them.
+    // Both members are the row's own account of how much prose there was and whether the bound
+    // fired; `SessionContentReader` echoes them from the stored payload, so a lie would be read
+    // back as truth.
     const { service } = buildService();
 
     await expect(
@@ -622,17 +561,11 @@ describe("EventLogService — codec-owned content keys are refused before the br
   });
 
   it("refuses the SEALING path too — the guard precedes the branch choice", async () => {
-    // THE PLACEMENT PIN, and the only arm in this file that can fail if the
-    // guard is moved. Every other arm omits `options.content` and therefore
-    // takes the PLAIN branch, where a guard sitting inside that branch would be
-    // indistinguishable from one sitting above it.
-    //
-    // Here the sealing branch is live — `options.content` present, a content key
-    // source wired — so a plain-branch-only guard would let this reach the
-    // codec, whose own codec-owned-key check would still refuse it, but AS
-    // `writeEventWithPii`. The refuser name is what separates "refused before
-    // the branch" from "refused after it", so this asserts on the name rather
-    // than on the mere fact of a refusal.
+    // The only test here that fails if the guard moves: the others omit `options.content` and take
+    // the plain branch, where a guard inside that branch looks the same as one above it. With the
+    // sealing branch live, a plain-branch-only guard would let this reach the codec, whose own
+    // check refuses it as `writeEventWithPii`. The refuser name separates "refused before the
+    // branch" from "refused after it".
     const { service } = buildService({ withContentKeySource: true });
 
     const refusal: unknown = await service
@@ -654,10 +587,8 @@ describe("EventLogService — codec-owned content keys are refused before the br
         (error: unknown) => error,
       );
 
-    // `instanceof` here and nowhere else in this describe. The other arms match
-    // on message text because what they pin is the WORDING a caller reads; this
-    // one pins the discriminable TYPE, which is the whole reason the class is
-    // exported rather than being a bare `Error`.
+    // `instanceof` only here: this test pins the discriminable type, the reason the class is
+    // exported; the others match the message wording a caller reads.
     expect(refusal).toBeInstanceOf(CodecOwnedContentKeyError);
     const refused = refusal as CodecOwnedContentKeyError;
     expect(refused.message).toContain("EventLogService.append refuses");
@@ -692,11 +623,9 @@ describe("EventLogService — codec-owned content keys are refused before the br
   });
 
   it("refuses a TOLERANT CARRIER pre-seeding a codec-owned member, and says so", async () => {
-    // `session.updated` is a census member with no registered strict variant,
-    // so the accept-and-stub tolerance applies to its TYPE — and this guard
-    // does not touch types. The reader echoes the member whatever the type, so
-    // a forged length here misleads exactly as one on a registered type does.
-    // Refusing a reserved MEMBER is not rejecting an uninterpretable envelope.
+    // `session.updated` has no registered strict variant, so its type is tolerated, but this guard
+    // checks members, not types. The reader echoes the member whatever the type, so a forged
+    // length misleads on any type.
     const { service } = buildService();
 
     await expect(
@@ -712,8 +641,7 @@ describe("EventLogService — codec-owned content keys are refused before the br
   });
 
   it("still admits a tolerant carrier that seeds none of them (positive control)", async () => {
-    // Without this the arm above could be refusing the TYPE rather than the
-    // member — which is exactly the tolerance the guard must keep.
+    // Without this the test above could be refusing the type rather than the member.
     const { service } = buildService();
 
     const receipt = await service.append(
@@ -725,9 +653,8 @@ describe("EventLogService — codec-owned content keys are refused before the br
   });
 
   it("leaves `contentType` alone — it is the producer's member", async () => {
-    // The pair is exactly the two the codec DETERMINES. `contentType` is
-    // knowable only to the producer, so a guard that swept it would refuse every
-    // legitimate body-bearing append.
+    // Only the two members the codec determines are reserved; `contentType` is the producer's, and
+    // reserving it would refuse every body-bearing append.
     const { service } = buildService();
 
     const receipt = await service.append(
@@ -750,9 +677,8 @@ describe("EventLogService — the append lock", () => {
   it("serializes concurrent appends on one session into one gapless sequence", async () => {
     const { service } = buildService();
 
-    // Without the lock these interleave in the async compose step and two of
-    // them derive the same `sequence` — one losing to
-    // `UNIQUE(session_id, sequence)` on a perfectly legitimate write.
+    // Without the lock these interleave in the async compose step and two derive the same
+    // `sequence`, one losing to `UNIQUE(session_id, sequence)`.
     await Promise.all(
       Array.from({ length: 16 }, (_unused, index) =>
         service.append(makeEnvelope({ payload: { index } })),
@@ -767,8 +693,8 @@ describe("EventLogService — the append lock", () => {
   });
 
   it("reuses an existing hold rather than deadlocking on it (owner-scoped reentrancy)", async () => {
-    // The producers' shape: read-decide under the lock, then append inside the
-    // same hold. A non-reentrant mutex deadlocks here and the arm times out.
+    // Producers read and decide under the lock, then append inside the same hold; a non-reentrant
+    // mutex would deadlock here.
     const { service } = buildService();
 
     const receipt = await withSessionAppendLock(SESSION, async () => {
@@ -799,10 +725,8 @@ describe("EventLogService — the append lock", () => {
   });
 
   it("makes two parallel holds on one session take turns", async () => {
-    // The blocking property at the LOCK's own surface rather than through
-    // `append()`. the terminal emitter wraps its guard-swap-append in this
-    // helper, so "the second one waits" has to hold for an arbitrary
-    // critical section, not only for the one `append()` happens to run.
+    // Tests the lock directly rather than through `append()`, so "the second one waits" holds for
+    // any critical section.
     const order: string[] = [];
     let releaseFirst!: () => void;
     const firstParked = new Promise<void>((resolve) => {
@@ -828,17 +752,10 @@ describe("EventLogService — the append lock", () => {
   });
 
   it("releases the hold to a WAITER when the acquiring critical section rejects", async () => {
-    // The lock state is a module singleton, so a hold leaked on rejection
-    // wedges the session for the life of the PROCESS. Nothing recovers without
-    // a restart.
-    //
-    // The waiter queues BEFORE the failure, and that is the whole design of this
-    // arm rather than an incidental ordering. A caller arriving AFTER the
-    // rejection finds the queue entry already drained and proceeds even from a
-    // leaked hold — so an arm that only tried a fresh caller stays green through
-    // the exact wedge this invariant exists to prevent. Verified by perturbing
-    // the release out of its `finally`: the fresh-caller form survived it, this
-    // form does not.
+    // The lock state is a module singleton, so a hold leaked on rejection wedges the session until
+    // the process restarts. The waiter queues before the failure on purpose: a caller arriving
+    // after the rejection finds the queue entry already drained and proceeds even from a leaked
+    // hold. Moving the release out of its `finally` survives that form but not this one.
     const { service } = buildService();
     let failCriticalSection!: (reason: Error) => void;
     const criticalOutcome = new Promise<void>((_resolve, reject) => {
@@ -857,10 +774,9 @@ describe("EventLogService — the append lock", () => {
   });
 
   it("releases nothing when a REENTRANT frame rejects and its owner catches it", async () => {
-    // An owner that catches an inner rejection and carries on is still the owner
-    // — if the inner rejection had released, the outer frame would be holding a
-    // lock it no longer owns, its next nested call would queue behind itself,
-    // and the release would fire twice.
+    // An owner that catches an inner rejection is still the owner. If the inner rejection released,
+    // the outer frame would hold a lock it no longer owns, its next nested call would queue behind
+    // itself, and the release would fire twice.
     const { service } = buildService();
     let innerRejectionCaught = false;
     let nestedCallProgressed = false;
@@ -873,10 +789,8 @@ describe("EventLogService — the append lock", () => {
       }
       const nested = service.append(makeEnvelope());
       nestedCallProgressed = await settlesWithin(nested, 4);
-      // ABANDON the nested call rather than awaiting it when it did not get the
-      // hold: an over-releasing reentrant frame leaves this append queued behind
-      // its own owner, and awaiting it here would hang the owner too — turning a
-      // named assertion failure into a suite-wide timeout that says nothing.
+      // Abandon the nested call when it got no hold: awaiting it would hang the owner too and turn
+      // a named failure into a suite-wide timeout.
       return nestedCallProgressed ? await nested : undefined;
     });
 
@@ -884,8 +798,7 @@ describe("EventLogService — the append lock", () => {
     expect(nestedCallProgressed).toBe(true);
     expect(receipt?.sequence).toBe(0);
 
-    // Released exactly once, on the OWNER's settle — a fresh acquisition now
-    // proceeds rather than queueing behind a hold nobody holds.
+    // Released exactly once, on the owner's settle: a fresh acquisition now proceeds.
     const afterOwnerSettled = withSessionAppendLock(SESSION, () => Promise.resolve("free"));
     expect(await settlesWithin(afterOwnerSettled, 4)).toBe(true);
   });
@@ -896,9 +809,8 @@ describe("EventLogService — the append lock", () => {
 
     await service.append(makeEnvelope(), {
       transactionalPrelude: () => {
-        // Reading the event count INSIDE the prelude is what proves the ordering:
-        // the row this append is writing is not visible yet, so the prelude ran
-        // before the INSERT.
+        // The row this append writes is not visible yet, so reading the count here proves the
+        // prelude ran before the INSERT.
         const { count } = database
           .prepare("SELECT COUNT(*) AS count FROM session_events")
           .get() as {
@@ -929,8 +841,7 @@ describe("EventLogService — the append lock", () => {
       }),
     ).rejects.toThrow(/divergent/);
 
-    // Neither half landed, and the sequence the doomed append allocated is
-    // re-derived by the next one from the durable head row.
+    // Neither half landed, and the next append re-derives its sequence from the durable head row.
     expect(database.prepare("SELECT COUNT(*) AS c FROM prelude_probe").get()).toEqual({ c: 0 });
     expect(readRawRows(SESSION)).toHaveLength(1);
     await expect(service.append(makeEnvelope())).resolves.toMatchObject({ sequence: 1 });
@@ -955,15 +866,14 @@ describe("EventLogService — terminal-key backstop", () => {
       service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 })),
     ).rejects.toThrow(/UNIQUE/i);
 
-    // Fail-LOUD, and the refusal costs no sequence: the INSERT aborts inside the
-    // transaction, so the head row never moved.
+    // The refusal costs no sequence: the INSERT aborts inside the transaction.
     expect(readRawRows(SESSION)).toHaveLength(1);
     await expect(service.append(makeEnvelope())).resolves.toMatchObject({ sequence: 1 });
   });
 
   it("admits a second terminal for the same run at a DIFFERENT runVersion", async () => {
-    // The key is the PAIR. A re-run is a new `runVersion` and gets its own
-    // terminal event; collapsing the key to `runId` alone would refuse it.
+    // The key is the (runId, runVersion) pair: a re-run is a new `runVersion` with its own
+    // terminal event.
     const { service } = buildService();
 
     await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
@@ -973,9 +883,8 @@ describe("EventLogService — terminal-key backstop", () => {
   });
 
   it("lets a NON-terminal run_lifecycle duplicate through — the index is terminal-scoped", async () => {
-    // The scope half. `run_lifecycle` carries 13 types and only three of them
-    // are terminal; an index that guarded the whole category would refuse the
-    // ordinary progression events a run emits many of.
+    // `run_lifecycle` also carries non-terminal types; an index guarding the whole category would
+    // refuse the ordinary progression events.
     const { service } = buildService();
     const runKey = { runId: "run-1", runVersion: 1 };
 
@@ -990,12 +899,9 @@ describe("EventLogService — terminal-key backstop", () => {
   });
 
   it("refuses a terminal event whose run key is missing or the wrong storage class", async () => {
-    // SQLite treats NULLs as DISTINCT in a UNIQUE index, so a terminal row with
-    // no `$.runId` conflicts with nothing — including another terminal row for
-    // the same run. And `json_extract` returns SQLite values, so a stringified
-    // `runVersion` is a DIFFERENT index key from the integer one. The trigger
-    // closes both, which is what makes uniqueness a property of the RUN rather
-    // than of its JSON spelling.
+    // SQLite treats NULLs as distinct in a UNIQUE index, so a terminal row with no `$.runId`
+    // conflicts with nothing, and `json_extract` returns SQLite values, so a stringified
+    // `runVersion` is a different key from the integer. The trigger closes both.
     const { service } = buildService();
     const refusedPayloads: ReadonlyArray<Record<string, unknown>> = [
       { runVersion: 1 },
@@ -1017,9 +923,8 @@ describe("EventLogService — terminal-key backstop", () => {
   });
 
   it("refuses an UPDATE that promotes a committed non-terminal row into a terminal one", async () => {
-    // The PROMOTE leg, and the one the INSERT trigger cannot see: a row that was
-    // never in the partial index's predicate is UPDATEd into it, which is an
-    // insert through the back door. Terminal rows are INSERT-only.
+    // The INSERT trigger cannot see this: a row outside the partial index's predicate is UPDATEd
+    // into it. Terminal rows are INSERT-only.
     const { service } = buildService();
     const receipt = await service.append(
       makeEnvelope({
@@ -1040,12 +945,9 @@ describe("EventLogService — terminal-key backstop", () => {
     const { service } = buildService();
     const receipt = await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
 
-    // The index constrains the SET of live keys, not their STABILITY: rewriting
-    // the key moves it rather than duplicating it, so the index stays satisfied
-    // while the durable record now attributes the terminal event to another run.
-    // BOTH halves of the pair are pinned — the guard reads `runId` and
-    // `runVersion` through independent `IS NOT` comparisons, so an arm that
-    // moved only one of them would leave the other's comparison unverified.
+    // The index constrains which keys are live, not their stability: rewriting a key moves it, so
+    // the index stays satisfied while the record attributes the terminal event to another run.
+    // Both halves of the pair are pinned because the guard compares them independently.
     expect(() =>
       database
         .prepare("UPDATE session_events SET payload = ? WHERE id = ?")
@@ -1057,11 +959,8 @@ describe("EventLogService — terminal-key backstop", () => {
         .run(JSON.stringify({ runId: "run-1", runVersion: 2 }), receipt.id),
     ).toThrow(/must preserve runId/);
 
-    // De-scoping out of the partial index's predicate is the same defect by
-    // another route — it would free the key for reuse. `category` and `type` are
-    // independent DISJUNCTS in the guard, so each needs its own leg: with only
-    // the `category` half asserted, deleting the `type` disjunct from the
-    // trigger leaves this suite green.
+    // Moving a row out of the partial index's predicate frees its key for reuse. `category` and
+    // `type` are independent disjuncts in the guard, so each needs its own case.
     expect(() =>
       database
         .prepare("UPDATE session_events SET category = ? WHERE id = ?")
@@ -1075,14 +974,10 @@ describe("EventLogService — terminal-key backstop", () => {
   });
 
   it("refuses an UPDATE that DROPS a committed terminal row's run key", async () => {
-    // THE STUB-PRESERVATION NEGATIVE CONTROL, and a different predicate from the
-    // identity-move above: dropping the key makes both `json_extract`s NULL,
-    // which the value-equality check cannot see and the NULL-distinct index
-    // welcomes. This is the shape a purge bug actually takes — a projection
-    // that rebuilds `payload` from a key list and forgets to carry the run key
-    // forward re-opens the duplicate-terminal bypass for the row's whole
-    // retention life, silently. the projection is what keeps it closed; this arm
-    // is what fails if it stops.
+    // Dropping the key makes both `json_extract` values NULL, which the value-equality check
+    // cannot see and the NULL-distinct index allows. A purge that rebuilds `payload` from a key
+    // list and forgets the run key would silently reopen the duplicate-terminal bypass; the purge
+    // projection keeps it closed and this test fails if it stops.
     const { service } = buildService();
     const receipt = await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
 

@@ -1,14 +1,7 @@
-// The `timeline.*` method strings against the REAL daemon `MethodRegistry`,
-// and the `timeline.bodyRead` handler.
-//
-// The defect was that a timeline operation's SCHEMA NAME
-// resolved while its METHOD STRING did not. Asserting the names against
-// `METHOD_NAME_FORMAT` alone would not close that — a regex says a name is
-// well-formed, not that the deployed registry accepts it (is the worked case:
-// every camelCase-tailed V1 name matched the canonical regex in the doc and
-// was rejected by the daemon's own drifted copy at boot). So every assertion
-// here goes through `MethodRegistryImpl`, and the dispatch rows go through the
-// descriptor's real schemas.
+// The `timeline.*` method strings against the real daemon `MethodRegistry`, and the
+// `timeline.bodyRead` handler. A regex check on the names would not prove the deployed registry
+// accepts them, so every assertion goes through `MethodRegistryImpl` and the dispatch rows go
+// through the descriptors' real schemas.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -38,8 +31,7 @@ import {
   TIMELINE_SEARCH_METHOD,
 } from "@ai-sidekicks/contracts";
 
-// THROUGH THE BARREL, deliberately. `handlers/index.js` is the surface a
-// caller binds the timeline methods from.
+// Imported through the barrel, the surface callers bind timeline methods from.
 import { registerTimelineMethod } from "../handlers/index.js";
 import { SessionContentReader, type StoredEventContentRow } from "../../events/content-read.js";
 import { SessionContentKeyUnavailableError } from "../../events/session-content-key-store.js";
@@ -56,9 +48,9 @@ const TRANSPORT_ID = 7;
 const dispatchContext: HandlerContext = { transportId: TRANSPORT_ID };
 
 const SESSION_ID: SessionId = "6f1c9a6e-1f2b-4a3c-8d5e-0a1b2c3d4e5f" as SessionId;
-/** A second, unrelated session — the one a cross-scope reply leaks rows from. */
+/** A second session, the one a cross-scope reply leaks rows from. */
 const OTHER_SESSION_ID: SessionId = "abcdef01-2345-4678-89ab-cdef01234567" as SessionId;
-/** A second, unrelated run — the one a cross-scope expansion answers about. */
+/** A second run, the one a cross-scope expansion answers about. */
 const OTHER_RUN_ID: RunId = "99999999-8888-4777-8666-555555555555" as RunId;
 const RUN_ID: RunId = "11111111-2222-4333-8444-555555555555" as RunId;
 const PARENT_RUN_ID: RunId = "33333333-4444-4555-8666-777777777777" as RunId;
@@ -85,12 +77,7 @@ const timelineRow: TimelineRow = {
   payload: {},
 };
 
-/**
- * Bind every method with handlers that resolve a valid response for their
- * own operation. Deliberately NOT a production binder — the production
- * handlers arrive with the Phase-2/Phase-3 services; these exist so the
- * registration and dispatch paths can be exercised end to end.
- */
+/** Binds every timeline method to a stub handler that resolves a valid response. */
 const registerAllTimelineMethods = (registry: MethodRegistryImpl): void => {
   registerTimelineMethod(registry, {
     method: TIMELINE_READ_METHOD,
@@ -123,9 +110,7 @@ describe("timeline method-name registration", () => {
     for (const method of TIMELINE_METHOD_NAMES) {
       expect(isCanonicalMethodName(method)).toBe(true);
     }
-    // Negative control on the same predicate: a PascalCase sibling of one of
-    // these names is rejected, so the passes above are the names and not
-    // a checker that says yes to everything.
+    // Control: the predicate rejects malformed siblings, so the passes above are meaningful.
     expect(isCanonicalMethodName("Timeline.read")).toBe(false);
     expect(isCanonicalMethodName("timeline.")).toBe(false);
   });
@@ -138,14 +123,13 @@ describe("timeline method-name registration", () => {
     registerAllTimelineMethods(registry);
     for (const method of TIMELINE_METHOD_NAMES) {
       expect(registry.has(method)).toBe(true);
-      // Every timeline operation is a read, so the version-mismatch gate lets
-      // it through when the handshake reports incompatible.
+      // Every timeline operation is a read, so the version-mismatch gate lets it through.
       expect(registry.isMutating(method)).toBe(false);
     }
   });
 
   it("an unregistered `timeline.*` sibling still resolves to method_not_found", () => {
-    // Namespace isolation: registering the methods does not open the namespace.
+    // Registering the methods does not open the rest of the namespace.
     const registry = new MethodRegistryImpl();
     registerAllTimelineMethods(registry);
     expect(registry.has("timeline.write")).toBe(false);
@@ -173,8 +157,7 @@ describe("timeline method-name registration", () => {
     );
     registerTimelineMethod(registry, { method: TIMELINE_READ_METHOD, handler });
 
-    // Over the read window's own cap — the bounded-window rule, enforced by the
-    // schema the descriptor carries rather than by the handler.
+    // Over the read window's cap; the descriptor's schema enforces it, not the handler.
     let caught: unknown = null;
     try {
       await registry.dispatch(
@@ -191,8 +174,7 @@ describe("timeline method-name registration", () => {
     }
     expect(handler).not.toHaveBeenCalled();
 
-    // Negative control: the same method dispatches when the params are valid,
-    // so the refusal above is the payload and not a broken registration.
+    // Control: valid params dispatch, so the refusal above came from the payload.
     const result = await registry.dispatch(
       TIMELINE_READ_METHOD,
       { sessionId: SESSION_ID },
@@ -203,9 +185,7 @@ describe("timeline method-name registration", () => {
   });
 
   it("each method dispatches to ITS OWN operation, not a sibling's", async () => {
-    // The binding claim: a `timeline.reasoningSurfaceRead` request shape is
-    // refused by `timeline.childRunExpand` and vice versa, because each name
-    // carries its own schemas from the one descriptor registry.
+    // Each name carries its own schemas, so one operation's request shape is refused by another.
     const registry = new MethodRegistryImpl();
     registerAllTimelineMethods(registry);
 
@@ -213,9 +193,7 @@ describe("timeline method-name registration", () => {
       registry.dispatch(TIMELINE_REASONING_SURFACE_READ_METHOD, { runId: RUN_ID }, dispatchContext),
     ).resolves.toStrictEqual(reasoningResponse);
 
-    // The expansion's own `runId` carrying a read window's members: `sessionId`,
-    // `beforeCursor` and `limit` are not members of the expansion's shape, so
-    // `.strict()` refuses.
+    // `sessionId`, `beforeCursor` and `limit` are not members of the expansion's strict shape.
     let caught: unknown = null;
     try {
       await registry.dispatch(
@@ -233,17 +211,12 @@ describe("timeline method-name registration", () => {
   });
 
   it("a handler resolving another operation's response is caught as invalid_result", async () => {
-    // The result half of the same binding claim: the descriptor's response
-    // schema is what the registry validates the resolved value against, so a
-    // handler wired to the wrong operation is a programmer error surfaced at
-    // dispatch, never a wrong shape on the wire.
+    // The descriptor's response schema validates the resolved value, so a handler wired to the
+    // wrong operation fails at dispatch instead of putting a wrong shape on the wire.
     const registry = new MethodRegistryImpl();
     registerTimelineMethod(registry, {
       method: TIMELINE_READ_METHOD,
-      // The cast is the point: it stands in for a handler wired to the wrong
-      // operation. Without it the mistake is a compile error — which is the
-      // binder's first line of defense — so the runtime backstop can only be
-      // exercised by defeating the type check deliberately.
+      // The cast stands in for a handler wired to the wrong operation, which the types reject.
       handler: (async () => reasoningResponse) as unknown as Handler<
         TimelineReadRequest,
         TimelineReadResponse
@@ -262,13 +235,8 @@ describe("timeline method-name registration", () => {
   });
 
   it("the registered schemas are the CANONICAL objects, by reference", () => {
-    // The binder resolves schemas from `TIMELINE_METHOD_DESCRIPTORS` instead of
-    // accepting them, so there is no schema argument to get wrong. This asserts
-    // the resolution actually happened: each registered pair must be the very
-    // object the canonical registry holds, not merely a structurally similar
-    // one. A deep-equality check would pass against a look-alike rebuilt from
-    // the wrong operation's parts; identity cannot.
-    //
+    // The binder takes schemas from `TIMELINE_METHOD_DESCRIPTORS`. Identity, not deep equality,
+    // proves each registered pair is the canonical object and not a look-alike.
     const recorded = new Map<string, { params: unknown; result: unknown }>();
     const recordingRegistry = {
       register: (method: string, paramsSchema: unknown, resultSchema: unknown): void => {
@@ -290,11 +258,8 @@ describe("timeline method-name registration", () => {
   });
 
   it("no two operations share a schema object — the identity check can discriminate", () => {
-    // Negative control for the test above. If any two operations happened to
-    // reuse one schema instance, an identity assertion could pass while the
-    // binder had paired a method with a sibling's schema. The request schemas
-    // and the response schemas must each be pairwise distinct for the
-    // identity check to mean what it claims.
+    // Control for the identity test above: if two operations shared a schema instance, it could
+    // pass while a method was paired with a sibling's schema.
     const requestSchemas = TIMELINE_METHOD_NAMES.map(
       (method) => TIMELINE_METHOD_DESCRIPTORS[method].requestSchema,
     );
@@ -310,20 +275,15 @@ describe("timeline method-name registration", () => {
     registerTimelineMethod(registry, {
       method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
       // @ts-expect-error a reasoning-surface handler cannot bind to childRunExpand:
-      // the handler's types are derived from `method` through the contract map,
-      // so the forgery the old descriptor-taking form allowed is now unsayable.
+      // the handler's types are derived from `method` through the contract map.
       handler: async () => reasoningResponse,
     });
     expect(registry.has(TIMELINE_CHILD_RUN_EXPAND_METHOD)).toBe(true);
   });
 
   it("a read answering with ANOTHER session's rows is refused as an internal error", async () => {
-    // The registry validates a result against the response schema and never
-    // sees the parsed request, so a page of rows that are each a valid
-    // `TimelineRow` from a different session passes every schema check and
-    // reaches the client under its own request id. The caller cannot tell:
-    // the reply is well-formed and correlated, it is simply about someone
-    // else's session.
+    // Rows that are each a valid `TimelineRow` from another session pass every schema check,
+    // because the response schema never sees the request.
     const registry = new MethodRegistryImpl();
     const foreignRow: TimelineRow = { ...timelineRow, sessionId: OTHER_SESSION_ID };
     registerTimelineMethod(registry, {
@@ -339,16 +299,12 @@ describe("timeline method-name registration", () => {
     }
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
-      // `invalid_result`, not `invalid_params`: the caller asked a well-formed
-      // question and the daemon assembled an answer about another subject, so
-      // this maps to `-32603` and blames the daemon.
+      // `invalid_result` (maps to `-32603`), not `invalid_params`: the fault is the daemon's.
       expect(caught.registryCode).toBe("invalid_result");
       expect(caught.issues?.[0]).toMatchObject({ path: ["entries", 0, "sessionId"] });
     }
 
-    // NEGATIVE CONTROL: the same handler shape answering about the REQUESTED
-    // session resolves, so the refusal is the scope and not the wrapper
-    // rejecting every page.
+    // Control: the same handler shape answering about the requested session resolves.
     const scopedRegistry = new MethodRegistryImpl();
     registerTimelineMethod(scopedRegistry, {
       method: TIMELINE_READ_METHOD,
@@ -360,10 +316,8 @@ describe("timeline method-name registration", () => {
   });
 
   it("an expansion answering about ANOTHER run is refused as an internal error", async () => {
-    // The response schema pins every entry to the run the RESPONSE names, so
-    // an expansion of the wrong run is internally consistent and passes. The
-    // one fact no schema can check is that the run it names is the run that
-    // was asked for.
+    // The response schema pins entries to the run the response names, so an expansion of the
+    // wrong run is self-consistent; only the request knows which run was asked for.
     const registry = new MethodRegistryImpl();
     registerTimelineMethod(registry, {
       method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
@@ -382,7 +336,7 @@ describe("timeline method-name registration", () => {
       expect(caught.issues?.[0]).toMatchObject({ path: ["runId"] });
     }
 
-    // NEGATIVE CONTROL: the expansion of the requested run resolves.
+    // Control: the expansion of the requested run resolves.
     const scopedRegistry = new MethodRegistryImpl();
     registerTimelineMethod(scopedRegistry, {
       method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
@@ -394,11 +348,8 @@ describe("timeline method-name registration", () => {
   });
 
   it("a read page over the caller's own limit is refused, and at the limit resolves", async () => {
-    // The response schema bounds `entries` at the GLOBAL ceiling, which is the
-    // only one it can know: the caller's number is on the REQUEST, which no
-    // response schema sees. So a read for two rows answering with three parses
-    // today, and a client sizing a viewport, a budget, or a render pass from
-    // what it asked for is handed more with nothing on the reply saying so.
+    // The response schema bounds `entries` only at the global ceiling; the caller's limit is on
+    // the request, which the schema never sees.
     const threeRowPage = {
       entries: [timelineRow, timelineRow, timelineRow],
       hasMore: false,
@@ -422,34 +373,24 @@ describe("timeline method-name registration", () => {
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_result");
-      // The member, not an index: the page's SIZE is the defect and no single
-      // entry is responsible for it.
+      // The member, not an index: the page size is the defect, not one entry.
       expect(caught.issues?.[0]).toMatchObject({ path: ["entries"] });
     }
 
-    // NEGATIVE CONTROL, both directions on the same page. At the requested
-    // limit it resolves…
+    // Control: at the requested limit the same page resolves...
     await expect(
       registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID, limit: 3 }, dispatchContext),
     ).resolves.toStrictEqual(threeRowPage);
-    // …and so does a request that named no limit at all, which falls back to
-    // the default ceiling rather than to zero.
+    // ...and so does a request with no limit, which falls back to the default ceiling.
     await expect(
       registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext),
     ).resolves.toStrictEqual(threeRowPage);
   });
 
   it("an expansion over the default page ceiling is refused, and at the ceiling resolves", async () => {
-    // ChildRunExpandRequest declares no limit of its own, so its ceiling is the
-    // default constant — the same rule, stated on both paged reads so neither
-    // surface can drift, and already in place the day this request grows a
-    // caller-supplied limit.
-    //
-    // WHICH REPORTER ANSWERS is the whole assertion here, and it has to be,
-    // because today the response schema bounds this member at the same number:
-    // a path-only assertion passes with the correlation check deleted, which
-    // would make this test vacuous. So it asserts the message only THIS check
-    // emits — the one that names the ceiling and where the ceiling came from.
+    // `ChildRunExpandRequest` has no limit, so its ceiling is the default constant. The response
+    // schema bounds this member at the same number, so a path-only assertion would pass without
+    // the correlation check; the test asserts the ceiling message only that check emits.
     const pageOfSize = (size: number): ChildRunExpandResponse => ({
       ...childRunExpandResponse,
       entries: Array.from({ length: size }, () => timelineRow),
@@ -481,8 +422,7 @@ describe("timeline method-name registration", () => {
       ).toBe(true);
     }
 
-    // NEGATIVE CONTROL: exactly at the ceiling resolves, so the refusal is the
-    // overrun and not the size of the page.
+    // Control: exactly at the ceiling resolves.
     const atCeilingRegistry = new MethodRegistryImpl();
     const atCeiling = pageOfSize(TIMELINE_READ_LIMIT_MAX);
     registerTimelineMethod(atCeilingRegistry, {
@@ -499,22 +439,13 @@ describe("timeline method-name registration", () => {
   });
 
   it("a malformed read entry reaches invalid_result, not a bare TypeError", async () => {
-    // The correlation check runs one step BEFORE the response schema, so it is
-    // handed values that have not been validated yet. `Array.isArray` says
-    // nothing about what is IN the array: a page holding `null` passed the
-    // container guard and then threw a bare `TypeError` out of the comparison,
-    // which escapes the dispatch promise as an unmapped internal failure with
-    // no issue paths — destroying the very diagnostic the check exists beside.
-    //
-    // The rule is the one the check already applies to the container: a shape
-    // it cannot read is the response schema's finding, reported one step later
-    // with the real reason.
+    // The correlation check runs before the response schema, so it sees unvalidated values. A
+    // page holding `null` must not throw a bare `TypeError` with no issue paths; a shape the check
+    // cannot read is left to the response schema to report.
     const registry = new MethodRegistryImpl();
     registerTimelineMethod(registry, {
       method: TIMELINE_READ_METHOD,
-      // The cast stands in for a projection defect. Without it the malformed
-      // entry is a compile error, so the runtime backstop can only be reached
-      // by defeating the type check deliberately.
+      // The cast stands in for a projection defect, which the types reject.
       handler: (async () => ({
         entries: [null],
         hasMore: false,
@@ -527,21 +458,16 @@ describe("timeline method-name registration", () => {
     } catch (error) {
       caught = error;
     }
-    // NOT a TypeError — that is the whole assertion. A `TypeError` here would
-    // still fail the dispatch, which is why the defect was invisible: it fails
-    // in a shape the client cannot read.
+    // A `TypeError` would also fail the dispatch, but in a shape the client cannot read.
     expect(caught).not.toBeInstanceOf(TypeError);
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_result");
-      // …and the issue paths locate the offending element, which is what the
-      // schema reports and the correlation check deliberately does not.
+      // The schema's issue paths locate the offending element.
       expect(caught.issues?.length ?? 0).toBeGreaterThan(0);
     }
 
-    // NEGATIVE CONTROL: a page whose entries ARE readable and cross-session is
-    // still refused by the correlation check itself, so deferring on malformed
-    // input did not disable the check for well-formed pages.
+    // Control: a readable cross-session page is still refused by the correlation check.
     const foreignRegistry = new MethodRegistryImpl();
     registerTimelineMethod(foreignRegistry, {
       method: TIMELINE_READ_METHOD,
@@ -556,12 +482,9 @@ describe("timeline method-name registration", () => {
   });
 
   it("an empty reasoning surface on a FIRST read is refused; on a continuation it resolves", async () => {
-    // The one correlation rule that is not about the reply's subject. An
-    // `available` surface with no entries renders as a surface that exists and
-    // shows nothing — indistinguishable from `unavailable` while asserting the
-    // opposite. That is a defect on a first read and the correct answer on a
-    // continuation whose cursor already sat at the end, and the response schema
-    // cannot tell them apart because the request is not in its scope.
+    // An `available` surface with no entries renders as a surface that exists and shows nothing.
+    // That is a defect on a first read but correct for a continuation already at the end, and the
+    // response schema cannot tell them apart without the request.
     const emptyAvailable: ReasoningSurfaceReadResponse = {
       availability: "available",
       reasoningEntries: [],
@@ -589,8 +512,7 @@ describe("timeline method-name registration", () => {
       expect(caught.issues?.[0]).toMatchObject({ path: ["reasoningEntries"] });
     }
 
-    // NEGATIVE CONTROL, and the reason the floor lives here rather than in the
-    // schema: the SAME reply is correct when the request carried a cursor.
+    // Control: the same reply is correct when the request carried a cursor.
     await expect(
       registry.dispatch(
         TIMELINE_REASONING_SURFACE_READ_METHOD,
@@ -599,8 +521,7 @@ describe("timeline method-name registration", () => {
       ),
     ).resolves.toStrictEqual(emptyAvailable);
 
-    // SECOND NEGATIVE CONTROL: a first read that actually has something to
-    // serve resolves, so the refusal is the emptiness and not the first read.
+    // Control: a first read with entries resolves.
     const servedRegistry = new MethodRegistryImpl();
     const servedSurface: ReasoningSurfaceReadResponse = {
       availability: "available",

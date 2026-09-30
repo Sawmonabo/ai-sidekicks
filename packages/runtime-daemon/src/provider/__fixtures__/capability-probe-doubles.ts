@@ -1,28 +1,20 @@
 // Test doubles for the capability-probe transport and the capability declaration sink.
 //
-// Excluded from `tsconfig.json`'s build (`src/**/__fixtures__/**`), so nothing
-// here ships in `dist/` — it exists so every suite that needs a probe surface
-// drives the REAL classifier and the REAL mechanism table against a recording
-// transport, rather than each one hand-rolling reply shapes that could drift
-// apart from the wire references.
+// Excluded from the build (`src/**/__fixtures__/**` in `tsconfig.json`), so nothing here ships in
+// `dist/`. Suites use these to run the real classifier and mechanism table against a recording
+// transport instead of hand-rolling reply shapes that could drift from the wire.
 //
-// The default replies are the MEASURED ones, deliberately — every Codex shape
-// below is a verbatim message from a first-party probe of the pinned build
-// (codex-cli 0.150.1, 2026-08-30), not a plausible-looking reconstruction:
+// The default replies are measured, not reconstructed: every Codex shape is a verbatim message
+// from a probe of codex-cli 0.150.1.
 //
-//   * the negative control answers each channel's own name-level refusal — the
-//     Claude dispatcher's verbatim `Unsupported control request subtype:`
-//     prefix, and the Codex deserializer's `unknown variant` enumeration under
-//     the generic `-32600`;
-//   * every other name answers the reply a PAYLOAD-FREE probe actually draws.
-//     On Codex that is ALSO a `-32600`, carrying a missing-field message: the
-//     method exists and its schema refused the empty request, which is exactly
-//     the outcome that keeps the probe non-mutating. Those two shapes sharing
-//     one error code is the whole reason the classifier reads the message, so a
-//     fixture whose accepted-method default used a distinguishable code
-//     (`-32602`) would let a broken classifier pass. That code is kept below as
-//     a SECOND accepted shape rather than as the default.
-//
+// * The negative control gets each channel's own name-level refusal: the Claude dispatcher's
+//   `Unsupported control request subtype:` prefix, and the Codex deserializer's `unknown variant`
+//   enumeration under `-32600`.
+// * Any other name gets the reply a payload-free probe draws. On Codex that is also `-32600`, with
+//   a missing-field message: the method exists and its schema refused the empty request, which is
+//   what keeps the probe non-mutating. Because the two shapes share a code, the classifier has to
+//   read the message; a default with a distinguishable code (`-32602`) would let a broken
+//   classifier pass, so that code is only a second accepted shape.
 
 import type { CapabilityDetectionSource, DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
@@ -62,9 +54,9 @@ export function claudeSuccessReply(): unknown {
 }
 
 /**
- * A Claude control-response error arm that is NOT name-level — the wire
- * reference's own `get_usage is not supported in this context` shape. The
- * dispatcher knows the subtype, so this classifies as acceptance.
+ * A Claude control-response error arm that is not name-level, such as
+ * `get_usage is not supported in this context`. The dispatcher knows the subtype, so this
+ * classifies as acceptance.
  */
 export function claudeContextualRefusalReply(subtype: string): unknown {
   return {
@@ -78,12 +70,9 @@ export function claudeContextualRefusalReply(subtype: string): unknown {
 }
 
 /**
- * The Codex deserializer's unknown-variant reply, in its measured verbatim
- * shape: the variant it refused, then the enumeration of the ones it accepts.
- *
- * The primitive rather than the method-level helper, because the same shape
- * appears for variants nested INSIDE an accepted request — which is precisely
- * the case that must not be read as a missing method.
+ * The Codex deserializer's unknown-variant reply: the variant it refused, then the ones it
+ * accepts. The same shape appears for a variant nested inside an accepted request, which must not
+ * be read as a missing method.
  */
 export function codexUnknownVariantReply(
   variant: string,
@@ -100,13 +89,8 @@ export function codexUnknownVariantReply(
   };
 }
 
-/**
- * A sample of the accepted client-request methods the pinned build enumerates.
- *
- * A SAMPLE and not the census: the real enumeration is the deserializer's whole
- * `ClientRequest` variant list, and nothing here depends on its length — only
- * on whether a given name is in it.
- */
+// A sample of the accepted client-request methods, not the full list; only whether a name is in
+// it matters.
 const CODEX_ACCEPTED_METHOD_SAMPLE: readonly string[] = Object.freeze([
   "initialize",
   "server/diagnostics",
@@ -120,11 +104,9 @@ const CODEX_ACCEPTED_METHOD_SAMPLE: readonly string[] = Object.freeze([
 ]);
 
 /**
- * The reply a name the connection does not accept draws.
- *
- * The refused name is filtered OUT of the enumeration, because that is what the
- * real build does: an enumeration that listed the very variant it refused would
- * be self-contradictory, and the classifier reads such a reply as acceptance.
+ * The reply a method the connection does not accept draws. The refused name is filtered out of
+ * the enumeration, as the real build does; an enumeration listing the variant it refused would
+ * read as acceptance.
  */
 export function codexUnknownMethodReply(method: string): unknown {
   return codexUnknownVariantReply(
@@ -133,10 +115,7 @@ export function codexUnknownMethodReply(method: string): unknown {
   );
 }
 
-/**
- * The reply a payload-free probe of an ACCEPTED Codex method draws: the same
- * `-32600` code, carrying the deserializer's missing-field message.
- */
+/** The reply a payload-free probe of an accepted Codex method draws: `-32600`, missing field. */
 export function codexMissingFieldReply(field = "threadId"): unknown {
   return {
     jsonrpc: "2.0",
@@ -145,10 +124,7 @@ export function codexMissingFieldReply(field = "threadId"): unknown {
   };
 }
 
-/**
- * The measured reply an ACCEPTED but capability-gated method draws: `-32600`
- * with a plain-prose reason and no enumeration at all.
- */
+/** The reply an accepted but capability-gated method draws: `-32600`, plain reason, no list. */
 export function codexCapabilityGatedReply(method: string): unknown {
   return {
     jsonrpc: "2.0",
@@ -182,11 +158,9 @@ export interface RecordingProbeTransportOptions {
 }
 
 /**
- * Records every probe dispatch and answers from the defaults above.
- *
- * The recording is the point: the zero-billed-turn claim is asserted HERE, at
- * the provider transport, because a daemon-side assertion on usage or
- * run-lifecycle events cannot see a turn billed before event handling attached.
+ * Records every probe dispatch and answers from the defaults above. Suites assert that no turn
+ * was billed here, at the provider transport, because a daemon-side check on usage or run events
+ * cannot see a turn billed before event handling attached.
  */
 export class RecordingCapabilityProbeTransport {
   readonly requests: CapabilityProbeRequest[] = [];
@@ -200,7 +174,7 @@ export class RecordingCapabilityProbeTransport {
     this.#rejections = options.rejections ?? {};
   }
 
-  /** The injected seam. Arrow-bound so callers may pass it unbound. */
+  /** The injected seam; arrow-bound so callers may pass it unbound. */
   readonly exchange: CapabilityProbeExchange = async (
     request: CapabilityProbeRequest,
   ): Promise<unknown> => {
@@ -221,17 +195,10 @@ export class RecordingCapabilityProbeTransport {
 }
 
 /**
- * A detection reading in which every probe answered — the provenance the tables
- * declare, with nothing withdrawn.
- *
- * DERIVED from the real tables rather than transcribed, so a table edit moves
- * this helper with it and a suite that only needs "some valid reading" cannot
- * quietly assert a stale shape.
- *
- * `boundExecutablePath` is REQUIRED and not defaulted: a composition site
- * compares it against its version reading's own resolved path, so a helper that
- * invented one would hand every suite a reading that passes that check by
- * accident.
+ * A detection reading in which every probe answered: the provenance the tables declare, with
+ * nothing withdrawn. It is derived from the real tables, so a table edit moves it too.
+ * `boundExecutablePath` is required because a composition site compares it with the version
+ * reading's resolved path, and an invented default would pass that check by accident.
  */
 export function fullyProbedDetectionReading(
   driverName: FlooredDriverName,

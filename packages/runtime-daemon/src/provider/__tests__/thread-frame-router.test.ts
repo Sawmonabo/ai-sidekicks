@@ -1,18 +1,9 @@
-// Thread-frame router suite (child-routing leg).
-//
-// Spec coverage under test:
-//   • the family-scoped, fail-closed child-frame routing rule: thread-scoped
-//     families route by explicit thread identity, censused connection-scoped
-//     families route without one, child identities register from the
-//     provider's parent-linked announcements, a present-but-unregistered
-//     identity is held in a bounded pending-registration buffer, and an
-//     absent or unrecognized identity is quarantined — never projected or
-//     guessed into the parent.
-//   • child-raised interactive requests carve through to the same approval
-//     pipeline as the parent's; provider-attributed subagent spend rides
-//     the subagent identity while provider-internal child spend attributes
-//     to the parent run.
-//
+// Thread-frame router: thread-scoped families route by explicit thread identity, connection-scoped
+// families route without one, child identities register from parent-linked announcements, a
+// present-but-unregistered identity is held in a bounded pending buffer, and an absent or
+// unrecognized identity is quarantined, never projected or guessed into the parent. Child-raised
+// interactive requests reach the parent's approval pipeline; provider-attributed subagent spend
+// rides the subagent identity while provider-internal child spend attributes to the parent run.
 
 import { describe, expect, it } from "vitest";
 
@@ -181,7 +172,7 @@ describe("ThreadFrameRouter", () => {
         childThreadId: "child-thread",
       });
     }
-    // Once per child thread — content deltas must not flood the channel.
+    // Once per child thread: content deltas must not flood the channel.
     expect(diagnostics.recentRecordsOfKind("thread_child_transcript_suppressed")).toHaveLength(1);
   });
 
@@ -290,16 +281,14 @@ describe("ThreadFrameRouter", () => {
 
   it("registering the SESSION's own thread releases the holds that were waiting on it", () => {
     const { router } = makeRouter();
-    // No session thread yet: the driver has spawned the process but the
-    // provider has not yet answered with the thread identity. A frame that
-    // arrives in that window names an identity the router cannot yet match.
+    // No session thread yet: the process has spawned but the provider has not announced its
+    // thread identity, so a frame in that window names an identity the router cannot match.
     const earlyFrame = usageFrame("session-thread", "early-session-usage");
     expect(router.routeFrame(earlyFrame, 0)).toEqual({ decision: "held-pending-registration" });
     expect(router.pendingHeldFrameCount()).toBe(1);
 
-    // Releasing on CHILD registration only would have left this frame to be
-    // shed at its timeout — the session's own usage, silently lost, which is
-    // exactly the metering gap the hold exists to prevent.
+    // Releasing on child registration only would shed this frame at its timeout, silently losing
+    // the session's own usage.
     const releasedFrames = router.registerSessionThread("session-thread");
     expect(releasedFrames.map((frame) => frame.rawWireType)).toEqual(["early-session-usage"]);
     expect(router.pendingHeldFrameCount()).toBe(0);
@@ -313,8 +302,8 @@ describe("ThreadFrameRouter", () => {
 
     const releasedFrames = router.registerSessionThread("session-thread");
     expect(releasedFrames.map((frame) => frame.rawWireType)).toEqual(["mine"]);
-    // The foreign identity stays held: it is still unregistered, and releasing
-    // it here would have projected a thread nobody announced.
+    // The foreign identity stays held: it is still unregistered, and releasing it would project a
+    // thread nobody announced.
     expect(router.pendingHeldFrameCount()).toBe(1);
   });
 
@@ -335,9 +324,8 @@ describe("ThreadFrameRouter", () => {
     expect(completion.wasRegistered).toBe(true);
     expect(completion.abandonedPendingFrames).toEqual([]);
     expect(router.childAttributionFor("child-thread")).toBeUndefined();
-    // A frame arriving after the child's terminal is no longer a registered
-    // child's frame — it holds pending a registration that will never come,
-    // and is shed at the timeout rather than metered onto a closed child.
+    // A frame after the child's terminal holds pending a registration that never comes and is
+    // shed at the timeout rather than metered onto a closed child.
     expect(router.routeFrame(usageFrame("child-thread"), 0)).toEqual({
       decision: "held-pending-registration",
     });
@@ -349,10 +337,8 @@ describe("ThreadFrameRouter", () => {
     router.routeFrame(usageFrame("child-thread", "orphaned-hold"), 0);
     expect(router.pendingHeldFrameCount()).toBe(1);
 
-    // The child terminated without ever having been announced. Its held frames
-    // can never be released, so they are shed HERE rather than left to occupy
-    // the bounded buffer until their timeout — a shed that is recorded, never
-    // a silent drop.
+    // The child terminated unannounced, so its held frames can never be released; they are shed
+    // here, with a record, instead of occupying the bounded buffer until their timeout.
     const completion = router.completeChildThread("child-thread");
     expect(completion.wasRegistered).toBe(false);
     expect(completion.abandonedPendingFrames.map((frame) => frame.rawWireType)).toEqual([
@@ -379,8 +365,8 @@ describe("ThreadFrameRouter", () => {
       expect(router.routeFrame(contentFrame, cycle).decision).toBe("suppress-child-transcript");
       router.completeChildThread("child-thread");
     }
-    // Two children, two records: the ledger is per-child-lifetime, so a reused
-    // identity is diagnosed again rather than inheriting the first one's entry.
+    // The ledger is per child lifetime: a reused identity is diagnosed again, not folded into the
+    // first one's entry.
     expect(diagnostics.recentRecordsOfKind("thread_child_transcript_suppressed")).toHaveLength(2);
   });
 });

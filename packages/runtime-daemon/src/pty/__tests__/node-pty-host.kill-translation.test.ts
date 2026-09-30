@@ -1,26 +1,16 @@
-// Test K1 — Windows kill-translation at `PtyHost.kill`.
+// Windows kill translation at `NodePtyHost.kill`, asserted at the unit level:
 //
-// Asserts the Windows-only kill-translation matrix at the unit-of-behavior layer:
+//   * `SIGINT` calls `GenerateConsoleCtrlEvent(CTRL_C_EVENT=0, child.pid)`, never `taskkill` or
+//     `process.kill`.
+//   * `SIGTERM` calls `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT=1, child.pid)` and does not
+//     escalate before the 2 s budget elapses.
+//   * `SIGKILL` runs `taskkill /T /F /PID <pid>` directly, never `GenerateConsoleCtrlEvent`.
+//   * `SIGHUP` behaves like `SIGTERM`.
+//   * A `kill()` after the child has exited re-emits `onExit` from cache and calls no FFI.
 //
-//   * `SIGINT` ⇒ `GenerateConsoleCtrlEvent(CTRL_C_EVENT=0, child.pid)`
-//      — NEVER routes to `taskkill`; NEVER calls `process.kill`.
-//   * `SIGTERM` ⇒ `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT=1, child.pid)`
-//      — does NOT escalate before the 2 s budget elapses.
-//   * `SIGKILL` ⇒ `taskkill /T /F /PID <pid>` directly
-//      — NEVER calls `GenerateConsoleCtrlEvent`.
-//   * `SIGHUP` ⇒ same cascade as `SIGTERM` (
-//      mapping; we documented the SIGTERM-equivalent choice in `node-pty-host.ts`).
-//   * Idempotency clause: a `kill()` invoked after the child has
-//      cached its exit-code re-emits `onExit` from cache and does NOT
-//      call any FFI.
-//
-// Why this test runs on every platform — the production code reaches
-// the Windows-only FFI / `taskkill` primitives through an injectable
-// `Deps` record (`NodePtyHostDeps.generateConsoleCtrlEvent` + `.spawnTaskkill`).
-// The test injects `vi.fn()` doubles and forces `Deps.platform = "win32"`.
-// No real `kernel32.dll` or `taskkill.exe` is loaded; no real `node-pty`
-// is loaded either (the test injects `Deps.ptySpawn` with a stub).
-//
+// This runs on every platform because the Windows-only primitives are injected through
+// `NodePtyHostDeps` (`generateConsoleCtrlEvent`, `spawnTaskkill`, `ptySpawn`, `platform`), so
+// no real `kernel32.dll`, `taskkill.exe` or `node-pty` is loaded.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
@@ -37,12 +27,8 @@ import { makeFakeChild } from "./_fakes.js";
 import type { SpawnRequest } from "@ai-sidekicks/contracts";
 
 // ----------------------------------------------------------------------------
-// Test fixtures — shared `makeFakeChild` helper imported from `_fakes.ts`
+// Test fixtures
 // ----------------------------------------------------------------------------
-//
-// Default pid for this suite is 12345 (a number small enough to fit in
-// 32 bits but distinctive in test assertions). See `_fakes.ts` for the
-// helper definition shared with `node-pty-host.tree-kill.test.ts`.
 
 const SAMPLE_SPAWN: SpawnRequest = {
   kind: "spawn_request",
@@ -55,7 +41,7 @@ const SAMPLE_SPAWN: SpawnRequest = {
 };
 
 // ----------------------------------------------------------------------------
-// Test K1 fixtures — per-`it` host + recorded mocks
+// Per-test host and recorded mocks
 // ----------------------------------------------------------------------------
 
 interface KillTranslationCtx {
@@ -104,17 +90,15 @@ describe("NodePtyHost — Windows kill-translation", () => {
 
     await ctx.host.kill(session_id, "SIGINT");
 
-    // Load-bearing assertion: — SIGINT MUST translate to
-    // `CTRL_C_EVENT=0` (NOT `CTRL_BREAK_EVENT=1`, NOT `process.kill`).
+    // SIGINT must translate to `CTRL_C_EVENT=0`, not `CTRL_BREAK_EVENT=1` or `process.kill`.
     expect(ctx.mockGCCE).toHaveBeenCalledTimes(1);
     expect(ctx.mockGCCE).toHaveBeenCalledWith(0, 12345);
 
-    // Negative: SIGINT MUST NOT touch the hard-stop path.
+    // SIGINT never touches the hard-stop path.
     expect(ctx.mockTaskkill).not.toHaveBeenCalled();
 
-    // Negative: the daemon path MUST NOT delegate to node-pty's own
-    // `kill()` on Windows — that's the `microsoft/node-pty#167` bug
-    // that explicitly routes around.
+    // Windows never delegates to node-pty's own `kill()`, which does not reach the process
+    // tree (`microsoft/node-pty#167`).
     expect(ctx.child.kill).not.toHaveBeenCalled();
   });
 
@@ -123,13 +107,10 @@ describe("NodePtyHost — Windows kill-translation", () => {
 
     await ctx.host.kill(session_id, "SIGTERM");
 
-    // SIGTERM kicks the graceful CTRL_BREAK_EVENT first.
     expect(ctx.mockGCCE).toHaveBeenCalledTimes(1);
     expect(ctx.mockGCCE).toHaveBeenCalledWith(1, 12345);
 
-    // Pre-budget: taskkill MUST NOT fire (the 2 s timer is still
-    // pending; this is the load-bearing graceful-first semantic for
-    // the "SIGTERM hard-stop → CTRL_BREAK_EVENT first").
+    // Graceful first: the 2 s escalation timer is still pending, so taskkill has not fired.
     expect(ctx.mockTaskkill).not.toHaveBeenCalled();
     expect(ctx.child.kill).not.toHaveBeenCalled();
   });
@@ -139,14 +120,10 @@ describe("NodePtyHost — Windows kill-translation", () => {
 
     await ctx.host.kill(session_id, "SIGKILL");
 
-    // SIGKILL is immediate hard-stop — no graceful CTRL_BREAK_EVENT
-    // first step-8 kill bullet.
+    // SIGKILL is an immediate hard stop with no CTRL_BREAK_EVENT first.
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
     expect(ctx.mockTaskkill).toHaveBeenCalledWith(12345);
 
-    // Negative: SIGKILL must NOT route through CTRL_BREAK_EVENT or
-    // CTRL_C_EVENT — the brief explicitly states "skipping
-    // CTRL_BREAK_EVENT".
     expect(ctx.mockGCCE).not.toHaveBeenCalled();
     expect(ctx.child.kill).not.toHaveBeenCalled();
   });
@@ -156,9 +133,7 @@ describe("NodePtyHost — Windows kill-translation", () => {
 
     await ctx.host.kill(session_id, "SIGHUP");
 
-    // `node-pty-host.ts` documents the SIGTERM-equivalent choice
-    // (graceful-then-force) — verify the documented behavior so a
-    // future change to the mapping breaks this test deliberately.
+    // SIGHUP is documented as SIGTERM-equivalent; a change to that mapping should fail here.
     expect(ctx.mockGCCE).toHaveBeenCalledTimes(1);
     expect(ctx.mockGCCE).toHaveBeenCalledWith(1, 12345);
     expect(ctx.mockTaskkill).not.toHaveBeenCalled();
@@ -173,31 +148,23 @@ describe("NodePtyHost — idempotency of kill after child exit (step-8 kill bull
   it("kill() on an already-exited session re-emits onExit from cache and does NOT call any FFI", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
-    // Register an exit listener so we can observe the re-emit.
     const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
       vi.fn();
     ctx.host.setOnExit(exitRecorder);
 
-    // Simulate the child exiting on its own (the `onExit` subscription
-    // attached during `spawn()` captures the exit code into the
-    // session record's cache).
+    // The child exits on its own; the `onExit` subscription from `spawn()` caches the code.
     ctx.triggerExit(0);
 
-    // First emission: from the node-pty child's onExit subscription.
     expect(exitRecorder).toHaveBeenCalledTimes(1);
     expect(exitRecorder).toHaveBeenCalledWith(session_id, 0);
 
-    // Now kill() — the idempotency clause: re-emit from cache, NOT
-    // touch FFI, NOT throw.
     await ctx.host.kill(session_id, "SIGTERM");
 
-    // Re-emission from cache: total of 2 onExit fires (one from
-    // node-pty's own exit + one from kill's idempotency re-emit).
+    // Two fires: the child's own exit, then the re-emit from cache.
     expect(exitRecorder).toHaveBeenCalledTimes(2);
     expect(exitRecorder).toHaveBeenNthCalledWith(2, session_id, 0);
 
-    // Negative — load-bearing: no FFI invocation, no taskkill, no
-    // node-pty kill.
+    // No FFI call, no taskkill, no node-pty kill.
     expect(ctx.mockGCCE).not.toHaveBeenCalled();
     expect(ctx.mockTaskkill).not.toHaveBeenCalled();
     expect(ctx.child.kill).not.toHaveBeenCalled();
@@ -205,7 +172,7 @@ describe("NodePtyHost — idempotency of kill after child exit (step-8 kill bull
 });
 
 // ----------------------------------------------------------------------------
-// Non-Windows pass-through — sanity check
+// Non-Windows pass-through
 // ----------------------------------------------------------------------------
 
 describe("NodePtyHost — non-Windows kill is a pass-through to node-pty.kill", () => {
@@ -241,7 +208,7 @@ describe("NodePtyHost — non-Windows kill is a pass-through to node-pty.kill", 
 });
 
 // ----------------------------------------------------------------------------
-// Spawn round-trip — `spawn/resize/write` happy path
+// Spawn, resize and write
 // ----------------------------------------------------------------------------
 
 describe("NodePtyHost — spawn/resize/write round-trip on the host platform", () => {
@@ -265,13 +232,12 @@ describe("NodePtyHost — spawn/resize/write round-trip on the host platform", (
     const [command, args, options] = ctx.ptySpawnStub.mock.calls[0]!;
     expect(command).toBe("cmd.exe");
     expect(args).toEqual(["/c", "echo hello"]);
-    // node-pty accepts a Record<string, string>; tuples deduplicate
-    // to the last value per envTuplesToRecord's contract.
+    // node-pty takes a record; duplicate env tuples keep the last value.
     expect(options.env).toEqual({
       PATH: "/usr/bin",
       FOO: "bar",
     });
-    // Tripwire 3 — useConptyDll MUST be `false`.
+    // `useConptyDll` must stay `false`.
     expect(options.useConptyDll).toBe(false);
   });
 
@@ -285,7 +251,6 @@ describe("NodePtyHost — spawn/resize/write round-trip on the host platform", (
     await ctx.host.write(session_id, payload);
     expect(ctx.child.write).toHaveBeenCalledWith(payload);
 
-    // Unknown session-id rejections.
     await expect(ctx.host.resize("nope", 1, 1)).rejects.toThrow(/unknown sessionId/);
     await expect(ctx.host.write("nope", new Uint8Array())).rejects.toThrow(/unknown sessionId/);
   });
@@ -293,9 +258,8 @@ describe("NodePtyHost — spawn/resize/write round-trip on the host platform", (
   it("close disposes subscriptions and is idempotent on unknown ids", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
     await ctx.host.close(session_id);
-    // A second close on the same id is a no-op (the session was removed).
+    // Closing twice, or closing an unknown id, is a no-op.
     await expect(ctx.host.close(session_id)).resolves.toBeUndefined();
-    // close on a never-known id is also a no-op (not an error).
     await expect(ctx.host.close("nope")).resolves.toBeUndefined();
   });
 });

@@ -1,40 +1,16 @@
 /**
- * THE READ PROJECTION FOR MACHINE-AUTHORED PROSE — pairs a stored event with
- * the body its `session_events.content_payload` column holds, WITHOUT ever
- * altering the event.
+ * The read projection for machine-authored prose: pairs a stored event with the body its
+ * `session_events.content_payload` column holds, without altering the event.
  *
- * ---------------------------------------------------------------------------
- * THE ONE PROHIBITION THIS MODULE EXISTS TO ENFORCE
- * ---------------------------------------------------------------------------
- *
- * The body is NEVER merged into `payload`, not "just for the projection". Two
- * things break if it is:
- *
- *   1. The body is EXCLUDED from the canonical bytes by construction, precisely
- *      so a 256 KiB tool result cannot push a row past
- *      `EVENT_CANONICAL_BYTES_MAX`. Splicing it back in re-imports the ceiling
- *      problem the partition was built to avoid.
- *   2. A caller handed a payload-with-body cannot tell which members the daemon
- *      stored and which a read path added.
- *
- * So the projection is a PAIR — {@link HydratedSessionEvent} carries the event
- * unmodified beside a separate content arm — and this module returns a fresh
- * object rather than mutating its input.
- *
- * ---------------------------------------------------------------------------
- * NEVER A FABRICATED EMPTY BODY
- * ---------------------------------------------------------------------------
- *
- * Every path that cannot produce the body says so, by name, on the
- * `unavailable` arm. None of them returns `{ status: "available", body: "" }`.
- * An empty body reads as "the assistant said nothing", which is a claim about
- * the transcript; "the key could not be read" is a claim about this daemon. The
- * canonical-transcript fold consumes exactly this distinction (a body it cannot
- * read is declared lost rather than rendered as silence), so collapsing the two
- * here would put a false transcript downstream of a working one.
- *
- * `content_payload` is node-local: it never crosses a machine boundary, so a
- * row carried in from a peer holds no body here and reads as `absent`.
+ * - The body is never merged into `payload`. It is excluded from the canonical bytes so a
+ *   large tool result cannot push a row past `EVENT_CANONICAL_BYTES_MAX`, and a caller must
+ *   be able to tell what the daemon stored from what a read added. The projection is a pair
+ *   ({@link HydratedSessionEvent}), and this module returns a fresh object.
+ * - A body that cannot be produced is reported on the `unavailable` arm by name, never as
+ *   `{ status: "available", body: "" }`: an empty body claims the assistant said nothing,
+ *   while "the key could not be read" is a claim about this daemon. The transcript fold
+ *   relies on that distinction.
+ * - `content_payload` is node-local, so a row carried in from a peer reads as `absent`.
  */
 
 import type {
@@ -54,13 +30,9 @@ import {
 } from "./session-content-key-store.js";
 
 /**
- * One stored row, as the caller read it.
- *
- * `contentPayload` and `retentionClass` are typed `unknown` ON PURPOSE: they
- * arrive straight from SQLite, where the column types are BLOB-or-NULL and
- * TEXT-or-NULL and a caller's cast is exactly the assumption this module must
- * not inherit. A `contentPayload` that is neither `Uint8Array` nor NULL is
- * classified, not trusted and not skipped.
+ * One stored row, as the caller read it. `contentPayload` and `retentionClass` are `unknown`
+ * because they arrive straight from SQLite (BLOB-or-NULL, TEXT-or-NULL) and a cast would be
+ * an assumption; a `contentPayload` that is neither bytes nor NULL is classified, not trusted.
  */
 export interface StoredEventContentRow {
   /** The event as already projected from the `payload` column. */
@@ -89,14 +61,10 @@ function unavailable(reason: HydratedContentUnavailableReason): HydratedSessionE
 }
 
 /**
- * Maps a key-store failure onto the read projection's vocabulary.
- *
- * `wrapped_key_unopenable` lands on `decrypt_failed` rather than on a reason of
- * its own: from the reader's side a wrapped key whose envelope will not open and
- * a body whose AEAD tag fails are the same event — sealed material refused to
- * open — and the store's finer reason is a WRITE-path distinction. Reporting it
- * as `master_key_unavailable` would be worse still: it would name a cause the
- * store explicitly did not find.
+ * Maps a key-store failure onto the read projection's reasons. `wrapped_key_unopenable`
+ * becomes `decrypt_failed`: from the reader's side, a wrapped key that will not open and a
+ * body whose AEAD tag fails are the same event, and `master_key_unavailable` would name a
+ * cause the store did not find.
  */
 function keyFailureReason(
   error: SessionContentKeyUnavailableError,
@@ -114,18 +82,11 @@ function keyFailureReason(
 /**
  * Hydrates stored rows into {@link HydratedSessionEvent}s.
  *
- * HOLDS NO KEY CACHE ACROSS CALLS. Keys are resolved once per distinct session
- * WITHIN one {@link SessionContentReader.hydrateAll} call and dropped when it
- * returns, which is the whole win — a 1,000-row range in one session unwraps
- * once instead of a thousand times — without a long-lived plaintext key map that
- * a session purge or a master-key rotation would then have to invalidate. A
- * cache whose invalidation is someone else's problem is how a rotated-away key
- * keeps opening bodies.
- *
- * ONCE PER SESSION COVERS FAILED RESOLUTIONS TOO. A read that rejects is
- * retained for the rest of the batch and every remaining row of that session
- * settles on its classified reason, rather than each row re-attempting the unseal
- * — see the note at the retention in `#classify`.
+ * Holds no key cache across calls: keys are resolved once per distinct session within one
+ * {@link SessionContentReader.hydrateAll} call and dropped on return, so a purge or master-key
+ * rotation never has a long-lived plaintext key map to invalidate. A key read that rejects is
+ * retained for the rest of the batch, so every remaining row of that session settles on the
+ * same classified reason instead of retrying the unseal.
  */
 export class SessionContentReader {
   readonly #keyReader: SessionContentKeyReader;
@@ -140,12 +101,9 @@ export class SessionContentReader {
   }
 
   /**
-   * Hydrates a batch, resolving each distinct session's key at most once.
-   *
-   * SEQUENTIAL, not `Promise.all`: the key resolutions this shares are memoized
-   * by the map, and the remaining work is synchronous AEAD over rows that are
-   * already in memory. Fanning out would multiply peak plaintext-body residency
-   * by the batch size for no throughput a single CPU-bound decrypt loop lacks.
+   * Hydrates a batch, resolving each distinct session's key at most once. Rows are processed
+   * sequentially: fanning out would multiply peak plaintext-body residency by the batch size
+   * for no gain over a CPU-bound decrypt loop.
    */
   async hydrateAll(
     rows: readonly StoredEventContentRow[],
@@ -166,18 +124,13 @@ export class SessionContentReader {
   }
 
   /**
-   * THE CLASSIFICATION ORDER, which is load-bearing top to bottom.
+   * Classifies one row; the order matters.
    *
-   * 1. PURGED FIRST. A purged row has a NULL column, so it is
-   *    indistinguishable at step 2 from a row that never had a body — and
-   *    `absent` would then report a deleted body as one that never existed.
-   *    The purge is a fact this daemon recorded; it gets named, even for a
-   *    purged row whose column somehow still holds bytes.
-   * 2. ABSENT. A NULL column: the ordinary body-less row.
-   * 3. A column value that is not bytes cannot be opened, and is reported as
-   *    `decrypt_failed` rather than trusted or skipped.
-   * 4. OPEN IT. Key first (its failures are about this daemon), then the AEAD
-   *    (its failure is about these bytes).
+   * 1. Purged first: a purged row has a NULL column, so `absent` would report a deleted body as
+   *    one that never existed.
+   * 2. Absent: a NULL column is the ordinary body-less row.
+   * 3. A column value that is not bytes cannot be opened and is `decrypt_failed`.
+   * 4. Open it: key failures are about this daemon, an AEAD failure is about these bytes.
    */
   async #classify(
     row: StoredEventContentRow,
@@ -200,36 +153,16 @@ export class SessionContentReader {
       let pending: Promise<ResolvedSessionContentKey> | undefined = keys.get(sessionId);
       if (pending === undefined) {
         pending = this.#keyReader.read(sessionId);
-        // Memoized BEFORE the await so two rows of one session never race two
-        // reads.
+        // Memoized before the await so two rows of one session never race two reads.
         keys.set(sessionId, pending);
       }
       resolved = await pending;
     } catch (error) {
-      // THE REJECTION IS RETAINED FOR THE LIFETIME OF THIS MAP — deliberately,
-      // and reversing what an earlier draft did here. That draft deleted the
-      // entry so "a transient failure is not cached for the life of the batch",
-      // which sounds prudent and is the wrong trade at this seam: it made a
-      // failed read RETRY on every subsequent row of the same session. A batch
-      // of 200 rows from one session whose key cannot be unsealed then performed
-      // 200 unwrap attempts — or, when the master key sits behind a hardware
-      // ceremony, prompted the operator 200 times — while `hydrateAll` documents
-      // "resolving each distinct session's key at most once". Retention is what
-      // makes that sentence true rather than aspirational.
-      //
-      // Retrying is not lost, it is RE-SCOPED to the caller: `hydrate` builds a
-      // fresh map per row and `hydrateAll` a fresh map per call, so the next
-      // invocation re-reads. The batch is the correct retention unit — inside
-      // one batch nothing about the daemon's key state can have changed that a
-      // second attempt would discover, and every row lands on the same
-      // classified reason instead of a mix that depends on read ordering.
-      //
-      // NO UNHANDLED REJECTION IS POSSIBLE, by construction rather than by
-      // reasoning about timing: the only writer of this map is the block above,
-      // which attaches this very `catch` to the promise in the same synchronous
-      // run as it creates and stores it. A retained rejected promise has
-      // therefore already been handled once before any later row can observe it,
-      // and each later row awaits it inside its own copy of this `try`.
+      // The rejection stays in the map for the rest of the batch, so a failed read is not
+      // retried per row (200 rows would mean 200 unwrap attempts, or 200 prompts when the
+      // master key sits behind a hardware ceremony). The retry unit is the caller: `hydrate`
+      // and each `hydrateAll` call start with a fresh map. No rejection goes unhandled: this
+      // `catch` is attached in the same synchronous run that stores the promise.
       return unavailable(
         error instanceof SessionContentKeyUnavailableError
           ? keyFailureReason(error)
@@ -241,15 +174,13 @@ export class SessionContentReader {
     try {
       body = openContentPayload(sealed, resolved.key, sessionId, row.envelope.id);
     } catch {
-      // Deliberately swallowed rather than re-raised or logged with its message:
-      // the throw's text can name byte offsets and lengths of material that
-      // failed to authenticate, and the caller's contract is the closed reason.
+      // The reason is the closed contract; the throw's text can name byte offsets and lengths of
+      // material that failed to authenticate, so it is not surfaced.
       return unavailable("decrypt_failed");
     }
 
-    // Echoed from the stored payload, never recomputed from `body`: a
-    // recomputed `contentLength` would silently equal the truncated length and
-    // erase the evidence that anything was cut.
+    // Echoed from the stored payload, not recomputed from `body`: a recomputed length would
+    // equal the truncated length and hide that anything was cut.
     const storedLength: unknown = readPayloadMember(row.envelope, CONTENT_LENGTH_PAYLOAD_KEY);
     const storedTruncated: unknown = readPayloadMember(row.envelope, CONTENT_TRUNCATED_PAYLOAD_KEY);
     return {

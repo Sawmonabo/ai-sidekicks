@@ -1,18 +1,9 @@
-// Test fixtures shared across IPC test suites.
-//
-// Daemon's `package.json` deliberately does NOT depend on `zod` (every
-// runtime-daemon source file routes `ZodType` as a TYPE-ONLY import via
-// `@ai-sidekicks/contracts`). The test surface follows the same posture:
-// these duck-typed mocks satisfy `ZodType<T>` via a `safeParse` shape-
-// match without pulling zod into the test classpath.
+// Duck-typed `ZodType` mocks shared by the IPC test suites. The registry only reads `safeParse`,
+// so a matching shape stands in for a real schema and tests need no zod import.
 
 import type { ZodType } from "@ai-sidekicks/contracts";
 
-/**
- * Pass-through schema mock — returns `{ success: true, data }` for any
- * input. Sufficient for tests that exercise framing/transport/dispatch
- * wiring rather than schema validation specifically.
- */
+/** Schema mock that accepts any input as `{ success: true, data }`. */
 export function passthroughSchema<T>(): ZodType<T> {
   return {
     safeParse: (v: unknown): { success: true; data: T } => ({
@@ -23,10 +14,8 @@ export function passthroughSchema<T>(): ZodType<T> {
 }
 
 /**
- * Schema mock that rejects any input with a synthetic
- * `{ success: false, error: { issues: [...] } }` shape matching what
- * `MethodRegistryImpl.dispatch` reads. The `issues` array carries a
- * single marker entry tests can assert on.
+ * Schema mock that rejects any input in the shape `MethodRegistryImpl.dispatch` reads. Its single
+ * `issues` entry carries `marker` so a test can assert on it.
  */
 export function rejectingSchema<T>(marker: string): ZodType<T> {
   return {

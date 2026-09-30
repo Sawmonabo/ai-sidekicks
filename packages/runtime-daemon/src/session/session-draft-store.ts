@@ -1,15 +1,14 @@
-// The daemon's store of each session's unsent composer draft.
-//
-// One row per session in `session_drafts`. Writing a draft replaces the one held,
-// and writing an empty draft deletes the row, which is how Send clears it. The last
-// write wins, so a retried save needs no key. `session.read` reads the draft back.
-
 import type { Database, Statement } from "better-sqlite3";
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 
+/**
+ * Stores each session's unsent composer draft, one `session_drafts` row per session. The last
+ * write wins, so a retried save needs no key; an empty draft deletes the row, which is how Send
+ * clears it.
+ */
 export class SessionDraftStore {
   readonly #database: Database;
   readonly #now: () => Date;

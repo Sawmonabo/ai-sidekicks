@@ -1,93 +1,23 @@
-// Typed carriers for the five canonical `repo.*` error codes.
-//
-//   * "If canonical root resolution fails, repo attach must fail
-//     explicitly rather than guessing." The explicit failure is
-//     `RepoRootResolutionError`.
-//   * "The system must reject path traversal or workspace binding outside
-//     the declared local trust envelope"; `..` traversal, absolute-path
-//     redirection, and symlink escape are "rejected with the typed
-//     `repo.outside_trust_envelope` error". The rejection is
-//     `TrustEnvelopeViolationError`.
-//   * "Detach is refused with `repo.detach_conflict` while any dependent
-//     workspace is `busy`... There is no force-detach in V1." The refusal is
-//     `RepoDetachConflictError`.
-//   * the ratified five-row registry these classes carry. Every code string
-//     and notional HTTP status below is quoted from that table.
-//
-// Invariants carried here (canonical text):
-//   * This module owns the CARRIER leg: a typed class permanently fixed to
-//     `repo.root_resolution_failed`. The never-guess-a-root enforcement
-//     binds on the resolver.
-//   * The symlink-resolved, component-boundary-aware containment check
-//     binds on the validator.
-//
-// Why these extend `DaemonDomainError` rather than plain `Error`. The base
-// (`packages/runtime-daemon/src/ipc/domain-error.ts`) is projected by a
-// SINGLE `instanceof` branch in `mapJsonRpcError`, so all five reach the
-// wire with no per-class mapper edit — ever: `code` becomes the envelope's
-// `data.type` and `detail` becomes `data.fields` (through the substrate's
-// `sanitizeFields` seam). Without that branch the wire would carry anonymous
-// `-32603` errors instead of the ratified `repo.*` codes. The mapper is a
-// substrate these carriers consume, never a file a new carrier edits.
-//
-// `jsonRpcCode` is set on exactly one carrier. `RepoMountNotFoundError` rides
-// `-32602 InvalidParams`, which is not a choice this file makes: the base
-// class fixes the rule — "a not-found namespace error rides `-32602`, like
-// `session.not_found`", a supplied id that does not resolve being structurally
-// a param-shape failure — and landed `repo.not_found` at `-32602` as its
-// worked example on both sides of the wire, in the daemon's
-// `jsonrpc-error-mapping` suite and the SDK's `jsonRpcClient` suite. Pinning
-// it here means no consumer has to edit the carrier to select a numeric.
-//
-// The other four stay UNSET. None is a not-found shape, and no numeric is
-// ratified for their rows. bars MINTING numerics in the reserved range, not
-// selecting a standard one, so what binds here is the absence of a ratified
-// selection rather than that section. Unset yields the mapper's documented
-// `-32603` default carrying the dotted identifier in `data.type` — the same
-// ratified shape as the `gdpr.*` rows, where consumers "MUST discriminate on
-// `data.type`" and the numeric stays coarse. `httpStatus` IS fixed per class,
-// verbatim status column, for the control-plane / observability symmetry the
-// base class documents.
-//
-// Requires that `repo.outside_trust_envelope` and
-// `repo.root_resolution_failed` messages "MUST NOT echo the attempted path",
-// and extends the ban to `fields`. Rather than leave that to throw-site
-// discipline, NO class here accepts a caller-supplied message. That part is
-// absolute: every message is derived from the class and its own arguments,
-// so no prose channel exists.
-//
-// Beyond that the guarantee is uneven, and deliberately strongest on the two
-// carriers. `RepoRootResolutionError` admits only a closed six-member enum
-// and `TrustEnvelopeViolationError` admits nothing at all, so for those two no
-// channel exists that a path could travel. The id-bearing pair is weaker by
-// construction: `RepoMountNotFoundError` and `RepoAlreadyAttachedError`
-// interpolate an unconstrained `string` id into both `message` and `detail`.
-// They rest on those ids being opaque identifiers rather than paths — the
-// daemon's internal convention is plain-string ids — with
-// `sanitizeErrorMessage` / `sanitizeFields` as the enforcing layer should a
-// caller ever pass something path-shaped. For the two named codes the
-// substrate is the second layer, as the registry preamble describes it; for
-// the id-bearing pair it is the first.
+/**
+ * Typed carriers for the five `repo.*` error codes, each a `DaemonDomainError` subclass with its
+ * code and notional HTTP status fixed: `code` becomes `data.type` and `detail` becomes
+ * `data.fields`.
+ *
+ * - Only `RepoMountNotFoundError` sets `jsonRpcCode` (`-32602`, as `session.not_found` does); the
+ *   others take `-32603` and consumers discriminate on `data.type`.
+ * - Messages never echo a path and no class accepts a caller-supplied message. A closed reason
+ *   enum (`RepoRootResolutionError`) or no arguments (`TrustEnvelopeViolationError`) makes that
+ *   airtight; the two that interpolate an id rely on ids being opaque, with `sanitizeErrorMessage`
+ *   and `sanitizeFields` as a backstop.
+ */
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
 
 /**
- * The five canonical dotted identifiers of registry, quoted verbatim.
- *
- * Type-bound locally rather than imported from `packages/contracts`: the
- * strings are daemon-internal, and move to contracts only once SDK consumption
- * makes them a shared cross-surface vocabulary.
- *
- * Note the asymmetry between the compile-time and instance-level surfaces.
- * Each `super()` call below pins its literal with `satisfies RepoErrorCode`,
- * so a mistyped code fails to compile — but the base declares `code` as
- * `string` and the subclasses deliberately do not redeclare it (under
- * `useDefineForClassFields` an uninitialized redeclaration is emitted as a
- * field and would clobber the value the base constructor just assigned).
- * Instances therefore expose `code: string`; consumers discriminate by
- * `instanceof`, never by narrowing `code`.
+ * The five canonical `repo.*` dotted identifiers. Subclasses do not redeclare `code` (under
+ * `useDefineForClassFields` that would clobber the base value), so discriminate by `instanceof`.
  */
 export type RepoErrorCode =
   | "repo.not_found"
@@ -96,18 +26,7 @@ export type RepoErrorCode =
   | "repo.already_attached"
   | "repo.detach_conflict";
 
-/**
- * Runtime companion to `RepoErrorCode` row order. Exported so the suite can
- * pin set-equality against the codes the carriers actually emit, catching a
- * registry row that gains no carrier and a carrier that mints an unregistered
- * code. Set-equality alone cannot see a carrier the suite forgot to
- * enumerate, so the suite pairs it with a census of this module's exported
- * constructors.
- *
- * Annotated explicitly: the package inherits `isolatedDeclarations` from the
- * root `tsconfig.base.json`, under which an un-annotated exported const
- * fails TS9010.
- */
+/** Runtime list of every `RepoErrorCode`, in the same order. */
 export const REPO_ERROR_CODES: readonly RepoErrorCode[] = [
   "repo.not_found",
   "repo.root_resolution_failed",
@@ -116,53 +35,19 @@ export const REPO_ERROR_CODES: readonly RepoErrorCode[] = [
   "repo.detach_conflict",
 ];
 
-/**
- * Why canonical-root resolution failed. Closed and non-path-bearing, so the
- * discriminant is safe to carry all the way to the wire — the same shape as
- * the ratified `transport.invalid_protocol_version` `{ reason }` payload.
- *
- * Six members, in pipeline order: `not_absolute` is the step-1 input gate,
- * `not_a_git_repository` is git's own verdict on the supplied path, and
- * `root_mismatch` is the step-5 verification of what git reported back.
- *
- * Read `not_absolute` as "does not name one complete location" — THREE input
- * shapes qualify, each missing a different piece that only the daemon's OWN
- * state could supply. A relative path wants a working directory, `~` wants a
- * home directory, and a driveless Windows root such as `\repos\foo` wants a
- * drive (`path.win32.isAbsolute` reports it absolute, which is why
- * absoluteness alone does not express the rule). A root derived from any of
- * them is precisely the guessed root forbids, because the daemon has no
- * access to the author's context. Refusing is the only honest answer
- * available at this layer.
- *
- * `root_mismatch` is the mirror-image refusal on the OTHER side of the query:
- * git reported a toplevel that the resolver could not verify, either because
- * the supplied path does not sit inside it or because it does not report
- * itself as its own toplevel. One reason covers both legs deliberately — the
- * distinction is diagnostic rather than actionable, and the value is
- * wire-visible, so it stays as coarse as the client's decision. The vector it
- * closes (a repository's OWN config redirecting `--show-toplevel`) is
- * documented at the check, in `repo-root-resolver.ts`.
- *
- * `not_a_git_repository` is reported only on git's positive verdict for a
- * directory that carries no `.git` entry. A `git` binary that is absent or
- * fails, or a checkout whose metadata is damaged, is `vcs_error`, so a missing
- * toolchain never reports a real repository as not being one.
- */
+/** Why canonical-root resolution failed; closed and non-path-bearing, so safe on the wire. */
 export type RepoRootResolutionReason =
+  // Relative, `~`, or a driveless Windows root like `\repos\foo` (which `win32.isAbsolute`
+  // accepts).
   | "not_absolute"
   | "path_not_found"
   | "not_readable"
+  // Only on git's positive verdict; a missing git or a damaged checkout is `vcs_error`.
   | "not_a_git_repository"
   | "vcs_error"
+  // git's toplevel is not verifiably the path's root (closes a config redirecting the toplevel).
   | "root_mismatch";
 
-/**
- * Fixed, path-free message per resolution-failure reason. A lookup rather
- * than interpolation, so the text cannot vary with throw-site input. Typing
- * it as a total `Record` over the union makes a future reason without a
- * message a compile error rather than an `undefined` message.
- */
 const ROOT_RESOLUTION_MESSAGES: Record<RepoRootResolutionReason, string> = {
   not_absolute: "canonical repository root resolution failed: the supplied path is not absolute",
   path_not_found: "canonical repository root resolution failed: the supplied path does not exist",
@@ -176,25 +61,14 @@ const ROOT_RESOLUTION_MESSAGES: Record<RepoRootResolutionReason, string> = {
     "supplied path, or did not report itself as its own root",
 };
 
-/**
- * `repo.not_found` — "Repo mount does not exist" (notional HTTP 404).
- *
- * Carries the unresolved mount id, mirroring the `SessionNotFoundError` `{
- * sessionId }` precedent. This code is not one of the two and the id it
- * interpolates is an opaque identifier by daemon convention rather than by
- * type — see the header's message-discipline note on why the substrate is the
- * enforcing layer for this carrier.
- */
+/** `repo.not_found` (notional HTTP 404): the repo mount does not exist. */
 export class RepoMountNotFoundError extends DaemonDomainError {
-  /** The mount id that did not resolve. Projects to `data.fields.repoMountId`. */
   readonly repoMountId: string;
 
   constructor(repoMountId: string) {
     super(`repo mount ${repoMountId} does not exist`, {
       code: "repo.not_found" satisfies RepoErrorCode,
-      // The one carrier with a ratified numeric — see the header. A supplied
-      // id that does not resolve is a param-shape failure, not an internal
-      // one, exactly as `session.not_found` is treated.
+      // An unresolved id is a param-shape failure, as with `session.not_found`.
       jsonRpcCode: JsonRpcErrorCode.InvalidParams,
       httpStatus: 404,
       detail: { repoMountId },
@@ -204,16 +78,10 @@ export class RepoMountNotFoundError extends DaemonDomainError {
 }
 
 /**
- * `repo.root_resolution_failed` — "Canonical repository root could not be
- * resolved for the supplied path; attach fails explicitly rather than
- * guessing" (notional HTTP 422).
- *
- * The closed `reason` is the ONLY constructor argument. Because the throw
- * site is given no channel to put one in — the attempted path stays in the
- * resolver's own scope and never enters the carrier.
+ * `repo.root_resolution_failed` (notional HTTP 422). Takes only the closed `reason`, so the
+ * attempted path never enters the carrier.
  */
 export class RepoRootResolutionError extends DaemonDomainError {
-  /** Non-path-bearing failure discriminant. Projects to `data.fields.reason`. */
   readonly reason: RepoRootResolutionReason;
 
   constructor(reason: RepoRootResolutionReason) {
@@ -227,23 +95,9 @@ export class RepoRootResolutionError extends DaemonDomainError {
 }
 
 /**
- * `repo.outside_trust_envelope` — a path or workspace binding resolves outside
- * the declared local trust envelope, the machine's attached mount roots
- * (notional HTTP 403).
- *
- * Deliberately argument-free, and deliberately more conservative than the
- * registry requires. `message` and bars them from `fields` — but a NON-path
- * discriminant would not breach that ban: a violation-kind enum, the session
- * id, or the mount id would all be admissible. None is admitted because none
- * is needed at this layer. the validator distinguishes traversal, symlink
- * escape, prefix collision, and absolute escape in its own assertions, which
- * never cross the wire, and no consumer has asked to discriminate them on the
- * envelope.
- *
- * Accepting nothing is what makes the ban structural rather than advisory,
- * and it leaves the widening decision to whoever first has a real consumer
- * for it — adding a parameter later is additive, whereas retracting a leaky
- * one after it ships is not.
+ * `repo.outside_trust_envelope` (notional HTTP 403): a path or workspace binding resolves outside
+ * the machine's attached mount roots. Argument-free on purpose: the no-path rule is then
+ * structural, and adding a parameter later is additive whereas retracting a leaky one is not.
  */
 export class TrustEnvelopeViolationError extends DaemonDomainError {
   constructor() {
@@ -259,19 +113,10 @@ export class TrustEnvelopeViolationError extends DaemonDomainError {
 }
 
 /**
- * `repo.already_attached` — the resolved canonical root is already actively
- * attached on this node (notional HTTP 409). Thrown by the attach service.
- *
- * Carries the conflicting mount's id rather than the canonical root, so the
- * refusal identifies the conflict without naming the path that caused it. As
- * with `RepoMountNotFoundError`, the id is opaque by daemon convention rather
- * than by type; the header's message-discipline note covers the residual.
+ * `repo.already_attached` (notional HTTP 409): the canonical root is already attached on this
+ * node. Carries the conflicting mount's id rather than the root, so the refusal names no path.
  */
 export class RepoAlreadyAttachedError extends DaemonDomainError {
-  /**
-   * Id of the active mount already holding the canonical root. Projects to
-   * `data.fields.conflictingRepoMountId`.
-   */
   readonly conflictingRepoMountId: string;
 
   constructor(conflictingRepoMountId: string) {
@@ -289,17 +134,11 @@ export class RepoAlreadyAttachedError extends DaemonDomainError {
 }
 
 /**
- * `repo.detach_conflict` — "Detach refused while a dependent workspace is
- * `busy`; no force-detach in V1" (notional HTTP 409). Thrown by the detach
- * service.
- *
- * Carries the busy workspace ids so a client can name what to finish or
- * cancel. Both the own field and the wire `detail` hold copies, so a caller
- * that keeps mutating its array cannot retroactively rewrite an error that
- * has already been thrown.
+ * `repo.detach_conflict` (notional HTTP 409): detach refused while a dependent workspace is
+ * `busy`. The ids are copied into the field and `detail` so a caller mutating its array cannot
+ * rewrite a thrown error.
  */
 export class RepoDetachConflictError extends DaemonDomainError {
-  /** Ids of the dependent workspaces still `busy`. Projects to `data.fields.busyWorkspaceIds`. */
   readonly busyWorkspaceIds: readonly string[];
 
   constructor(busyWorkspaceIds: readonly string[]) {

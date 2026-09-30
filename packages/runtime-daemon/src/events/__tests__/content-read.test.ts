@@ -1,15 +1,10 @@
-// Contract coverage for the read projection over the machine-authored content
-// partition: a stored row paired with the body its content column holds.
+// Tests for the read projection over the machine-authored content partition: a stored row
+// paired with the body its content column holds.
 //
-// A body that does not come back can mean different things — the key is
-// unreachable, the wrapped key row is gone, the session was purged, the sealed
-// bytes will not open, or the body was never there — and each gets its own
-// named reason. None of them gets a fabricated empty body.
-//
-// Every arm below is one perturbation from a working hydrate, so a check that
-// stopped checking fails here rather than passing on a coincidence. The reason
-// list carries a completeness assertion: a reason the reader starts producing
-// without an arm fails this file.
+// A body that does not come back has a named reason (the key is unreachable, the wrapped key
+// row is gone, the session was purged, the sealed bytes will not open, or the body was never
+// there), and none of them yields a fabricated empty body. Each test is one perturbation from
+// a working hydrate. A completeness assertion fails if the reader gains a reason with no test.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -41,10 +36,7 @@ const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 const MASTER_KEY = new Uint8Array(SESSION_CONTENT_KEY_BYTES).fill(3);
 
-/**
- * The five reasons the reader reports, spelled out here so the coverage
- * assertion below compares against a list rather than against itself.
- */
+/** The reasons the reader reports, listed so the completeness test compares to a fixed list. */
 const DECLARED_UNAVAILABLE_REASONS: readonly HydratedContentUnavailableReason[] = [
   "absent",
   "purged",
@@ -62,10 +54,6 @@ beforeEach(() => {
 afterEach(() => {
   database.close();
 });
-
-// ----------------------------------------------------------------------------
-// Fixtures
-// ----------------------------------------------------------------------------
 
 class ScriptedMasterKeySource implements DaemonMasterKeySource {
   key: Uint8Array = MASTER_KEY;
@@ -123,20 +111,16 @@ async function sealedRow(
       category: "assistant_output",
       type: "assistant.message",
       actor: "agent-1",
-      // `sessionId` and `runId` are not decoration: `assistant.message` has a
-      // registered `SessionEventSchema` variant, and the codec parses the
-      // COMPOSED row against it before storing. A fixture missing either would
-      // be minting exactly the unparseable row that guard exists to refuse.
+      // `assistant.message` has a registered `SessionEventSchema` variant, and the codec parses
+      // the composed row against it before storing, so `sessionId` and `runId` are required.
       payload: { sessionId: SESSION, runId: "run-1", ...extraPayload },
       version: ENVELOPE_VERSION,
       content: { body, contentKey: resolved.key },
     },
     { encrypt: () => Promise.reject(new Error("no PII on this row")) },
   );
-  // A checked narrowing rather than a non-null assertion: every input this
-  // helper builds carries a content partition, so an absent column here would
-  // be the codec silently dropping the body — which is the failure the arms
-  // below exist to catch, and it must not be asserted away in the fixture.
+  // Checked rather than asserted: an absent column here would mean the codec silently dropped
+  // the body, which the tests below exist to catch.
   const ciphertext: Uint8Array | undefined = written.contentPayload;
   if (ciphertext === undefined) {
     throw new Error(
@@ -170,14 +154,9 @@ function expectUnavailable(
   expect(hydrated.content).toEqual({ status: "unavailable", reason });
 }
 
-// ----------------------------------------------------------------------------
-// The hydrated projection
-// ----------------------------------------------------------------------------
-
 describe("hydrating machine-authored prose", () => {
   it("covers every reason the projection can report", async () => {
-    // The completeness half. Each reason is produced by an arm below; this
-    // assertion fails if the union grows without one.
+    // Fails if the reason union grows without a case here.
     const { reader, store, masterKeySource } = buildReader();
     const produced = new Set<HydratedContentUnavailableReason>();
 
@@ -199,8 +178,7 @@ describe("hydrating machine-authored prose", () => {
     });
     if (purged.content.status === "unavailable") produced.add(purged.content.reason);
 
-    // decrypt_failed — the wrapped key row will not open under this master, and
-    // the reader reports that as sealed-material-refused rather than guessing.
+    // decrypt_failed: the wrapped key row will not open under this master.
     masterKeySource.key = new Uint8Array(SESSION_CONTENT_KEY_BYTES).fill(4);
     const wrongMaster = await reader.hydrate(row);
     if (wrongMaster.content.status === "unavailable") produced.add(wrongMaster.content.reason);
@@ -230,13 +208,12 @@ describe("hydrating machine-authored prose", () => {
       body: "the model wrote this, verbatim",
       contentLength: 30,
     });
-    // The event travels through untouched — same object identity, same bytes —
-    // so nothing downstream can mistake a projected body for a stored member.
+    // The event passes through untouched, same object and same bytes.
     expect(hydrated.event).toBe(row.envelope);
     expect(JSON.stringify(hydrated.event.payload)).toBe(payloadBefore);
     expect(Object.hasOwn(hydrated.event.payload, "body")).toBe(false);
-    // The body lives on the content arm and nowhere else — a caller can always
-    // tell which members the daemon stored from which the read path supplied.
+    // The body lives on the content arm only, so a caller can tell stored members from supplied
+    // ones.
     expect(JSON.stringify(hydrated.event)).not.toContain("the model wrote this");
   });
 
@@ -264,8 +241,7 @@ describe("hydrating machine-authored prose", () => {
 
   it("names the purge rather than reporting a deleted body as one that never was", async () => {
     const { reader } = buildReader();
-    // A purged row: the column is NULL, so without the retention class it
-    // could not be told from a row that never had a body.
+    // The column is NULL, so only the retention class tells this from a row that never had a body.
     expectUnavailable(
       await reader.hydrate({
         envelope: makeEnvelope({ contentLength: 4_000, contentTruncated: true }),
@@ -279,9 +255,8 @@ describe("hydrating machine-authored prose", () => {
   it("names the purge even if the column somehow survived it", async () => {
     const { reader, store } = buildReader();
     const { row } = await sealedRow(store, "the original prose");
-    // A purged row that still holds bytes is a purge defect, and the purge is
-    // the fact this daemon recorded — so it is reported rather than the body
-    // the leftover bytes would open to.
+    // A purged row that still holds bytes is a purge defect; the recorded purge is reported, not
+    // the body the leftover bytes would open to.
     expectUnavailable(await reader.hydrate({ ...row, retentionClass: "audit_stub" }), "purged");
   });
 
@@ -297,8 +272,8 @@ describe("hydrating machine-authored prose", () => {
       contentLength: 262_154,
       contentTruncated: true,
     });
-    // Echoed from the stored payload, never recomputed: a recomputed length
-    // would equal the truncated length and erase the evidence.
+    // Echoed from the stored payload, never recomputed: a recomputed length would equal the
+    // truncated length and hide the truncation.
     expect(row.envelope.payload[CONTENT_LENGTH_PAYLOAD_KEY]).toBe(262_154);
     expect(row.envelope.payload[CONTENT_TRUNCATED_PAYLOAD_KEY]).toBe(true);
   });
@@ -328,12 +303,9 @@ describe("hydrating machine-authored prose", () => {
   });
 
   it("resolves one session's key once even when the read FAILS", async () => {
-    // THE FAILED READ IS RETAINED FOR THE BATCH. Dropping it would make every
-    // later row of the same session retry — N unwrap attempts for one broken
-    // key, or N operator prompts when the master sits behind a hardware
-    // ceremony, while `hydrateAll` documents "resolving each distinct session's
-    // key at most once". The contract has to hold on the failure path or it is
-    // not a contract.
+    // The failed read is kept for the batch. Dropping it would make every later row of the
+    // session retry: N unwrap attempts for one broken key, or N operator prompts when the master
+    // key sits behind a hardware ceremony.
     const { store, masterKeySource } = buildReader();
     let readCallCount = 0;
     const countingReader: SessionContentKeyReader = {
@@ -354,8 +326,7 @@ describe("hydrating machine-authored prose", () => {
     const hydrated = await reader.hydrateAll(rows);
 
     expect(readCallCount).toBe(1);
-    // And EVERY row settles on the same classified reason — not a mix that
-    // depends on which row happened to be first.
+    // Every row settles on the same reason, whichever came first.
     expect(hydrated).toHaveLength(5);
     for (const entry of hydrated) {
       expectUnavailable(entry, "master_key_unavailable");
@@ -363,10 +334,8 @@ describe("hydrating machine-authored prose", () => {
   });
 
   it("retries on a FRESH call, so retention is scoped to the batch and not the reader", async () => {
-    // Retrying is not lost, it is re-scoped to the caller: `hydrateAll` builds a
-    // fresh map per call and `hydrate` one per row. This is what keeps the
-    // retention honest — a reader that cached across calls would need
-    // invalidation the class deliberately refuses to own.
+    // `hydrateAll` builds a fresh key map per call and `hydrate` one per row, so a retry works.
+    // A reader that cached across calls would need invalidation logic.
     const { store, masterKeySource } = buildReader();
     let readCallCount = 0;
     const countingReader: SessionContentKeyReader = {
@@ -391,8 +360,7 @@ describe("hydrating machine-authored prose", () => {
   });
 
   it("keeps a per-row `hydrate` call independent of any earlier failure", async () => {
-    // `hydrate` makes its own map per row, so the single-row entry point is
-    // unaffected by the batch retention in either direction.
+    // `hydrate` makes its own map per row, so it is unaffected by a batch's retained failure.
     const { store, masterKeySource } = buildReader();
     const { row } = await sealedRow(store, "the original prose");
     const reader = new SessionContentReader({ keyReader: store });

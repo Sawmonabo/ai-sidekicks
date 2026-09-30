@@ -1,20 +1,12 @@
-// Worktree status-read projection
+// Worktree status-read projection: a pure fold with no filesystem, clock, database or other I/O.
+// The caller reads the rows and the git figures; this module turns what it is handed into the
+// `repo.worktreeStatusRead` response, so every branch can be driven from a test with no database.
 //
-// PURE FOLD, per the `workspace/workspace-projector.ts` precedent: no filesystem
-// call, no clock read, no database handle, no I/O of any kind. The caller reads
-// the rows and the git figures; this module turns what it is HANDED into the
-// `repo.worktreeStatusRead` response and does nothing else, which is what lets
-// every branch below be driven from a test with no database and no temp folder.
-//
-// The read is the worktree switcher's, keyed by the project's folder. It lists
-// the trees still standing: a retired row keeps its provenance in the table, and
-// a copy kept by a discard is listed by its own read, so a `retired` row handed
-// in is left out rather than refused. Every other state is carried verbatim;
-// `dirty` and `merged` are daemon verdicts the transitioning service wrote, and
-// nothing here infers cleanliness from anything.
-//
-// ORDER IS THE CALLER'S. This fold preserves the order it receives and never
-// sorts: a stable order is the caller's `ORDER BY` to choose.
+// The read lists the trees still standing, so a `retired` row is left out rather than refused
+// (a tree kept by a discard has its own removed-worktree list). Every other state is carried
+// verbatim: `dirty` and `merged` are verdicts the transitioning service wrote, and nothing here
+// infers cleanliness. The fold keeps the order it receives and never sorts; ordering is the
+// caller's `ORDER BY`.
 
 import {
   WorktreeStatusReadResponseSchema,
@@ -23,19 +15,15 @@ import {
 } from "@ai-sidekicks/contracts";
 
 // --------------------------------------------------------------------------
-// Inputs — what the caller read, handed in
+// Inputs
 // --------------------------------------------------------------------------
 
 /**
- * The `worktrees` columns this projection reads, plus the figures the caller
- * reads beside each row.
- *
- * snake_case, matching the DDL and what `better-sqlite3` hands back verbatim;
- * the rename onto wire fields IS the fold this module owns. The figures after
- * `updated_at` are not `worktrees` columns: the caller reads the tree's name and
- * base from where the tree records them, the counts from git against the
- * daemon's latest background fetch, and the occupancy from the sessions standing
- * in the tree.
+ * The `worktrees` columns this projection reads, plus figures the caller reads beside each row.
+ * Snake_case, as the DDL and `better-sqlite3` return it; the rename onto wire fields is the fold.
+ * The figures after `updated_at` are not `worktrees` columns: the tree's name and base come from
+ * where the tree records them, the counts from git against the latest background fetch, and the
+ * occupancy from the sessions standing in the tree.
  */
 export interface WorktreeStatusRow {
   /** `worktrees.id`, the wire's `worktreeId`. */
@@ -48,9 +36,8 @@ export interface WorktreeStatusRow {
   readonly branch_name: string;
   readonly fs_root: string;
   /**
-   * Typed `string` rather than `WorktreeState` on purpose: a database row can
-   * carry a value the compiler never saw, and the parse at the end of the fold
-   * is what refuses it.
+   * Typed `string` rather than `WorktreeState` because a database row can carry a value the
+   * compiler never saw; the parse at the end of the fold refuses it.
    */
   readonly state: string;
   readonly created_at: string;
@@ -83,12 +70,11 @@ export interface WorktreeStatusReading {
 }
 
 // --------------------------------------------------------------------------
-// Drafts — the fold's output, before the parse brands it
+// Drafts
 // --------------------------------------------------------------------------
 //
-// Module-private and unbranded: the fold produces plain strings, and
-// `WorktreeStatusReadResponseSchema.parse` is what turns them into the branded
-// wire type, so this file carries no `as` cast.
+// The fold's unbranded output. `WorktreeStatusReadResponseSchema.parse` brands it, so this file
+// carries no `as` cast.
 
 interface WorktreeStatusRecordDraft {
   readonly worktreeId: string;
@@ -121,10 +107,9 @@ interface WorktreeStatusReadResponseDraft {
   };
 }
 
-// The draft restates the record shape unbranded, so nothing structural ties it
-// to the contract: a required field added there would compile here and fail
-// only at runtime. This key-name pin closes that gap in the direction that
-// matters; the item-level `.strict()` refuses a draft key the contract lacks.
+// The draft restates the record shape unbranded, so nothing structural ties it to the contract: a
+// required field added there would compile here and fail only at runtime. This key-name pin
+// closes that gap; the item-level `.strict()` refuses a draft key the contract lacks.
 type _AssertExtends<A extends B, B> = A;
 type _AssertDraftCoversWorktreeRecord = _AssertExtends<
   keyof WorktreeStatusReadResponse["worktrees"][number],
@@ -136,13 +121,9 @@ type _AssertDraftCoversWorktreeRecord = _AssertExtends<
 // --------------------------------------------------------------------------
 
 /**
- * Fold one project's worktree rows and figures onto the `repo.worktreeStatusRead`
- * response.
- *
- * A row on another folder than the one the read names is refused outright: it
- * is not this read's row in any sense, and dropping it silently would hide the
- * caller's mispaired query rather than report it. A `retired` row is left out,
- * because the switcher lists only trees still standing.
+ * Folds one project's worktree rows and figures onto the `repo.worktreeStatusRead` response.
+ * Throws when a row belongs to a different repo mount than the request names, and leaves out
+ * `retired` rows.
  */
 export function projectWorktreeStatusRead(
   request: WorktreeStatusReadRequest,
@@ -154,8 +135,8 @@ export function projectWorktreeStatusRead(
     if (row.state === "retired") {
       continue;
     }
-    // Field by field, never a spread of the row: the record schema is strict,
-    // so a stray column carried across would fail the whole read.
+    // Field by field, never a spread: the record schema is strict, so a stray column would fail
+    // the whole read.
     worktrees.push({
       worktreeId: row.id,
       repoMountId: row.repo_mount_id,
@@ -164,10 +145,8 @@ export function projectWorktreeStatusRead(
       baseBranchName: row.base_branch_name,
       fsRoot: row.fs_root,
       state: row.state,
-      // OMITTED, never `undefined`, and tested by positive membership: rows
-      // reach this fold through an unchecked cast, so a figure the caller forgot
-      // arrives `undefined`, and a `=== null` test would ship it as a present
-      // key carrying nothing.
+      // Omitted, never `undefined`, and tested by positive membership: a figure the caller forgot
+      // arrives `undefined`, and a `=== null` test would ship it as a present key with no value.
       ...(typeof row.ahead === "number" ? { ahead: row.ahead } : {}),
       ...(typeof row.behind === "number" ? { behind: row.behind } : {}),
       uncommittedFileCount: row.uncommitted_file_count,
@@ -196,9 +175,8 @@ export function projectWorktreeStatusRead(
 // --------------------------------------------------------------------------
 
 /**
- * Refuse a row that belongs to another project's folder than the one being
- * read. Attributing another project's trees to this one would be a confident,
- * wrong answer no screen could detect, so it THROWS rather than filters.
+ * Throws on a row from another repo mount. Filtering it out would hide the caller's mispaired
+ * query, and listing it would attribute another project's trees to this one.
  */
 function assertRowBelongsToReadFolder(
   rowRepoMountId: string,
@@ -216,11 +194,9 @@ function assertRowBelongsToReadFolder(
 }
 
 /**
- * Validate the folded response through the contract's schema, so a row that
- * cannot be projected fails HERE, at the projection that produced it, rather
- * than at the outbound response check where the whole read would take the
- * blame. The `ZodError` rides as `cause`: its issue path already names the
- * array, the record's index and the field.
+ * Validates the folded response through the contract's schema so a row that cannot be projected
+ * fails here rather than at the outbound response check. The `ZodError` rides as `cause`; its
+ * issue path names the array, the record index and the field.
  */
 function parseProjection(draft: WorktreeStatusReadResponseDraft): WorktreeStatusReadResponse {
   try {

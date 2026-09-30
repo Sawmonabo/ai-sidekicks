@@ -1,23 +1,9 @@
-// StreamingPrimitive test suite.
-//
-//   * Local IPC supports bidirectional streaming notifications; the wire
-//     envelope is the same `Content-Length`-framed JSON-RPC envelope.
-//
-// Invariants verified here (canonical text):
-//   * Streaming analog — every emitted `$/subscription/notify` value
-//     must conform to the per-subscription `valueSchema` BEFORE the
-//     gateway sends the frame. Validation failure throws
-//     `StreamingValidationError` (programmer error).
-//
-//   * `LocalSubscriptionProducer<T>` round-trip + cancel
-//                    cleanup. Initial response carries
-//                    `subscriptionId`; N notifications correlate;
-//                    cancel cleans up server resources; transport
-//                    disconnect triggers server-side cleanup.
-//
-// The streaming tests run synchronously without binding any listener —
-// the primitive's `send` callback is a `vi.fn()` we inspect directly.
-// This isolates streaming validation from the wire layer.
+// StreamingPrimitive tests. They bind no listener: the primitive's `send` callback is a `vi.fn()`
+// inspected directly, which isolates streaming behavior from the wire layer. Pinned invariants:
+//   * Every value passed to `next()` is validated against the subscription's `valueSchema` before
+//     a `$/subscription/notify` frame is sent; a failure throws `StreamingValidationError`.
+//   * The initial response carries `subscriptionId`, notifications correlate to it, cancel frees
+//     server resources, and a transport disconnect cleans up its subscriptions.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -43,10 +29,6 @@ import {
 
 import { passthroughSchema, rejectingSchema } from "./__fixtures__/zod-schemas.js";
 
-// ----------------------------------------------------------------------------
-// Test fixtures
-// ----------------------------------------------------------------------------
-
 interface PrimitiveFixture {
   readonly registry: MethodRegistryImpl;
   readonly primitive: StreamingPrimitive;
@@ -62,10 +44,6 @@ function makeFixture(): PrimitiveFixture {
   const primitive = new StreamingPrimitive(options);
   return { registry, primitive, send };
 }
-
-// ----------------------------------------------------------------------------
-// round-trip + cancel cleanup
-// ----------------------------------------------------------------------------
 
 describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
   it("createSubscription returns a subscriptionId; subsequent next(value) emits a `$/subscription/notify` frame", () => {
@@ -145,15 +123,14 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     const sub = primitive.createSubscription<{ y: number }>(12, passthroughSchema<{ y: number }>());
     sub.next({ y: 1 });
     sub.complete();
-    sub.next({ y: 2 }); // silent no-op per the documented contract
+    sub.next({ y: 2 }); // silent no-op
     expect(send).toHaveBeenCalledTimes(1);
   });
 
   it("constructor eagerly registers `$/subscription/cancel` against the supplied registry", () => {
     const { registry } = makeFixture();
     expect(registry.has(SUBSCRIPTION_CANCEL_METHOD)).toBe(true);
-    // Registered as `mutating: false` per streaming-primitive.ts:521-531
-    // — cancel must escape the version-mismatch gate.
+    // Not mutating, so cancel passes the version-mismatch gate and a client can still clean up.
     expect(registry.isMutating(SUBSCRIPTION_CANCEL_METHOD)).toBe(false);
   });
 
@@ -176,8 +153,6 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
   it("client-initiated `$/subscription/cancel` with matching transportId removes the subscription", async () => {
     const { primitive, registry, send } = makeFixture();
     const sub = primitive.createSubscription<{ z: number }>(33, passthroughSchema<{ z: number }>());
-    // The cancel handler runs through the registry's standard dispatch
-    // path (with a transport-scoped ctx).
     const cancelParams: SubscriptionCancelParams = {
       subscriptionId: sub.subscriptionId,
     };
@@ -188,7 +163,6 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
       ctx,
     )) as SubscriptionCancelResult;
     expect(result.canceled).toBe(true);
-    // After cancel, next() is a silent no-op (the entry is gone).
     sub.next({ z: 1 });
     expect(send).not.toHaveBeenCalled();
   });
@@ -196,7 +170,7 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
   it("client-initiated `$/subscription/cancel` with MISMATCHED transportId returns `{ canceled: false }` (cross-transport collapse, security)", async () => {
     const { primitive, registry, send } = makeFixture();
     const sub = primitive.createSubscription<{ q: number }>(55, passthroughSchema<{ q: number }>());
-    // Peer B (transport 56) attempts to cancel peer A's (transport 55) subscription.
+    // Transport 56 tries to cancel a subscription owned by transport 55.
     const cancelParams: SubscriptionCancelParams = {
       subscriptionId: sub.subscriptionId,
     };
@@ -207,7 +181,7 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
       ctx,
     )) as SubscriptionCancelResult;
     expect(result.canceled).toBe(false);
-    // The subscription is STILL ALIVE — peer A can still emit values.
+    // The subscription is still alive.
     sub.next({ q: 1 });
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -215,9 +189,7 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
   it("client-initiated cancel with unknown subscriptionId returns `{ canceled: false }` (unknown collapses to same observable as cross-transport)", async () => {
     const { registry } = makeFixture();
     const cancelParams: SubscriptionCancelParams = {
-      // 36-char UUID-shaped string the schema accepts at the wire
-      // boundary; the runtime check finds no entry and returns
-      // canceled: false per the documented contract.
+      // Passes the wire schema, but no such subscription exists.
       subscriptionId:
         "00000000-0000-4000-8000-000000000000" as SubscriptionCancelParams["subscriptionId"],
     };
@@ -241,7 +213,7 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
       passthroughSchema<{ b: number }>(),
     );
     const sub3 = primitive.createSubscription<{ c: number }>(
-      78, // different transport; should survive
+      78, // different transport; survives
       passthroughSchema<{ c: number }>(),
     );
     primitive.cleanupTransport(77);
@@ -264,18 +236,11 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     const { primitive } = makeFixture();
     const sub = primitive.createSubscription<unknown>(88, passthroughSchema<unknown>());
     expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(true);
-    // Second call: already removed.
     expect(primitive.cancelSubscription(sub.subscriptionId)).toBe(false);
   });
 });
 
-// ----------------------------------------------------------------------------
-// LocalSubscriptionProducer.onCancel lifecycle hook — closes the
-// upstream-watcher leak in `session-subscribe.ts`, where the discarded
-// `unsubscribe` handle from `subscribeToSession` left the upstream event-source
-// consuming CPU and DB resources after subscription teardown.
-// ----------------------------------------------------------------------------
-
+// onCancel lets a producer release its upstream event source when a subscription is torn down.
 describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
   it("fires registered handlers when cancel() is called", () => {
     const { primitive } = makeFixture();
@@ -319,7 +284,6 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
     sub.cancel();
     const handler = vi.fn<() => void>();
-    // Fires synchronously inside the onCancel call.
     sub.onCancel(handler);
     expect(handler).toHaveBeenCalledTimes(1);
   });
@@ -371,10 +335,8 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     subA.onCancel(aHandler);
     subB.onCancel(bHandler);
     expect(() => primitive.cleanupTransport(7)).not.toThrow();
-    // A's per-handler isolation still drains its remaining handlers.
     expect(aHandler).toHaveBeenCalledTimes(1);
-    // B is independent of A — bulk-loop's per-subscription guard means
-    // A's failure cannot reach B's slot.
+    // A's failure must not reach B.
     expect(bHandler).toHaveBeenCalledTimes(1);
   });
 
@@ -383,9 +345,7 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     const sub = primitive.createSubscription<unknown>(99, passthroughSchema<unknown>());
     let observedCancelable: boolean | null = null;
     sub.onCancel(() => {
-      // A handler that re-enters the primitive: try to cancel the same
-      // id via the trusted seam. Maps must already be cleared so this
-      // returns false (the entry is gone).
+      // Re-entering the primitive returns false because the entry is already gone.
       observedCancelable = primitive.cancelSubscription(sub.subscriptionId);
     });
     sub.cancel();
@@ -398,7 +358,7 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     const handler = vi.fn<() => void>();
     sub.onCancel(handler);
     sub.cancel();
-    sub.cancel(); // idempotent — guard is `state !== "active"`
+    sub.cancel(); // idempotent
     expect(handler).toHaveBeenCalledTimes(1);
   });
 });

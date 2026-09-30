@@ -1,12 +1,7 @@
-// `session.read` JSON-RPC handler: one session's snapshot and its timeline cursors.
-//
-// The session's own facts and cursors come from the session log through
-// `SessionReadDeps.readSession`; the unsent composer draft comes from the draft store,
-// which is where `session.draftUpdate` holds it.
-//
-// Why `mutating: false`: reading a session changes nothing, so the pre-handshake
-// mutating-op gate lets it through on a connection whose version negotiation failed.
-// A read-only client stays able to read across a version mismatch.
+// `session.read`: one session's snapshot and its timeline cursors. The session's facts and
+// cursors come from the session log through `readSession`; the unsent composer draft comes
+// from the draft store that `session.draftUpdate` writes. The descriptor is not `mutating`,
+// so a read-only client can still read across a protocol version mismatch.
 
 import type {
   MethodRegistry,
@@ -30,10 +25,11 @@ export interface SessionLogRead {
 export interface SessionReadDeps {
   /**
    * Reads the session's snapshot and timeline cursors from the session log. An unknown
-   * session throws `SessionNotFoundError` (`ipc/session-errors.ts`), which the gateway
-   * maps to `-32602` with `data.type: "session.not_found"`.
+   * session throws `SessionNotFoundError`, which maps to `-32602` with
+   * `data.type: "session.not_found"`; any other error becomes an internal error.
    */
   readonly readSession: (request: SessionReadRequest) => Promise<SessionLogRead>;
+  /** Holds the unsent composer draft that `session.draftUpdate` writes. */
   readonly draftStore: Pick<SessionDraftStore, "read">;
 }
 

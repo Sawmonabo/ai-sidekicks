@@ -1,13 +1,11 @@
-// The inputs of the workflow tools an agent calls from a session, where they differ from
-// the request of the method the tool drives. A tool whose input is its method's request
-// takes that request schema as it is: `workflow_kinds` takes `workflow.kindList`'s,
-// `workflow_update` takes `workflow.definitionUpdate`'s, and `workflow_enable` takes
-// `workflow.enabledSet`'s.
+// Input schemas for the workflow tools an agent calls from a session, for the tools whose input
+// differs from the request of the method they drive. `workflow_kinds`, `workflow_update` and
+// `workflow_enable` take their methods' request schemas (`workflow.kindList`,
+// `workflow.definitionUpdate`, `workflow.enabledSet`) unchanged.
 //
-// A tool never takes a session id: the session is the one whose turn called it, so an
-// agent cannot reach a workflow through another session. The JSON Schema a provider
-// receives is generated from these schemas, so each member's description is the text the
-// model reads.
+// No tool takes a session id: the session is the one whose turn made the call, so an agent
+// cannot reach a workflow through another session. The JSON Schema a provider receives is
+// generated from these schemas, so each member's description is the text the model reads.
 import {
   WorkflowContentHashSchema,
   WorkflowDefinitionIdSchema,
@@ -40,10 +38,7 @@ export const WorkflowRunToolInputSchema: z.ZodType<WorkflowRunToolInput, Workflo
   })
   .strict();
 
-/**
- * The `workflow_run` tool: starts the latest version of a named workflow, its run living
- * in the session whose turn called it.
- */
+/** The `workflow_run` tool: starts a named workflow's latest version in the calling session. */
 export const WORKFLOW_RUN_TOOL: SessionCallbackTool = {
   name: "workflow_run",
   description:
@@ -101,7 +96,9 @@ export const WorkflowReadToolInputSchema: z.ZodType<WorkflowReadToolInput, Workf
     })
     .strict();
 
-/** The `workflow_validate` input: a document checked as a save would check it, unsaved. *
+/**
+ * The `workflow_validate` input: a document checked as a save would check it, unsaved.
+ *
  * @consumedBy the workflow agent tools, when the daemon serves them
  */
 export interface WorkflowValidateToolInput {

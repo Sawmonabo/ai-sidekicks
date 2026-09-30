@@ -1,10 +1,9 @@
-// The rules the attention projector derives a session's attention from: which run
-// states are attention and of what kind, and how a session-level item is chosen from
-// the run-level items under it.
+// The rules that derive a session's attention: which run states are attention and of what
+// kind, and how one session-level item is chosen from the run-level items under it.
 //
-// A run's attention follows its current state, so the table is keyed by run state
-// rather than by the event that announced it. A later transition into a state the
-// table does not list is how an item resolves; there is no separate resolution rule.
+// A run's attention follows its current state, so the table is keyed by run state rather than
+// by the event that announced it. A later transition into a state the table does not list is
+// how an item resolves; there is no separate resolution rule.
 import type { AttentionSeverity, AttentionTrigger, RunState } from "@ai-sidekicks/contracts";
 
 import { normalizeOccurredAt } from "../events/canonicalizer.js";

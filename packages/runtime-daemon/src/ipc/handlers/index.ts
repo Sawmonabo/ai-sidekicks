@@ -1,5 +1,4 @@
-// Re-exports the `timeline.*` query binder. It carries the canonical
-// method-to-schema descriptor so a caller cannot bind a name to the wrong shapes.
-// Nothing calls it at bootstrap, so no `timeline.*` method is on the wire.
+// Re-exports the `timeline.*` binder, which takes one descriptor carrying the method name and
+// its schemas, so a handler cannot be bound to another method's shapes.
 
 export { registerTimelineMethod } from "./timeline-methods.js";

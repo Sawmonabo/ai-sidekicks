@@ -1,10 +1,7 @@
-// The seam between the workflow-secret store and the operating system's keychain.
-//
-// The store holds no keychain code: it takes a `SecretKeychain`, and the one
-// implementation over the platform keychain lives beside it in
-// `os-secret-keychain.ts`. So the store's rules are tested without touching the
-// person's keychain, and the native keychain binding stays out of every module that
-// only needs the store's shape.
+// The seam between the workflow secret store and the operating system's keychain. The store
+// takes a `SecretKeychain` and holds no keychain code; `os-secret-keychain.ts` is the platform
+// implementation. Tests therefore run the store's rules without touching a real keychain, and
+// the native binding stays out of modules that only need the store's shape.
 import {
   WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE,
   type WorkflowSecretStoreUnavailableCause,
@@ -13,9 +10,9 @@ import {
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 
 /**
- * One keychain service's entries, each addressed by an account name. Every method
- * settles within a bounded time: a keychain that is locked, missing or does not answer
- * rejects with {@link WorkflowSecretStoreUnavailableError}.
+ * One keychain service's entries, each addressed by an account name. Every method settles in
+ * bounded time; a keychain that is locked, missing or silent rejects with
+ * {@link WorkflowSecretStoreUnavailableError}.
  */
 export interface SecretKeychain {
   /** Writes `value` under `account`, replacing any value held there. */
@@ -27,9 +24,9 @@ export interface SecretKeychain {
 }
 
 /**
- * The keychain could not be used: it is locked, or this machine has none the daemon can
- * use. Projects to `workflow.secret_store_unavailable` with its cause. The message
- * carries the keychain's own report of the failure; the value is never passed to it.
+ * The keychain could not be used: it is locked, or the machine has none the daemon can use.
+ * Projects to `workflow.secret_store_unavailable` with its cause. The message carries the
+ * keychain's own failure text and never a secret value.
  */
 export class WorkflowSecretStoreUnavailableError extends DaemonDomainError {
   readonly unavailableCause: WorkflowSecretStoreUnavailableCause;

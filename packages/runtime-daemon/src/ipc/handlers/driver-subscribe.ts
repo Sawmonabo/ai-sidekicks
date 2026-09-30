@@ -1,49 +1,22 @@
-// `driver.subscribeEvents` — the dedicated subscription surface.
+// `driver.subscribeEvents`: one run's driver events, replay then tail, over the streaming
+// primitive. The request/response driver verbs live in `driver-handlers.ts`; this one is
+// separate because it allocates per-connection state and its teardown must survive wire cancel,
+// transport disconnect and internal cancellation alike.
 //
-// THIS MODULE IS THE ONE AND ONLY REGISTRATION OF THIS METHOD. authored the six
-// request/response verbs in `driver-handlers.ts` and carried the subscription
-// leg alongside them is the task that gives that leg the dedicated module the
-// plan names, and it does so by MOVING the implementation rather than adding a
-// second one. `driver-handlers.ts` no longer registers `driver.subscribeEvents`
-// and no longer carries the driver event set — a grep for
-// `register("driver.subscribeEvents"` finds exactly this file. Two competing
-// registrations would not have merely been untidy: makes the registry reject a
-// duplicate name at register time, so a daemon binding both would have failed at
-// bootstrap rather than at a test.
+// The response is the shared `SubscribeAckResponse`, the opaque `subscriptionId` and nothing
+// else; values follow as `$/subscription/notify` frames. The client SDK's
+// `createDaemonProviderClient(...).subscribeEvents(...)` is the matching consumer.
 //
-// WHY THE SPLIT IS WORTH A FILE. The seven sibling verbs are stateless
-// request/response dispatches into the in-daemon `ProviderRegistry`. This one
-// allocates PER-CONNECTION state (a streaming-primitive entry keyed by transport
-// id), owns a teardown path that has to survive wire-cancel, transport
-// disconnect, and internal cancellation alike, and carries an ordering
-// obligation that none of the others do. Those concerns share nothing with the
-// dispatch verbs beyond the namespace, which is exactly the seam the plan draws
-// — and it mirrors the shape the session namespace already ships, where
-// `session-subscribe.ts` sits beside `session-create.ts` / `-read.ts` /
-// `-join.ts`.
+// Invariants:
+//   * The registry parses the request against `DriverSubscribeEventsParamsSchema`, and the
+//     streaming primitive parses every emitted value against `SessionEventSchema` before it
+//     reaches the wire.
+//   * The subscribe-init response precedes the first notify frame: events reported while the
+//     handler runs are buffered and sent on the next `setImmediate`, which runs after the
+//     dispatch promise has written the response (a microtask would not).
 //
-// WHAT THE SDK SEES. the splits the streaming primitive across the wire: this
-// side hands the handler a `LocalSubscriptionProducer` (via
-// `StreamingPrimitive.createSubscription`), and the SDK's
-// `createDaemonProviderClient(...).subscribeEvents(...)` hands its caller a
-// `LocalSubscriptionConsumer`. The wire between them is the shared
-// `SubscribeAckResponse` — the opaque `subscriptionId` and nothing else — with
-// values following as `$/subscription/notify` frames.
-//
-// Invariants this module participates in (canonical text):
-//   * Duplicate registration is rejected at register time, which is what
-//     makes the one-registration claim above enforced rather than merely
-//     asserted.
-//   * The registry `safeParse`s the request against
-//     `DriverSubscribeEventsParamsSchema` before this handler body runs, and
-//     the streaming primitive `safeParse`s every emitted value against
-//     `SessionEventSchema` before it reaches the wire.
-//   * The subscribe-init response precedes the first notify frame.
-//
-// Mutating flag: `false`. Opening a subscription allocates per-connection IPC
-// state but mutates no domain row, so a version-mismatched connection keeps this
-// method for the same reason it keeps the three reads.
-//
+// The registration is not `mutating`: it changes no domain row, so a version-mismatched
+// connection keeps this method.
 
 import type {
   DriverSubscribeEventsParams,
@@ -63,26 +36,19 @@ import {
 import type { StreamingPrimitive } from "../streaming-primitive.js";
 import { translateDriverError } from "./driver-handlers.js";
 
-// --------------------------------------------------------------------------
-// Dependency contract
-// --------------------------------------------------------------------------
-
 /** Dependencies for `driver.subscribeEvents`. */
 export interface DriverSubscribeEventsDeps {
   /**
-   * The Phase-2 streaming primitive the orchestrator constructed, shared with
-   * every other streaming handler so the per-transport reverse-index that
-   * `cleanupTransport` walks stays unified.
+   * The streaming primitive every streaming handler shares, so the per-transport index that
+   * `cleanupTransport` walks stays one.
    */
   readonly streamingPrimitive: StreamingPrimitive;
   /**
-   * The upstream driver event source for one run. Returns an unsubscribe handle,
-   * which the handler registers via `sub.onCancel` so wire-cancel,
-   * transport-disconnect, and internal teardown all detach it.
+   * The upstream driver event source for one run. Returns the detach the handler runs on
+   * wire cancel, transport disconnect or internal teardown.
    *
-   * Domain-side setup failures (unknown run, no live binding) MUST throw
-   * SYNCHRONOUSLY — the handler's atomicity guard cancels the allocated
-   * subscription on a synchronous throw, and a rejection delivered later would
+   * Setup failures (unknown run, no live binding) must throw synchronously: the handler
+   * cancels the subscription it allocated on a synchronous throw, and a later rejection would
    * orphan the streaming-primitive entry until transport cleanup.
    */
   readonly subscribeToDriverEvents: (
@@ -91,51 +57,14 @@ export interface DriverSubscribeEventsDeps {
   ) => () => void;
 }
 
-// --------------------------------------------------------------------------
-// The driver event set
-// --------------------------------------------------------------------------
-//
-// This module CONSUMES `DRIVER_EVENT_TYPES`; it does not author it. The set has
-// its single home in `packages/contracts/src/driver-event.ts` — its own derived
-// view over the seven EXISTING categories that decision #4 ratifies. It was
-// derived module-locally here until that home landed, which is what left the
-// SDK seam with no narrower schema to validate against; both sides of the wire
-// now read the one derivation.
-//
-// The filter below is what makes this a stream of DRIVER events rather than of
-// whatever the injected source happens to emit. Without it a source wired to a
-// session-wide event feed would push approvals and audit rows onto
-// a subscription a client opened for one run's driver activity — and because
-// each of those parses cleanly against `SessionEventSchema`, nothing downstream
-// would notice.
-
-// --------------------------------------------------------------------------
-// Handler binder
-// --------------------------------------------------------------------------
-
 /**
- * Bind `driver.subscribeEvents`.
+ * Binds `driver.subscribeEvents` onto the registry. A dispatch without a transport id throws a
+ * plain `Error` (an internal error on the wire), and a failing `subscribeToDriverEvents` is
+ * mapped through `translateDriverError` after the subscription is canceled.
  *
- * The wire response is the shared `SubscribeAckResponse` — the opaque
- * `subscriptionId` and nothing else — with events following as
- * `$/subscription/notify` frames. The ordering construction (buffer during the
- * synchronous replay window, flush on a `setImmediate` boundary) is inherited
- * from `session.subscribe` unchanged; that file carries the full derivation of
- * why a chained `queueMicrotask` cannot cross the dispatch response and
- * `setImmediate` can.
- *
- * THE PRODUCER SIDE KEEPS `SessionEventSchema` WHILE THE SDK CONSUMER VALIDATES
- * WITH `DriverEventSchema`, AND THE ASYMMETRY IS THE DESIGN. Here the
- * driver-category narrowing is a FILTER: a non-driver event from the injected
- * source is dropped and the stream continues, which is the right disposition
- * for a source that may legitimately be a session-wide feed. Handing the
- * streaming primitive the narrower schema would convert that drop into a
- * validation throw that cancels the whole subscription — punishing the client
- * for what the daemon chose to wire up. The SDK, on the other side of the wire,
- * has no such source to forgive: anything reaching it was already filtered here,
- * so a non-driver value there means the daemon is buggy or version-mismatched,
- * and `DriverEventSchema` refusing it is defense in depth rather than a second
- * derivation — both sides read the one set that lives in contracts.
+ * The stream validates against `SessionEventSchema` and drops any event outside
+ * `DRIVER_EVENT_TYPES`, so a session-wide source does not cancel the subscription over an
+ * approval or audit row. The client SDK validates the narrower `DriverEventSchema`.
  */
 export function registerDriverSubscribeEvents(
   registry: MethodRegistry,
@@ -146,10 +75,8 @@ export function registerDriverSubscribeEvents(
     ctx,
   ) => {
     if (ctx.transportId === undefined) {
-      // Per-connection streaming state needs a transport identity. A missing one
-      // is a bootstrap or direct-test-call fault rather than a client protocol
-      // violation, so a plain `Error` (mapped to `-32603`) is the honest
-      // reporting — the same posture `session.subscribe` takes.
+      // A missing transport identity is a daemon wiring fault, not a client error: a plain
+      // `Error`, mapped to `-32603`.
       throw new Error(
         "driver.subscribeEvents: handler requires ctx.transportId (per-connection streaming state requires a transport identity)",
       );
@@ -164,20 +91,14 @@ export function registerDriverSubscribeEvents(
     let replayDrained = false;
     try {
       const unsubscribe = deps.subscribeToDriverEvents(params.runId, (event) => {
-        // Filter BEFORE buffering, not at flush time: an event that must never
-        // reach this stream should not occupy the replay buffer either, and
-        // filtering in one place keeps the live-tail and replay paths from
-        // drifting apart.
+        // Filtered before buffering so a non-driver event never enters the replay buffer.
         if (!DRIVER_EVENT_TYPES.has(event.type)) {
           return;
         }
         if (replayDrained) {
-          // Live-tail runs on a later turn, outside the reach of the try/catch
-          // around setup. An unguarded `StreamingValidationError` here escapes
-          // as an uncaught exception and can terminate the daemon; cancel this
-          // subscription and keep every other one on the transport alive.
-          // TRIPWIRE: replace `console.error` once a structured logger surfaces
-          // in the runtime-daemon.
+          // The live tail runs outside the setup try/catch: an unguarded
+          // `StreamingValidationError` would escape as an uncaught exception and could stop the
+          // daemon. Cancel this subscription and keep the others alive.
           try {
             sub.next(event);
           } catch (thrown) {
@@ -193,8 +114,7 @@ export function registerDriverSubscribeEvents(
       });
       sub.onCancel(unsubscribe);
     } catch (thrown) {
-      // Atomicity guard: without this the streaming-primitive entry would orphan
-      // in both of its maps until the transport closed.
+      // Otherwise the streaming-primitive entry would stay registered until the transport closed.
       sub.cancel();
       translateDriverError(thrown);
     }

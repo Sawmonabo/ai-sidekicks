@@ -1,23 +1,9 @@
-// DriverCapabilityCache behavior.
-//
-// The two properties this suite exists for are the two the plan row states, and
-// both are asserted the way the row demands rather than the way that would be
-// easiest:
-//
-//   * a cache-SERVED reply carries the same `outputSpeedLevels` a LIVE read
-//     carries — asserted by comparing the two REPLIES, never by inspecting the
-//     cache, because inspecting the cache would prove only that some member was
-//     stored and this cache's whole claim is that none is;
-//   * the durable round-trip adds NO column for the vocabulary — asserted by
-//     showing the answer tracks the driver's own table at the moment of each
-//     read (a resolver whose answer changes between two reads of one cached
-//     driver changes the second reply), which is a property no stored value
-//     could have.
-//
-// The third property is the direction: an undeclared capability is
-// unsupported, so a driver that does not declare `output_speed` gets no
-// vocabulary member at all rather than an empty one.
-//
+// DriverCapabilityCache behavior. Three properties:
+//   * a cache-served reply carries the same `outputSpeedLevels` as a live read, compared reply to
+//     reply (inspecting the cache would only show that some member was stored);
+//   * the vocabulary is never stored: the answer tracks the driver's table at each read;
+//   * an undeclared capability is unsupported: a driver without `output_speed` gets no vocabulary
+//     member at all, not an empty one.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -43,11 +29,8 @@ function flagsWith(overrides: Partial<Record<DriverCapabilityFlag, boolean>>): D
 }
 
 /**
- * A hit arm carrying the FULL `GetCapabilitiesResult` the durable reader hands
- * back — `tools` and `cliVersion` included, and `outputSpeedLevels` composed by
- * that reader exactly as `hydrate()` composes it. The point of building the
- * whole wrapper here is that the cache must be seen to DROP the members that
- * stop at the driver, not merely to be handed a pre-narrowed shape.
+ * A durable-read hit carrying the full `GetCapabilitiesResult` (`tools` and `cliVersion`
+ * included), so the cache is seen to drop the members that stop at the driver.
  */
 function hydrationHit(
   capabilities: DriverCapabilities,
@@ -66,9 +49,7 @@ function hydrationHit(
 
 describe("DriverCapabilityCache — served from cache, never from the driver", () => {
   it("performs ONE durable read for repeated reads of the same driver", () => {
-    // The plan row's "no provider round-trip per call" realized at the seam this
-    // class actually holds: a hit consults nothing outside this object, so even
-    // the SQLite read happens once.
+    // A hit consults nothing outside the cache, so even the durable read happens once.
     const hydrate = vi.fn(() => hydrationHit(flagsWith({ output_speed: true }), "claude"));
     const cache = new DriverCapabilityCache({ hydrateDurableCapabilities: hydrate });
 
@@ -94,8 +75,7 @@ describe("DriverCapabilityCache — served from cache, never from the driver", (
   });
 
   it("tolerates invalidating a driver it has never read", () => {
-    // The invalidation source reports whichever driver was re-declared; a name
-    // this cache has never seen is a normal case, not an error.
+    // The source reports whichever driver was re-declared; a never-read name is normal.
     const cache = new DriverCapabilityCache({
       hydrateDurableCapabilities: () => hydrationHit(flagsWith({}), "codex"),
     });
@@ -107,12 +87,8 @@ describe("DriverCapabilityCache — served from cache, never from the driver", (
 
 describe("DriverCapabilityCache — outputSpeedLevels is re-derived, never stored", () => {
   it("serves the SAME vocabulary from cache that the live read served", () => {
-    // The mandatory comparison, made between the two REPLIES. Read one is the
-    // live path (it hydrates); read two is served from the entry. If the
-    // vocabulary were dropped, defaulted, or captured from a stale source, these
-    // two would differ — and the third assertion pins both to the driver's own
-    // table rather than merely to each other, so a cache that consistently
-    // served the WRONG vocabulary could not pass by agreeing with itself.
+    // Read one hydrates (live); read two is served from the entry. The last assertion pins both
+    // to the driver's own table, so a cache that consistently served a wrong vocabulary fails.
     const cache = new DriverCapabilityCache({
       hydrateDurableCapabilities: () => hydrationHit(flagsWith({ output_speed: true }), "claude"),
     });
@@ -127,11 +103,9 @@ describe("DriverCapabilityCache — outputSpeedLevels is re-derived, never store
   });
 
   it("tracks the driver's table at the MOMENT of each read, which no stored column could", () => {
-    // The "adds no column" property, asserted positively. A resolver whose
-    // answer changes between two reads of one CACHED driver: the second reply
-    // must carry the new answer. A cache that stored the vocabulary — in an
-    // entry field, in a column, anywhere — would keep serving the first, which
-    // is exactly the redeploy-staleness the module refuses to make possible.
+    // The resolver's answer changes between two reads of one cached driver, so the second reply
+    // must carry the new answer. A cache that stored the vocabulary would keep serving the first
+    // and go stale across a redeploy.
     const vocabularies = [
       ["off", "on"],
       ["off", "on", "turbo"],
@@ -151,9 +125,8 @@ describe("DriverCapabilityCache — outputSpeedLevels is re-derived, never store
   });
 
   it("hands out a COPY, so a consumer cannot rewrite the shared table", () => {
-    // The table is deep-frozen and shared by every reader on both read paths.
-    // Returning the frozen array itself would not corrupt anything, but it would
-    // make an innocent consumer that sorts the reply throw at a distance.
+    // The table is deep-frozen and shared; returning it would make a consumer that sorts the
+    // reply throw.
     const cache = new DriverCapabilityCache({
       hydrateDurableCapabilities: () => hydrationHit(flagsWith({ output_speed: true }), "claude"),
     });
@@ -169,9 +142,8 @@ describe("DriverCapabilityCache — outputSpeedLevels is re-derived, never store
 
 describe("DriverCapabilityCache — undeclared is unsupported", () => {
   it("omits the vocabulary entirely for a driver that declares output_speed false", () => {
-    // Reads absence as "the axis is unsettable"; an empty array would instead
-    // assert a settable axis with nothing on it, which is a different and false
-    // claim.
+    // Absence means the axis is unsettable; an empty array would claim a settable axis with
+    // nothing on it.
     const cache = new DriverCapabilityCache({
       hydrateDurableCapabilities: () => hydrationHit(flagsWith({ output_speed: false }), "codex"),
     });
@@ -181,11 +153,8 @@ describe("DriverCapabilityCache — undeclared is unsupported", () => {
   });
 
   it("omits the vocabulary when the flag is ABSENT from the durable row", () => {
-    // Fail-closed on `!== true` rather than on `=== false`. The flags arrive
-    // from a durable row through an untyped boundary, so a missing key is
-    // reachable in a way the compiler cannot rule out — and "undeclared" must
-    // read as unsupported, never as an invitation to resolve a vocabulary the
-    // driver never claimed.
+    // The cache fails closed on `!== true`: flags come from a durable row, so a missing key is
+    // reachable, and it must read as unsupported.
     const capabilities = flagsWith({});
     const flagsWithoutOutputSpeed: Record<string, boolean> = { ...capabilities.flags };
     delete flagsWithoutOutputSpeed["output_speed"];
@@ -210,11 +179,8 @@ describe("DriverCapabilityCache — undeclared is unsupported", () => {
   });
 
   it("REFUSES a durable miss rather than reporting an unsubstantiated capability set", () => {
-    // Both miss causes land on the same registered code: there is no capability
-    // set this node can show the driver declared, and inventing one would tell a
-    // client a control is available on no evidence. `driver.unavailable` (503)
-    // is the honest reading — transient and retriable — and reusing the
-    // registry's own error class keeps the driver namespace closed at seven.
+    // Both miss causes raise `driver.unavailable`: with no substantiated capability set, reporting
+    // one would tell a client a control is available on no evidence.
     for (const reason of ["never_written", "cli_version_missing"] as const) {
       const cache = new DriverCapabilityCache({
         hydrateDurableCapabilities: () => ({ hit: false, reason }),
@@ -247,9 +213,7 @@ describe("DriverCapabilityCache — each driver's built-in tools ride every read
   });
 
   it("REFUSES a cached driver that has no tool list, rather than answering without one", () => {
-    // A driver with a cached capability set and no entry in the tool table was
-    // registered without one; a report with an empty list would read as a
-    // provider that carries no tools of its own.
+    // An empty list would read as a provider that carries no tools of its own.
     const cache = new DriverCapabilityCache({
       hydrateDurableCapabilities: () => hydrationHit(flagsWith({}), "gemini"),
     });
@@ -262,10 +226,7 @@ describe("DriverCapabilityCache — each driver's built-in tools ride every read
 
 describe("DriverCapabilityCache — the report is the client-facing projection", () => {
   it("drops detectionSource, cliVersion, and tools, and parses against the wire schema", () => {
-    // The carve-out belongs in the composition, and the wire schema is the
-    // backstop that proves it held: `.strict()` REJECTS an extra member, so a
-    // report that leaked provenance would fail this parse rather than reach a
-    // client.
+    // The wire schema is `.strict()`, so a report that leaked provenance fails this parse.
     const cache = new DriverCapabilityCache({
       hydrateDurableCapabilities: () => hydrationHit(flagsWith({ output_speed: true }), "claude"),
     });
@@ -306,9 +267,8 @@ describe("DriverCapabilityCache — the report is the client-facing projection",
 
 describe("DriverCapabilityCache — invalidation source lifecycle", () => {
   it("subscribes at CONSTRUCTION and invalidates the named driver", () => {
-    // Construction rather than first read: an update landing before anything has
-    // been read must still be seen, or the entry written by the next read would
-    // be stale from birth with nothing left to invalidate it.
+    // Subscribing at construction catches an update that lands before the first read; otherwise
+    // the entry that read writes would be stale from birth.
     let publish: ((driverName: string) => void) | undefined;
     const hydrate = vi.fn(() => hydrationHit(flagsWith({}), "claude"));
     const cache = new DriverCapabilityCache({
@@ -351,9 +311,7 @@ describe("DriverCapabilityCache — invalidation source lifecycle", () => {
   });
 
   it("close() unsubscribes exactly once and drops every entry", () => {
-    // Dropping the entries is not housekeeping: after close nothing can
-    // invalidate them, so a cache that kept serving them would grow staler with
-    // every re-declaration it can no longer hear about.
+    // After close nothing can invalidate the entries, so they must not be served.
     const unsubscribe = vi.fn();
     const hydrate = vi.fn(() => hydrationHit(flagsWith({}), "claude"));
     const cache = new DriverCapabilityCache({

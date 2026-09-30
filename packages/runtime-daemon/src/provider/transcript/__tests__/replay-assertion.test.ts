@@ -11,9 +11,8 @@ import {
   type SeededTranscriptFrame,
 } from "../replay-assertion.js";
 
-// The post-replay assertion, verifying invariant: a replay is complete only
-// when the reconstituted session's own answer confirms it, and a provider's
-// success return is not evidence that a replay worked.
+// A replay is complete only when the reconstituted session's own answer confirms it; a
+// provider's success return is not evidence.
 
 function seededFrames(...bodies: readonly string[]): SeededTranscriptFrame[] {
   return bodies.map((text, index) => ({
@@ -41,12 +40,8 @@ describe("assertReplayReconstituted", () => {
     expect(verdict.answeredTurns).toBe(4);
   });
 
-  // A provider that accepts every seeding frame and stores none of them answers
-  // with zero turns, and every layer above sees four successful calls. This is
-  // what means by "a replay is verified by what the session answers, never by
-  // what the call returned", and it is the only thing standing between a caller
-  // and a session that will answer the next turn having forgotten the
-  // conversation.
+  // A provider that accepts every seeding frame and stores none answers with zero turns while
+  // every call above it succeeded. Only this check stops a session that forgot the conversation.
   it("REFUTES a provider that lies: every frame accepted, zero turns answered", () => {
     const verdict = assertReplayReconstituted(
       seededFrames("hello", "hi there", "what is the plan?", "here it is"),
@@ -94,18 +89,15 @@ describe("assertReplayReconstituted", () => {
       throw new Error("unreachable");
     }
     expect(verdict.refutation).toBe("tail-mismatch");
-    // The detail names the position and the LENGTHS and carries no body: driver
-    // diagnostics are a bounded-retention tier that is not a home for
-    // conversation text.
+    // The detail names the position and the lengths, never a body: diagnostics are kept for a
+    // bounded time and must not hold conversation text.
     expect(verdict.detail).toContain("seeded position 3");
     expect(verdict.detail).not.toContain("a summary of the above");
     expect(verdict.detail).not.toContain("three");
   });
 
-  // A provider is entitled to add turns of its own to a session it owns; losing
-  // them is the direction that destroys a transcript. Tolerating the padding is
-  // safe only because the TAIL is still compared, which the second assertion
-  // here is what proves.
+  // A provider may add turns of its own; losing turns is what destroys a transcript. The extra
+  // turns are tolerated only because the tail is still compared, which the second case proves.
   it("tolerates a target that answered with MORE turns, anchored on the tail", () => {
     const confirmed = assertReplayReconstituted(
       seededFrames("one", "two", "three"),
@@ -124,10 +116,8 @@ describe("assertReplayReconstituted", () => {
     expect(refuted.refutation).toBe("tail-mismatch");
   });
 
-  // The condition the task-scoped hold was about: over content-free turns the
-  // assertion cannot separate a provider that accepted every frame from one
-  // that discarded them all, so it refuses rather than confirming on the
-  // count alone.
+  // Over content-free turns the assertion cannot tell a provider that kept every frame from one
+  // that discarded them all, so it refuses rather than confirming on the count alone.
   it("refutes a seeded tail carrying no bodies, rather than confirming on the count", () => {
     const verdict = assertReplayReconstituted(seededFrames("", "", ""), answered("", "", ""));
     expect(verdict.outcome).toBe("refuted");
@@ -137,12 +127,9 @@ describe("assertReplayReconstituted", () => {
     expect(verdict.refutation).toBe("no-comparable-content");
   });
 
-  // The predicate reads the SEEDED side only. The inverted form — "either side
-  // carries a body" — would let a target that invented prose satisfy the check
-  // on the strength of content nobody seeded, so an all-empty seed would become
-  // confirmable by the target's own decoration. Here the empty seed still
-  // refutes, and it refutes under the honest name: there was nothing to compare,
-  // which is a different fact from a tail that disagreed.
+  // Only the seeded side decides whether there is content to compare. Otherwise a target that
+  // invented prose could confirm an empty seed. It refutes as "no comparable content", which
+  // differs from a tail that disagreed.
   it("still refutes an empty seed when the target answered with invented prose", () => {
     const verdict = assertReplayReconstituted(
       seededFrames("", "", ""),
@@ -155,7 +142,7 @@ describe("assertReplayReconstituted", () => {
     expect(verdict.refutation).toBe("no-comparable-content");
   });
 
-  // …and with a real seed behind it, invented prose is named for what it is.
+  // With a real seed, invented prose is a tail mismatch.
   it("names invented prose over a real seed `tail-mismatch`", () => {
     const verdict = assertReplayReconstituted(
       seededFrames("one", "two", "three"),
@@ -175,8 +162,8 @@ describe("assertReplayReconstituted", () => {
     );
     expect(forgiven.outcome).toBe("confirmed");
 
-    // Interior whitespace is NOT collapsed: a provider that reflowed a body
-    // changed it, and a comparison that forgave that would forgive a summary.
+    // Interior whitespace is not collapsed: a reflowed body was changed, and forgiving that
+    // would also forgive a summary.
     const refused = assertReplayReconstituted(
       seededFrames("first  second"),
       answered("first second"),
@@ -235,9 +222,8 @@ describe("ReplayTargetLedger", () => {
     }
   });
 
-  // First cause wins: the earliest failure is what made the target unusable, and
-  // a later attempt's failure is a consequence of it rather than a competing
-  // explanation. A last-writer-wins ledger would rewrite the diagnosis.
+  // The earliest failure made the target unusable; a later failure is its consequence, so the
+  // first cause is kept.
   it("keeps the FIRST cause when a burned target is abandoned again", () => {
     const ledger = new ReplayTargetLedger();
     ledger.abandon("target", "interior-refusal");

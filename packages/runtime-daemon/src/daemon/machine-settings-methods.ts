@@ -21,6 +21,7 @@ import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 
 import type { MachineSettingsFile } from "./machine-settings-file.js";
 
+/** What the machine-settings verbs need: the settings file and the shared streaming primitive. */
 export interface MachineSettingsMethodsDeps {
   readonly settingsFile: MachineSettingsFile;
   /** The primitive every streaming handler shares, so a disconnect cleans up all of them. */
@@ -43,6 +44,11 @@ function refuseEnvironmentNames(change: MachineSettingsChange): void {
   }
 }
 
+/**
+ * Registers `daemon.machineSettingsRead`, `daemon.machineSettingsUpdate` and
+ * `daemon.machineSettingsSubscribe`. An update with a refused environment row fails with
+ * `InvalidParams` before anything is written.
+ */
 export function registerMachineSettingsMethods(
   registry: MethodRegistry,
   deps: MachineSettingsMethodsDeps,

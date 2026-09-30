@@ -1,9 +1,5 @@
-// Bootstrap projection — a single `session.created` event yields a snapshot
-// naming the session's owner.
-//
-// Pure projector test — no SQLite, no service. Constructs a `StoredEvent`
-// in-memory and calls `replay()` directly. The projector reads the owner off
-// the envelope's `actor`; the `session.created` payload does not name it.
+// Pure projector tests (no SQLite, no service): `replay()` over in-memory events. The owner
+// is read off the envelope's `actor`; the `session.created` payload does not name it.
 
 import { describe, expect, it } from "vitest";
 
@@ -53,20 +49,15 @@ describe("session-projector — bootstrap projection", () => {
     if (snapshot === null) return; // type guard for TS
 
     expect(snapshot.sessionId).toBe(SESSION_ID);
-    // A newly created session starts in `provisioning`; the
-    // `session.activated` handler that transitions it to `active` has not
-    // landed yet.
     expect(snapshot.state).toBe("provisioning");
     expect(snapshot.createdAt).toBe(OCCURRED_AT);
     expect(snapshot.asOfSequence).toBe(0);
 
-    // The owner is the bootstrap envelope's `actor` and nothing else.
     expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
   });
 
   it("lets a later event advance asOfSequence and nothing else", () => {
-    // The no-leak half: an event the projector does not fold contributes no
-    // field to the snapshot.
+    // An event the projector does not fold contributes no field to the snapshot.
     const snapshot: DaemonSessionSnapshot | null = replay([
       makeCreatedEvent(),
       {
@@ -104,9 +95,8 @@ describe("session-projector — bootstrap projection", () => {
   });
 
   it("reports ownerActor as null when the bootstrap envelope names no actor", () => {
-    // `actor: null` is legal on every wire variant, so a system-emitted
-    // bootstrap names nobody. The projector reports that rather than
-    // inventing an owner — there is no other signed place to read one from.
+    // `actor: null` is legal, so a system-emitted bootstrap names nobody; the projector reports
+    // that rather than inventing an owner.
     const systemEmitted: StoredEvent = { ...makeCreatedEvent(), actor: null };
     const snapshot: DaemonSessionSnapshot | null = replay([systemEmitted]);
     expect(snapshot).not.toBeNull();
@@ -116,8 +106,7 @@ describe("session-projector — bootstrap projection", () => {
   });
 
   it("normalizes an empty-string actor to a null ownerActor", () => {
-    // An empty owner is an absent owner. Collapsing the two here means no
-    // reader has to check both.
+    // An empty owner is an absent owner; collapsing the two spares readers checking both.
     const blankActor: StoredEvent = { ...makeCreatedEvent(), actor: "" };
     const snapshot: DaemonSessionSnapshot | null = replay([blankActor]);
     expect(snapshot).not.toBeNull();
@@ -126,18 +115,8 @@ describe("session-projector — bootstrap projection", () => {
     expect(snapshot.ownerActor).toBeNull();
   });
 
-  // -----------------------------------------------------------------------
-  // replay() must reject a session.created at sequence > 0
-  // -----------------------------------------------------------------------
-  //
-  // The bootstrap path's sequence-0 invariant must match `projectEvent`'s
-  // in-stream `case "session.created"` guard — without the bootstrap-
-  // path check, a log opening with `session.created` at sequence > 0
-  // would be accepted as a valid bootstrap, masking lost/corrupted
-  // earlier events. SessionService.append accepts arbitrary sequence
-  // values today (the per-session strict-monotonicity is a producer
-  // contract, not a service-layer enforcement), so this projector-side
-  // assertion is the only line of defense that catches the case.
+  // `SessionService.append` accepts any sequence, so this projector check is the only guard
+  // against a log that opens at sequence > 0 and hides lost or corrupted earlier events.
 
   it("rejects a bootstrap session.created event at sequence > 0", () => {
     const nonZeroBootstrap: StoredEvent = {
@@ -150,11 +129,8 @@ describe("session-projector — bootstrap projection", () => {
   });
 
   it("rejects a bootstrap session.created event at a far-future sequence (>0 covers the whole non-zero domain)", () => {
-    // Belt-and-braces: pin a non-adjacent sequence so a regression that
-    // accidentally compared `sequence < 1` (instead of `!== 0`) would
-    // also surface. Picks a value that sits in the realistic per-
-    // session range (well below Number.MAX_SAFE_INTEGER) so the test
-    // exercises the same code path as production.
+    // A non-adjacent sequence also catches a regression that compares `sequence < 1` instead of
+    // `!== 0`.
     const farFutureBootstrap: StoredEvent = {
       ...makeCreatedEvent(),
       sequence: 12345,

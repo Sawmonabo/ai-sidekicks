@@ -1,83 +1,13 @@
-// Codex capability declaration + refresh seam.
+// Codex capability declaration and refresh: composes the driver's flags with the tool census into
+// the `GetCapabilitiesResult` the registry caches and the writer persists.
 //
-// This module answers ONE question for the Codex driver: which capabilities
-// does it deliver at the driver boundary? It composes that answer, together
-// with the per-tool census, into the V1 `GetCapabilitiesResult` wrapper the
-// registry caches and the writer persists.
-//
-// -- realized statically --
-//
-// `Record<DriverCapabilityFlag, boolean>` is TOTAL: a flag added to the
-// contract's canonical `DRIVER_CAPABILITY_FLAGS` tuple and not answered here
-// is a COMPILE error, and a flag answered here that the contract does not
-// name is an excess-property error. There is therefore no "absent flag" state
-// for this driver to be inferred from — which is exactly what the invariant
-// asks for, and why no runtime `Object.keys` reconciliation is written here.
-// The runtime halves live where the untyped boundaries are:
-// `ProviderRegistry.checkCapability` fail-closes on `!== true`, and
-// `assertValidCapabilityFlags` proves exact cardinality at the write seam.
-//
-// -- `cliVersion` is threaded, never fabricated — floored, and READ FROM THE
-//
-// `GetCapabilitiesResult.cliVersion` is REQUIRED and must describe the provider
-// binary this daemon actually spawns. Since that is structural rather than a
-// convention: this module takes a `SpawnedProviderVersionReading` — the in-band
-// reading of the process started at a resolved executable path
-// (`../../version-gate.js`) — and threads its report through verbatim. A
-// declaration composed from a version that did NOT come from the spawned build
-// is therefore unrepresentable, which is the half of a bare report argument
-// left to caller discipline.
-//
-// The report is still passed through with no parsing, no normalization, and no
-// invented version, and floor is still enforced HERE before composing:
-// `getCodexCapabilities` refuses a below-floor reading fail-closed
-// (`driver.cli_version_below_floor`), so both attach (the registry's
-// registration read) and refresh (the scheduler-driven re-read) hit the gate
-// through the one composition path. The read path gates too; the compare is
-// pure and idempotent, so gating at both moments closes both doors rather than
-// duplicating a decision. The compare and the ratified floor value live in
-// `../../capability-refresh.js` — the single source of truth re-points at the
-// in-band reading without moving the comparison.
-//
-// -- The refresh seam is a declaration seam, not a scheduler --
-//
-// `refreshCodexCapabilities` recomposes the report and hands it to the writer,
-// whose `declare` performs the change detection. Its verdict is returned to the
-// caller unchanged.
-//
-// What this function deliberately does NOT own: the poll timer, the 15-minute
-// cadence and the paired `probeAuth()`. Those belong to the
-// `CapabilityRefreshScheduler` (`../../capability-refresh.js`), which drives THIS
-// seam on the bounded cadence. Change detection is likewise NOT re-implemented
-// here: duplicating the writer's snapshot compare would create a second,
-// divergable answer to "did the capabilities change?".
-//
-// The writer is injected as `Pick<DriverCapabilitiesWriter, "declare">` rather
-// than as a locally-invented port interface: a `Pick` of the real class drifts
-// into a compile error the moment the writer's signature moves, while a
-// hand-written mirror interface would silently keep compiling against a stale
-// shape. It also keeps a test's typed fake honest without a new abstraction.
-//
-// -- Detection sources --
-//
-// The declaration is the matrix INTERSECTED with what a zero-turn probe found on
-// the installed build, and every flag reports which of the two decided it.
-// `../../capability-probe.ts` owns the per-driver mechanism table, the probes,
-// their negative control, and the withdraw-only resolution; this module owns the
-// ORDERING — floor first, probe second — so no probe is ever issued against a
-// build the daemon has already refused. `detectionSource` is composed only here,
-// on the live read writer's `hydrate()` reconstruction leaves it absent, which
-// is specified to read as cache reconstruction rather than as unknown
-// provenance.
-//
-// `transcript_replay` is answered `true` below: the replay leg that drives this
-// provider's injection surface, and the post-replay assertion that is the only
-// admissible evidence it worked, ship in `./lifecycle.ts`. A cached
-// `supported = 0` row does not match this declaration, and the contract-version
-// move below is what makes a node holding that row re-read rather than serve it.
-//
-// Invariants from the pinned Codex wire census (wire surface at the
-// pinned `codex-cli` build; regenerate-don't-transcribe).
+// - `CODEX_CAPABILITY_FLAGS` is a total record, so a flag added to or missing from the contract's
+//   flag tuple is a compile error; the registry gate fails closed on `!== true`.
+// - `cliVersion` is passed through verbatim from the spawned-build reading. Both entry points
+//   refuse a below-floor reading (`driver.cli_version_below_floor`), and that gate runs before the
+//   probe, so a refused build is never probed.
+// - Each flag is the matrix intersected with a zero-turn probe (`../../capability-probe.ts`);
+//   `detectionSource` records which decided it and is composed only from a live read.
 
 import type {
   DriverCapabilityFlag,
@@ -106,140 +36,71 @@ import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getCodexToolMetadata } from "./tools.js";
 
-/** Canonical driver id for Codex — the `driver_*` table key and registry id. */
+/** Canonical driver id for Codex: the `driver_*` table key and the registry id. */
 export const CODEX_DRIVER_NAME = "codex" as const;
 
 /**
- * The driver's advertised capability-contract version: a canonical semver the
- * capability writer compares to detect change, and nothing branches on its value.
- * It moves whenever the shape of what this driver advertises changes, so a node
- * holding a cached row, such as a `false` for `transcript_replay`, re-reads it
- * rather than serving the stale answer.
+ * Capability-contract semver the writer compares to detect change; it moves whenever the shape of
+ * what this driver advertises changes.
  */
 export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
 
-/**
- *
- * A flag is `true` only where the DRIVER delivers the capability at its own
- * boundary. A capability supplied by the orchestration layer above the driver
- * keeps its flag `false` — the flag is a statement about this driver, not
- * about the product.
- */
+/** A flag is `true` only where the driver delivers the capability at its own boundary. */
 export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
   Object.freeze({
     // Thread resumption is a first-class protocol operation.
     resume: true,
     // Native mid-turn steering exists on the wire (`turn/steer`).
     steer: true,
-    // The provider raises typed requests the daemon answers mid-turn
-    // (approval + user-input round trips).
+    // The provider raises typed requests the daemon answers mid-turn (approval and user input).
     interactive_requests: true,
-    // The provider can invoke MCP server tools. Declares invocation support
-    // only — not that every server's tools are enumerable to the daemon.
+    // The provider can invoke MCP server tools; not every server's tools are enumerable.
     mcp: true,
     // Tool invocations are surfaced as discrete, correlatable wire items.
     tool_calls: true,
-    // FALSE: the provider does not expose reasoning/thinking tokens on this
-    // transport. The timeline renders the reasoning surface as unavailable —
-    // an absence, not a degradation.
+    // The provider does not expose reasoning tokens on this transport.
     reasoning_stream: false,
     // Model and effort are accepted as per-turn overrides on turn start.
     model_mutation: true,
     // The turn accepts a caller-supplied output schema.
     structured_output: true,
-    // Fork: a thread forked at an inclusive turn boundary. Non-probeable at the
-    // parameter level, so it resolves from the matrix; a build that REFUSES the
-    // boundary field is classified at the fork dispatch as
-    // `driver.capability_unsupported` rather than surfacing as an opaque
-    // provider fault.
+    // Fork at an inclusive turn boundary; not probeable at the parameter level, so it resolves from
+    // the matrix (a build that refuses the boundary field fails at fork dispatch).
     rollback: true,
     // Durable per-thread goal set/clear operations exist on the wire.
     session_goals: true,
-    // Daemon-registered tools can be surfaced to the model and dispatched
-    // back to the daemon for execution.
+    // Daemon-registered tools can be surfaced to the model and dispatched back for execution.
     callback_tools: true,
     // Peer agents can be spawned, messaged, and closed from within a turn.
     subagents: true,
-    // TRUE, and NATIVE: `thread/inject_items` appends Responses-API items to the
-    // thread's model-visible history, and it is documented and non-experimental
-    // at the pin. The flag answers "does the driver deliver a replay", and leg
-    // in `./lifecycle.ts` does — seeding frame by frame, then reading the
-    // reconstituted session back and refusing on anything short of an answer
-    // consistent with the transcript's tail. The injection surface being untyped
-    // at the wire (`Array<JsonValue>`) is exactly why that assertion exists; it
-    // is not a reason to withhold the flag, because a `false` here would route
-    // every reconstitution to the memo floor on a provider that can do better.
+    // Native: `thread/inject_items` appends Responses-API items to the model-visible history. The
+    // wire types them as untyped JSON, so `./lifecycle.ts` reads the session back after seeding.
     transcript_replay: true,
-    // User-triggered compaction is a first-class client-request method
-    // (`thread/compact/start`), and the compaction it performs announces itself
-    // with the same typed frame an unsolicited compaction does — which is the
-    // evidence the operation settles on.
+    // User-triggered compaction (`thread/compact/start`) announces itself like an unsolicited one.
     context_compaction: true,
-    // The provider publishes an enumerable skill surface (`skills/list`) and
-    // signals its own invalidation, so the enumeration is a live read this
-    // driver can take and re-take rather than a catalog it would have to cache.
+    // The provider publishes an enumerable skill surface (`skills/list`) and signals invalidation.
     provider_commands: true,
-    // FALSE, and on the axis's own two conjuncts rather than on a method
-    // census: this provider declares no settable output-speed LEVEL VOCABULARY
-    // and no DECLARED-STATE read. It is not a speed-silent wire — it carries a
-    // per-turn `serviceTier` override and a per-model service-tier catalog —
-    // but which tiers exist is runtime catalog data with no declared list here
-    // and nothing reports a current tier back, so there is no axis to declare
-    // and nothing is emulated onto it. A complete declaration, not a gap: the
-    // analog is the per-turn `model` / `effort` axis, which this driver DOES
-    // carry and declares through `model_mutation` above.
+    // No settable output-speed vocabulary and no read of the current tier: the wire only carries a
+    // per-turn `serviceTier` override and a runtime per-model tier catalog.
     output_speed: false,
   });
 
 /**
- * The Codex column of the output-speed value vocabulary.
- *
- * EMPTY, and that is the complete declaration the `false` flag above implies:
- * makes an absent or empty vocabulary the signal that the axis is unsettable,
- * so a caller carrying an `outputSpeed` refuses fail-closed rather than
- * forwarding an unvalidated value against a vocabulary this provider declares
- * nowhere.
- *
- * The VALUES live in `../../driver-output-speed.ts`, alongside the other
- * driver's, because the durable capability cache's hydration path publishes this
- * same member with no driver in hand. This is the driver-local spelling of that
- * one table, never a second copy of it.
+ * Empty, like the `false` `output_speed` flag: a caller carrying an `outputSpeed` is refused
+ * instead of forwarding an unvalidated value.
  */
 export const CODEX_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_LEVELS.codex;
 
 /**
- * Compose the Codex `getCapabilities()` report.
- *
- * Synchronous and side-effect-free: every input is either a module constant or
- * the caller-supplied `cliVersion`, so there is nothing to await.
- * `ProviderDriver.getCapabilities()` returns a Promise; the Codex driver wraps
- * this call, keeping the async boundary where the interface puts it instead of
- * manufacturing one here.
- *
- * Every returned object is FRESH. Handing back the module constants by
- * reference would let one caller's mutation corrupt every later declaration —
- * the same defensive-clone doctrine `ProviderRegistry` applies when it caches
- * a capability snapshot.
- *
- * The one thing that CAN fail is floor gate: a below-floor (or
- * non-canonical) reading REFUSES here — throwing
- * `DriverCliVersionBelowFloorError` / `DriverCliVersionUnparseableError` —
- * before any report is composed, so neither attach nor refresh can cache a
- * declaration for a build the daemon does not support.
- *
- * @param reading The in-band reading of the build this node spawned
- *   (`readSpawnedProviderVersion`). Its report is threaded verbatim; see the
- *   file header on why it is never invented and why a bare report is not
- *   accepted here.
+ * Composes the `getCapabilities()` report from the build `reading` and probe `detection`; the
+ * result is fresh, so a caller's mutation cannot corrupt a later declaration. Throws the floor
+ * gate's errors for a bad version, and a plain `Error` for a foreign or mismatched reading.
  */
 export function getCodexCapabilities(
   reading: SpawnedProviderVersionReading,
   detection: CapabilityDetectionReading,
 ): GetCapabilitiesResult {
-  // A reading taken from ANOTHER driver's build would compose this driver's
-  // flags against a foreign version — a daemon wiring fault, not provider
-  // misbehavior, so it is an internal-invariant `Error` rather than a typed
-  // provider refusal.
+  // A foreign driver's reading is a daemon wiring fault, so it is a plain `Error`.
   if (reading.driverName !== CODEX_DRIVER_NAME) {
     throw new Error(
       `getCodexCapabilities: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
@@ -250,12 +111,7 @@ export function getCodexCapabilities(
       `getCodexCapabilities: refusing a detection reading taken from driver '${detection.driverName}'`,
     );
   }
-  // The version and the flags must describe ONE executable. Both readings carry
-  // the path the version handshake resolved, so this is a comparison rather than
-  // a re-resolution — and it catches the case a re-resolution would create: a
-  // `PATH` change or an installer swap between the two reads, which would
-  // otherwise compose probed flags for one build onto the version of another
-  // with nothing downstream able to tell.
+  // Comparing recorded paths catches a `PATH` change or installer swap between the two reads.
   if (detection.boundExecutablePath !== reading.resolvedExecutablePath) {
     throw new Error(
       "getCodexCapabilities: refusing a detection reading bound to a different executable than the version reading",
@@ -270,12 +126,9 @@ export function getCodexCapabilities(
     },
     tools: getCodexToolMetadata(),
     cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
-    // Fresh, for the same reason every other member is: the reading's record is
-    // frozen and shared, and a caller that mutates a reply must not rewrite the
-    // next caller's provenance.
+    // Fresh: the reading's record is frozen and shared.
     detectionSource: { ...detection.detectionSource },
-    // Present iff the flag is, which on this driver it never is — so the member
-    // is omitted rather than served as an empty array.
+    // Present only when the flag is true, which it never is for this driver.
     ...(CODEX_CAPABILITY_FLAGS.output_speed
       ? { outputSpeedLevels: [...CODEX_OUTPUT_SPEED_LEVELS] }
       : {}),
@@ -283,21 +136,9 @@ export function getCodexCapabilities(
 }
 
 /**
- * Take one detection reading for the Codex build described by `reading`.
- *
- * ORDERING IS THE CONTRACT, and it is why this wrapper exists rather than
- * callers invoking `readCapabilityDetection` directly. The floor gate runs
- * FIRST: refuses every use of a below-floor build beyond the version handshake
- * itself, and a probe is such a use. A build this daemon has already refused is
- * therefore never asked what it can do.
- *
- * The read is BOUND to the executable the version handshake resolved, taken
- * from that same reading rather than resolved again, so the composition step
- * can check that the version and the flags describe one build.
- *
- * Withdrawals are reported here rather than at the refresh entry point, so
- * every path that takes a detection reading — attach and refresh alike — meters
- * the same fact through the same counter.
+ * Takes one detection reading for the build `reading` describes; the floor gate runs first, so a
+ * below-floor build is never probed. Withdrawals are reported here so attach and refresh meter
+ * them through one counter.
  */
 export async function readCodexCapabilityDetection(
   reading: SpawnedProviderVersionReading,
@@ -321,37 +162,17 @@ export async function readCodexCapabilityDetection(
 
 /** Caller-supplied context for one capability declaration/refresh. */
 export interface CodexCapabilityRefreshInput {
-  /**
-   * The in-band reading of the spawned provider build. A REFRESH takes a NEW
-   * reading rather than replaying the attach-time one — that is what makes a
-   * mid-lifetime replacement detectable, and it is why the scheduler's entry
-   * closes over a reader rather than over a value.
-   */
+  /** A fresh reading per refresh, so a mid-lifetime replacement is detectable. */
   readonly reading: SpawnedProviderVersionReading;
-  /**
-   * The zero-turn probe transport. Held as the SEAM rather than as a reading,
-   * because the cadence must RE-PROBE: each refresh takes a new detection
-   * reading through this exchange for the same reason it takes a new version
-   * reading, and a caller that passed a value could replay attach-time
-   * provenance for a build that has since been replaced.
-   */
+  /** The probe transport, held as an exchange because each refresh must probe again. */
   readonly probe: CapabilityProbeExchange;
-  /**
-   * The daemon diagnostic channel the detection read reports withdrawals on.
-   * REQUIRED for the same reason the refresh scheduler's emitter is: a flag a
-   * build silently stopped carrying is exactly the class of condition the
-   * closed-kind-plus-counter pairing exists to keep metered, and an optional
-   * emitter would let a whole node's withdrawals go uncounted.
-   */
+  /** Where withdrawals are reported, so a flag a build silently stopped carrying is counted. */
   readonly diagnostics: DriverDiagnosticsEmitter;
 }
 
 /**
- * Declare (or re-declare) Codex capabilities through the writer.
- *
- * Returns the writer's own verdict unchanged — `"created"` on the first write,
- * `"changed"` when the snapshot actually differs, `"unchanged"` when it does
- * not, which is what makes a periodic refresh safe to run.
+ * Declares or re-declares Codex capabilities and returns the writer's verdict unchanged
+ * (`"created"`, `"changed"`, `"unchanged"`), which is what makes a periodic refresh safe.
  */
 export async function refreshCodexCapabilities(
   sink: DriverCapabilityDeclarationSink,
@@ -368,21 +189,8 @@ export async function refreshCodexCapabilities(
   });
 }
 
-// --------------------------------------------------------------------------
-// The model catalog
-// --------------------------------------------------------------------------
-
-/**
- * One declared catalog entry, frozen at construction.
- *
- * `capabilities` is `[]` by CONSTRUCTION rather than by omission — the helper
- * takes no argument for it, so no declaration can populate a member the corpus
- * registers no vocabulary for and nothing reads. This provider's per-model
- * auxiliary axes (`inputModalities`, `additionalSpeedTiers`, `modelSpecialty`,
- * `supportsPersonality`) are recorded in the catalog's provenance note rather
- * than flattened into it: one shared string list cannot carry both a modality
- * and a speed tier and still mean anything to a reader.
- */
+// `capabilities` stays empty: the provider's per-model axes (modalities, speed tiers) cannot share
+// one string list.
 function declaredCodexModel(
   id: string,
   name: string,
@@ -397,35 +205,15 @@ function declaredCodexModel(
   });
 }
 
-/**
- * Freeze one nested catalog array WITHOUT widening its declared type.
- *
- * `Object.freeze` on the entry alone is shallow: it stops `entry.effortLevels =
- * […]` and does nothing about `entry.effortLevels.push(…)`, so a process-wide
- * constant re-exported from this driver's barrel was one `push` away from being
- * rewritten for every later caller. `ProviderModel` declares these members as
- * MUTABLE `string[]`, and this returns the same declared type rather than
- * `readonly string[]` on purpose: making the contract type deep-readonly would
- * ripple through every driver-constructed catalog and every normalizer that
- * builds one, to fix a hazard that only exists for the two shared constants.
- * The freeze is therefore a runtime property of these declarations, enforced by
- * a mutation-attempt test rather than by the type.
- */
+// Freezes at runtime only: `ProviderModel` declares mutable `string[]`, and `readonly` would
+// ripple through every driver catalog.
 function freezeDeclaredModelArray(values: string[]): string[] {
   Object.freeze(values);
   return values;
 }
 
-/**
- * The two SHARED effort vocabularies, by model generation.
- *
- * The pinned build publishes THREE distinct lists across its eight models; the
- * third belongs to exactly one row and is written inline there rather than
- * named here, because a constant naming one model's list would read as a
- * generation. The count is stated because it is the fact that makes the levels
- * per-model rather than per-provider — a provider-wide list would be wrong for
- * some model in the very same reply.
- */
+// The two effort vocabularies shared by several models; the pinned build publishes a third for one
+// row, written inline there. Levels are per model because a provider-wide list would be wrong.
 const CODEX_EXTENDED_EFFORT_LEVELS: readonly string[] = Object.freeze([
   "low",
   "medium",
@@ -442,39 +230,14 @@ const CODEX_BASE_EFFORT_LEVELS: readonly string[] = Object.freeze([
 ]);
 
 /**
- * GOLDEN VECTOR — the Codex model catalog this driver declares.
- *
- *   Source doc      : the pinned Codex wire census
- *   Section         : `model/list` — the model catalog and the per-model
- *                     effort vocabulary (the default, non-experimental
- *                     generation)
- *   Pin             : codex-cli 0.150.1
- *   Provenance      : Binary probe. One live `codex app-server` JSON-RPC
- *                     `model/list` request after `initialize` / `initialized`
- *                     on 2026-08-30, `nextCursor: null` in the reply. Zero-turn:
- *                     no thread is started and nothing is billed.
- *   Trust           : Verified at 0.150.1. Every id, name, and effort level
- *                     below is a reading, not an illustration.
- *   Fast            : Every row is `fast`. The 0.150.1 recording copied no
- *                     service-tier list; the `model/list` reads at 0.155.1
- *                     (2026-09-19) and 0.159.2 (2026-09-30) gave every listed
- *                     model the one `priority` tier Codex names `Fast`.
- *
- * WHY A DECLARATION EXISTS AT ALL: see the sibling Claude catalog's note. The
- * read is admissible, so {@link CodexModelCatalogExchange} is the preferred
- * source and this constant is the answer for a composition that binds none.
- *
- * The eight rows are ordered as the provider returns them — its own default
- * (`gpt-5.6-sol`) first. `hidden` is `false` on every row at the pin;
- * {@link normalizeCodexModelCatalog} still filters hidden rows, because a
- * hidden model is one the provider declines to offer for selection and
- * publishing it would offer a model its own surface does not.
+ * The catalog used when no live {@link CodexModelCatalogExchange} is bound, in the provider's
+ * order. Read from one zero-turn `model/list` at codex-cli 0.150.1; reads at 0.155.1 and 0.159.2
+ * gave every model the one `priority` tier, so every row is `fast`.
  */
 export const CODEX_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
   declaredCodexModel("gpt-5.6-sol", "GPT-5.6-Sol", CODEX_EXTENDED_EFFORT_LEVELS),
   declaredCodexModel("gpt-5.6-terra", "GPT-5.6-Terra", CODEX_EXTENDED_EFFORT_LEVELS),
-  // `max` without `ultra` — the one row that splits the two vocabularies, and
-  // the reason the levels are carried per model rather than per provider.
+  // `max` without `ultra`: the one row that splits the two shared vocabularies.
   declaredCodexModel(
     "gpt-5.6-luna",
     "GPT-5.6-Luna",
@@ -488,31 +251,12 @@ export const CODEX_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.fre
 ]);
 
 /**
- * The live model-catalog read seam — one `model/list` client request on the
- * connection this driver already holds.
- *
- * Returns `unknown` for the same reason {@link CapabilityProbeExchange} does:
- * everything it yields is UNTRUSTED provider output. The implementer dispatches
- * and owns the deadline; THIS module composes and adjudicates, so the
- * normalization is testable without a process and a wire-shape change surfaces
- * here rather than in a transport.
- *
- * Deliberately payload-free and turn-free: like the capability probe, a billed
- * turn is not merely forbidden, it is unrepresentable.
+ * One `model/list` request on the driver's existing connection, returning `unknown` because the
+ * reply is untrusted. It starts no turn, so a billed turn is unrepresentable.
  */
 export type CodexModelCatalogExchange = () => Promise<unknown>;
 
-/**
- * A `model/list` reply that could not be read as a catalog.
- *
- * Carries no `code`, on the capability-probe module's reasoning: this is a
- * provider-surface fault with no registered wire code, and inventing one would
- * mint an error contract this task may not mint.
- *
- * Deliberately duplicated from the sibling Claude module rather than shared
- * with it, on this file's standing reason: the two driver trees stay
- * import-independent, so neither can break the other by moving a file.
- */
+/** Thrown when a `model/list` reply is not a readable catalog; it has no registered wire code. */
 export class CodexModelCatalogUnreadableError extends Error {
   constructor(detail: string) {
     super(`Codex model/list reply is not a readable model catalog: ${detail}`);
@@ -526,36 +270,9 @@ function readNonEmptyCodexString(source: Record<string, unknown>, key: string): 
 }
 
 /**
- * Normalize one `model/list` reply into the contract's model shape.
- *
- * STRICT, not tolerant — the accepted shape is the one the pinned build
- * answers and nothing else. Five rules the wire forces:
- *
- *   1. **A paginated reply REFUSES.** `nextCursor` is `null` at the pin. A
- *      non-null cursor means this page is not the catalog, and answering the
- *      first page would publish a silently short model list — a user
- *      would simply not see models the provider offers, with nothing anywhere
- *      recording that a page was dropped. Refusing is loud and, at the pin,
- *      unreachable.
- *   2. **Hidden rows are dropped.** A hidden model is one the provider declines
- *      to offer for selection.
- *   3. **A duplicate id REFUSES.** Unlike the sibling provider, this surface has
- *      no alias mechanism — every row names its own model — so two rows for one
- *      id is a malformed reply rather than a shape to collapse, and collapsing
- *      it would hide the malformation.
- *   4. **A PRESENT but unreadable effort surface REFUSES.** Absence and
- *      unreadability are opposite claims about the same model: absence means
- *      the model exposes no effort selection, which the contract's
- *      `effortLevels` reads as normative, so admitting an unreadable value
- *      under that same shape would publish a claim the provider never made.
- *      Only the array form is readable; `null` joins absence deliberately,
- *      since a provider answering `null` for a model with no effort surface is
- *      stating absence and refusing it would cost the WHOLE catalog — this
- *      normalizer throws for the entire reply on any entry fault, so a single
- *      odd field would become a total loss of model listing.
- *   5. **`fast` is a non-empty `serviceTiers` list**, on the same terms: an
- *      absent or `null` list is no fast mode, and a present list that is not
- *      an array refuses.
+ * Strictly normalizes one `model/list` reply, throwing {@link CodexModelCatalogUnreadableError}
+ * for the whole reply on any fault. Refuses a paginated reply, a duplicate id and a present
+ * non-array effort or service-tier list; drops hidden rows.
  */
 export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
   if (typeof payload !== "object" || payload === null) {
@@ -620,8 +337,7 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
     if (Array.isArray(rawEfforts) && rawEfforts.length > 0) {
       const effortLevels: string[] = [];
       for (const rawEffort of rawEfforts) {
-        // The level rides a nested object on this surface (`{ reasoningEffort,
-        // description }`), unlike the sibling provider's flat string list.
+        // The level rides a nested object here (`{ reasoningEffort, description }`).
         const level =
           typeof rawEffort === "object" && rawEffort !== null
             ? readNonEmptyCodexString(rawEffort as Record<string, unknown>, "reasoningEffort")
@@ -641,26 +357,14 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
 }
 
 /**
- * Answer the Codex driver's `listModels()`.
- *
- * @param exchange The live read, or an EXPLICIT `null` for a composition that
- *   binds none. Null rather than optional so a construction site cannot arrive
- *   at the declaration by never having decided — the reasoning that makes
- *   `resolveCredentialEnvPolicy` and the capability probe required options
- *   rather than defaulted ones.
- *
- * A bound exchange that FAILS is never quietly answered from the declaration.
- * Serving a stale catalog under the appearance of a live read is the one
- * confusion the detection-source doctrine exists to prevent, so a read failure
- * propagates and only an unbound exchange reaches the declaration.
+ * Answers `listModels()`. `exchange` is required (`null` binds none) so no caller reaches the
+ * declaration by never deciding; a bound exchange that fails propagates, never a stale catalog.
  */
 export async function resolveCodexModelCatalog(
   exchange: CodexModelCatalogExchange | null,
 ): Promise<ProviderModel[]> {
   if (exchange === null) {
-    // Fresh copies: the constant is frozen and shared process-wide, and
-    // `ProviderModel` carries mutable arrays a caller could otherwise rewrite
-    // for every later caller.
+    // Fresh copies: the constant is shared process-wide and `ProviderModel` has mutable arrays.
     return CODEX_DECLARED_MODEL_CATALOG.map((model) => ({
       id: model.id,
       name: model.name,

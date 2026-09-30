@@ -1,32 +1,14 @@
-// repo-workspace-migration.test.ts — the repo_mounts and workspaces schema shape.
+// Schema shape of `repo_mounts` and `workspaces` (source: `session/daemon-schema.ts`).
 //
-// Pins the column set, NOT NULL flags, primary-key shape, DEFAULT clauses,
-// index shape (including the partial-unique `idx_repo_mounts_active_root`), and
-// the behavioral CHECK / UNIQUE / FK enforcement of the two Local SQLite tables
-// (`repo_mounts`, `workspaces`). Schema source of truth is
-// `session/daemon-schema.ts`.
+// Pins columns, NOT NULL flags, primary keys, defaults and indexes (including the partial-unique
+// `idx_repo_mounts_active_root`), plus the CHECK, UNIQUE and FK behavior of the two tables. Shape
+// is read from SQLite's own introspection (`PRAGMA table_info`, `index_list`, `index_info`)
+// rather than reasoned from the DDL, because column order and autoindex names cannot be
+// certified by reading the CREATE TABLE.
 //
-// Asserted via PRAGMA table_info / index_list / index_info (explicit
-// field-by-field) plus behavioral rejection inserts.
-//
-// Shape-checkable cites:
-//   * repo mount records persist canonical root, owner node, and lifecycle
-//     state (the `node_id` / `canonical_root` NOT NULL pair and the `state`
-//     CHECK below); workspace records persist execution root, repo
-//     association, and health (`fs_root`, the `repo_mount_id` FK, and the
-//     `state` CHECK).
-//   * Every `repo_mounts` row stores the user-entered attach path
-//     (`local_path`, provenance) ALONGSIDE the resolver-produced
-//     `canonical_root`, plus the owning `node_id` and a lifecycle state from
-//     the closed set. The DDL half is that both path columns are NOT NULL and
-//     distinct, and that `idx_repo_mounts_active_root` keys deduplication off
-//     `canonical_root` rather than `local_path`. That the WRITER puts the
-//     resolver's output in `canonical_root` is the assertion, not this
-//     file's.
-//
-// Every value asserted below was read out of SQLite's own introspection rather
-// than reasoned from the DDL — column ORDER and the autoindex NAMES especially,
-// which no reading of the CREATE TABLE can certify.
+// `local_path` (the entered path) and `canonical_root` (the resolver's output) are both NOT NULL
+// and independent, and the unique index keys on `canonical_root`. That the writer stores the
+// resolver's output in `canonical_root` is asserted elsewhere, not here.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,34 +26,25 @@ import type {
 
 import { openDatabase } from "../../session/migration-runner.js";
 
-// PRAGMA table_info column shape (better-sqlite3 returns these field names).
+// A `PRAGMA table_info` row, with the field names better-sqlite3 returns.
 interface PragmaColumn {
   cid: number;
   name: string;
   type: string;
   notnull: 0 | 1;
   dflt_value: string | null;
-  // 1-based ordinal within the primary key; 0 if the column is not part of the
-  // PK. Composite PKs therefore yield pk values 2, 3, ... — hence `number`,
-  // not a binary union.
+  // 1-based ordinal within the primary key, 0 if the column is not part of it.
   pk: number;
 }
 
 const FIXTURE_TIMESTAMP: string = "2026-08-04T00:00:00.000Z";
 const FIXTURE_CANONICAL_ROOT: string = "/repos/acme-payments";
 
-// Vocabulary sources for the CHECK loops below, bound EXHAUSTIVE-BY-TYPE to the
-// canonical contracts unions rather than spelled as bare string literals. The
-// DDL enum and the wire union are two encodings of ONE vocabulary and only the
-// wire half is type-checked, so an addition to `RepoMountState` /
-// `WorkspaceState` / `VcsType` / `ExecutionMode` that omitted the paired CHECK
-// edit in `session/daemon-schema.ts` would leave a literal-driven loop
-// green here and surface only at persist time, as a runtime CHECK failure on a
-// value the wire had already accepted. `Record<T, true>` moves that to
-// typecheck: a new union member is a missing property here, a renamed one an
-// excess property. Keys are read back with `Object.keys`, so declaring the
-// member is also what adds its accept arm — and if the CHECK was not widened
-// with it, that arm fails loudly.
+// Values for the CHECK loops below, typed exhaustively against the contracts unions. The DDL
+// CHECK and the wire union encode one vocabulary and only the union is type-checked, so a new
+// member added without the paired CHECK edit would otherwise surface only at persist time.
+// `Record<T, true>` makes a new member a typecheck error here, and its accept arm fails if the
+// CHECK was not widened.
 const REPO_MOUNT_STATES: Record<RepoMountState, true> = {
   attached: true,
   detached: true,
@@ -94,10 +67,7 @@ describe("repo_mounts and workspaces schema shape", () => {
   let db: DatabaseType;
 
   beforeEach(() => {
-    // Canonical factory: ":memory:" is better-sqlite3's in-memory
-    // database-path spelling, so `openDatabase` composes the pinned
-    // applyPragmas → applyMigrations order here too — the pragma/migration
-    // order is never re-derived in a test.
+    // `openDatabase` accepts ":memory:", so the pragma and migration order is not re-derived.
     db = openDatabase(":memory:");
   });
 
@@ -105,11 +75,8 @@ describe("repo_mounts and workspaces schema shape", () => {
     db.close();
   });
 
-  // Helpers: fully-populated valid rows; tests override the identity /
-  // constraint-relevant fields to exercise one constraint at a time. Every
-  // referenced parent row is created before use (including in reject cases), so
-  // a rejection is attributable to the constraint under test — never to a
-  // dangling FK.
+  // Helpers insert fully populated valid rows; tests override one constraint-relevant field at a
+  // time. Parent rows are created first, so a rejection is never a dangling FK.
 
   function insertRepoMountRow(overrides: {
     id: string;
@@ -125,9 +92,7 @@ describe("repo_mounts and workspaces schema shape", () => {
     ).run(
       overrides.id,
       overrides.nodeId ?? "node-alpha",
-      // The ENTERED path is deliberately a subdirectory of the canonical root:
-      // the two columns must be able to disagree, and a helper that wrote the
-      // same value into both would hide a schema collapsing them.
+      // The entered path is a subdirectory of the canonical root, so the columns differ.
       `${overrides.canonicalRoot ?? FIXTURE_CANONICAL_ROOT}/src/services`,
       overrides.canonicalRoot ?? FIXTURE_CANONICAL_ROOT,
       overrides.vcsType ?? "git",
@@ -137,9 +102,8 @@ describe("repo_mounts and workspaces schema shape", () => {
     );
   }
 
-  // State transitions (not just inserts) move rows across the
-  // `idx_repo_mounts_active_root` predicate boundary, so the arbiter's
-  // index-entry REMOVAL and re-INSERT paths need their own driver.
+  // A state change moves a row across the `idx_repo_mounts_active_root` predicate, removing or
+  // re-inserting its index entry.
   function updateRepoMountState(repoMountId: string, state: string): void {
     db.prepare("UPDATE repo_mounts SET state = ?, updated_at = ? WHERE id = ?").run(
       state,
@@ -176,7 +140,7 @@ describe("repo_mounts and workspaces schema shape", () => {
       .prepare("PRAGMA table_info(repo_mounts)")
       .all() as ReadonlyArray<PragmaColumn>;
 
-    // Columns in CID (creation) order — fixed by the CREATE TABLE DDL.
+    // Columns in creation order.
     expect(columns.map((column) => column.name)).toEqual([
       "id",
       "node_id",
@@ -191,26 +155,20 @@ describe("repo_mounts and workspaces schema shape", () => {
 
     const byName = new Map(columns.map((column) => [column.name, column]));
 
-    // Every column is TEXT — `metadata` included, since SQLite has no JSON
-    // storage class and the column holds a serialized document.
+    // Every column is TEXT; `metadata` holds serialized JSON, which SQLite has no class for.
     for (const column of columns) {
       expect(column.type).toBe("TEXT");
     }
 
-    // Single-column PK on `id`; all others pk === 0. The sweep is what makes
-    // "single-column" an assertion rather than a comment — widening to a
-    // composite PK would otherwise pass.
+    // Single-column PK on `id`; the sweep fails if the key is widened to a composite.
     expect(byName.get("id")?.pk).toBe(1);
     for (const other of columns.filter((column) => column.name !== "id")) {
       expect(other.pk).toBe(0);
     }
 
-    // BOTH path columns are mandatory. `local_path` is the user-entered
-    // provenance value and `canonical_root` the resolver output; a nullable
-    // `canonical_root` would let an unresolved mount persist, and a nullable
-    // `local_path` would discard the provenance the invariant names. `node_id`
-    // is mandatory for the same reason — a mount with no owning node is
-    // unroutable.
+    // Both path columns are mandatory: a nullable `canonical_root` would let an unresolved mount
+    // persist, a nullable `local_path` would lose the entered path, and a mount with no
+    // `node_id` is unroutable.
     for (const required of [
       "node_id",
       "local_path",
@@ -223,11 +181,10 @@ describe("repo_mounts and workspaces schema shape", () => {
     ]) {
       expect(byName.get(required)?.notnull).toBe(1);
     }
-    // `id` is NOT NULL too: a STRICT table's PRIMARY KEY column is.
+    // `id` is NOT NULL too, because a STRICT table's primary key column is.
     expect(byName.get("id")?.notnull).toBe(1);
 
-    // DEFAULT clauses. SQLite reports the default as the literal DDL text,
-    // hence the quoted strings.
+    // SQLite reports a default as its literal DDL text, hence the quoted strings.
     expect(byName.get("vcs_type")?.dflt_value).toBe("'git'");
     expect(byName.get("state")?.dflt_value).toBe("'attached'");
     expect(byName.get("metadata")?.dflt_value).toBe("'{}'");
@@ -266,10 +223,8 @@ describe("repo_mounts and workspaces schema shape", () => {
       expect(other.pk).toBe(0);
     }
 
-    // `fs_root` is the ONLY nullable column, and its nullability is
-    // load-bearing rather than lax: a workspace still provisioning has no
-    // resolved execution root yet, so a NOT NULL here would
-    // force the bind path to invent a placeholder root.
+    // `fs_root` is the only nullable column: a workspace still provisioning has no execution
+    // root, and NOT NULL would force the bind path to invent a placeholder.
     expect(byName.get("fs_root")?.notnull).toBe(0);
     for (const required of [
       "session_id",
@@ -303,21 +258,16 @@ describe("repo_mounts and workspaces schema shape", () => {
     }>;
     const byIndexName = new Map(indexes.map((index) => [index.name, index]));
 
-    // Two indexes and no third: the PK autoindex plus the one the schema
-    // issues. `origin` discriminates them — "pk" for the constraint SQLite
-    // derived, "c" for a CREATE INDEX.
+    // Exactly two indexes: the PK autoindex (`origin` "pk") and the schema's own ("c").
     expect([...byIndexName.keys()].sort()).toEqual([
       "idx_repo_mounts_active_root",
       "sqlite_autoindex_repo_mounts_1",
     ]);
     expect(byIndexName.get("sqlite_autoindex_repo_mounts_1")?.origin).toBe("pk");
 
-    // Dedupe key: UNIQUE + partial over (node_id, canonical_root). A mount
-    // belongs to the machine, so no session is part of the key. Column ORDER
-    // and MEMBERSHIP are both load-bearing — keying on
-    // `local_path` instead of `canonical_root` would let two entered aliases
-    // of one repository both attach, and dropping `node_id` would make one
-    // absolute path attachable on only one runtime node.
+    // The dedupe key is unique and partial over (node_id, canonical_root). Keying on
+    // `local_path` would let two aliases of one repository both attach, and dropping `node_id`
+    // would let one absolute path attach on only one node.
     expect(byIndexName.get("idx_repo_mounts_active_root")?.unique).toBe(1);
     expect(byIndexName.get("idx_repo_mounts_active_root")?.partial).toBe(1);
     const activeRootColumns = db
@@ -325,10 +275,9 @@ describe("repo_mounts and workspaces schema shape", () => {
       .all() as ReadonlyArray<{ name: string }>;
     expect(activeRootColumns.map((column) => column.name)).toEqual(["node_id", "canonical_root"]);
 
-    // THE PREDICATE, off `sqlite_master.sql` because nothing else reports it:
-    // `index_list` reports `partial: 1` but never the WHERE clause, so an index
-    // whose predicate silently widened to every row would pass `index_list`
-    // unchanged while permanently blocking re-attach of a detached mount.
+    // The predicate is read from `sqlite_master.sql`: `index_list` reports `partial: 1` but not
+    // the WHERE clause, and a predicate widened to every row would block re-attach of a detached
+    // mount for good.
     const indexDdl = db
       .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
       .get("idx_repo_mounts_active_root") as { sql: string } | undefined;
@@ -349,10 +298,7 @@ describe("repo_mounts and workspaces schema shape", () => {
       "sqlite_autoindex_workspaces_1",
     ]);
 
-    // `unique === 0` on both is load-bearing, not decoration: a session holds
-    // several workspaces and a mount can carry more than one binding, so a
-    // UNIQUE on either would cap the product at one workspace per session /
-    // per mount — a functional break `index_info` alone cannot see.
+    // Both must be non-unique: a session holds several workspaces and a mount several bindings.
     expect(byIndexName.get("idx_workspaces_session")?.unique).toBe(0);
     const sessionIndexColumns = db
       .prepare("PRAGMA index_info(idx_workspaces_session)")
@@ -367,7 +313,6 @@ describe("repo_mounts and workspaces schema shape", () => {
   });
 
   it("enforces the state CHECK on `repo_mounts`", () => {
-    // Behavioral proof that SQLite enforces the closed lifecycle set names.
     for (const state of Object.keys(REPO_MOUNT_STATES)) {
       expect(() => {
         insertRepoMountRow({
@@ -377,9 +322,8 @@ describe("repo_mounts and workspaces schema shape", () => {
         });
       }).not.toThrow();
     }
-    // 'ready' is the sharpest out-of-enum probe: it is valid for `workspaces`
-    // and must still be rejected here — the two tables' state vocabularies are
-    // disjoint, not a shared enum.
+    // 'ready' is valid for `workspaces` and must still be rejected here: the two tables' state
+    // vocabularies are disjoint.
     expect(() => {
       insertRepoMountRow({
         id: "mount-state-ready",
@@ -390,10 +334,8 @@ describe("repo_mounts and workspaces schema shape", () => {
   });
 
   it("enforces the vcs_type CHECK on `repo_mounts`", () => {
-    // Each row gets its own canonical root: every row here takes the default
-    // `state: 'attached'` and enters idx_repo_mounts_active_root, so a shared
-    // root would make the `hg` reject throw on UNIQUE instead of on the CHECK
-    // this test pins.
+    // Each row gets its own canonical root: every row is `attached`, so a shared root would make
+    // the `hg` reject fail on UNIQUE instead of on the CHECK under test.
     for (const vcsType of Object.keys(VCS_TYPES)) {
       expect(() => {
         insertRepoMountRow({
@@ -415,8 +357,7 @@ describe("repo_mounts and workspaces schema shape", () => {
         insertWorkspaceRow({ id: `workspace-state-${state}`, state });
       }).not.toThrow();
     }
-    // 'attached' is the mirror-image probe of the `repo_mounts` case above: a
-    // valid repo-mount state that must not leak into the workspace vocabulary.
+    // 'attached' is a valid repo-mount state that must not leak into the workspace vocabulary.
     expect(() => {
       insertWorkspaceRow({ id: "workspace-state-attached", state: "attached" });
     }).toThrow(/CHECK constraint failed/i);
@@ -447,9 +388,8 @@ describe("repo_mounts and workspaces schema shape", () => {
   });
 
   it("enforces the workspaces.repo_mount_id foreign key against `repo_mounts`", () => {
-    // Negative control first: FK enforcement is live on this handle, so the
-    // accept below passes because the parent exists — not because enforcement
-    // is silently off.
+    // Negative control first: with enforcement live, the accept below passes because the parent
+    // exists, not because enforcement is off.
     expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
     expect(() => {
       insertWorkspaceRow({ id: "workspace-dangling", repoMountId: "missing-mount" });
@@ -463,19 +403,16 @@ describe("repo_mounts and workspaces schema shape", () => {
 
   it("rejects a second ACTIVE mount of one canonical root on the same node", () => {
     insertRepoMountRow({ id: "mount-first" });
-    // Column-qualified rather than a loose /UNIQUE/ matcher: `repo_mounts` also
-    // carries the PK autoindex on `id`, so naming the key is what proves the
-    // PARTIAL index fired and not a duplicate id.
+    // The message names the key columns, which shows the partial index fired and not the PK on
+    // `id`.
     expect(() => {
       insertRepoMountRow({ id: "mount-duplicate" });
     }).toThrow(/UNIQUE constraint failed: repo_mounts\.node_id, repo_mounts\.canonical_root/i);
   });
 
   it("admits an active mount that differs in exactly one key column", () => {
-    // Each accept varies ONE member of the index key and holds the other
-    // fixed, so the test cannot pass for the wrong reason: a different node is
-    // a different node-local filesystem, and a different canonical root is a
-    // different repository.
+    // Each accept varies one member of the index key and holds the other fixed: a different
+    // node is a different filesystem, a different canonical root a different repository.
     insertRepoMountRow({ id: "mount-baseline" });
     expect(() => {
       insertRepoMountRow({ id: "mount-other-node", nodeId: "node-beta" });
@@ -486,10 +423,8 @@ describe("repo_mounts and workspaces schema shape", () => {
   });
 
   it("admits an attach alongside an already-detached row on the same key", () => {
-    // `WHERE state = 'attached'` scopes the index to LIVE mounts, so a detached
-    // row is history and never blocks re-attach. This arm never places an entry
-    // in the partial index at all — the UPDATE arm below is the one that
-    // exercises index-entry removal.
+    // The index covers only `attached` rows, so a detached row never blocks re-attach. This arm
+    // puts no entry in the index; the UPDATE arm below covers entry removal.
     insertRepoMountRow({ id: "mount-detached", state: "detached" });
     expect(() => {
       insertRepoMountRow({ id: "mount-reattached" });
@@ -497,9 +432,8 @@ describe("repo_mounts and workspaces schema shape", () => {
   });
 
   it("readmits an attach after the holder is UPDATEd to detached", () => {
-    // The production detach-then-re-attach lifecycle, and the only path that
-    // exercises index-entry REMOVAL: the first row genuinely occupies the
-    // partial index before the UPDATE evicts it.
+    // The detach-then-re-attach lifecycle: the first row occupies the partial index until the
+    // UPDATE evicts it.
     insertRepoMountRow({ id: "mount-holder" });
     updateRepoMountState("mount-holder", "detached");
     expect(() => {
@@ -508,27 +442,17 @@ describe("repo_mounts and workspaces schema shape", () => {
   });
 
   it("rejects an UPDATE that re-attaches a detached mount whose key is already held", () => {
-    // The reverse transition: the arbiter must fire on the index-entry INSERT
-    // an UPDATE drives, not only on row INSERT. A resurrect-on-retry bug would
-    // otherwise put two active mounts on one canonical root — exactly the
-    // duplicate-attach state exists to prevent.
+    // The uniqueness check must also fire on the index entry an UPDATE inserts, or a re-attach
+    // would put two active mounts on one canonical root.
     insertRepoMountRow({ id: "mount-active" });
     insertRepoMountRow({ id: "mount-detached", state: "detached" });
-    // Column-qualified to the key, the same bar the INSERT counterpart above
-    // applies. The PK autoindex cannot fire on an UPDATE that leaves `id`
-    // untouched, so a bare matcher would do — naming the key is
-    // what keeps the pin attributable if a later edit touches the identity
-    // columns, and this is the arm pinning the arbiter's index-entry INSERT
-    // path.
     expect(() => {
       updateRepoMountState("mount-detached", "attached");
     }).toThrow(/UNIQUE constraint failed: repo_mounts\.node_id, repo_mounts\.canonical_root/i);
   });
 
   it("stores the entered path and the canonical root as independent values", () => {
-    // The storage half: the two columns hold different strings on the same
-    // row, so a schema that collapsed them (or a writer that could only ever
-    // store one) is observable here.
+    // The two columns hold different strings on one row, so a schema that collapsed them shows.
     insertRepoMountRow({ id: "mount-1" });
     const row = db
       .prepare("SELECT local_path, canonical_root, metadata FROM repo_mounts WHERE id = ?")
@@ -536,14 +460,12 @@ describe("repo_mounts and workspaces schema shape", () => {
     expect(row.canonical_root).toBe(FIXTURE_CANONICAL_ROOT);
     expect(row.local_path).toBe(`${FIXTURE_CANONICAL_ROOT}/src/services`);
     expect(row.local_path).not.toBe(row.canonical_root);
-    // The omitted `metadata` column resolves to its DDL default rather than to
-    // NULL, which is what lets every reader treat it as a parseable document.
+    // An omitted `metadata` resolves to its DDL default, not NULL, so readers can always parse it.
     expect(row.metadata).toBe("{}");
   });
 });
 
-// Row shapes for the reopen probes below. Members carry the SQL column names,
-// hence the snake_case spelling.
+// Row shapes for the reopen probes below; members use the SQL column names.
 interface DurableRepoMountRow {
   canonical_root: string;
   state: string;
@@ -560,8 +482,7 @@ describe("repo_mounts and workspaces durability across an openDatabase reopen", 
   let databasePath: string;
 
   beforeEach(() => {
-    // A real file rather than ":memory:" — a reopen of an in-memory database is
-    // a NEW empty database, so the durability claim would be untestable there.
+    // A real file: reopening an in-memory database yields a new empty one.
     databaseDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-repo-workspaces-"));
     databasePath = join(databaseDirectory, "daemon.sqlite");
   });
@@ -609,10 +530,8 @@ describe("repo_mounts and workspaces durability across an openDatabase reopen", 
       firstHandle.close();
     }
 
-    // The reopen runs `applyMigrations` again against a database that already
-    // has the schema. The DDL has no `IF NOT EXISTS`, so a runner-guard
-    // regression surfaces here as a hard "table already exists" throw rather
-    // than as silent data loss.
+    // The reopen runs `applyMigrations` on a database that already has the schema. The DDL has no
+    // `IF NOT EXISTS`, so a broken guard throws "table already exists" here.
     const reopened: DatabaseType = openDatabase(databasePath);
     try {
       const mountRow = reopened

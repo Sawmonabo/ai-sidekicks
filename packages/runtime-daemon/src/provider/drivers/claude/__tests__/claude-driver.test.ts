@@ -1,14 +1,7 @@
-// Coverage map for `index.ts`, the composition root:
-//   * The six normalized operations this module owns are reachable through one
-//     driver object, with the signatures the `ProviderDriver` contract declares
-//     (bound by the `ClaudeDriverOperations` `Pick`).
-//   * The degraded-steer and resume-identity rules end to end through the
-//     composed entry: a steer degrades and a native interrupt reaches the very
-//     channel the lifecycle band bound the run to, which is the one coupling
-//     between the two bands.
-//   * `listModels()` is reachable through the composed entry and answers the
-//     catalog the bound exchange decides, the declaration standing in only where
-//     a composition explicitly binds none.
+// Covers `index.ts`, the composition root: every normalized operation is reachable through one
+// driver object with the signatures `ClaudeDriverOperations` binds, a steer degrades, a native
+// interrupt reaches the channel the lifecycle bound the run to, and `listModels()` answers the
+// bound exchange's catalog, or the declaration only where a composition binds none.
 
 import { describe, expect, it } from "vitest";
 
@@ -65,18 +58,14 @@ function buildHarness(): DriverHarness {
   });
   const driver = new ClaudeDriver({
     transport,
-    // Explicit `null`: this test binds no live `list_models` read, so
-    // `listModels()` answers the module's declared catalog. The dependency is
-    // required precisely so that choice is written down rather than defaulted.
+    // Explicit `null`: no live `list_models` read is bound, so `listModels()` answers the
+    // declared catalog.
     modelCatalogExchange: null,
     runDispatchResolver,
     diagnostics: makeSilentDriverDiagnostics(),
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
-    // Required rather than optional: the tripwire's run terminal is the only
-    // user-visible surface a swallowed turn has, so a construction site cannot
-    // leave it unbound. Recorded rather than ignored here so a trip inside a
-    // composition test would surface instead of vanishing.
+    // Recorded, not ignored, so a neutralization failure inside a composition test surfaces.
     onTextNeutralizationFailure: (_sessionId, _runId, failure) => {
       textNeutralizationFailureDetails.push(failure.providerFailureDetail);
     },
@@ -87,8 +76,7 @@ function buildHarness(): DriverHarness {
 describe("ClaudeDriver", () => {
   it("satisfies the slice of the ProviderDriver contract this task owns", () => {
     const harness = buildHarness();
-    // A compile-time assertion first: the `Pick` is what keeps every signature
-    // bound to the contract with zero drift.
+    // Compile-time check: the `Pick` binds every signature to the contract.
     const operations: ClaudeDriverOperations = harness.driver;
 
     expect(typeof operations.createSession).toBe("function");
@@ -99,17 +87,14 @@ describe("ClaudeDriver", () => {
     expect(typeof operations.closeSession).toBe("function");
     expect(typeof operations.compactContext).toBe("function");
     expect(typeof operations.listProviderCommands).toBe("function");
-    // One identity for the driver, not two: the refusals this band raises stamp
-    // the same constant the capability registry keys its rows on, so a rename
-    // cannot leave an error envelope pointing at a driver name that no longer
-    // exists.
+    // Refusals stamp the same driver name the capability registry keys its rows on.
     const refusal = new ClaudeSessionUnavailableError("no_live_run", { runId: TEST_RUN_ID });
     expect(refusal.fields.driverId).toBe(CLAUDE_DRIVER_NAME);
   });
 
   it("delegates both console-parity operations through to the lifecycle band", async () => {
-    // The entry point owns no logic of its own, so what this pins is that the
-    // two new operations REACH the band rather than answering from the wrapper.
+    // The entry point has no logic of its own; this pins that both operations reach the
+    // lifecycle rather than answering from the wrapper.
     const harness = buildHarness();
     await harness.driver.createSession(buildCreateSessionParams());
 
@@ -124,22 +109,18 @@ describe("ClaudeDriver", () => {
 
     expect(commands.bindings).toHaveLength(1);
     expect(commands.bindings[0]?.binding.driverName).toBe(CLAUDE_DRIVER_NAME);
-    // No handshake has been observed, so the presence guard refuses and nothing
-    // is written — the fail-closed reading of "not yet known".
+    // No handshake has been observed, so the presence guard refuses and writes nothing.
     expect(compaction).toStrictEqual({ status: "refused", reason: "command_absent" });
     expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
 
   it("serves the binding-held output-speed observation through the EXTERNALLY reachable driver", async () => {
-    // The read-back has exactly one reader — the lifecycle band's
-    // `observedOutputSpeedFor` — and the band is a PRIVATE field of this class.
-    // What a `ProviderRegistry` caller holds is the driver, so without this
-    // accessor the held state is reachable only from the band's own tests.
+    // The lifecycle is a private field, so a `ProviderRegistry` caller reaches the held state
+    // only through this driver accessor.
     const harness = buildHarness();
     await harness.driver.createSession(buildCreateSessionParams());
 
-    // Absent before the handshake: neither establishment path may block for it
-    // or spend a turn to provoke it.
+    // Absent before the handshake: neither create nor resume blocks on it or spends a turn.
     expect(harness.driver.observedOutputSpeedFor(TEST_SESSION_ID)).toBeUndefined();
 
     harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
@@ -159,11 +140,8 @@ describe("ClaudeDriver", () => {
   });
 
   it("keeps the output-speed read OFF the contract operation surface", () => {
-    // The negative control for the accessor above: it is deliberately NOT a
-    // `ProviderDriver` operation, so this file's thirteen-of-eighteen count is
-    // still read from the `Pick` and does not move. A `ProviderDriver` widened
-    // for it would force a throwing stub onto the sibling driver, which
-    // declares no such axis.
+    // The accessor is deliberately not a `ProviderDriver` operation: widening the contract for
+    // it would force a throwing stub onto the other driver, which has no such axis.
     const operations: ClaudeDriverOperations = buildHarness().driver;
 
     expect("observedOutputSpeedFor" in operations).toBe(true);
@@ -213,7 +191,7 @@ describe("ClaudeDriver", () => {
       status: "degraded",
       fallbackAction: CLAUDE_STEER_FALLBACK_ACTION,
     });
-    // The opening frame is the only text ever written; the steer added none.
+    // Only the opening frame was written; the steer added none.
     expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toHaveLength(1);
   });
 
@@ -251,8 +229,7 @@ describe("ClaudeDriver model catalog", () => {
     expect(models.map((model) => model.id)).toEqual(
       CLAUDE_DECLARED_MODEL_CATALOG.map((model) => model.id),
     );
-    // The member the currency duty exists for, reachable from the driver object
-    // rather than only from the module that declares it.
+    // Effort levels are reachable from the driver object, not only from the declaring module.
     expect(models[0]?.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
@@ -279,8 +256,7 @@ describe("ClaudeDriver model catalog", () => {
 
     const models = await driver.listModels();
 
-    // A level this file never enumerates: the vocabulary is the build's, not
-    // this driver's, which is what keeps the catalog current without an edit.
+    // A level the driver never enumerates: the effort vocabulary comes from the provider build.
     expect(models).toEqual([
       {
         id: "claude-future-9",
@@ -293,25 +269,11 @@ describe("ClaudeDriver model catalog", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// The callback-tool host reaches the Claude spawn end to end.
-// --------------------------------------------------------------------------
-//
-// WHAT "END TO END" MEANS ON THIS LEG, AND WHY IT DIFFERS FROM CODEX'S. The
-// Codex band translates the provider's wire request itself, so its round-trip
-// test drives real driver code. Claude's dispatch is a TRANSPORT OBLIGATION
-// instead: the daemon-hosted ephemeral MCP server that receives the provider's
-// tool call is realized by the transport (`--mcp-config`), and this driver's
-// job ends at handing that transport a served registry, its provider-facing
-// name map, and a dispatcher. So these tests assert the CONTRACT A TRANSPORT
-// MUST SATISFY — reading the legs off the recorded spawn request and performing
-// the translate-then-dispatch step a real transport performs — rather than
-// asserting code this driver runs.
-//
-// What is under test:
-//   * The driver answers every callback-tool invocation and invents no approval
-//     bypass; a spawn with no dispatcher bound serves no registry at all.
-//   * The invocation reaching the host is adjudicated before it is executed.
+// The Claude callback-tool dispatch is a transport obligation: the transport realizes the
+// daemon-hosted MCP server (`--mcp-config`), and the driver only hands it a served registry, a
+// provider-facing name map and a dispatcher. These tests therefore assert what a transport must
+// satisfy, reading the recorded spawn request and performing the translate-then-dispatch step a
+// real transport performs. A spawn with no dispatcher serves no registry.
 
 const SEARCH_CALLBACK_TOOL: SessionCallbackTool = {
   name: "search_workspace",
@@ -365,8 +327,7 @@ async function callbackToolSpawnHarness(options?: {
     transport,
     modelCatalogExchange: null,
     runDispatchResolver: new FakeClaudeRunDispatchResolver(),
-    // The driver's OWN withholding diagnostic lands here, which is what the
-    // no-dispatcher case below reads.
+    // The driver's withholding diagnostic lands here; the no-dispatcher test reads it.
     diagnostics: hostDiagnostics,
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
@@ -390,8 +351,8 @@ describe("ClaudeDriver callback-tool spawn wiring", () => {
 
     expect(callbackToolServer?.serverName).toBe(CLAUDE_CALLBACK_MCP_SERVER_NAME);
     expect(callbackToolServer?.tools).toStrictEqual([SEARCH_CALLBACK_TOOL]);
-    // The map is the transport's whole reason for receiving a descriptor rather
-    // than a bare tool list: the provider answers with the mangled name.
+    // The provider calls the mangled name, so the transport needs the map to recover the
+    // registry name.
     expect([...(callbackToolServer?.registryNamesByProviderName.entries() ?? [])]).toStrictEqual([
       [
         composeClaudeProviderToolName(CLAUDE_CALLBACK_MCP_SERVER_NAME, SEARCH_CALLBACK_TOOL.name),
@@ -409,9 +370,7 @@ describe("ClaudeDriver callback-tool spawn wiring", () => {
       throw new Error("the spawn served no callback-tool legs");
     }
 
-    // The transport's own step, performed here exactly as it must be performed
-    // there: the provider calls the MANGLED name, and the registry name is
-    // recovered from the descriptor's map before dispatch.
+    // The transport's step: recover the registry name from the descriptor's map before dispatch.
     const providerFacingToolName = composeClaudeProviderToolName(
       CLAUDE_CALLBACK_MCP_SERVER_NAME,
       SEARCH_CALLBACK_TOOL.name,
@@ -439,8 +398,7 @@ describe("ClaudeDriver callback-tool spawn wiring", () => {
       throw new Error("the spawn bound no dispatcher");
     }
 
-    // The failure mode the translation exists to prevent, reached from the other
-    // direction: a served tool whose invocations the host cannot recognize.
+    // Without the translation the host cannot recognize the served tool's invocations.
     const result = await onCallbackToolCall({
       toolName: composeClaudeProviderToolName(
         CLAUDE_CALLBACK_MCP_SERVER_NAME,
@@ -462,8 +420,7 @@ describe("ClaudeDriver callback-tool spawn wiring", () => {
   it("serves no registry at all when the spawn binds no dispatcher", async () => {
     const harness = await callbackToolSpawnHarness({ bindDispatcher: false });
 
-    // Withheld rather than served-and-refused: a tool the model never learns
-    // exists costs it no turns.
+    // Withheld rather than served and refused, so the model never spends a turn on it.
     expect(harness.transport.spawnRequests[0]?.callbackToolServer).toBeUndefined();
     expect(harness.transport.spawnRequests[0]?.callbackTools).toBeUndefined();
     expect(

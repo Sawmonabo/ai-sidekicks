@@ -15,14 +15,10 @@ import {
   type ProviderRefusalShape,
 } from "../failure-mapping.js";
 
-// The permanent-vs-transient refusal classifier, verifying invariant: a
-// structurally invalid history is a permanent refusal and never a retry, and
-// the outcome a connection loss left unknown is settled by reading the target
-// rather than by guessing at it.
-//
-// The routing these rules produce is asserted at each driver's dispatch seam,
-// where the provider call count is observable; what is asserted here is the
-// table itself and the reconcile's ordering, which no driver test can isolate.
+// A structurally invalid history is a permanent refusal, never a retry, and a request whose
+// outcome a connection loss left unknown is settled by reading the target, not by guessing.
+// Each driver's dispatch tests assert the routing where the provider call count is observable;
+// this file asserts the classification table and the reconcile ordering.
 
 // --------------------------------------------------------------------------
 // The classification table
@@ -34,13 +30,7 @@ interface ClassificationRow {
   readonly expected: ProviderRequestFailureDisposition;
 }
 
-/**
- * Every reachable observation, exhaustively.
- *
- * Written as a table rather than as six `it` blocks so the coverage check below
- * can assert that no disposition is enumerated in the union and never produced —
- * the failure mode a hand-written suite hides by simply omitting a case.
- */
+/** Every reachable observation; a table so the check below can see an unproduced disposition. */
 const CLASSIFICATION_ROWS: readonly ClassificationRow[] = [
   {
     delivery: "consumed-and-refused",
@@ -52,8 +42,8 @@ const CLASSIFICATION_ROWS: readonly ClassificationRow[] = [
     refusalShape: "request-otherwise-refused",
     expected: "fail-consumed-and-declined",
   },
-  // A refusal the driver could not type does NOT escalate. The permanent arm
-  // condemns a binding, so it is reached on a positive typed claim only.
+  // An untyped refusal never escalates: the permanent arm condemns a binding, so it needs a typed
+  // claim.
   {
     delivery: "consumed-and-refused",
     refusalShape: undefined,
@@ -76,10 +66,7 @@ describe("classifyProviderRequestFailure", () => {
   }
 
   it("produces every disposition the union declares", () => {
-    // The table's own negative control. An arm deleted or retyped to a
-    // convenient neighbor would otherwise shrink the matrix silently, and the
-    // two arms most worth losing — the permanent one and the declined one —
-    // differ only in whether a binding is condemned.
+    // Catches an arm deleted or retyped to a neighbor, which would shrink the table silently.
     expect(new Set(CLASSIFICATION_ROWS.map((row) => row.expected))).toStrictEqual(
       new Set([
         "permanent-structural-refusal",
@@ -91,10 +78,8 @@ describe("classifyProviderRequestFailure", () => {
   });
 
   it("REPORTS a refusal shape the delivery class made meaningless", () => {
-    // A driver reporting a typed refusal beside a delivery that never saw an
-    // answer has a wiring bug whose only other symptom is a silently wrong
-    // route. The disposition is unaffected — the classification stays total —
-    // and the disregarded value is surfaced so a test can catch the wiring.
+    // A typed refusal beside a delivery that saw no answer is a driver wiring bug. The disposition
+    // is unaffected; the ignored shape is surfaced so a test can catch the bug.
     const classification = classifyProviderRequestFailure({
       delivery: "indeterminate",
       refusalShape: "history-structurally-invalid",
@@ -123,8 +108,7 @@ describe("PermanentStructuralRefusalError", () => {
     expect(error.refusalShape).toBe("history-structurally-invalid");
     expect(error.reconstitutionRequired).toBe(true);
     expect(error.cause).toBe(cause);
-    // The message names the target and the remedy, because an operator reading
-    // it is being told to reconstitute rather than to retry.
+    // The message names the target and tells the reader to reconstitute, not retry.
     expect(error.message).toContain("thread-7");
     expect(error.message).toContain("reconstituted");
   });
@@ -155,8 +139,8 @@ describe("AmbiguousDeliveryReconciler", () => {
   });
 
   it("CLEARS FOR RETRY when the count matches what the daemon already knows", async () => {
-    // Equality, not a range: the acknowledged count excludes the ambiguous
-    // request, so a target holding exactly that many turns does not hold it.
+    // The acknowledged count excludes the ambiguous request, so an equal count means it never
+    // landed.
     const settlement = await settle(new AmbiguousDeliveryReconciler(countedReadback(3)), 3);
     expect(settlement).toStrictEqual({
       settlement: "cleared-for-retry",
@@ -165,9 +149,7 @@ describe("AmbiguousDeliveryReconciler", () => {
   });
 
   it("does NOT read a shortfall as evidence the ambiguous turn landed", async () => {
-    // A target holding FEWER turns than acknowledged disagrees about history
-    // rather than about this request. Nothing there proves the turn landed, so
-    // nothing is suppressed on that basis.
+    // Fewer turns than acknowledged is a disagreement about history, not proof this turn landed.
     const settlement = await settle(new AmbiguousDeliveryReconciler(countedReadback(1)), 3);
     expect(settlement.settlement).toBe("cleared-for-retry");
   });
@@ -175,8 +157,7 @@ describe("AmbiguousDeliveryReconciler", () => {
   it("settles UNRECOVERABLE when no reader is bound", async () => {
     const reconciler = new AmbiguousDeliveryReconciler();
     expect(reconciler.canReadUserTurns).toBe(false);
-    // An unbound reader is a correct settlement rather than a hole: the caller's
-    // answer is the same one an unreadable target gets, which is a specified arm.
+    // An unbound reader settles the same way an unreadable target does.
     expect(await settle(reconciler, 3)).toStrictEqual({
       settlement: "unrecoverable",
       reason: NO_USER_TURN_READER_BOUND,
@@ -197,8 +178,7 @@ describe("AmbiguousDeliveryReconciler", () => {
     const reconciler = new AmbiguousDeliveryReconciler(() =>
       Promise.reject(new Error("read failed")),
     );
-    // The caller is mid-settlement of a turn. Propagating the reader's exception
-    // would hand it a failure it cannot classify in place of one it can.
+    // The caller is settling a turn; a propagated reader exception is a failure it cannot classify.
     expect(await settle(reconciler, 3)).toStrictEqual({
       settlement: "unrecoverable",
       reason: USER_TURN_READ_FAILED,
@@ -206,8 +186,8 @@ describe("AmbiguousDeliveryReconciler", () => {
   });
 
   it("holds the read and the ACT in one critical section per target", async () => {
-    // The property the count depends on: no concurrent send on the same target
-    // may run between the read that authorized it and the act that performs it.
+    // No concurrent send on the same target may run between the read that authorized an act and
+    // the act.
     const order: string[] = [];
     let acknowledged = 0;
     const reconciler = new AmbiguousDeliveryReconciler((targetProviderSessionId) => {
@@ -220,8 +200,7 @@ describe("AmbiguousDeliveryReconciler", () => {
         async () => {
           await Promise.resolve();
           order.push(`act:${label}`);
-          // The append the read must not race: it moves BOTH counts, so a second
-          // read that ran inside this act would compare a stale pair.
+          // The append moves both counts, so a read inside this act would compare a stale pair.
           acknowledged += 1;
         },
       );
@@ -233,8 +212,7 @@ describe("AmbiguousDeliveryReconciler", () => {
   });
 
   it("lets different targets reconcile concurrently", async () => {
-    // Target-scoped, not global: two threads have nothing to say to each other,
-    // and queueing one behind the other would serialize unrelated sessions.
+    // The lock is per target; a global one would serialize unrelated sessions.
     const started: string[] = [];
     let releaseFirst = (): void => undefined;
     const firstReadReached = new Promise<void>((resolve) => {
@@ -262,9 +240,8 @@ describe("AmbiguousDeliveryReconciler", () => {
   });
 
   it("keeps a target's queue ordered after an act that THREW", async () => {
-    // A reconcile that threw still released the target. Chaining the next caller
-    // onto the rejected promise without containing it would reject that caller
-    // for someone else's reason — and would leak an unhandled rejection besides.
+    // A throwing act must not reject the next caller for someone else's reason or leak an
+    // unhandled rejection.
     const order: string[] = [];
     const reconciler = new AmbiguousDeliveryReconciler(countedReadback(0));
     const failing = reconciler

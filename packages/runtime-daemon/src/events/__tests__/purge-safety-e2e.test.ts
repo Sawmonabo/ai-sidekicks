@@ -1,17 +1,12 @@
-// END-TO-END safety of the whole-session purge over PII-carrying rows.
+// End-to-end safety of the whole-session purge over PII-carrying rows.
 //
-// One lifecycle, run through the real modules in the order production runs them:
+// One lifecycle through the real modules in production order: PII-carrying appends to two sessions
+// through `EventLogService`, then a purge of one session. It asserts that the purged session is
+// stubbed with its PII columns cleared, the kept session is whole and still decrypts, and the
+// daemon-scope sentinel holds the purge's one receipt.
 //
-//   PII-carrying appends to two sessions through `EventLogService`
-//     → a purge of one session
-//
-// and then asserts that the purged session is stubbed with its PII columns
-// cleared, the kept session is whole and still decrypts, and the daemon-scope
-// sentinel holds the purge's one receipt.
-//
-// The read projection and `splitPii` are suite-local fixtures. Everything
-// else (the append path, the PII codec, the purge, the content key store) is
-// the shipped code.
+// The read projection and `splitPii` are suite-local fixtures; the append path, the purge and the
+// content key store are the shipped code, and the PII codec is a test stand-in.
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -55,7 +50,7 @@ const FIRST_USER_PLAINTEXT = "the-first-user-content";
 const SECOND_USER_PLAINTEXT = "the-second-user-content";
 
 // ----------------------------------------------------------------------------
-// Fixtures — encryptor and the `splitPii`
+// Fixtures: the encryptor and `splitPii`
 // ----------------------------------------------------------------------------
 
 /**
@@ -111,10 +106,7 @@ function xorWithKeystream(
   return output;
 }
 
-/**
- * The `splitPii`, as a fixture.
- *
- */
+/** Splits an event into its clear members and its PII members (`text` and `filePath`). */
 function splitPii(event: Record<string, unknown>): {
   readonly clear: Record<string, unknown>;
   readonly pii: Record<string, unknown>;
@@ -264,9 +256,8 @@ function buildPurge(): SessionPurge {
   return new SessionPurge({
     db: database,
     nodeId: NODE,
-    // `satisfies` rather than a cast: this is the one file that wires the
-    // shipped append service into the seam, so a drift between them is caught
-    // here at compile time.
+    // `satisfies` rather than a cast, so a drift between the shipped append service and the seam
+    // fails at compile time.
     eventLog: eventLog satisfies SessionPurgeEventLog,
     contentKeyDisposer: new SessionContentKeyStore({
       database,

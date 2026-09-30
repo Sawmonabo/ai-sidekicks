@@ -1,43 +1,13 @@
-// Test W2 — spawn cwd translation.
+// Integration of `translateSpawnCwd` with `RustSidecarPtyHost`: the framed `SpawnRequest` written
+// to the sidecar's stdin must carry the stable parent directory as `cwd`, with the worktree path
+// moved into the wrapping shell script (`args[1]` of `sh -c` on POSIX, `args[4]` of
+// `cmd.exe /d /s /v:off /c` on Windows). A worktree `cwd` reaching the OS spawn call would let
+// Windows lock the directory and fail `git worktree remove` with `ERROR_SHARING_VIOLATION`
+// (microsoft/node-pty#647).
 //
-// What this asserts
-// -----------------
-//
-// Daemon-layer cwd translator
-// (`packages/runtime-daemon/src/session/spawn-cwd-translator.ts`) routes
-// a logical worktree-path `SpawnRequest.cwd` through the (stable parent
-// dir, prefixed command) tuple BEFORE the request reaches
-// `RustSidecarPtyHost.spawn`. The wire-shape `SpawnRequest` frame the
-// supervisor writes to the sidecar's stdin therefore carries:
-//
-//   1. `cwd === <stable parent>` — the path the OS spawn-call sees and
-//      could potentially hold a Windows directory lock on. The
-//      stable-parent guarantee is what prevents the
-//      `ERROR_SHARING_VIOLATION` failure mode (`microsoft/node-pty#647`)
-//      when `git worktree remove <worktree-path>` runs concurrently
-//      with the live PTY session.
-//   2. The original worktree path migrated INTO the wrapping shell
-//      script (`args[1]` for POSIX `sh -c "..."`; `args[4]` for
-//      Windows `cmd.exe /d /s /v:off /c "..."`), so the user's
-//      logical cwd is preserved at the application layer.
-//
-// This is the INTEGRATION assertion at the seam translator → host → wire
-// envelope; it complements the pure-transform tests in
-// `packages/runtime-daemon/src/session/__tests__/spawn-cwd-translator.test.ts`
-// (and the `.windows.test.ts` sibling) which exercise the translator against
-// an in-memory recording host. By driving through `RustSidecarPtyHost` and
-// parsing the actual Content-Length-framed JSON written to the sidecar's
-// stdin, we prove the wire-side payload honors — the property the sidecar
-// (and the OS spawn syscall it ultimately makes) actually observes.
-//
-// Why this file lives next to `rust-sidecar-pty-host.test.ts`
-// ----------------------------------------------------------
-//
-// Tests in this directory exercise the host's wire-side surface; the
-// translator is the upstream daemon-layer component whose OUTPUT
-// becomes the host's INPUT. verifies the integration of the two —
-// appropriate scope for `pty/__tests__`.
-//
+// The translator's own transform is unit-tested in
+// `session/__tests__/spawn-cwd-translator.test.ts` and its `.windows` sibling. This file
+// checks the bytes on the wire.
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -55,14 +25,8 @@ import { translateSpawnCwd } from "../../session/spawn-cwd-translator.js";
 import type { Envelope, SpawnRequest } from "@ai-sidekicks/contracts";
 
 // ----------------------------------------------------------------------------
-// Fake child + helpers — minimal duplicates of the patterns in
-// `rust-sidecar-pty-host.test.ts`. We intentionally do NOT extract a
-// shared helper module here: that test file has 345 in-line uses and
-// the helpers are deliberately co-located with the suite they support
-// (per the existing _fakes.ts pattern, shared helpers are named for
-// the production type they fake — e.g. `NodePtyChild`. The helpers
-// below are tied to the SidecarChildProcess shape and a future shared
-// extraction is best done at that scope by a future test-only refactor).
+// Fake child and helpers. They repeat the ones in `rust-sidecar-pty-host.test.ts`, which keeps its
+// helpers next to its suite.
 // ----------------------------------------------------------------------------
 
 interface FakeChild {
@@ -82,10 +46,8 @@ function makeFakeChild(): FakeChild {
     stdinChunks.push(chunk);
   });
 
-  // Two-overload `on` mirrors the production `SidecarChildProcess.on`
-  // surface — see `rust-sidecar-pty-host.test.ts` for the rationale on
-  // why the union-signature object literal cannot be expressed without
-  // overloads under `exactOptionalPropertyTypes`.
+  // Two overloads, as on `SidecarChildProcess.on`: a union-signature object literal does not
+  // typecheck under `exactOptionalPropertyTypes`.
   function on(
     event: "exit",
     listener: (code: number | null, signal: string | null) => void,
@@ -129,11 +91,7 @@ function frameEnvelope(envelope: Envelope): Buffer {
   return Buffer.concat([header, payload]);
 }
 
-/**
- * Parse the stdin contents (a sequence of Content-Length frames) into
- * an array of envelopes. Mirrors the helper in `rust-sidecar-pty-host.
- * test.ts` — the wire format is the same surface we're asserting on.
- */
+/** Parses the stdin bytes (Content-Length frames) into envelopes. */
 function parseFramesFromStdin(stdinBuf: Buffer): Envelope[] {
   const envelopes: Envelope[] = [];
   let cursor = 0;
@@ -197,22 +155,15 @@ function makeLogicalSpec(cwd: string): SpawnRequest {
 }
 
 // ----------------------------------------------------------------------------
-// W2 — POSIX cd-prefix wire-shape integration
+// POSIX cd-prefix wire shape
 // ----------------------------------------------------------------------------
 
 describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 /) — POSIX cd-prefix", () => {
   it("the wire-frame written to the sidecar carries the stable parent in cwd; worktree path is recoverable from args[1] of the sh -c wrapping script", async () => {
-    // Logical request — its cwd points at a worktree path that, if
-    // forwarded to the spawn syscall directly, would let Windows hold
-    // an OS-level lock on the worktree directory.
+    // A logical request whose cwd is the worktree path.
     const logical: SpawnRequest = makeLogicalSpec(POSIX_PATHS.worktree);
 
-    // Consumer picks `cd-prefix` for shell-session spawns per the
-    // dispatch table in `spawn-cwd-translator.ts` module header. We
-    // force `wrappingShell: "posix"` so this assertion is
-    // platform-stable (the suite runs on every platform; the
-    // Windows-shell flavor is exercised in the sibling `describe` block
-    // below).
+    // `wrappingShell: "posix"` is forced so the result does not depend on the host platform.
     const translated: SpawnRequest = translateSpawnCwd({
       spec: logical,
       strategy: "cd-prefix",
@@ -220,38 +171,25 @@ describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 /) — POSIX cd-prefi
       wrappingShell: "posix",
     });
 
-    // Stand up a host whose `child_process.spawn` is a fake whose stdin
-    // we can inspect after the supervisor has framed and written the
-    // SpawnRequest envelope.
     const fake = makeFakeChild();
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
       spawn: spawnReturning(fake),
     });
 
-    // Drive the supervisor through one spawn cycle. The host writes
-    // the framed SpawnRequest to stdin synchronously inside
-    // `host.spawn`'s microtask chain; we yield once to let the
-    // PassThrough `data` listener buffer the bytes, then ack the
-    // SpawnResponse so the awaiting Promise resolves and the test
-    // can assert on what landed on the wire.
+    // Yield once so stdin buffers the request, then ack it so `spawn` resolves.
     const spawnPromise = host.spawn(translated);
     await flushMicrotasks();
     fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
     await spawnPromise;
 
-    // Wire-shape assertion: parse the framed SpawnRequest the
-    // supervisor wrote to the sidecar's stdin. The cwd carried on the
-    // wire MUST be the stable parent — this is the property that
-    // prevents `ERROR_SHARING_VIOLATION` because the OS spawn-call
-    // cwd is the directory the OS could potentially lock.
+    // The cwd on the wire must be the stable parent, the directory the OS could lock.
     const envelopes: Envelope[] = parseFramesFromStdin(fake.readStdin());
     expect(envelopes).toHaveLength(1);
     const wireFrame: Envelope | undefined = envelopes[0];
     expect(wireFrame).toBeDefined();
     expect(wireFrame?.kind).toBe("spawn_request");
 
-    // Narrow to SpawnRequest for the field assertions.
     if (wireFrame?.kind !== "spawn_request") {
       throw new Error(
         `wire frame should be spawn_request after narrowing; got ${wireFrame?.kind ?? "undefined"}`,
@@ -259,19 +197,13 @@ describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 /) — POSIX cd-prefi
     }
     expect(wireFrame.cwd).toBe(POSIX_PATHS.stableParent);
 
-    // The wrapping script is `/bin/sh -c "<script>"`. The script lives
-    // in args[1] and contains the worktree path — i.e., the user's
-    // logical cwd is preserved at the application layer (the `cd`
-    // ahead of `exec` lands the inner shell IN the worktree before
-    // it replaces itself with the target command).
+    // The worktree survives in the `sh -c` script: `cd` lands in it before `exec` replaces the
+    // shell with the target command.
     expect(wireFrame.command).toBe("/bin/sh");
     expect(wireFrame.args[0]).toBe("-c");
     const script: string | undefined = wireFrame.args[1];
     expect(script).toBeDefined();
-    // The cd-prefix shape per the translator's POSIX branch:
-    //   `cd '<worktree>' && exec '<cmd>' '<arg>' '<arg>' ...`
     expect(script).toContain(`cd '${POSIX_PATHS.worktree}' && exec`);
-    // The original command + args survive into the wrapping script.
     expect(script).toContain("'bash' '-l'");
   });
 
@@ -300,21 +232,17 @@ describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 /) — POSIX cd-prefi
     if (wire?.kind !== "spawn_request") {
       throw new Error(`expected spawn_request on wire; got ${wire?.kind ?? "undefined"}`);
     }
-    // Env tuples cross the wire byte-for-byte (cd-prefix routes the
-    // worktree path through the command string, not env).
+    // cd-prefix moves the worktree path into the command, not env.
     expect(wire.env).toEqual(logical.env);
   });
 });
 
 // ----------------------------------------------------------------------------
-// W2 — Windows-cmd cd-prefix wire-shape integration
+// Windows cmd.exe cd-prefix wire shape
 // ----------------------------------------------------------------------------
 //
-// Runs on every platform (the translator's `windows-cmd` branch is a
-// pure transform; we override `wrappingShell` explicitly). This block
-// proves the wire-shape contract holds for the cmd.exe flavor that
-// `RustSidecarPtyHost` will see in production on Windows once the
-// `PtyHostSelector` default flips.
+// Runs on every platform: the `windows-cmd` branch is a pure transform and `wrappingShell` is set
+// explicitly.
 
 describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 /) — Windows cmd.exe cd-prefix", () => {
   it("the wire-frame carries the stable parent in cwd; worktree path is recoverable from args[4] of the cmd.exe /d /s /v:off /c wrapping script", async () => {
@@ -347,20 +275,14 @@ describe("translateSpawnCwd × RustSidecarPtyHost (Test W2 /) — Windows cmd.ex
       );
     }
 
-    // Same load-bearing property as the POSIX case — the cwd on the
-    // wire is the stable parent, not the worktree.
+    // As on POSIX, the wire cwd is the stable parent.
     expect(wireFrame.cwd).toBe(WINDOWS_PATHS.stableParent);
 
-    // cmd.exe wrapping shape:
-    //   command = "cmd.exe"
-    //   args    = ["/d", "/s", "/v:off", "/c", `cd /d "<worktree>" && "<cmd>" <args>`]
     expect(wireFrame.command).toBe("cmd.exe");
     expect(wireFrame.args.slice(0, 4)).toEqual(["/d", "/s", "/v:off", "/c"]);
     const script: string | undefined = wireFrame.args[4];
     expect(script).toBeDefined();
-    // Worktree path is preserved at the application layer via the
-    // `cd /d "<path>"` prefix that the wrapping cmd.exe runs before
-    // invoking the target command.
+    // The worktree survives in the `cd /d` prefix of the cmd.exe script.
     expect(script).toContain(`cd /d "${WINDOWS_PATHS.worktree}"`);
     expect(script).toContain('"bash" "-l"');
   });

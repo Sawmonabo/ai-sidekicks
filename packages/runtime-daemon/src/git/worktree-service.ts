@@ -1,241 +1,19 @@
-// Worktree lifecycle service — the daemon-side owner of the `worktrees` table
-// and of every git invocation that provisions or inspects a worktree root.
+// Worktree lifecycle service: owns the `worktrees` table and every git call that provisions or
+// inspects a worktree root. Each `fs_root` sits under the execution-roots directory, never in the
+// attached checkout. It holds no `workspaces` write; its caller wraps these calls.
 //
-//   * reuse of an existing checkout is explicit, and it preserves
-//     branch and provenance context.
-//   * the daemon-derived branch name
-//     (`sidekicks/<session-short-id>/<task-slug>`), the hook-neutralized
-//     invocation layer, and retirement preserving metadata even when filesystem
-//     cleanup later removes the checkout.
-//   * the row this service writes: branch name, owning repo mount, lifecycle
-//     state, and provenance to the creating session and run, with every
-//     `fs_root` under the daemon's own execution-roots directory rather than
-//     inside the attached checkout.
-//   * a dirty or incompatible reuse candidate requires explicit user choice;
-//     a failed provisioning parks rather than substitutes; the sweep's
-//     retirement disposition.
-//   * the slug rule, the provenance-split collision policy, and the base-ref
-//     policy.
-//
-// Cross-plan obligations consumed here:. — reprovision primitives a prepare
-// brackets itself with — is named here only to record that it is NOT discharged
-// in this file: its Tasks column reads and this service holds no `workspaces`
-// write at all. The caller wraps these calls.
-//
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-//
-// The candidate name is not pre-checked with a `SELECT` and then inserted. Two
-// concurrent prepares that both read "free" would both proceed, and the second
-// would either overwrite the first's row or hand git a branch it cannot create.
-// `idx_worktrees_active_branch` (`UNIQUE (repo_mount_id, branch_name) WHERE
-// state NOT IN ('retired', 'failed')`) is the race arbiter: `create` attempts
-// the INSERT and reads the UNIQUE violation as the collision signal.
-//
-// That is also what makes the retry loop safe rather than a crash path. A
-// violation aborts the append transaction BEFORE the event row lands (see the
-// prelude contract on `WorktreeEventEmitter`), so a losing attempt leaves
-// neither a `worktrees` row nor a `worktree.created` event — the next ordinal
-// is tried against a clean slate, and the exactly-once claim survives an
-// arbitrary number of collisions.
-//
-// A UNIQUE violation is CONFIRMED against a live-row re-read before it is
-// interpreted as a branch collision, rather than trusted from the error code
-// alone. `worktrees.id` is also unique (TEXT PRIMARY KEY), so an id collision —
-// reachable from an injected id source — raises a constraint error too, and
-// treating it as a branch collision would silently suffix the branch name and
-// report a plausible wrong answer. Anything not confirmed as a live row on the
-// same (mount, branch) re-throws unchanged.
-//
-// The two checks are not redundant, and which of them refuses a given failure
-// is a property of SQLite's EXTENDED result codes rather than of the statement.
-// Verified against the pinned better-sqlite3 build: a violation of the
-// partial-unique branch index reports `SQLITE_CONSTRAINT_UNIQUE`, a violation
-// of the `id` primary key's autoindex reports `SQLITE_CONSTRAINT_PRIMARYKEY`,
-// and an INSERT violating BOTH reports the branch index. So the CODE check is
-// what refuses a pure id collision, and the live-row read is what refuses a
-// UNIQUE-coded failure that no live row on this (mount, branch) explains — a
-// distinction only reachable with an injected append seam, which is how the
-// suite drives each arm separately.
-//
-// ---------------------------------------------------------------------------
-// The collision policy arrives as `onCollision`; PROVENANCE lives in the
-// caller
-// ---------------------------------------------------------------------------
-//
-// The provenance split is the decision's content: a CALLER-SUPPLIED name is
-// user intent and is never silently adapted (`worktree.branch_collision`),
-// while a DAEMON-DERIVED name is a default, takes the first free ordinal (`-2`,
-// then `-3`, …) and reports the chosen name verbatim. The two arms are exactly
-// `onCollision: 'refuse'` and `onCollision: 'suffix'` — wire prepares always
-// pass `refuse`, the run-setup gate's derived-name path passes `suffix`.
-//
-// The parameter is EXPLICIT rather than inferred from whether a `branchName`
-// was supplied, because this service never sees a request without one: the gate
-// resolves the name first — it is the sole holder of the queue-item summary the
-// slug rule prefers — so the mode services below that seam always receive an
-// explicit name. A presence-based discriminant would therefore read
-// "caller-supplied" on every production call, leaving the suffix arm
-// unreachable and turning a derived-name collision into a refusal: the exact
-// inversion of the decision.
-//
-// Knowing which arm a request is IS provenance knowledge, and it lives one
-// layer up because that is the layer that derived — or did not derive — the
-// name. This service holds no derivation inputs at all (no `taskSummary`), so
-// it cannot reconstruct the answer and does not try.
-//
-// ---------------------------------------------------------------------------
-// What "never mutates the main checkout" means here
-// ---------------------------------------------------------------------------
-//
-// This module issues exactly four invocation shapes over three git verbs, and
-// the invariant is a property of that list rather than of a runtime guard:
-//
-//   * `symbolic-ref --quiet --short HEAD` against the mount's canonical root —
-//     a READ. It resolves the default base ref.
-//   * `worktree add -b <branch> <root> <base-ref>` against the mount's
-//     canonical root — writes the NEW root and registers it in the repository's
-//     administrative area. It does not touch the main checkout's working tree,
-//     its index, or its `HEAD`.
-//   * `worktree prune` against the mount's canonical root — drops the
-//     administrative entries of worktrees whose directory is already gone,
-//     which is the only thing that ever unregisters what `worktree add` wrote.
-//     It reads the main checkout's working tree not at all and writes only
-//     inside the administrative area its sibling created the entry in.
-//   * `status --porcelain` against a WORKTREE root (never the mount's) — a
-//     read, for the reuse cleanliness verdict.
-//
-// No `checkout`, no `switch`, no `branch`, no `merge`, no `reset`, no `stash`.
-// The `bound-root` counterpart of this invariant — verify the checkout's
-// current branch, never switch it — is carried by
-// `WorkspaceBranchMismatchError` on the path that owns that mode.
-//
-// ---------------------------------------------------------------------------
-// Hook neutralization is STRUCTURAL
-// ---------------------------------------------------------------------------
-//
-// Every git invocation in this module goes through one private `#runGit`, and
-// that method is the only place an argv is assembled. It prepends
-// `-c core.hooksPath=<empty dir>` and `-c core.fsmonitor=false` unconditionally,
-// so the invariant's "every provisioning git invocation" quantifier is
-// discharged by there being no other way to reach git from here — not by
-// remembering the flags at each call site. A command-line `-c` outranks
-// repository, global and system config and the `GIT_CONFIG_*` injection channel
-// alike, so a repo-local value cannot win either flag back.
-//
-// The second flag exists because the fsmonitor hook is the one hook git names
-// by CONFIG VALUE rather than by a `hooks/`-resident file: a non-boolean
-// `core.fsmonitor=<pathname>` IS the hook command, so `core.hooksPath` never
-// governs it. Index-refreshing verbs in this module's set reach it — `status`
-// consults it for the cleanliness verdict, and `worktree add` consults it while
-// populating the new checkout (both reproduced empirically on git 2.50.1 with a
-// repo-local pathname hook under hooksPath-only neutralization; `=false`
-// suppressed both). Two other repo-local config values that name executables
-// and have a plausible path into this module's verbs were probed and need no
-// flag: `uploadpack.packObjectsHook` is honored only from protected config —
-// git's own documented safety measure against untrusted repositories — and
-// `core.alternateRefsCommand` fires only on receive-pack's alternate-tip
-// advertisement, a push-target path no verb in the invocation set ever engages.
-//
-// The neutralization directory is created (recursively, idempotently) before
-// each invocation rather than once at construction: an EMPTY directory is the
-// mechanism, and a temp-file reaper that removed it between invocations would
-// silently restore the repository's own hooks.
-//
-// Every invocation is `execFile` with an argv ARRAY — never a shell string — so
-// a branch name, base ref or path containing shell metacharacters is one
-// argument rather than a command. The `baseRef` leading-dash refusal below
-// closes the remaining channel, which is option injection rather than shell
-// injection.
-//
-// What the neutralized surface does NOT cover — recorded rather than implied:
-// checkout-time FILTER DRIVERS. `worktree add` populates a working tree, and a
-// `.gitattributes` carried in the checked-out content may name a
-// `filter.<driver>` whose smudge/process command git then invokes. The COMMAND
-// comes from git config — user, system, or the repository the user owns —
-// never from the checked-out content, and a driver the config does not define
-// degrades to a passthrough. So content alone cannot introduce code; it can
-// only trigger commands the user already configured, git-lfs being the
-// canonical case. Neutralizing them is deliberately NOT attempted: git offers
-// no blanket filter-disable switch, the driver namespace cannot be enumerated
-// from here, and pointing the smudge chain at nothing would silently corrupt
-// every LFS-managed checkout. the claim is therefore HOOKS-scoped, exactly as
-// states it.
-//
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-//
-// `retire` writes `state = 'retired'`, appends `worktree.retired`, and stops.
-// `cleaned_at` stays NULL and the root stays on disk. `cleanupPass` is what
-// removes the directory, prunes the repository's now-dangling administrative
-// entry, and stamps the column, in that order — so a crash between them leaves
-// a row the next pass retries (the removal is `force`, hence idempotent), and
-// never a row claiming a cleanup that did not happen.
-//
-// BOTH retirement decisions — already-retired and busy-holder — are taken
-// INSIDE the retirement transaction, in `#emitRetirement`'s prelude. A probe
-// outside it decides against a state a concurrent writer can still change: the
-// append path awaits the per-session append lock between the read and the
-// transaction, so a `markBusy` landing in that window would have its worktree
-// retired out from under a live run — after which the sweep's leg (d) removes
-// the running run's execution root. The prelude is the only place where the
-// decision and the write are the same transaction, and it is where a throw
-// still aborts before anything persists. `#runDetachCascade` in
-// `../workspace/repo-mount-service.js` closes the equivalent race the same way,
-// with the same reasoning at its own header.
-//
-// ---------------------------------------------------------------------------
-// RESIDUAL — a branch name can be free in the INDEX and taken in GIT
-// ---------------------------------------------------------------------------
-//
-// Removing a worktree does not delete the branch it held. Verified against git
-// 2.50.1 on a scratch repository: once the worktree is gone, a second
-// `git worktree add -b <same-name> …` fails with `fatal: a branch named
-// '<name>' already exists` (exit 255) even though the branch is checked out
-// NOWHERE, while `git worktree add <path> <same-name>` — without `-b` — binds
-// the surviving branch and succeeds.
-//
-// THREE paths reach that state, and only the first involves a cleanup at all:
-//
-//   * RETIREMENT plus `cleanupPass` leg (d). `-> retired` takes the row out of
-//     the index predicate and the pass then removes the checkout the branch was
-//     created alongside.
-//   * `create`'s READY-EMISSION recovery. `worktree add -b` had already
-//     succeeded in full, so the branch certainly exists; the recovery removes
-//     the root and lands the row `failed`, which the index predicate excludes
-//     exactly as it excludes `retired`.
-//   * `create`'s MATERIALIZATION-failure recovery, whenever `worktree add -b`
-//     failed after creating the branch ref and before finishing the checkout.
-//     Whether the ref survives is git's business and this module never sees it,
-//     so on this arm the state is possible rather than certain.
-//
-// So a caller can find `idx_worktrees_active_branch` reporting the name free
-// while git refuses it — including immediately after a transient event-log
-// failure, with no retirement and no sweep anywhere in the story. What each
-// arm then reports:
-//
-//   * `refuse` — the INSERT succeeds (no live row to collide with) and
-//     materialization fails, so the caller sees `worktree.create_failed` (500)
-//     where `worktree.branch_collision` (409) is the honest answer.
-//   * `suffix` — the ordinal loop cannot advance at all: it retries only on a
-//     SQLite UNIQUE violation, and this failure never reaches the database.
-//
-// Deliberately NOT closed here by a second arbiter or by reading git's stderr.
-// ratifies the index as THE arbiter, a second one would reintroduce the
-// read-then-insert race the index exists to close, and this module walls off
-// `stderr` by design (the no-path-echo rule). It is recorded and handed forward
-// instead: the real-git acceptance tier is the first place the behavior is
-// observable at all, and the disposition — bind the surviving branch, delete it
-// during cleanup, or widen the failure taxonomy — is a governance question
-// rather than an implementation liberty this task may take.
-//
+//   * The main checkout is never mutated: git runs only `symbolic-ref --quiet --short HEAD`,
+//     `worktree add -b`, `worktree prune` (the only thing that unregisters what `add` wrote) and
+//     `status --porcelain`.
+//   * `cleanupPass` removes the directory, prunes, then stamps `cleaned_at`, so a crash between
+//     steps is retried and never recorded as a cleanup that did not happen.
+//   * Known gap: removing a worktree keeps its branch, so a later `worktree add -b <same-name>`
+//     fails (exit 255 on git 2.50.1) while the index says free; `refuse` then reports
+//     `worktree.create_failed`, not a collision, and `suffix` cannot advance. A second arbiter
+//     would race, and git's stderr has paths.
 
-import { execFile } from "node:child_process";
-import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-
 import type { Database, Statement } from "better-sqlite3";
-
 import {
   WORKTREE_GIT_REF_MAX_LEN,
   WorktreeIdSchema,
@@ -243,13 +21,7 @@ import {
   type WorktreeRetireResponse,
   type WorktreeState,
 } from "@ai-sidekicks/contracts";
-
 import { RepoMountNotFoundError } from "../workspace/repo-errors.js";
-import {
-  DEFAULT_GIT_EXECUTABLE,
-  DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
-} from "../workspace/repo-root-resolver.js";
-
 import {
   WorktreeBranchCollisionError,
   WorktreeCreateFailedError,
@@ -259,88 +31,29 @@ import {
 } from "./worktree-errors.js";
 import type { WorktreeEventEmitter } from "./worktree-event-emitter.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
+import {
+  DEFAULT_WORKTREE_FILESYSTEM,
+  DEFAULT_WORKTREE_GIT_TIMEOUT_MS,
+  HOOK_NEUTRALIZATION_SEGMENT,
+  runGitWithExecFile,
+  type WorktreeFilesystem,
+  type WorktreeGitInvocationResult,
+  type WorktreeGitRunner,
+} from "./worktree-git.js";
+import { MAX_BRANCH_NAME_ORDINAL } from "./worktree-branch-name.js";
 
-// --------------------------------------------------------------------------
-// Injected seams
-// --------------------------------------------------------------------------
-
-/** Captured stdio from one completed git invocation. */
-export interface WorktreeGitInvocationResult {
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-/** Per-invocation bounds. */
-interface WorktreeGitInvocationOptions {
-  /** Wall-clock ceiling; the child is killed past it. */
-  readonly timeoutMs: number;
-}
-
-/**
- * The git process seam.
- *
- * Takes the COMPLETE argv — including `-C <dir>` — and no working directory,
- * which is what makes the argv the whole invocation.
- *
- * Declared LOCALLY rather than imported from the `GitFileExecutor`
- * (`../workspace/repo-root-resolver.js`), whose shape is close but not equal:
- * that seam takes the executable as its first parameter and a full
- * `GitCommandOptions` (env, maxBuffer, windowsHide) as its third, because the
- * repo-root resolver's env scrub is per-call policy. Here the executable and
- * the environment are fixed by this module, and the argv prefix is fixed by
- * `#runGit`. Same reasoning `worktree-event-emitter.ts` gives for declaring its
- * own append seam.
- *
- * Rejections are opaque to this module: nothing reads a field off the thrown
- * value, so a fake may reject with anything. That is deliberate — the git
- * `stderr` is exactly the value no-path-echo rule keeps out of the typed
- * carrier.
- */
-export type WorktreeGitRunner = (
-  argv: readonly string[],
-  options: WorktreeGitInvocationOptions,
-) => Promise<WorktreeGitInvocationResult>;
-
-/**
- * Two verbs, both idempotent: `createDirectory` creates leading directories
- * and tolerates an existing one, `removeDirectory` removes recursively and
- * tolerates a missing one. The tolerance is load-bearing for — the sweep's
- * removal is retried until `cleaned_at` is stamped.
- */
-export interface WorktreeFilesystem {
-  createDirectory(path: string): Promise<void>;
-  removeDirectory(path: string): Promise<void>;
-}
-
+/** Dependencies of {@link WorktreeService}; only the first three are required. */
 export interface WorktreeServiceDeps {
   /**
-   * The daemon's SQLite handle. Statements are prepared once, in the
-   * constructor.
-   *
-   * MUST be the same connection the event log behind {@link events} appends
-   * through. Every transition writes its row as a `transactionalPrelude`, and
-   * a statement prepared on a DIFFERENT connection does not join the event
-   * transaction — so the row/event atomicity would silently vanish, with no
-   * exception raised anywhere.
-   *
-   * Nothing here can verify handle identity — the event log sits behind the
-   * emitter seam — so the composition root owns the constraint, and no test
-   * in this package can catch a violation of it. Same posture, and the same
-   * Phase-3 wiring obligation, as `../workspace/workspace-service.js`.
+   * MUST be the connection {@link events} appends through, or a row write silently leaves the event
+   * transaction. Nothing here can verify that, so the composition root owns it.
    */
   readonly database: Database;
-  /** emission seam — this service constructs no envelopes of its own. */
+  /** Event emission seam; this service constructs no envelopes of its own. */
   readonly events: WorktreeEventEmitter;
   /**
-   * The daemon's execution-roots directory. Worktree roots are placed at
-   * `<executionRootsDirectory>/<repoMountId>/worktrees/<worktreeId>`, and the
-   * hook-neutralization directory is a sibling under the same root.
-   *
-   * Absolute by contract: it is the prefix of every `fs_root` this service
-   * writes, and hands `fs_root` to as an approval scope root — a relative one
-   * would be completed against whatever working directory a tool process
-   * happens to hold. Not re-validated here; the daemon's configuration layer
-   * owns that check, and duplicating it would put one rule in two places.
+   * Absolute, and not re-validated here. Roots are `<dir>/<repoMountId>/worktrees/<worktreeId>`;
+   * the hook-neutralization directory is a sibling.
    */
   readonly executionRootsDirectory: string;
   /** Git process seam; defaults to `execFile` against `git`. */
@@ -355,56 +68,22 @@ export interface WorktreeServiceDeps {
   readonly newWorktreeId?: () => string;
 }
 
-// --------------------------------------------------------------------------
-// Inputs and results
-// --------------------------------------------------------------------------
-
-/**
- * Inputs for {@link WorktreeService.create}.
- *
- * `branchName` is REQUIRED and `onCollision` is explicit — seam and policy
- * respectively. This service derives no names and holds no derivation inputs;
- * see the header.
- *
- * There is no `workspaceId`. The worktree is a checkout of a MOUNT, and the
- * workspace association lives one layer up in the execution-root orchestrator —
- * the same seam boundary `EmitWorktreeEventInput.workspaceId` documents.
- */
+/** Inputs for {@link WorktreeService.create}; no names are derived here, so both are required. */
 export interface CreateWorktreeInput {
   /** The mount to check out from. Must be `attached`. */
   readonly repoMountId: string;
   /** Creating-session provenance — `created_by_session_id`, NOT NULL. */
   readonly sessionId: string;
-  /**
-   * Creating-run provenance — `worktrees.created_by_run_id`, NULLABLE by
-   * design: `null` records a pre-run explicit prepare, which is a fact about
-   * the worktree rather than missing data. PROVENANCE ONLY on this seam: the
-   * `run-<short-id>` fallback this value also feeds is applied by
-   * {@link deriveWorktreeBranchName}, at the layer that derives.
-   */
+  /** `null` records a prepare before any run. Provenance only; the `run-` fallback is elsewhere. */
   readonly runId?: string | null;
-  /**
-   * The branch to create. REQUIRED: the caller resolves the name first —
-   * through {@link deriveWorktreeBranchName} when it is a derived one — so this
-   * service never sees a nameless request.
-   */
+  /** The branch to create, resolved by the caller (see {@link deriveWorktreeBranchName}). */
   readonly branchName: string;
   /**
-   * What a live-checkout collision on `branchName` does. `refuse` raises
-   * {@link WorktreeBranchCollisionError}; `suffix` takes the first free
-   * ordinal and reports the chosen name verbatim.
-   *
-   * REQUIRED, with no default. A default would decide the provenance question
-   * for a caller who omitted the field — and whichever default were chosen,
-   * that omission would silently adapt a user-typed name or silently refuse a
-   * daemon-derived one.
+   * `refuse` (a caller-supplied name) raises {@link WorktreeBranchCollisionError}; `suffix` (a
+   * daemon-derived name) takes the first free ordinal. Explicit: every call arrives with a name.
    */
   readonly onCollision: "refuse" | "suffix";
-  /**
-   * Explicit base ref for the new branch. Omitted, the mount's current HEAD
-   * branch is used. A value beginning with `-` is REFUSED before any git call
-   * — see `WorktreeCreateFailureReason`.
-   */
+  /** Base ref for the new branch; omitted, the mount's HEAD branch. A leading `-` is refused. */
   readonly baseRef?: string;
   /** Envelope actor for the emitted events; defaults to the system actor. */
   readonly actor?: string | null;
@@ -416,18 +95,11 @@ export interface CreateWorktreeInput {
 export interface CreatedWorktree {
   readonly worktreeId: string;
   readonly repoMountId: string;
-  /**
-   * Reported VERBATIM so a caller never has to reconstruct it.
-   */
+  /** The branch as created, suffix included, so a caller never has to reconstruct it. */
   readonly branchName: string;
   /** `<executionRootsDirectory>/<repoMountId>/worktrees/<worktreeId>`. */
   readonly fsRoot: string;
-  /**
-   * The ref the branch was cut from — supplied, or the mount's resolved HEAD
-   * branch. Returned because the caller's `branch_contexts` row needs a
-   * `base_branch` (NOT NULL) and re-resolving it there could observe a
-   * different HEAD.
-   */
+  /** The ref the branch was cut from, returned so the caller need not re-resolve HEAD. */
   readonly baseRef: string;
   /** Always `ready`: a create that did not reach `ready` throws instead. */
   readonly state: Extract<WorktreeState, "ready">;
@@ -437,13 +109,7 @@ export interface CreatedWorktree {
 export interface ValidateWorktreeReuseInput {
   /** The explicitly named candidate. */
   readonly worktreeId: string;
-  /**
-   * The mount the caller expects the candidate to belong to. REQUIRED, and the
-   * reason this method takes a mount at all: `packages/contracts/src/worktree.ts`
-   * assigns the mount-consistency check to this method by name, because a
-   * candidate from another mount would place the execution root inside a
-   * different repository.
-   */
+  /** The mount the caller expects; a candidate from another mount sits in another repository. */
   readonly repoMountId: string;
   /** The branch the caller intends to execute against. */
   readonly branchName: string;
@@ -462,14 +128,8 @@ export interface ReusableWorktreeCandidate {
   readonly createdBySessionId: string;
   readonly createdByRunId: string | null;
   /**
-   * Whether the checkout holds uncommitted work. `true` here means the caller
-   * acknowledged it — an unacknowledged dirty candidate throws rather than
-   * returning.
-   *
-   * Reported rather than acted on: the `-> dirty` ROW transition and its
-   * `worktree.dirty` event belong to the binder, not to a validation call. A
-   * check that wrote state would make the Phase-3 `repo.worktreeReuseCheck`
-   * query mutating.
+   * `true` means the caller acknowledged it (an unacknowledged dirty candidate throws). Reported,
+   * not acted on: no `worktree.dirty` event is written.
    */
   readonly dirty: boolean;
 }
@@ -488,85 +148,15 @@ export interface WorktreeCleanupPassResult {
   readonly cleanedWorktreeIds: readonly string[];
 }
 
-/** Inputs for {@link deriveWorktreeBranchName}. */
-export interface WorktreeBranchNameInput {
-  /** The session whose last 8 hex digits form the `<session-short-id>` segment. */
-  readonly sessionId: string;
-  /** The run behind the `run-<run-short-id>` fallback; `null` when there is none. */
-  readonly runId: string | null;
-  /** The queue-item summary, the preferred `<task-slug>` source. */
-  readonly taskSummary?: string | null;
-}
-
-// --------------------------------------------------------------------------
-// Constants
-// --------------------------------------------------------------------------
-
-// The path shape: `<executionRootsDir>/<repoMountId>/worktrees/<id>`.
 const WORKTREE_ROOTS_SEGMENT = "worktrees";
 
-// A dotted sibling of the per-mount root directories, so it can never collide
-// with a mount id.
-const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
-
-const DERIVED_BRANCH_NAME_PREFIX = "sidekicks";
-const SHORT_ID_LENGTH = 8;
-const TASK_SLUG_MAX_LENGTH = 40;
-
-// The first attempt uses the bare name, so the suffixes run `-2` … `-100`. A
-// bound rather than an unbounded loop: past this many live checkouts of one
-// name the daemon is looping on a condition it cannot resolve, and a typed
-// `branch_name_unavailable` is a better answer than an indefinite retry
-// against the database.
-//
-// The bound is INVENTED rather than ratified — fixes the policy, not a ceiling
-// — and it is the conservative direction: a budget that is too small yields a
-// typed refusal, where no budget at all yields a hang.
-const MAX_BRANCH_NAME_ORDINAL = 100;
-
-// An order of magnitude above the `DEFAULT_GIT_COMMAND_TIMEOUT_MS` because
-// that bound covers metadata READS (`rev-parse`) while this one has to cover
-// `worktree add`, which materializes a full checkout — on a large repository a
-// 10-second ceiling would kill a healthy provisioning.
-const DEFAULT_WORKTREE_GIT_TIMEOUT_MS = 120_000;
-
-// stdout ceiling. Only `status --porcelain` can approach it, and an overflow is
-// a rejection — which the cleanliness path reads as `cleanliness_unresolved`
-// and refuses on. Fail-closed by construction: a working tree with more than
-// this much status output is emphatically not clean, so the refusal agrees with
-// the verdict the daemon could not compute.
-const GIT_STDIO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
-
-// The live-row predicate, spelled to match `idx_worktrees_active_branch`'s
-// predicate exactly. Any divergence between this and the index would make the
-// "live" reads disagree with the arbiter, which is the one thing rests on. One
-// constant, interpolated at both call sites: the QUALIFIED spelling is valid
-// at the single-table read as well as at the JOIN, so there is no second
-// spelling for the two to drift apart on.
+// Spelled to match `idx_worktrees_active_branch` exactly, so "live" reads agree with the arbiter.
 const LIVE_WORKTREE_STATE_PREDICATE = "worktrees.state NOT IN ('retired', 'failed')";
 
-// --------------------------------------------------------------------------
-// Internal abort signal
-// --------------------------------------------------------------------------
-
 /**
- * Module-private abort signal for `#emitRetirement`'s in-prelude re-read of the
- * row's state.
- *
- * The append path runs the prelude and then INSERTs the event row
- * UNCONDITIONALLY — only a THROW rolls the transaction back. So a prelude that
- * merely recorded "the row is already retired" and returned would still commit
- * a second `worktree.retired` for one transition, which is exactly duplicate
- * the compare-and-swap exists to prevent. Throwing is the only way to say
- * "abort, but this is not an error".
- *
- * Caught by EXACTLY this class at both call sites — `retire` turns it into the
- * idempotent response, `cleanupPass` skips the row and continues the pass —
- * while anything else propagates. Not a `DaemonDomainError` and not exported:
- * it names an internal concurrency event rather than anything a caller did
- * wrong, and it never escapes this module. Modeled on
- * `../workspace/workspace-service.js`'s `StaleTransitionRaceError` and
- * `../workspace/repo-mount-service.js`'s `MountDetachRaceError`.
+ * Aborts `#emitRetirement`'s prelude for an already-retired row: the append path INSERTs the event
+ * unconditionally and only a throw rolls back. Internal, not a `DaemonDomainError`; `retire` and
+ * `cleanupPass` both catch it.
  */
 class WorktreeAlreadyRetiredError extends Error {
   constructor(worktreeId: string) {
@@ -579,14 +169,7 @@ class WorktreeAlreadyRetiredError extends Error {
   }
 }
 
-// --------------------------------------------------------------------------
-// Row and bind-parameter shapes
-// --------------------------------------------------------------------------
-//
-// Declared as the type arguments on `prepare<Bind, Result>` rather than applied
-// with `as` at each read. The claim is identical either way — the column list
-// is the evidence — but stating it at the QUERY makes it fail as a type error
-// at the read site if the two drift, and keeps the production paths cast-free.
+// Type arguments on `prepare<Bind, Result>` make query/shape drift a type error, not a cast.
 
 interface WorktreeRow {
   readonly id: string;
@@ -611,12 +194,7 @@ interface WorktreeIdRow {
 interface WorktreeRootRow {
   readonly id: string;
   readonly fs_root: string;
-  /**
-   * The owning mount's canonical root, for the administrative-entry prune.
-   * NULLABLE because the read LEFT-joins, not because a mount is expected to be
-   * missing: the schema and this package's write set make the NULL unreachable,
-   * and `#selectUncleanedRetiredStmt` records why it is modeled anyway.
-   */
+  /** The owning mount's root for the prune; nullable because the read LEFT-joins. */
   readonly canonical_root: string | null;
 }
 
@@ -652,13 +230,7 @@ interface WorktreeTransitionParams {
   readonly now: string;
 }
 
-/**
- * One `create` call's worth of state for arbitration loop.
- *
- * The requested name and the collision policy are NOT copied out of `input`:
- * both live on it (`branchName` required, `onCollision` explicit), and a copy
- * would be a second place either could be set.
- */
+/** One `create` call's arbitration-loop state; the name and policy stay on `input`. */
 interface CreatingRowAttempt {
   readonly worktreeId: string;
   readonly fsRoot: string;
@@ -666,11 +238,8 @@ interface CreatingRowAttempt {
 }
 
 /**
- * What a failed `create` has to dispose of, named for the same reason
- * {@link WorktreeMaterialization} is. `fsRoot` and `canonicalRoot` are both
- * absolute directory paths of the same type, and transposing them would aim
- * `#recordCreateFailure`'s `removeDirectory` at the USER's repository root —
- * a mistake the compiler cannot see through three positional strings.
+ * What a failed `create` disposes of. Both paths are absolute; transposing them would aim
+ * `removeDirectory` at the user's repository root.
  */
 interface CreateFailureRecovery {
   readonly worktreeId: string;
@@ -689,220 +258,9 @@ interface WorktreeMaterialization {
   readonly baseRef: string;
 }
 
-// --------------------------------------------------------------------------
-// Branch-name derivation — pattern, filled slug rule
-// --------------------------------------------------------------------------
-
 /**
- * Derive the daemon's default branch name:
- * `sidekicks/<session-short-id>/<task-slug>`.
- *
- * The `<task-slug>` is the queue-item summary lowercased, with non-alphanumeric
- * runs collapsed to `-`, leading/trailing `-` trimmed, and the result truncated
- * to 40 characters at a `-` boundary. With no usable summary it is
- * `run-<run-short-id>`.
- *
- * The plan's row writes this helper's inputs as the shorthand `(summary?,
- * runId)` and its output as the slug. Both are expanded here, and both
- * expansions are forced by the rule itself rather than chosen:
- *
- *   * It takes an OBJECT including `sessionId`, because `<session-short-id>` is
- *     a segment of the pattern and the shorthand names no input that could
- *     produce it. Three positional strings of which two are optional would also
- *     be transposable at the call site; a named object is not.
- *   * It returns the FULL `sidekicks/<session-short-id>/<task-slug>`, not the
- *     slug segment alone. A helper returning only the segment would leave every
- *     caller re-spelling the prefix and the short-id derivation, which is how
- *     one naming rule becomes three subtly different ones.
- *
- * This is also the shape wants: the run-setup gate holds the session, the run
- * and the queue-item summary, and needs a branch NAME to hand
- * {@link WorktreeService.create}, whose `branchName` is required.
- *
- * Throws `WorktreeCreateFailedError` with `branch_name_underivable` when neither
- * input is usable, so the rule's precondition is enforced where the rule lives —
- * and only here, since `create` no longer derives.
- *
- * Exported for the gate, for and for the suite: the table-driven cases are the
- * readable form of the spec rule, and they cannot be written against a private
- * function.
- */
-export function deriveWorktreeBranchName(input: WorktreeBranchNameInput): string {
-  const taskSlug = slugifyTaskSummary(input.taskSummary ?? null) ?? runFallbackSlug(input.runId);
-  if (taskSlug === null) {
-    throw new WorktreeCreateFailedError("branch_name_underivable");
-  }
-  return `${DERIVED_BRANCH_NAME_PREFIX}/${shortId(input.sessionId)}/${taskSlug}`;
-}
-
-/**
- * LAST {@link SHORT_ID_LENGTH} hex digits of an identifier.
- *
- * The last 8 digits are the low 32 of the id's 62 random bits (random under v4
- * too), so the handle keeps the entropy the rule always assumed.
- *
- * Hyphens are stripped before slicing so the canonical UUID form and its
- * unhyphenated spelling yield the same short id, and the result is lowercased
- * because a branch name should not vary with the casing a caller happened to
- * pass. A shorter-than-8 id yields whatever it has rather than padding — a
- * short id is a display convenience, and the row's own `id` column is what
- * anything durable joins on.
- */
-function shortId(identifier: string): string {
-  return identifier.replace(/-/g, "").slice(-SHORT_ID_LENGTH).toLowerCase();
-}
-
-/**
- */
-function runFallbackSlug(runId: string | null): string | null {
-  if (runId === null || runId.length === 0) {
-    return null;
-  }
-  return `run-${shortId(runId)}`;
-}
-
-/**
- * The slug rule, applied to a summary. `null` when there is no summary or
- * nothing survives normalization (a summary of `"..."` collapses to empty).
- *
- * ASCII-only alphanumerics. Git refs may carry UTF-8, but the slug becomes a
- * directory-adjacent identifier that has to round-trip across the three
- * platforms the daemon supports — where normalization form, case folding and
- * encoding all differ — so a non-ASCII letter is treated as a separator rather
- * than transliterated. `toLowerCase` runs first so the character class only has
- * to name lowercase letters.
- */
-function slugifyTaskSummary(taskSummary: string | null): string | null {
-  if (taskSummary === null) {
-    return null;
-  }
-  const collapsed = taskSummary
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "")
-    .replace(/-+$/, "");
-  if (collapsed.length === 0) {
-    return null;
-  }
-  return truncateSlugAtBoundary(collapsed, TASK_SLUG_MAX_LENGTH);
-}
-
-/**
- * Truncate to `maxLength`, preferring a `-` boundary so the tail is not a
- * half-word.
- *
- * Three cases, in order:
- *   1. Already short enough — returned unchanged.
- *   2. The character AT `maxLength` is a `-`, so the clip already lands on a
- *      word end and the full `maxLength` characters are kept. Without this case
- *      the boundary search below would drop a complete trailing word for
- *      nothing.
- *   3. Otherwise the last `-` inside the clip is the cut point. A slug with no
- *      interior `-` (one long word) has no boundary to prefer and is cut hard
- *      at `maxLength` rather than to nothing.
- */
-function truncateSlugAtBoundary(slug: string, maxLength: number): string {
-  if (slug.length <= maxLength) {
-    return slug;
-  }
-  const clipped = slug.slice(0, maxLength);
-  if (slug.charAt(maxLength) === "-") {
-    return clipped;
-  }
-  const lastBoundary = clipped.lastIndexOf("-");
-  if (lastBoundary <= 0) {
-    return clipped;
-  }
-  return clipped.slice(0, lastBoundary);
-}
-
-// --------------------------------------------------------------------------
-// Default seam implementations
-// --------------------------------------------------------------------------
-
-/**
- * The strip list, keyed for case-insensitive lookup.
- *
- * The list itself is IMPORTED from `../workspace/repo-root-resolver.js` rather
- * than re-spelled. It is a security fact — which ambient variables can redirect
- * git's repository discovery — and two copies of a security fact drift, with
- * the copy that stopped being maintained silently handing a redirected
- * `GIT_DIR` to a `worktree add`. This is a same-package import of an
- * already-exported constant, not a new cross-plan module edge; the ASSEMBLY
- * below is local because its rationale (uppercased comparison,
- * rebuild-by-omission) is documented at that export.
- */
-const DISCOVERY_REDIRECTING_GIT_ENV_KEYS_UPPERCASED = new Set(
-  DISCOVERY_REDIRECTING_GIT_ENV_KEYS.map((key) => key.toUpperCase()),
-);
-
-/**
- * The environment every git invocation runs under. Read at call time so a
- * daemon that mutates its own environment is followed rather than snapshotted.
- */
-function buildWorktreeGitEnvironment(): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (DISCOVERY_REDIRECTING_GIT_ENV_KEYS_UPPERCASED.has(key.toUpperCase())) {
-      continue;
-    }
-    environment[key] = value;
-  }
-  environment["LC_ALL"] = "C";
-  environment["LANG"] = "C";
-  // `worktree add` never authenticates, but a git that decided to prompt would
-  // block on a terminal the daemon does not have until the timeout fires.
-  environment["GIT_TERMINAL_PROMPT"] = "0";
-  return environment;
-}
-
-/** `execFile` with an argv ARRAY — never a shell string. See the header. */
-function runGitWithExecFile(
-  argv: readonly string[],
-  options: WorktreeGitInvocationOptions,
-): Promise<WorktreeGitInvocationResult> {
-  return new Promise<WorktreeGitInvocationResult>((resolve, reject) => {
-    execFile(
-      DEFAULT_GIT_EXECUTABLE,
-      [...argv],
-      {
-        encoding: "utf8",
-        timeout: options.timeoutMs,
-        maxBuffer: GIT_STDIO_MAX_BUFFER_BYTES,
-        env: buildWorktreeGitEnvironment(),
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          reject(Object.assign(error, { stdout, stderr }));
-          return;
-        }
-        resolve({ stdout, stderr });
-      },
-    );
-  });
-}
-
-const DEFAULT_WORKTREE_FILESYSTEM: WorktreeFilesystem = {
-  async createDirectory(path: string): Promise<void> {
-    await mkdir(path, { recursive: true });
-  },
-  async removeDirectory(path: string): Promise<void> {
-    await rm(path, { recursive: true, force: true });
-  },
-};
-
-// --------------------------------------------------------------------------
-// WorktreeService
-// --------------------------------------------------------------------------
-
-/**
- * Owns every `worktrees` transition and every worktree-scoped git invocation.
- *
- * Statement-per-transition, following `../workspace/workspace-service.js`: each
- * `UPDATE` carries its own legal-predecessor set in its `WHERE` clause, so the
- * transition table lives in the statements rather than in branches that can
- * drift from them.
+ * Owns every `worktrees` transition and worktree-scoped git call. Each `UPDATE` carries its
+ * legal-predecessor set in its `WHERE`, so the transition table lives in the statements.
  */
 export class WorktreeService {
   readonly #events: WorktreeEventEmitter;
@@ -941,9 +299,7 @@ export class WorktreeService {
 
     const database = deps.database;
 
-    // Scoped to `state = 'attached'` ordering obligation: a detached mount
-    // is not a provisioning target, and `repo.not_found` is a more honest
-    // answer than letting it reach the git layer.
+    // Only `attached` mounts are provisioning targets; a detached one gets `repo.not_found`.
     this.#selectAttachedMountStmt = database.prepare<MountLookupParams, AttachedMountRow>(
       `SELECT id, canonical_root
          FROM repo_mounts
@@ -957,8 +313,7 @@ export class WorktreeService {
         WHERE id = @worktree_id`,
     );
 
-    // The UNIQUE-violation confirmation read. Its predicate is the index's
-    // predicate, so "live" here means exactly what the arbiter means by it.
+    // The UNIQUE-violation confirmation read; its predicate is the index's.
     this.#selectLiveWorktreeOnBranchStmt = database.prepare<BranchLookupParams, WorktreeIdRow>(
       `SELECT id
          FROM worktrees
@@ -968,21 +323,9 @@ export class WorktreeService {
         LIMIT 1`,
     );
 
-    // The retire-conflict probe, executed INSIDE the retirement transaction
-    // (`#emitRetirement`'s prelude) rather than before it — see the header's
-    // section for the window an outside probe leaves open.
-    //
-    // Keyed on `fs_root`, NOT through `branch_contexts`. Context rows are
-    // retained history (insert-per-prepare, deliberately never pruned), so a
-    // join through them reads "some workspace once bound this worktree" — and
-    // a workspace that has since reprovisioned onto a DIFFERENT root and gone
-    // `busy` there would block a retirement it no longer contends with, for
-    // the whole duration of an unrelated run. A `busy` workspace whose CURRENT
-    // `fs_root` is this worktree's directory is precisely the "a run is
-    // holding this root", and the path is also the one link the compensation
-    // cannot sever (it deletes pair rows while roots stay live). `cleanupPass`
-    // leg (d) re-runs this same probe per row before removal — same statement,
-    // so the two decisions cannot drift.
+    // Keyed on `fs_root`, not `branch_contexts`: context rows are retained history, so a join would
+    // let a workspace since moved to another root block a retirement. A `busy` workspace at this
+    // `fs_root` is exactly a run holding it. Runs in the retirement prelude and per sweep row.
     this.#selectBusyHolderStmt = database.prepare<WorktreeLookupParams, HoldingWorkspaceRow>(
       `SELECT holder.id AS workspace_id
          FROM worktrees
@@ -992,13 +335,8 @@ export class WorktreeService {
         LIMIT 1`,
     );
 
-    //
-    // The busy probe is STRUCTURAL on this arm rather than absent: it lives in
-    // `#emitRetirement`'s prelude, which both callers share. It is expected to
-    // find nothing here — the detach refuses while a dependent workspace is
-    // busy, so a non-attached mount cannot have one — and a conflict firing on
-    // this arm therefore reports a real inconsistency between the two plans'
-    // tables, correctly propagated fail-closed rather than swept past.
+    // Live worktrees on a mount no longer `attached`. They retire through `#emitRetirement`, so the
+    // busy probe applies; a conflict means the tables disagree and propagates fail-closed.
     this.#selectSweepableStmt = database.prepare<[], WorktreeRow>(
       `SELECT worktrees.id, worktrees.repo_mount_id, worktrees.created_by_session_id,
               worktrees.created_by_run_id, worktrees.branch_name, worktrees.fs_root,
@@ -1010,34 +348,13 @@ export class WorktreeService {
         ORDER BY worktrees.created_at ASC, worktrees.id ASC`,
     );
 
-    // The mount's canonical root rides along for the `worktree prune` that
-    // unregisters the administrative entry `worktree add` left in the USER's
-    // repository. LEFT joined, deliberately: an INNER join would let a row whose
-    // mount is missing drop out of the sweep entirely, so a cosmetic cleanup
-    // would silently shrink the row set of the load-bearing one and strand the
-    // directory forever. A NULL canonical root skips the prune and nothing else.
+    // LEFT JOIN so a row with no mount still gets its directory removed; a NULL root skips only the
+    // prune. Unreachable through this package (`repo_mount_id` is NOT NULL, no `ON DELETE`, no
+    // mount is ever deleted); kept against out-of-band mutation (a handle without foreign keys).
     //
-    // The NULL arm is UNREACHABLE through this package's own code, under any
-    // pragma setting, for two independent reasons: `worktrees.repo_mount_id` is
-    // `NOT NULL REFERENCES repo_mounts(id)` with no `ON DELETE` clause — so
-    // NO ACTION refuses the parent delete while a child row exists — and no
-    // `DELETE FROM repo_mounts` is issued anywhere in the daemon regardless.
-    // It is kept for what those two facts do NOT cover: an out-of-band mutation
-    // (a repair script, a future writer, a handle opened without
-    // `applyPragmas`, hence without `foreign_keys = ON`). On such a row the
-    // load-bearing removal must still run, which is the whole argument for the
-    // LEFT join — so the arm is defense in depth rather than a live case.
-    //
-    // The busy-holder deferral is keyed on `fs_root` rather than on a binding
-    // row: `worktrees` has no workspace column, and the compensation can delete
-    // a `branch_contexts` row while the root stays live, so the path is the one link that cannot be
-    // severed out from under this read. The retire-time probe does NOT cover
-    // this window — it decides at the retirement instant, and a workspace still
-    // pointing at the root can be marked busy AFTERWARD (the `markBusy`
-    // requires only `ready`), which without this clause would let the next pass
-    // delete a working tree a live run just received. Deferral, not exclusion:
-    // `releaseBusy` returns the holder to `ready`, `cleaned_at` stays NULL, and
-    // the next pass reclaims the root.
+    // `NOT EXISTS` defers a root a `busy` workspace holds: `markBusy` needs only `ready`, so it can
+    // land after retirement, and the next pass would delete a tree a live run just received.
+    // Deferred, not excluded: `releaseBusy` frees it and a later pass reclaims it.
     this.#selectUncleanedRetiredStmt = database.prepare<[], WorktreeRootRow>(
       `SELECT worktrees.id, worktrees.fs_root, repo_mounts.canonical_root
          FROM worktrees
@@ -1052,9 +369,7 @@ export class WorktreeService {
         ORDER BY worktrees.updated_at ASC, worktrees.id ASC`,
     );
 
-    // `state` is left to the column DEFAULT ('creating') rather than written:
-    // the DDL and mapping already agree that a new row starts there, and
-    // naming it here would be a second copy of that fact.
+    // `state` is left to the column DEFAULT ('creating'); naming it would copy that fact.
     this.#insertWorktreeStmt = database.prepare<InsertWorktreeParams>(
       `INSERT INTO worktrees (
          id, repo_mount_id, created_by_session_id, created_by_run_id,
@@ -1071,28 +386,24 @@ export class WorktreeService {
         WHERE id = @worktree_id AND state = 'creating'`,
     );
 
-    // No event accompanies this one: the failure incident is evented as
-    // `workspace.stale` by the coupled `failRootPreparation`.
+    // No event accompanies this one: the caller's `failRootPreparation` events the failure as
+    // `workspace.stale`.
     this.#markFailedStmt = database.prepare<WorktreeTransitionParams>(
       `UPDATE worktrees
           SET state = 'failed', updated_at = @now
         WHERE id = @worktree_id AND state = 'creating'`,
     );
 
-    // Every non-`retired` state is a legal predecessor, `failed` included. The
-    // idempotent no-op for an already-`retired` row is taken by the prelude's
-    // own state re-read, two statements earlier in the SAME transaction, so
-    // `state <> 'retired'` matching nothing here means the row moved under a
-    // read this transaction already performed — a genuine invariant violation
-    // rather than "already done", which is why it keeps the plain assert.
+    // Every non-`retired` state is a legal predecessor, `failed` included. The prelude has already
+    // handled a `retired` row, so a mismatch here is an invariant violation (plain assert).
     this.#retireStmt = database.prepare<WorktreeTransitionParams>(
       `UPDATE worktrees
           SET state = 'retired', updated_at = @now
         WHERE id = @worktree_id AND state <> 'retired'`,
     );
 
-    // Guarded on `cleaned_at IS NULL` so a concurrent pass that already stamped
-    // the row does not have its timestamp overwritten.
+    // Guarded on `cleaned_at IS NULL` so a concurrent pass that already stamped the row does not
+    // have its timestamp overwritten.
     this.#stampCleanedStmt = database.prepare<WorktreeTransitionParams>(
       `UPDATE worktrees
           SET cleaned_at = @now, updated_at = @now
@@ -1100,49 +411,17 @@ export class WorktreeService {
     );
   }
 
-  // ------------------------------------------------------------------------
-  // create
-  // ------------------------------------------------------------------------
-
   /**
-   * Provision a worktree: resolve the base ref, record the row and its
-   * `worktree.created` event, materialize the checkout, then record `ready` and
-   * its `worktree.ready` event.
-   *
-   * The ORDER is the contract, and each step sits where its failure is
-   * survivable:
-   *
-   * 1. **Mount resolution and base-ref refusals happen before any row exists.**
-   *    A request that cannot proceed leaves no `worktrees` row at all — there
-   *    is nothing to mark `failed`, because nothing was created.
-   * 2. **Row + `worktree.created` commit together**, through the emitter's
-   *    transactional prelude. This is where the arbitration happens.
-   * 3. **Materialization runs with the row already durable.** A failure here
-   *    marks the row `failed` (no event) and throws, so the incident is
-   *    queryable through `repo.worktreeStatusRead` rather than vanishing.
-   * 4. **The `-> ready` flip and `worktree.ready` commit together**, and a
-   *    failure here takes the SAME recovery as step 3 rather than propagating
-   *    bare. `creating` is a LIVE state to `idx_worktrees_active_branch` and no
-   *    sweep leg can reach a row sitting in it, so a bare throw would wedge the
-   *    (mount, branch) pair for the daemon's lifetime.
-   *
-   * The caller — the execution-root orchestrator — is what turns the throw into
-   * the workspace-level disposition, calling the `failRootPreparation` so the
-   * workspace goes `stale` with the detail and the run parks in setup. This
-   * service never substitutes a different execution mode.
+   * Provisions a worktree: resolves the base ref, records the row and `worktree.created`,
+   * materializes the checkout, then records `ready` and `worktree.ready`. Throws on any failure and
+   * never substitutes another execution mode; a failure after the row exists marks it `failed`.
    */
   async create(input: CreateWorktreeInput): Promise<CreatedWorktree> {
     const mount = this.#requireAttachedMount(input.repoMountId);
 
-    // `#resolveBaseRef` refuses an option-like `baseRef` before spawning
-    // anything, so a request that cannot proceed never reaches a process. Its
-    // other arm — the default resolution — IS a git call, and a read-only one.
-    // No branch-name derivation happens here or anywhere below this seam.
     const baseRef = await this.#resolveBaseRef(mount.canonical_root, input.baseRef);
 
-    // Minted once, before the arbitration loop: the id is the row's primary key
-    // AND the last segment of `fs_root`, and re-minting per attempt would move
-    // the root for a reason that has nothing to do with the root.
+    // Minted once, before the arbitration loop: the id is the last segment of `fs_root`.
     const worktreeId = this.#newWorktreeId();
     const worktreeRootsDirectory = join(
       this.#executionRootsDirectory,
@@ -1186,21 +465,9 @@ export class WorktreeService {
         },
       });
     } catch (readyEmissionFailure) {
-      // The SAME recovery the materialization failure gets, and for a sharper
-      // reason. A ready emission can fail for causes that have nothing to do
-      // with this worktree — a size refusal, a disk error on the event INSERT —
-      // and every one of them would otherwise leave the row in `creating`.
-      // `creating` is LIVE under `idx_worktrees_active_branch`, so the (mount,
-      // branch) pair would be wedged permanently, and NO sweep leg can reach
-      // such a row: leg (c) wants a non-attached mount and leg (d) wants
-      // `retired`.
-      //
-      // `#markFailedStmt`'s `state = 'creating'` predicate matches here because
-      // a rejected append committed nothing: the prelude's `-> ready` write and
-      // the event row share one transaction. Re-throws the ORIGINAL failure,
-      // so the caller still learns why provisioning failed rather than what the
-      // recovery did about it.
-      //
+      // Same recovery as materialization: a `creating` row is live under the unique index and
+      // unreachable by any sweep, so a bare throw would wedge (mount, branch). A rejected append
+      // commits nothing, so `#markFailedStmt`'s `creating` predicate matches.
       await this.#recordCreateFailure({
         worktreeId,
         fsRoot,
@@ -1219,42 +486,11 @@ export class WorktreeService {
     };
   }
 
-  // ------------------------------------------------------------------------
-  // validateReuse
-  // ------------------------------------------------------------------------
-
   /**
-   * Decide whether an explicitly named candidate may be bound as an execution
-   * root. Returns the candidate on success and throws
-   * `WorktreeReuseConflictError` otherwise — a REFUSAL, never a substituted
-   * fresh worktree.
-   *
-   * The check order is fixed and is part of the contract: mount, liveness,
-   * branch, cleanliness. It runs cheapest-and-most-fundamental first so no git
-   * process is spawned for a candidate that is already doomed, and so a
-   * candidate wrong in several ways reports the most fundamental reason —
-   * telling a caller their candidate is dirty when it also belongs to another
-   * repository sends them to fix the wrong thing.
-   *
-   * A candidate id that resolves to NO row raises `WorktreeNotFoundError`
-   * rather than a conflict: 409 for an id that names nothing would send a caller
-   * to repair a row that is not there.
-   *
-   * The cleanliness probe is the TOCTOU re-check, and its verdict is a SAMPLE — both
-   * halves are deliberate. The "check" in the "becomes dirty between check and bind"
-   * is the caller's earlier observation (the `WorktreeReuseCheckRequest` wire probe,
-   * or however the candidate was picked); THIS probe runs inside the bind operation
-   * itself, so dirt that arrived since the caller looked refuses
-   * `dirty_unacknowledged` here rather than binding silently. What stays open is the
-   * sample's own tail. Liveness gets re-proven at the bind because a synchronous
-   * `worktrees.state` read can share the context write's transaction; dirtiness has
-   * no synchronous read — it is filesystem state only a git spawn can observe,
-   * mutable by the user's editor at any moment — so a second, bind-adjacent probe
-   * would still be a sample, one taken at the head of a window whose tail dominates
-   * it: a prepared workspace sits `ready` for an unbounded time before a run first
-   * touches the root. The premise's meaningful re-proof point is run start, owned by
-   * the Phase-3 root-keyed run-setup gate. An ACKNOWLEDGED dirty candidate never
-   * carried the premise, so nothing downstream re-proves it either.
+   * Decides whether a named candidate may be bound as an execution root: returns it, or throws
+   * `WorktreeReuseConflictError` (never substituting a fresh worktree) or `WorktreeNotFoundError`.
+   * Cheapest check first, so no git process spawns for a doomed candidate; the dirty verdict is a
+   * sample, since the user's editor can change the tree at any moment.
    */
   async validateReuse(input: ValidateWorktreeReuseInput): Promise<ReusableWorktreeCandidate> {
     const row = this.#selectWorktreeStmt.get({ worktree_id: input.worktreeId });
@@ -1266,16 +502,13 @@ export class WorktreeService {
       throw new WorktreeReuseConflictError(input.worktreeId, "mount_mismatch");
     }
 
-    // Parsed rather than cast: the column's CHECK constraint makes an
-    // out-of-vocabulary value reachable only through corruption, and the schema
-    // enum is the honest narrowing from `string`.
+    // Parsed, not cast: an out-of-vocabulary value is reachable only through corruption.
     const state = WorktreeStateSchema.parse(row.state);
     if (state === "retired" || state === "failed") {
       throw new WorktreeReuseConflictError(input.worktreeId, "not_live");
     }
 
-    // Checked BEFORE cleanliness and independently of the acknowledgement: an
-    // incompatible candidate is never bindable, with or without one.
+    // Independent of the acknowledgement: an incompatible candidate is never bindable.
     if (row.branch_name !== input.branchName) {
       throw new WorktreeReuseConflictError(input.worktreeId, "branch_mismatch");
     }
@@ -1297,27 +530,12 @@ export class WorktreeService {
     };
   }
 
-  // ------------------------------------------------------------------------
-  // retire
-  // ------------------------------------------------------------------------
-
   /**
-   * Record a worktree's retirement: `-> retired` plus `worktree.retired`,
-   * committed together, and NOTHING on disk. The root survives until a {@link
-   * WorktreeService.cleanupPass} removes it and stamps `cleaned_at`.
-   *
-   * Refuses with `WorktreeRetireConflictError` while a `busy` workspace is bound
-   * to the worktree — the "the execution root held by an active run". That
-   * refusal is decided INSIDE the retirement transaction, which is what makes it
-   * a guarantee rather than a sample; see the header.
-   *
-   * IDEMPOTENT on an already-`retired` row: the same response, and no second
-   * event (counts one event per real transition, and there is no transition
-   * here). Every other state — `failed` included — IS a legal predecessor.
-   * Admitting `failed` is deliberate: it is the only route by which a failed
-   * creation's row becomes sweep-eligible, and it does not contradict
-   * `packages/contracts/src/worktree.ts`'s note that `failed` is not a retire
-   * OUTCOME, since the response state is `retired` either way.
+   * Records `-> retired` plus `worktree.retired` and touches nothing on disk; `cleanupPass` removes
+   * the root. Throws `WorktreeRetireConflictError` while a `busy` workspace is bound (decided
+   * inside the transaction) and `WorktreeNotFoundError` for an unknown id. Idempotent on a
+   * `retired` row; `failed` is a legal predecessor, the only route by which a failed creation
+   * becomes sweepable.
    */
   async retire(
     worktreeId: string,
@@ -1328,16 +546,11 @@ export class WorktreeService {
       throw new WorktreeNotFoundError(worktreeId);
     }
 
-    // Parses the ROW's id, not the argument, and deliberately AFTER the
-    // not-found refusal. The brand is an outbound claim about the value this
-    // service stored (always a `mintUuidV7()`), not an inbound validation of
-    // the caller's string — so a malformed id gets `WorktreeNotFoundError`,
-    // the honest answer, instead of a ZodError that names no domain fault.
+    // Parses the row's id, not the argument, after the not-found refusal, so a malformed argument
+    // gets `WorktreeNotFoundError` rather than a ZodError.
     const parsedWorktreeId = WorktreeIdSchema.parse(row.id);
-    // A FAST PATH, not the authority. The prelude re-reads the same state
-    // inside the retirement transaction and is what actually decides; this read
-    // only spares an already-retired row the per-session append lock and the
-    // envelope construction — sequentially, before any of that starts.
+    // A fast path, not the authority: the prelude re-reads the state in the transaction. It only
+    // spares an already-retired row the append lock.
     if (WorktreeStateSchema.parse(row.state) === "retired") {
       return { worktreeId: parsedWorktreeId, state: "retired" };
     }
@@ -1345,11 +558,8 @@ export class WorktreeService {
     try {
       await this.#emitRetirement(row, options);
     } catch (retirementFailure) {
-      // EXACTLY the sentinel: a concurrent retirement committed between the
-      // fast path above and the transaction, and ITS event is the one this
-      // transition gets. The response is the same either way, which is what
-      // makes the method idempotent rather than racy. Anything else — the busy
-      // refusal, a failed append, the CAS assert — propagates.
+      // Only the sentinel: a concurrent retirement won, and the response is the same. Anything else
+      // (busy refusal, failed append, CAS assert) propagates.
       if (!(retirementFailure instanceof WorktreeAlreadyRetiredError)) {
         throw retirementFailure;
       }
@@ -1357,32 +567,11 @@ export class WorktreeService {
     return { worktreeId: parsedWorktreeId, state: "retired" };
   }
 
-  // ------------------------------------------------------------------------
-  // cleanupPass
-  // ------------------------------------------------------------------------
-
   /**
-   *
-   *   (c) worktrees on a mount that is no longer `attached` are retired —
-   *       recorded and evented like any other retirement; and
-   *   (d) `retired` roots with no `cleaned_at` are removed from disk, their
-   *       administrative entry is pruned from the repository, and only then is
-   *       the row stamped.
-   *
-   * (c) runs before (d) within a pass, so a cascade-retired root is cleaned in
-   * the same tick rather than waiting for the next one.
-   *
-   * Per-row failures PROPAGATE rather than being collected: a sweep that
-   * swallowed an `EACCES` would report a clean pass while a root accumulates
-   * forever. The pass is idempotent and re-entrant — the removal is `force` and
-   * the stamp is guarded on `cleaned_at IS NULL` — so the next tick resumes from
-   * where this one stopped.
-   *
-   * TWO deliberate exceptions to that propagation, each narrow. A row a
-   * concurrent `retire` already retired is SKIPPED on leg (c) rather than
-   * failing the pass — the outcome the sweep wanted is the outcome it got, and
-   * the row still reaches leg (d) in this same tick. And the administrative
-   * prune on leg (d) is best-effort; see `#pruneWorktreeAdministrativeEntries`.
+   * One sweep: retires live worktrees on a mount no longer `attached`, then removes `retired` roots
+   * with no `cleaned_at`, prunes their administrative entry, and only then stamps the row. Per-row
+   * failures propagate (swallowing an `EACCES` would report a clean pass); the pass is idempotent
+   * and re-entrant, so the next tick resumes. Only the administrative prune is best-effort.
    */
   async cleanupPass(): Promise<WorktreeCleanupPassResult> {
     const retiredWorktreeIds: string[] = [];
@@ -1400,22 +589,14 @@ export class WorktreeService {
 
     const cleanedWorktreeIds: string[] = [];
     for (const row of this.#selectUncleanedRetiredStmt.all()) {
-      // The candidate list is a SNAPSHOT, and every earlier row's removal is
-      // an await a `markBusy` can land during — so the busy-holder deferral is
-      // re-decided per row, immediately before ITS removal, through the same
-      // statement the retirement prelude uses. What this cannot close is a
-      // `markBusy` landing during this row's OWN removal await: `worktrees`
-      // offers no claim column and forbids stamping before removing, so that
-      // residual window is owned by the Phase-3 run-setup gate, whose
-      // root-keyed busy probe (recorded at the plan's Phase 3 Goal) refuses
-      // the hold before a run adopts a retired root.
+      // Re-decided per row, right before removal: earlier removals are awaits a `markBusy` can land
+      // in. One landing during this row's own removal stays open (no claim column, and stamping
+      // before removing is forbidden).
       if (this.#selectBusyHolderStmt.get({ worktree_id: row.id }) !== undefined) {
         continue;
       }
       await this.#filesystem.removeDirectory(row.fs_root);
-      // AFTER the removal, never before: `worktree prune` drops the entries
-      // whose working tree is MISSING, so run against a directory that is still
-      // there it would correctly do nothing.
+      // After the removal: `worktree prune` only drops entries whose directory is missing.
       await this.#pruneWorktreeAdministrativeEntries(row.canonical_root);
       this.#stampCleanedStmt.run({ worktree_id: row.id, now: this.#now() });
       cleanedWorktreeIds.push(row.id);
@@ -1424,25 +605,18 @@ export class WorktreeService {
     return { retiredWorktreeIds, cleanedWorktreeIds };
   }
 
-  // ------------------------------------------------------------------------
-  // Internals — row writes
-  // ------------------------------------------------------------------------
-
   #requireAttachedMount(repoMountId: string): AttachedMountRow {
     const mount = this.#selectAttachedMountStmt.get({ repo_mount_id: repoMountId });
     if (mount === undefined) {
-      // The carrier, not a re-mint of `repo.not_found`: one code with two
-      // classes would make `instanceof` discrimination depend on which module a
-      // throw site imported.
+      // The carrier, not a re-mint of `repo.not_found`: two classes for a code break `instanceof`.
       throw new RepoMountNotFoundError(repoMountId);
     }
     return mount;
   }
 
   /**
-   * Insert the `creating` row and append `worktree.created` in one transaction,
-   * applying the request's `onCollision` policy when the index arbitrates a
-   * collision. Returns the branch name that actually landed.
+   * Inserts the `creating` row and `worktree.created` in one transaction; returns the branch that
+   * landed. INSERT-and-catch, since SELECT-then-INSERT lets two creates both read "free".
    */
   async #insertCreatingRow(attempt: CreatingRowAttempt): Promise<string> {
     const { input } = attempt;
@@ -1451,15 +625,9 @@ export class WorktreeService {
       const candidateBranchName =
         ordinal === 1 ? input.branchName : `${input.branchName}-${ordinal}`;
 
-      // The suffix arm can outgrow the wire cap: a request name accepted at
-      // `WORKTREE_GIT_REF_MAX_LEN` gains `-<ordinal>` here, and a persisted
-      // over-cap `branch_name` would fail response validation for the WHOLE
-      // status-read projection, hiding every other worktree with it. Refused
-      // as `branch_name_unavailable` — the name space the request's policy
-      // allows is exhausted — and refused on the FIRST over-cap candidate,
-      // since every later ordinal is strictly longer. Ordinal 1 takes this
-      // arm only for a service-level caller that bypassed the wire cap, which
-      // the same reasoning refuses fail-closed.
+      // The suffix can outgrow the wire cap, and a persisted over-cap `branch_name` would fail the
+      // status-read projection for every worktree, so the first over-cap candidate is refused
+      // (later ordinals are longer). Ordinal 1 reaches it only from a caller that bypassed the cap.
       if (candidateBranchName.length > WORKTREE_GIT_REF_MAX_LEN) {
         throw new WorktreeCreateFailedError("branch_name_unavailable");
       }
@@ -1476,8 +644,6 @@ export class WorktreeService {
               id: attempt.worktreeId,
               repo_mount_id: input.repoMountId,
               created_by_session_id: input.sessionId,
-              // Explicit `null` rather than omission: NULL records a pre-run
-              // explicit prepare, which is a fact about the worktree.
               created_by_run_id: input.runId ?? null,
               branch_name: candidateBranchName,
               fs_root: attempt.fsRoot,
@@ -1487,13 +653,9 @@ export class WorktreeService {
         });
         return candidateBranchName;
       } catch (appendFailure) {
-        // Anything that is not a CONFIRMED live-branch collision re-throws
-        // unchanged. Two checks, neither redundant: the CODE refuses a failure
-        // no unique constraint raised (a primary-key collision among them), and
-        // the live-row read refuses a UNIQUE-coded one this (mount, branch)
-        // cannot account for. Either, laundered into a suffix or a 409, would
-        // report a plausible wrong answer. See the header for which SQLite
-        // extended code arrives when.
+        // Only a confirmed live-branch collision is handled. The code check refuses non-UNIQUE
+        // failures (an id collision raises SQLITE_CONSTRAINT_PRIMARYKEY); the live-row read refuses
+        // a UNIQUE failure this (mount, branch) cannot explain.
         if (!isUniqueConstraintViolation(appendFailure)) {
           throw appendFailure;
         }
@@ -1507,8 +669,7 @@ export class WorktreeService {
         if (input.onCollision === "refuse") {
           throw new WorktreeBranchCollisionError(input.repoMountId, candidateBranchName);
         }
-        // `suffix`: take the next ordinal. The failed attempt left neither a row
-        // nor an event, so the retry starts clean.
+        // `suffix`: next ordinal; the failed attempt left neither a row nor an event.
       }
     }
 
@@ -1516,72 +677,32 @@ export class WorktreeService {
   }
 
   /**
-   * Record a creation failure on an existing `creating` row, and dispose of
-   * whatever the failed attempt left behind.
-   *
-   * Reached from BOTH of `create`'s recovery arms — a failed materialization
-   * and a failed `worktree.ready` emission — so the debris it faces differs:
-   * the first may have left a half-written checkout, while the second follows a
-   * `worktree add` that SUCCEEDED, and therefore always has a real directory and
-   * a real administrative entry to dispose of.
-   *
-   * The best-effort root removal keeps a half-written checkout from being the
-   * reason a retried provisioning fails on "path already exists"; it is scoped
-   * to a path the daemon just minted under its own execution-roots directory,
-   * keyed by a fresh worktree id, so it can only reach debris this call
-   * produced.
+   * Marks a `creating` row `failed` and best-effort removes what the attempt left: a half-written
+   * checkout, or (after a failed ready emission) a real directory and administrative entry. The
+   * removal is scoped to a path this call just minted, so it only reaches its own debris.
    */
   async #recordCreateFailure(recovery: CreateFailureRecovery): Promise<void> {
-    // Zero rows changed is TOLERATED rather than asserted, the same tolerance
-    // `#stampCleanedStmt` carries and for a stronger reason: `assertSingleRowChanged`
-    // would throw, and the throw would REPLACE the typed creation failure the
-    // caller is about to re-raise with a consistency error that names neither
-    // the cause nor a repair. The predicate can only miss if the row already
-    // left `creating`, which on both recovery arms means some other writer has
-    // already recorded a disposition for it.
+    // Zero rows changed is tolerated, not asserted: an assert would replace the creation failure
+    // the caller re-raises.
     this.#markFailedStmt.run({ worktree_id: recovery.worktreeId, now: this.#now() });
     try {
       await this.#filesystem.removeDirectory(recovery.fsRoot);
-      // Only once the directory is gone does the entry become prunable.
       await this.#pruneWorktreeAdministrativeEntries(recovery.canonicalRoot);
     } catch {
-      // Swallowed deliberately, and ONLY here: the caller is already throwing
-      // the creation failure, and replacing it with a cleanup error would hide
-      // the reason provisioning failed.
-      //
-      // What the swallow leaves behind, stated rather than waved at: the row is
-      // `failed`, and a `failed` row is excluded from BOTH sweep queries — leg
-      // (c) wants a non-attached mount, leg (d) wants `retired` — so nothing
-      // automatic ever disposes of this directory. It is bounded to one root
-      // per failure whose cleanup ALSO failed, it stays visible through
-      // `repo.worktreeStatusRead`, and the operator route out is the ordinary
-      // one: `repo.worktreeRetire` on the failed row, which is a legal
-      // transition precisely so that leg (d) can then reach it.
+      // Swallowed only here: the caller is already throwing the creation failure. A `failed` row is
+      // reached by no sweep step, so a directory whose cleanup failed stays until
+      // `repo.worktreeRetire` moves the row (bounded to one root per double failure).
     }
   }
 
   /**
-   * Append `worktree.retired` with the whole retirement decision in its prelude.
-   *
-   * THREE steps, in this order, all inside the one transaction the event row
-   * lands in — which is what makes each of them a decision rather than a sample
-   * (see the header):
-   *
-   *   1. Already `retired` means a concurrent retirement won between the
-   *      caller's read and this transaction; the sentinel aborts so no second
-   *      event is appended for one transition.
-   *   2. BUSY PROBE. A `busy` workspace holding this worktree refuses here, and
-   *      because the throw precedes the event INSERT the refusal persists
-   *      nothing at all — no row flip, no `worktree.retired`.
-   *   3. RETIRE. With both preceding checks having passed inside this same
-   *      transaction, a compare-and-swap that moves no row is a genuine
-   *      invariant violation, so it keeps the plain assert.
+   * Appends `worktree.retired` with the whole decision in its prelude, inside the event's
+   * transaction: an already-`retired` row aborts with the sentinel, a `busy` holder refuses before
+   * the INSERT so nothing persists, and the compare-and-swap keeps the plain assert.
    */
   async #emitRetirement(row: WorktreeRow, options: RetireWorktreeOptions): Promise<void> {
     await this.#events.emitWorktreeRetired({
-      // The row's OWN provenance, never a caller-supplied session: the event
-      // belongs to the session that created the worktree, and the sweep has
-      // no caller session at all.
+      // The row's own session: the event belongs to the creator, and the sweep has no caller.
       sessionId: row.created_by_session_id,
       worktreeId: row.id,
       repoMountId: row.repo_mount_id,
@@ -1590,9 +711,7 @@ export class WorktreeService {
       transactionalPrelude: () => {
         const current = this.#selectWorktreeStmt.get({ worktree_id: row.id });
         if (current === undefined) {
-          // No `DELETE` path exists on this table, so a row that read once and
-          // then vanished is corruption rather than a race — and it must not
-          // become a `worktree.retired` for a worktree that is not there.
+          // No `DELETE` path exists, so a vanished row is corruption, not a race.
           throw new Error(
             `cannot retire worktree "${row.id}": its row disappeared before the write committed`,
           );
@@ -1615,17 +734,15 @@ export class WorktreeService {
     });
   }
 
-  // ------------------------------------------------------------------------
-  // Internals — git
-  // ------------------------------------------------------------------------
-
   /**
-   * The single git entry point. Prepends the two hook-neutralization flags and
-   * nothing else, so the quantifier holds structurally (see the header).
-   * `core.fsmonitor=false` rides along because the fsmonitor hook is
-   * config-named, not `hooks/`-resident — `core.hooksPath` never governs it.
+   * The single git entry point. It prepends `-c core.hooksPath=<empty dir>` and `-c
+   * core.fsmonitor=false` so no call skips hook neutralization; a command-line `-c` outranks all
+   * config, and the fsmonitor hook is named by config value so `hooksPath` never governs it.
    */
   async #runGit(argv: readonly string[]): Promise<WorktreeGitInvocationResult> {
+    // Created per call: a temp-file reaper that removed it would silently restore the repository's
+    // hooks. Checkout filter drivers are not neutralized: their commands come from git config, and
+    // disabling smudge would corrupt LFS.
     await this.#filesystem.createDirectory(this.#hookNeutralizationDirectory);
     return this.#git(
       [
@@ -1640,37 +757,9 @@ export class WorktreeService {
   }
 
   /**
-   * Drop the administrative entries of worktrees whose directory is already
-   * gone — the only thing that ever unregisters what `worktree add` wrote.
-   *
-   * Every `worktree add` leaves a `$GIT_DIR/worktrees/<name>` entry in the
-   * USER's repository. Removing the directory does not remove it, so without
-   * this call the entries accumulate without bound and show up in every
-   * `git worktree list` the user runs. `prune` is repo-wide and idempotent, so a
-   * later successful pass on the same mount clears everything earlier passes
-   * left.
-   *
-   * INVENTED rather than ratified, in the sense `MAX_BRANCH_NAME_ORDINAL` uses:
-   * authorizes the DISK removal and names no administrative-entry prune, so
-   * this leg is the un-ratified inverse of the ratified `worktree add`. It is
-   * taken because nothing else in the daemon ever clears those entries, and the
-   * alternative is unbounded litter in the user's own repository. The accepted
-   * cost is the repo-wide scope stated above: `prune` takes no path selector,
-   * so it acts on the repository's whole worktree list rather than only on the
-   * entry this pass orphaned.
-   *
-   * BEST-EFFORT, and the swallow is the design rather than an oversight. The
-   * load-bearing half of the cleanup — the directory removal — has already
-   * succeeded by the time this runs, and this half is bookkeeping in someone
-   * else's repository: a detached mount's root may be unreadable or gone
-   * entirely, and propagating that would wedge the whole sweep, leaving every
-   * LATER row uncleaned over a cosmetic failure on an earlier one. The bounded
-   * swallow in `#recordCreateFailure` takes the same shape for the same reason.
-   *
-   * A `null` root means the sweep's LEFT JOIN found no mount row — the arm
-   * `#selectUncleanedRetiredStmt` documents as unreachable through this
-   * package's own writes. There is nothing to prune against and nothing to
-   * report, and the removal that matters has already happened.
+   * Drops the `$GIT_DIR/worktrees/<name>` entries of worktrees whose directory is gone; nothing
+   * else clears what `worktree add` leaves in the user's repository. Best-effort: the directory
+   * removal already succeeded, and a detached mount's root may be unreadable. A `null` root: skip.
    */
   async #pruneWorktreeAdministrativeEntries(canonicalRoot: string | null): Promise<void> {
     if (canonicalRoot === null) {
@@ -1679,28 +768,14 @@ export class WorktreeService {
     try {
       await this.#runGit(["-C", canonicalRoot, "worktree", "prune"]);
     } catch {
-      // See the docblock: swallowed on purpose, and never at the expense of the
-      // `cleaned_at` stamp the caller writes next.
+      // Best-effort; never at the expense of the `cleaned_at` stamp the caller writes next.
     }
   }
 
   /**
-   * The base-ref policy: the supplied ref, else the mount's current HEAD
-   * branch, else a typed refusal — never a guess.
-   *
-   * The leading-dash check runs before ANY git call, discharging the
-   * option-injection obligation `packages/contracts/src/worktree.ts` assigns to
-   * this task. A ref beginning with `-` reaches `git worktree add` in the
-   * positional commit-ish slot, where git's option parser would still read it as
-   * a flag. The alternative discharge that file names — a `--` separator before
-   * the positionals — is not taken here: it would have to be verified against
-   * `git worktree add`'s own argument handling, which this seam cannot do.
-   *
-   * A `symbolic-ref` that fails and one that succeeds with empty output both
-   * land on `base_ref_unresolved`. Detached HEAD is the headline case and the
-   * one names; a query that did not complete is deliberately folded in, because
-   * both leave the daemon with no base and the decision they force is the same
-   * one — refuse rather than guess.
+   * The supplied ref, else the mount's current HEAD branch, else a typed refusal, never a guess. A
+   * leading `-` is refused before any git call, since git would read it as a flag; a failed or
+   * empty `symbolic-ref` (detached HEAD) both refuse.
    */
   async #resolveBaseRef(
     canonicalRoot: string,
@@ -1735,11 +810,8 @@ export class WorktreeService {
   }
 
   /**
-   * Materialize the checkout.
-   *
-   * Only the PARENT directory is created here. `git worktree add` refuses a
-   * target that already exists and is non-empty, and creating the leaf would put
-   * this module in the business of predicting which of those git tolerates.
+   * Creates only the parent directory: `git worktree add` refuses a non-empty existing target, and
+   * creating the leaf would make this module predict what git tolerates.
    */
   async #materializeWorktree(materialization: WorktreeMaterialization): Promise<void> {
     try {
@@ -1749,10 +821,8 @@ export class WorktreeService {
     }
 
     try {
-      // `-C <canonicalRoot>` rather than a `cwd`: the invocation is entirely in
-      // the argv (see `WorktreeGitRunner`). `-b <branch>` creates the branch as
-      // part of the add, which is what makes the branch and the checkout appear
-      // together — the condition `idx_worktrees_active_branch` models.
+      // `-C` rather than a `cwd`: the invocation is entirely in the argv. `-b` creates the branch
+      // and checkout together, which the unique index models.
       await this.#runGit([
         "-C",
         materialization.canonicalRoot,
@@ -1764,20 +834,15 @@ export class WorktreeService {
         materialization.baseRef,
       ]);
     } catch {
-      // The git `stderr` stops HERE. It is the value most likely to name a
-      // filesystem path, and bans echoing one.
+      // git `stderr` stops here: it is the value most likely to name a filesystem path.
       throw new WorktreeCreateFailedError("git_invocation_failed");
     }
   }
 
   /**
-   * Cleanliness verdict for a reuse candidate.
-   *
-   * `--porcelain` is stable across git versions and locales, and any output at
-   * all means uncommitted work. A query that does not complete — including an
-   * stdout overflow, which can only happen on an enormous working tree — is
-   * refused rather than guessed: the acknowledgement gate is meaningless without
-   * a verdict, and binding on an unknown one is the silent bind forbids.
+   * Whether the checkout holds uncommitted work: any `--porcelain` output means dirty. A query that
+   * does not complete (including a stdout overflow) is refused, not guessed, since binding on an
+   * unknown verdict is a silent bind.
    */
   async #isWorkingTreeDirty(worktreeId: string, fsRoot: string): Promise<boolean> {
     let result: WorktreeGitInvocationResult;
@@ -1790,20 +855,9 @@ export class WorktreeService {
   }
 }
 
-// --------------------------------------------------------------------------
-// Module helpers
-// --------------------------------------------------------------------------
-
 /**
- * Whether a thrown value is a SQLite UNIQUE-constraint violation.
- *
- * Written with `in`-operator narrowing rather than a cast: `in` narrows an
- * `object`-typed value to one carrying the key, so `thrown.code` reads as
- * `unknown` and the `typeof` check does the rest. A cast would assert a shape of
- * a value whose shape is exactly what is in question.
- *
- * The code alone is NOT treated as proof of a branch collision — see the header.
- * The caller confirms with a live-row read.
+ * Whether a thrown value is a SQLite UNIQUE violation, narrowed with `in` rather than cast. The
+ * code alone is not proof of a branch collision; the caller confirms with a live-row read.
  */
 function isUniqueConstraintViolation(thrown: unknown): boolean {
   if (typeof thrown !== "object" || thrown === null) {
@@ -1817,18 +871,9 @@ function isUniqueConstraintViolation(thrown: unknown): boolean {
 }
 
 /**
- * Assert a compare-and-swap moved exactly one row.
- *
- * Called from inside a `transactionalPrelude`, where a throw aborts the
- * transaction and takes the event row with it — which is the point. A row that
- * moved between the read and the write must not produce a state/event pair that
- * disagree.
- *
- * A plain `Error` rather than a `DaemonDomainError`: this is an internal
- * consistency failure with no ratified code and no caller repair, so giving it a
- * wire identity would advertise a contract does not carry. The
- * `WorkspaceServiceInvariantError` posture, without the export — nothing
- * downstream discriminates on this type.
+ * Asserts a compare-and-swap moved exactly one row. Called inside a `transactionalPrelude`, where
+ * a throw aborts the transaction and the event row with it. A plain `Error`: an internal
+ * consistency failure with no caller repair.
  */
 function assertSingleRowChanged(
   result: { readonly changes: number },

@@ -1,42 +1,12 @@
-// workspace-projector behavior.
+// The workspace projector has three read-side projections: repo-mount health, workspace health and
+// execution-mode capabilities. The module does no I/O, so these tests need no database, temp
+// directory or clock; each branch is driven by handing in a row and a probe result. The
+// `no-restricted-imports` allow-list in `eslint.config.mjs` enforces that purity by permitting
+// only `@ai-sidekicks/contracts` as an import.
 //
-// Exercises the three read-side projections the daemon's health and capability
-// surfaces answer from. No database, no temp directory, no clock: the module
-// under test performs no I/O, so every branch is driven by handing it a row and
-// a probe result directly. That purity is enforced statically, by the
-// `no-restricted-imports` allow-list for
-// `packages/runtime-daemon/src/workspace/workspace-projector.ts` in
-// eslint.config.mjs: `@ai-sidekicks/contracts` is the only specifier the module
-// may import, so no sibling can pull I/O in behind it.
-//
-// Coverage map (cites are the authoritative contract, not just the ACs):
-//   * Mount health: both verdicts of shape, the probe's own `checkedAt`
-//     carried through verbatim, and a malformed timestamp refused at the
-//     projection that produced it rather than at the outbound wire.
-//   * Workspace health: the stale verdict derived for a probe-failed root in
-//     BOTH probe-bearing states, the reachable case leaving the row's state
-//     untouched, and the three non-probe-bearing states answered without a
-//     probe at all.
-//   * No auto-heal: a reachable probe never returns a `stale` workspace to
-//     service — that state is not probe-bearing, so offering one is refused.
-//   * One outage, two surfaces: an unreachable filesystem reads as an
-//     unreachable mount AND a stale workspace — neither projection masks it.
-//   * Fail-closed pairing: a missing probe, a NULL execution root under a
-//     probe-bearing state, a probe of some other path, and a probe supplied for
-//     a row that owes none each throw rather than answering from a partial or
-//     mispaired input — and a state outside the closed vocabulary is refused
-//     outright rather than assigned a probe policy by guess.
-//   * Shared root: a bound-root workspace executes in the mount's own
-//     checkout, so the two rows legitimately share one path and one probe
-//     measurement lawfully serves both projections.
-//   * Wire validity: each projection parses clean against the canonical
-//     response schema, so a reason string that outgrew its ratified cap fails
-//     here rather than taking down the read surface that would return it.
-//   * Fail-closed dispatch: a `vcs_type` outside the closed union throws
-//     instead of receiving another profile's answer.
-//   * Fresh outputs: successive calls hand back independent collections, so a
-//     caller that mutates a response cannot corrupt a later one.
-//
+// Fail-closed cases throw rather than answer from a missing, mispaired or unknown input: a missing
+// probe, a NULL execution root under a probe-bearing state, a probe of some other path, a probe
+// for a state that owes none, a workspace state or `vcs_type` outside the closed vocabulary.
 
 import { describe, expect, it } from "vitest";
 
@@ -66,30 +36,23 @@ import type {
 // Fixtures
 // ----------------------------------------------------------------------------
 
-// Paths are never touched — nothing here opens a file — so they need not exist.
-// They only have to be distinct, because telling one from another is exactly
-// what the subject-binding guards do.
+// No test opens a file, so these paths need not exist; they only have to be distinct, because the
+// projector checks that a probe measured the row's own path.
 const MOUNT_CANONICAL_ROOT: string = "/srv/sessions/repos/ai-sidekicks";
 const WORKSPACE_FS_ROOT: string = "/srv/sessions/workspaces/main-checkout";
 const UNRELATED_ROOT: string = "/srv/sessions/repos/other-checkout";
 
 const MOUNT_ROW: RepoMountHealthRow = { canonicalRoot: MOUNT_CANONICAL_ROOT };
 
-// RFC 3339 UTC with milliseconds — the canonical form every daemon surface
-// writes (`new Date().toISOString()`), and the form the health schema's
-// `z.iso.datetime({ offset: true })` accepts.
+// RFC 3339 UTC with milliseconds, which is what `new Date().toISOString()` writes and what the
+// health schema's `z.iso.datetime({ offset: true })` accepts.
 const PROBE_INSTANT: string = "2026-08-04T12:00:00.000Z";
 const LATER_PROBE_INSTANT: string = "2026-08-04T12:00:30.000Z";
 
-// The full workspace vocabulary, and the canonical mode taxonomy.
-//
-// Each roster carries the SAME pair of checks the module applies to its own
-// taxonomy array, and both directions are needed: `satisfies` proves every
-// element is a real member, and the `_AssertExtends` pins below prove every
-// member is an element. With only the first, a state or mode added to
-// contracts would leave the census and the partition test passing VACUOUSLY
-// over a stale roster — which is precisely the drift verification exists to
-// catch.
+// The full workspace state, execution mode and vcs type vocabularies. `satisfies` proves every
+// element is a real member and the `_AssertExtends` pins below prove every member is listed.
+// Without the second check, a member added to contracts would leave the tests below passing over a
+// stale roster.
 const ALL_WORKSPACE_STATES = [
   "preparing",
   "ready",
@@ -105,8 +68,7 @@ const ALL_EXECUTION_MODES = [
 
 const ALL_VCS_TYPES = ["git"] as const satisfies readonly VcsType[];
 
-// The `_` prefix is what the root eslint config's `varsIgnorePattern` exempts
-// from `no-unused-vars`; the aliases exist to be type-checked, not read.
+// The `_` prefix exempts these aliases from `no-unused-vars`; they exist only to be type-checked.
 type _AssertExtends<A extends B, B> = A;
 type _AssertWorkspaceStateRosterIsComplete = _AssertExtends<
   WorkspaceState,
@@ -137,7 +99,7 @@ function capabilitiesFor(vcsType: VcsType): WorkspaceExecutionModeCapabilitiesRe
   return computeExecutionModeCapabilities({ vcsType });
 }
 
-/** The restricted modes of a projection, read WITHOUT casting a key back. */
+/** The restricted modes of a projection, read without casting a key back. */
 function restrictedModesOf(
   capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
 ): ExecutionMode[] {
@@ -145,6 +107,7 @@ function restrictedModesOf(
 }
 
 // ----------------------------------------------------------------------------
+// Mount health
 // ----------------------------------------------------------------------------
 
 describe("computeRepoMountHealth — derived projection", () => {
@@ -167,8 +130,8 @@ describe("computeRepoMountHealth — derived projection", () => {
   });
 
   it("carries the PROBE's instant, never a clock of its own", () => {
-    // Two projections of one row differ only by the instant handed in — the
-    // module reads no clock, so a second call cannot invent a fresher one.
+    // The module reads no clock, so two projections of one row differ only by the instant handed
+    // in.
     const first = computeRepoMountHealth(MOUNT_ROW, probeOf(MOUNT_CANONICAL_ROOT, true));
     const later = probeOf(MOUNT_CANONICAL_ROOT, true, LATER_PROBE_INSTANT);
 
@@ -180,7 +143,7 @@ describe("computeRepoMountHealth — derived projection", () => {
     const health = computeRepoMountHealth(MOUNT_ROW, probeOf(MOUNT_CANONICAL_ROOT, true));
 
     expect(Object.keys(health).sort()).toEqual(["checkedAt", "status"]);
-    // And the value is what the wire surface composing this schema accepts.
+    // The value is also valid on the wire.
     expect(() => RepoMountHealthSchema.parse(health)).not.toThrow();
   });
 
@@ -215,6 +178,7 @@ describe("computeRepoMountHealth — derived projection", () => {
 });
 
 // ----------------------------------------------------------------------------
+// Workspace health
 // ----------------------------------------------------------------------------
 
 describe("computeWorkspaceHealth — probe-bearing census", () => {
@@ -224,8 +188,7 @@ describe("computeWorkspaceHealth — probe-bearing census", () => {
     );
 
     expect(probeBearing).toEqual(["ready", "busy"]);
-    // Size pinned separately: a member outside the five-state vocabulary would
-    // pass the filter above unnoticed.
+    // The filter above would not notice a member outside the five-state vocabulary.
     expect(PROBE_BEARING_WORKSPACE_STATES.size).toBe(2);
   });
 });
@@ -243,9 +206,8 @@ describe("computeWorkspaceHealth — stale derivation", () => {
   });
 
   it("derives stale from a failed probe of a BUSY workspace too", () => {
-    // The run holding this workspace does not shield it: makes the
-    // unavailable root observable on every read surface. Whether the `busy
-    // -> stale` write is legal to persist is the service's call.
+    // A run holding the workspace does not shield it from a failed probe. Whether the
+    // `busy -> stale` write is legal to persist is the service's call.
     const health = computeWorkspaceHealth(workspaceRow("busy"), probeOf(WORKSPACE_FS_ROOT, false));
 
     expect(health.observedState).toBe("stale");
@@ -282,10 +244,8 @@ describe("computeWorkspaceHealth — states that owe no probe", () => {
   }
 
   it("NEVER auto-heals a stale workspace — a reachable probe is refused outright", () => {
-    // The repair contract is explicit (blocked until the workspace is repaired
-    // or the switch is retried), and `stale` is also written by a failed mode
-    // switch whose path is perfectly reachable. So the projector will not
-    // accept a probe here at all, and the no-probe answer stays `stale`.
+    // A failed mode switch also writes `stale` while its path is reachable, so a reachable probe
+    // must not heal it. The projector refuses a probe here, and the no-probe answer stays `stale`.
     const reachable = probeOf(WORKSPACE_FS_ROOT, true);
 
     expect(() => computeWorkspaceHealth(workspaceRow("stale"), reachable)).toThrow(
@@ -303,8 +263,8 @@ describe("computeWorkspaceHealth — states that owe no probe", () => {
   });
 
   it("answers a provisioning workspace whether or not its row still carries a root", () => {
-    // `fs_root` may or may not still hold the pre-switch root mid-reprovision;
-    // either way the state, not the column, decides that no probe is owed.
+    // `fs_root` may still hold the pre-switch root during reprovisioning; either way the state,
+    // not the column, decides that no probe is owed.
     const withRoot = computeWorkspaceHealth(workspaceRow("preparing"), null);
     const withoutRoot = computeWorkspaceHealth(workspaceRow("preparing", null), null);
 
@@ -338,18 +298,17 @@ describe("computeWorkspaceHealth — fail-closed pairing", () => {
   });
 
   it("reports the NULL root rather than the missing probe when both are wrong", () => {
-    // Diagnosis order matters: a row with no root could not have been probed,
-    // so the corrupt row is the finding, not the caller's missing probe.
+    // A row with no root could not have been probed, so the corrupt row is reported, not the
+    // missing probe.
     expect(() => computeWorkspaceHealth(workspaceRow("ready", null), null)).toThrow(
       /must carry a resolved fs_root/,
     );
   });
 
   it("refuses a state outside the closed vocabulary rather than guessing a probe policy", () => {
-    // A raw database row can carry a string the compiler never saw. Positive
-    // membership on both sides of the partition means it lands on THIS throw,
-    // not on whichever branch a `!has(...)` negation would have handed it —
-    // the workspace-state twin of the vcs_type dispatch refusal below.
+    // A raw database row can carry a string the compiler never saw. Positive membership on both
+    // sides of the partition sends it to this throw rather than to whichever branch a negated
+    // `has` check would pick.
     const corruptRow = {
       state: "hibernating",
       fsRoot: WORKSPACE_FS_ROOT,
@@ -363,8 +322,7 @@ describe("computeWorkspaceHealth — fail-closed pairing", () => {
 
 describe("health projections — one outage, two surfaces", () => {
   it("reads an unreachable filesystem as BOTH an unreachable mount and a stale workspace", () => {
-    // The closest a pure module gets to the "every read surface" half of:
-    // one filesystem fault, two projections, neither masking it.
+    // One filesystem fault seen through two projections; neither masks it.
     const mountHealth = computeRepoMountHealth(MOUNT_ROW, probeOf(MOUNT_CANONICAL_ROOT, false));
     const outage = probeOf(WORKSPACE_FS_ROOT, false);
     const workspaceHealth = computeWorkspaceHealth(workspaceRow("ready"), outage);
@@ -375,10 +333,8 @@ describe("health projections — one outage, two surfaces", () => {
   });
 
   it("accepts one probe for both surfaces when the workspace root IS the mount root", () => {
-    // A bound-root workspace executes in the mount's own checkout, so the two
-    // rows legitimately share one path and one measurement of it lawfully
-    // feeds both projections; the subject-binding guards reject mispairing,
-    // not sharing.
+    // A bound-root workspace executes in the mount's own checkout, so both rows share one path and
+    // one probe can serve both projections; the guards reject a mispaired probe, not a shared one.
     const sharedOutage = probeOf(MOUNT_CANONICAL_ROOT, false);
     const mountHealth = computeRepoMountHealth(MOUNT_ROW, sharedOutage);
     const workspaceHealth = computeWorkspaceHealth(
@@ -393,6 +349,7 @@ describe("health projections — one outage, two surfaces", () => {
 });
 
 // ----------------------------------------------------------------------------
+// Execution-mode capabilities
 // ----------------------------------------------------------------------------
 
 describe("computeExecutionModeCapabilities — git mounts", () => {
@@ -406,8 +363,7 @@ describe("computeExecutionModeCapabilities — git mounts", () => {
   it("omits the restrictions key entirely when nothing is restricted", () => {
     const capabilities = capabilitiesFor("git");
 
-    // Absent, not an empty object — the wire shape omits the whole field for an
-    // unrestricted answer.
+    // An unrestricted answer omits the field on the wire instead of sending an empty object.
     expect(Object.keys(capabilities).sort()).toEqual(["availableModes", "defaultMode"]);
     expect(capabilities.restrictions).toBeUndefined();
   });
@@ -420,13 +376,13 @@ describe("computeExecutionModeCapabilities — partition", () => {
       const restricted = restrictedModesOf(capabilities);
       const available = capabilities.availableModes;
 
-      // TOTAL — no mode is silently dropped.
+      // Total: no mode is dropped.
       for (const mode of ALL_EXECUTION_MODES) {
         expect(available.includes(mode) || restricted.includes(mode)).toBe(true);
       }
-      // DISJOINT — no mode is both offered and refused.
+      // Disjoint: no mode is both offered and refused.
       expect(available.filter((mode) => restricted.includes(mode))).toEqual([]);
-      // And the two sides account for the taxonomy exactly once each.
+      // Each mode is counted exactly once.
       expect(available.length + restricted.length).toBe(ALL_EXECUTION_MODES.length);
     });
 
@@ -439,9 +395,8 @@ describe("computeExecutionModeCapabilities — partition", () => {
     it(`emits a wire-valid capabilities response for a ${vcsType} mount`, () => {
       const capabilities = capabilitiesFor(vcsType);
 
-      // Response validation runs on the outbound wire too, so a reason
-      // string that outgrew its ratified cap would break the read surface
-      // rather than this projection.
+      // The outbound wire validates responses too, so an over-long reason string would break the
+      // read surface, not this projection.
       expect(() =>
         WorkspaceExecutionModeCapabilitiesReadResponseSchema.parse(capabilities),
       ).not.toThrow();

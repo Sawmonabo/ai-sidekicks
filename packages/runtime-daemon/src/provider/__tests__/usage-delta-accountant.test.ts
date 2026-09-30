@@ -1,10 +1,5 @@
-// Usage-delta accountant suite (the usage-delta leg, plus the cost-provenance
-// and window-telemetry decision functions).
-//
-// Spec coverage under test:
-//   • the four-value cost provenance enum and the both-or-neither window
-//     pair rule.
-//
+// Usage-delta accountant, plus the cost-provenance and window-telemetry decision functions:
+// the four-value cost provenance enum and the both-or-neither window pair rule.
 
 import { describe, expect, it } from "vitest";
 
@@ -72,9 +67,8 @@ describe("UsageDeltaAccountant", () => {
   });
 
   it("a replay-seeded session is fresh: seeding meters nothing, the first turn's reading meters whole", () => {
-    // Replay-seeding injects transcript, not billed spend — the provider's
-    // counter starts at zero either way, so the establishment arm is the same
-    // `fresh` arm and the first post-seed reading is entirely real spend.
+    // Replay-seeding injects transcript, not billed spend: the provider's counter starts at zero
+    // either way, so the first post-seed reading is entirely real spend.
     const { accountant } = makeAccountant();
     accountant.establishThread("replay-seeded-thread", { mode: "fresh" });
     const delta = accountant.meterReading({
@@ -111,8 +105,7 @@ describe("UsageDeltaAccountant", () => {
   });
 
   it("a compaction between two readings does not re-base — the interval stays exact", () => {
-    // The accountant exposes no compaction entry point at all; this test pins
-    // the observable consequence: readings straddling a compaction difference
+    // The accountant has no compaction entry point; readings straddling a compaction difference
     // exactly as if none had occurred.
     const { accountant } = makeAccountant();
     accountant.establishThread("thread-1", { mode: "fresh" });
@@ -133,8 +126,8 @@ describe("UsageDeltaAccountant", () => {
   it("a turn-A usage frame delivered after turn B opened attributes to turn A, not floored, not credited to B", () => {
     const { accountant } = makeAccountant();
     accountant.establishThread("thread-1", { mode: "fresh" });
-    // Turn B has already opened dispatch-side; the late frame NAMES turn A,
-    // and the stream-ordered base meters its interval to the named turn.
+    // Turn B has already opened dispatch-side; the late frame names turn A, and the
+    // stream-ordered base meters its interval to the named turn.
     const lateDelta = accountant.meterReading({
       threadId: "thread-1",
       namedTurnId: "turn-A",
@@ -184,8 +177,7 @@ describe("UsageDeltaAccountant", () => {
       cumulative: { input: 100 },
       declaredPerTurn: { input: 90 },
     });
-    // The derived interval stands; the wire's own `last` figure is
-    // corroboration only.
+    // The derived interval stands; the wire's own `last` figure is corroboration only.
     expect(delta?.axisDeltas.input).toBe(100);
     const mismatchRecords = diagnostics.recentRecordsOfKind("usage_cross_check_mismatch");
     expect(mismatchRecords).toHaveLength(1);
@@ -208,8 +200,7 @@ describe("UsageDeltaAccountant", () => {
   it("a reading whose input contains its cached figure partitions to the uncached total exactly once", () => {
     const { accountant } = makeAccountant();
     accountant.establishThread("thread-1", { mode: "fresh" });
-    // total === input + output confirms containment: 1000 = 800 + 200, with
-    // cachedInput 300 sitting inside the input figure.
+    // total === input + output, with cachedInput (300) contained in input: 1000 = 800 + 200.
     const delta = accountant.meterReading({
       threadId: "thread-1",
       namedTurnId: "turn-A",
@@ -227,8 +218,8 @@ describe("UsageDeltaAccountant", () => {
   it("a breakdown satisfying no containment identity emits unsubtracted with the failed-identity diagnostic", () => {
     const { accountant, diagnostics } = makeAccountant();
     accountant.establishThread("thread-1", { mode: "fresh" });
-    // 1000 !== 800 + 150 — the identity fails, so nothing proves the cached
-    // member nests inside input; subtracting would risk undercounting.
+    // 1000 !== 800 + 150, so nothing proves the cached member nests inside input; subtracting
+    // would risk undercounting.
     const delta = accountant.meterReading({
       threadId: "thread-1",
       namedTurnId: "turn-A",
@@ -261,18 +252,16 @@ describe("UsageDeltaAccountant", () => {
       cumulative: { input: 100 },
     });
 
-    // `NaN < 0` is false, so the floor arm cannot catch this: an unfiltered
-    // NaN would be written to the register and every later reading on that
-    // axis would difference against it and produce NaN forever.
+    // `NaN < 0` is false, so the floor arm cannot catch this: an unfiltered NaN would enter the
+    // register and every later reading on that axis would difference to NaN.
     const metered = accountant.meterReading({
       threadId: "thread-1",
       namedTurnId: "turn-A",
       cumulative: { input: Number.NaN, output: Number.POSITIVE_INFINITY, cachedInput: 7 },
     });
 
-    // The clean axis still meters; only the rejected ones are dropped, and
-    // EACH rejected figure is recorded on its own — one aggregate record would
-    // not say which axis the provider is publishing garbage on.
+    // The clean axis still meters; each rejected figure is recorded on its own so the record says
+    // which axis the provider publishes garbage on.
     expect(metered?.axisDeltas).toEqual({ cachedInput: 7 });
     expect(
       diagnostics
@@ -295,9 +284,8 @@ describe("UsageDeltaAccountant", () => {
     const metered = accountant.meterReading({
       threadId: "thread-1",
       namedTurnId: "turn-A",
-      // A vendor adding a counter the corpus has no axis for. Metering it
-      // would put an unnamed figure on a receipt; dropping it silently would
-      // hide that the vendor's surface grew.
+      // A counter the corpus has no axis for: metering it would put an unnamed figure on a
+      // receipt, and dropping it silently would hide that the vendor's surface grew.
       cumulative: { input: 10, reasoningTokens: 5 } as Record<string, number>,
     });
     expect(metered?.axisDeltas).toEqual({ input: 10 });
@@ -407,9 +395,8 @@ describe("resolveCostUpdateProvenance", () => {
       diagnostics,
     });
 
-    // The provider SENT a cost and the daemon billed a different number. A
-    // silent fall-through would make a provider emitting garbage on every turn
-    // indistinguishable from one emitting no cost at all.
+    // The provider sent a cost and the daemon billed a different number; a silent fall-through
+    // would hide a provider that emits garbage every turn.
     expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toHaveLength(1);
   });
 
@@ -510,10 +497,8 @@ describe("deriveWindowTelemetry", () => {
   });
 
   it("the counts-absent arm carries the wire's own limit signal instead of asserting false", () => {
-    // The half-pair arm cannot derive `exceeded` — that is the whole reason the
-    // counts do not travel. Hardcoding `false` there would have reported a
-    // provider that HAD signaled its limit as comfortably under it, which is
-    // the one reading this telemetry exists to prevent.
+    // The half-pair arm cannot derive `exceeded`, which is why the counts do not travel;
+    // hardcoding `false` would report a provider that signaled its limit as comfortably under it.
     const signaled = deriveWindowTelemetry({
       windowSource: "provider_reported",
       rawUsedTokens: null,

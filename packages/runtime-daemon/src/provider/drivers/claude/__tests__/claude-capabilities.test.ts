@@ -1,20 +1,9 @@
 /**
- * Claude capability declaration.
- *
- * The rule is that the declaration is EXPLICIT and TOTAL, and that no
- * caller may read support out of absence. The strongest assertion here is a
- * COMPILE-time one and says so where it appears: the flag record's totality is
- * enforced by its type annotation, so a flag added to the contract union
- * breaks this file and the module before any test runs. The sink's conformance
- * to `DriverCapabilitiesWriter` needs no assertion: the type is a `Pick` of the
- * writer, and the shared recording sink carries that check by `implements`.
- *
- * What is deliberately NOT asserted here: what the writer stores. That is
- * `DriverCapabilitiesWriter`'s and is covered by its own tests; a typed fake
- * observes the CALL, never the tables.
- * What this file asserts about the refresh trigger is exactly what it owns —
- * that a fresh reading, keyed to this driver, reaches the sink unaltered, and
- * that the sink's verdict is returned unaltered.
+ * Claude capability declaration: explicit and total, so no caller reads support out of absence.
+ * The flag record's totality is a compile-time check (its type annotation), so a flag added to the
+ * contract union breaks this file before any test runs. What the writer stores is the writer's own
+ * tests; here a fresh reading keyed to this driver must reach the sink, and the sink's verdict
+ * must come back, both unaltered.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -64,9 +53,8 @@ import { CLAUDE_TOOL_CATALOG } from "../tools.js";
 
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 
-// The build a spawned-version reading names — a Cellar path, deliberately NOT the
-// `/opt/homebrew/bin/claude` launcher symlink that points at it, because a
-// launcher is precisely what the reading refuses to describe.
+// A Cellar path, not the `/opt/homebrew/bin/claude` launcher symlink: a reading never describes
+// a launcher.
 const RESOLVED_CLAUDE_EXECUTABLE = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
 
 function claudeReading(report: DriverCliVersionReport): SpawnedProviderVersionReading {
@@ -77,13 +65,7 @@ function claudeReading(report: DriverCliVersionReport): SpawnedProviderVersionRe
   };
 }
 
-/**
- * The reporter takes a `SpawnedProviderVersionReading` reader. The
- * suite keeps expressing cases as REPORTS and wraps each into a reading here, so
- * every existing assertion still says what it always said about the version,
- * while the reporter's dependency is exercised in its shipped shape.
- */
-/** The diagnostic band, muted: this suite asserts declarations, not records. */
+/** Diagnostics muted: this suite asserts declarations, not records. */
 function silentDiagnostics(): DriverDiagnosticsEmitter {
   return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
 }
@@ -94,25 +76,18 @@ function makeReporter(
 ): ClaudeCapabilityReporter {
   return new ClaudeCapabilityReporter({
     readSpawnedVersion: async () => claudeReading(await readCliVersion()),
-    // The probe transport is a REQUIRED dependency, so a reporter that
-    // declares provenance nobody measured cannot be constructed. The default
-    // double answers every censused subtype and refuses the negative control,
-    // which is the happy path these pre-existing assertions assume; the probe
-    // table, the classifier, and the withdrawal paths are exercised in
+    // The default double answers every censused subtype and refuses the negative control; the
+    // probe table, classifier and withdrawal paths are tested in
     // `provider/__tests__/capability-probe.test.ts`.
     probe: probe.exchange,
-    // Likewise REQUIRED: a withdrawal a build never reports is a capability
-    // silently lost. Silent here, because these assertions are about the
-    // declaration rather than about the diagnostic band.
+    // Silent: these assertions are about the declaration, not the diagnostics.
     diagnostics: silentDiagnostics(),
   });
 }
 
 describe("Claude capability declaration — explicit and total", () => {
   it("declares the capability matrix values exactly", () => {
-    // Transcribed from the Claude column of the per-driver capability matrix.
-    // The annotation makes this expectation total too: a flag added to the
-    // union breaks this test at COMPILE time, not on a silent `false`.
+    // The annotation makes this total: a flag added to the union breaks at compile time.
     const matrix: Record<DriverCapabilityFlag, boolean> = {
       resume: true,
       steer: false,
@@ -135,14 +110,10 @@ describe("Claude capability declaration — explicit and total", () => {
   });
 
   it("publishes the SETTABLE output-speed levels, which are not the reportable ones", () => {
-    // The distinction is load-bearing and is exactly what this pins. The pinned
-    // provider REPORTS `on`, `cooldown`, and `off`; what a user may
-    // REQUEST is `off` and `on`, because a cooldown is a state the provider
-    // enters on its own and no caller can ask for. `outputSpeedLevels` bounds
-    // the request side only — a driver that published `cooldown` here would be
-    // offering a level whose selection cannot be honored, and one that narrowed
-    // an OBSERVED `cooldown` into this set would fabricate a state the provider
-    // is not in (see `ClaudeSessionLifecycle.observedOutputSpeedFor`).
+    // The provider reports `on`, `cooldown` and `off`, but a user may only request `off` and `on`:
+    // a cooldown is entered by the provider and cannot be asked for. Publishing `cooldown` here
+    // would offer a level that cannot be honored; narrowing an observed `cooldown` into this set
+    // would invent a state (see `ClaudeSessionLifecycle.observedOutputSpeedFor`).
     expect([...CLAUDE_OUTPUT_SPEED_LEVELS]).toStrictEqual(["off", "on"]);
     expect(CLAUDE_OUTPUT_SPEED_LEVELS).not.toContain("cooldown");
   });
@@ -162,20 +133,15 @@ describe("Claude capability declaration — explicit and total", () => {
   });
 
   it("is accepted by the write seam's own totality guard", () => {
-    // Drives the real guard rather than restating its rule: a declaration this
-    // module ships must survive the validator the writer applies to it.
+    // Runs the real validator the writer applies.
     expect(() => {
       assertValidCapabilityFlags(CLAUDE_CAPABILITY_FLAGS);
     }).not.toThrow();
   });
 
   it("declares no flag the contract does not carry", () => {
-    // `transcript_replay` is now in the union, and its Claude matrix cell is
-    // `probe` rather than a value — so the MATRIX reading here stays `false` and
-    // `getCapabilities` replaces it with the probe's own answer. `false`
-    // is the right constant to sit here because it is what an unprobed build
-    // declares, and undeclared and declared-unsupported must be
-    // indistinguishable to a caller.
+    // `transcript_replay` is probe-valued: the constant stays `false`, what an unprobed build
+    // declares, and `getCapabilities` replaces it with the probe's answer.
     expect(CLAUDE_CAPABILITY_FLAGS.transcript_replay).toBe(false);
     const canonical = new Set<string>(DRIVER_CAPABILITY_FLAGS);
     for (const flag of Object.keys(CLAUDE_CAPABILITY_FLAGS)) {
@@ -190,9 +156,8 @@ describe("Claude capability declaration — explicit and total", () => {
   });
 
   it("spells the shared vocabulary table rather than copying it", () => {
-    // IDENTITY, not equality. The durable cache's hydration path serves this
-    // same member with no driver in hand, so the values live in one table both
-    // paths read; a second literal here would drift silently.
+    // Identity, not equality: the cache hydration path serves the same member with no driver in
+    // hand, so both read one table.
     expect(CLAUDE_OUTPUT_SPEED_LEVELS).toBe(DRIVER_OUTPUT_SPEED_LEVELS.claude);
   });
 
@@ -213,22 +178,14 @@ describe("getCapabilities() — the V1 result wrapper", () => {
     expect(result.capabilities.contractVersion).toBe(CLAUDE_CAPABILITY_CONTRACT_VERSION);
     expect(result.tools).toStrictEqual([...CLAUDE_TOOL_CATALOG]);
     expect(result.cliVersion).toStrictEqual(CLI_VERSION);
-    // PRESENT, and present because the flag is: `outputSpeedLevels` is the
-    // settable vocabulary that gate reads, and a declared `output_speed` with no
-    // published set would leave the gate admitting every string.
+    // A declared `output_speed` needs its published set, or the gate would admit every string.
     expect("outputSpeedLevels" in result).toBe(true);
     expect(result.outputSpeedLevels).toStrictEqual(["off", "on"]);
   });
 
   it("publishes the speed vocabulary as a fresh MUTABLE copy, never the frozen constant", async () => {
-    // Earns the copy's own doctrine rather than asserting the value twice. Two
-    // separable claims, and neither implies the other:
-    //
-    //   1. the reply is MUTABLE — a consumer sorting or extending its own copy
-    //      must not hit a TypeError on a value it believes it owns, which is
-    //      exactly what handing back the frozen module constant would produce;
-    //   2. that mutation reaches NO other reader — the next reply and the module
-    //      constant are both unchanged.
+    // Two claims: the reply is mutable (a consumer extending its copy must not hit a TypeError
+    // from the frozen constant), and that mutation reaches no other reader.
     const reporter = makeReporter();
     const first: GetCapabilitiesResult = await reporter.getCapabilities();
 
@@ -295,9 +252,8 @@ describe("getCapabilities() — the V1 result wrapper", () => {
   });
 
   it("propagates an in-band version read failure instead of reporting a partial wrapper", async () => {
-    // The read is the spawned process's own `get_binary_version` answer —
-    // never a `--version` shell-out — so a failed read means the daemon
-    // does not know which build is running and must report no wrapper at all.
+    // The version comes from the spawned process's own `get_binary_version` answer, not a
+    // `--version` shell-out; a failed read means the running build is unknown, so no wrapper.
     const reporter = makeReporter(() =>
       Promise.reject(new Error("in-band version handshake failed")),
     );
@@ -359,8 +315,7 @@ describe("refreshDeclaration() — the declaration seam", () => {
 
 describe("Claude CLI-version floor", () => {
   it("refuses a below-floor reading fail-closed before any report reaches a caller", async () => {
-    // 2.1.198 is the PRE-amendment floor — exactly the build the 2026-08-26
-    // raise (2.1.198 → 2.1.234) exists to refuse.
+    // 2.1.198 is below the current 2.1.234 floor.
     const reporter = makeReporter(() =>
       Promise.resolve({ raw: "2.1.198 (Claude Code)", semver: "2.1.198" }),
     );
@@ -402,8 +357,7 @@ describe("Claude CLI-version floor", () => {
   });
 
   it("refuses a non-canonical reading fail-closed as unparseable", async () => {
-    // Reachable only through an untyped boundary (the report shape requires a
-    // canonical semver) — the gate still answers typed rather than throwing raw.
+    // Reachable only through an untyped boundary; the gate still answers with a typed error.
     const reporter = makeReporter(() =>
       Promise.resolve({ raw: "Claude Code (unknown)", semver: "unknown" }),
     );
@@ -415,9 +369,8 @@ describe("Claude CLI-version floor", () => {
 
 describe("Claude composition is bound to the spawned build", () => {
   it("takes a reading of the spawned build rather than a bare report", async () => {
-    // The version a driver reports is the version that spawned. The reader hands
-    // back a reading naming the resolved build,
-    // and that reading's report is what the wrapper carries.
+    // The reader returns a reading naming the resolved build, and its report is what the wrapper
+    // carries.
     const readSpawnedVersion = vi.fn(() =>
       Promise.resolve(claudeReading({ raw: "2.1.246", semver: "2.1.246" })),
     );
@@ -433,8 +386,7 @@ describe("Claude composition is bound to the spawned build", () => {
   });
 
   it("refuses a reading taken from ANOTHER driver's build", async () => {
-    // A wiring fault, not provider misbehavior — an internal-invariant Error
-    // rather than a typed provider refusal, and the sink never sees a call.
+    // A wiring fault, not provider misbehavior: a plain Error, and the sink is never called.
     const foreign: SpawnedProviderVersionReading = {
       driverName: "codex",
       resolvedExecutablePath: "/opt/homebrew/Cellar/codex/0.149.1/bin/codex",
@@ -453,23 +405,11 @@ describe("Claude composition is bound to the spawned build", () => {
   });
 });
 
-// --------------------------------------------------------------------------
-// The current model catalog + per-model effort vocabularies
-// --------------------------------------------------------------------------
-
 /**
- * GOLDEN VECTOR — the verbatim `list_models` control-response payload.
- *
- *   Pin        : Claude Code 2.1.251
- *   Provenance : Binary probe, 2026-08-30, one zero-turn control request
- *                `{"subtype":"list_models"}` over `-p --input-format
- *                stream-json`. Copied field-for-field from the reply.
- *   Trust      : Verified at 2.1.251.
- *
- * Keyed on real provider bytes rather than a hand-made shape, so the two rules
- * the wire forces — the `default` pointer colliding with `opus[1m]` on one
- * `resolvedModel`, and the Haiku row publishing no effort surface at all — are
- * exercised against the thing that actually produced them.
+ * The verbatim `list_models` control-response payload from Claude Code 2.1.251, recorded from one
+ * zero-turn `{"subtype":"list_models"}` request over `-p --input-format stream-json`. Real bytes,
+ * so the two wire quirks are tested against what produced them: the `default` pointer sharing
+ * `opus[1m]`'s `resolvedModel`, and the Haiku row publishing no effort surface.
  */
 const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Object.freeze({
   models: [
@@ -515,8 +455,7 @@ const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Obj
       supportsAdaptiveThinking: true,
       supportsAutoMode: true,
     },
-    // No `supportsEffort` and no `supportedEffortLevels` — the live instance of
-    // the contract's "absent = the model exposes no effort selection" reading.
+    // No effort fields: the model exposes no effort selection.
     {
       value: "haiku",
       resolvedModel: "claude-haiku-4-5-20251001",
@@ -530,17 +469,15 @@ describe("Claude model catalog", () => {
   it("reads the recorded reply into four models keyed by resolvedModel", () => {
     const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
 
-    // FIVE wire rows, FOUR models: `default` and `opus[1m]` resolve to one.
+    // Five wire rows, four models: `default` and `opus[1m]` resolve to one.
     expect(models.map((model) => model.id)).toEqual([
       "claude-opus-5[1m]",
       "claude-fable-5",
       "claude-sonnet-5",
       "claude-haiku-4-5-20251001",
     ]);
-    // The alias `value`s never become ids. A same-agent provider switch
-    // validates its model against this list, so admitting
-    // `sonnet` or `default` here is a switch target that can move underneath
-    // the user who chose it.
+    // Alias values never become ids: a provider switch validates its model against this list,
+    // and an alias like `sonnet` or `default` can move underneath the user who chose it.
     for (const aliasValue of ["default", "opus[1m]", "sonnet", "haiku"]) {
       expect(models.map((model) => model.id)).not.toContain(aliasValue);
     }
@@ -550,9 +487,8 @@ describe("Claude model catalog", () => {
     const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
     const opus = models.find((model) => model.id === "claude-opus-5[1m]");
 
-    // Not "Default (recommended)": that names the CURRENT default rather than
-    // naming this model, so it would re-label whichever model the vendor
-    // promotes next.
+    // Not "Default (recommended)": that names the current default and would re-label whichever
+    // model is promoted next.
     expect(opus?.name).toBe("Opus (1M context)");
   });
 
@@ -566,8 +502,7 @@ describe("Claude model catalog", () => {
 
     const models = normalizeClaudeModelCatalog(pointerLast);
 
-    // The pinned build happens to send the pointer first; a rule that only
-    // worked in that order would be an accident of the vendor's ordering.
+    // The recorded build sends the pointer first; the rule must not depend on that order.
     expect(models).toHaveLength(1);
     expect(models[0]?.name).toBe("Opus (1M context)");
   });
@@ -579,8 +514,7 @@ describe("Claude model catalog", () => {
 
     const models = normalizeClaudeModelCatalog(pointerOnly);
 
-    // Dropping it would lose the model entirely, which is worse than carrying
-    // the pointer's own display name.
+    // Dropping it would lose the model, which is worse than carrying the pointer's name.
     expect(models).toHaveLength(1);
     expect(models[0]?.id).toBe("claude-opus-5[1m]");
   });
@@ -590,8 +524,7 @@ describe("Claude model catalog", () => {
 
     for (const modelId of ["claude-opus-5[1m]", "claude-fable-5", "claude-sonnet-5"]) {
       const model = models.find((candidate) => candidate.id === modelId);
-      // `xhigh` included: the level is read from the build, not restated from a
-      // vocabulary this file could get wrong.
+      // Levels, `xhigh` included, are read from the build, not from a fixed vocabulary.
       expect(model?.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
     }
   });
@@ -600,8 +533,7 @@ describe("Claude model catalog", () => {
     const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
     const haiku = models.find((model) => model.id === "claude-haiku-4-5-20251001");
 
-    // Absent, not empty: the contract reads absence as "no effort selection",
-    // and an empty array would instead assert an axis with nothing on it.
+    // Absent, not empty: absence means "no effort selection"; an empty array would claim an axis.
     expect(haiku).toBeDefined();
     expect(haiku && "effortLevels" in haiku).toBe(false);
     expect(haiku?.effortLevels).toBeUndefined();
@@ -610,7 +542,7 @@ describe("Claude model catalog", () => {
   it("reads each model's fast mode from its own supportsFastMode", () => {
     const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
 
-    // Only the Opus row publishes a fast mode at the pin; a row with no flag has none.
+    // Only the Opus row publishes a fast mode in the recorded reply; a row with no flag has none.
     expect(models.map((model) => [model.id, model.fast])).toEqual([
       ["claude-opus-5[1m]", true],
       ["claude-fable-5", false],
@@ -638,10 +570,8 @@ describe("Claude model catalog", () => {
   it("populates no capabilities tags", () => {
     const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
 
-    // The member carries no registered vocabulary anywhere and is read by
-    // nothing; populating it from the row's `supportsAdaptiveThinking` /
-    // `supportsFastMode` / `supportsAutoMode` axes would mint a tag set ahead of
-    // its reader.
+    // No vocabulary is registered for the tags and nothing reads them, so the row's
+    // `supportsAdaptiveThinking`, `supportsFastMode` and `supportsAutoMode` are not mapped to them.
     for (const model of models) {
       expect(model.capabilities).toEqual([]);
     }
@@ -668,9 +598,8 @@ describe("Claude model catalog", () => {
       /unreadable `supportsFastMode`/,
     ],
   ])("refuses %s", (_label, payload, message) => {
-    // Strict rather than tolerant: a reader that skipped the bad row would
-    // answer a short catalog, and nothing downstream could tell a provider that
-    // dropped a model from a parser that failed to see one.
+    // Strict: skipping a bad row would answer a short catalog that looks like a provider dropping
+    // a model.
     expect(() => normalizeClaudeModelCatalog(payload)).toThrow(ClaudeModelCatalogUnreadableError);
     expect(() => normalizeClaudeModelCatalog(payload)).toThrow(message);
   });
@@ -681,17 +610,13 @@ describe("Claude model catalog", () => {
     expect(models.map((model) => model.id)).toEqual(
       CLAUDE_DECLARED_MODEL_CATALOG.map((model) => model.id),
     );
-    // The declaration and the recorded reply are the same reading, so a drift
-    // between them is a failing test rather than a silently stale catalog.
+    // The declaration must equal the recorded reply, so drift fails here.
     expect(models).toEqual(normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY));
   });
 
   it("refuses an in-place mutation of the shared declared catalog", () => {
-    // `Object.freeze` on the ENTRY is shallow: it stops `entry.effortLevels =
-    // […]` and does nothing about `entry.effortLevels.push(…)`. This constant
-    // is re-exported from the driver barrel and shared process-wide, so an
-    // out-of-band consumer was one `push` away from rewriting the declared
-    // vocabulary for every later caller.
+    // A shallow freeze stops `entry.effortLevels = […]` but not `entry.effortLevels.push(…)`, and
+    // this constant is shared process-wide, so the arrays must be frozen too.
     const declaredEntry = CLAUDE_DECLARED_MODEL_CATALOG[0];
     if (declaredEntry === undefined) {
       throw new Error("the declared catalog is empty");
@@ -701,8 +626,7 @@ describe("Claude model catalog", () => {
     expect(Object.isFrozen(declaredEntry.capabilities)).toBe(true);
     expect(Object.isFrozen(declaredEntry.effortLevels)).toBe(true);
     expect(Object.isFrozen(CLAUDE_DECLARED_MODEL_CATALOG)).toBe(true);
-    // Strict mode — every module in this package is one — so the write THROWS
-    // rather than failing silently, which is what makes the freeze observable.
+    // Modules are strict, so a write to a frozen array throws.
     expect(() => declaredEntry.effortLevels?.push("mutated")).toThrow(TypeError);
     expect(() => declaredEntry.capabilities.push("mutated")).toThrow(TypeError);
 
@@ -711,9 +635,7 @@ describe("Claude model catalog", () => {
   });
 
   it("freezes the no-effort row's capabilities too, not only the effort-bearing ones", () => {
-    // The `effortLevels`-absent row takes a DIFFERENT construction branch, so a
-    // freeze applied only on the branch that carries effort levels would leave
-    // this row's `capabilities` writable.
+    // The effort-free row is built on a different branch, which could miss the freeze.
     const noEffortEntry = CLAUDE_DECLARED_MODEL_CATALOG.find(
       (model) => model.effortLevels === undefined,
     );
@@ -732,9 +654,8 @@ describe("Claude model catalog", () => {
 
     const second = await resolveClaudeModelCatalog(null);
 
-    // The constant is frozen and shared process-wide, but `ProviderModel`
-    // carries mutable arrays — a caller rewriting one must not rewrite every
-    // later caller's answer.
+    // The constant is frozen and shared, but `ProviderModel` has mutable arrays, so each caller
+    // gets its own copy.
     expect(second[0]?.capabilities).toEqual([]);
     expect(second[0]?.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
@@ -750,8 +671,7 @@ describe("Claude model catalog", () => {
   it("never falls back to the declaration when a bound exchange fails", async () => {
     const transportFailure = new Error("channel closed");
 
-    // Serving a stale catalog under the appearance of a live read is the one
-    // confusion the detection-source doctrine exists to prevent.
+    // A stale catalog must never be served as if it were a live read.
     await expect(
       resolveClaudeModelCatalog(async () => {
         throw transportFailure;
@@ -763,12 +683,8 @@ describe("Claude model catalog", () => {
   });
 });
 
-// The positive/negative pair for the ONE probe-valued cell in the capability
-// matrix. Every capability a client can invoke must be one
-// `getCapabilities` declares — so the declaration has to track the probe in BOTH
-// directions, and a suite that only ever ran the refusing double would pass
-// against a hard-coded `false`. Flipping the same double is what makes the
-// negative arm non-vacuous.
+// `transcript_replay` is the one probe-valued flag: the declaration must follow the probe in
+// both directions, or a suite that only ran the refusing double would pass on a hard-coded `false`.
 describe("ClaudeCapabilityReporter — the probe-derived transcript_replay declaration", () => {
   const SEEDING_SURFACE: ClaudeTranscriptSeedingSurface = {
     seedFrame: () => Promise.resolve({ delivery: "applied" as const }),
@@ -805,8 +721,7 @@ describe("ClaudeCapabilityReporter — the probe-derived transcript_replay decla
     expect(result.capabilities.flags.transcript_replay).toBe(true);
   });
 
-  // The same double, flipped, on one build: whichever way the probe answers, the
-  // declaration is that answer and never the module constant.
+  // Whichever way the probe answers, the declaration is that answer, never the module constant.
   it("tracks a probe that flips, in both directions", async () => {
     let supported = false;
     const reporter = reporterWithReplayProbe(() =>
@@ -833,10 +748,8 @@ describe("ClaudeCapabilityReporter — the probe-derived transcript_replay decla
     expect(result.capabilities.flags.transcript_replay).toBe(false);
   });
 
-  // A probe that FAULTS is not an availability signal. It fails closed to
-  // `false` and is metered, because a probe that could not answer is a different
-  // operational condition from one that answered no — and the flag's value is
-  // the only place the two would otherwise be indistinguishable.
+  // A faulted probe fails closed to `false` and records a diagnostic, since the flag alone cannot
+  // tell it from a probe that answered no.
   it("fails closed AND records a diagnostic when the probe throws", async () => {
     const emitted: DriverDiagnosticRecord[] = [];
     const reporter = new ClaudeCapabilityReporter({
@@ -854,9 +767,8 @@ describe("ClaudeCapabilityReporter — the probe-derived transcript_replay decla
     expect(withdrawal?.details["disposition"]).toBe("probe-faulted");
   });
 
-  // The structural guarantee that replaces withdraw-only for this one cell: the
-  // supported arm CARRIES the surface, so "declared true with nothing behind it"
-  // is unrepresentable rather than merely forbidden.
+  // The supported arm carries the surface, so "declared true with nothing behind it" cannot be
+  // represented.
   it("cannot represent a supported reading with no seeding surface", () => {
     const supported: ClaudeTranscriptReplayReading = {
       supported: true,

@@ -1,12 +1,12 @@
-// The platform keychain behind `SecretKeychain`: the macOS login keychain, the Windows
-// Credential Manager, and on Linux the Secret Service (GNOME Keyring, KWallet,
-// KeePassXC), through `@napi-rs/keyring`.
+// The platform keychain behind `SecretKeychain`, through `@napi-rs/keyring`: the macOS login
+// keychain, the Windows Credential Manager, and on Linux the Secret Service (GNOME Keyring,
+// KWallet, KeePassXC).
 //
-// Only the keychain is used. On Linux the entry is pinned to the Secret Service, so a
-// machine without one refuses instead of falling back to the kernel keyring, which
-// forgets its keys at a reboot; there is no encrypted-file fallback and no plaintext. A
-// call that does not settle in time is abandoned and reported locked, because a
-// keychain waiting on an unlock prompt nobody answers is the call that never settles.
+// Only the keychain is used. On Linux the entry is pinned to the Secret Service, so a machine
+// without one refuses instead of falling back to the kernel keyring, which forgets its keys at
+// reboot; there is no encrypted-file or plaintext fallback. A call that does not settle in time
+// is abandoned and reported locked, because a keychain waiting on an unlock prompt nobody
+// answers never settles.
 import { AsyncEntry } from "@napi-rs/keyring";
 
 import type { WorkflowSecretStoreUnavailableCause } from "@ai-sidekicks/contracts";
@@ -16,8 +16,8 @@ import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "./secr
 // How long one keychain call may take, an unlock prompt included.
 const KEYCHAIN_CALL_TIMEOUT_MS = 30_000;
 
-// The keychain library reports the store refusing access, a locked keychain among
-// them, with this message prefix; any other failure means the store cannot be used.
+// The keychain library prefixes its "store refused access" errors, a locked keychain among them,
+// with this text; any other failure means the store cannot be used.
 const STORAGE_ACCESS_REFUSED_PREFIX = "Couldn't access platform storage";
 
 /** The keychain entries filed under one service name. */
@@ -75,6 +75,7 @@ export class OsSecretKeychain implements SecretKeychain {
   }
 }
 
+// Maps the library's error message to the cause the store reports.
 function causeOfKeychainFailure(message: string): WorkflowSecretStoreUnavailableCause {
   return message.startsWith(STORAGE_ACCESS_REFUSED_PREFIX) ? "locked" : "unavailable";
 }

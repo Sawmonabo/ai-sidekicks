@@ -1,7 +1,7 @@
-// The platform keychain is reached through `@napi-rs/keyring`, replaced here so the
-// person's keychain is never touched. These cases hold what the adapter promises the
-// store: the Linux entry is pinned to the Secret Service, a keychain that never answers
-// is abandoned as locked, and each failure the library reports carries the right cause.
+// `@napi-rs/keyring` is replaced here so no real keychain is touched. These cases hold what the
+// adapter promises the store: the Linux entry is pinned to the Secret Service, a keychain that
+// never answers is abandoned as locked, and each failure the library reports carries the right
+// cause.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const keyring = vi.hoisted(() => ({
