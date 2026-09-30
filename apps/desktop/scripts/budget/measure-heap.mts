@@ -1,17 +1,13 @@
 #!/usr/bin/env node
-// Renderer heap-at-rest budget.
+// Renderer heap-at-rest budget. This file measures nothing, on purpose: the subject is a renderer
+// heap, and a Node process holds no Chromium, renderer isolate, React or DOM. `pnpm budget:heap`
+// reports which harness holds the reading instead: `tests/endurance/heap-at-rest.test.ts`, which
+// launches the built app, opens the concurrent-streaming scenario's session, and reads the
+// renderer's own heap.
 //
-// This file measures nothing, and that is its whole point. The budget's subject is a
-// renderer heap, and a Node process holds no Chromium, no renderer isolate, no React
-// and no DOM, so a figure read here would be short of the renderer by everything that
-// makes one. A person who runs `pnpm budget:heap` is told which harness holds the
-// reading instead: `tests/endurance/heap-at-rest.test.ts`, which launches the built
-// app, opens the concurrent-streaming scenario's session, walks the frozen clock over
-// the whole script, and reads the renderer's own heap.
-//
-// The one behavior kept here is the refusal: if the registry ever names this harness
-// as the row's measurer, that is a claim no code here can honor, and it exits 2 rather
-// than printing a report over a figure nobody took.
+// The one behavior kept here is the refusal: if the registry names this harness as the row's
+// measurer, no code here can honor that, so it exits 2 rather than print a report over a figure
+// nobody took.
 //
 //   node --experimental-strip-types scripts/budget/measure-heap.mts [--json]
 //
@@ -30,25 +26,20 @@ import { formatUnavailableBudgetReport } from "./budget-report.mts";
 import { type Budget } from "./budget-document.mts";
 import { BudgetSubjectMissingError, formatBytes } from "./budget-harness.mts";
 
+/** Registry id of the heap-at-rest row. */
 export const HEAP_AT_REST_BUDGET_ID: string = "renderer-heap-at-rest";
 
 /**
- * The repo-relative path of this harness, as the registry would spell it.
- *
- * Compared against the row's `measuredBy` rather than assumed absent, so the
- * refusal below is a claim about THIS file and not about every non-null value.
+ * The repo-relative path of this harness as the registry would spell it. It is compared with the
+ * row's `measuredBy`, so the refusal is about this file and not about every non-null value.
  */
 const THIS_HARNESS_PATH: string = "apps/desktop/scripts/budget/measure-heap.mts";
 
 /**
- * Thrown when the registry names this harness as the row's measurer.
- *
- * A `BudgetSubjectMissingError`, on the same reasoning its sibling
- * `RendererBundleOutputMissingError` carries: the subject a verdict would be
- * about does not exist in this process, and the refusal names what does hold it.
- * The day someone re-points the row back at this file — the obvious way to "fix"
- * a budget whose reading is somewhere less convenient — this fires instead of
- * letting the CLI exit 0 over a gate no code here performs.
+ * Thrown when the registry names this harness as the row's measurer. It is a
+ * `BudgetSubjectMissingError`: the subject does not exist in this process, and the message names
+ * what holds it. Without it, re-pointing the row here would let the CLI exit 0 over a gate no code
+ * here performs.
  */
 export class HeapAtRestMeasurerMisattributedError extends BudgetSubjectMissingError {
   public constructor(budget: Budget) {
@@ -64,7 +55,7 @@ export class HeapAtRestMeasurerMisattributedError extends BudgetSubjectMissingEr
   }
 }
 
-/** What a `--json` run emits where a measurement and a verdict used to go. */
+/** What a `--json` run emits in place of a measurement and a verdict. */
 export interface HeapAtRestDelegationRecord {
   readonly budgetId: string;
   /** Literal, so a consumer can discriminate this from a verdict without guessing. */
@@ -76,12 +67,9 @@ export interface HeapAtRestDelegationRecord {
 }
 
 /**
- * The heap budget's row, and the one thing this process can honestly say about
- * it: which harness takes the reading.
- *
- * The registry is injected rather than loaded at every call site so the refusal
- * arm above is reachable from a test against a fixture registry. Its default is
- * the one file every harness reads.
+ * The heap budget's row, and the one thing this process can say about it: which harness takes the
+ * reading. The registry is injected so the refusal arm is reachable from a test against a fixture
+ * registry.
  */
 export class HeapAtRestGate {
   readonly #registry: BudgetRegistry;
@@ -102,9 +90,8 @@ export class HeapAtRestGate {
     if (measuredBy === THIS_HARNESS_PATH) {
       throw new HeapAtRestMeasurerMisattributedError(this.#budget);
     }
-    // An `n/a` row carries no measurer at all, which is the registry's own
-    // consistency rule rather than this file's. Reported as the row's reason so
-    // a reader of this report is not left to guess where a reading went.
+    // An `n/a` row carries no measurer, so its reason is reported instead of leaving the reader to
+    // guess where a reading went.
     return measuredBy ?? `— none; ${this.#budget.notMeasurableReason ?? "no reason recorded"}`;
   }
 
@@ -120,13 +107,9 @@ export class HeapAtRestGate {
   }
 
   /**
-   * The report a person reads.
-   *
-   * Not composed through `formatBudgetReport`: that skeleton is built around a
-   * verdict over a measured figure, and there is no figure here. The verdict line
-   * keeps its position and its label so a reader's eye lands where it always
-   * does, and names the harness that does compare rather than a comparison of
-   * nothing.
+   * The report a person reads. Not built through `formatBudgetReport`, whose skeleton assumes a
+   * verdict over a measured figure; the verdict line keeps its position and names the harness that
+   * does compare.
    *
    * @throws {HeapAtRestMeasurerMisattributedError} when the row names this file.
    */
@@ -134,10 +117,8 @@ export class HeapAtRestGate {
     const budget = this.#budget;
     return [
       "Renderer heap-at-rest budget",
-      // The row's own id, printed rather than left to the reader to infer from
-      // the heading. It used to reach this report only through the ungated block
-      // below, which a gated row is correctly absent from — so a report about a
-      // budget stopped naming it exactly when the budget started being enforced.
+      // The row's own id: a gated row is absent from the ungated block below, so the report would
+      // otherwise stop naming its budget.
       `  budget id:     ${this.#budget.id}`,
       `  registry:      ${this.#registry.budgetsFilePath}`,
       `  subject:       ${budget.subject}`,
@@ -166,11 +147,8 @@ This budget's reading is the endurance tier's; nothing is measured in this proce
 exit 0 measured elsewhere · 2 bad usage, or the registry names this harness as the measurer`;
 
 /**
- * CLI entry point; returns the process exit code.
- *
- * The registry is a parameter for the same reason the gate takes one: the exit-2
- * arm is a claim about behavior, and a claim no test can drive is a claim
- * rather than evidence.
+ * CLI entry point; returns the process exit code. The registry is a parameter so a test can drive
+ * the exit-2 arm.
  */
 export function runHeapBudgetCommand(
   argumentList: readonly string[],
@@ -208,9 +186,8 @@ export function runHeapBudgetCommand(
     );
   } catch (gateError) {
     if (gateError instanceof BudgetSubjectMissingError) {
-      // Same shape `runBudgetHarness` gives a missing subject: say what is
-      // absent, then reprint the ungated set so the refusal does not shrink the
-      // report to one line about one row.
+      // Same shape `runBudgetHarness` gives a missing subject: name what is absent, then reprint
+      // the ungated set.
       console.error(gateError.message);
       console.error(formatUnavailableBudgetReport(resolvedRegistry));
       return 2;
@@ -220,13 +197,10 @@ export function runHeapBudgetCommand(
   return 0;
 }
 
-// CLI only when this file is the entry point, so the Vitest project can import
-// it without side effects.
-// Compared through `realpathSync` on BOTH sides, never `import.meta.url ===
-// pathToFileURL(argv[1])`: Node resolves the module URL through symlinks while
-// argv[1] keeps the path as typed, so the naive form silently no-ops through a
-// symlinked or spaced checkout and exits 0 over an unrun budget gate
-// (`tools/__tests__/entry-guard.test.mjs` pins exactly this).
+// CLI only when this file is the entry point, so Vitest can import it without side effects. Both
+// sides go through `realpathSync`: Node resolves the module URL through symlinks while argv[1]
+// keeps the path as typed, so the naive comparison silently no-ops through a symlinked or spaced
+// checkout and exits 0 over an unrun gate (`tools/__tests__/entry-guard.test.mjs` pins this).
 const invokedPath = process.argv[1];
 if (
   invokedPath !== undefined &&

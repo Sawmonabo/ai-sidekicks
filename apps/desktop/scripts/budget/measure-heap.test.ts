@@ -1,25 +1,8 @@
-// The renderer heap-at-rest budget row.
-//
-// The renderer heap with ONE SESSION OPEN is bounded at 120 MB. The reading is
-// taken by the endurance tier — `tests/endurance/heap-at-rest.test.ts`,
-// which launches the built console
-// and reads its renderer's own heap — and this file pins what THIS tier can see
-// about that arrangement, in both directions:
-//
-//   • the registry row is gated, names that harness, and its CEILING is
-//     unchanged, so a re-pointed reading cannot quietly become a relaxed one;
-//   • the budget CLI prints a `MEASURED ELSEWHERE` verdict and exits 0 rather
-//     than printing a comparison of nothing, and REFUSES with exit 2 if the row
-//     is ever re-pointed at the CLI itself, which is a Node process holding no
-//     renderer.
-//
-// The second half is the negative control, and it is the arm with history. Until
-// 2026-09-02 this row was `enforced` against `process.memoryUsage().heapUsed` in
-// that CLI, with a stand-in entity map retained: no Chromium, no renderer
-// isolate, no React, no DOM, no console store. That gate reported 5 % of budget
-// and would have kept reporting it with the shipped renderer arbitrarily far over
-// the limit, so the one behavior worth pinning here is that naming the CLI as
-// the measurer fails loudly instead of restoring the green.
+// Pins what this tier can see of the heap-at-rest row: it is gated, names the endurance harness
+// that reads a renderer heap, and keeps its ceiling. The budget CLI prints a `MEASURED ELSEWHERE`
+// verdict and exits 0, and refuses with exit 2 if the row is re-pointed at the CLI, a Node process
+// with no renderer. That refusal is the negative control: a gate reading this process's heap would
+// stay green with the shipped renderer far over the limit.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -62,11 +45,8 @@ afterEach(() => {
 });
 
 /**
- * The registry as it would read if someone re-pointed this budget at the CLI.
- *
- * Built by rewriting the real file rather than by hand-authoring an entry, so the
- * fixture cannot drift into a shape the loader would reject for an unrelated
- * reason and pass this test for the wrong one.
+ * The registry as it would read if someone re-pointed this budget at the CLI. Built by rewriting
+ * the real file, so the fixture cannot drift into a shape the loader rejects for another reason.
  */
 function registryClaimingTheNodeCliMeasuresTheHeap(): BudgetRegistry {
   const document = JSON.parse(readFileSync(registry.budgetsFilePath, "utf8")) as {
@@ -105,8 +85,7 @@ describe("the heap budget CLI's delegation", () => {
     expect(report).toContain("MEASURED ELSEWHERE");
     expect(report).toContain(ENDURANCE_HARNESS_PATH);
     expect(report).toContain(SPEC_CEILING_BYTES.toLocaleString("en-US"));
-    // The two verdicts a measured budget prints. Either one here would be a
-    // comparison against a figure this process never took.
+    // Either verdict would be a comparison against a figure this process never took.
     expect(report).not.toContain("WITHIN BUDGET");
     expect(report).not.toContain("OVER BUDGET");
   });
@@ -122,10 +101,8 @@ describe("the heap budget CLI's delegation", () => {
     } satisfies HeapAtRestDelegationRecord);
   });
 
-  // The negative control. Every assertion above rests on the gate distinguishing
-  // "measured somewhere that holds a renderer" from "measured here"; this proves
-  // it does, on the one known-bad input that matters — the row re-pointed at the
-  // Node process, which is the shape this budget was falsely green under.
+  // The negative control: the gate must tell "measured where a renderer lives" from "measured
+  // here", on the known-bad input where the row names the Node process.
   it("refuses a registry that names this Node harness as the measurer", () => {
     const misattributedRegistry = registryClaimingTheNodeCliMeasuresTheHeap();
     const gate = new HeapAtRestGate(misattributedRegistry);

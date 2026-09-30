@@ -1,30 +1,6 @@
-// The console budget registry.
-//
-// The QUERY module over `tests/budget/budgets.json`, the one place every
-// numeric budget the console is gated on is written down. Load it, then ask it
-// things: which rows are the console's own product budgets, which the
-// scaffolding applies to itself, which are enforced, and what one row's canonical
-// figure is.
-//
-// FOUR CONCERNS, FOUR MODULES
-//
-// This file held all four until it reached 406 lines, and the seam is the file's
-// own vocabulary rather than a line count:
-//
-//   • `budget-document.mts` — bytes to a validated document. The only half that
-//     reads the filesystem and the only half that refuses.
-//   • this module — the document, queried.
-//   • `budget-evaluation.mts` — a measurement against one row's ceiling.
-//   • `budget-report.mts` — the un-measured rows, formatted for a harness to print.
-//
-// Every importer still reaches all four through this module: nine of them name
-// `budget-registry.mjs`, and the split is a change of where the code lives rather
-// than of what it publishes. `budget-report.mts` therefore takes its rows through
-// a structural port instead of importing the class here — a cycle would fail
-// `structure:layering`, and the shape it asks for is the shape this class has.
-//
-// Printing a reading and exiting on one belong to `budget-harness.mts`, the runner
-// the two measuring harnesses run inside.
+// Query layer over `tests/budget/budgets.json`, the one place every numeric budget the console is
+// gated on is written down. Validation is `budget-document.mts`, comparing a measurement is
+// `budget-evaluation.mts`, and formatting the un-measured rows is `budget-report.mts`.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +17,7 @@ const THIS_DIRECTORY: string = path.dirname(fileURLToPath(import.meta.url));
 /** `apps/desktop`, resolved from this file so every default path is absolute. */
 export const DESKTOP_PACKAGE_ROOT: string = path.resolve(THIS_DIRECTORY, "..", "..");
 
+/** Absolute path of the checked-in `budgets.json`. */
 export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
   DESKTOP_PACKAGE_ROOT,
   "tests",
@@ -52,13 +29,7 @@ export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
 export class BudgetRegistry {
   readonly budgetsFilePath: string;
   readonly schemaVersion: number;
-  /**
-   * Why the `harness` rows carry the figures they do, stated once for the set.
-   *
-   * `null` exactly when the document declares no `harness` row at all; see
-   * `BudgetDocument` for why it is a document field rather than a
-   * sentence per row.
-   */
+  /** Why the `harness` rows carry the figures they do, stated once for the set. */
   readonly harnessBudgetDerivation: string | null;
   readonly budgets: readonly Budget[];
 
@@ -86,7 +57,7 @@ export class BudgetRegistry {
     return budget;
   }
 
-  /** The console's own product budgets — the set that list closes. */
+  /** The console's own product budgets, a closed list. */
   productBudgets(): readonly Budget[] {
     return this.budgets.filter((budget) => budget.scope === "product");
   }
@@ -97,11 +68,8 @@ export class BudgetRegistry {
   }
 
   /**
-   * The canonical figure for `budgetId`, in its canonical unit.
-   *
-   * The read path for a harness that needs the NUMBER rather than a verdict, so
-   * a timeout constant is one line derived from the registry instead of a
-   * literal typed a second time beside it.
+   * The canonical figure for `budgetId`, in its canonical unit, for a harness that needs the number
+   * rather than a verdict.
    *
    * @throws {BudgetRegistryError} on an unknown id, never a default.
    */
