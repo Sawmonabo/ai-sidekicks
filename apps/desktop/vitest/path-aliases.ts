@@ -1,10 +1,7 @@
-// The desktop's import aliases for Vite: the build's three targets and every Vitest
-// project spread this table. The map itself lives in `tsconfig.paths.json`, which the
-// compiler, dependency-cruiser and knip read, so the table is derived from that file
-// rather than written a second time.
-//
-// Spread into each project rather than set once at the root: no project here uses
-// `extends: true`, so a root `resolve.alias` would not reach any of them.
+// Import aliases for Vite, spread into the build's three targets and every Vitest project. The
+// map lives in `tsconfig.paths.json`, which the compiler, dependency-cruiser and knip also read.
+// It is spread into each project because none uses `extends: true`, so a root `resolve.alias`
+// would reach none of them.
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -16,7 +13,7 @@ const pathsConfig = JSON.parse(
   readFileSync(resolve(PACKAGE_ROOT, "tsconfig.paths.json"), "utf8"),
 ) as { readonly compilerOptions: { readonly paths: Readonly<Record<string, readonly string[]>> } };
 
-/** One Vite alias per `tsconfig.paths.json` entry: `@renderer/x` → `<package>/src/renderer/src/x`. */
+/** One Vite alias per `tsconfig.paths.json` entry, such as `@renderer/x` for a folder. */
 export const PATH_ALIASES: readonly { readonly find: string; readonly replacement: string }[] =
   Object.entries(pathsConfig.compilerOptions.paths).map(([pattern, [target]]) => {
     if (target === undefined || !pattern.endsWith("/*") || !target.endsWith("/*")) {
