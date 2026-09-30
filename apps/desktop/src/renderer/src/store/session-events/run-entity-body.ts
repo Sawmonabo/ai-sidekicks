@@ -71,22 +71,21 @@ const RUN_BODY_MEMBER_READERS = {
   executionPosture: "object",
   /** The stop condition that ended the run — a budget exhaustion, an idle timeout. */
   trigger: "string",
-  parentRunId: "string",
-  internalHelper: "boolean",
-  admittedUnpricedCapUsdMicros: "number",
-  admittedModelFamily: "string",
 } as const satisfies Readonly<Record<DurableRunMemberName, WireMemberReaderName>>;
 
 /**
  * The members the creation row's own payload declares beyond the two stream shapes:
- * its provenance, its admission-resolved limits and the account it was admitted
- * against. `agentId` is already in the base table, and `resolvedAgent` is the agent's
- * record rather than the run's, read by the agent roster and never onto the body.
+ * its linkage, its admission-resolved limits and its admission stamps. `agentId` is
+ * already in the base table, and `resolvedAgent` is the agent's record rather than the
+ * run's: only its id reaches the body, as the run's `agentId`.
  */
 type RunQueuedOwnMemberName = Exclude<
   keyof RunQueuedPayload,
   RegisteredRunMemberName | "sessionId" | "agentId" | "resolvedAgent"
 >;
+
+/** The run's creation, the one kind that can bring its agent into the session. */
+const RUN_QUEUED_EVENT_KIND: Extract<SessionEventType, "run.queued"> = "run.queued";
 
 /**
  * The registered kinds whose durable payload names members of its own.
@@ -118,10 +117,14 @@ type RunKindWithPerTypeMembers = Extract<
 const PER_TYPE_RUN_BODY_MEMBER_READERS: Readonly<
   Record<RunKindWithPerTypeMembers, Readonly<Record<string, WireMemberReaderName>>>
 > = Object.freeze({
-  // The creation row's provenance, its admission-resolved limits, and the account it
-  // was admitted against, keyed by the contract's own payload so a member it gains or
-  // loses fails to compile here.
+  // The creation row's linkage, its admission-resolved limits and its admission
+  // stamps, keyed by the contract's own payload so a member it gains or loses fails to
+  // compile here.
   "run.queued": Object.freeze({
+    parentRunId: "string",
+    internalHelper: "boolean",
+    admittedUnpricedCapUsdMicros: "number",
+    admittedModelFamily: "string",
     reachedBy: "string",
     effectiveRunConfig: "object",
     admittedProviderAccountId: "string",
@@ -190,7 +193,27 @@ export function readRunEntityBody(
       }
     }
   }
+  const resolvedAgentId =
+    eventKind === RUN_QUEUED_EVENT_KIND ? readResolvedAgentId(payload) : undefined;
+  if (resolvedAgentId !== undefined) {
+    body["agentId"] = resolvedAgentId;
+  }
   return Object.keys(body).length === 0 ? undefined : body;
+}
+
+/**
+ * The agent a run's creation starts from a saved definition, by id.
+ *
+ * A creation row names its agent by `agentId` where the agent is already in the
+ * session, and inside `resolvedAgent` where the run brings it in, never both. The
+ * body's `agentId` is the agent the run belongs to either way, so a run of a
+ * definition-started agent is bound to that agent like any other.
+ */
+function readResolvedAgentId(
+  payload: Readonly<Record<string, unknown>> | undefined,
+): string | undefined {
+  const resolvedAgent = payload?.["resolvedAgent"];
+  return isWireRecord(resolvedAgent) ? readWireString(resolvedAgent["agentId"]) : undefined;
 }
 
 /**

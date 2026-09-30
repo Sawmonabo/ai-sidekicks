@@ -267,7 +267,6 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     atMs: 400,
     runVersion: 1,
     newState: "queued",
-    agentId: AGENT_IMPLEMENTER,
     resolvedAgent: composeResolvedAgent({
       agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_IMPLEMENTER),
       lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
@@ -295,7 +294,6 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     atMs: 600,
     runVersion: 1,
     newState: "queued",
-    agentId: AGENT_REVIEWER,
     resolvedAgent: composeResolvedAgent({
       agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_REVIEWER),
       lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
@@ -319,7 +317,6 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     atMs: 750,
     runVersion: 1,
     newState: "queued",
-    agentId: AGENT_SCOUT,
     resolvedAgent: composeResolvedAgent({
       agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_SCOUT),
       lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),

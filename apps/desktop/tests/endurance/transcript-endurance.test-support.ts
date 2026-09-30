@@ -176,8 +176,8 @@ export function createTranscriptEnduranceFixture(
         runId,
         runVersion: 1,
         newState: "queued",
-        agentId: agent.agentId,
         actorId: USER_YOU,
+        // A run names an agent already in the session, or brings one in; never both.
         ...(startsItsAgent
           ? {
               resolvedAgent: composeResolvedAgent({
@@ -186,7 +186,7 @@ export function createTranscriptEnduranceFixture(
                 resolvedAt: composeScenarioInstant(startedAtMs, queuedAtMs),
               }),
             }
-          : {}),
+          : { agentId: agent.agentId }),
       }),
     );
     entries.push(

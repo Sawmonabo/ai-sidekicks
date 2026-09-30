@@ -96,7 +96,7 @@ describe("run-stream projection — which subscriptions it answers for", () => {
 describe("run-stream projection — the optional members a beat supplies", () => {
   it("carries them through rather than flattening them", () => {
     const beat = runTransitionBeat(
-      transitionPayload({ completionKind: "turn", internalHelper: true }),
+      transitionPayload({ completionKind: "turn", trigger: "budget_exhausted" }),
     );
     const projection = projectRunStreamDelivery(RUN_STATE_EVENT_STREAM, beat.event);
 
@@ -106,7 +106,7 @@ describe("run-stream projection — the optional members a beat supplies", () =>
     }
     const parsed = RunStateChangeEventSchema.parse(projection.delivery);
     expect(parsed.completionKind).toBe("turn");
-    expect(parsed.internalHelper).toBe(true);
+    expect(parsed.trigger).toBe("budget_exhausted");
   });
 
   it("negative control: one the beat omits is absent, not defaulted", () => {
@@ -122,8 +122,7 @@ describe("run-stream projection — the optional members a beat supplies", () =>
     }
     const parsed = RunStateChangeEventSchema.parse(projection.delivery);
     expect(parsed.completionKind).toBeUndefined();
-    expect(parsed.trigger).toBeUndefined();
-    expect("internalHelper" in parsed).toBe(false);
+    expect("trigger" in parsed).toBe(false);
   });
 });
 

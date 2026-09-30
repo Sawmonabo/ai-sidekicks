@@ -19,6 +19,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts";
+
 import { SCENARIOS } from "../../../../../fixtures/index.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
@@ -202,11 +204,15 @@ describe("the concurrent-streaming scenario's run, folded", () => {
     const run = storeDrivenBy(concurrentStreaming).snapshot().partitions.run[String(runId)];
 
     // The state is the LAST transition's `newState`, and the body still carries the
-    // agent only the first beat named — the property the entity merge exists for.
+    // agent only the first beat named — the property the entity merge exists for. That
+    // beat names an agent already in the session or one it starts from a definition.
+    const creation = RunQueuedPayloadSchema.parse(queued.payload);
+    const queuedAgentId = creation.agentId ?? creation.resolvedAgent?.agentId;
+    expect(queuedAgentId).toBeDefined();
     expect(run?.state).toBe(lastTransition.payload?.["newState"]);
     expect(run?.body?.["previousState"]).toBe(lastTransition.payload?.["previousState"]);
     expect(run?.body?.["runVersion"]).toBe(lastTransition.payload?.["runVersion"]);
-    expect(run?.body?.["agentId"]).toBe(queued.payload?.["agentId"]);
+    expect(run?.body?.["agentId"]).toBe(queuedAgentId);
     expect(run?.touchedAt).toBe(lastTransition.occurredAt);
   });
 

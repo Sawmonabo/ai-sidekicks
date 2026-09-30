@@ -36,9 +36,9 @@
 //
 // So the member list is DERIVED rather than hand-kept. `RunStateChangeEvent` and
 // `RunRolledBackEvent` (`packages/contracts/src/run-control.ts`) are the two
-// registered run shapes, and `DurableRunMemberName` below is their key union
-// minus the four members the durable row does not carry under those names, plus
-// the two the durable payload carries alone. A member added to either registered
+// registered run shapes, and `DurableRunMemberName` in `run-entity-body.ts` is their
+// key union minus the members the durable row does not carry under those names, plus
+// `agentId`, which the durable payload carries alone. A member added to either registered
 // shape lands in that union and fails the reader table's `satisfies` until
 // someone classifies it, which is the whole point: a hand list is how a body
 // silently stops carrying the member a component was built to read.

@@ -122,10 +122,6 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   intendedClose: true,
   executionPosture: true,
   trigger: true,
-  parentRunId: true,
-  internalHelper: true,
-  admittedUnpricedCapUsdMicros: true,
-  admittedModelFamily: true,
 };
 
 /**

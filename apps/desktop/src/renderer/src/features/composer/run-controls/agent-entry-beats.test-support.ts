@@ -56,7 +56,6 @@ export function definitionAgentQueuedBeat(
       runId: input.runId,
       runVersion: 1,
       newState: "queued",
-      agentId: input.agentId,
       resolvedAgent: {
         agentId: input.agentId,
         name: "Grace",

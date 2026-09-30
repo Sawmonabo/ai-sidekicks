@@ -216,7 +216,6 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 320,
     runVersion: 1,
     newState: "queued",
-    agentId: AGENT_IMPLEMENTER,
     resolvedAgent: composeResolvedAgent({
       agent: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_IMPLEMENTER),
       lead: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_ARCHITECT),
@@ -268,7 +267,6 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 960,
     runVersion: 1,
     newState: "queued",
-    agentId: AGENT_REVIEWER,
     resolvedAgent: composeResolvedAgent({
       agent: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REVIEWER),
       lead: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_ARCHITECT),
