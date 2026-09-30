@@ -1146,7 +1146,7 @@ describe("row category is pinned where the event is", () => {
 
 describe("run attribution is refused where it cannot be read, and pinned where it can", () => {
   it("F63 — the run-scoped type census is DERIVED from the taxonomy", () => {
-    // Membership spot-checks across all five contributing categories.
+    // Membership spot-checks across all six contributing categories.
     for (const runScopedType of [
       "run.completed",
       "assistant.message",
@@ -1155,6 +1155,14 @@ describe("run attribution is refused where it cannot be read, and pinned where i
       "intervention.applied",
       "usage.context_compacted",
       "usage.model_rerouted",
+      "approval.requested",
+      "approval.approved",
+      "approval.rejected",
+      "approval.canceled",
+      "approval.remembered",
+      "approval.reviewer_denied",
+      "moderation.review_flagged",
+      "plan.proposed",
     ]) {
       expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.has(runScopedType)).toBe(true);
     }
@@ -1179,6 +1187,8 @@ describe("run attribution is refused where it cannot be read, and pinned where i
       // `runId?` optional in the shared usage shape.
       "usage.budget_warning",
       "usage.token_count",
+      // `runId?` optional: a rule is also revoked with no ask in flight.
+      "approval.rule_revoked",
       // Not run-attributed in any form.
       "session.created",
     ]) {
