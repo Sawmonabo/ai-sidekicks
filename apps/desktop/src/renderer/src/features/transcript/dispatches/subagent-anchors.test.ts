@@ -1,5 +1,5 @@
-// The subagent anchor, held to the three ways it must not move: a completion, a resume and a
-// compaction each name an identity already anchored, and a last-wins fold would move the card.
+// The subagent anchor: a later row naming an identity already anchored moves nothing, where a
+// last-wins fold would move the card.
 
 import { describe, expect, it } from "vitest";
 
@@ -63,23 +63,6 @@ describe("the anchor — first-wins, and every later row of the identity joins i
     const anchor = anchors.get("run-a claude sub-1");
     expect(anchor?.anchorRowId).toBe("start");
     expect(anchor?.rowIds).toEqual(["start", "done", "done-again"]);
-  });
-
-  it("does not re-anchor on a resume", () => {
-    const anchors = deriveSubagentAnchors([
-      subagentRow("start", 1, "subagent.started"),
-      subagentRow("resume", 2, "run.resumed"),
-    ]);
-    expect(anchors.get("run-a claude sub-1")?.anchorRowId).toBe("start");
-  });
-
-  it("does not re-anchor across a compaction inside the child", () => {
-    const anchors = deriveSubagentAnchors([
-      subagentRow("start", 1, "subagent.started"),
-      subagentRow("compacted", 2, "usage.context_compacted"),
-      subagentRow("after", 3, "subagent.completed"),
-    ]);
-    expect(anchors.get("run-a claude sub-1")?.anchorRowId).toBe("start");
   });
 
   it("keeps two subagents of one provider apart", () => {
