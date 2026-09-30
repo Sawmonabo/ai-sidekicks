@@ -34,7 +34,10 @@ import { FixtureBridgeError } from "./refusal.fixture.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { projectRunStreamDelivery } from "../run-streams/run-stream-projection.fixture.js";
 import { ScenarioEngine } from "./engine.fixture.js";
-import { composeScenarioEventEnvelope } from "./event-envelope.fixture.js";
+import {
+  composeScenarioEventEnvelope,
+  composeScenarioSessionFrames,
+} from "./event-envelope.fixture.js";
 import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-event-streams.js";
 
 /**
@@ -47,12 +50,14 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * while the binder above it was passing a name the daemon serves.
  *
  * WHAT REACHES THE HANDLER depends on which arm the name is, because the corpus
- * registers two different answers. `session.subscribe` is the replay-then-tail
- * stream of the whole log and a bare event-type name carries only itself, so both
- * deliver the canonical `EventEnvelope` that `scenario-envelope.ts` composes from
- * the beat — the wire's own shape rather than the console's authoring record, so
- * the decode boundary above is exercised here exactly as the live bridge exercises
- * it. The two `run.*` streams are registered PROJECTIONS —
+ * registers different answers. `session.subscribe` is the replay-then-tail stream of
+ * the whole log, delivered in FRAMES: each batch of beats the engine hands over goes
+ * out as the frames `event-envelope.fixture.ts` composes, every change carrying the
+ * canonical `EventEnvelope` and its cursor, exactly as the live daemon sends it. A
+ * bare event-type name carries only itself, one envelope per beat. Both are the
+ * wire's own shape rather than the console's authoring record, so the decode boundary
+ * above is exercised here exactly as the live bridge exercises it. The two `run.*`
+ * streams are registered PROJECTIONS —
  * `RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary` — and
  * `run-stream-projection.ts` builds one from the beat. Handing those two the
  * envelope would train every run-stream subscriber on a frame the
@@ -95,31 +100,38 @@ export function subscribeToScenario(
   if (stream?.scope === "awareness-signal") {
     return () => undefined;
   }
-  return engine.subscribe(
-    (events) => {
-      for (const event of events) {
-        if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
-          continue;
+  if (stream?.scope === "whole-session") {
+    return engine.subscribe(
+      (events) => {
+        for (const frame of composeScenarioSessionFrames(events)) {
+          deliver(frame);
         }
-        // The queue stream's payload is a projection of the queue ROW, and the
-        // scenario's stand-in for the daemon's row read is the reply it scripts for
-        // that read. Resolved per beat, so a scenario replaced mid-subscription is
-        // read afresh.
-        const projection = projectRunStreamDelivery(subscriptionName, event, (queueItemId) =>
-          scriptedQueueRowFor(engine, queueItemId),
-        );
-        if (projection === undefined) {
-          deliver(composeScenarioEventEnvelope(event));
-          continue;
-        }
-        if (projection.status === "unprojectable") {
-          throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
-        }
-        deliver(projection.delivery);
+      },
+      { replayDeliveredPrefix: true },
+    );
+  }
+  return engine.subscribe((events) => {
+    for (const event of events) {
+      if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
+        continue;
       }
-    },
-    { replayDeliveredPrefix: stream?.scope === "whole-session" },
-  );
+      // The queue stream's payload is a projection of the queue ROW, and the
+      // scenario's stand-in for the daemon's row read is the reply it scripts for
+      // that read. Resolved per beat, so a scenario replaced mid-subscription is
+      // read afresh.
+      const projection = projectRunStreamDelivery(subscriptionName, event, (queueItemId) =>
+        scriptedQueueRowFor(engine, queueItemId),
+      );
+      if (projection === undefined) {
+        deliver(composeScenarioEventEnvelope(event));
+        continue;
+      }
+      if (projection.status === "unprojectable") {
+        throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
+      }
+      deliver(projection.delivery);
+    }
+  });
 }
 
 /**

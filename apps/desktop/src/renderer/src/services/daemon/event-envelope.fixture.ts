@@ -1,4 +1,5 @@
-// One authored beat, composed into the wire envelope the daemon would have sent.
+// One authored beat, composed into the wire envelope the daemon would have sent, and
+// a run of them into the `session.subscribe` frames that carry them.
 //
 // A scenario is authored in `ProjectedSessionEvent`s, which is the console's own
 // projection shape and the readable way to write a script. It is NOT what the wire
@@ -27,8 +28,10 @@
 
 import {
   SESSION_EVENT_CATEGORY_BY_TYPE,
+  STREAM_FRAME_MAX_CHANGES,
   type EventCategory,
   type SessionEventType,
+  type StreamFrame,
 } from "@ai-sidekicks/contracts";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
@@ -68,6 +71,15 @@ export interface ScenarioEventEnvelopeCandidate {
   readonly version: string;
 }
 
+/** One composed change on the session stream: a beat's envelope and its cursor. */
+export interface ScenarioSessionStreamChange {
+  readonly cursor: string;
+  readonly event: ScenarioEventEnvelopeCandidate;
+}
+
+/** One composed `session.subscribe` frame. */
+export type ScenarioSessionStreamFrame = StreamFrame<ScenarioSessionStreamChange, string>;
+
 /**
  * Compose the wire envelope one beat is delivered as.
  *
@@ -95,4 +107,29 @@ export function composeScenarioEventEnvelope(
     payload: event.payload ?? {},
     version: SCENARIO_ENVELOPE_VERSION,
   };
+}
+
+/**
+ * Compose the `session.subscribe` frames one batch of beats is delivered in.
+ *
+ * The daemon sends a session's changes in frames of at most
+ * `STREAM_FRAME_MAX_CHANGES`, oldest first, so a batch longer than that — a late
+ * subscriber's replayed log, most often — goes out as several. The fixture never
+ * falls behind a subscriber, so no frame carries the drop mark, and an empty batch is
+ * no frame at all: a frame with no changes is only ever the caught-up drop frame. Each
+ * change's cursor is its event's id, the cursor the client SDK reads back as the id.
+ */
+export function composeScenarioSessionFrames(
+  events: readonly ProjectedSessionEvent[],
+): readonly ScenarioSessionStreamFrame[] {
+  const frames: ScenarioSessionStreamFrame[] = [];
+  for (let start = 0; start < events.length; start += STREAM_FRAME_MAX_CHANGES) {
+    frames.push({
+      changes: events.slice(start, start + STREAM_FRAME_MAX_CHANGES).map((event) => ({
+        cursor: event.id,
+        event: composeScenarioEventEnvelope(event),
+      })),
+    });
+  }
+  return frames;
 }

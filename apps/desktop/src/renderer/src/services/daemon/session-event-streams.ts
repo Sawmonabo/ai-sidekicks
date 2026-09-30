@@ -21,9 +21,9 @@
 //
 // WHERE THE ROWS COME FROM. Each row is a subscription the corpus registers:
 //
-//   • `session.subscribe` — the replay-then-tail stream of the WHOLE session
-//     (one long-lived `LocalSubscriptionConsumer<EventEnvelope>` row). Every
-//     kind the session emits reaches it.
+//   • `session.subscribe` — the replay-then-tail stream of the WHOLE session,
+//     delivered as frames of its events, each carrying the event's envelope and
+//     cursor. Every kind the session emits reaches it.
 //   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`.
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection.
 //   • `presence.subscribe` — the machine's in-memory presence register, which is the

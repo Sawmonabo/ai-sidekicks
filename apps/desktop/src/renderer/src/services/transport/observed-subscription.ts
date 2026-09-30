@@ -48,10 +48,11 @@ import type { TransportReconnectSignal } from "./transport-reconnect.js";
  * Take one daemon subscription, and report what taking it observed.
  *
  * The open is a THUNK rather than an event name and a handler, because the two
- * callers spell the underlying call differently — one widens the brand to `string`,
- * the other widens the payload to a caller's own type — and a signature that took
- * those would be a third widening of a contract stub two modules already widen. What
- * this owns is the observation, and it owns only that.
+ * callers spell the underlying call differently — the session binder names a stream
+ * the daemon's method map lists, and the stream seam names run streams the map does
+ * not list yet and so widens the name to `string` — and a signature that took an
+ * event name would force that widening on both. What this owns is the observation,
+ * and it owns only that.
  *
  * The failure is re-raised unchanged. Every caller already has an arm for an open
  * that threw — a refusal a view renders, a retained session id, an all-or-nothing

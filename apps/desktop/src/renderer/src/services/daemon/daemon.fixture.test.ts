@@ -21,10 +21,14 @@
 // opened mid-scenario is handed the elapsed beats before it tails; a bare event type
 // and the two narrowed run streams are live and are handed nothing they missed.
 //
+// And a fourth, about HOW the whole-session stream arrives: in frames, as the live
+// daemon sends it, each within the contract's frame bound — so a replayed log longer
+// than one frame goes out as several.
+//
 // This file owns the two arms that deliver the beat's own ENVELOPE — a bare event
-// type and the whole-session stream. The two narrowed run streams deliver a
-// registered projection instead, which is a different claim with a different failure
-// mode, and it lives in `bridge.run-streams.test.ts`. The remaining concerns have
+// type, one envelope per beat, and the whole-session stream, frames of them. The two
+// narrowed run streams deliver a registered projection instead, which is a different
+// claim with a different failure mode, and it lives in `bridge.run-streams.test.ts`. The remaining concerns have
 // their own files too: `bridge.latency.test.ts` and `bridge.refusals.test.ts`.
 //
 // Every case drives the REAL fixture bridge over a real scenario and the real
@@ -34,12 +38,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EventEnvelopeSchema,
+  STREAM_FRAME_MAX_CHANGES,
+  SessionStreamFrameSchema,
+} from "@ai-sidekicks/contracts";
+
+import {
   createFixture,
   lastScriptedBeatMs,
   subscribeThroughBridge,
+  subscribeToSessionStream,
 } from "@test/helpers/fixture-bridge.js";
+import type { Scenario, ScenarioBeat } from "../../../../../fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { RUN_STATE_EVENT_STREAM, SESSION_EVENT_STREAM } from "./session-event-streams.js";
+import { RUN_STATE_EVENT_STREAM } from "./session-event-streams.js";
+
+/** The `session.subscribe` frame as the contract registers it, over the tolerant envelope. */
+const SESSION_FRAME_SCHEMA = SessionStreamFrameSchema(EventEnvelopeSchema);
 
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;
@@ -73,12 +88,12 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     // above — and the console's one real subscriber names the STREAM, so a
     // blanket filter would silence the whole console rather than tidy it.
     const fixture = createFixture();
-    const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+    const received = subscribeToSessionStream(fixture);
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(received).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
-    expect(new Set(received.map((envelope) => envelope.type)).size).toBeGreaterThan(1);
+    expect(received.events()).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
+    expect(new Set(received.events().map((envelope) => envelope.type)).size).toBeGreaterThan(1);
   });
 
   it("delivers nothing to a subscriber whose kind the script never plays", () => {
@@ -92,14 +107,14 @@ describe("fixture bridge — a subscription delivers only the event it named", (
 
   it("keeps the two arms independent, so one subscription cannot feed another", () => {
     const fixture = createFixture();
-    const streamed = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+    const streamed = subscribeToSessionStream(fixture);
     const attached = subscribeThroughBridge(fixture, "agent.attached");
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     const attachedBeatCount = concurrentStreamingBeatCountOfKind("agent.attached");
     expect(attachedBeatCount).toBeGreaterThan(0);
-    expect(streamed).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
+    expect(streamed.events()).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
     expect(attached.map((envelope) => envelope.type)).toStrictEqual(
       Array.from({ length: attachedBeatCount }, () => "agent.attached"),
     );
@@ -118,15 +133,15 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
     expect(elapsed).toBeGreaterThan(0);
     expect(elapsed).toBeLessThan(CONCURRENT_STREAMING_SCENARIO.beats.length);
 
-    const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
-    expect(received).toHaveLength(elapsed);
+    const received = subscribeToSessionStream(fixture);
+    expect(received.events()).toHaveLength(elapsed);
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     // Contiguous from the first log position, which is what keeps the store that
     // consumes this stream out of degradation: a subscriber handed only the tail
     // reads every position it missed as a gap.
-    expect(received.map((envelope) => envelope.sequence)).toStrictEqual(
+    expect(received.events().map((envelope) => envelope.sequence)).toStrictEqual(
       CONCURRENT_STREAMING_SCENARIO.beats.map((beat) => beat.event.sequence),
     );
   });
@@ -135,9 +150,9 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
     const fixture = createFixture();
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
-    const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+    const received = subscribeToSessionStream(fixture);
 
-    expect(received).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
+    expect(received.events()).toHaveLength(CONCURRENT_STREAMING_SCENARIO.beats.length);
   });
 
   it("negative control: the narrowed run stream and a bare event type stay live", () => {
@@ -157,13 +172,51 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
     // first advance has no prefix to be handed, and one handed the prefix anyway
     // would read as a session that happened twice.
     const fixture = createFixture();
-    const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+    const received = subscribeToSessionStream(fixture);
 
     fixture.engine.advance(MID_SCRIPT_MS);
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(received.map((envelope) => envelope.id)).toStrictEqual(
+    expect(received.events().map((envelope) => envelope.id)).toStrictEqual(
       CONCURRENT_STREAMING_SCENARIO.beats.map((beat) => beat.event.id),
+    );
+  });
+});
+
+describe("fixture bridge — the whole-session stream arrives in frames", () => {
+  /** One more beat than a frame carries, so a replay of them cannot fit in one. */
+  const LONG_LOG_BEAT_COUNT = STREAM_FRAME_MAX_CHANGES + 1;
+
+  /** The concurrent-streaming session, playing a log of registered beats all at time zero. */
+  function scenarioWithLongLog(): Scenario {
+    const beats: ScenarioBeat[] = Array.from({ length: LONG_LOG_BEAT_COUNT }, (_, index) => ({
+      atMs: 0,
+      event: {
+        id: `019b79ee-0280-7ea1-8110-${String(index).padStart(12, "0")}`,
+        sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
+        sequence: index + 1,
+        kind: "run.starting",
+        occurredAt: "2026-01-01T14:20:00.500Z",
+      },
+    }));
+    return { ...CONCURRENT_STREAMING_SCENARIO, id: "long-log-framing-probe", beats };
+  }
+
+  it("replays a log longer than one frame as several frames the contract admits", () => {
+    const fixture = createFixture(scenarioWithLongLog());
+    fixture.engine.advance(1);
+
+    const received = subscribeToSessionStream(fixture);
+
+    // More than one frame, each one the registered shape — within the bound, changes
+    // and no frame cursor, no drop mark — and together the whole log in order.
+    expect(received.frames.length).toBeGreaterThan(1);
+    for (const frame of received.frames) {
+      expect(SESSION_FRAME_SCHEMA.safeParse(frame).success).toBe(true);
+      expect(frame.dropped).toBeUndefined();
+    }
+    expect(received.events().map((envelope) => envelope.sequence)).toStrictEqual(
+      Array.from({ length: LONG_LOG_BEAT_COUNT }, (_, index) => index + 1),
     );
   });
 });

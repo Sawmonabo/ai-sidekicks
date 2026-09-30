@@ -14,12 +14,12 @@
 // in the lowest folder that can hold a `PlatformBridge`: this one.
 //
 // WHAT THE WIDENING DOES AND DOES NOT ADMIT. The stream name is pinned to `string`
-// (the genuinely untypeable half) and the delivered payload is left `unknown`, which
-// is honest: a tighter payload type here would be a fiction, and every consumer
-// projects each frame through the registered schema in `@ai-sidekicks/contracts`
-// before rendering a figure from it. Nothing here invents a stream name — each
-// constant below is a row of a registry the corpus already publishes, quoted
-// verbatim.
+// because the two `run.*` streams are not in the daemon's method map yet (the run
+// methods join it when their contract lands), so `DaemonEvent` cannot name them. The
+// delivered payload is left `unknown`, which is honest: every consumer projects each
+// frame through the registered schema in `@ai-sidekicks/contracts` before rendering a
+// figure from it. Nothing here invents a stream name — each constant below is a row
+// of a registry the corpus already publishes, quoted verbatim.
 
 import type { RunQueueSubscribeRequest, RunStateSubscribeRequest } from "@ai-sidekicks/contracts";
 
@@ -135,7 +135,8 @@ export function subscribeDaemon(
 }
 
 /**
- * The one widening of `daemon.subscribe`, shared by both scoped entry points.
+ * The one widening of `daemon.subscribe`, shared by both scoped entry points: the
+ * name to `string`, for the run streams the method map does not list yet.
  *
  * The open is REPORTED as well as taken. Every stream this module opens is a reading of
  * the same transport, and `transport/observed-subscription.ts` holds what such a

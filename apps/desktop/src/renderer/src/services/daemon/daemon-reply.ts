@@ -3,9 +3,11 @@
 // WHY EVERY CALL COMES THROUGH HERE. Without it, a view calls the daemon, the
 // promise fulfills, and the view reports success — clearing a draft, marking a turn
 // sent, advancing an upload ledger — without the reply having been parsed against the
-// shape the corpus registers for that method. The bridge's `call` answers `unknown`,
-// so the ONLY thing standing between a fulfilled promise and a rendered figure would
-// be a `safeParse` somebody has to remember to write, once per call site, forever.
+// shape the corpus registers for that method. The bridge's `call` is typed by the
+// daemon's method map, and that type is a claim about another process rather than a
+// check of what it sent, so the ONLY thing standing between a fulfilled promise and a
+// rendered figure would be a `safeParse` somebody has to remember to write, once per
+// call site, forever.
 // `callDaemon` makes the parse structural: there is one entry, it is typed by the
 // registry, and a caller that goes through it CANNOT hold an unparsed value.
 //
@@ -32,8 +34,9 @@
 // structural names the wire itself publishes. It never renders the validator's
 // message, which quotes received values.
 //
-// WHAT THIS MODULE ANSWERS FOR. Methods the corpus has REGISTERED: a shape exists,
-// `daemon-reply-registry.ts` binds it, and a reply is checkable against it.
+// WHAT THIS MODULE ANSWERS FOR. The methods the console calls: each one's descriptor
+// states its shapes, `daemon-reply-registry.ts` looks it up, and a reply is checkable
+// against it.
 //
 // THE REJECTION ARM IS THE CONSOLE'S ONE NORMALIZER, CONSUMED AND NOT COPIED. A
 // rejection reaching `callDaemon` goes to `normalizeWireRejection`
@@ -52,16 +55,14 @@
 // throws one; it answers a different question, and this folder uses only its leaf
 // helpers.
 
+import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts";
+
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
-import {
-  DAEMON_METHOD_BINDINGS,
-  type RegisteredDaemonMethod,
-  type DaemonRequestOf,
-  type DaemonResponseOf,
-} from "./daemon-reply-registry.js";
+import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
+import type { RegisteredDaemonMethod } from "./daemon-method-contract.js";
 import { describeFailingPaths } from "./failing-member-paths.js";
 
 /** The subsystem name every refusal this module raises carries. */
@@ -150,12 +151,13 @@ export function abandonedReadRefusal(method: string): Refusal {
 }
 
 /**
- * Call one registered daemon method and answer with a parsed reply or a refusal.
+ * Call one daemon method the console calls and answer with a parsed reply or a refusal.
  *
- * The generic is what does the work: `method` is a member of the registry's closed
- * key set, so a method the registry does not bind is a compile error rather than a
- * runtime miss, and `request` and the served `value` take their types from that
- * same key. A caller never names a schema, so a caller never names the wrong one.
+ * The generic is what does the work: `method` is a member of the console's closed
+ * call set, so a method outside it is a compile error rather than a runtime miss,
+ * and `request` and the served `value` take their types from the daemon's method
+ * map for that same name. A caller never names a schema, so a caller never names
+ * the wrong one.
  *
  * `async` and total. An `async` function's synchronous throw is already a
  * rejection, which matters against the bridge that actually ships: the stub
@@ -181,9 +183,9 @@ export function abandonedReadRefusal(method: string): Refusal {
 export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
   bridge: PlatformBridge,
   method: MethodName,
-  request: DaemonRequestOf<MethodName>,
+  request: DaemonParams<MethodName>,
   options: DaemonCallOptions = {},
-): Promise<DaemonReply<DaemonResponseOf<MethodName>>> {
+): Promise<DaemonReply<DaemonResult<MethodName>>> {
   const binding = DAEMON_METHOD_BINDINGS[method];
   const { signal } = options;
 
@@ -205,12 +207,10 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
 
   let reply: unknown;
   try {
-    // The one widening of the bridge's generic `call` in the whole console. The
-    // brand `DaemonMethod` stands in for the daemon's method union and resolves to
-    // `never`-shaped `string`, so every caller has to widen it once; widened here,
-    // it is widened once for the console rather than once per call site.
-    const call = bridge.daemon.call as (methodName: string, params: unknown) => Promise<unknown>;
-    const settlement = await settleUnlessAbandoned(call(method, sendable.data), signal);
+    const settlement = await settleUnlessAbandoned(
+      bridge.daemon.call(method, sendable.data),
+      signal,
+    );
     if (settlement.status === "abandoned") {
       return abandonedRead(method);
     }

@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
+import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-method-contract.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioContractDefects } from "./contract-check.js";
 import { CORPUS_DAEMON_METHODS_NOT_YET_BOUND } from "./reply-checks.js";

@@ -16,17 +16,17 @@
 // registry is the corpus's own — the daemon call set the console binds — so nothing
 // here is a second list.
 
-import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-reply-registry.js";
+import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-method-contract.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import type { Scenario } from "../../../fixtures/scenario.js";
 
 // Wire names the CORPUS registers that this console binds no DAEMON shape for.
 //
 // One hand-written list, which is what everything else in this tier exists to avoid,
-// and it is written by hand here because there is nothing to derive it from:
-// `packages/contracts` publishes `METHOD_NAME_FORMAT` and no enumerable method union,
-// so the only complete record of a registered wire is a table in a document, which no
-// renderer module can read. It is a transcription, kept honest by being tiny. What it
+// and it is written by hand here because there is nothing at run time to derive it
+// from: `packages/contracts` publishes the daemon's method map as a type and each
+// namespace's descriptor table as a value, but no one runtime list of every method.
+// It is a transcription, kept honest by being tiny. What it
 // does not admit is an invented name, and that is the whole of the claim it serves. It
 // is assertable — it is empty, and a case in the test beside this file says so, which
 // is what turns "no unbound daemon method is scripted today" from prose into a check.
@@ -34,7 +34,7 @@ import type { Scenario } from "../../../fixtures/scenario.js";
 /**
  * A daemon method the corpus registers that no console view calls yet.
  *
- * That is exactly the state which keeps a method out of `RegisteredDaemonMethodContract`,
+ * That is exactly the state which keeps a method out of `REGISTERED_DAEMON_METHODS`,
  * whose admission rule is a view that calls it — so a scenario may script such a
  * call ahead of its view. An entry moves to a binding row on the day a view calls
  * it, because a bound method is validated in both directions and one listed here is
@@ -131,9 +131,9 @@ function describeLatencyDefect(afterMs: number | undefined): string | undefined 
 /**
  * A call the corpus registers nowhere, or `undefined` when it registers one.
  *
- * The registry is read rather than restated. `REGISTERED_DAEMON_METHODS` is the keys of
- * the frozen binding table, so a method added to the console's call set is scriptable
- * the same day. Only the corpus-registered-but-unbound list above is written by hand,
+ * The registry is read rather than restated. `REGISTERED_DAEMON_METHODS` is the list
+ * the binding table is built from, so a method added to the console's call set is
+ * scriptable the same day. Only the corpus-registered-but-unbound list above is written by hand,
  * for the reason stated there, and it is unioned into the same admission.
  */
 function describeCallDefect(call: string): string | undefined {

@@ -1,10 +1,9 @@
 // What the two approval reads answer with, and the one place an `unknown` reply
 // becomes something the console may render.
 //
-// `PlatformBridge.daemon.call` answers `DaemonResult<M>`, which resolves to
-// `unknown` until the daemon method union lands, and `packages/contracts` registers
-// no approval payload at all — so a view that rendered whatever arrived would
-// render a row for a malformed emission as confidently as for a real one. Every
+// `PlatformBridge.daemon.call` answers `DaemonResult<M>`, which is a type and not a
+// check of what the other process sent — so a view that rendered whatever arrived
+// would render a row for a malformed emission as confidently as for a real one. Every
 // field below is parsed before it reaches a component, on the same posture
 // `console/bridge/queue/queue-feed.ts` takes with the registered queue schema.
 //

@@ -25,12 +25,11 @@ import {
   SCRIPTED_LATENCY_MS,
   callThroughBridge,
   createFixture,
-  subscribeThroughBridge,
+  subscribeToSessionStream,
 } from "@test/helpers/fixture-bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 import { SCENARIO_PENDING_REPLY_CAP } from "./engine.fixture.js";
 
 /** The concurrent-streaming scenario script, re-scripted so its one read carries a latency. */
@@ -74,7 +73,7 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
 
   it("emits no beat and moves no clock merely by being called", async () => {
     const fixture = createFixture(scenarioWithDelayedReply(SCRIPTED_LATENCY_MS));
-    const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+    const received = subscribeToSessionStream(fixture);
 
     void callThroughBridge(fixture, DELAYED_CALL);
     await crossMacrotaskBoundary();
@@ -82,7 +81,7 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
     // A request is not a tick. A fixture that advanced its own clock to serve a
     // latency delivered every beat that fell inside the latency as a side effect
     // of a read, which no wire does.
-    expect(received).toStrictEqual([]);
+    expect(received.frames).toStrictEqual([]);
     expect(fixture.engine.progress.elapsedMs).toBe(0);
     expect(fixture.engine.progress.deliveredBeatCount).toBe(0);
   });
