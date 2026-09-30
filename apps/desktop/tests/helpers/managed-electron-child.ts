@@ -218,7 +218,7 @@ export class ManagedElectronChild {
    *
    * It is the settle-time disposer, and a harness that finishes with the child early also calls it.
    *
-   * Once `close` has fired it signals nothing. The smoke-probe and gc-probe harnesses call it from
+   * Once `close` has fired it signals nothing. The smoke-probe harness calls it from
    * the child's own `close` handler, when the pid is reaped and reissuable, so a kill would deliver
    * SIGKILL to `-pid` and `pid` and hit a group or process this test never started. The escalation
    * timer is still released.

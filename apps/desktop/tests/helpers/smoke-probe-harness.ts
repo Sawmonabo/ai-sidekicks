@@ -3,7 +3,7 @@
 // `smoke-probe-diagnosis.ts` explains a missing one. `src/main/probes/smoke-probe.ts` emits the
 // lines.
 
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,40 +30,14 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Package root (`apps/desktop/`); the sibling GC harness spawns with it as `cwd` too. */
+/** Package root (`apps/desktop/`), the spawn's `cwd`. */
 export const PACKAGE_ROOT: string = path.resolve(__dirname, "../..");
 
 /** The `electron-vite build` main entry the spawn loads. */
 export const MAIN_ENTRY: string = path.join(PACKAGE_ROOT, "out/main/index.js");
 
-/** The `electron-vite build` preload entry. */
-export const PRELOAD_ENTRY: string = path.join(PACKAGE_ROOT, "out/preload/index.cjs");
-
 /** Absolute path to the `electron` launcher shim, so the spawn does not depend on `$PATH`. */
 export const ELECTRON_BIN: string = path.join(PACKAGE_ROOT, "node_modules/.bin/electron");
-
-/**
- * Where the Electron binary lives, as distinct from the launcher shim. Electron 44 downloads its
- * binary lazily, so `pnpm install` alone leaves no `dist/`; `scripts/materialize-electron.ts`
- * fetches it at install time, and the pre-spawn presence check turns a skipped step into a named
- * refusal instead of a spawn-deadline timeout. Presence is all this suite needs, so a stale
- * binary is fine.
- */
-export const ELECTRON_PACKAGE_ROOT: string = path.join(PACKAGE_ROOT, "node_modules/electron");
-
-/** The materialized Electron executable, or `null` when it is not on disk. */
-export function materializedElectronExecutable(): string | null {
-  const pathFile = path.join(ELECTRON_PACKAGE_ROOT, "path.txt");
-  if (!existsSync(pathFile)) {
-    return null;
-  }
-  const executable = path.join(
-    ELECTRON_PACKAGE_ROOT,
-    "dist",
-    readFileSync(pathFile, "utf8").trim(),
-  );
-  return existsSync(executable) ? executable : null;
-}
 
 /** The in-app window budget (5 s); the spawn deadline below is only a backstop around it. */
 export const WINDOW_BUDGET_MS = 5_000;
@@ -88,23 +62,6 @@ export const BOOT_TEST_TIMEOUT_MS: number =
   DISPLAY_READY_TIMEOUT_MS +
   SPAWNED_TREE_HOST_QUERY_CEILING_MS +
   SPAWN_TIMEOUT_MS +
-  DIAGNOSTIC_COLLECTION_CEILING_MS +
-  TERMINATION_GRACE_MS +
-  TEST_TIMEOUT_SLACK_MS;
-
-/**
- * Test-only override that makes the spawn deadline fire almost immediately. It also withholds
- * `SIDEKICKS_SMOKE_PROBE`, so the app boots and never emits a probe line: a real stall.
- */
-export const FORCED_STALL_ENV = "SIDEKICKS_SMOKE_FORCE_SPAWN_STALL";
-/** Spawn deadline under the forced-stall override. */
-export const FORCED_STALL_SPAWN_TIMEOUT_MS = 2_000;
-
-/** The enclosing budget under the override: the boot budget with the shortened spawn term. */
-export const FORCED_STALL_TEST_TIMEOUT_MS: number =
-  DISPLAY_READY_TIMEOUT_MS +
-  SPAWNED_TREE_HOST_QUERY_CEILING_MS +
-  FORCED_STALL_SPAWN_TIMEOUT_MS +
   DIAGNOSTIC_COLLECTION_CEILING_MS +
   TERMINATION_GRACE_MS +
   TEST_TIMEOUT_SLACK_MS;
@@ -145,7 +102,7 @@ export interface SpawnResult {
   readonly readinessBreadcrumbs: readonly string[];
   // Environment readings taken at spawn and at the deadline.
   readonly diagnostics: readonly string[];
-  // The spawn budget this spawn ran under, which the forced-stall override changes.
+  // The spawn budget this spawn ran under.
   readonly spawnBudgetMs: number;
   // Whether this harness's deadline fired. Not inferred from `signal`: the electron shim catches
   // SIGTERM, forwards it, and exits with code 1 and no signal of its own.
@@ -174,14 +131,7 @@ const LINUX_HEADLESS_CHROMIUM_SWITCHES: readonly string[] = [
 export function spawnElectron(): Promise<SpawnResult> {
   const startedAt = Date.now();
 
-  // The forced-stall override shortens the spawn deadline and withholds the probe opt-in; the
-  // deadline, collection, termination and failure renderer stay the production ones.
-  const forcedStall = process.env[FORCED_STALL_ENV] !== undefined;
-  const spawnBudgetMs = forcedStall ? FORCED_STALL_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
-
-  // An inherited probe opt-in would defeat the forced stall.
-  const { SIDEKICKS_SMOKE_PROBE: _inheritedProbeOptIn, ...envWithoutProbe } = process.env;
-  const spawnBaseEnv = forcedStall ? envWithoutProbe : process.env;
+  const spawnBudgetMs = SPAWN_TIMEOUT_MS;
 
   // Resolved once so the display the harness gated on is the one the child receives.
   const childDisplay = resolvedDisplay();
@@ -202,7 +152,7 @@ export function spawnElectron(): Promise<SpawnResult> {
   };
 
   // Refuse before spawning when the named display is not serving, instead of discovering it as a
-  // spawn-deadline silence. The negative control drives this path.
+  // spawn-deadline silence.
   const display = resolvedDisplay();
   if (display !== undefined && !needsXvfb()) {
     const displayFailure = awaitDisplayReady(display);
@@ -248,15 +198,13 @@ export function spawnElectron(): Promise<SpawnResult> {
         args: spawnArguments,
         cwd: PACKAGE_ROOT,
         env: {
-          // Dropped under the forced stall so an exported `SIDEKICKS_SMOKE_PROBE=1` cannot make the
-          // app emit a probe line and quietly stop the control testing a stall.
-          ...spawnBaseEnv,
+          ...process.env,
           // Pinned so a regressed readiness gate cannot let the child open on the developer's
           // real display and pass.
           ...(childDisplay === undefined ? {} : { DISPLAY: childDisplay }),
           // Opt-in for the main-process smoke branch, which the compile-time smoke build flag
-          // removes from release bundles. Withheld under the forced stall.
-          ...(forcedStall ? {} : { SIDEKICKS_SMOKE_PROBE: "1" }),
+          // removes from release bundles.
+          SIDEKICKS_SMOKE_PROBE: "1",
           // Emit the `dom-ready` / `ready-to-show` breadcrumbs beside `did-finish-load`.
           SIDEKICKS_SMOKE_TRACE_READINESS: "1",
           // Reveal the window without activating the app (smoke build only; see
