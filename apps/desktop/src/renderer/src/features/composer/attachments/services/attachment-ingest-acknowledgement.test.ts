@@ -1,10 +1,15 @@
 // What one chunk acknowledgement establishes, driven directly rather than through the protocol:
-// the next offset is the daemon's spooled total, never the count this client sent.
+// the next offset is the daemon's spooled total, never the count this client sent, and a base64
+// length is never charted as progress: 300 decoded bytes encode to 400 characters, so a total
+// charted from the encoded string passes the declared bound and fires the wire-figure tripwire.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { windowTripwires } from "@renderer/lib/tripwires.js";
-import { readChunkAcknowledgement } from "./attachment-ingest-acknowledgement.js";
+import {
+  ATTACHMENT_ACKNOWLEDGEMENT_SITE,
+  readChunkAcknowledgement,
+} from "./attachment-ingest-acknowledgement.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "../attachment-shapes.js";
 
 /** The stream every case here acknowledges against. */
@@ -52,5 +57,17 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
     });
     expect(reading).toStrictEqual({ status: "acknowledged", receivedBytes: 200 });
     expect(windowTripwires.totalFiringCount).toBe(0);
+  });
+
+  it("fires the wire-figure tripwire when an encoded length is acknowledged as progress", () => {
+    // 300 decoded bytes encode to 400 characters; a total charted from the encoded string
+    // passes the declared figure.
+    const reading = readChunkAcknowledgement(entryDeclaring(300), INGEST_ID, {
+      ingestId: INGEST_ID,
+      receivedBytes: 400,
+    });
+    expect(reading).toStrictEqual({ status: "acknowledged", receivedBytes: 300 });
+    expect(windowTripwires.firingCount("wire-figure-formatting")).toBe(1);
+    expect(windowTripwires.reports()[0]?.site).toBe(ATTACHMENT_ACKNOWLEDGEMENT_SITE);
   });
 });
