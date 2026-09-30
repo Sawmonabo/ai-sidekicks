@@ -1,8 +1,5 @@
-// The backward fold's three rules, asserted directly.
-//
-// A pure function over two arrays, so every case here is the rule itself rather than a
-// store driven into a state. The negative controls are the interesting half: each rule
-// is asserted by a page that BREAKS it and is counted rather than merged.
+// The backward fold's three rules on a pure function over two arrays. Each rule is asserted by a
+// page that breaks it and is counted rather than merged.
 
 import { describe, expect, it } from "vitest";
 
@@ -26,8 +23,7 @@ describe("mergeEarlierWindow — a page grows a log at the head and nowhere else
   });
 
   it("refuses a row at or above the head sequence rather than merging it", () => {
-    // The negative control for "strictly earlier, or not at all": without the guard
-    // the row at 10 lands a second time and one log entry has two positions.
+    // Negative control for "strictly earlier": without the guard row 10 lands twice.
     const merge = mergeEarlierWindow(eventsAt([10, 11]), eventsAt([9, 10, 11]));
 
     expect(merge.timeline.map((event) => event.sequence)).toStrictEqual([9, 10, 11]);
@@ -48,8 +44,7 @@ describe("mergeEarlierWindow — a page grows a log at the head and nowhere else
   });
 
   it("admits every row of a page into an empty log", () => {
-    // No head sequence is not "everything is too late" — it is a window holding
-    // nothing, where every row of the page is earlier than all of it.
+    // No head sequence means an empty window, where every page row is earlier than all of it.
     const merge = mergeEarlierWindow([], eventsAt([1, 2]));
 
     expect(merge.admitted).toBe(2);
@@ -57,8 +52,7 @@ describe("mergeEarlierWindow — a page grows a log at the head and nowhere else
   });
 
   it("returns the log's own array when a page admits nothing", () => {
-    // Identity, not equality: a consumer keyed on the log's reference must not
-    // re-project for a page that added no row.
+    // Identity, not equality: a consumer keyed on the reference must not re-project.
     const timeline = eventsAt([10, 11]);
     const merge = mergeEarlierWindow(timeline, eventsAt([10]));
 

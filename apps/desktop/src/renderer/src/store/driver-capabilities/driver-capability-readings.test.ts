@@ -1,10 +1,5 @@
-// The three pure readers over one capability readout.
-//
-// Their own file because none of them performs a read: `withRunDriverBindings` joins
-// a session's bindings onto a node's declarations, and the other two answer a
-// question about a readout already in hand. The read's own cases need a bridge, a
-// frozen clock, and a mounted probe; these need a `Map`, and keeping them beside
-// each other made the file's subject two things at once.
+// The three pure readers over one capability readout, in their own file because none performs a
+// read: these cases need a `Map`, not a bridge, a frozen clock and a mounted probe.
 
 import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
@@ -27,8 +22,7 @@ describe("withRunDriverBindings", () => {
     };
     const joined = withRunDriverBindings(declarations, new Map([["run-one", "codex"]]));
     expect(joined?.driverNameByRunId.get("run-one")).toBe("codex");
-    // The declarations are carried through untouched: this joins a second reading
-    // onto the first and decides nothing about either.
+    // The declarations are carried through untouched; the join decides nothing about them.
     expect(joined?.flagsByDriverName).toBe(declarations.flagsByDriverName);
   });
 
@@ -38,8 +32,7 @@ describe("withRunDriverBindings", () => {
       driverNameByRunId: new Map(),
       readRefusal: undefined,
     };
-    // The same pointer, so a view whose session named no binding re-renders no
-    // more often than one that asked for no join at all.
+    // The same pointer, so a view whose session named no binding does not re-render.
     expect(withRunDriverBindings(declarations, new Map())).toBe(declarations);
     expect(withRunDriverBindings(undefined, new Map([["run-one", "codex"]]))).toBeUndefined();
   });
@@ -73,10 +66,8 @@ describe("readingForRun — one readout, one run, one answer for every view", ()
   }
 
   it("answers the same for a run whose binding only the sole-report fallback names", () => {
-    // Exactly one driver filed a report and the session projection has named no
-    // binding. The run's reading must resolve the driver through the fallback, the
-    // same answer a view handed the driver's name would get, rather than saying
-    // nobody had asked.
+    // Exactly one driver filed a report and the session projection named no binding. The run
+    // must resolve through the fallback, as a view handed the driver's name would.
     const readout = soleReportReadout();
     expect(boundDriverNameForRun(readout, CLAUDE_RUN)).toBe("claude");
     expect(readingForRun(readout, CLAUDE_RUN, "context_compaction")).toBe("declared");
@@ -89,8 +80,8 @@ describe("readingForRun — one readout, one run, one answer for every view", ()
   });
 
   it("negative control: a declared absence is not the same reading as an unasked one", () => {
-    // Without this the case above would pass over a resolver that answered
-    // `unknown` for everything, which is the collapse the third state exists to stop.
+    // Guards against a resolver that answered `unknown` for everything, the collapse the third
+    // state exists to stop.
     const readout = soleReportReadout();
     expect(readingForRun(readout, CLAUDE_RUN, "rollback")).toBe("undeclared");
     expect(DRIVER_CAPABILITY_READINGS).toStrictEqual(["declared", "undeclared", "unknown"]);

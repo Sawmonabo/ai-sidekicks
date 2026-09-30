@@ -1,13 +1,7 @@
-// The per-session store lifecycle.
-//
-// There is one store behind each OPEN session. The claims that need driving are the
-// ones a bare `Map` in a component ref gets wrong: a second open of the same session is
-// the same store, a close forgets it, and a delivery for a session nobody has open
-// refuses instead of throwing through the bridge's own subscription.
-//
-// The two schedulers bound to that lifecycle have their own files:
-// `session-store-registry.scheduling.test.ts` for the queue and the refresh read,
-// `session-store-registry.gap-repair.test.ts` for the repair a lossy delivery arms.
+// The per-session store lifecycle: a second open of one session is the same store, a close
+// forgets it, and a delivery for a session nobody has open refuses instead of throwing through
+// the bridge's subscription. The schedulers have their own files:
+// `session-store-registry.scheduling.test.ts` and `session-store-registry.gap-repair.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -33,8 +27,7 @@ describe("SessionStoreRegistry — one store per open session", () => {
     const second = registry.open("session-1");
     const other = registry.open("session-2");
 
-    // Two stores for one session would each hold half the stream, and every
-    // view would render whichever half it was handed.
+    // Two stores for one session would each hold half the stream.
     expect(second).toBe(first);
     expect(other).not.toBe(first);
     expect(registry.openCount).toBe(2);
@@ -95,9 +88,7 @@ describe("SessionStoreRegistry — one store per open session", () => {
       "session-not-open",
     );
 
-    // Negative control: the same four calls against an OPEN session return no
-    // refusal, so the assertions above are about openness and not about the
-    // methods always refusing.
+    // Negative control: the same calls on an open session refuse nothing (openness, not method).
     registry.open("session-1");
     expect(registry.enqueue("session-1", [runEventAt(1, "run-1")])).toBeUndefined();
     expect(registry.requestRefresh("session-1", "reconnect")).toBeUndefined();
@@ -107,34 +98,28 @@ describe("SessionStoreRegistry — one store per open session", () => {
   });
 
   it("raises a degraded cause on one session's store, through the same ladder an apply uses", () => {
-    // The route the session-event binder takes for a stream that never opened. It
-    // holds no store — that is what keeps the apply chokepoint the only writer of
-    // projected state — so the cause travels through the registry exactly as an
-    // event and a refresh reason do.
+    // The route the session-event subscriber takes for a stream that never opened. It holds no
+    // store, so the cause travels through the registry as an event and a refresh reason do.
     const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
     const store = registry.open("session-1");
 
     expect(registry.markDegraded("session-1", "subscription-closed")).toBeUndefined();
     expect(store.snapshot().degradedCause).toBe("subscription-closed");
 
-    // MERGED, not assigned: a store that could not follow the stream at all has not
-    // become less broken because its subscription then closed too.
+    // Merged, not assigned: a diverged store is no less broken because its subscription closed.
     registry.markDegraded("session-1", "stream-diverged");
     registry.markDegraded("session-1", "subscription-closed");
     expect(store.snapshot().degradedCause).toBe("stream-diverged");
 
-    // Negative control: an untouched session's store carries no cause, so the
-    // assertions above are about this call and not about a store born degraded.
+    // Negative control: an untouched store carries no cause.
     const untouched = registry.open("session-2");
     expect(untouched.snapshot().degradedCause).toBeUndefined();
     registry.disposeAll();
   });
 
   it("stops telling a resume subscriber that unsubscribed, and drops every sink on dispose", async () => {
-    // The second fan-out, and it had neither claim driven. Its sinks each close over
-    // a React subscription belonging to a tree that may already have unmounted, so a
-    // subscriber the registry keeps calling after its `Unsubscribe` ran — or one
-    // `disposeAll` leaves attached — holds that tree alive for the life of the window.
+    // Sinks close over a React subscription of a tree that may have unmounted, so one kept after
+    // its `Unsubscribe` ran, or left by `disposeAll`, would hold that tree alive.
     const clock = new ManualClock(0);
     const settledFor: string[] = [];
     const registry = new SessionStoreRegistry({
@@ -158,15 +143,12 @@ describe("SessionStoreRegistry — one store per open session", () => {
     clock.advance(20);
     await settleMicrotasks();
 
-    // The read really did happen — otherwise the unchanged list below would be about
-    // a refresh that never landed rather than about a sink that was dropped.
+    // The read really happened, so the unchanged list is about a dropped sink.
     expect(registry.refreshCountFor("session-1")).toBe(2);
     expect(settledFor).toStrictEqual(["session-1"]);
     expect(registry.resumeSettlementListenerCount).toBe(0);
 
-    // And the teardown drops a sink nobody unsubscribed, which is the half no
-    // settlement can report: `disposeAll` closes every entry in the same act, so
-    // after it there is nothing left that could raise one.
+    // The teardown drops a sink nobody unsubscribed; after `disposeAll` nothing could raise one.
     registry.subscribeToTimelineResume(() => {
       settledFor.push("after-dispose");
     });
@@ -176,9 +158,8 @@ describe("SessionStoreRegistry — one store per open session", () => {
   });
 
   it("wakes a resume subscriber when its session closes, and the decision is gone", () => {
-    // Nothing else would: the store's revision does not move for a session that no
-    // longer has a store, so a reading left holding the last settled decision would
-    // keep rendering it for a session the registry has forgotten.
+    // Nothing else would wake it: without this a reading would keep rendering the last settled
+    // decision for a session the registry has forgotten.
     const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
     const settledFor: string[] = [];
     registry.open("session-1");

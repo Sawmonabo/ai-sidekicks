@@ -1,19 +1,13 @@
-// The run-state event kinds and the state each announces, listed once.
-//
-// A `run.<state>` kind announces the state it names, so the record below is keyed by the
-// census kind and valued by the registered `RunState`; `satisfies` makes a newly registered
-// state, or a kind the census does not register, a compile error. The import is type-only:
-// this module is on the release path, and a value import of the census would pull the
-// taxonomy and its schemas into the shipped bundle.
+// The run-state event kinds and the state each announces, listed once. A `run.<state>` kind
+// announces the state it names, and `satisfies` makes a newly registered state, or a kind the
+// contract does not register, a compile error. The contract import is type-only: a value import
+// would pull the event taxonomy and its schemas into the shipped bundle.
 
 import type { RunState, SessionEventType } from "@ai-sidekicks/contracts";
 
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 
-/**
- * The state a run is created in. No transition ends in it, so `run.queued` announces a
- * run's creation rather than a state change.
- */
+/** The state a run is created in. No transition ends in it, so `run.queued` is a creation. */
 const RUN_INITIAL_STATE: "queued" = "queued" satisfies RunState;
 
 /** The kind of the event that moves a run into a state: every state but the initial one. */
@@ -43,10 +37,7 @@ const RUN_STATE_BY_KIND: Readonly<Record<RunStateKind, RunState>> = Object.freez
  */
 export const RUN_STATE_KINDS: readonly string[] = Object.freeze(Object.keys(RUN_STATE_BY_KIND));
 
-/**
- * The run state a state-change kind announces, or `undefined` for any other kind,
- * `run.queued` included: it is the run's creation, not a transition.
- */
+/** The run state a state-change kind announces, or `undefined` for any other (`run.queued` too). */
 export function runStateForTransitionKind(eventKind: string): RunState | undefined {
   const state = readFrozenRecord(RUN_STATE_BY_KIND, eventKind);
   return state === RUN_INITIAL_STATE ? undefined : state;

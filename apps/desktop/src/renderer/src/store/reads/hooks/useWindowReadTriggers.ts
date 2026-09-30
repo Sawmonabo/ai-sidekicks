@@ -4,31 +4,24 @@ import type { ReadTriggerTarget } from "../read-triggers.js";
 import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
 
 /**
- * The three triggers that are properties of the WINDOW rather than of a session.
+ * The three triggers that are properties of the window rather than of a session.
  *
- * A node-scoped reading — this node's provider accounts, this node's declared driver
- * capabilities, this machine's health — wires exactly these: it holds no session, so
- * no session's timeline bears on it, and pretending otherwise would tie one node-wide
- * answer to whichever session happened to be open.
+ * A node-scoped reading (this node's provider accounts, declared driver capabilities, this
+ * machine's health) holds no session, so no session's timeline bears on it.
  *
- * THE TRANSPORT SIGNAL IS REQUIRED, and it is the half that was missing. Reconnect had
- * exactly one producer in the console — the session store's own repair edge, wired by
- * `useSessionReadTriggers` below — so a reading with no session had no reconnect at
- * all: a node-wide list read once at mount stayed on screen through a wire outage with
- * nothing saying it was old. It is a required parameter rather than an optional one on
- * this module's own stated rule: a reading added later must not be able to ship with
- * two of the three, and an optional signal is exactly how it would.
- *
- * A window-scoped reading whose transport has never gone away pays nothing for it. The
- * signal emits on an EDGE, so a subscription that never sees one never wakes.
+ * The transport signal is required: the session store's repair edge was the console's only
+ * reconnect producer, so a session-less reading would stay on screen through a wire outage with
+ * nothing saying it was old. Required rather than optional so a reading added later cannot ship
+ * with two of the three. The signal emits on an edge, so a reading whose transport never went
+ * away pays nothing for it.
  */
 export function useWindowReadTriggers(
   reader: ReadTriggerTarget,
   transportReconnect: TransportReconnectObservable,
 ): void {
   useEffect(() => {
-    // In an effect and not in the render body: a render React discards would
-    // otherwise put a call on the wire for a view nobody ever saw.
+    // In an effect, not the render body: a discarded render would otherwise call the wire for a
+    // view nobody saw.
     reader.requestRead("subscribe");
   }, [reader]);
 

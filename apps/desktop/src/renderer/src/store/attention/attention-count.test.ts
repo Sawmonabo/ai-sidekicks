@@ -1,9 +1,5 @@
-// What the rail is told, and the reading that tells it nothing.
-//
-// The count's whole value is that it is trustworthy: a number on the rail, the part of
-// the window a person sees most, that could be left over from a read that failed would be worse
-// than no number at all. So every arm of the reading is asserted, and the zero case is
-// asserted to be an absence rather than a zero.
+// The count must be trustworthy: every arm of the reading is asserted, and zero is asserted
+// to be an absence rather than a zero.
 
 import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts";
@@ -60,8 +56,7 @@ describe("attentionCountOf", () => {
   });
 
   it("answers undefined rather than zero when nothing is waiting", () => {
-    // The rail's quietest state is the common one, and a badge reading `0` on it
-    // would be permanent furniture reporting the absence of news.
+    // A "0" badge on the rail's quietest state would be permanent furniture.
     const summary = new AttentionSummary([]);
     expect(
       attentionCountOf({
@@ -75,8 +70,7 @@ describe("attentionCountOf", () => {
   });
 
   it("suppresses the count while the read is in flight", () => {
-    // The suppression rule: until the projection answers the rail says nothing rather
-    // than the number from before.
+    // Until the projection answers, the rail says nothing rather than the number from before.
     expect(attentionCountOf({ phase: "reading" })).toBeUndefined();
   });
 });

@@ -1,16 +1,11 @@
-// The bounded hold for events that arrive before a store has a base state.
+// The bounded hold for events that arrive before a store has a base state. An event before
+// initialization is buffered, never applied: a store with no base cannot tell a first event from
+// a resumed stream, and applying against an empty base renders a session that looks complete and
+// is not. Events drain when the read response lands.
 //
-// **An event before initialization is buffered, never applied.** A store with no
-// base snapshot cannot tell a first event from a resumed stream, and applying
-// against an empty base renders a session that looks complete and is not. Events
-// wait here until the read response lands, then drain.
-//
-// The hold is BOUNDED at `PRE_INITIALIZATION_BUFFER_CAP`: a wait longer than a
-// handful of events is a read that is not coming rather than a race, and a buffer
-// that grew for it would hold a whole session's stream in memory to project none of
-// it. Past the bound the oldest is dropped and counted — and the drain re-derives
-// exactly which sequences the drop cost, because a hole between the snapshot cursor
-// and the oldest survivor is an ordinary gap the reconciler names on its own.
+// The hold is bounded at `PRE_INITIALIZATION_BUFFER_CAP`, since a longer wait is a read that is
+// not coming. Past it the oldest is dropped and counted; the drain re-derives what the drop
+// cost, as an ordinary gap between the snapshot cursor and the oldest survivor.
 
 import { PRE_INITIALIZATION_BUFFER_CAP } from "./session-store-caps.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
@@ -26,24 +21,17 @@ export class PreInitializationBuffer {
   }
 
   /**
-   * Events dropped at the cap over this buffer's life.
-   *
-   * Counted rather than merely dropped, on the posture the apply queue and the
-   * bridge binder already take one layer up: the drop is the correct response to a
-   * read that is not coming, but a stream still filling a store nothing can project
-   * is a fault upstream, and a count is how it becomes visible before any read
-   * lands.
+   * Events dropped at the cap over this buffer's life. Counted because a stream still filling a
+   * store nothing can project is an upstream fault.
    */
   public get dropCount(): number {
     return this.#dropCount;
   }
 
   /**
-   * Hold one event, answering whether the cap forced an older one out.
-   *
-   * The OLDEST goes, not the newest. The newest rows are the ones a person is about
-   * to look at, and the loss the drop causes is reported either way — as the gap
-   * between the snapshot cursor and the oldest survivor.
+   * Hold one event, answering whether the cap forced an older one out. The oldest goes, since
+   * the newest rows are what a person is about to look at; the loss is reported either way, as
+   * the gap before the oldest survivor.
    */
   public push(event: ProjectedSessionEvent): boolean {
     this.#held.push(event);

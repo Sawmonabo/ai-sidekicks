@@ -1,15 +1,7 @@
-// A subscription that refused can be taken again, and only once at a time.
-//
-// The suite beside this one drives the five rules a push-driven read holds while its
-// subscription is up. These cases are about the state that reaches every one of them
-// first: the open itself, which the shipped stub preload refuses on every call,
-// because that build implements each daemon method by throwing. Under the shape this
-// replaced, that refusal was terminal for the life of the window — the model marked
-// itself started BEFORE the attempt, so every later open returned at the guard and
-// `refresh()` requested reads behind a subscription nothing had ever taken.
-//
-// The clock is manual for the reason the sibling suite gives: the model takes one so
-// a case can drive its coalescing window without a real timer.
+// A subscription that refused can be taken again, and only once at a time. The stub preload
+// refuses every open because it implements each daemon method by throwing, so a refusal must
+// not be terminal: the model's "started" state is the subscription handle, set only after the
+// attempt succeeds. The clock is manual so cases drive the coalescing window without a timer.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -25,11 +17,8 @@ async function settle(): Promise<void> {
 }
 
 /**
- * A read whose subscribe refuses until `admitOpens` is called, then holds.
- *
- * The seam is a real one — it returns a real release handle on the admitting arm —
- * so what these cases drive is the model's own decision about when it has started,
- * and never a stand-in for the decision.
+ * A read whose subscribe refuses until `admitOpens` is called, then holds. The seam returns a
+ * real release handle when admitting, so the model's own decision about "started" is driven.
  */
 function buildRefusingRead(
   options: { readonly clock: ManualClock } = { clock: new ManualClock() },
@@ -101,9 +90,8 @@ describe("push-driven read — a refused open is not the end of the read", () =>
     harness.admitOpens();
     harness.model.refresh("user-request");
 
-    // Pinned BEFORE the read settles, because this is the moment the replaced shape
-    // could not reach: the subscription is live and the refusal beside it has already
-    // stopped being true, so the view says it is reading rather than that it broke.
+    // Pinned before the read settles: the subscription is live and the refusal has stopped
+    // being true, so the view says it is reading rather than that it broke.
     expect(harness.model.isSubscribed).toBe(true);
     expect(harness.model.state).toStrictEqual({ kind: "not-loaded" });
 
@@ -117,10 +105,8 @@ describe("push-driven read — a refused open is not the end of the read", () =>
   });
 
   it("negative control: a trigger against a seam that still refuses re-attempts the open", async () => {
-    // This is the case the replaced shape got wrong, and the one an assertion on the
-    // state alone cannot see: a model that did NOTHING on the trigger also reports
-    // `failed`. The subscribe count is what separates "tried again and was refused"
-    // from "never tried" — under the old shape it stays at one.
+    // A model that did nothing on the trigger also reports `failed`, so the subscribe count is
+    // what separates "tried again and was refused" from "never tried".
     const clock = new ManualClock();
     const harness = buildRefusingRead({ clock });
 
@@ -141,10 +127,8 @@ describe("push-driven read — a refused open is not the end of the read", () =>
   });
 
   it("takes one subscription when a seam signals from inside its own subscribe", async () => {
-    // The single-flight case. A publisher that replays its current state on
-    // subscription calls the change signal before it has returned a handle, so the
-    // model is re-entered holding nothing — which is indistinguishable, from inside,
-    // from a trigger arriving while an open is under way.
+    // The single-flight case: a publisher that replays its state on subscription signals
+    // before it has returned a handle, so the model is re-entered holding nothing.
     const clock = new ManualClock();
     const subscribe = vi.fn((onChangeSignal: () => void) => {
       onChangeSignal();
@@ -169,12 +153,9 @@ describe("push-driven read — a refused open is not the end of the read", () =>
   });
 
   it("negative control: the shape this replaced refuses the re-open this one admits", async () => {
-    // The control the redesign owes, run rather than described. Both objects are
-    // driven over ONE seam that refuses the first subscribe and admits the second, in
-    // the same order, so the only thing that differs is which open is under it. The
-    // replaced shape is `push-driven-read.latched-open.test-support.ts`, which is
-    // asserted to be WRONG here — it is the defect, kept runnable so a reintroduction
-    // of it fails this case rather than passing every case above.
+    // Both objects are driven over one seam that refuses the first subscribe and admits the
+    // second, so only the open differs. `push-driven-read.latched-open.test-support.ts` is the
+    // faulty open kept runnable as a control, so reintroducing it fails this case.
     let opensAdmitted = false;
     let latchedSubscribeCount = 0;
     const latched = new LatchedOnceOpen({
@@ -202,7 +183,7 @@ describe("push-driven read — a refused open is not the end of the read", () =>
     expect(latched.isSubscribed).toBe(false);
     expect(latched.state.kind).toBe("failed");
 
-    // The same seam, the same order, under the shape that shipped.
+    // The same seam, in the same order, against the real model.
     const clock = new ManualClock();
     const harness = buildRefusingRead({ clock });
     harness.model.start();
@@ -221,16 +202,10 @@ describe("push-driven read — a refused open is not the end of the read", () =>
   });
 
   it("negative control: a listener answering the refusal synchronously is not swallowed", async () => {
-    // A `#changes` listener runs INSIDE the settlement, and the refusal used to settle
-    // while the open's single-flight guard was still raised — that guard is cleared by a
-    // `finally`, which runs AFTER the `catch` that settles. So a listener answering its
-    // own refusal reached `#open`, returned at the guard, and asked for nothing: the
-    // model stayed `failed` holding no subscription, with no read and nothing scheduled.
-    // The guard exists for a seam that signals from inside its own `subscribe`, which is
-    // a different moment, and it was swallowing this one.
-    //
-    // The state alone cannot see it — a model that did nothing also reports `failed` —
-    // so the subscribe count is what separates "answered" from "ignored".
+    // A `#changes` listener runs inside the settlement, so the open's single-flight guard must
+    // already be lowered when the refusal settles, or a listener answering its own refusal
+    // returns at the guard and asks for nothing. The subscribe count separates "answered" from
+    // "ignored", since a model that did nothing also reports `failed`.
     const clock = new ManualClock();
     const harness = buildRefusingRead({ clock });
     let answered = false;
@@ -239,7 +214,7 @@ describe("push-driven read — a refused open is not the end of the read", () =>
         return;
       }
       answered = true;
-      // What a repair or a reconnect does the moment it hears the refusal.
+      // What a repair or a reconnect does on hearing the refusal.
       harness.admitOpens();
       harness.model.refresh("terminal-event");
     });

@@ -1,36 +1,18 @@
-// The account-plane quota fold: which reading is current, and how the pair is read out.
+// The account-plane quota fold: which reading is current for each `(accountId, limitId)`, and
+// how the pair is read out. It is pure and opens no wire, so tests drive it without a bridge.
 //
-// This module owns the FOLD, and it opens and reads no wire. The fold is pure: given
-// the accounts and the quota rows seen so far, which reading is current for each
-// `(accountId, limitId)`, and what does a view render for it. A pure fold is
-// drivable from a test with no bridge and no React, which is what the supersession
-// rules below need.
+// The key is `(accountId, limitId)` and not the window's duration, because a pinned provider
+// publishes three distinct windows of the same length and a duration key would collapse them.
 //
-// THE KEY IS `(accountId, limitId)` AND NOT THE WINDOW'S DURATION, because a pinned
-// provider publishes three distinct windows of the same length and a duration
-// key silently collapses them into whichever arrived last.
+// Supersession is two rules in one order. A same-window reading never moves backward, and that
+// guard runs first: consumption inside one window rises monotonically, so a lower
+// `usedPercent` for the same `limitId` and `resetsAt` is an erroneous or out-of-order
+// reading, and storing it on timestamp alone would hide imminent exhaustion. Only then does
+// observation time decide, with arrival order breaking an exact tie. A moved `resetsAt` is a
+// window reset, not a regression, so a lower reading under a new `resetsAt` is stored normally.
 //
-// SUPERSESSION IS TWO RULES IN ONE ORDER, AND THE ORDER IS THE POINT.
-// The per-limit provider quota states them as newest-wins by observation time,
-// except that a same-window reading never moves backward — and the exception
-// is evaluated FIRST. Consumption inside one window rises monotonically, so a lower
-// `usedPercent` against the same `limitId` and the same `resetsAt` is not a newer
-// truth however new its timestamp is: it is an erroneous or out-of-order reading, and
-// storing it on timestamp alone would drop a 90%-consumed account to 20% and hide
-// imminent exhaustion until the window actually resets. Only once that guard has
-// passed does observation time decide, with arrival order breaking an exact tie.
-//
-// A NEW WINDOW IS NOT A REGRESSION. `resetsAt` moving is exactly what a window reset
-// looks like, so a lower reading under a different `resetsAt` is the ordinary case and
-// is stored on its timestamp like any other — which is why the guard keys on the reset
-// horizon rather than on the percentage alone.
-//
-// AND SUPERSESSION IS ALSO A COMPARISON AGAINST THE ACCOUNT ITSELF. Every quota row
-// carries the `credentialGeneration` it was observed under and every account carries
-// the generation it is on now, so a reading behind its own account's current
-// generation is stale as a fact rather than as an inference — which is what the
-// account plane's own contract asks a renderer to do, because a credential-home
-// rebuild does not clear stored readings.
+// A reading behind its own account's current `credentialGeneration` is stale as a fact, since a
+// credential-home rebuild does not clear stored readings.
 
 import type { ProviderAccount, ProviderAccountUsageWindow } from "@ai-sidekicks/contracts";
 
@@ -41,30 +23,24 @@ import { structuralKey } from "@renderer/lib/structural-key.js";
 export interface ProviderQuotaReading {
   readonly accountId: string;
   readonly limitId: string;
-  /** The account's operator-chosen label. A chip that named no account names nothing. */
+  /** The account's operator-chosen label. */
   readonly accountLabel: string;
   /**
-   * The window's own label where the provider publishes one, and its `limitId`
-   * verbatim where it does not.
-   *
-   * The fallback is the wire's own identifier rather than composed prose: the id is
-   * what the provider calls this window, so it is the most specific true thing the
-   * console holds, and inventing a name would put a word on screen no provider used.
+   * The window's own label where the provider publishes one, and its `limitId` verbatim where
+   * it does not, since inventing a name would put a word on screen no provider used.
    */
   readonly limitLabel: string;
-  /** Utilization as sent. NOT clamped: a soft limit can genuinely be over-consumed. */
+  /** Utilization as sent, not clamped: a soft limit can be over-consumed. */
   readonly usedPercent: number;
   /** RFC 3339 where the provider supplied one. A countdown renders only if it did. */
   readonly resetsAt: string | undefined;
   /** RFC 3339 observation instant — the merge key. */
   readonly observedAt: string;
   /**
-   * True when this reading was observed under an older credential generation than
-   * its own account is on now.
-   *
-   * A credential-home rebuild does not clear stored readings — the provider-side
-   * allowance keeps running while the home is empty — so the reading stays the best
-   * figure available and is presented as one taken before the current credential.
+   * True when this reading was observed under an older credential generation than its account
+   * is on now. The provider-side allowance keeps running while the home is empty, so the
+   * reading stays the best figure available and is presented as one taken before the current
+   * credential.
    */
   readonly isStale: boolean;
 }
@@ -75,21 +51,15 @@ export interface ProviderQuotaReading {
  * @consumedBy the provider account's quota gauge
  */
 export function remainingPercentOf(reading: ProviderQuotaReading): number {
-  // Floored at zero for the same reason the used figure is NOT clamped: the wire may
-  // report over-consumption against a soft limit, which is a true reading to show,
-  // while a negative remainder is an arithmetic artifact rather than a quota.
+  // Floored at zero, but the used figure is not clamped: a soft limit can be over-consumed,
+  // while a negative remainder is an arithmetic artifact.
   return Math.max(0, 100 - reading.usedPercent);
 }
 
 /**
- * What merging one reading into the fold did. Closed, and derived into a union below
- * so a fourth outcome cannot appear in the rule while a caller still handles three.
- *
- * The two held arms are deliberately DISTINCT rather than one "not stored": a reading
- * held because a newer observation already stands is the ordinary case and worth no
- * word anywhere, while one held by the monotonicity guard is a reading the wire should
- * not have sent, and the caller records it. Collapsing them would make the second
- * unreportable.
+ * What merging one reading into the fold did. The two held arms are distinct: a reading held
+ * because a newer observation stands is the ordinary case, while one held by the monotonicity
+ * guard is a reading the wire should not have sent, and the caller records it.
  */
 export const USAGE_WINDOW_MERGE_DISPOSITIONS = [
   "stored",
@@ -103,11 +73,9 @@ export type UsageWindowMergeDisposition = (typeof USAGE_WINDOW_MERGE_DISPOSITION
 /**
  * Which of two readings for one key is current.
  *
- * The high-water guard runs BEFORE observation time, which is the whole rule: a lower
- * same-window reading loses however new it claims to be. `isCandidateLaterArrival`
- * breaks an exact `observedAt` tie and decides nothing else — arrival order is the
- * weakest evidence here, so it is consulted last and only when the wire's own ordering
- * key cannot separate the two.
+ * The high-water guard runs before observation time, so a lower same-window reading loses
+ * however new it claims to be. `isCandidateLaterArrival` breaks an exact `observedAt` tie and
+ * decides nothing else.
  */
 export function decideUsageWindowMerge(
   candidate: ProviderAccountUsageWindow,
@@ -131,15 +99,9 @@ export function decideUsageWindowMerge(
 /**
  * Whether two readings describe the same limit window.
  *
- * Both halves are compared even though the fold's own key already pairs the account
- * with the limit, which makes the first a tautology for every reading that reaches the
- * fold. It is checked anyway because this function is total over any two readings a
- * caller hands it, and because the spec states the guard's condition as both members —
- * a reader comparing the code against the rule should find both.
- *
- * An absent `resetsAt` on both sides compares equal, which is correct: a provider that
- * publishes no reset horizon publishes one continuing window, and treating two such
- * readings as different windows would disable the guard for exactly that provider.
+ * The account half of the key is not compared, since the fold's key already pairs them. An
+ * absent `resetsAt` on both sides compares equal: a provider with no reset horizon publishes
+ * one continuing window, and treating those readings as different would disable the guard.
  */
 function isSameWindow(
   candidate: ProviderAccountUsageWindow,
@@ -157,12 +119,9 @@ interface HeldQuotaWindow {
 const NO_READINGS: readonly ProviderQuotaReading[] = Object.freeze([]);
 
 /**
- * The accounts and quota rows one bridge has seen, and the readings they compose into.
- *
- * A class with private fields rather than two maps passed around, because the merge
- * rule and the arrival ordinal that breaks its ties are one piece of state: an ordinal
- * handed out by a caller could be reused, and a reused ordinal makes an exact-tie
- * comparison answer differently depending on who asked.
+ * The accounts and quota rows one bridge has seen, and the readings they compose into. The
+ * merge rule and the arrival ordinal that breaks its ties are one piece of state, so the fold
+ * hands out ordinals itself.
  */
 export class ProviderAccountFold {
   readonly #accountsById = new Map<string, ProviderAccount>();
@@ -175,12 +134,8 @@ export class ProviderAccountFold {
   }
 
   /**
-   * Drop an account and every reading filed under it.
-   *
-   * The readings go with the account rather than being left keyed to an id nothing
-   * can label: `accountId` is daemon-minted and immutable, so a re-registration
-   * mints a NEW one and these rows could never be claimed again — they would sit in
-   * the fold for the life of the window describing an account that has left.
+   * Drops an account and every reading filed under it. `accountId` is daemon-minted and
+   * immutable, so a re-registration mints a new one and the old rows could never be claimed.
    */
   public forgetAccount(accountId: string): void {
     this.#accountsById.delete(accountId);
@@ -218,9 +173,8 @@ export class ProviderAccountFold {
     for (const held of this.#windowsByKey.values()) {
       const account = this.#accountsById.get(held.usageWindow.accountId);
       if (account === undefined) {
-        // A reading whose account the registry does not carry is dropped rather than
-        // rendered under its opaque id: the chip's first word is whose quota this is,
-        // and an id nobody chose answers that question with a value nobody recognizes.
+        // A reading whose account the registry does not carry is dropped rather than rendered
+        // under an opaque id nobody chose.
         continue;
       }
       readings.push(readingFor(held.usageWindow, account));
@@ -231,27 +185,19 @@ export class ProviderAccountFold {
   /**
    * Every account the registry carries, whole, in the order it was first seen.
    *
-   * BESIDE {@link accountLabels} RATHER THAN INSTEAD OF IT, because the two answer
-   * different questions: a chip joining a paying-account handle to a word needs the
-   * label and nothing else, and a view that LISTS the registry needs the rows —
-   * `billingMode`, the stored health reading, the generation, the timestamps. Both are
-   * derived from the same held accounts, so there is no second copy to keep in step.
-   *
-   * ORDER IS ARRIVAL ORDER AND NOT A SORT. The registry reply's own order is the
-   * daemon's, an account put again keeps the position it had, and a new one appends —
-   * so a row does not move under a person's cursor because a probe landed.
+   * Beside {@link accountLabels} because a view that lists the registry needs the rows
+   * (`billingMode`, health, generation, timestamps), not only the label. Arrival order, not a
+   * sort: an account put again keeps its position and a new one appends, so a row does not move
+   * under a person's cursor.
    */
   public accounts(): readonly ProviderAccount[] {
     return [...this.#accountsById.values()];
   }
 
   /**
-   * Every quota reading currently held, one per `(accountId, limitId)`.
-   *
-   * The SUPERSEDED set rather than everything ever seen: this is what the fold has
-   * decided is current, so a view folding it again by limit gets the same answer it
-   * would from the readings, and one that renders a window's own members reads the
-   * wire row it came from rather than a projection of it.
+   * Every quota reading currently held, one per `(accountId, limitId)`: the superseded set, not
+   * everything ever seen. A view that renders a window's own members reads the wire row rather
+   * than a projection of it.
    */
   public usageWindows(): readonly ProviderAccountUsageWindow[] {
     return [...this.#windowsByKey.values()].map((held) => held.usageWindow);
@@ -260,19 +206,10 @@ export class ProviderAccountFold {
   /**
    * Every account the registry carries, by the id the daemon minted for it.
    *
-   * OFF THE SAME HELD ACCOUNTS AS THE READINGS, and that is the whole point of publishing
-   * it here. `accountId` is a handle and `displayLabel` is what a person reads, so
-   * any view naming a paying account has to join the two — and the account plane
-   * has exactly one reader in this window, whose read and tail already hold every
-   * account whole. A view that took its own `providerAccount.list` would be a
-   * second reading of one registry: two arrival orders, and no way to say which was
-   * right when a removal reached one of them first.
-   *
-   * A SEPARATE ANSWER FROM {@link readings}, because the two have different
-   * membership. A reading exists only where a quota row has been observed, and an
-   * account with no observed window still has a label to render — so a consumer that
-   * scanned the readings for one would find nothing and fall back to the handle,
-   * which is the state that rule forbids.
+   * Off the same held accounts as the readings, so a view naming a paying account joins
+   * `accountId` to `displayLabel` here instead of taking its own `providerAccount.list`, which
+   * would be a second reading of one registry. Separate from {@link readings} because an
+   * account with no observed window still has a label to render.
    */
   public accountLabels(): ReadonlyMap<string, string> {
     const labels = new Map<string, string>();
@@ -301,23 +238,17 @@ function readingFor(
 }
 
 /**
- * The `(accountId, limitId)` pair, spelled once.
- *
- * Through the console's one tuple encoder rather than a space join: `limitId` is the
- * provider's own identifier and is free-form on the wire, so a separator it may contain
- * would fold two limits of one account onto one reading and the survivor would depend
- * on arrival order — the same defect the key exists to close on the WINDOW axis, one
- * member along.
+ * The `(accountId, limitId)` pair, spelled once through the console's tuple encoder. `limitId`
+ * is free-form on the wire, so a plain separator join could fold two limits of one account
+ * onto one reading.
  */
 function quotaKey(accountId: string, limitId: string): string {
   return structuralKey([accountId, limitId]);
 }
 
 /**
- * Ordered by label so two renders of one reading place a chip in the same position.
- *
- * Deliberately NOT by urgency: a chip that moves when its own number moves is a chip
- * a person has to re-find at the moment they most need to read it.
+ * Ordered by label so two renders of one reading place a chip in the same position. Not by
+ * urgency: a chip that moves when its number moves is hard to re-find when it matters.
  */
 function compareByLabels(left: ProviderQuotaReading, right: ProviderQuotaReading): number {
   const byAccount = left.accountLabel.localeCompare(right.accountLabel);

@@ -1,31 +1,9 @@
-// The one attention read this window performs, for as long as the window is open.
-//
-// WHY IT IS MOUNTED FOR THE WINDOW'S LIFETIME. A window that has simply moved to another
-// destination is not an unreachable machine: the daemon is answering and this window is
-// following it. A read mounted on a destination would throw its answer away whenever
-// somebody navigated. The window's composition mounts this provider, so the reading is
-// live from the moment the window resolves a bridge until it tears down.
-//
-// AND IT IS STILL EXACTLY ONE READ. The destination consumes what this binding holds
-// rather than opening its own — the notification center renders the same reading the
-// all-sessions list takes each row's severity from, so the panel and the list cannot
-// disagree about what needs a person, which two reads, however carefully written,
-// eventually would.
-//
-// THE DIRECTORY COMES WITH IT, read once and provided beside the reading, so the
-// destination takes both from the same place.
-//
-// THE CALLS AND THE WINDOW'S HANDLES ARE THE COMPOSITION'S. This module holds only how
-// the answers are kept and provided; the calls that list the node's sessions and read
-// the projection, the reconnect signal, the clock and the session store registry are
-// handed in, so nothing here reaches a wire or a service.
-//
-// NOTHING HERE POLLS AND NOTHING HERE RENDERS. The attention read re-runs when the
-// session projections underneath it move, through the console's one push-driven read
-// discipline; this component draws no markup and returns the subtree it was handed.
-// The directory re-reads on the window's own focus trigger and on a settled act's
-// explicit ask, which are the two moments `store/reads/read-triggers.ts` already names
-// for a node-scoped reading.
+// The one attention read this window performs, mounted for the window's lifetime so navigating
+// to another destination does not throw its answer away. The destination consumes this reading
+// instead of opening its own, so the notification center and the all-sessions list cannot
+// disagree about what needs a person. The session directory is read here and provided beside
+// it. The calls and window handles come in from the composition; nothing here polls or draws
+// markup.
 
 import { useCallback, useMemo, type ReactNode } from "react";
 
@@ -58,10 +36,8 @@ export interface AttentionProviderProps {
 }
 
 /**
- * Perform the read for the window's lifetime and provide it to whatever is below.
- *
- * MOUNTED BY THE COMPOSITION AND NEVER BY A ROUTE, so this component's lifetime is the
- * window's.
+ * Performs the read for the window's lifetime and provides it to whatever is below. The
+ * composition mounts it, never a route.
  */
 export function AttentionProvider(props: AttentionProviderProps): React.JSX.Element {
   const directory = useSessionDirectory(props.readDirectory, props.transportReconnect);

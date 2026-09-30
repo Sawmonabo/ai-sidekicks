@@ -1,18 +1,10 @@
 // Whether one arrived frame owes a reading a re-read, and both wirings asking it once.
-//
-// `eventTriggersRead` is the whole of that decision, and it is checked here rather than
-// only through a feature whose reading happens to declare a frame-level rule: the kind gate has
-// been the answer since the seam was written, the frame gate is new, and a reading that
-// declared one and was asked the other would either re-read on everything or stop
-// re-reading at all.
-//
-// AND IT IS ASKED THROUGH THE REACT WIRING TOO. `useSessionReadTriggers` here and
-// `SessionRefreshTriggers` beside it are two wirings of one policy, which that module's
-// own head calls honest — two VOCABULARIES are not. A predicate consulted by one and
-// not the other goes stale on exactly the views wired the other way, and no unit test
-// of the predicate alone would report it, so the hook is driven against a real store.
-// The imperative wiring is driven the same way from
-// `workflows/pane/run/run-live-rounds.test.ts`, which is where its reading lives.
+// `eventTriggersRead` is checked directly and not only through a feature whose reading
+// declares a frame rule, since a reading that declared one and was asked the other gate would
+// either re-read on everything or stop re-reading. It is also driven through the React wiring
+// against a real store, because a predicate consulted by `useSessionReadTriggers` and not by
+// `SessionRefreshTriggers` would go stale on exactly the views wired the other way; the
+// imperative wiring is driven in `features/workflows/run-page/run-live-refresh.test.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -89,8 +81,8 @@ describe("eventTriggersRead — the kind, and then the frame", () => {
   });
 
   it("admits every declared kind for a reading that states no frame rule", () => {
-    // The absence is the default and not an omission: every reading in the tree behaved
-    // this way before the member existed, and none of them was edited to keep doing so.
+    // The absence is the default: a reading that states no frame rule admits every frame of a
+    // declared kind.
     const target = new KindOnlyReadTarget();
     expect(eventTriggersRead(target, frameNaming(SUBJECT_ELSEWHERE, 1))).toBe(true);
     expect(eventTriggersRead(target, frameNaming(undefined, 2))).toBe(true);
@@ -128,8 +120,7 @@ describe("useSessionReadTriggers — the React wiring consults the same predicat
   });
 
   it("negative control: the same frames advance a reading addressed at THAT subject", () => {
-    // Without this, the case above would pass over a wiring that had stopped observing
-    // the timeline at all — which is the same green and the opposite defect.
+    // Guards against a wiring that had stopped observing the timeline at all.
     const target = new RecordingReadTarget(SUBJECT_ELSEWHERE);
     wireAndApply(target, [frameNaming(SUBJECT_ELSEWHERE, 1), frameNaming(SUBJECT_ELSEWHERE, 2)]);
     expect(target.reasons).toStrictEqual(["terminal-event"]);

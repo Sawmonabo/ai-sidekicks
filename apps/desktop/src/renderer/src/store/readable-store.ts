@@ -1,16 +1,9 @@
 // The read-only face every console store presents to React.
 //
-// zustand's `useStore` needs three members — `getState`, `getInitialState`, and
-// `subscribe` — and a store that handed React its full `StoreApi` would hand every
-// component `setState` along with them. That is the whole apply-chokepoint rule
-// undone by a getter: any component could write, and the tripwire that catches a
-// re-entrant write would never fire because the write would not go through
-// `applyBatch` at all.
-//
-// So each store exposes this three-member face instead. The functions are the
-// store's own bound methods, so their identities are stable across renders and
-// `useSyncExternalStore` re-subscribes exactly never; only the wrapper object is
-// fresh, and nothing depends on its identity.
+// zustand's `useStore` needs only `getState`, `getInitialState` and `subscribe`. Handing React
+// the full `StoreApi` would give every component `setState`, bypassing the `applyBatch`
+// chokepoint. The functions are the store's own bound methods, so their identities are stable
+// across renders.
 
 import type { StoreApi } from "zustand/vanilla";
 
@@ -20,7 +13,7 @@ export type ReadableStore<TState> = Pick<
   "getState" | "getInitialState" | "subscribe"
 >;
 
-/** Build the read-only face from a store, without letting the setter out. */
+/** Builds the read-only face from a store, without letting the setter out. */
 export function toReadableStore<TState>(store: StoreApi<TState>): ReadableStore<TState> {
   return {
     getState: store.getState,

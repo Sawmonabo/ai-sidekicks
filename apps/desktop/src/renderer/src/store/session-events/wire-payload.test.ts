@@ -1,9 +1,6 @@
-// Reading a member off an open payload — and refusing to coerce one that is not there.
-//
-// The string rule itself is `core/wire-strings.ts`' and is tested beside it; what is
-// left here is the count's range check and the arm the projection answers an empty
-// record for. The one case that still reads a string does so through the core
-// predicate, because what it is claiming is about the PROJECTION and not the read.
+// Reading a member off an open payload, and refusing to coerce one that is not there. The
+// string rule is tested beside `lib/wire-strings.ts`; this covers the count's range check and
+// the arm the projection answers an empty record for.
 
 import { describe, expect, it } from "vitest";
 
@@ -32,8 +29,7 @@ describe("the projected payload", () => {
   });
 
   it("negative control: reading it twice yields the same object, not a copy", () => {
-    // A reader that rebuilt or spread the payload would pass every case above and
-    // hand a memoizing caller a new identity on every render.
+    // A reader that spread the payload would pass the cases above and break memoized callers.
     const row = sampleRunRow({ payload: { toolName: "Bash" } });
     expect(projectedPayload(row)).toBe(projectedPayload(row));
   });

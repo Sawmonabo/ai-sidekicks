@@ -1,8 +1,5 @@
-// The session-keyed entry to the one subject-scoped holder.
-//
-// A session id and a composer address are both strings and are not interchangeable. A
-// call site that says which key space it is in is one a reader can check;
-// `useSubjectScopedState(bridge, someString, …)` is one they cannot.
+// The session-keyed entry to the one subject-scoped holder. A session id and a composer address
+// are both strings, and a call site that names its key space is one a reader can check.
 
 import {
   useSubjectScopedState,
@@ -10,21 +7,16 @@ import {
 } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /**
- * The session a holder is about, or `undefined` where the view is about none.
- *
- * Named rather than written as a bare union at the parameter, so the two readings the
- * console's absence grammar keeps apart — no session on the address, and a session
- * whose read has not answered — stay distinguishable at every call site.
+ * The session a holder is about, or `undefined` where the view is about none. Named so the two
+ * absences the console keeps apart (no session on the address, a read not yet answered) stay
+ * distinguishable at every call site.
  */
 export type SessionScopedKey = string | undefined;
 
 /**
- * Hold one value per `(bridge, sessionId)`.
- *
- * The bridge is the subject because its replacement — a reconnect, a second window's
- * own instance, the fixture's scenario switch — retires every call in flight through
- * it; the session id is the key within it, because one bridge carries many sessions.
- * The bridge is held only as an identity, so it is typed as one.
+ * Hold one value per `(bridge, sessionId)`. The bridge is the subject because replacing it (a
+ * reconnect, a second window's instance, the fixture's scenario switch) retires every call in
+ * flight through it; the session id is the key within it.
  */
 export function useSessionScopedState<TValue>(
   bridge: object,

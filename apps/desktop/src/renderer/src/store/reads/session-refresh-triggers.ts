@@ -1,68 +1,28 @@
-// When a view that performs its own reads re-reads, wired to the things that say so.
+// When a view that performs its own reads re-reads, wired to the things that say so: window
+// focus, reconnect, and the terminal events the owning view names (`subscribe` belongs to the
+// reader). No interval polling.
 //
-// The no-interval-polling policy is fixed: reads happen on subscribe, on window focus, on
-// reconnect, and on the terminal events the owning view names. `subscribe` belongs to
-// the reader — it is the read the reader starts itself — and the other three are
-// observations of things outside it, which is what this class owns.
+// It wires a `ReadTriggerTarget`, not a scheduler: `read-triggers.ts` does the same through
+// React hooks, while this class does it imperatively for a reading minted in a resource seam.
+// Both read `triggeringEventKinds` and `requestRead` off the reading, so there is one answer
+// to when it goes stale.
 //
-// IT LIVES BESIDE THE SCHEDULER RATHER THAN IN A FEATURE, because the three
-// observations are the same three whichever view is reading: a window focus is a
-// window focus, the store's repair edge is the console's one reconnect signal, and
-// "the terminal events the owning spec names" differs only in WHICH kinds — which is
-// the one parameter. The repos section, the inspector's `Artifacts` section, and the
-// workflow run page each read over their own kinds, and a copy per reader would be the
-// same listener wiring and the same transition scan written again, drifting apart at
-// the first fix applied to one.
-//
-// IT WIRES A `ReadTriggerTarget` AND NOT A SCHEDULER, which is the one thing it takes
-// from `read-triggers.ts` beside it. That module wires the same policy through React
-// hooks for a reading a view mounts; this one wires it imperatively for a reading
-// minted outside React, in a resource seam, and started and disposed by hand. Two
-// WIRINGS are honest — a class held per subject cannot call a hook — but two
-// VOCABULARIES are not, and a reading that declared its kinds to one and its request
-// path to the other would be two answers to "when does this go stale". So both read
-// the same two members off the reading itself: `triggeringEventKinds`, which is a
-// property of the QUESTION rather than of whoever mounts it, and `requestRead`, which
-// is the reading's own way into its own scheduler.
-//
-// EVERY REASON IS ONE `RefreshReason` ALREADY NAMES, and nothing here mints a member:
-// a window focus is `window-focus`, a named frame is `terminal-event`, and the repair
-// edge below is `reconnect`. Requesting is all this class does; the scheduler decides
-// whether a burst becomes one read or several.
-//
-// WHY THE REPAIR EDGE IS THE RECONNECT SIGNAL. Nothing in the console publishes a
-// bridge-level "reconnected" event, and inventing one would be a fact the renderer
-// never established. What the store DOES publish is `degradedCause`, set when the
-// session's stream fails in any of the four ways `store/degradation.ts` names and
-// cleared only by a completed re-pull. Its clearing edge is therefore the moment the
-// session's projection is whole again after having not been — which is what the
-// refresh policy means by reconnect, observed rather than assumed.
-//
-// A BASE STATE IS NOT A FRAME. `initialize()` establishes a session's history in one
-// transition, and a named kind sitting inside that backfill describes something the
-// reader's own first read already reflects. Re-reading on it would put a second burst
-// behind every session open for no new information, so the scan runs only over
-// transitions of an already-initialized store.
+// The repair edge is the reconnect signal. Nothing publishes a bridge-level "reconnected"
+// event, but the store sets `degradedCause` when the stream fails (`session-degradation.ts`)
+// and clears it only by a completed re-pull, so the clearing edge is the moment the projection
+// is whole again. A base state is not a frame: `initialize()` backfill is already reflected by
+// the reader's first read, so the scan runs only over an initialized store's transitions.
 
 import { eventTriggersRead, type ReadTriggerTarget } from "./read-triggers.js";
 import type { SessionStore } from "../session/session-store.js";
 
+/** Options for a `SessionRefreshTriggers`. */
 export interface SessionRefreshTriggerOptions {
   /**
-   * The reading these observations refresh.
-   *
-   * Asked, never armed: this class owns no timer and no scheduler, and the reading's
-   * own `requestRead` is what decides whether a reason reaches a scheduler at all.
-   * The frames it re-reads on come off the same object as `triggeringEventKinds`,
-   * rather than being passed beside it, because which events change an answer is a
-   * property of the QUESTION — two views asking the same one must not disagree
-   * about when it goes stale, and a kind list handed in at the call site is exactly
-   * how they come to.
-   *
-   * The `SessionEventType` census check that list used to carry at each call site is
-   * not lost by the move: it lives at the home of the kind set the reading declares
-   * from — `repos/repo-lifecycle-events.ts` for the repos feature — which is one place
-   * instead of one per reader.
+   * The reading these observations refresh. Asked, never armed: this class owns no timer, and
+   * the reading's own `requestRead` decides whether a reason reaches a scheduler. The frames
+   * it re-reads on come off the same object as `triggeringEventKinds`, since a kind list handed
+   * in at the call site is how two views come to disagree about when an answer goes stale.
    */
   readonly target: ReadTriggerTarget;
   /** The session whose frames and whose repair edge are two of the three reasons. */
@@ -70,11 +30,9 @@ export interface SessionRefreshTriggerOptions {
 }
 
 /**
- * Listen for the reasons to re-read, and route each to the scheduler.
- *
- * Idempotent on `start` and terminal on `dispose`: React mounts an effect twice in
- * development strict mode, and a listener attached twice would double every re-read in
- * exactly the environment where the budget is watched.
+ * Listens for the reasons to re-read and routes each to the reading. Idempotent on `start`
+ * and terminal on `dispose`, since strict mode mounts an effect twice and a listener attached
+ * twice would double every re-read.
  */
 export class SessionRefreshTriggers {
   readonly #target: ReadTriggerTarget;
@@ -118,11 +76,9 @@ export class SessionRefreshTriggers {
   }
 
   /**
-   * One store transition, read for the two reasons it can carry.
-   *
-   * Both are read off the transition itself rather than off a mirrored copy of the
-   * previous state: the store already holds what changed, and a second copy here would
-   * be a source of truth that a missed notification could put out of step.
+   * Reads one store transition for the two reasons it can carry, off the transition itself
+   * rather than a mirrored copy of the previous state that a missed notification could put out
+   * of step.
    */
   #observeSessionTransition(
     state: ReturnType<SessionStore["snapshot"]>,
@@ -135,16 +91,11 @@ export class SessionRefreshTriggers {
       return;
     }
     const admitted = state.timeline.filter((event) => event.sequence > previous.cursor);
-    // The declaration is read off the target on every transition rather than copied at
-    // construction, so a reading whose declaration is a getter over something that
-    // moves is compared against what it declares NOW. A projected frame's `kind` is a
-    // plain string — the store admits what the wire sent — which is why the declared
-    // set is `ReadonlySet<string>` and the comparison is honest about what it compares.
-    //
-    // Through the shared predicate, which is the one home for the two-part admission:
-    // the declared kind, and then the reading's own answer about THIS frame. Comparing
-    // kinds here while the hook wiring also consulted the frame would have been two
-    // vocabularies over one policy, which is exactly what this class's header refuses.
+    // The declaration is read off the target on every transition, not copied at construction,
+    // so a getter over something that moves is compared against what it declares now. A
+    // projected frame's `kind` is a plain string, so the declared set is `ReadonlySet<string>`.
+    // The shared predicate is the one home for the two-part admission (declared kind, then the
+    // reading's answer about this frame).
     if (admitted.some((event) => eventTriggersRead(this.#target, event))) {
       this.#target.requestRead("terminal-event");
     }

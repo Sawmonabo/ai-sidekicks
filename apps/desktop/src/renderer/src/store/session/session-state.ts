@@ -1,9 +1,6 @@
-// The state one session store holds, and the base state a read establishes.
-//
-// Its own module because more than the store reads it: the selectors project it,
-// the hooks type their callbacks against it, and the store commits it. A state
-// shape declared inside the class that writes it would force every reader to import
-// the writer, which is how a folder acquires an import cycle.
+// The state one session store holds, and the base state a read establishes. Its own module
+// because the selectors, the hooks and the store all read it, and a shape declared inside the
+// writing class would force every reader to import the writer.
 
 import type { SessionDegradedCause } from "../session-degradation.js";
 import {
@@ -22,45 +19,35 @@ export interface SessionStoreState {
   /** Entity maps, one per kind. Only touched partitions change identity. */
   readonly partitions: SessionPartitions;
   /**
-   * Ordered event log for the session, the transcript's source.
-   *
-   * Append-only at the TAIL, which is where the subscription writes. It also grows at
-   * the HEAD, and only there and only through `prependEarlierEvents`: a session's
-   * stream is replayed from the position this user was last acknowledged at, so
-   * the log below that position exists and this window has never been sent it.
+   * Ordered event log for the session, the transcript's source. Append-only at the tail, and
+   * grown at the head only through `prependEarlierEvents`: the stream replays from the position
+   * this user was last acknowledged at, so the log below it exists but was never sent here.
    */
   readonly timeline: readonly ProjectedSessionEvent[];
   /** The highest sequence this store has admitted. */
   readonly cursor: number;
   /**
-   * The daemon-issued position the read that established this window was performed
-   * FROM, or `undefined` for a read from the beginning of the log.
+   * The daemon-issued position the read that established this window was performed from, or
+   * `undefined` for a read from the beginning of the log.
    *
-   * THE HEAD OF THE WINDOW, AND THE ONLY CURSOR THIS CONSOLE HAS FOR IT. A session's
-   * stream replays from the position the previous read acknowledged, so the rows
-   * below that position were never delivered — and `SessionReadResponse` carries no
-   * member naming the oldest row it sent, so nothing else here can name where the
-   * window starts. Held UNREAD as the opaque string the daemon issued
-   * (`timeline-resume.ts`' rule), because the only thing a caller may do with it is
-   * hand it back.
-   *
-   * `undefined` is therefore the honest "there is nothing before this window": a read
-   * that submitted no position opened at the beginning of the log.
+   * This is the head of the window and the only cursor the console has for it:
+   * `SessionReadResponse` names no oldest row it sent. It is held unread, as the opaque string
+   * the daemon issued (`timeline-resume.ts`), because a caller may only hand it back.
+   * `undefined` means nothing precedes this window: a read with no position opened at the
+   * start of the log.
    */
   readonly windowHeadCursor: string | undefined;
   /** Sticky while the projection is known-incomplete; cleared only by a re-pull. */
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
-   * Whether the newest read of this session failed. Set beside the worst cause rather
-   * than folded into it, because the ladder keeps a worse cause standing over
-   * `read-failed`, and a person still has to be told the repair read failed. Cleared by
-   * the next read that lands.
+   * Whether the newest read of this session failed. Set beside the worst cause because the
+   * ladder keeps a worse cause standing over `read-failed`, yet the person must still be told
+   * the repair read failed. Cleared by the next read that lands.
    */
   readonly lastReadFailed: boolean;
   /**
-   * Runs of sequences observed as missing, oldest first. Rendered by the degraded
-   * banner, not guessed at — and bounded, because the accumulated width they
-   * describe is what `MAX_REPAIRABLE_SEQUENCE_GAP` caps.
+   * Runs of sequences observed as missing, oldest first, rendered by the degraded banner. The
+   * accumulated width they describe is bounded by `MAX_REPAIRABLE_SEQUENCE_GAP`.
    */
   readonly gaps: readonly SequenceGap[];
   /** Monotonic transition counter, so a test can assert coalescing by counting. */
@@ -68,10 +55,8 @@ export interface SessionStoreState {
 }
 
 /**
- * Where a store opens when its base state carries no position: the bottom of the stream.
- *
- * The subscription replays from there, so a base state ahead of it would make the store
- * drop events it has not seen.
+ * Where a store opens when its base state carries no position: the bottom of the stream. The
+ * subscription replays from there, so a base state ahead of it would drop unseen events.
  */
 export const BASE_STATE_CURSOR = 0;
 
@@ -84,25 +69,16 @@ export interface SessionSnapshot {
   /** Events the read response carried, ordered by sequence. */
   readonly timeline?: readonly ProjectedSessionEvent[];
   /**
-   * The cursor block the read answered with, carried UNREAD.
-   *
-   * The snapshot is the whole of what one read established, and the resume rule is
-   * taken against these three positions rather than against the entity graph beside
-   * them — so a snapshot that dropped them would leave the entry holding a base state
-   * and no way to learn whether the rows below it still exist. It is deliberately
-   * `unknown`: `timeline-resume.ts` owns the shape and the narrowing, and a typed
-   * member here would assert away the very absence that module has to detect.
+   * The cursor block the read answered with, carried unread. The resume rule takes these three
+   * positions, so dropping them would leave the entry unable to learn whether the rows below
+   * the base state still exist. `unknown` because `timeline-resume.ts` owns the shape and a
+   * typed member would assert away the absence that module has to detect.
    */
   readonly timelineCursors?: unknown;
   /**
-   * The position this read was performed FROM, as the caller submitted it.
-   *
-   * Not a member of the reply and deliberately not read out of one: it is what the
-   * CONSOLE sent, so the object that submitted it is the only thing that knows it. The
-   * entry that performs the read supplies it here, and the store carries it onto
-   * {@link SessionStoreState.windowHeadCursor} — which is what makes "the rows before
-   * this window" a position the console can name rather than one it would have to
-   * invent out of an opaque cursor's bytes.
+   * The position this read was performed from, as the caller submitted it. It is not in the
+   * reply; the entry that performs the read supplies it, and the store carries it onto
+   * {@link SessionStoreState.windowHeadCursor}.
    */
   readonly readFromCursor?: string | undefined;
 }
@@ -110,13 +86,10 @@ export interface SessionSnapshot {
 /**
  * Whether an initialized store takes a read response answering at this cursor.
  *
- * Ahead of the cursor is new state and always admitted. AT the cursor is admitted
- * only while the store is degraded, which is the repair case — and every cause
- * qualifies rather than `sequence-gap` alone, because a failed read and a closed
- * subscription are cleared by exactly the same completed re-pull and each of them
- * can leave the cursor standing still. Behind the cursor is never admitted, which
- * is the idempotence the guard exists for: a racing re-read that has not seen the
- * newest events cannot undo them.
+ * Ahead of the cursor is new state. At the cursor it is admitted only while degraded, which is
+ * the repair case; every cause qualifies, since one completed re-pull clears them all and each
+ * can leave the cursor standing still. Behind the cursor is never admitted, so a racing re-read
+ * cannot undo newer events.
  */
 export function admitsSnapshotAt(cursor: number, current: SessionStoreState): boolean {
   if (cursor > current.cursor) {
@@ -125,33 +98,20 @@ export function admitsSnapshotAt(cursor: number, current: SessionStoreState): bo
   return cursor === current.cursor && current.degradedCause !== undefined;
 }
 
-/**
- * The cursor a store holds before any read has established a base state.
- *
- * Named because three writers spend it — the state a store is constructed with, the
- * state a projection reset returns it to, and the reconciler rebase that reset
- * performs — and a literal in three places is one value with three homes.
- */
+/** The cursor a store holds before any read has established a base state. */
 export const UNINITIALIZED_CURSOR = -1;
 
 /**
- * Which end of an over-cap log survives.
- *
- * `"newest"` is the ordinary rule: a session's window is its tail, so the cap drops
- * the oldest rows. `"oldest"` is what a backward page buys — the reader has moved to
- * the head and asked for the rows before it, so a cap that still cut there would
- * discard the page as it landed and every press after it, forever.
+ * Which end of an over-cap log survives. `"newest"` is the ordinary rule, since a window is a
+ * session's tail. `"oldest"` is for after a backward page: the reader is at the head, so
+ * cutting there would discard the page as it landed.
  */
 export type TimelineRetainedEnd = "newest" | "oldest";
 
 /**
- * The state of a store that has projected nothing: newly constructed, or reset.
- *
- * ONE BUILDER FOR BOTH, because they are the same state and differ only in what the
- * reader should be told about it. A construction is quiet — nothing has been asked
- * for yet — and a reset is DEGRADED, because a projection thrown away is
- * known-incomplete until the read that follows it lands, and rendering that window as
- * a settled empty session would be the console reporting a fact it does not have.
+ * The state of a store that has projected nothing: newly constructed, or reset. A construction
+ * is quiet; a reset is degraded, because a projection thrown away is incomplete until the next
+ * read lands, and showing it as a settled empty session would state a fact the console lacks.
  */
 export function uninitializedState(input: {
   readonly sessionId: string;
@@ -173,16 +133,9 @@ export function uninitializedState(input: {
 }
 
 /**
- * The state one read response establishes.
- *
- * Takes the ordered timeline rather than ordering the snapshot's own, because the
- * caller has already ordered it: the same sequence list the reconciler rebases onto
- * is the list this state carries, and ordering it twice would be two orderings of one
- * log that can disagree.
- *
- * `degradedCause` is cleared here and nowhere else. A completed re-pull is exactly
- * what makes a projection whole again, so the flag every other path only ever merges
- * upward is dropped at the one moment that earns it.
+ * The state one read response establishes, from the ordered timeline the caller already
+ * produced (the reconciler rebases onto the same list). `degradedCause` is cleared here and
+ * nowhere else: a completed re-pull is what makes a projection whole.
  */
 export function establishedState(input: {
   readonly sessionId: string;
@@ -210,21 +163,13 @@ export function establishedState(input: {
 }
 
 /**
- * The `cap` events of a timeline nearest the retained end, or all of them where there
- * is no cap.
+ * The `cap` events of a timeline nearest the retained end, or all of them where there is no cap.
  *
- * Here rather than beside the store that applies it because the cap is a property of
- * the STATE — what a `timeline` member is allowed to hold — and all three writers of
- * that member (the read that establishes it, the batch that appends to it, and the
- * backward page that grows it at the head) take the same answer from this one
- * function.
- *
- * THE END IS THE CALLER'S AND HAS NO DEFAULT. A cap silently cutting the end a reader
- * is standing at is the whole failure this parameter exists to make unrepresentable,
- * and a default would put that failure one forgotten argument away. Whichever end is
- * cut, the cut is silent for the same reason it has always been: the cap is a
- * retention bound rather than a claim about the log, and the rows the console has
- * NOT been sent are reported by the window's own absences.
+ * Shared because the cap is a property of the state, and the read, the batch and the backward
+ * page all take the same answer. The end has no default: a cap silently cutting the end a
+ * reader stands at is the failure this parameter makes unrepresentable. The cut is silent
+ * because the cap is a retention bound, and rows never sent are reported by the window's
+ * own absences.
  */
 export function capTimeline(
   timeline: readonly ProjectedSessionEvent[],

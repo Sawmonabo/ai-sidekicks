@@ -1,10 +1,6 @@
-// The store's third way in, `prependEarlierEvents`: a log growing at its head, and which
-// end a cap then cuts.
-//
-// The two are one subject. A backward page is only worth reading if the cap keeps it,
-// and the retained end is the whole of that guarantee — so every case below asserts
-// the merge and the retention together rather than one of them over a store with no
-// cap at all.
+// The store's third way in, `prependEarlierEvents`: a log growing at its head, and which end a
+// cap then cuts. A backward page is only worth reading if the cap keeps it, so each case asserts
+// the merge and the retention together.
 
 import { describe, expect, it } from "vitest";
 
@@ -34,9 +30,7 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
   });
 
   it("reports no window head for a read that submitted no position", () => {
-    // The ordinary first read. `undefined` is the honest "there is nothing before this
-    // window", and it is what keeps the head control off a log that starts at its own
-    // beginning.
+    // The ordinary first read: `undefined` means nothing precedes the window.
     const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialize({ cursor: 3, entities: [], timeline: eventsAt([3]) });
 
@@ -62,8 +56,7 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
   });
 
   it("does not move the cursor, the gaps, or the degraded cause", () => {
-    // A backward page is history, not progress: it says nothing about what the
-    // subscription has reached and repairs nothing the reconciler recorded.
+    // A backward page is history, not progress: it repairs nothing the reconciler recorded.
     const store = openStore();
     store.markReadFailed();
     store.prependEarlierEvents(eventsAt([17]));
@@ -75,9 +68,8 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
   });
 
   it("keeps the OLDEST end once a backward page has landed", () => {
-    // The negative control for the retained end. Under the ordinary newest-first cap
-    // the four rows would be [17, 18, 19, 20] — the page is fetched and dropped in one
-    // act, every press answers with nothing, and the walk can never advance.
+    // Negative control: under the newest-first cap the page would be dropped as it landed,
+    // every press would answer with nothing and the walk could never advance.
     const store = openStore({ timelineCap: 4 });
     store.prependEarlierEvents(eventsAt([14, 15, 16, 17]));
 
@@ -95,9 +87,7 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
 
   it("releases the retained end when a completed read re-establishes the window", () => {
     const store = openStore({ timelineCap: 2 });
-    // The page that puts the store on the oldest end, asserted through the merge it
-    // answers with: the retained end is a private reading, and what a caller can see
-    // of it is which rows survive the cap.
+    // The retained end is private; a caller sees only which rows survive the cap.
     expect(store.prependEarlierEvents(eventsAt([17])).admitted).toBe(1);
 
     store.initialize({
@@ -107,8 +97,7 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
     });
     store.applyBatch(eventsAt([31]));
 
-    // The newest end again — which IS the release, stated as the only thing the cap
-    // lets an outside caller observe about it.
+    // The newest end again is the release.
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([30, 31]);
   });
 });

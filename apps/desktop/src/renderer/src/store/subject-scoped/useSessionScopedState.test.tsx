@@ -1,17 +1,7 @@
-// The session-keyed hook, and the pair predicate beside it.
-//
-// This hook earns two tests and no more: that it FORWARDS — the guarantee it names is
-// the one the holder makes, not a second one spelled here — and that its vocabulary
-// is the session's. Anything else asserted here would be a second copy of
-// `hooks/subject-scoped/useSubjectScopedState.test.tsx`, which is the drift this hook exists to
-// prevent.
-//
-// The bridges are real fixture bridges rather than shaped objects: the hook's whole
-// subject is bridge IDENTITY, and two casts of `{}` would prove the hook compares
-// references without proving it compares the reference a caller actually holds. They
-// come from `tests/helpers/fixture-bridge.ts` rather than from a builder written
-// here — a suite that wraps `createFixtureBridge` itself is a second answer to what
-// "the fixture bridge" is, and the two drift the day the scenario default moves.
+// The session-keyed hook must forward the holder's guarantee rather than spell a second one, and
+// its vocabulary must be the session's. Anything more would duplicate
+// `hooks/subject-scoped/useSubjectScopedState.test.tsx`. The bridges are real fixture bridges
+// because the subject is bridge identity, and casts of `{}` would not prove the right reference.
 
 import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
@@ -72,9 +62,8 @@ describe("useSessionScopedState — the session-keyed hook forwards, and holds n
   });
 
   it("discards it when the BRIDGE moves under an unchanged session", () => {
-    // The reason the hook's subject is the bridge and not the id: a reconnect, a
-    // second window's own instance, or the fixture's scenario switch replaces the
-    // transport while the session on the address stays exactly what it was.
+    // The subject is the bridge, not the id: a reconnect, a second window's instance, or the
+    // fixture's scenario switch replaces the transport while the address stays the same.
     let latest = "";
     let publishInto: (next: string) => void = () => {};
     const record = (value: string, publish: (next: string) => void): void => {
@@ -124,9 +113,8 @@ describe("isCurrentSessionSubject — both live objects, neither reduced to a na
   });
 
   it("negative control: comparing the session ids would call both of those current", () => {
-    // Without this, the two cases above would prove nothing about WHICH comparison
-    // the predicate performs — every object in them names one session throughout, so
-    // a predicate that read the name would answer `true` where these answer `false`.
+    // Every object here names one session, so without this the cases above would not show
+    // which comparison the predicate makes: comparing names would answer true for both.
     const rebuilt = new SessionStore({ sessionId: "session-one" });
     expect(rebuilt.sessionId).toBe(sessionStore.sessionId);
     expect(createFixture().bridge).not.toBe(bridge);

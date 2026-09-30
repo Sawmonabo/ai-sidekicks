@@ -1,11 +1,6 @@
-// The closed value-class enumeration, and the one place it is declared.
-//
-// The drift this file exists to catch is invisible to every other check: a class
-// name in the enumeration with no validator behind it does not crash, it just
-// falls through and the chokepoint admits whatever was handed to it. The types
-// make that unrepresentable now — the validator table is keyed by the union the
-// enumeration derives — and this file proves the derivation is real by DRIVING
-// every enumerated name rather than by reading the source.
+// The closed value-class enumeration is declared once and every enumerated name reaches a
+// validator. A name with no validator would not crash; it would fall through and the
+// chokepoint would admit whatever it was handed, so every name is driven here.
 
 import { describe, expect, it } from "vitest";
 
@@ -25,9 +20,8 @@ import {
 } from "./persistence-refusals.js";
 
 /**
- * A value no class admits: not an object, not an array, not a scheme name. Every
- * every one of the class shapes must reject it, which is what makes "the name reached a
- * validator" observable.
+ * A value no class admits: not an object, not an array, not a scheme name. Every class shape
+ * must reject it, which makes "the name reached a validator" observable.
  */
 const ADMITTED_BY_NOTHING = 42;
 
@@ -38,8 +32,8 @@ describe("the value-class enumeration is declared once and reaches a validator",
         [valueClass, validatePersistedValue(valueClass, ADMITTED_BY_NOTHING)?.code] as const,
     );
 
-    // `value-shape-invalid` and never `value-class-unknown`: the second would mean
-    // the name is in the enumeration and nothing behind it knows the name.
+    // `value-shape-invalid`, never `value-class-unknown`, which would mean a name with
+    // nothing behind it.
     for (const [valueClass, code] of codesByClass) {
       expect([valueClass, code]).toStrictEqual([valueClass, "value-shape-invalid"]);
     }
@@ -47,14 +41,12 @@ describe("the value-class enumeration is declared once and reaches a validator",
   });
 
   it("negative control: a class outside the enumeration is refused by NAME", () => {
-    // Without this, a `validatePersistedValue` that refused everything with
-    // `value-shape-invalid` would pass the case above while having stopped
-    // discriminating at all.
+    // Guards against a `validatePersistedValue` that refused everything with
+    // `value-shape-invalid` and stopped discriminating.
     const refusal = validatePersistedValue("composer-draft", ADMITTED_BY_NOTHING);
 
     expect(refusal?.code).toBe("value-class-unknown");
-    // The refusal names the closed set, so an author who guessed a class name is
-    // told which names exist rather than only that theirs was wrong.
+    // The refusal names the closed set, so an author who guessed a class is told which exist.
     expect(refusal?.detail).toContain(String(PERSISTED_VALUE_CLASSES.length));
     for (const valueClass of PERSISTED_VALUE_CLASSES) {
       expect(refusal?.detail).toContain(valueClass);
@@ -62,24 +54,17 @@ describe("the value-class enumeration is declared once and reaches a validator",
   });
 
   it("negative control: the classes admit the UI state they exist for", () => {
-    // And the third direction: a validator table that rejected everything would
-    // pass both cases above.
+    // Guards against a validator table that rejected everything.
     expect(validatePersistedValue("scheme", "dark")).toBeUndefined();
     expect(validatePersistedValue("expansion", ["run-01", "run-02"])).toBeUndefined();
     expect(validatePersistedValue("scroll-position", { transcript: 240 })).toBeUndefined();
   });
 
   it("refuses prose through the write chokepoint, whatever class is claimed", () => {
-    // The durable store is limited to layouts, selection, pins, and expansion state,
-    // and composer drafts stay in window memory: a draft is user-authored
-    // content, and a durable copy would need encrypted, PII-mapped storage the
-    // renderer does not have. Widen one class's shape predicate — `selection` from a
-    // record of branded ids to `Record<string, string>`, say — and draft text
-    // validates, reaches IndexedDB, and lands in an unencrypted origin-scoped
-    // database outside every erasure selector there is.
-    //
-    // EVERY admissible class is tried, so the guarantee is "no class takes this"
-    // rather than "the one class I thought of does not".
+    // Composer drafts stay in window memory: a durable copy would need encrypted storage the
+    // renderer lacks. If one class's shape were widened (`selection` to `Record<string, string>`)
+    // draft text would reach IndexedDB in an unencrypted database outside every erasure
+    // selector. Every admissible class is tried, so no class takes this.
     const draftText =
       "Can you rerun the migration against the staging database and tell me what the " +
       "row counts look like afterwards? I think the last pass dropped something.";
@@ -104,8 +89,7 @@ describe("a persistence refusal IS a console refusal", () => {
   it("carries the console's three fields, with persistence named as the origin", () => {
     const refusal = refusePersistence("quota-exceeded", "there is no room left");
 
-    // The point of the fold: a view that renders console refusals renders this
-    // one without knowing the persistence subtree exists.
+    // A view that renders console refusals renders this one without knowing persistence exists.
     expect(isRefusal(refusal)).toBe(true);
     expect(refusal.origin).toBe(PERSISTENCE_REFUSAL_ORIGIN);
     expect(refusal.code).toBe("quota-exceeded");
@@ -123,9 +107,7 @@ describe("a persistence refusal IS a console refusal", () => {
   });
 
   it("negative control: a bare object is not mistaken for a console refusal", () => {
-    // `isRefusal` is what the fold above rests on, so it has to be able to
-    // say no — a guard that returned true for anything would make every assertion
-    // in this block vacuous.
+    // `isRefusal` must be able to say no, or every assertion in this block is vacuous.
     expect(isRefusal({ code: "quota-exceeded", detail: "no room" })).toBe(false);
     expect(isRefusal(undefined)).toBe(false);
   });
@@ -146,16 +128,13 @@ describe("a record's ADDRESS passes the same chokepoint as its value", () => {
     expect(refusal?.origin).toBe(PERSISTENCE_REFUSAL_ORIGIN);
     expect(refusal?.detail).toContain("key");
     expect(refusal?.detail).toContain(String(PROSE_KEY.length));
-    // The refusal must not carry the prose one layer further out than the store
-    // that refused it — the length is what an author needs to find the call site.
+    // The refusal must not carry the prose; its length is what finds the call site.
     expect(refusal?.detail).not.toContain(PROSE_KEY);
   });
 
   it("refuses a path in either component, which the VALUE grammar deliberately admits", () => {
-    // The asymmetry is the point. `IDENTIFIER_PATTERN` admits `/` because a
-    // path-shaped VALUE is excluded by the class shapes instead — no admitted
-    // class has a field that takes a path. An address has no class shape behind
-    // it, so the path separator has to be excluded at the address itself.
+    // `IDENTIFIER_PATTERN` admits `/` because path-shaped values are excluded by the class
+    // shapes. An address has no class shape, so the separator is excluded at the address.
     const path = "/Users/someone/notes.md";
     expect(validatePersistedValue("selection", { pane: path })).toBeUndefined();
 
@@ -177,8 +156,7 @@ describe("a record's ADDRESS passes the same chokepoint as its value", () => {
   });
 
   it("negative control: the addresses the console actually writes are admitted", () => {
-    // Without this, a `validatePersistedAddress` that refused everything would
-    // pass all three cases above while making the store unwritable.
+    // Guards against a `validatePersistedAddress` that refused everything.
     expect(validatePersistedAddress("global", "scheme")).toBeUndefined();
     expect(validatePersistedAddress("01H8XG2M4Q6R8T0V2X4Z6B8D0F", "layout")).toBeUndefined();
     expect(validatePersistedAddress("session-01H8", "scroll-position")).toBeUndefined();
@@ -187,8 +165,7 @@ describe("a record's ADDRESS passes the same chokepoint as its value", () => {
 
 describe("one byte measurement, over the whole record rather than only its value", () => {
   it("counts the address and the class, not just the serialized value", () => {
-    // A cap that measured only the value would let a caller spend the ceiling on
-    // the value and then an unbounded further amount on the key.
+    // A cap over the value alone would leave the key unbounded.
     const value = ["run-01"];
     const serializedValueLength = JSON.stringify(value).length;
 
@@ -200,9 +177,8 @@ describe("one byte measurement, over the whole record rather than only its value
   });
 
   it("counts BYTES, so a multi-byte character is not measured as one", () => {
-    // `String.length` counts UTF-16 code units. A ceiling described in bytes that
-    // was really counting code units would admit several times what it claims the
-    // moment the admitted charset ever widens past ASCII.
+    // `String.length` counts UTF-16 code units; a byte ceiling counting those would admit
+    // several times its claim once the charset widens past ASCII.
     const ascii = measureRecordByteLength("ss", "kk", "pin", null);
     const multiByte = measureRecordByteLength("é", "€", "pin", null);
 
@@ -211,8 +187,7 @@ describe("one byte measurement, over the whole record rather than only its value
   });
 
   it("negative control: an empty value still costs its address", () => {
-    // A measurement that returned zero for anything small would make the cap
-    // unreachable rather than generous.
+    // Guards against a measurement that returned zero for anything small.
     expect(measureRecordByteLength("", "", "pin", null)).toBe("pin".length + "null".length);
   });
 });

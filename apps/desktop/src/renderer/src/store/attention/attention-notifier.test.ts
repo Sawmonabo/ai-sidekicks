@@ -1,7 +1,5 @@
-// What raises a banner, and what deliberately does not.
-//
-// The class is driven directly, because every property here is about HISTORY — a
-// baseline, a remembered id, an eviction.
+// What raises a banner and what deliberately does not. The class is driven directly, because
+// every property here is about history: a baseline, a remembered id, an eviction.
 
 import { describe, expect, it } from "vitest";
 
@@ -13,11 +11,9 @@ import { AttentionNotifier } from "./attention-notifier.js";
 /**
  * One item, whose canonical event follows its id unless a case says otherwise.
  *
- * DERIVED RATHER THAN CONSTANT, because the emitter is keyed on the event now: a
- * fixed `sourceEventId` would make every item in a case the same piece of news, and
- * every claim below about a SECOND item arriving would be asserting the dedup rule by
- * accident instead of the rule it names. A case that wants two items over one event —
- * a run and its session aggregate — says so by passing the event explicitly.
+ * Derived rather than constant, because the notifier is keyed on the event: a fixed
+ * `sourceEventId` would make every item the same news. A case wanting two items over one event
+ * passes the event explicitly.
  */
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   const id = overrides.id ?? "attention-1";
@@ -39,12 +35,8 @@ function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
 }
 
 /**
- * The sessions every case here names, so an ordinary read covers both of them.
- *
- * The address set is what makes a session's items announceable at all, and these
- * cases are about the OTHER rules — the dedup, the cap — so they read
- * over a window that has been watching both sessions all along. The ordering matrix
- * in `attention-notifier.address-set.test.ts` is where the set itself moves.
+ * The sessions every case here names, so an ordinary read covers both of them. The address set
+ * itself moves in `attention-notifier.address-set.test.ts`.
  */
 const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
 
@@ -64,8 +56,8 @@ function settledRead(
 
 describe("the attention notifier", () => {
   it("announces nothing from the first settled read", () => {
-    // Mounting the destination is not an event. Without this, navigating to Sessions
-    // would fire one banner per outstanding approval every single time.
+    // Mounting the destination is not an event; otherwise navigating to Sessions would fire a
+    // banner per outstanding approval every time.
     const notifier = new AttentionNotifier();
 
     expect(
@@ -79,9 +71,8 @@ describe("the attention notifier", () => {
     const arrival = item({ id: "attention-2" });
 
     const first = notifier.arrivalsToAnnounce(settledRead([item(), arrival]));
-    // The same projection read back — every re-read answers the same list, so a
-    // notifier that keyed on the read rather than on the item would announce this
-    // item again on every refresh for as long as it stayed unresolved.
+    // The same projection read back: a notifier keyed on the read rather than the item would
+    // announce this item on every refresh while it stayed unresolved.
     const second = notifier.arrivalsToAnnounce(settledRead([item(), arrival]));
 
     expect(first.map((announced) => announced.id)).toStrictEqual(["attention-2"]);
@@ -89,11 +80,9 @@ describe("the attention notifier", () => {
   });
 
   it("raises nothing for a standing projection larger than the cap", () => {
-    // The storm this cap used to cause. Every one of these items is unresolved, so
-    // every read returns all of them — and an eviction that ran over the remembered
-    // set alone dropped the live id it had just added, found it missing on the next
-    // read, announced it, and walked the drop along the whole projection. What a
-    // person got was one banner per outstanding item, on every refresh, forever.
+    // Every item is unresolved, so every read returns all of them. An eviction over the
+    // remembered set alone would drop the live id it just added, announce it on the next read,
+    // and walk along the whole projection: a banner per item on every refresh.
     const notifier = new AttentionNotifier();
     const standing = Array.from({ length: ATTENTION_NOTIFIED_ITEM_CAP + 1 }, (_unused, index) =>
       item({ id: `standing-${String(index)}` }),
@@ -101,15 +90,13 @@ describe("the attention notifier", () => {
     notifier.arrivalsToAnnounce(settledRead(standing));
 
     expect(notifier.arrivalsToAnnounce(settledRead(standing))).toStrictEqual([]);
-    // And it does not decay into the storm one read later either: the third read is
-    // where a cap that had evicted exactly one live id would announce its first item.
+    // The third read is where a cap that had evicted one live id would announce its first item.
     expect(notifier.arrivalsToAnnounce(settledRead(standing))).toStrictEqual([]);
   });
 
   it("keeps a cleared id while there is room under the cap", () => {
-    // The negative control for pruning every id a read did not return. A fan-out that
-    // refused for one session answers without that session's items, and forgetting
-    // them on sight would re-announce the lot the moment the read recovered.
+    // Negative control for pruning every id a read did not return: a fan-out that refused one
+    // session answers without its items, and forgetting them would re-announce them on recovery.
     const notifier = new AttentionNotifier();
     const carried = item({ id: "carried", sessionId: "session-b" });
     notifier.arrivalsToAnnounce(settledRead([item(), carried]));
@@ -126,10 +113,9 @@ describe("the attention notifier", () => {
     );
     notifier.arrivalsToAnnounce(settledRead(fill));
 
-    // The eviction is observable exactly here: `oldest` cleared from the projection
-    // and the fill then took the whole cap, so the oldest CLEARED id was dropped and
-    // the item is treated as an arrival again. A duplicate banner is the direction
-    // this cap is allowed to be wrong in; an unbounded set is not.
+    // `oldest` cleared from the projection and the fill took the whole cap, so the oldest
+    // cleared id was dropped and the item is an arrival again. A duplicate banner is the
+    // direction this cap may be wrong in; an unbounded set is not.
     expect(
       notifier
         .arrivalsToAnnounce(settledRead([item({ id: "oldest" }), fill[fill.length - 1]!]))
@@ -138,11 +124,9 @@ describe("the attention notifier", () => {
   });
 
   it("raises one banner for a run and the session aggregate that represents it", () => {
-    // Two item ids over one canonical event, which is what a projection carrying both
-    // scopes actually looks like: `deriveAttentionProjection` builds the aggregate
-    // from its contributors and takes the representative's `sourceEventId`. Keyed on
-    // the item id, this fold announced one run beginning to wait twice — two banners,
-    // half a second apart, for one thing that happened.
+    // Two item ids over one canonical event, as a projection carrying both scopes looks: the
+    // aggregate takes the representative's `sourceEventId`. Keyed on the item id, one run
+    // beginning to wait announced twice.
     const notifier = new AttentionNotifier();
     notifier.arrivalsToAnnounce(settledRead([]));
     const runScoped = item({ id: "run-1:pending_approval", sourceEventId: "event-1" });
@@ -154,10 +138,8 @@ describe("the attention notifier", () => {
   });
 
   it("negative control: two items over two events are two banners", () => {
-    // Without this, the case above would pass over a fold that had collapsed every
-    // settlement to a single banner — one approval announced and the second one that
-    // arrived beside it silently dropped, which is the failure the dedup is one step
-    // away from.
+    // Guards against a fold that collapsed every settlement to one banner and silently dropped
+    // the second approval.
     const notifier = new AttentionNotifier();
     notifier.arrivalsToAnnounce(settledRead([]));
 
@@ -172,9 +154,8 @@ describe("the attention notifier", () => {
   });
 
   it("does not re-announce the aggregate on a later read that carries its event", () => {
-    // The cross-settlement half. The aggregate's own id may move, because the
-    // representative is allowed to change — so a memory keyed on the item id would call a
-    // re-keyed aggregate new and raise a second banner for news it had already told.
+    // The cross-settlement half: the aggregate's id may move when the representative changes,
+    // so an item-keyed memory would raise a second banner for news already told.
     const notifier = new AttentionNotifier();
     notifier.arrivalsToAnnounce(settledRead([]));
     const runScoped = item({ id: "run-1:pending_approval", sourceEventId: "event-1" });

@@ -1,8 +1,5 @@
-// The approval-flow suites' shared scaffolding: wire-shaped approval events.
-//
-// Both suites fold events the contract's payload schemas accept, because the fold
-// parses each payload with its kind's schema — so an event built two ways in two files
-// would let one suite assert against a shape the other could not produce.
+// The approval-flow suites' shared scaffolding: wire-shaped approval events the contract's
+// payload schemas accept, so two suites never assert against different shapes.
 
 import { APPROVAL_FLOW_PROJECTORS } from "./approval-flow-projection.js";
 import { APPROVAL_REQUEST_SCENARIO } from "../../../../../fixtures/scenarios/approval-request.js";
@@ -12,6 +9,7 @@ import {
   type EntityProjectorTable,
 } from "../session/entities/entities.js";
 
+/** The session id the scenario's events carry. */
 export const SESSION_ID: string = APPROVAL_REQUEST_SCENARIO.sessionId;
 
 /** One store, opened with exactly what the composer feature registers. */
@@ -20,13 +18,9 @@ export function storeDrivenByScenario(): SessionStore {
 }
 
 /**
- * One store fed the scenario's whole log, folding with whatever it was opened with.
- *
- * `extraEvents` is appended after the scenario's own beats, for the cases whose subject is a
- * payload no scenario has a reason to play. Defaulted, so the ordinary caller reads as it did — and
- * a parameter rather than a second copy of this function, because the cursor arithmetic and the
- * join-log seeding are the STORE's contract, and a suite holding its own copy of them is a suite
- * that will disagree with the store about a gap.
+ * One store fed the scenario's whole log, folding with the projectors it is given.
+ * `extraEvents` follow the scenario's beats, for payloads no scenario plays. The cursor and
+ * join-log seeding stay here so suites cannot disagree with the store about a gap.
  */
 export function storeOver(
   projectors: EntityProjectorTable | undefined,
@@ -37,9 +31,7 @@ export function storeOver(
     sessionId: SESSION_ID,
     ...(projectors === undefined ? {} : { projectors }),
   });
-  // A base state current as of the beat just before the scenario's first: a store
-  // treats the distance from its cursor to an event as a gap, so a cursor of `-1`
-  // would degrade a store for a hole the scenario never had.
+  // Current as of the beat before the first, so a `-1` cursor does not read as a gap.
   store.initialize({
     cursor: Math.min(...sequences) - 1,
     entities: [],

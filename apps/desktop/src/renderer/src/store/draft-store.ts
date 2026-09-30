@@ -1,28 +1,14 @@
 // Drafts: user-authored text, held in this window's memory and nowhere else.
 //
-// Composer drafts are deliberately NOT persisted — they are user-authored content.
+// This class is deliberately not built on `UiStateStore`, whose write chokepoint refuses prose,
+// so no caller can reach a durable byte with a draft in hand. It imports nothing and must stay
+// that way: acquiring an adapter here is the first move of persisting a draft. A durable copy
+// would need encrypted storage the renderer does not have, and an IndexedDB copy would put a
+// person's prose in an unencrypted origin-scoped database outside every erasure selector.
 //
-// This class is the whole implementation of that rule, and it is deliberately
-// NOT built on `UiStateStore`. It could not be: draft text is prose, so the write
-// chokepoint's identifier-shaped rule refuses it by construction. That is the
-// design working, not an obstacle to route around — the two classes are separate
-// so that no future caller can reach a durable byte with a draft in hand.
-//
-// IT LIVES IN `persistence/` AND PERSISTS NOTHING, which is the point rather than a
-// contradiction: this directory owns what the console does about durability, and
-// what it does about drafts is refuse. A `Map`, no adapter, no
-// import at all — the file imports nothing, and it must never start, because acquiring
-// an adapter here is the first move of persisting a draft. A durable copy would need
-// the encrypted, PII-mapped storage user-authored content requires, which the
-// renderer does not have; an IndexedDB copy would put a person's prose in an
-// unencrypted origin-scoped database outside every erasure selector there is.
-//
-// EVICTION IS A WAY TEXT GOES, AND IT IS DISCLOSED. The live ceiling drops the
-// least-recently-typed draft, and a composer mounted on that key would watch its text
-// vanish mid-session with no notice and no record. So an eviction ARMS a notice keyed
-// to the composer that lost the text, cleared the moment that composer is typed in
-// again or acknowledges it. The set of armed keys carries the same ceiling the drafts
-// do, for the same reason: a bound nothing enforces is a leak with a comment on it.
+// Eviction is disclosed. The live ceiling drops the least-recently-typed draft, so an eviction
+// arms a notice keyed to the composer that lost the text, cleared when that composer is typed
+// in again or acknowledges it. The armed keys carry the same ceiling as the drafts.
 
 /** One composer's unsent text, keyed by the view that owns the composer. */
 export interface DraftEntry {
@@ -34,26 +20,17 @@ export interface DraftEntry {
 /** How a draft store reads time and how many drafts it holds. */
 export interface DraftStoreOptions {
   /**
-   * The reading the eviction order uses. A bare callback and NOT the console's
-   * `Clock` seam, which the other store classes take: taking
-   * the seam would mean importing it, and this module is the one place in the
-   * console that must import nothing at all — the drafts tripwire asserts exactly
-   * that, because acquiring anything here is the first move of persisting a draft.
-   * The cost is small (no timer is armed from this file, so there is nothing for
-   * a frozen clock to count) and the guarantee it buys is the whole point.
+   * The reading the eviction order uses. A bare callback rather than the console's `Clock`
+   * seam, because this module must import nothing; no timer is armed here, so a frozen clock
+   * has nothing to count.
    */
   readonly now?: () => number;
   /**
    * Ceiling on live drafts. Oldest is evicted past it, so a long session is bounded.
    *
-   * Required, and supplied by the caller rather than defaulted here: the bound's
-   * home is `store/persistence-caps.ts` and this module imports nothing at all, so a
-   * default in this file would be the console's second home for one number.
-   *
-   * At least one, checked at construction. Zero makes every write evict its own
-   * entry and notify `undefined`, so no draft ever sticks and every keystroke is
-   * lost — a store that silently holds nothing, which is the opposite of what this
-   * class is for. Unreachable from the frame today, and the option is public.
+   * Required and supplied by the caller, whose home is `store/persistence-caps.ts`; a default
+   * here would be a second home for one number. At least one, checked at construction: zero
+   * would evict every write's own entry, so no draft would ever stick.
    */
   readonly maximumDraftCount: number;
 }
@@ -65,10 +42,8 @@ export class DraftStore {
   readonly #now: () => number;
   readonly #maximumDraftCount: number;
   /**
-   * Composers whose text the ceiling dropped, in eviction order.
-   *
-   * A `Set` because insertion order is the eviction order and a key evicted twice
-   * without being typed in between is one loss to disclose, not two.
+   * Composers whose text the ceiling dropped, in eviction order. A `Set`, because a key evicted
+   * twice without being typed in between is one loss to disclose.
    */
   readonly #evictedKeys = new Set<string>();
 
@@ -83,13 +58,9 @@ export class DraftStore {
   }
 
   /**
-   * Whether this composer's unsent text was dropped to keep the window bounded.
-   *
-   * The composer already learns that its draft is GONE — the eviction notifies its
-   * subscribers with `undefined`, exactly as a clear does — and that is precisely
-   * why the notice is needed: cleared, sent, and evicted are three different facts
-   * arriving through one signal, and only one of them is a loss the user did
-   * not ask for.
+   * Whether this composer's unsent text was dropped to keep the window bounded. Cleared, sent
+   * and evicted all notify subscribers with `undefined`, and only eviction is a loss the user
+   * did not ask for, hence the separate notice.
    */
   public evictionNoticePendingFor(draftKey: string): boolean {
     return this.#evictedKeys.has(draftKey);
@@ -115,8 +86,7 @@ export class DraftStore {
       this.clear(draftKey);
       return;
     }
-    // Typing here is the user answering the notice: there is text in this
-    // composer again, so there is nothing left to disclose about the text that went.
+    // Typing here answers the notice: there is text again, so nothing is left to disclose.
     this.#evictedKeys.delete(draftKey);
     this.#draftsByKey.set(draftKey, { draftKey, text, updatedAt: this.#now() });
     this.#evictOldestBeyondCeiling();
@@ -124,9 +94,8 @@ export class DraftStore {
   }
 
   public clear(draftKey: string): void {
-    // A clear is the user's own act — sending, or emptying the box — so it
-    // retires any notice standing on this key rather than leaving one beside text
-    // that went for a reason they chose.
+    // A clear is the user's own act (sending, or emptying the box), so it retires any notice on
+    // this key.
     this.#evictedKeys.delete(draftKey);
     if (this.#draftsByKey.delete(draftKey)) {
       this.#notify(draftKey);
@@ -183,10 +152,9 @@ export class DraftStore {
   }
 
   /**
-   * Record one loss to disclose, under the same ceiling the drafts carry.
-   *
-   * Re-added rather than left in place, so the set's insertion order stays the
-   * eviction order and the oldest notice is the one dropped when the bound bites.
+   * Records one loss to disclose, under the same ceiling the drafts carry. Re-added rather than
+   * left in place, so insertion order stays the eviction order and the oldest notice is the one
+   * dropped when the bound bites.
    */
   #armEvictionNotice(draftKey: string): void {
     this.#evictedKeys.delete(draftKey);

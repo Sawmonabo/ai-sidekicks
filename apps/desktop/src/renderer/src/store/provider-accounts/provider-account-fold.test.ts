@@ -1,10 +1,7 @@
-// The fold's rules, driven directly rather than through a bridge.
-//
-// The supersession rules are the reason this module exists apart from the wire: a
-// reading held by the same-window high-water guard and a reading held because a newer
-// one already stands are two different decisions that a hook-level test can only tell
-// apart by the number that ends up on screen. Here the disposition itself is the
-// assertion.
+// The fold's rules, driven directly rather than through a bridge. A reading held by the
+// same-window high-water guard and one held because a newer reading stands are different
+// decisions that a hook-level test could only tell apart by the number on screen; here the
+// disposition itself is asserted.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -15,8 +12,8 @@ import {
 
 import { ProviderAccountFold, decideUsageWindowMerge } from "./provider-account-fold.js";
 
-// Minted through the registered schema rather than cast, so a case cannot file a
-// reading under an id the wire would refuse.
+// Minted through the registered schema rather than cast, so a case cannot file a reading under
+// an id the wire would refuse.
 const ACCOUNT_ID = ProviderAccountIdSchema.parse("acct-team");
 const EARLIER = "2026-01-01T11:00:00.000Z";
 const LATER = "2026-01-01T12:00:00.000Z";
@@ -83,9 +80,8 @@ describe("decideUsageWindowMerge — consumption does not fall inside one window
   });
 
   it("stores a lower reading once the window itself has moved on", () => {
-    // A reset horizon that moved is exactly what a window reset looks like, so this
-    // is the ordinary case and not a regression — which is why the guard keys on
-    // `resetsAt` rather than on the percentage alone.
+    // A moved reset horizon is a window reset, not a regression, which is why the guard keys on
+    // `resetsAt` rather than the percentage alone.
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
     const nextWindow = usageWindow({
       usedPercent: 20,
@@ -97,8 +93,8 @@ describe("decideUsageWindowMerge — consumption does not fall inside one window
   });
 
   it("treats two readings that publish no reset horizon as one continuing window", () => {
-    // A provider that publishes no horizon publishes one window, and reading the two
-    // absences as different windows would disable the guard for exactly that provider.
+    // A provider with no horizon publishes one window; treating two absences as different
+    // windows would disable the guard for that provider.
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER, resetsAt: undefined });
     const lowerButNewer = usageWindow({ usedPercent: 20, observedAt: LATER, resetsAt: undefined });
 
@@ -106,8 +102,7 @@ describe("decideUsageWindowMerge — consumption does not fall inside one window
   });
 
   it("negative control: an equal-or-higher same-window reading is stored on its timestamp", () => {
-    // Without this the guard could be an unconditional "hold whatever is stored" and
-    // every case above would still be green.
+    // Guards against a guard that unconditionally held whatever is stored.
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
     const higher = usageWindow({ usedPercent: 91, observedAt: LATER });
 
@@ -115,8 +110,7 @@ describe("decideUsageWindowMerge — consumption does not fall inside one window
   });
 
   it("negative control: an older same-window reading is held by observation time", () => {
-    // The disposition a reader must not confuse with the guard's: this one is held
-    // because something newer stands, and it is worth no diagnostic anywhere.
+    // Held because something newer stands, which is worth no diagnostic anywhere.
     const held = usageWindow({ usedPercent: 90, observedAt: LATER });
     const older = usageWindow({ usedPercent: 95, observedAt: EARLIER });
 
@@ -192,10 +186,8 @@ describe("ProviderAccountFold — the readings a view renders", () => {
 
 describe("ProviderAccountFold — the account labels a view joins a handle to", () => {
   it("labels an account that has no observed window at all", () => {
-    // The membership difference that makes this a second answer rather than a scan
-    // over the readings: an account the registry carries has a label whether or not
-    // a quota row has ever been observed for it, and a view naming its handle
-    // needs that label. Scanning `readings()` for one would find nothing here.
+    // An account the registry carries has a label whether or not a quota row was ever observed
+    // for it, so scanning `readings()` for one would find nothing here.
     const fold = new ProviderAccountFold();
     fold.putAccount(account());
 
@@ -204,9 +196,8 @@ describe("ProviderAccountFold — the account labels a view joins a handle to", 
   });
 
   it("takes the label the newest `putAccount` carries, not the first", () => {
-    // The registry sends state and not deltas, so a renamed account is put again
-    // whole; a label that stuck at the first reading would name the account by a
-    // word its operator has already changed.
+    // The registry sends state, not deltas, so a renamed account is put again whole; a label
+    // that stuck at the first reading would name it by a word already changed.
     const fold = new ProviderAccountFold();
     fold.putAccount(account());
     fold.putAccount(account({ displayLabel: "Team (renamed)" }));
@@ -225,8 +216,7 @@ describe("ProviderAccountFold — the account labels a view joins a handle to", 
   });
 
   it("negative control: the rows are empty before anything is put", () => {
-    // Without this, every assertion above would also pass over a `accountLabels`
-    // that answered with one fixed row whatever the fold held.
+    // Guards against an `accountLabels` that answered with one fixed row.
     expect([...new ProviderAccountFold().accountLabels()]).toStrictEqual([]);
   });
 });

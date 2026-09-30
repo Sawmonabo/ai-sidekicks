@@ -1,25 +1,15 @@
-// The degradation ladder: which cause a session store carries when more than one
-// is standing.
-//
-// Its own module because it is the one rule every writer of `degradedCause` obeys,
-// and there is more than one writer: the apply chokepoint raises causes it observed
-// in a batch, and `markDegraded` raises one the wire reported (a closed
-// subscription, a failed read). Two writers with one rule means one implementation
-// — a second, "simpler" assignment somewhere would silently downgrade a store that
-// could not follow the stream at all into one that merely failed a read.
+// The degradation ladder: which cause a session store carries when more than one is standing.
+// Every writer of `degradedCause` (the apply path and `markDegraded`) goes through it, so a
+// simpler assignment elsewhere cannot downgrade a store that lost the stream.
 
 /**
- * Why a store is degraded, worst first. Rendered; never silently absorbed.
+ * Why a store is degraded, worst first; the order is load-bearing, so the union is derived
+ * from this tuple. The banner states one fact, so the worst standing cause wins, and only a
+ * completed re-pull clears any of them.
  *
- * The ORDER is load-bearing rather than incidental, which is why this is a tuple
- * and the union below is derived from it: a store can have more than one cause
- * standing at once and the banner states one fact, so the cause that survives is
- * the worst standing one. `stream-diverged` says the store could not follow the
- * stream at all; `sequence-gap` that named rows are missing from it;
- * `projection-failed` that a row landed and its entity contribution did not; the
- * last two are raised for a wire that stopped rather than for anything an apply
- * saw. Every one of them is cleared by the same completed re-pull, and by nothing
- * else — so a later, milder fact never downgrades an earlier one.
+ * `stream-diverged`: the store could not follow the stream. `sequence-gap`: named rows are
+ * missing. `projection-failed`: a row landed but its entity contribution did not. The last two
+ * are raised for a wire that stopped.
  */
 export const SESSION_DEGRADED_CAUSES = [
   "stream-diverged",
@@ -33,18 +23,10 @@ export const SESSION_DEGRADED_CAUSES = [
 export type SessionDegradedCause = (typeof SESSION_DEGRADED_CAUSES)[number];
 
 /**
- * The worst of the causes supplied, or `undefined` when none of them is standing.
+ * The worst of the causes supplied, or `undefined` when none is standing.
  *
- * Taking the worst rather than the newest is what keeps the flag honest. Only a
- * re-pull clears it, so a store that could not follow the stream and then took an
- * ordinary one-row hole has not become less broken — reporting the hole would
- * describe a repair that never happened. The same holds for a cause that arrives
- * from outside the apply path: a `stream-diverged` store whose repair read then
- * rejects is not a `read-failed` store, and a store with a sequence gap whose
- * subscription later closes has not stopped missing the rows it is missing.
- *
- * `undefined` entries are ignored rather than treated as a cause, so a caller can
- * pass the state it already holds without testing it first.
+ * The worst wins over the newest: a diverged store that then takes a one-row hole is not less
+ * broken. `undefined` entries are ignored, so a caller can pass the state it holds untested.
  */
 export function worstDegradedCause(
   ...candidates: readonly (SessionDegradedCause | undefined)[]

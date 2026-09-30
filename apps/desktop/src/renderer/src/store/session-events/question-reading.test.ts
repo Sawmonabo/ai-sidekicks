@@ -20,8 +20,7 @@ describe("readQuestion", () => {
     );
     expect(question).toEqual({
       questionId: SAMPLE_QUESTION_ID,
-      // Off the row's own arm rather than the payload — the projection is where a run
-      // is attributed.
+      // Off the row's own arm: the projection is where a run is attributed.
       runId: SAMPLE_RUN_ID,
       pageCount: 2,
     });

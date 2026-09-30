@@ -1,20 +1,12 @@
-// A store whose trim fails refuses the write rather than rejecting it.
+// A store whose trim fails refuses the write rather than rejecting it. The write path touches
+// the adapter four times (the write, the trim under quota, the partition count that trim is
+// sized from, and the housekeeping trim after a successful write), and a failure in any must
+// leave `write` returning `refused`, since a rejection cannot be expressed by its
+// `written | refused` result and would surface as an unhandled rejection.
 //
-// The write path touches the adapter four times — the write, the trim under quota,
-// the partition count that trim is sized from, and the housekeeping trim after a
-// successful write — and only the first two were inside a `try`. A failure in either
-// of the others left `write` REJECTING, which is not a state its `written | refused`
-// result type can express and which the one shipped caller (the scheme preference,
-// written without `await`) turns into an unhandled rejection nobody sees.
-//
-// AND A READ THAT FAILS IS A THIRD ANSWER RATHER THAN A SECOND NOTHING. `read`
-// resolved `undefined` for a record that was never written and for a read the adapter
-// could not perform, so a caller deciding what to WRITE on the strength of an absence
-// was told nothing had ever been saved by a store that did not know. `readOutcome`
-// separates them; the cases at the foot of this file hold it to that.
-//
-// The write chokepoint itself is `ui-state-store.test.ts`; what the console says
-// when there is no durable store at all is `ui-state-store.degradation.test.ts`.
+// A failed read is a third answer, not a second nothing: `readOutcome` separates a record that
+// was never written from a read the adapter could not perform, and the cases at the foot hold
+// it to that.
 
 import { describe, expect, it } from "vitest";
 
@@ -30,13 +22,8 @@ import { UiStateStore } from "./ui-state-store.js";
 import { refusePersistence } from "./persistence-refusals.js";
 
 describe("a store whose trim fails refuses the write rather than rejecting it", () => {
-  // The write path touches the adapter four times — the write, the trim under
-  // quota, the partition count that trim is sized from, and the housekeeping trim
-  // after a successful write — and only the first two were inside a `try`. A
-  // failure in either of the others left `write` REJECTING, which is not a state
-  // its `written | refused` result type can express and which the one shipped
-  // caller (the scheme preference, written without `await`) turns into an
-  // unhandled rejection nobody sees.
+  // The write path touches the adapter four times: the write, the trim under quota, the
+  // partition count that trim is sized from, and the housekeeping trim after a success.
 
   const connectionLost = (): PersistenceAdapterError =>
     new PersistenceAdapterError(
@@ -47,8 +34,8 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
     );
 
   it("refuses when the partition count the quota trim needs fails", async () => {
-    // A one-byte ceiling puts the very first write over quota, so the store takes
-    // its trim-and-retry arm immediately and the count that arm opens with fails.
+    // A one-byte ceiling puts the first write over quota, so the trim-and-retry arm runs
+    // immediately and the count it opens with fails.
     const store = new UiStateStore({
       adapter: new BookkeepingFailureAdapter("summarize", connectionLost(), { capacityBytes: 1 }),
       clock: new ManualClock(1_000),
@@ -61,8 +48,7 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
       expect(result.refusal.code).toBe("adapter-unavailable");
       expect(isRefusal(result.refusal)).toBe(true);
     }
-    // Counted, so the diagnostics view shows a store that has begun to fail
-    // rather than a write that quietly went nowhere.
+    // Counted, so the diagnostics view shows a store that has begun to fail.
     expect((await store.health()).refusalCounts["adapter-unavailable"]).toBe(1);
   });
 
@@ -88,8 +74,7 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
       sessionPartitionCap: 1,
     });
 
-    // One session partition is at the cap, so nothing is trimmed and the write
-    // settles normally.
+    // One session partition is at the cap, so nothing is trimmed.
     await expect(
       store.write("session-1", "expansion", "expansion", ["run-01"]),
     ).resolves.toStrictEqual({ outcome: "written" });
@@ -101,15 +86,13 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
     if (result.outcome === "refused") {
       expect(result.refusal.code).toBe("adapter-unavailable");
     }
-    // The record did land: this arm reports a refusal because the store could not
-    // finish the path it declares, not because the value was rejected. Asserted so
-    // the trade-off is pinned rather than assumed either way.
+    // The record did land: this arm reports a refusal because the store could not finish the
+    // path it declares, not because the value was rejected.
     expect(await store.read("session-2", "expansion")).toBeDefined();
   });
 
   it("negative control: a failure that is not an adapter refusal still rejects", async () => {
-    // Without this, the guard above could be a bare `catch {}` that turned every
-    // defect in this class — a mistyped method, a null adapter — into a refusal
+    // Guards against a bare `catch {}` that turned every defect in this class into a refusal
     // filed under a code that names storage.
     const store = new UiStateStore({
       adapter: new BookkeepingFailureAdapter(
@@ -127,12 +110,9 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
 });
 
 /**
- * A memory adapter whose partition bookkeeping fails on one named operation.
- *
- * A SUBCLASS rather than a hand-written double: the quota ceiling, the record
- * map, and the gauge stay the real adapter's, so these cases drive the store
- * against the same collaborator every other case in this file uses and exactly
- * one operation misbehaves.
+ * A memory adapter whose partition bookkeeping fails on one named operation. A subclass, so
+ * the quota ceiling, record map and gauge stay the real adapter's and one operation
+ * misbehaves.
  */
 class BookkeepingFailureAdapter extends MemoryPersistenceAdapter {
   readonly #failingOperation: "summarize" | "trim";
@@ -169,8 +149,8 @@ describe("a read that failed is not a record that was never written", () => {
       "written",
     );
 
-    // The record IS there and the adapter cannot say so, which is the whole
-    // distinction: one answer for "unreachable", another for "not there".
+    // The record is there and the adapter cannot say so: one answer for "unreachable",
+    // another for "not there".
     expect((await store.readOutcome("session-1", "expansion")).outcome).toBe("failed");
     adapter.stopFailingReads();
     expect((await store.readOutcome("session-1", "expansion")).outcome).toBe("present");
@@ -189,9 +169,8 @@ describe("a read that failed is not a record that was never written", () => {
   });
 
   it("negative control: the lossy projection still reports both nothings as one", async () => {
-    // `read` and `readGlobal` are documented as the lossy form and a number of
-    // callers take them deliberately. Without this the union could have been added
-    // beside a `read` that had quietly started throwing or reporting a record.
+    // `read` and `readGlobal` are the lossy form that callers take deliberately, so they must
+    // not have started throwing or reporting a record.
     const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter, clock: new ManualClock(1_000) });
     await store.write("session-1", "expansion", "expansion", ["run-01"]);

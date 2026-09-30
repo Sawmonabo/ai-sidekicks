@@ -1,13 +1,5 @@
-// The signal fires on what it watches, once, and on nothing else.
-//
-// Both callers of this filter used to own a copy of it, and both tested it only
-// through a read they had already bound to a bridge and a scheduler — so the
-// property under test was two layers away from the code that decides it, and the
-// two copies were free to disagree about the cursor bookkeeping that is the whole
-// difference between "once" and "on every transition".
-//
-// These cases drive the filter directly. The scheduler is not involved, so a
-// re-signal that a coalescing window would have hidden is visible here as a second
+// The signal fires on what it watches, once, and on nothing else. These cases drive the filter
+// directly, with no scheduler, so a re-signal a coalescing window would hide shows as a second
 // count.
 
 import { describe, expect, it } from "vitest";
@@ -51,10 +43,8 @@ describe("the session-event signal", () => {
   });
 
   it("counts what a transition newly admitted, never the timeline behind it", () => {
-    // The cursor bookkeeping, which is the half a coalescing scheduler would hide.
-    // A filter that scanned the whole timeline rather than the slice this
-    // transition admitted would signal on the run already sitting in it, on a
-    // transition that carried nothing the caller watches.
+    // Cursor bookkeeping, which a coalescing scheduler would hide: scanning the whole timeline
+    // would signal on the run already in it.
     const sessionStore = initializedStore("signal-newly-admitted");
     sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
     let signals = 0;
@@ -65,8 +55,7 @@ describe("the session-event signal", () => {
     sessionStore.apply(eventOfKind(sessionStore.sessionId, "assistant.message", 2));
     expect(signals).toBe(0);
 
-    // And the next watched one still signals, so the zero above is the filter
-    // being right rather than a subscription that never fires.
+    // The next watched kind still signals, so the zero above is not a dead subscription.
     sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 3));
     expect(signals).toBe(1);
 
@@ -83,8 +72,7 @@ describe("the session-event signal", () => {
   });
 
   it("negative control: the store does deliver the transitions these cases count over", () => {
-    // Without this, every clean result above would also hold for a store that
-    // notified nobody — which is the one way this whole file could be vacuous.
+    // Guards against a store that notified nobody, which would make every case above vacuous.
     const sessionStore = initializedStore("signal-instrument");
     let transitions = 0;
     const unsubscribe = sessionStore.readable.subscribe(() => {

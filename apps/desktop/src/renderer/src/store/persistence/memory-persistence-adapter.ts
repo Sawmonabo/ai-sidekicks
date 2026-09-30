@@ -1,16 +1,8 @@
-// The in-memory adapter: what the console uses when there is no durable store.
-//
-// It is not a stub. It is the whole persistence layer for a renderer whose scheme was not
-// registered privileged, and for every test that wants the store's behavior without a
-// database. It therefore implements the full seam — partitions, LRU trim, a quota gauge —
-// so that a code path exercised only under the memory adapter is not a code path nobody
-// ever runs.
-//
-// The one thing it does differently is tell the truth, and it does so on BOTH read
-// models rather than only the prose one: `durable` is false, `describe()` says
-// preferences will not survive the window, and every gauge it hands back carries
-// the reason it is not durable, so a view that renders only the gauge still
-// discloses the degradation instead of showing three empty numbers.
+// The in-memory adapter: what the console uses when there is no durable store, and for every
+// test that wants the store's behavior without a database. It implements the full seam
+// (partitions, LRU trim, quota gauge) so no code path runs only under it. It tells the truth on
+// both read models: `durable` is false, `describe()` says preferences will not survive the
+// window, and every gauge carries the reason it is not durable.
 
 import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "../persistence-caps.js";
 import {
@@ -26,7 +18,13 @@ import {
 } from "./persistence-adapter.js";
 import { refusePersistence } from "./persistence-refusals.js";
 
+/** Options for a `MemoryPersistenceAdapter`. */
 export interface MemoryPersistenceAdapterOptions {
+  /**
+   * Why the durable adapter is not in use. `"not-attempted"` is the honest value for a
+   * deliberate in-memory construction (a test); anything else came from a failed open and is
+   * disclosed to the operator.
+   */
   /**
    * Why the durable adapter is not in use. `"not-attempted"` is the honest value
    * for a deliberate in-memory construction (a test); anything else came from a
@@ -34,13 +32,13 @@ export interface MemoryPersistenceAdapterOptions {
    */
   readonly unavailableReason?: PersistenceUnavailableReason;
   /**
-   * A simulated byte ceiling. Absent means unbounded. Present, the adapter refuses
-   * a write that would cross it with the same refusal the durable adapter raises —
-   * which is what makes the quota-exhaustion path testable at all.
+   * A simulated byte ceiling, absent meaning unbounded. Past it the adapter refuses a write
+   * with the durable adapter's refusal, which makes the quota-exhaustion path testable.
    */
   readonly capacityBytes?: number;
 }
 
+/** The in-memory implementation of the persistence seam. */
 export class MemoryPersistenceAdapter implements PersistenceAdapter {
   public readonly kind: PersistenceAdapterKind = "memory";
   public readonly durable = false;
@@ -192,9 +190,8 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
 }
 
 /**
- * A cheap, deterministic size estimate. Not the browser's accounting — this is for
- * the capacity ceiling and the gauge, both of which want a stable number more than
- * an exact one.
+ * A cheap, deterministic size estimate for the capacity ceiling and the gauge, which want a
+ * stable number more than an exact one.
  */
 function estimateRecordBytes(record: StoredRecord): number {
   return (

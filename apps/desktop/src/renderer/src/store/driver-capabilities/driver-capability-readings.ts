@@ -1,18 +1,7 @@
-// The pure readers over one capability readout: which driver a run is bound to, and
-// what this build knows about one flag on it.
-//
-// NONE OF THEM PERFORMS A READ, which is the whole reason they are not in
-// `driver-capability-read.ts` beside the wire. That module owns one call per bridge,
-// the scheduler that refreshes it, the cache that shares it, and the two hooks that
-// wire its triggers — a subject whose cases need a bridge, a frozen clock, and a
-// mounted probe. These need a `Map`.
-//
-// THE READOUT IS THE PARAMETER AND NEVER A DEPENDENCY. Every function here takes the
-// readout it answers about, so the direction of the import is one-way — the wire does
-// not reach for these, and a view holding a readout resolves against them without
-// touching the read at all. `undefined` is admitted on every entry point because the
-// read may not have answered yet, and that absence is one of the three facts the
-// reading vocabulary below exists to keep apart.
+// The pure readers over one capability readout: which driver a run is bound to, and what this
+// build knows about one flag on it. None performs a read (the wire is in
+// `services/driver-capabilities/driver-capability-read.ts`); each takes the readout it answers
+// about, and `undefined` is admitted because the read may not have answered yet.
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
@@ -21,14 +10,8 @@ import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capa
 /**
  * The node's declarations, joined to one session's run-to-driver bindings.
  *
- * The two halves are read separately because they are answered separately — the
- * declarations by a node-scoped call shared across every session in the window, the
- * bindings by one session's own projection — and they are joined HERE, at the
- * consumer, rather than inside the per-bridge cache, which holds no session and must
- * not start holding one.
- *
- * The readout is returned untouched where there is nothing to join, so a caller
- * that asked and got no bindings compares the same pointer it had.
+ * Joined at the consumer, not in the per-bridge cache, which holds no session. The readout is
+ * returned untouched where there is nothing to join, so a caller compares the same pointer.
  */
 export function withRunDriverBindings(
   readout: DriverCapabilityReadout | undefined,
@@ -41,11 +24,8 @@ export function withRunDriverBindings(
 }
 
 /**
- * One named driver's declared flags, or `undefined` where the console cannot say.
- *
- * `undefined` covers three genuinely identical situations — the read has not
- * answered, the caller could not name the driver, and the reply named no such driver
- * — because in all three nobody has answered the question for THIS binding.
+ * One named driver's declared flags, or `undefined` where the console cannot say: the read has
+ * not answered, the caller could not name the driver, or the reply named no such driver.
  */
 export function declaredFlagsForDriver(
   readout: DriverCapabilityReadout | undefined,
@@ -60,13 +40,11 @@ export function declaredFlagsForDriver(
 /**
  * What this build knows about one driver flag. Declared once, for every consumer.
  *
- * Three answers and they are three different facts: `declared` — that driver
- * declared it; `undeclared` — that driver declared it absent; `unknown` — nobody
- * has answered the question, because the read has not landed, the run's binding is
- * not nameable, or the named driver filed no report. The third is what a boolean
- * cannot carry, and the reason this is a set rather than a flag: a view that
- * collapsed `unknown` onto `undeclared` would show a session whose read has not
- * landed exactly as it shows one bound to a driver that cannot do the thing.
+ * `declared`: that driver declared it. `undeclared`: that driver declared it absent.
+ * `unknown`: nobody has answered, because the read has not landed, the run's binding is not
+ * nameable, or the named driver filed no report. A boolean cannot carry the third, and
+ * collapsing it onto `undeclared` would show an unread session like one bound to a driver that
+ * cannot do the thing.
  */
 export const DRIVER_CAPABILITY_READINGS = ["declared", "undeclared", "unknown"] as const;
 
@@ -76,12 +54,9 @@ export type DriverCapabilityReading = (typeof DRIVER_CAPABILITY_READINGS)[number
 /**
  * Which driver a run is bound to, or `undefined` where the console cannot say.
  *
- * Two sources in priority order and no third: the binding the session's own
- * projection named for this run, then the sole-report fallback — where exactly one
- * driver filed a report, that report is this run's whatever the projection has said,
- * because there is nothing else it could be bound to. Guessing between two reported
- * drivers is deliberately not one of them: a wrong guess offers a control the daemon
- * will always refuse, or hides one it would have honored.
+ * The binding the session's projection named for this run wins; otherwise, if exactly one
+ * driver filed a report, that report is this run's. Guessing between two reported drivers
+ * would offer a control the daemon always refuses or hide one it would honor.
  */
 export function boundDriverNameForRun(
   readout: DriverCapabilityReadout | undefined,
@@ -94,13 +69,10 @@ export function boundDriverNameForRun(
 }
 
 /**
- * What this build knows about one flag on the driver ONE RUN is bound to.
+ * What this build knows about one flag on the driver one run is bound to.
  *
- * The console's single answer to that question, so two views cannot disagree about
- * the same run. A view that resolved the binding through the sole-report fallback and
- * one handed a driver name the session projection had not supplied would otherwise
- * give two answers for one readout, one run, one moment, with nothing derived from
- * the other to report the split.
+ * The console's single answer to that question, so a view using the sole-report fallback and
+ * one handed a driver name cannot disagree about one readout.
  */
 export function readingForDriver(
   readout: DriverCapabilityReadout | undefined,
@@ -117,13 +89,9 @@ export function readingForDriver(
 }
 
 /**
- * The same question asked of a RUN rather than of a named driver.
- *
- * For a caller that holds a run and not a binding — the composer's run controls,
- * which gate on a run id. A caller that already resolved the driver its agent is
- * attached to asks `readingForDriver` with the name it has: throwing that away and
- * re-deriving it from a map the readout may not carry reports `unknown` for a run
- * whose driver the session had named.
+ * The same question asked of a run rather than of a named driver, for callers that hold a run
+ * id and not a binding, such as the composer's run controls. A caller that already resolved the
+ * driver asks `readingForDriver` with the name it has.
  */
 export function readingForRun(
   readout: DriverCapabilityReadout | undefined,
@@ -136,11 +104,9 @@ export function readingForRun(
 /**
  * The one driver this node reported, where it reported exactly one.
  *
- * The fallback both entry points below share. A node with one driver installed names
- * a binding for no run — `driver.listCapabilities` is addressed at the node and names
- * no run at all — and refusing to answer there would take every capability-gated
- * control off every run on the most ordinary installation there is. With two drivers
- * reported it answers nothing, because then the question really is unanswered.
+ * `driver.listCapabilities` is addressed at the node and names no run, so refusing to answer
+ * on a one-driver installation would take every capability-gated control off every run. With
+ * two drivers reported the question really is unanswered.
  */
 function soleReportedDriverName(readout: DriverCapabilityReadout): string | undefined {
   if (readout.flagsByDriverName.size !== 1) {

@@ -1,19 +1,8 @@
-// What the `run` partition's BODY carries, and what it refuses.
-//
-// The projector used to keep `runVersion`, the two state strings, and `agentId`
-// while claiming every run-lifecycle kind, so `executionPosture`, the
-// stop-condition `trigger`, the run's provenance, the admission stamps, and
-// the rollback `targetPosition` reached the timeline and never the `run`
-// partition. The claim that follows from the repair is this file's subject:
-//
-//   • The body carries exactly the members the corpus registers for the kind in
-//     hand — the two wire shapes' derived union, plus the per-type members the
-//     four kinds that declare their own payload register, and nothing a payload
-//     invented. Per-type means per type: a member registered on one row is read
-//     off that row and off no other.
-//
-// The projector's claimed kinds, the partition under every scenario, and the fold
-// across transitions are the sibling file's subject, `run-lifecycle-projector.test.ts`.
+// What the `run` partition's body carries and what it refuses: exactly the members the contract
+// registers for the kind in hand (the derived union plus the per-type members of the four kinds
+// that declare their own payload), nothing a payload invented, and each per-type member only on
+// its own kind. The claimed kinds, the partition under every scenario and the fold across
+// transitions are in `run-lifecycle-projector.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -24,12 +13,10 @@ import { projectRunLifecycleEvent } from "./run-lifecycle-projector.js";
 import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 
 /**
- * A posture in the contract's own shape, annotated so the compiler holds the
- * fixture to it. Both arms matter: the credential-policy reference belongs to a
- * SANDBOXED mode and never to `trusted`, and it is a content-addressed digest over
- * the policy artifact rather than the policy itself. A fixture that merely looked
- * posture-shaped would pass the fold — which carries a registered object whole —
- * and then be refused by the selector that reads it, silently.
+ * A posture in the contract's own shape, so the compiler holds the fixture to it. The
+ * credential-policy reference belongs to a sandboxed mode and is a content-addressed digest;
+ * a merely posture-looking fixture would pass the fold but be refused by the selector that
+ * reads it.
  */
 const SANDBOXED_POSTURE: ExecutionPosture = {
   mode: "workspace-sandboxed",
@@ -39,10 +26,8 @@ const SANDBOXED_POSTURE: ExecutionPosture = {
 };
 
 /**
- * One synthetic run event, so a case can drive a payload no scenario scripts.
- *
- * Sequence 1 so a store initialized at cursor 0 reads it as the next event rather
- * than as a gap, which would degrade the store for a hole the case never had.
+ * One synthetic run event, for payloads no scenario scripts. Sequence 1 reads as the next event
+ * for a store at cursor 0, not as a gap.
  */
 function runEvent(kind: string, payload: Readonly<Record<string, unknown>>): ProjectedSessionEvent {
   return {
@@ -51,11 +36,8 @@ function runEvent(kind: string, payload: Readonly<Record<string, unknown>>): Pro
     sequence: 1,
     kind,
     occurredAt: "2026-01-01T14:20:01.000Z",
-    // The envelope's session, written into the payload rather than left off it,
-    // because the fold requires the two to agree before it keys anything — the
-    // durable `run_lifecycle` row registers `sessionId` and every case here is
-    // about the BODY, not about a beat that names another session. A case may
-    // still spell its own, and one below does.
+    // The fold requires the payload's session to agree with the envelope's; a case may still
+    // spell its own.
     payload: { sessionId: SYNTHETIC_SESSION_ID, ...payload },
   };
 }
@@ -75,9 +57,7 @@ describe("the registered payload members the body carries", () => {
   }
 
   it("carries the execution posture a run.running payload stamps", () => {
-    // The member the composer's posture chip reads. Carried whole and unparsed:
-    // the console renders a registered object through its own consumer rather
-    // than re-validating a shape the contract owns.
+    // The composer's posture chip reads this member; it is carried whole and unparsed.
     expect(
       bodyOf(
         runEvent("run.running", {
@@ -119,10 +99,8 @@ describe("the registered payload members the body carries", () => {
   });
 
   it("negative control: the old four-member body would fail every case above", () => {
-    // Stated as its own case so the regression has a name. A projector that kept
-    // only `runVersion`, the two states, and `agentId` folds this payload to a
-    // body of exactly two members, and every registered member beside them is the
-    // one a component was built to read.
+    // The old projector kept only `runVersion`, the two states and `agentId`, dropping every
+    // registered member beside them.
     const body = bodyOf(
       runEvent("run.running", {
         runId: "run-1",
@@ -136,17 +114,13 @@ describe("the registered payload members the body carries", () => {
   });
 
   it("copies no member the registered shapes do not name", () => {
-    // The member list is the table's, so a payload member nothing registers is
-    // never read — the guard against a fixture or a future daemon widening the
-    // body by writing a key the console then renders as though it were contract.
+    // A payload member nothing registers is never read, so a key cannot widen the body.
     const body = bodyOf(
       runEvent("run.starting", {
         runId: "run-1",
         newState: "starting",
         speculativeMember: "should-not-travel",
-        // Spelled explicitly, and equal to the envelope's: the claim is that the
-        // body copies no member the shapes exclude, and a beat naming ANOTHER
-        // session is refused before a body is ever read.
+        // Equal to the envelope's; a beat naming another session is refused before the body.
         sessionId: SYNTHETIC_SESSION_ID,
         timestamp: "2026-01-01T14:20:01.000Z",
       }),
@@ -156,10 +130,7 @@ describe("the registered payload members the body carries", () => {
   });
 
   it("carries the creation row's linkage, run config, and admission stamps", () => {
-    // The members `run.queued` registers that neither `run.subscribeState` shape
-    // declares. A body derived from those two shapes alone drops them all, so the
-    // run a pane reads names no parent, no provenance, no admitted config, and no
-    // account it will be billed against.
+    // Members of `run.queued` that neither `run.subscribeState` shape declares.
     expect(
       bodyOf(
         runEvent("run.queued", {
@@ -191,9 +162,7 @@ describe("the registered payload members the body carries", () => {
   });
 
   it("binds a run to the agent its creation starts from a saved definition", () => {
-    // Such a creation row names its agent inside `resolvedAgent` and carries no
-    // `agentId`, so a body that read only `agentId` would leave the run bound to no
-    // agent and its controls ungated.
+    // The row names its agent inside `resolvedAgent`; reading only `agentId` leaves it unbound.
     expect(
       bodyOf(
         runEvent("run.queued", {
@@ -207,10 +176,7 @@ describe("the registered payload members the body carries", () => {
   });
 
   it("carries each forward, non-state row's own registered members", () => {
-    // The three kinds whose whole payload beyond the counter is per-type. Before
-    // the per-type table each folded to a body of `runVersion` alone, so an
-    // initialization report reached the partition naming neither provider nor
-    // model, a turn boundary named no position, and a worker shutdown no reason.
+    // Each of these kinds carries its own members beyond the counter.
     expect(
       bodyOf(
         runEvent("run.provider_initialized", {
@@ -238,11 +204,8 @@ describe("the registered payload members the body carries", () => {
   });
 
   it("reads a per-type member off the kind that registers it and off no other", () => {
-    // The reason the second table is keyed by kind rather than merged into the
-    // first. `provider`, `position`, `reason`, and `reachedBy` are each registered
-    // on exactly one row, so a state transition spelling them is naming members
-    // its own payload shape does not have — and a body that carried them would
-    // hand a pane a provider, a turn position, and a provenance the wire never sent.
+    // `provider`, `position`, `reason` and `reachedBy` are each registered on one row, so a
+    // transition spelling them must not carry them.
     const body = bodyOf(
       runEvent("run.failed", {
         runId: "run-1",
@@ -264,10 +227,8 @@ describe("the registered payload members the body carries", () => {
   });
 
   it("negative control: no per-type member is a second spelling of a derived one", () => {
-    // The gate on the two tables staying disjoint. The derived table is the two
-    // stream shapes' own key union, so the day a stream shape declares
-    // `reachedBy` — or any other member below — this case fails and the per-type
-    // entry is deleted rather than left to shadow the derivation it duplicates.
+    // Keeps the two tables disjoint: once a stream shape declares one of these members, the
+    // per-type entry must be deleted.
     const derivedMembers = Object.keys(
       bodyOf(
         runEvent("run.interrupted", {
@@ -289,7 +250,7 @@ describe("the registered payload members the body carries", () => {
       ),
     );
 
-    // Non-empty, or the intersection below is a claim about nothing.
+    // Non-empty, or the check below proves nothing.
     expect(derivedMembers.length).toBeGreaterThan(0);
     for (const perTypeMember of [
       "parentRunId",
@@ -309,8 +270,7 @@ describe("the registered payload members the body carries", () => {
   });
 
   it("reads a wrong-shaped member as absent rather than carrying it", () => {
-    // Absence has to be absence: the store merges a body by spread, so a
-    // present-but-undefined key erases what an earlier event established.
+    // The store merges by spread, so a present `undefined` would erase earlier state.
     const body = bodyOf(
       runEvent("run.queued", {
         runId: "run-1",

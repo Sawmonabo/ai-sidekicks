@@ -1,17 +1,10 @@
-// A lossy delivery arms exactly one repair.
+// A lossy delivery arms exactly one repair. `applyBatch` reports what the batch cost, a skipped
+// sequence degrades the store, and only a completed re-pull clears it, so the drain must ask the
+// refresh scheduler for a `gap-repull`; discarding the outcome would leave a quiet session
+// degraded forever. The repair rides the scheduler so a run of holes costs one read.
 //
-// The claim the apply drain exists for. `applyBatch` answers with what the batch
-// cost, the store goes degraded on a skipped sequence, and only a completed re-pull
-// clears that — so the drain has to read the outcome and ask the refresh scheduler
-// for a `gap-repull`. With the outcome discarded, the repair waited for an unrelated
-// focus or reconnect; on a quiet session, forever.
-//
-// The repair rides the scheduler rather than a direct read precisely so a run of
-// holes costs one authoritative read, which is why the coalescing case below is a
-// claim about the repair and not about the scheduler.
-//
-// Frozen clock throughout. The lifecycle is `session-store-registry.test.ts`; the
-// two schedulers are `session-store-registry.scheduling.test.ts`.
+// Frozen clock throughout. The lifecycle is `session-store-registry.test.ts`; the two schedulers
+// are `session-store-registry.scheduling.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,10 +20,7 @@ import { SessionStoreRegistry } from "./session-store-registry.js";
 
 describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", () => {
   it("schedules exactly one gap-repull when a delivered batch skips a sequence", async () => {
-    // The claim the drain exists for. `applyBatch` answers with what the batch
-    // cost, the store goes degraded on a skipped sequence, and only a completed
-    // re-pull clears that. With the outcome discarded, the repair waited for an
-    // unrelated focus or reconnect — on a quiet session, forever.
+    // With the outcome discarded, the repair would wait for an unrelated focus or reconnect.
     const clock = new ManualClock(0);
     const readCalls: RefreshReason[][] = [];
     const registry = new SessionStoreRegistry({
@@ -40,8 +30,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
       refreshDebounceMs: 20,
       read: (_sessionId, reasons) => {
         readCalls.push([...reasons]);
-        // Answers AT the cursor the store already reached: the repair carries the
-        // sequences the stream skipped, so its newest sequence is the store's own.
+        // Answers at the store's own cursor, since the repair carries the skipped sequences.
         return Promise.resolve(emptySnapshot(5));
       },
     });
@@ -51,8 +40,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
     registry.enqueue("session-1", [runEventAt(1, "run-1"), runEventAt(5, "run-5")]);
     clock.runFrame();
 
-    // The store knows it is short 2..4, and the drain has armed the one read that
-    // can fill the hole — one timeout, not one per missing sequence.
+    // The store is short 2..4 and the drain armed the one read that can fill it, once.
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
     expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 2, toSequence: 4 }]);
     expect(clock.pendingCount).toBe(1);
@@ -60,8 +48,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
     clock.advance(20);
     await settleMicrotasks();
 
-    // Exactly `gap-repull`, and exactly one of them: the reason names what asked
-    // for the read, and the count is the repair actually happening.
+    // Exactly one `gap-repull`: the reason names what asked and the count is the repair.
     expect(readCalls).toStrictEqual([["gap-repull"]]);
     expect(registry.refreshCountFor("session-1")).toBe(1);
     expect(store.snapshot().degradedCause).toBeUndefined();
@@ -69,8 +56,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
   });
 
   it("negative control: a clean batch schedules no repair at all", () => {
-    // Without this, a drain that asked for a re-pull on every batch would pass the
-    // case above while turning an ordinary stream into a read storm.
+    // Guards a drain that re-pulled on every batch, turning an ordinary stream into a read storm.
     const clock = new ManualClock(0);
     const readCalls: RefreshReason[][] = [];
     const registry = new SessionStoreRegistry({
@@ -104,9 +90,7 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
   });
 
   it("coalesces two lossy batches inside one debounce window into one repair", async () => {
-    // A stream that is dropping deliveries drops several. The repair rides the
-    // scheduler rather than a direct read precisely so a run of holes costs one
-    // authoritative read, and the reasons that asked for it are all carried.
+    // A lossy stream drops several; the scheduler makes the holes one read carrying every reason.
     const clock = new ManualClock(0);
     const readCalls: RefreshReason[][] = [];
     const registry = new SessionStoreRegistry({

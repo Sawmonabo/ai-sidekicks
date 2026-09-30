@@ -1,16 +1,10 @@
 // Why the persistence store refuses, and the one constructor that says so.
 //
-// The closed refusal vocabulary is declared here, below every module that raises
-// one: the two adapters, the identifier grammar, the value-class table, and the
-// write chokepoint all construct refusals, and three of those four are things the
-// vocabulary would otherwise have to import back from. A code union that lived
-// beside any one of its producers would make the lowest module in `store/persistence/`
-// depend on one of its highest.
-//
-// ONE DECLARATION OF THE CLOSED SET. The codes are written once, as the `as const`
-// array below; the union is `(typeof …)[number]`, so the chokepoint's caller-fault
-// table is checked against this list in both directions and a new code does not
-// compile until somebody has decided how it is treated.
+// The closed refusal vocabulary is declared below every module that raises one (the adapters,
+// the identifier grammar, the value-class table and the write chokepoint), so the lowest module
+// in `store/persistence/` does not depend on one of its highest. The codes are an `as const`
+// array and the union derives from it, so the chokepoint's caller-fault table is checked
+// against this list and a new code does not compile until it is classified.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
@@ -29,39 +23,24 @@ export const PERSISTENCE_REFUSAL_CODES = [
 export type PersistenceRefusalCode = (typeof PERSISTENCE_REFUSAL_CODES)[number];
 
 /**
- * The subsystem name every persistence refusal carries.
- *
- * `lib/refusal.ts` gives `origin` as the field that lets a refusal surfacing
- * three layers from where it was raised still name its author. This is that name,
- * written once rather than spelled at each construction site.
+ * The subsystem name every persistence refusal carries, so a refusal surfacing far from where
+ * it was raised still names its author.
  */
 export const PERSISTENCE_REFUSAL_ORIGIN = "persistence";
 
 /**
- * A typed refusal.
- *
- * The console's ONE refusal shape (`lib/refusal.ts`), narrowed on `code` to the
- * closed union persistence owns. Deliberately not a second refusal vocabulary:
- * that module's header states the arrangement — "each producer keeps its own
- * closed code union and widens into this shape at its boundary" — so a
- * persistence refusal satisfies `isRefusal` and renders through the same
- * three refusal renderings as every other one, instead of needing a translation
- * in every view that wants to show two kinds of refusal at once.
+ * A typed refusal: the console's one refusal shape (`lib/refusal.ts`), narrowed on `code` to
+ * the closed union persistence owns. It satisfies `isRefusal` and renders through the same
+ * refusal renderings as every other producer's.
  */
 export interface PersistenceRefusal extends Refusal {
   readonly code: PersistenceRefusalCode;
 }
 
 /**
- * Build one. THE constructor for persistence refusals — every refusal in the grammar, the
- * value-class table, the chokepoint, and the three adapters comes through here, so
- * `origin` is spelled once and no site can ship a refusal that names nobody.
- *
- * Built on `lib/refusal.ts`'s `refuse` rather than by writing the same three fields again.
- * That builder is generic in its code, so the closed vocabulary this module owns
- * travels through it and arrives narrowed: the annotated return type below is
- * satisfied by the call itself, with no spread re-stating `code` to put back what
- * a `string` parameter would have widened away.
+ * Builds a persistence refusal. Every refusal from the grammar, the value-class table, the
+ * chokepoint and the adapters comes through here, so `origin` is spelled once. Built on
+ * `refuse`, whose generic code parameter carries the narrowed vocabulary through.
  */
 export function refusePersistence(
   code: PersistenceRefusalCode,

@@ -1,30 +1,15 @@
-// The `approval` partition's projector: approval-flow events folded into approval
-// entities.
+// The `approval` partition's projector: approval-flow events folded into approval entities,
+// including members that live only on the event, such as `askId` on a provider's own permission
+// prompt. It sits beside the run fold because it reads wire member names, which the session
+// store's entities do not.
 //
-// WHY IT EXISTS. `store/session/entities/entities.ts` declares an `approval` partition,
-// and `session.subscribe` carries every `approval.*` event into the timeline. This fold
-// is what puts each ask into the partition a pane reads, together with the members that
-// live on the event and on no read: `askId` above all, which `approval.requested` carries
-// when the ask came from a provider's own permission prompt.
+// Each event is parsed with the strict payload schema of its type; the stream decoder only
+// applies the tolerant envelope. A payload the schema refuses folds nothing, since a half-read
+// ask would draw a card for an action nobody can see. A beat naming another session, and a rule
+// revocation that names no ask, also fold nothing; the timeline still records that they arrived.
 //
-// WHY IT LIVES BESIDE THE RUN FOLD. It reads wire member names, which the session
-// store's entities deliberately do not, and the composition root registers it under the
-// composer's name, because the pane that reads the result is the composer's.
-//
-// EACH EVENT IS READ THROUGH ITS OWN CONTRACT SCHEMA. The stream decoder parses every
-// event through the tolerant envelope, so a payload reaches this fold unexamined. Each
-// `approval.*` type has one strict payload schema in `@ai-sidekicks/contracts`, and the
-// fold parses the payload with the schema its type names. A payload that schema refuses
-// is not folded at all: a half-read ask would draw a card for an action nobody can see.
-//
-// STATE IS MARKED, NEVER DELETED. A resolution and a cancellation set the entity's state
-// and leave the row where it is: history is a read, and what the pane lists is the
-// pane's decision.
-//
-// A PROJECTOR IS PURE. A beat that names another session, one whose payload its schema
-// refuses, and a rule revocation that names no ask (a project detached, a server's trust
-// withdrawn) each yield no mutation rather than a throw. The event is still admitted,
-// and the timeline is the ledger that records it arrived.
+// State is marked, never deleted: a resolution or cancellation sets the entity's state and
+// leaves the row.
 
 import {
   ApprovalCanceledPayloadSchema,
@@ -48,14 +33,9 @@ import type {
 } from "../session/entities/entities.js";
 
 /**
- * The category's events that are not an ask's, named rather than quietly filtered.
- *
- * `moderation.review_flagged`, the three `plan.*` kinds, and the reviewer's block and
- * its one-time allowance (`approval.reviewer_denied`, `approval.denial_overridden`,
- * keyed on the denial) are registered under `approval_flow` and carry no
- * `approvalRequestId`. Claiming one here would take the kind off the board for the
- * feature that renders it. `Extract`ed from the census rather than typed `string`, so a
- * rename upstream fails to compile here.
+ * The `approval_flow` events that are not an ask's and carry no `approvalRequestId`. Claiming
+ * one here would take it from the feature that renders it. `Extract`ed from the event-type
+ * union, so an upstream rename fails to compile.
  */
 type NonRequestApprovalCategoryKind = Extract<
   SessionEventType,
@@ -67,10 +47,7 @@ type NonRequestApprovalCategoryKind = Extract<
   | "approval.denial_overridden"
 >;
 
-/**
- * The ask's `approval.*` kinds, as a type. Extracted from the census union, so a new
- * `approval.*` kind fails the `satisfies` on the table below until it is classified.
- */
+/** The ask's `approval.*` kinds; a new one fails the `satisfies` below until classified. */
 type ApprovalEventKind = Exclude<
   Extract<SessionEventType, `approval.${string}`>,
   NonRequestApprovalCategoryKind
@@ -89,12 +66,11 @@ interface ApprovalEventReading {
 }
 
 /**
- * Each kind's reading. Total over the ask's kinds by `satisfies`.
+ * Each kind's reading, total over the ask's kinds by `satisfies`.
  *
- * `approval.remembered` and `approval.rule_revoked` announce no state: the first records
- * the rule a resolution minted, after the ask was already approved, and the second is
- * about the rule rather than the ask. The entity upsert then omits `state` entirely,
- * because the store's spread merge would read a present `undefined` as an erasure of the
+ * `approval.remembered` and `approval.rule_revoked` announce no state: one records the rule a
+ * resolution minted after approval, the other is about the rule. The upsert then omits `state`
+ * entirely, because the store's spread merge would read a present `undefined` as erasing the
  * last transition.
  */
 const APPROVAL_EVENT_READINGS = {
@@ -109,10 +85,7 @@ const APPROVAL_EVENT_READINGS = {
 /** The event kinds this projector claims: the ask's `approval.*` kinds. */
 export const APPROVAL_FLOW_EVENT_KINDS: readonly string[] = Object.keys(APPROVAL_EVENT_READINGS);
 
-/**
- * The projector registry the composer feature claims its kinds with, one fold per kind
- * over that kind's reading.
- */
+/** The projector table the composer feature claims its kinds with, one fold per kind. */
 export const APPROVAL_FLOW_PROJECTORS: EntityProjectorTable = Object.fromEntries(
   Object.entries(APPROVAL_EVENT_READINGS).map(([eventKind, reading]) => [
     eventKind,
@@ -120,17 +93,12 @@ export const APPROVAL_FLOW_PROJECTORS: EntityProjectorTable = Object.fromEntries
   ]),
 );
 
-/**
- * The owner the approval-flow kinds are registered under, so a conflicting claim names
- * it. The composition registers {@link APPROVAL_FLOW_PROJECTORS} under it.
- */
+/** The owner the approval-flow kinds are registered under, so a conflicting claim names it. */
 export const APPROVAL_FLOW_PROJECTOR_OWNER = "composer";
 
 /**
- * Fold one kind's events into the ask each names.
- *
- * The body carries the parsed payload minus `sessionId`, which the envelope already
- * states, and `approvalRequestId`, which is the entity's own id.
+ * Fold one kind's events into the ask each names. The body is the parsed payload minus
+ * `sessionId` (the envelope has it) and `approvalRequestId` (the entity's id).
  */
 function approvalFlowProjector(reading: ApprovalEventReading): EntityProjector {
   return (event: ProjectedSessionEvent): readonly EntityMutation[] => {

@@ -1,28 +1,16 @@
-// The write side of the console's scheduling: one queue, no interval.
+// The write side of the console's scheduling: one queue, no interval. It accumulates events and
+// drains them into the store's chokepoint on one frame boundary, so four streaming lanes cost
+// one transition and one render. `refresh-scheduler.ts` is the read half; the two share no symbol.
 //
-// The no-interval-polling rule has a write half as well as a read half. `ApplyQueue` is
-// the write half: it accumulates events and drains them into the store's chokepoint on
-// one frame boundary, so four streaming lanes cost one transition and one render.
-// `refresh-scheduler.ts` beside it is the read half; the two share no symbol, which is
-// why they are two modules and not one.
+// It takes the clock as a dependency rather than reaching for `requestAnimationFrame`, so a test
+// drives it on frozen time and `ManualClock.pendingCount === 0` after settle checks that no
+// timer fires. `SessionStoreRegistry` constructs it in the running console; nothing else may
+// arm a timer.
 //
-// It has no interval. It takes the clock as a dependency rather than reaching for
-// `requestAnimationFrame`, so a test drives it on frozen time with no real timers
-// at all — and `ManualClock.pendingCount === 0` after settle is how the idle-CPU
-// budget's "no timer fires" claim is CHECKED rather than asserted.
-// `SessionStoreRegistry` is what constructs it in the running console; nothing
-// else in the tree may arm a timer.
-//
-// It loses no work to a callback that fails: it keeps its batch when `drain`
-// throws and never lets the exception reach the clock, because the clock removes
-// a due callback before invoking it and one escaping throw would take every other
-// session's pending drain with it.
-//
-// It is terminal on `dispose()`. A pane that unmounts mid-stream must not be able
-// to re-arm a timer from a late event — "a timer that outlives its pane" is one of
-// the failure modes this substrate exists to make unrepresentable, and a `dispose`
-// that merely canceled the current arm would leave the next `enqueue` to start it
-// again.
+// It keeps its batch when `drain` throws and never lets the exception reach the clock, which
+// removes a due callback before invoking it, so one escaping throw would drop every other
+// session's pending drain. `dispose()` is terminal: a late event cannot re-arm a timer that
+// outlives its pane.
 
 import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
@@ -31,36 +19,26 @@ import type { ProjectedSessionEvent } from "./entities/entities.js";
 /** The drain the queue performs. Exactly one call per coalescing window. */
 export type ApplyDrain = (events: readonly ProjectedSessionEvent[]) => void;
 
+/** Construction inputs for an `ApplyQueue`. */
 export interface ApplyQueueOptions {
   readonly clock: Clock;
   readonly drain: ApplyDrain;
   /**
-   * The coalescing window, in milliseconds.
-   *
-   * `0` (or less) means the unit is a PAINT: the queue arms
-   * `Clock.scheduleFrame`, which is `requestAnimationFrame` on the real
-   * clock and an explicit `runFrame()` on the manual one. Any positive value arms
-   * a timeout of that length instead, which is what a host with no frame source
-   * wants and what makes a drain observable at a named number of milliseconds of
-   * frozen time. Defaults to `APPLY_COALESCE_MS`, one 60 Hz frame.
+   * The coalescing window, in milliseconds. `0` or less arms `Clock.scheduleFrame` (a paint);
+   * a positive value arms a timeout of that length, for a host with no frame source and for
+   * draining at a named time on frozen clocks. Defaults to `APPLY_COALESCE_MS`.
    */
   readonly coalesceMs?: number;
   /**
-   * Called when `drain` throws. The batch is kept either way.
-   *
-   * Deliberately NOT the `RefreshScheduler.onError` contract, whose absent arm
-   * re-throws: that scheduler's failure surfaces from an `async` function, where
-   * a rejection reaches the host as an unhandled rejection and disturbs nothing
-   * else. This drain runs inside a frame or timeout callback the console's clock
-   * is iterating, and `ManualClock.runFrame` takes its due entries out of the
-   * queue BEFORE invoking them — so an escaping throw does not defer the other
-   * pending callbacks, it drops them, and one defective session's drain would
-   * silently cancel every other session's. So the queue never re-throws; it keeps
-   * the batch, counts the failure, and tells this sink.
+   * Called when `drain` throws; the batch is kept either way. Unlike `RefreshScheduler.onError`
+   * it never re-throws: this drain runs inside a clock callback, and an escaping throw would
+   * drop the other sessions' pending callbacks. The queue keeps the batch, counts the failure
+   * and tells this sink.
    */
   readonly onDrainError?: (error: unknown) => void;
 }
 
+/** Coalesces a session's wire events into one drain per frame; see the file header. */
 export class ApplyQueue {
   readonly #clock: Clock;
   readonly #drain: ApplyDrain;
@@ -86,12 +64,8 @@ export class ApplyQueue {
   }
 
   /**
-   * Drains that threw and whose batch was kept.
-   *
-   * Counted rather than merely handled, on the posture `droppedAfterDisposeCount`
-   * already takes: keeping the events is the correct response, but a drain that
-   * rejects a batch is a defect below this queue, and a count is how it becomes
-   * visible without an exception that would cost the clock's whole pass.
+   * Drains that threw and whose batch was kept. Counted because a drain that rejects a batch is
+   * a defect below this queue, and an exception would cost the clock's whole pass.
    */
   public get failedDrainCount(): number {
     return this.#failedDrainCount;
@@ -103,11 +77,8 @@ export class ApplyQueue {
   }
 
   /**
-   * Events handed to a disposed queue.
-   *
-   * Counted rather than silently ignored: dropping them is correct — the store
-   * they were bound for is gone — but a subscription still delivering into a
-   * closed session is a leak upstream, and a count is how it becomes visible.
+   * Events handed to a disposed queue. Dropping them is correct, but a subscription still
+   * delivering into a closed session is an upstream leak.
    */
   public get droppedAfterDisposeCount(): number {
     return this.#droppedAfterDisposeCount;
@@ -132,13 +103,9 @@ export class ApplyQueue {
   }
 
   /**
-   * Drain now, synchronously. The teardown and test path.
-   *
-   * A batch is taken out of the buffer before the drain runs so a re-entrant
-   * enqueue lands behind it rather than inside it — and put BACK, in front of
-   * whatever arrived meanwhile, if the drain throws. Nothing is lost and nothing
-   * escapes: the retry rides the next enqueue rather than a re-arm here, so a
-   * drain that fails deterministically cannot spin a frame loop.
+   * Drain now, synchronously; the teardown and test path. The batch leaves the buffer before the
+   * drain runs so a re-entrant enqueue lands behind it, and returns in front of newer events if
+   * the drain throws. The retry rides the next enqueue, so a failing drain cannot spin a loop.
    */
   public flush(): void {
     if (this.#armedHandle !== undefined) {
@@ -160,12 +127,7 @@ export class ApplyQueue {
     }
   }
 
-  /**
-   * Drop everything queued without draining. A pane that unmounted mid-stream.
-   *
-   * Terminal: a later `enqueue` counts and drops rather than re-arming, so no
-   * timer can outlive the store this queue fed.
-   */
+  /** Drop everything queued without draining. Terminal: a later enqueue counts and drops. */
   public dispose(): void {
     this.#disposed = true;
     if (this.#armedHandle !== undefined) {

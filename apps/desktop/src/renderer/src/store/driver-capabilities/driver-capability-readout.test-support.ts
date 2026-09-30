@@ -1,4 +1,4 @@
-// The two readouts the capability suites use to stand for "nothing was read".
+// Readouts and helpers the capability suites use to stand for "nothing was read".
 
 import { type Refusal } from "@renderer/lib/refusal.js";
 import type { DriverCapabilityReadout } from "./driver-capability-readout.js";

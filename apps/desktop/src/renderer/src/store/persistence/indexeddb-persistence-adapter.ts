@@ -1,25 +1,17 @@
-// The durable adapter, and the four ways opening it can fail.
+// The durable adapter, built on `idb` (a thin promise wrapper) because the console wants the
+// index and the cursor, not a `get`/`set` façade.
 //
-// The `idb` library is adopted here: a thin promise wrapper over IndexedDB, chosen
-// over a key-value abstraction because the console wants the index and the cursor,
-// not a `get`/`set` façade over them.
+// `openUiStateDatabase` returns a discriminated reason rather than a boolean, because each way
+// the open fails needs a different answer:
 //
-// Opening is the interesting part. Every one of these is reachable in a shipped
-// Electron app and each needs a DIFFERENT answer, which is why `openUiStateDatabase`
-// returns a discriminated reason rather than a boolean:
+//   - no `indexedDB` global: the renderer scheme was not registered `standard`;
+//   - the open is refused (`SecurityError`): same cause, different symptom by Chromium build;
+//   - a `VersionError`: a newer build already wrote this database. Deleting it would destroy
+//     that state, so the adapter degrades to memory and leaves the bytes alone;
+//   - the open never settles because another window holds a blocking upgrade. It is raced
+//     against a bounded timeout so first paint never hangs behind storage.
 //
-//   • no `indexedDB` global — the renderer scheme was not registered `standard`;
-//   • the open is refused (`SecurityError`) — same cause, different symptom
-//     depending on the Chromium build;
-//   • a `VersionError` — a NEWER build of the app already wrote this database.
-//     Deleting it to "recover" would destroy a future version's state, so the
-//     adapter degrades to memory and leaves the bytes alone;
-//   • the open never settles — another window holds a blocking upgrade. A promise
-//     that never resolves would hang the console's first paint behind storage, so
-//     the open is raced against a bounded timeout and loses gracefully.
-//
-// Quota exhaustion is separate and happens at WRITE time, not open time, so it
-// surfaces as a typed refusal on the write rather than as a failed construction.
+// Quota exhaustion happens at write time and surfaces as a typed refusal on the write.
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "../persistence-caps.js";
@@ -38,9 +30,11 @@ import {
 } from "./persistence-adapter.js";
 import { refusePersistence } from "./persistence-refusals.js";
 
-/** The database this build reads and writes. Bumping the version is a migration. */
+/** The database this build reads and writes; bumping the version is a migration. */
 export const UI_STATE_DATABASE_NAME = "sidekicks-ui-state";
+/** The schema version of the database. */
 export const UI_STATE_DATABASE_VERSION = 1;
+/** The object store that holds every UI-state record. */
 export const UI_STATE_STORE_NAME = "ui-state";
 
 /** How long the console will wait for a database before rendering without one. */
@@ -55,46 +49,30 @@ export type DatabaseOpenOutcome =
       readonly cause?: unknown;
     };
 
+/** Options for `openUiStateDatabase`; each exists so a test can drive one failure arm. */
 export interface OpenUiStateDatabaseOptions {
   readonly databaseName?: string;
   readonly openTimeoutMs?: number;
   /**
-   * The factory whose PRESENCE — the property's, not the value's — decides
-   * whether a durable open is attempted at all.
+   * The factory whose presence (the property's, not the value's) decides whether a durable
+   * open is attempted. Omitting the key uses the ambient `indexedDB` global; supplying
+   * `undefined` explicitly means this host has none and drives the `no-indexeddb-global` arm,
+   * which is why `resolveIndexedDbFactory` tests for the key rather than coalescing the value.
+   * The `| undefined` is what lets `exactOptionalPropertyTypes` admit that call.
    *
-   * Omitting the key falls back to the ambient `indexedDB` global. Supplying
-   * `undefined` EXPLICITLY means "this host has none" and drives the
-   * `no-indexeddb-global` arm, which is why `resolveIndexedDbFactory` asks
-   * whether the key is there rather than coalescing its value: `?? indexedDB`
-   * substitutes the ambient factory for an explicit `undefined`, so that arm
-   * would be unreachable on any host that HAS a global — which is every browser,
-   * and every test that installs one.
-   *
-   * The `| undefined` in the type is load-bearing rather than decorative: under
-   * `exactOptionalPropertyTypes` it is what makes `{ indexedDbFactory: undefined }`
-   * a call the compiler admits at all.
-   *
-   * Deliberately not the handle the open runs against: `idb`'s `openDB` reads the
-   * global itself and exposes no factory parameter, so this option gates the
-   * attempt rather than redirecting it. Saying so here because a reader who
-   * assumed otherwise would write a test that believes it is driving an injected
-   * database and is really driving the ambient one.
+   * It gates the attempt and does not redirect it: `idb`'s `openDB` reads the global itself.
    */
   readonly indexedDbFactory?: IDBFactory | undefined;
   /** Injected for tests; defaults to `navigator.storage`. */
   readonly storageManager?: StorageManager | undefined;
   /**
-   * The clock the open timeout is armed on. Defaults to `RealClock`.
-   *
-   * A seam rather than a bare `setTimeout` for the same reason every other timer
-   * in the console is one: the open race is the only timer persistence arms, and
-   * a timer that cannot be counted cannot be part of the "no timer fires except
-   * the refresh scheduler's deadline" claim. It also makes the timeout arm
-   * testable in milliseconds of frozen time rather than in three real seconds.
+   * The clock the open timeout is armed on. Defaults to `RealClock`, and lets the timeout arm
+   * run in milliseconds of frozen time rather than three real seconds.
    */
   readonly clock?: Clock;
 }
 
+/** The IndexedDB implementation of the persistence seam. */
 export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
   public readonly kind: PersistenceAdapterKind = "indexeddb";
   public readonly durable = true;
@@ -194,12 +172,10 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
   }
 
   public async measureQuota(): Promise<QuotaGauge> {
-    // Every arm carries `unavailableReason: undefined` — this adapter IS the
-    // durable one, so an unmeasurable browser quota here means "the browser told
-    // us nothing", never "there is no durable store". That is exactly the
-    // distinction a view reading three absent numbers cannot make on its own.
+    // Every arm carries `unavailableReason: undefined`: this adapter is the durable one, so an
+    // unmeasurable quota means "the browser told us nothing", never "no durable store".
     if (this.#storageManager === undefined || typeof this.#storageManager.estimate !== "function") {
-      // Not "zero used" — unknown. The five kinds of nothing are distinct.
+      // Not "zero used": unknown.
       return unmeasuredQuota(undefined);
     }
     try {
@@ -248,10 +224,7 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-/**
- * Attempt the durable open. Never throws: the failure modes above are outcomes the
- * caller renders, not exceptions it swallows.
- */
+/** Attempts the durable open. Never throws: each failure mode is an outcome the caller renders. */
 export async function openUiStateDatabase(
   options: OpenUiStateDatabaseOptions = {},
 ): Promise<DatabaseOpenOutcome> {
@@ -284,8 +257,8 @@ export async function openUiStateDatabase(
     });
     const settled = await Promise.race([opening, timeout]);
     if (settled === timedOut) {
-      // The open may still land later. Close it when it does rather than leaking a
-      // connection that would block the NEXT window's upgrade.
+      // The open may still land later; close it then, or the connection blocks the next window's
+      // upgrade.
       void opening.then(
         (database) => {
           database.close();
@@ -308,12 +281,9 @@ export async function openUiStateDatabase(
 }
 
 /**
- * Map an open failure to its reason.
- *
- * Exported because the three failures reach it by different routes — Chromium
- * throws `SecurityError` synchronously on an opaque origin, while `VersionError`
- * arrives on the request's `error` event — and a test that could only drive one
- * route would leave the other two classifications unasserted.
+ * Maps an open failure to its reason. Exported because the failures reach it by different
+ * routes (Chromium throws `SecurityError` synchronously on an opaque origin, while
+ * `VersionError` arrives on the request's `error` event), so a test must drive each.
  */
 export function classifyOpenFailure(error: unknown): PersistenceUnavailableReason {
   if (typeof error === "object" && error !== null && "name" in error) {
@@ -340,11 +310,8 @@ interface UiStateDatabaseSchema extends DBSchema {
 }
 
 /**
- * The factory this open is gated on, distinguishing an OMITTED option from one
- * explicitly supplied as `undefined`.
- *
- * See `OpenUiStateDatabaseOptions.indexedDbFactory` for why the distinction is the
- * contract rather than a nicety.
+ * The factory this open is gated on, distinguishing an omitted option from one explicitly
+ * supplied as `undefined`; see `OpenUiStateDatabaseOptions.indexedDbFactory`.
  */
 function resolveIndexedDbFactory(options: OpenUiStateDatabaseOptions): IDBFactory | undefined {
   if ("indexedDbFactory" in options) {

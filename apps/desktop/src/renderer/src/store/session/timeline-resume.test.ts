@@ -1,11 +1,6 @@
-// The resume rule, decided against the shape the wire actually carries.
-//
-// Every case here reads a cursor block of the SHIPPED form — `{ latest }` with an
-// optional `acknowledged`, and no third member — because that is what
-// `SessionReadResponseSchema` is `.strict()` over. The suite this replaced asserted
-// the opposite: it required a floor member that schema forbids, so its passing arms
-// described a reply no daemon can send and its refusing arm was the state every real
-// read is in.
+// The resume rule, decided against the shape the wire carries: a cursor block of `{ latest }` with
+// an optional `acknowledged` and no third member, which `SessionReadResponseSchema` enforces with
+// `.strict()`. A floor member that schema forbids would describe a reply no daemon can send.
 
 import { describe, expect, it } from "vitest";
 
@@ -31,45 +26,38 @@ describe("resolveTimelineResume — where the next read starts", () => {
   });
 
   it("restarts from the beginning when nothing has been acknowledged", () => {
-    // The ordinary FIRST read, and not a refusal: a
-    // user who has been acknowledged nowhere has no position to resume from,
-    // and the beginning of the window is where a reader with no position starts.
+    // The ordinary first read, not a refusal: with no acknowledged position the window starts.
     const decision = resolveTimelineResume({ latest: LATEST });
 
     expect(decision.outcome).toBe("restart");
   });
 
   it("restarts rather than refusing when the reply carries no cursor block at all", () => {
-    // Undecidable in the same direction and for the same reason: nothing names a
-    // position. Reporting it apart from the case above would report a difference no
-    // caller can act on — both submit no cursor.
+    // Nothing names a position, so this restarts like the case above; both submit no cursor.
     for (const block of [undefined, null, "cursors", [], {}, { latest: "" }, { latest: 4 }]) {
       expect(resolveTimelineResume(block).outcome).toBe("restart");
     }
   });
 
   it("ignores an acknowledged member that is not a cursor", () => {
-    // A block whose `acknowledged` arrived as a number or an empty string names no
-    // position either, and submitting one would send the daemon a value it must
-    // refuse. It restarts, exactly as an absent member does.
+    // A non-cursor `acknowledged` names no position, and submitting it would send a value the
+    // daemon must refuse, so it restarts like an absent member.
     for (const acknowledged of [undefined, null, "", 7, {}]) {
       expect(resolveTimelineResume({ latest: LATEST, acknowledged }).outcome).toBe("restart");
     }
   });
 
   it("negative control: a well-formed block with a position does NOT restart", () => {
-    // Without this every case above is satisfied by a resolver that answers `restart`
-    // for everything — which is a console that never resumes and always looks right.
+    // Guards a resolver that answers `restart` for everything: a console that never resumes.
     expect(resolveTimelineResume({ latest: LATEST, acknowledged: ACKNOWLEDGED }).outcome).toBe(
       "resume",
     );
   });
 
   it("takes the acknowledged position verbatim, whatever it looks like beside `latest`", () => {
-    // No ordering is taken over an opaque cursor: the console holds no `decode`, so a
-    // position that LOOKS lower than the head is still the position the daemon issued.
-    // A resolver that compared them would discard a live projection on a loss nothing
-    // established — and would mis-order two UUID-derived cursors while doing it.
+    // The cursor is opaque and the console has no decoder, so a position that looks lower than
+    // the head is still the daemon's. Comparing them would discard a live projection on a loss
+    // nothing established.
     const decision = resolveTimelineResume({
       latest: LATEST,
       acknowledged: "-4_1723200000000000000",
@@ -94,9 +82,7 @@ describe("the refused arm — the one refusal left", () => {
   });
 
   it("raises every code it declares, so the enumeration is a set and not a comment", () => {
-    // The closed-set claim, both directions: what the module can raise and what it
-    // says it can raise are the same list. A member nothing raises is a code a view
-    // could branch on and never reach.
+    // Closed set in both directions: a code nothing raises is one a view could branch on in vain.
     const raised = new Set(
       [refuseUnresolvableResume()].flatMap((decision) =>
         decision.outcome === "refused" ? [decision.refusal.code] : [],
@@ -107,9 +93,8 @@ describe("the refused arm — the one refusal left", () => {
   });
 
   it("says what the console did about it, and never carries a cursor", () => {
-    // `core/refusal.ts`: a detail is one actionable sentence and never the refused
-    // value. The value here is a position, and a position pasted into a banner is a
-    // wire string nobody can act on.
+    // A refusal detail is one actionable sentence and never the refused value; a position in a
+    // banner is a wire string nobody can act on.
     const decision = refuseUnresolvableResume();
     const detail = decision.outcome === "refused" ? decision.refusal.detail : "";
 
@@ -135,9 +120,7 @@ describe("isUnresolvableCursorRejection — reading the daemon's answer", () => 
   });
 
   it("negative control: any other rejection is not this one", () => {
-    // Without this, a recognizer that answered `true` for everything would satisfy the
-    // case above — and the entry would then treat every failed read as a lost position
-    // and re-read the window twice for each one.
+    // Guards a recognizer answering `true` for everything, which would re-read twice per failure.
     for (const rejection of [
       undefined,
       null,
@@ -151,9 +134,8 @@ describe("isUnresolvableCursorRejection — reading the daemon's answer", () => 
   });
 
   it("answers rather than throwing for a rejection whose own code throws", () => {
-    // A rejection is whatever a producer threw, and this arm runs inside the `catch`
-    // that exists to classify it — so a throwing accessor here would propagate out of
-    // the one place that can report the failure.
+    // This runs inside the `catch` that classifies the rejection, so a throwing accessor must
+    // not escape.
     const hostile = {
       get code(): string {
         throw new Error("this getter is the hazard");

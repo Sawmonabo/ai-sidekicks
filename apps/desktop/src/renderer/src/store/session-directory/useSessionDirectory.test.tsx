@@ -1,10 +1,6 @@
-// The directory read holds one answer, and asks again when the node's list moves.
-//
-// The call that lists the sessions is a plain function the test hands the hook, so
-// what is measured is the hook's own logic: it starts as a read in flight, reads once
-// per mount, and reads again on a window focus or a settled act, keeping the answer
-// already on screen while it does. Which frames a call swap paints is a claim about
-// frames rather than states, so `session-directory.frames.test.tsx` measures it.
+// The directory read holds one answer and asks again when the node's list moves. The call is a
+// plain function the test hands the hook, so the hook's own logic is measured. Which frames a
+// call swap paints is a claim about frames, measured in `useSessionDirectory.frames.test.tsx`.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -26,11 +22,7 @@ interface CountedDirectoryCall {
   readCount(): number;
 }
 
-/**
- * The row is the claim: a second read that returned the first read's row could not
- * tell a re-read apart from a cached answer, and what the frame-lifetime binding lost
- * was precisely the ability to see a session the node gained after the window opened.
- */
+/** Each read answers a row named for its read count, so a re-read is told from a cached answer. */
 function countedDirectoryCall(): CountedDirectoryCall {
   let readCount = 0;
   return {
@@ -92,8 +84,7 @@ describe("useSessionDirectory — one read", () => {
   it("starts as a read in flight and settles on the node's sessions", async () => {
     const observed = observeDirectory(countedDirectoryCall().read);
 
-    // The first state is load-bearing: a hook that started at `served` with no rows
-    // would report an empty node for a read that had not happened.
+    // A hook that started at `served` would report an empty node before any read happened.
     expect(observed[0]?.status).toBe("reading");
 
     await settleReactWork();
@@ -101,8 +92,7 @@ describe("useSessionDirectory — one read", () => {
   });
 
   it("reads once per mount, and not again on a re-render", async () => {
-    // A directory that re-read itself on every render would be a poll wearing a
-    // hook's name, and the endurance tier's churn would drive one read per cycle.
+    // A re-read on every render would be a poll.
     const counted = countedDirectoryCall();
     const observed: SessionDirectoryState[] = [];
     const probe = (
@@ -129,10 +119,8 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
   });
 
   it("re-reads when the window regains focus, and renders what the node answers now", async () => {
-    // The frame-lifetime case, stated as a person meets it: a session created on this
-    // node by another window after this one mounted. Nothing in this window's own
-    // stream says so, and the window coming back to the front is the moment
-    // `store/reads/read-triggers.ts` names for a node-scoped reading.
+    // Another window created a session on this node after this one mounted; only the focus
+    // trigger can reveal it.
     const counted = countedDirectoryCall();
     const observed = observeDirectory(counted.read);
     await settleReactWork();
@@ -161,11 +149,7 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
   });
 
   it("keeps the answer already on screen while the re-read is in flight", async () => {
-    // The reason a stale directory advances a revision instead of re-addressing the
-    // holder: re-addressing re-seeds to `reading`, which would blank the all-sessions
-    // list on every focus. The five kinds of nothing render differently because the
-    // next move differs: `not-loaded` promises an answer that is still coming, and here one
-    // is already on screen.
+    // Re-addressing would re-seed to `reading` and blank the list on every focus.
     const counted = countedDirectoryCall();
     const observed = observeDirectory(counted.read);
     await settleReactWork();
@@ -181,9 +165,7 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
   });
 
   it("reaches every view reading the same call, not only the one that asked", async () => {
-    // Several features read this directory and only one of them settles an act. A
-    // revision held per caller would leave the others rendering the list from before
-    // the act that changed it.
+    // A revision held per caller would leave the other views on the pre-act list.
     const counted = countedDirectoryCall();
     const first: SessionDirectoryState[] = [];
     const second: SessionDirectoryState[] = [];
@@ -210,10 +192,8 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
     });
     await settleReactWork();
 
-    // Two mounted views, two reads on the first pass and two more on the bump.
-    // WHICH of the two later reads each view holds is React's effect order and not
-    // this claim: what is asserted is that NEITHER is still rendering a first-pass
-    // answer, which is the thing a per-caller revision would have got wrong.
+    // Two views read twice each. Which later read each view holds is React's effect order;
+    // the claim is that neither still renders a first-pass answer.
     expect(counted.readCount()).toBe(4);
     for (const observed of [first, second]) {
       const rendered = servedSessionIds(lastState(observed));
@@ -246,8 +226,7 @@ describe("offeredSessionIds — the union a view offers", () => {
   });
 
   it("falls back to this window's own sessions while the directory has not answered", () => {
-    // A view must keep offering what it can name rather than blanking while a read
-    // is in flight.
+    // A view keeps offering what it can name while a read is in flight.
     expect(offeredSessionIds({ status: "reading" }, ["session-local"])).toStrictEqual([
       "session-local",
     ]);

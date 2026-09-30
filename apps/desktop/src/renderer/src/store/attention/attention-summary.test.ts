@@ -1,5 +1,5 @@
-// What the attention summary may say, and what it must refuse to say. The fold is
-// driven with items whose order and resolution differ.
+// What the attention summary may say and what it must refuse to say, driven with items whose
+// order and resolution differ.
 
 import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts";
@@ -46,8 +46,7 @@ describe("the fold over one read", () => {
   it("reads a session's severity off the projection and answers nothing for one it never mentioned", () => {
     const summary = new AttentionSummary([item({ sessionId: "session-a" })]);
     expect(summary.severityFor("session-a")).toBe("actionable");
-    // Not "informational" and not a cleared marker: the projection said nothing
-    // about this session, which is a different fact from saying it is clear.
+    // The projection said nothing about this session, which is not the same as clear.
     expect(summary.severityFor("session-b")).toBeUndefined();
   });
 
@@ -61,10 +60,8 @@ describe("the fold over one read", () => {
 });
 
 describe("the order the fold establishes", () => {
-  // `attentionProjectionRead` is registered in no code package and states no ordering,
-  // so a projection is free to answer newest-first. These cases feed exactly that, and
-  // the two items differ only in `createdAt`, which is the documented key — so
-  // nothing but the rule under test can separate them.
+  // The projection states no ordering, so it may answer newest-first. These items differ only
+  // in `createdAt`, so nothing but the ordering rule can separate them.
   const NEWEST_FIRST: readonly AttentionItem[] = [
     item({ id: "newer", sessionId: "session-b", createdAt: "2026-01-02T10:00:00.000Z" }),
     item({ id: "older", sessionId: "session-a", createdAt: "2026-01-01T10:00:00.000Z" }),
@@ -77,10 +74,8 @@ describe("the order the fold establishes", () => {
   });
 
   it("orders the sessions by their oldest item, not by first appearance", () => {
-    // The negative control for the group order. Before the fold established one,
-    // `groups` was `Map` insertion order — the projection's own — so this exact
-    // input listed the newer session above the older one while the getter promised
-    // the reverse. `session-a` appears SECOND in the input and must come first.
+    // Negative control: `groups` once followed the projection's insertion order, listing the
+    // newer session first. `session-a` appears second in the input and must come first.
     const summary = new AttentionSummary(NEWEST_FIRST);
 
     expect(summary.groups.map((group) => group.sessionId)).toStrictEqual([
@@ -102,8 +97,8 @@ describe("the order the fold establishes", () => {
   });
 
   it("sorts an item whose stamp no reader can parse last rather than first", () => {
-    // February 30 is the stamp `Date.parse` would answer March 2 for. The console's
-    // reader refuses it, and a row that earned no position takes the end.
+    // February 30 is a stamp `Date.parse` would turn into March 2; the console's reader refuses
+    // it, and a row that earned no position takes the end.
     const summary = new AttentionSummary([
       item({ id: "unreadable", createdAt: "2026-02-30T10:00:00.000Z" }),
       item({ id: "readable", createdAt: "2026-01-01T10:00:00.000Z" }),

@@ -1,38 +1,26 @@
-// The immutable partition operations one entity mutation performs.
+// The immutable partition operations one entity mutation performs. Every merge replaces the
+// identity of exactly the partition it touched, because a row selector's `Object.is` bail
+// depends on the rest staying put (`entities.ts`, the entity-keyed rule).
 //
-// `entities.ts` owns the vocabulary — what an entity IS and what a projector may
-// ask for. This module owns what happens to the partition maps when one of those
-// asks is honored, which is a different job with a different rule: every merge
-// replaces the identity of exactly the partition it touched and leaves every other
-// partition's identity alone, because that identity is what a row selector's
-// `Object.is` bail depends on (`store/entities/entities.ts`, the entity-keyed rule).
-//
-// Both functions are total on well-formed input and deliberately NOT defensive
-// against a kind outside the closed set: a projector naming a kind that does not
-// exist is a defect in the feature that registered it, and the projection
-// runner's all-or-nothing boundary is where that defect is caught and named. A
-// guard here would swallow it into a silently missing entity instead.
+// Both functions are total on well-formed input and deliberately not defensive against a kind
+// outside the closed set: that is a defect in the registering feature, caught and named at the
+// projection runner's boundary, and a guard here would hide it as a missing entity.
 
 import type { StoredEntity } from "./entities.js";
 import type { EntityKind, EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
- * The entity maps a store holds, one per kind.
- *
- * Named once rather than spelled out at each of its several appearances: the shape
- * is three types deep, and two hand-written copies of it drift into two subtly
- * different degrees of readonly-ness that the compiler then reconciles by widening.
+ * The entity maps a store holds, one per kind. Named once because hand-written copies of the
+ * nested shape drift into different degrees of readonly-ness.
  */
 export type SessionPartitions = Readonly<
   Record<EntityKind, Readonly<Record<string, StoredEntity>>>
 >;
 
 /**
- * Merge one entity into its partition, merging over any existing row.
- *
- * Merging rather than replacing: a projector answers for the members its event
- * carries, and an event that names a state and no `touchedAt` must not erase the
- * timestamp an earlier event established. See `mergeOnto` for the body's terms.
+ * Merge one entity into its partition, over any existing row rather than replacing it: an event
+ * naming a state and no `touchedAt` must not erase the timestamp an earlier event set. See
+ * `mergeOnto` for the body's terms.
  */
 export function mergeUpsert(
   partitions: SessionPartitions,
@@ -48,11 +36,8 @@ export function mergeUpsert(
 }
 
 /**
- * Drop one entity from its partition.
- *
- * A removal of a row the store never saw still answers a fresh object: the caller
- * is mid-transition over a scratch value, and answering the same reference would
- * make "nothing changed" and "this step changed nothing" indistinguishable.
+ * Drop one entity from its partition. Removing a row the store never saw still answers a fresh
+ * object, so "nothing changed" and "this step changed nothing" stay distinguishable.
  */
 export function mergeRemoval(
   partitions: SessionPartitions,
@@ -68,19 +53,12 @@ export function mergeRemoval(
 }
 
 /**
- * One upsert onto the entity already stored, ONE LEVEL DEEP THROUGH `body`.
+ * One upsert onto the entity already stored, one level deep through `body`.
  *
- * The top-level spread is what makes an incremental projector expressible at all:
- * an upsert that names only `touchedAt` keeps the `state` the last transition
- * established. The body is merged on the same terms rather than replaced, because
- * a projector is PURE — it cannot read the stored entity — so a wholesale
- * replacement would make "add this member, keep the rest" unexpressible and every
- * event would have to restate every member the wire happens not to repeat. A run
- * whose `run.queued` named its agent would lose the agent on its next transition,
- * silently and looking exactly like a run that never had one.
- *
- * A projector that means to CLEAR a member removes the entity and upserts it
- * fresh, which is the mutation pair the vocabulary already has.
+ * The top-level spread lets an upsert naming only `touchedAt` keep the `state` the last
+ * transition set. The body merges on the same terms because a pure projector cannot read the
+ * stored entity: replacing it would lose a run's agent on its next transition. A projector that
+ * means to clear a member removes the entity and upserts it fresh.
  */
 function mergeOnto(existing: StoredEntity, upsert: StoredEntity): StoredEntity {
   const mergedBody =

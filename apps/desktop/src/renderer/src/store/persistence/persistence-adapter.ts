@@ -1,18 +1,8 @@
-// The persistence adapter seam, and the honest reasons there are two of them.
-//
-// IndexedDB is available to the renderer only because the custom scheme is registered
-// `standard: true` before `app.ready`; a renderer that finds no storage falls back to
-// in-memory state and SAYS SO rather than failing opaquely.
-//
-// So the adapter is not an abstraction for its own sake. It exists because exactly
-// one of two things is true at runtime and the console has to be honest about
-// which: either the privileged scheme registration landed and there is a durable
-// store, or it did not and every preference resets when the window closes. The
-// second case is a real degradation and gets a real disclosure — `describe()`
-// returns a sentence the diagnostics view renders, `durable` is false so a
-// caller can render "not checked" rather than pretending a write stuck, and the
-// quota gauge carries the same reason so a view reading only the gauge cannot
-// report a silent nothing where a degradation belongs.
+// The persistence adapter seam. The renderer has IndexedDB only because the custom scheme is
+// registered `standard: true` before `app.ready`; without it the console falls back to
+// in-memory state and says so. `describe()` returns the sentence the diagnostics view renders,
+// `durable` is false so a caller does not pretend a write stuck, and the quota gauge carries
+// the same reason so a view reading only the gauge still discloses the degradation.
 
 import { RefusalError } from "@renderer/lib/refusal.js";
 import type { PersistenceRefusal } from "./persistence-refusals.js";
@@ -24,12 +14,9 @@ export type PersistenceAdapterKind = "indexeddb" | "memory";
 /**
  * Why the durable adapter is not in use, and the sentence each reason renders as.
  *
- * ONE declaration: the reason vocabulary is the keys of this table, so a reason
- * cannot exist without an operator-facing sentence and a sentence cannot be
- * written for a reason nothing raises. It lives here rather than beside the
- * in-memory adapter because the reason is a property of the SEAM — the gauge, the
- * health read, and the fallback adapter all render it — and a vocabulary owned by
- * one of its three readers is a vocabulary the other two copy.
+ * The reason vocabulary is the keys of this table, so a reason cannot exist without an
+ * operator-facing sentence. It lives with the seam because the gauge, the health read and the
+ * fallback adapter all render it.
  */
 export const PERSISTENCE_UNAVAILABLE_DESCRIPTIONS = {
   "not-attempted": "Durable storage was not requested for this window.",
@@ -66,17 +53,13 @@ export interface PartitionSummary {
 }
 
 /**
- * The storage-pressure reading. `usageBytes` / `quotaBytes` come from
- * `navigator.storage.estimate()` where the browser exposes it; both are absent
- * where it does not, and an absent gauge renders as "not checked" rather than as
- * zero — the five kinds of nothing are a design rule, not a nicety.
+ * The storage-pressure reading. `usageBytes` and `quotaBytes` come from
+ * `navigator.storage.estimate()` where the browser exposes it; both are absent where it does
+ * not, and an absent gauge renders as "not checked", never as zero.
  *
- * `unavailableReason` is on the gauge rather than only on the adapter because the
- * gauge is what a storage view reads, and a gauge that reported three absent
- * numbers with no reason would be exactly the failing opaquely that rule forbids:
- * a person would see nothing measured and could not tell an unmeasurable browser
- * quota from a window that has no durable store at all. It is required rather than
- * optional so every producer has to state which of the two it is.
+ * `unavailableReason` is required so every producer states whether it is an unmeasurable
+ * browser quota or a window with no durable store, which a view reading only the gauge could
+ * not otherwise tell apart.
  */
 export interface QuotaGauge {
   readonly usageBytes: number | undefined;
@@ -103,13 +86,10 @@ export interface PersistenceAdapter {
   delete(partition: string, key: string): Promise<void>;
   summarizePartitions(): Promise<readonly PartitionSummary[]>;
   /**
-   * Drop least-recently-touched SESSION partitions until at most
-   * `keepSessionPartitions` remain, and return how many were dropped.
-   *
-   * `PERSISTENCE_GLOBAL_PARTITION` is never a candidate. Ordering by recency
-   * would otherwise make it the FIRST casualty — it holds the color scheme, written
-   * once at boot and then never again, so it is permanently
-   * the least recently touched partition in the store.
+   * Drops least-recently-touched session partitions until at most `keepSessionPartitions`
+   * remain, and returns how many were dropped. `PERSISTENCE_GLOBAL_PARTITION` is never a
+   * candidate: it holds the color scheme, written once at boot, so recency would make it the
+   * first casualty.
    */
   trimPartitions(keepSessionPartitions: number): Promise<number>;
   measureQuota(): Promise<QuotaGauge>;
@@ -117,20 +97,13 @@ export interface PersistenceAdapter {
 }
 
 /**
- * An adapter-level failure, carrying the refusal the store will surface.
- *
- * A `RefusalError` rather than a second error class doing the same job: the
- * console has one refusal-carrying exception, and an adapter failure caught three
- * layers up is `isRefusal`-readable without anyone having to know this
- * subtree exists. All this subclass adds is the narrowed refusal type and its own
- * name.
+ * An adapter-level failure, carrying the refusal the store will surface. A `RefusalError`
+ * subclass, so it is `isRefusal`-readable without knowing this subtree exists.
  */
 export class PersistenceAdapterError extends RefusalError {
   /**
-   * Narrowed, not redeclared: the base constructor assigns the field and `declare`
-   * emits no class member, so this is a type-level narrowing with no runtime
-   * effect. A real field here would be defined as `undefined` after `super` ran
-   * (`useDefineForClassFields`) and silently erase the refusal.
+   * Narrowed, not redeclared: `declare` emits no class member, whereas a real field would be
+   * defined as `undefined` after `super` ran (`useDefineForClassFields`) and erase the refusal.
    */
   declare public readonly refusal: PersistenceRefusal;
 
@@ -141,12 +114,8 @@ export class PersistenceAdapterError extends RefusalError {
 }
 
 /**
- * The operator-facing sentence for a gauge whose storage is not durable, or
- * `undefined` when it is.
- *
- * Beside the gauge type so a view renders the reason through the table that
- * defines it rather than writing its own sentence per reason — which is how two
- * views come to disagree about what `open-timed-out` means.
+ * The operator-facing sentence for a gauge whose storage is not durable, or `undefined` when
+ * it is. Views render the reason through this table so they cannot disagree about a reason.
  */
 export function describeQuotaUnavailability(gauge: QuotaGauge): string | undefined {
   return gauge.unavailableReason === undefined
@@ -155,21 +124,16 @@ export function describeQuotaUnavailability(gauge: QuotaGauge): string | undefin
 }
 
 /**
- * The partition holding preferences that belong to the window rather than to one
- * session (the color scheme). Deliberately a reserved
- * identifier rather than an empty string, so a bug that loses a session id writes
- * somewhere obviously wrong instead of silently into the global bucket.
+ * The partition holding preferences that belong to the window rather than one session (the
+ * color scheme). A reserved identifier rather than an empty string, so a bug that loses a
+ * session id writes somewhere obviously wrong.
  */
 export const PERSISTENCE_GLOBAL_PARTITION = "global";
 
 /**
- * The key the color scheme occupies inside that partition.
- *
- * Beside the partition rather than beside the store's `writeGlobal`, because
- * partition and key are one address and splitting an address across two modules
- * is how the halves drift. Named at all because a reader and a writer that
- * disagree about a key do not fail — they each work, against different records,
- * and the preference simply never comes back.
+ * The key the color scheme occupies inside that partition. Kept beside the partition because
+ * partition and key are one address, and a reader and writer that disagree about a key each
+ * work against different records.
  */
 export const SCHEME_PREFERENCE_KEY = "scheme";
 
@@ -188,12 +152,8 @@ export function isQuotaExceeded(error: unknown): boolean {
 }
 
 /**
- * The gauge a caller renders when nothing has been measured.
- *
- * One constructor for the three sites that produce it — both adapters' "the
- * browser told us nothing" arm and the store's pre-first-read value — so the
- * distinction the gauge exists to carry (unmeasurable versus not durable) is made
- * once, at the one place the caller has to supply the reason.
+ * The gauge a caller renders when nothing has been measured. One constructor for every site
+ * that produces it, so unmeasurable versus not durable is decided where the reason is supplied.
  */
 export function unmeasuredQuota(
   unavailableReason: PersistenceUnavailableReason | undefined,

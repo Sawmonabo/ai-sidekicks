@@ -1,53 +1,23 @@
-// The persistence write chokepoint.
+// The persistence write chokepoint. Every durable write in the console goes through
+// `UiStateStore.write`, and no production module but this one imports an adapter.
 //
-// Every durable write in the console goes through `UiStateStore.write`. That is the whole
-// point of the class: a write outside the closed value-class enumeration is a tripwire
-// failure at the store's write chokepoint, and a chokepoint that callers can go around is
-// not one. No production module but this one imports an adapter, so the only reachable
-// path to a durable byte is this class.
+// Four behaviors are decisions rather than mechanics:
 //
-// Four behaviors are worth stating because they are decisions rather than
-// mechanics:
+//   1. Refuse; never repair. A bad address, value class, shape, non-identifier string or
+//      over-large record returns a typed refusal and fires the `persistence-value-class`
+//      tripwire; the store never truncates or coerces. The address is checked with the value
+//      against the same cap, since `partition` and `key` are stored verbatim.
+//   2. Trim before failing on quota. A `quota-exceeded` write triggers one LRU partition trim
+//      and one retry; a second failure is surfaced. Every adapter failure on the write path
+//      surfaces as a returned refusal, since `write` declares its failure as a value.
+//   3. Reads never throw, and say which kind of nothing they found. `readOutcome` answers
+//      `present`, `absent` or `failed` (counted on health); `read` and `readGlobal` are its
+//      lossy projection. A caller that writes back a value derived from an absence, such as a
+//      layout restore filing its fallback, takes `readOutcome`.
+//   4. The adapter is resolved once, not swapped; see `UiStateStoreOptions.adapter`.
 //
-//   1. **Refuse; never repair.** An address that is not identifier-shaped, a
-//      disallowed value class, a wrong shape, a string that is not
-//      identifier-shaped, an over-large record — each returns a typed refusal and
-//      fires the `persistence-value-class` tripwire. The store does not truncate,
-//      coerce, or drop a member to make the write fit, because a store that
-//      quietly fixes its callers hides the caller that was wrong. The ADDRESS is
-//      checked with the value and against the same cap: `partition` and `key` are
-//      stored verbatim, so a chokepoint that read only the value would let a
-//      caller persist a sentence or a path in the key beside a valid boolean.
-//   2. **Trim before failing on quota.** A `quota-exceeded` write triggers one LRU
-//      partition trim and one retry. A second failure is surfaced. Retrying forever
-//      would turn a full disk into a spin. The trim, the partition count it needs,
-//      and the housekeeping trim that follows a successful write all surface an
-//      adapter failure as the same refusal the write itself would have returned:
-//      `write` declares its failure as a VALUE, and the one shipped caller fires
-//      it without awaiting, so a rejection that escapes is an unhandled one.
-//   3. **Reads never throw, and they say which kind of nothing they found.**
-//      `readOutcome` answers `present`, `absent`, or `failed`; the failure is a
-//      VALUE and is counted on the store's health, so no caller has to handle an
-//      exception to learn that the adapter could not answer. `read` and `readGlobal`
-//      are its lossy projection, for the callers where absent and failed decide the
-//      same thing. What separates the two classes is not whether a caller writes at
-//      all but whether it writes a value it DERIVED from the absence back over the
-//      same record: a layout restore does — it opens its fallback arrangement and
-//      files it — so one failed read destroys a pane layout the adapter is still holding,
-//      and both layout restores therefore take `readOutcome`. A caller that only
-//      re-files a constant mark, or that writes nothing until a person acts, reads
-//      the same answer either way and takes the projection.
-//   4. **The adapter is resolved once, not swapped.** A store may be constructed
-//      around a database that is still opening, and every operation awaits that
-//      one resolution. See `UiStateStoreOptions.adapter` for why the alternative —
-//      begin on memory, swap in the durable adapter later — loses writes.
-//
-// The class decides WHETHER a write lands. What that decision meant — whether a
-// refusal was the caller's fault or the store's, which of them fires the tripwire,
-// and the counts an operator reads afterwards — is `store-health.ts`, held here as
-// one field. Two jobs, and the second one is wrong in a way the first cannot be:
-// a misfiled refusal sends an operator to audit the wrong half of every write while
-// the chokepoint itself behaved perfectly.
+// The class decides whether a write lands; classifying and counting refusals is
+// `persistence-health.ts`.
 
 import {
   PERSISTENCE_RECORD_BYTE_CAP,
@@ -91,31 +61,29 @@ export type PersistenceWriteResult =
   | { readonly outcome: "written" }
   | { readonly outcome: "refused"; readonly refusal: PersistenceRefusal };
 
+/** Options for a `UiStateStore`; `adapter` is the only required member. */
 export interface UiStateStoreOptions {
   /**
    * The adapter, or a promise for one that is still opening.
    *
-   * A promise is admitted so the renderer can hold ONE store identity from its
-   * first render while the database opens behind it. The alternative — start on
-   * the memory adapter and swap in the durable one when the open settles — loses
-   * every write made in between and leaves any caller that captured the earlier
-   * store writing into memory forever. Here there is nothing to capture and
-   * nothing to swap: each operation awaits the same resolution, and since every
-   * operation on this class is already async, no caller pays for the wait.
+   * A promise is admitted so the renderer holds one store identity from its first render while
+   * the database opens. Starting on memory and swapping later would lose every write made in
+   * between and leave callers that captured the earlier store writing into memory forever.
    */
   readonly adapter: PersistenceAdapter | Promise<PersistenceAdapter>;
   readonly sessionPartitionCap?: number;
   readonly recordByteCap?: number;
   /**
-   * The clock every record's `updatedAt` is stamped from. Defaults to `RealClock`.
-   *
-   * The console's one clock seam rather than a bare `now` callback, so the LRU
-   * trim — which orders entirely on these stamps — can be driven on frozen time
-   * instead of on whether two writes happened to land in the same millisecond.
+   * The clock every record's `updatedAt` is stamped from. Defaults to `RealClock`, so the LRU
+   * trim can be driven on frozen time.
    */
   readonly clock?: Clock;
 }
 
+/**
+ * The persistence write chokepoint: validates, stores, trims, and reports every refusal as a
+ * value. Reads never throw.
+ */
 export class UiStateStore {
   readonly #adapterReady: Promise<PersistenceAdapter>;
   readonly #sessionPartitionCap: number;
@@ -132,13 +100,11 @@ export class UiStateStore {
   }
 
   /**
-   * Build the store the renderer actually uses: durable when the privileged scheme
-   * gave this window a database, in-memory and SAYING SO when it did not.
+   * Builds the store the renderer uses: durable when the privileged scheme gave this window a
+   * database, in-memory and saying so when it did not.
    *
-   * Synchronous by design — it returns the store, not a promise of one, so the
-   * composition root can create it during its first render and hand the same
-   * object to every consumer. `openUiStateDatabase` is documented never to throw,
-   * which is what lets the pending adapter be a promise that cannot reject.
+   * Synchronous, so the composition root can create it during its first render.
+   * `openUiStateDatabase` never throws, so the pending adapter promise cannot reject.
    */
   public static opening(options: OpenUiStateDatabaseOptions = {}): UiStateStore {
     return new UiStateStore({
@@ -147,21 +113,16 @@ export class UiStateStore {
           ? outcome.adapter
           : new MemoryPersistenceAdapter({ unavailableReason: outcome.reason }),
       ),
-      // The open race and the record stamps share one clock: two clocks here
-      // would mean a frozen-clock test could stop the timeout and still be
-      // stamping records off the wall.
+      // The open race and the record stamps share one clock, so a frozen-clock test cannot
+      // stop the timeout while records are still stamped off the wall.
       ...(options.clock === undefined ? {} : { clock: options.clock }),
     });
   }
 
   /**
-   * The single durable write path. Validates the address, then the value, then
-   * the record's size; then persists, then trims.
-   *
-   * The address goes first because it is the record's identity: a caller that
-   * cannot say WHERE a value belongs has not asked a question the value's
-   * validity could answer, and every arm below reports its refusal under a site
-   * built from that address — which a refused address may not supply.
+   * The single durable write path: validates the address, then the value, then the record's
+   * size, then persists, then trims. The address goes first because every refusal is reported
+   * under a site built from it.
    */
   public async write(
     partition: string,
@@ -206,14 +167,10 @@ export class UiStateStore {
       if (!(error instanceof PersistenceAdapterError) || error.refusal.code !== "quota-exceeded") {
         return this.#refuseAdapterFailure(error, site);
       }
-      // One trim, one retry. A second failure is the operator's to see.
-      //
-      // The trim target is one BELOW what the store currently holds rather than
-      // the standing cap: a store already at or under its cap would otherwise be
-      // asked to free nothing, and re-issuing the identical write against an
-      // unchanged store is not a retry, it is the same failure twice. If nothing
-      // was actually freed, the original refusal is surfaced without the second
-      // attempt.
+      // One trim, one retry; a second failure is the operator's to see. The trim target is one
+      // below what the store holds, since a store at or under its cap would be asked to free
+      // nothing and the retry would be the same failure twice. If nothing was freed, the
+      // original refusal is surfaced without a second attempt.
       let freedPartitionCount: number;
       try {
         freedPartitionCount = await adapter.trimPartitions(
@@ -236,12 +193,9 @@ export class UiStateStore {
     try {
       await this.#trimIfOverCap();
     } catch (trimFailure) {
-      // The record itself may already be durable, and this arm says "refused"
-      // anyway. That is the deliberate reading: `write` is documented as
-      // validate, then persist, then trim, so a store that could not finish the
-      // path it declares reports a refusal the operator can COUNT rather than a
-      // success that hides a store which has begun to fail. The alternative —
-      // answering "written" and dropping the failure — is the silent one.
+      // The record may already be durable, and this arm says "refused" anyway: a store that
+      // could not finish validate, persist, trim reports a refusal the operator can count rather
+      // than a success that hides a failing store.
       return this.#refuseAdapterFailure(trimFailure, site);
     }
     return { outcome: "written" };
@@ -257,12 +211,9 @@ export class UiStateStore {
   }
 
   /**
-   * Read one value, saying which kind of nothing an absence is.
-   *
-   * THE PRIMARY READ. Never throws — a failure is the `failed` arm and is counted on
-   * the store's health — and never conflates the two nothings, so a caller deciding
-   * what to WRITE on the strength of an absence can tell a record that was never
-   * saved from a read the adapter could not perform.
+   * The primary read, saying which kind of nothing an absence is. It never throws (a failure
+   * is the `failed` arm, counted on the store's health), so a caller deciding what to write
+   * on the strength of an absence can tell a record never saved from a read that failed.
    */
   public async readOutcome(partition: string, key: string): Promise<PersistenceReadOutcome> {
     try {
@@ -280,8 +231,8 @@ export class UiStateStore {
   }
 
   /**
-   * Read one value. Never throws; a failed read reads as "not loaded", the lossy
-   * projection of {@link readOutcome}.
+   * Reads one value. Never throws; a failed read reads as "not loaded", the lossy projection
+   * of {@link readOutcome}.
    */
   public async read(partition: string, key: string): Promise<StoredRecord | undefined> {
     return recordFromReadOutcome(await this.readOutcome(partition, key));
@@ -322,29 +273,19 @@ export class UiStateStore {
   }
 
   /**
-   * True once `close` has been called, so an owner that has to decide whether to
-   * mint a fresh store can ask rather than remember.
-   *
-   * The same shape as `SessionStoreRegistry.isDisposed`, and for the same reason:
-   * the window's teardown and its next mount are two commits, and a state field
-   * holding a store that has been closed is indistinguishable from one holding a
-   * live store unless the store itself says which it is.
+   * True once `close` has been called, so an owner deciding whether to mint a fresh store can
+   * ask rather than remember. Teardown and the next mount are two commits, and a closed store
+   * is otherwise indistinguishable from a live one.
    */
   public get isClosed(): boolean {
     return this.#closed;
   }
 
   /**
-   * Close the underlying connection.
-   *
-   * Async because the connection may still be opening: a synchronous close would
-   * silently do nothing to a database that lands a millisecond later, leaving a
-   * connection open that blocks the next window's upgrade.
-   *
-   * The flag is set BEFORE the await, so `isClosed` is true from the moment close
-   * is asked for. Setting it afterwards would leave a window — as long as the open
-   * takes to settle — in which an owner deciding whether to re-mint reads `false`
-   * and keeps a store whose connection is already on its way out.
+   * Closes the underlying connection. Async because the connection may still be opening, and a
+   * synchronous close would leave a late-landing connection open to block the next window's
+   * upgrade. The flag is set before the await so `isClosed` is true from the moment close is
+   * asked for.
    */
   public async close(): Promise<void> {
     this.#closed = true;
@@ -357,17 +298,12 @@ export class UiStateStore {
   }
 
   /**
-   * The one translation from a thrown adapter failure into a refused write.
+   * The one translation from a thrown adapter failure into a refused write, used by every arm
+   * of the write path because `write` declares its failure as a returned refusal.
    *
-   * Every arm of the write path funnels through here — the initial write, the
-   * post-quota retry, and both trims — because the arms that did not were the
-   * arms that REJECTED, and `write`'s declared failure is a returned refusal.
-   *
-   * A failure that is not a `PersistenceAdapterError` is rethrown rather than
-   * refused. Both adapters wrap every rejection in one, so anything else is a
-   * defect in this class or in an adapter that broke the seam, and a store that
-   * answered "refused" to its own bug would file that bug under a refusal code
-   * naming storage — where nobody would ever look for it.
+   * A failure that is not a `PersistenceAdapterError` is rethrown: both adapters wrap every
+   * rejection in one, so anything else is a defect, and refusing it would file the bug under a
+   * code naming storage.
    */
   #refuseAdapterFailure(error: unknown, site: string): PersistenceWriteResult {
     if (!(error instanceof PersistenceAdapterError)) {

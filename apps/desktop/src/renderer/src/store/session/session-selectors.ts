@@ -1,16 +1,10 @@
-// The narrow reads a view is allowed to make of a session store's state.
+// The narrow reads a view may make of a session store's state: a whole partition or one entity,
+// never a composed whole-pane object, so `useSyncExternalStore` bails on `Object.is` for every
+// kind the last transition did not touch.
 //
-// A store is read through its selector and never by reaching into its state. These are
-// those selectors, and they are narrow on purpose — a whole-partition or single-entity
-// pick, never a composed whole-pane object, so `useSyncExternalStore`'s equality check
-// bails on `Object.is` for every kind the last transition did not touch.
-//
-// AND NO SELECTOR HERE NAMES A WIRE SHAPE. `entities/entities.ts` frames
-// `ProjectedSessionEvent` as a renderer-local projection contract so the store holds
-// no wire knowledge. A body read that names a wire shape is a validating read, and a
-// validating read needs the canonical shape; only the daemon service, which owns the
-// wire's shapes, may hold them. A store hook that wants one takes it as an injected
-// reader.
+// No selector names a wire shape. `entities/entities.ts` keeps the store free of wire knowledge,
+// and a validating body read needs the canonical shape, which only the daemon service owns. A
+// store hook that wants one takes it as an injected reader.
 
 import type { StoredEntity } from "./entities/entities.js";
 import type { EntityKind, EntityRef } from "@renderer/lib/entity-kinds.js";

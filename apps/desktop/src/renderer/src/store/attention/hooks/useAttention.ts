@@ -5,10 +5,8 @@ import type { SessionDirectoryState } from "../../session-directory/session-dire
 import type { AttentionReading } from "../attention-summary.js";
 
 /**
- * What this window holds about the sessions it can name, read once.
- *
- * The members are what the consumers between them need, and no more: the destination
- * renders the reading and can ask for the directory again.
+ * What this window holds about the sessions it can name, read once: the destination renders
+ * the reading and can ask for the directory again.
  */
 export interface WindowAttention {
   /** The node's own session list, as the read settled it. */
@@ -27,13 +25,10 @@ export const WindowAttentionContext: Context<WindowAttention | undefined> = crea
 const SESSION_ATTENTION_ORIGIN = "attention-provider";
 
 /**
- * What the binding above holds.
- *
- * RAISES RATHER THAN SUBSTITUTES. A component reaching for a binding no composition
- * mounted is a wiring defect, and the honest answers a fallback could give are both
- * wrong: an empty reading would render "nothing needs you" over a projection nobody
- * read, and a second read here would be the second answer this binding exists to
- * prevent. It is the rule `usePlatformBridge` already follows one layer down.
+ * What the binding above holds. Raises rather than substitutes: a component reaching for a
+ * binding no composition mounted is a wiring defect, and an empty reading would render
+ * "nothing needs you" over a projection nobody read while a second read would be the second
+ * answer this binding exists to prevent.
  */
 export function useAttention(): WindowAttention {
   const held = useContext(WindowAttentionContext);

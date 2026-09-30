@@ -1,66 +1,25 @@
-// One open session: the store, and the two schedulers bound to its life.
+// One open session: the store, and the two schedulers bound to its life. Split from
+// `session-store-registry.ts`, which owns the set of open sessions.
 //
-// Split out of `session-store-registry.ts` rather than living inside it, because
-// the two answer different questions. This module answers "what is one open
-// session made of, and how do its three parts stay consistent with each other";
-// the registry answers "which sessions are open, and who is told when that set
-// changes". Keeping them in one file put both jobs behind one name and pushed it
-// past the length `apps/desktop/AGENTS.md` allows.
+// An entry owns the `SessionStore`, the `ApplyQueue` in front of its chokepoint and the
+// `RefreshScheduler` behind its re-pull, created and disposed together so neither outlives the
+// store. One owner also closes the repair loop: the drain reads each `ApplyOutcome` and asks this
+// session's scheduler for a re-pull when a hole opened, so a quiet session still repairs itself.
 //
-// An entry owns three things rather than one:
+// The resume rule lands here too. `timeline-resume.ts` decides; this entry submits the position
+// as the third argument of `SessionSnapshotReader` on the read that already happens, since a
+// separate resume read would be a second writer of the base state racing the scheduler.
 //
-//   • the `SessionStore` itself;
-//   • the `ApplyQueue` in front of its apply chokepoint, so a burst of wire events
-//     is one transition and one render instead of N;
-//   • the `RefreshScheduler` behind its re-pull, so every read is coalesced with an
-//     absolute deadline and two reads never overlap.
+// A refused position degrades honestly. When the daemon answers `event.cursor_unresolvable` the
+// entry forgets the position, re-reads from the window's beginning through the same reader, and
+// records the refusal for the view. The refused cursor is remembered so the next read does not
+// submit it again (two reads per refresh otherwise).
 //
-// The three are created together and disposed together on purpose. A queue that
-// outlived its store would drain into a dead object; a scheduler that outlived its
-// store would arm a timer for a pane that is gone. Binding them to one entry makes
-// both unrepresentable rather than merely discouraged.
+// The decision has its own notification because the store revision cannot carry it:
+// `initialize` refuses a snapshot behind the store's cursor, which is what the re-read after a
+// refused position answers with. The entry reports settlement through a registry callback.
 //
-// Binding them is also what closes the repair loop, and that is the reason the
-// queue and the scheduler belong to ONE owner rather than to two. `applyBatch`
-// answers with an `ApplyOutcome`, and a batch that opened a hole leaves the store
-// degraded until a completed re-pull clears it. The drain below reads that outcome
-// and asks this session's own scheduler for the re-pull, so a hole repairs itself
-// instead of waiting for an unrelated refresh a quiet session never gets.
-//
-// THE RESUME RULE LANDS BESIDE THAT REPAIR, and for the same reason. Every read this
-// entry performs answers with the log's own positions, and the resume rule is the
-// CONSUMER's to obey: read up from where this user was last acknowledged rather
-// than from the bottom of the window every time. `timeline-resume.ts` decides — and
-// says there which arms are real and why there is no lost-event one — and this entry
-// is what ACTS on the decision, by submitting the position on the next read.
-//
-// SO THE CURSOR RIDES THE READ, AND THE READ IS THE ONE THAT ALREADY HAPPENS. The
-// resume position is the third argument of `SessionSnapshotReader`, supplied from the
-// decision the previous read produced. There is no second read and no second path: a
-// resume that opened its own read would be a second writer of the base state, racing
-// the refresh scheduler that exists so two reads never overlap.
-//
-// AND THE REFUSED POSITION DEGRADES HONESTLY. A daemon that cannot resolve a submitted
-// cursor answers `event.cursor_unresolvable`, and the entry does three things in one
-// act rather than silently falling back: it forgets the position, it re-reads the
-// window from its beginning through the same reader, and it RECORDS the refusal so the
-// view says the remembered position could not be resumed. The refusal is not
-// permanent — the next completed read settles whatever the daemon then acknowledges —
-// and the cursor that was refused is remembered so the very next read does not submit
-// it again, which would cost two reads per refresh for as long as it stayed refused.
-//
-// WHY THE DECISION CARRIES ITS OWN NOTIFICATION. The store's revision bump cannot carry
-// it, even though a completed read writes the decision AND calls `initialize` in the
-// same tick. That pairing is not sound and the refusal path is where it breaks:
-// `initialize` consults `admitsSnapshotAt`, which REFUSES a snapshot behind the store's
-// cursor — and the re-read after a refused position answers at the beginning of the
-// window, which is exactly behind it. So the read completes, the decision settles, the
-// revision does not move, and a reading subscribed to the revision alone never learns
-// the refusal happened. The entry therefore reports its own settlement, through a
-// callback the registry supplies, and the reading subscribes to that.
-//
-// It reads no wire itself. The `read` performer is supplied by the composition
-// root, which is what keeps `store/` below `services/` in the import direction.
+// It reads no wire; the composition root supplies `read`, keeping `store/` below `services/`.
 
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import {
@@ -83,22 +42,15 @@ import {
 /**
  * The read a refresh performs.
  *
- * Returns the snapshot to establish, or `undefined` for "nothing was read" —
- * deliberately not an empty snapshot, which would tell the store the session is
- * genuinely empty and clear its degraded flag on a read that never happened.
+ * Returns the snapshot to establish, or `undefined` for "nothing was read", deliberately not an
+ * empty snapshot, which would tell the store the session is empty and clear its degraded flag
+ * on a read that never happened.
  *
- * `resumeFromCursor` is where the reader is asked to start: the position the previous
- * read acknowledged, or `undefined` for the beginning of the window.
- *
- * DECLARED REQUIRED, AND THAT DECLARATION GATES NOTHING BY ITSELF. A function of fewer
- * parameters is assignable to a function type with more, so an adapter written as
- * `async (sessionId) => …` satisfies this type exactly and drops the position in
- * silence — which is what shipped, and what `tsc` had no opinion about. The parameter
- * is required because it is not optional information: every caller of this type has a
- * position or has decided it has none. What HOLDS the forwarding is the behavioral
- * gate in `frame/session/session-lifecycle.bridge-swap.test.tsx`, which composes the real
- * adapter over a recording bridge and asserts the cursor reaches the request — a test
- * of the seam rather than of its signature, because the signature cannot fail.
+ * `resumeFromCursor` is where the reader is asked to start: the position the previous read
+ * acknowledged, or `undefined` for the beginning of the window. The parameter is required, but
+ * a function of fewer parameters is still assignable, so an adapter can ignore the position
+ * and type-check; `sessionReadThroughDaemon` does, because the `session.read` request names only
+ * the session.
  */
 export type SessionSnapshotReader = (
   sessionId: string,
@@ -107,31 +59,20 @@ export type SessionSnapshotReader = (
 ) => Promise<SessionSnapshot | undefined>;
 
 /**
- * Everything one open session needs.
- *
- * Declared HERE, in the lower of the two modules, rather than in the registry that
- * is named after it: the registry hands its own options straight through to every
- * entry it makes, so the two shapes are one shape, and a copy in the upper module
- * would make `open-session-entry.ts` import back from `session-store-registry.ts`
- * for the type — the import cycle `.dependency-cruiser.mjs` forbids and whose own
- * remedy is to hoist the shared symbol down.
+ * Everything one open session needs. Declared here, in the lower module, because the registry
+ * passes its options straight through; a copy in the registry would make this file import back
+ * from it, the cycle `.dependency-cruiser.mjs` forbids.
  */
 export interface OpenSessionEntryOptions {
-  /**
-   * The read every session's refresh scheduler performs. REQUIRED, and required
-   * on purpose: a refresh path with no read is a timer that fires into nothing.
-   */
+  /** The read every session's refresh scheduler performs; required, or a refresh reads nothing. */
   readonly read: SessionSnapshotReader;
   /**
-   * Called after every read that settles a resume decision, so a reading can
-   * subscribe to the decision rather than to a store transition that may not happen.
-   *
-   * A callback the registry supplies rather than an emitter of this entry's own: the
-   * fan-out belongs to the object views already hold, and an emitter per open
-   * session would be one subscription per session per reading for a fact every
-   * reading answers by asking the registry anyway.
+   * Called after every read that settles a resume decision, so a reading can subscribe to the
+   * decision rather than to a store transition that may not happen. Supplied by the registry
+   * because the fan-out belongs to the object views already hold.
    */
   readonly onTimelineResumeSettled?: () => void;
+  /** Defaults to `RealClock`. Every queue and scheduler made from this shares it. */
   /** Defaults to `RealClock`. Every queue and scheduler made from this shares it. */
   readonly clock?: Clock;
   /** Event-kind projectors handed to each store opened. */
@@ -150,32 +91,20 @@ export class OpenSessionEntry {
   public readonly applyQueue: ApplyQueue;
   public readonly refreshScheduler: RefreshScheduler;
   /**
-   * What the newest completed read's cursor block said to do, or `undefined` before
-   * one has landed.
-   *
-   * Kept as the LATEST decision rather than accumulated: each read carries the whole
-   * cursor block, so the newest one supersedes its predecessor completely and a
-   * history of them would be a record of positions the log has already moved past.
+   * What the newest completed read's cursor block said to do, or `undefined` before one has
+   * landed. Only the latest is kept, since each read carries the whole cursor block.
    */
   #timelineResume: TimelineResumeDecision | undefined = undefined;
   /**
-   * The position the NEXT read submits, or `undefined` for the window's beginning.
-   *
-   * Held apart from the decision above because the two answer different questions and
-   * diverge on exactly one path: after a refused position the decision is the refusal
-   * a view renders, while what the next read submits is whatever the recovering
-   * re-read then acknowledged. Folding them would make the notice clear itself.
+   * The position the next read submits, or `undefined` for the window's beginning. Separate from
+   * the decision because they diverge after a refused position: the decision is the refusal a
+   * view renders, while the next read submits what the recovering re-read acknowledged.
    */
   #resumeFromCursor: string | undefined = undefined;
   /**
-   * The one position the daemon refused, remembered so it is never submitted twice.
-   *
-   * ONE value rather than a set. A set of refused cursors is unbounded in a long
-   * session and buys nothing: the daemon issues one acknowledged position per read, so
-   * the only cursor a next read could re-submit is the one the last read named. What
-   * this closes is the loop — refuse, re-read, be acknowledged at the same unresolvable
-   * position, submit it again — which would cost two reads on every refresh for as long
-   * as it stood.
+   * The one position the daemon refused, remembered so it is never submitted twice. One value,
+   * not a set: the daemon issues one acknowledged position per read, so only the last read's
+   * could be re-submitted, and a set would grow without bound in a long session.
    */
   #unresolvableCursor: string | undefined = undefined;
   readonly #onTimelineResumeSettled: (() => void) | undefined;
@@ -191,15 +120,12 @@ export class OpenSessionEntry {
     });
     this.applyQueue = new ApplyQueue({
       clock,
-      // The one place a batch of wire events reaches the store. Nothing else in
-      // the console calls `applyBatch`, which is what makes the chokepoint a
-      // structural property rather than a convention.
+      // The only place a batch of wire events reaches the store: the chokepoint is structural.
       drain: (events) => {
         const outcome = this.store.applyBatch(events);
         if (needsAuthoritativeRepull(outcome)) {
-          // The outcome is the only notice a hole was opened, and only a completed
-          // re-pull closes it. Through the scheduler rather than a direct read, so
-          // a lossy burst costs one repair and never overlaps a read in flight.
+          // The outcome is the only notice a hole opened. Through the scheduler, so a lossy burst
+          // costs one repair and never overlaps a read in flight.
           this.refreshScheduler.request("gap-repull");
         }
       },
@@ -210,19 +136,17 @@ export class OpenSessionEntry {
       perform: async (reasons) => {
         await this.#performRead(options.read, sessionId, reasons);
       },
-      // A failed read is a real degradation with a named cause, not an unhandled
-      // rejection. The store also records that this read failed, whatever worse cause
-      // already stands, so the line under the session header says it couldn't catch up.
+      // A failed read is a degradation with a named cause. The store also records the failure
+      // beside any worse standing cause, so the line under the header says it could not catch up.
       onError: () => {
         this.store.markReadFailed();
       },
       ...(options.refreshDebounceMs === undefined ? {} : { debounceMs: options.refreshDebounceMs }),
       ...(options.refreshMaxWaitMs === undefined ? {} : { maxWaitMs: options.refreshMaxWaitMs }),
     });
-    // THE CAUSE GOES TO THE WINDOW'S DIAGNOSTIC CAPTURE AND NEVER TO THE SCREEN, where
-    // one line under the session header says only that the window is catching up. One
-    // warning each time the cause changes, recorded here because every writer of the
-    // cause lands on this store and this entry holds the clock and the session.
+    // The cause goes to the window's diagnostic capture, never the screen, which shows only that
+    // the window is catching up. One warning per change, recorded here because every writer of
+    // the cause lands on this store and this entry holds the clock and the session.
     let recordedCause: SessionDegradedCause | undefined;
     this.#releaseCauseCapture = this.store.readable.subscribe((state) => {
       const cause = state.degradedCause;
@@ -244,18 +168,15 @@ export class OpenSessionEntry {
   }
 
   /**
-   * The resume decision the newest completed read settled, or `undefined` before one
-   * has landed.
-   *
-   * Read by whatever renders the refused arm. `undefined` is deliberately not folded
-   * into any of the settled arms: "no read has completed" is a different fact from
-   * every one of them, and a view that showed the refusal for it would report a
-   * failed resume every time a session opened.
+   * The resume decision the newest completed read settled, or `undefined` before one has
+   * landed. "No read has completed" is not any settled arm; showing the refusal for it would
+   * report a failed resume every time a session opened.
    */
   public get timelineResume(): TimelineResumeDecision | undefined {
     return this.#timelineResume;
   }
 
+  /** Release the cause capture and dispose the queue and scheduler. */
   public dispose(): void {
     this.#releaseCauseCapture();
     this.applyQueue.dispose();
@@ -263,15 +184,10 @@ export class OpenSessionEntry {
   }
 
   /**
-   * One refresh: submit the remembered position, and recover from a refused one.
-   *
-   * The recovery is a SECOND CALL TO THE SAME READER rather than a second read path,
-   * which is what keeps "two reads never overlap" true: both calls are inside the one
-   * `perform` the scheduler is awaiting, so no other refresh can begin between them.
-   *
-   * A rejection that is anything else is re-raised untouched — the scheduler's own
-   * `onError` arm marks the store degraded, which is the right report for a read that
-   * failed and the wrong one for a position that was refused.
+   * One refresh: submit the remembered position, and recover from a refused one. Recovery is a
+   * second call to the same reader inside the one `perform` the scheduler awaits, so two reads
+   * never overlap. Any other rejection is re-raised, since the scheduler's `onError` marks the
+   * store degraded, right for a failed read and wrong for a refused position.
    */
   async #performRead(
     read: SessionSnapshotReader,
@@ -286,10 +202,8 @@ export class OpenSessionEntry {
       if (submitted === undefined || !isUnresolvableCursorRejection(rejection)) {
         throw rejection;
       }
-      // The cursor is tested BEFORE the code is believed. `event.cursor_unresolvable`
-      // refuses a request that carried a cursor, so a read this console submitted none
-      // on cannot have raised it about a position of ours — and taking it as ours
-      // would report a lost position on a read that never had one.
+      // The submitted cursor is tested before the code is believed: the code refuses a request
+      // that carried a cursor, so a read with none cannot have raised it about our position.
       this.#unresolvableCursor = submitted;
       this.#resumeFromCursor = undefined;
       this.#settleTimelineResume(refuseUnresolvableResume());
@@ -297,12 +211,10 @@ export class OpenSessionEntry {
       if (snapshot === undefined) {
         return;
       }
-      // The refusal STANDS as the decision: it is what happened to this session's
-      // resume cycle and it is what a view has to say. What the recovering read
-      // acknowledged is carried forward as the next position, and nothing else.
+      // The refusal stands as the decision. What the recovering read acknowledged is carried
+      // forward as the next position, and nothing else.
       this.#rememberNextResumePosition(resolveTimelineResume(snapshot.timelineCursors));
-      // The recovering read submitted nothing, so the window it established opens at
-      // the beginning of the log and there is no position before it to name.
+      // The recovering read submitted nothing, so its window opens at the log's beginning.
       this.store.initialize(snapshot);
       return;
     }
@@ -311,24 +223,13 @@ export class OpenSessionEntry {
     }
     const decision = resolveTimelineResume(snapshot.timelineCursors);
     this.#rememberNextResumePosition(decision);
-    // Settled BEFORE the base state is established, so the decision a reader sees
-    // beside an initialized store is the one that read produced rather than its
-    // predecessor's — and settled unconditionally, so a completed read always says
-    // where the next one starts and not only when it went wrong.
+    // Settled before the base state and unconditionally, so a reader beside an initialized store
+    // sees this read's decision, and a completed read always says where the next starts.
     this.#settleTimelineResume(decision);
-    // A completed re-pull is the ONE thing that clears the sticky degraded
-    // flag — `initialize` does that — which is why the read lands here and
-    // not on a caller that might forget.
-    //
-    // AND THE POSITION THIS READ WAS PERFORMED FROM TRAVELS WITH IT, because this
-    // object is the only one that knows it: a session's stream replays from the
-    // submitted cursor, so that cursor is where the window this read establishes
-    // BEGINS, and the reply carries no member naming its oldest row. Without it the
-    // transcript has no position to ask the log's earlier rows for and would have to
-    // invent one out of an opaque cursor's bytes, which `timeline-resume.ts` refuses
-    // for the whole console. Omitted rather than passed as `undefined` where none was
-    // submitted: the member is optional and this package forbids the explicit-
-    // undefined form.
+    // `initialize` is what clears the sticky degraded flag, so a completed re-pull lands here.
+    // The submitted position travels with the snapshot because only this object knows it: the
+    // stream replays from it, so it is where this window begins, and the reply names no oldest
+    // row. Omitted rather than passed as `undefined` where none was submitted.
     this.store.initialize(
       submitted === undefined ? snapshot : { ...snapshot, readFromCursor: submitted },
     );
@@ -341,11 +242,8 @@ export class OpenSessionEntry {
   }
 
   /**
-   * Carry a completed read's acknowledged position forward to the next read.
-   *
-   * The one position never carried forward is the one the daemon just refused: it
-   * would be submitted again on the next refresh, refused again, and recovered from
-   * again — two reads per refresh for as long as the daemon kept acknowledging it.
+   * Carry a completed read's acknowledged position forward to the next read, except the one the
+   * daemon just refused, which would be submitted and refused again on every refresh.
    */
   #rememberNextResumePosition(decision: TimelineResumeDecision): void {
     if (decision.outcome !== "resume") {
@@ -358,15 +256,10 @@ export class OpenSessionEntry {
 }
 
 /**
- * Whether one `applyBatch` left the projection known-incomplete, so an
- * authoritative re-read is owed.
- *
- * Read off the outcome's OWN discriminants, never off the store's degraded cause —
- * that flag is sticky until a re-pull clears it, so it would make every batch after
- * the first look repair-worthy. These four are exactly the counts `applyBatch`
- * raises one for. `duplicates` and `refusedForeignSession` are absent on purpose: a
- * re-delivery costs nothing, a foreign-session event is a routing defect one layer
- * up, and neither leaves a hole in THIS store that a read could fill.
+ * Whether one `applyBatch` left the projection known-incomplete, so an authoritative re-read is
+ * owed. Read off the outcome, not the sticky degraded cause, which would make every batch after
+ * the first look repair-worthy. `duplicates` and `refusedForeignSession` are absent on purpose:
+ * neither leaves a hole in this store that a read could fill.
  */
 function needsAuthoritativeRepull(outcome: ApplyOutcome): boolean {
   return (

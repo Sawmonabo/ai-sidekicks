@@ -1,12 +1,7 @@
-// A registered projector throws on an event.
-//
-// The failure is a caller's, not the store's: a projector handed a payload it did
-// not expect. What the chokepoint owes is containment — the event costs its entity
-// contribution and nothing else, a half-applied mutation set is applied all or not
-// at all, and the loss is NAMED, because only a re-pull can supply the mutation
-// that did not run.
-//
-// The sibling suites of `failure-modes.test.ts` cover the other modes.
+// A registered projector throws on an event. The failure is the caller's, but the chokepoint owes
+// containment: the event costs its entity contribution and nothing else, a mutation set applies
+// all or not at all, and the loss is named, since only a re-pull can supply the missing
+// mutation. Other modes are in the sibling `session-store.*.test.ts` suites.
 
 import { describe, expect, it } from "vitest";
 
@@ -43,9 +38,7 @@ describe("failure matrix — a registered projector throws on an event", () => {
 
     expect(outcome.projectionFailures).toBe(1);
     expect(outcome.admitted).toBe(5);
-    // The batch survives whole: the four events whose projection succeeded are
-    // projected, the timeline holds all five, and the loss is NAMED rather than
-    // absorbed, because only a re-pull can supply the mutation that did not run.
+    // The batch survives whole and the loss is named, not absorbed.
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 2, 3, 4, 5]);
     expect(Object.keys(store.snapshot().partitions.run).sort()).toStrictEqual([
       "run-1",
@@ -57,9 +50,7 @@ describe("failure matrix — a registered projector throws on an event", () => {
   });
 
   it("applies a failing event's mutations all or not at all", () => {
-    // A projector that returns a good mutation and then a malformed one. Merging
-    // the first before the second threw would leave a partition holding half of a
-    // transition nothing will ever complete.
+    // A good mutation then a malformed one: merging the first would leave half a transition.
     const store = new SessionStore({
       sessionId: "session-1",
       projectors: {
