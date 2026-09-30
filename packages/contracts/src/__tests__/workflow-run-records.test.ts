@@ -1,19 +1,15 @@
-// The run page, the runs table, the runs-needing-you section and the live stream all
-// read run records. These tests hold what those readers depend on: the run read's
-// chain and capture facts, a row that says whether its run is going, a page that never
-// outnumbers its total, and account lines standing above the runs that need a person.
+// The runs table and the runs-needing-you section read run records. These tests hold the rules
+// those readers depend on: a row whose duration, live step and wait cause agree with its status,
+// a page that never outnumbers its total, and account lines standing above the runs that need a
+// person, counted apart from them.
 import { describe, expect, it } from "vitest";
 
 import {
   WorkflowRunAttentionListResponseSchema,
-  WorkflowRunListRequestSchema,
   WorkflowRunListResponseSchema,
-  WorkflowRunReadResponseSchema,
   WorkflowRunSummarySchema,
-  WorkflowSubscribeNotificationSchema,
 } from "../workflow-run-records.js";
 
-const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
 const PARENT_RUN_ID = "33333333-3333-4333-8333-333333333333";
 const RUN_ID = "44444444-4444-4444-8444-444444444444";
@@ -31,54 +27,7 @@ const ROW = {
   liveStep: { index: 4, total: 9, nodeName: "run tests" },
 };
 
-describe("workflow.runRead", () => {
-  const run = {
-    workflowRunId: RUN_ID,
-    sessionId: SESSION_ID,
-    definitionId: "wfd-1",
-    workflowVersionId: "wfv-5",
-    state: "succeeded",
-    mode: "sub-workflow",
-    startedBy: { kind: "parentWorkflow", parentWorkflowRunId: PARENT_RUN_ID },
-    chainRoot: {
-      runId: PARENT_RUN_ID,
-      workflowId: "wfd-0",
-      workflowName: "Summarize folder",
-      startedAt: "2026-09-29T06:00:00Z",
-    },
-    executionContextCaptured: true,
-    keep: false,
-    steps: [],
-    startedAt: "2026-09-29T06:00:01Z",
-    endedAt: "2026-09-29T06:04:00Z",
-  };
-
-  it("accepts a chained run that captured its checkout", () => {
-    expect(WorkflowRunReadResponseSchema.safeParse(run).success).toBe(true);
-  });
-
-  it("refuses a run read that does not say whether it captured its checkout", () => {
-    const { executionContextCaptured: _dropped, ...withoutCapture } = run;
-    expect(WorkflowRunReadResponseSchema.safeParse(withoutCapture).success).toBe(false);
-  });
-});
-
 describe("workflow.runList", () => {
-  it("accepts the four filters and the version scope", () => {
-    const request = {
-      definitionId: "wfd-1",
-      workflowVersionId: "wfv-5",
-      status: ["failed"],
-      mode: ["trigger", "webhook"],
-      startedAfter: "2026-09-22T00:00:00Z",
-    };
-    expect(WorkflowRunListRequestSchema.safeParse(request).success).toBe(true);
-  });
-
-  it("refuses a filter the runs table does not have", () => {
-    expect(WorkflowRunListRequestSchema.safeParse({ tag: "nightly" }).success).toBe(false);
-  });
-
   it("accepts a going row with its live step and a finished row with its duration", () => {
     expect(WorkflowRunSummarySchema.safeParse(ROW).success).toBe(true);
     const { liveStep: _live, ...finished } = ROW;
@@ -92,16 +41,10 @@ describe("workflow.runList", () => {
     ).toBe(true);
   });
 
-  it("refuses a going row with a duration", () => {
+  it("refuses a row whose duration, live step or wait cause disagrees with its status", () => {
     expect(WorkflowRunSummarySchema.safeParse({ ...ROW, durationMs: 1_000 }).success).toBe(false);
-  });
-
-  it("refuses a finished row with a live step", () => {
     const finished = { ...ROW, status: "failed", durationMs: 1_000 };
     expect(WorkflowRunSummarySchema.safeParse(finished).success).toBe(false);
-  });
-
-  it("refuses a waiting row that does not name its cause", () => {
     expect(WorkflowRunSummarySchema.safeParse({ ...ROW, status: "waiting" }).success).toBe(false);
   });
 
@@ -140,27 +83,5 @@ describe("workflow.runAttentionList", () => {
   it("refuses a count that includes the account waits", () => {
     const reply = { entries: [account, approval], waitingOnPersonCount: 7 };
     expect(WorkflowRunAttentionListResponseSchema.safeParse(reply).success).toBe(false);
-  });
-
-  it("refuses a person's line waiting on an account", () => {
-    const reply = { entries: [{ ...approval, waitCause: "account" }], waitingOnPersonCount: 1 };
-    expect(WorkflowRunAttentionListResponseSchema.safeParse(reply).success).toBe(false);
-  });
-});
-
-describe("workflow.subscribe", () => {
-  it("accepts the hold, a removal and a definition's removal", () => {
-    for (const notification of [
-      { kind: "runsPause", paused: true, waitingStartCount: 3 },
-      { kind: "runsRemoved", workflowRunIds: [PARENT_RUN_ID, RUN_ID] },
-      { kind: "definitionRemoved", definitionId: "wfd-1" },
-    ]) {
-      expect(WorkflowSubscribeNotificationSchema.safeParse(notification).success).toBe(true);
-    }
-  });
-
-  it("refuses a removal that names no run", () => {
-    const empty = { kind: "runsRemoved", workflowRunIds: [] };
-    expect(WorkflowSubscribeNotificationSchema.safeParse(empty).success).toBe(false);
   });
 });

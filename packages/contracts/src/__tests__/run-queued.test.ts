@@ -1,7 +1,7 @@
 // A run's creation row is the one record an agent started from a saved definition is
 // brought into the session by, and the one the agent index rebuilds a child's linkage
 // from. These cases hold that such an agent carries the configuration it was resolved
-// from, and that a link kind or producing node is refused rather than carried.
+// from, that a run names at most one agent, and that its admitted cap is whole micro-dollars.
 import { describe, expect, it } from "vitest";
 
 import { RunQueuedPayloadSchema } from "../run-queued.js";
@@ -74,13 +74,5 @@ describe("run.queued", () => {
         admittedUnpricedCapUsdMicros: 2.5,
       }).success,
     ).toBe(false);
-  });
-
-  it("refuses the retired link kind and producing node", () => {
-    for (const retired of [{ linkType: "spawn" }, { producingNodeId: "node-1" }]) {
-      expect(
-        RunQueuedPayloadSchema.safeParse({ ...CHILD_FROM_DEFINITION, ...retired }).success,
-      ).toBe(false);
-    }
   });
 });

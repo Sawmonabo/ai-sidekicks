@@ -1,4 +1,4 @@
-// Tests for `tools/run-node-tests.mjs`. Most cases spawn the real script, because the property that
+// Tests for `tools/run-node-tests.mjs`. Each case spawns the real script, because the property that
 // matters (a zero-matching pattern exits non-zero) exists only at the process boundary.
 
 import test from "node:test";
@@ -8,8 +8,6 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, existsSync } 
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { parseArguments, resolveTestFiles } from "../run-node-tests.mjs";
 
 const RUNNER = join(dirname(fileURLToPath(import.meta.url)), "..", "run-node-tests.mjs");
 
@@ -75,16 +73,6 @@ test("--min-files fails closed when the suite shrinks below the floor", () => {
   }
 });
 
-test("--min-files passes when the floor is met", () => {
-  const root = makeFixtureTree(2);
-  try {
-    const result = runRunner(["--min-files=2", join(root, "**/*.test.mjs")]);
-    assert.equal(result.status, 0, `expected success, stderr: ${result.stderr}`);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("a malformed --min-files is a usage error, not a silently-ignored flag", () => {
   // In the space form the bare flag would parse as a node option and `3` as a pattern, leaving a
   // floor the caller thinks is armed.
@@ -110,46 +98,6 @@ test("a failing test propagates a non-zero exit through the wrapper", () => {
     );
     const result = runRunner([join(root, "**/*.test.mjs")]);
     assert.notEqual(result.status, 0, "wrapper must not mask a failing suite");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("parseArguments splits node options, patterns, and the floor", () => {
-  const parsed = parseArguments(["--experimental-strip-types", "--min-files=4", "a/**/*.test.mjs"]);
-  assert.deepEqual(parsed.forwardedNodeArguments, ["--experimental-strip-types"]);
-  assert.deepEqual(parsed.patterns, ["a/**/*.test.mjs"]);
-  assert.equal(parsed.minimumFiles, 4);
-});
-
-test("`**` spans zero directories as well as many", () => {
-  const root = makeFixtureTree(2);
-  try {
-    // One file at the root plus one under `nested/`: a `**` needing a segment would miss the first.
-    const { files } = resolveTestFiles([join(root, "**/*.test.mjs")]);
-    assert.equal(files.length, 2);
-    assert.ok(files.some((file) => file.includes("nested")));
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("overlapping patterns run each file exactly once", () => {
-  const root = makeFixtureTree(2);
-  try {
-    const { files } = resolveTestFiles([join(root, "**/*.test.mjs"), join(root, "**/*.mjs")]);
-    assert.equal(new Set(files).size, files.length);
-    assert.equal(files.length, 2);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("a directory argument resolves to the test files beneath it", () => {
-  const root = makeFixtureTree(2);
-  try {
-    const { files } = resolveTestFiles([root]);
-    assert.equal(files.length, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

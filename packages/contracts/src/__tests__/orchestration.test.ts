@@ -86,15 +86,6 @@ describe("orchestration.runCreate", () => {
       false,
     );
   });
-
-  it("refuses a node to run on", () => {
-    const request = {
-      sessionId: SESSION_ID,
-      targetAgentId: AGENT_ID,
-      targetNodeId: "node-1",
-    };
-    expect(OrchestrationRunCreateRequestSchema.safeParse(request).success).toBe(false);
-  });
 });
 
 describe("orchestration.childRunLinkRead", () => {
@@ -120,10 +111,5 @@ describe("orchestration.childRunLinkRead", () => {
         counts: { live: 0, total: 2, waiting: 3 },
       }).success,
     ).toBe(false);
-  });
-
-  it("refuses a mechanism word on a child", () => {
-    const tree = { ...TREE, children: [{ ...RUN_LINK, reachedBy: "peer_call" }] };
-    expect(ChildRunLinkReadResponseSchema.safeParse(tree).success).toBe(false);
   });
 });

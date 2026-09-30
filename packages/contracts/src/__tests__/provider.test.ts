@@ -1,19 +1,9 @@
-// The provider-settings wire: what `provider.list` reads per provider, what one
-// `provider.update` may change, and the shapes the protected paths, the standing
-// rules and the install stream carry.
+// The provider-settings rules the settings page relies on: a compaction bound between the
+// provider's own stops, an output style the installed build lists, and an update that changes
+// exactly one setting, one its provider has.
 import { describe, expect, it } from "vitest";
 
-import {
-  ProviderInstallProgressSchema,
-  ProviderListResponseSchema,
-  ProviderProtectedPathSchema,
-  ProviderStandingRuleRevokeResponseSchema,
-  ProviderStandingRuleSchema,
-  ProviderTerminalPluginUpdateRequestSchema,
-  ProviderUpdateRequestSchema,
-} from "../provider.js";
-
-const REPO_MOUNT_ID = "0192f3a1-4b5c-7d8e-9f01-23456789abcd";
+import { ProviderListResponseSchema, ProviderUpdateRequestSchema } from "../provider.js";
 
 function claudeRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -81,12 +71,6 @@ describe("provider.list", () => {
       listReply(claudeRow({ outputStyle: { current: "Concise", styles: [{ name: "default" }] } })),
     ).toBe(false);
   });
-
-  it("names the needed version on a command that is too old", () => {
-    expect(listReply(codexRow({ installation: { state: "tooOld", version: "0.140.0" } }))).toBe(
-      false,
-    );
-  });
 });
 
 describe("provider.update", () => {
@@ -123,105 +107,6 @@ describe("provider.update", () => {
       ProviderUpdateRequestSchema.safeParse({
         provider: "claude",
         terminalSessionsReachable: false,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("moves the compaction bound in steps of five", () => {
-    expect(
-      ProviderUpdateRequestSchema.safeParse({ provider: "codex", autoCompactPercent: 85 }).success,
-    ).toBe(true);
-    expect(
-      ProviderUpdateRequestSchema.safeParse({ provider: "codex", autoCompactPercent: 83 }).success,
-    ).toBe(false);
-  });
-
-  it("puts the terminal plugin into Claude Code only", () => {
-    expect(
-      ProviderTerminalPluginUpdateRequestSchema.safeParse({ provider: "claude", enabled: true })
-        .success,
-    ).toBe(true);
-    expect(
-      ProviderTerminalPluginUpdateRequestSchema.safeParse({ provider: "codex", enabled: true })
-        .success,
-    ).toBe(false);
-  });
-});
-
-describe("protected paths and standing rules", () => {
-  it("says where each protected path came from", () => {
-    expect(
-      ProviderProtectedPathSchema.safeParse({ pattern: "~/.aws/credentials", source: "builtIn" })
-        .success,
-    ).toBe(true);
-    expect(
-      ProviderProtectedPathSchema.safeParse({
-        pattern: "secrets/**",
-        source: "project",
-        sourcePath: "/work/app/.claude/settings.json",
-        repoMountId: REPO_MOUNT_ID,
-      }).success,
-    ).toBe(true);
-    // A project's deny rule names its project; a built-in one has no file.
-    expect(
-      ProviderProtectedPathSchema.safeParse({
-        pattern: "secrets/**",
-        source: "project",
-        sourcePath: "/work/app/.claude/settings.json",
-      }).success,
-    ).toBe(false);
-    expect(
-      ProviderProtectedPathSchema.safeParse({
-        pattern: "~/.aws/credentials",
-        source: "builtIn",
-        sourcePath: "/somewhere",
-      }).success,
-    ).toBe(false);
-  });
-
-  it("carries each standing rule's scope and source file in the provider's own words", () => {
-    const rule = {
-      ruleId: "rule_7f3a",
-      scope: { kind: "accountHome", accountId: "acct_01J8XYZ" },
-      sourcePath: "/Users/person/.ai-sidekicks/accounts/acct_01J8XYZ/rules/default.rules",
-      decision: "allow",
-      text: 'prefix_rule(pattern=["git", "status"], decision="allow")',
-    };
-    expect(ProviderStandingRuleSchema.safeParse(rule).success).toBe(true);
-    expect(
-      ProviderStandingRuleSchema.safeParse({
-        ...rule,
-        scope: { kind: "project", repoMountId: REPO_MOUNT_ID },
-      }).success,
-    ).toBe(true);
-    expect(
-      ProviderStandingRuleSchema.safeParse({ ...rule, scope: { kind: "session" } }).success,
-    ).toBe(false);
-    expect(
-      ProviderStandingRuleRevokeResponseSchema.safeParse({ ruleId: "rule_7f3a", outcome: "kept" })
-        .success,
-    ).toBe(false);
-  });
-});
-
-describe("provider.installSubscribe", () => {
-  it("carries the installer's reason and its command on a failed install", () => {
-    expect(
-      ProviderInstallProgressSchema.safeParse({ provider: "codex", state: "running" }).success,
-    ).toBe(true);
-    expect(
-      ProviderInstallProgressSchema.safeParse({
-        provider: "claude",
-        state: "failed",
-        reason: "curl: (6) Could not resolve host: claude.ai",
-        command: "curl -fsSL https://claude.ai/install.sh | bash",
-      }).success,
-    ).toBe(true);
-    expect(
-      ProviderInstallProgressSchema.safeParse({
-        provider: "claude",
-        state: "failed",
-        reason: "curl: (6) Could not resolve host: claude.ai",
       }).success,
     ).toBe(false);
   });

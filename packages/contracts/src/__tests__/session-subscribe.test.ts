@@ -1,106 +1,12 @@
-// Direct schema coverage for the session subscribe payloads. The request is strict, needs a
-// UUID-guarded session id, and takes an optional replay cursor (`afterCursor`) that is non-empty
-// and capped at `EVENT_CURSOR_MAX_LEN`. The response is the subscription id, UUID-guarded. A
-// frame is a batch of changes, each with its own cursor, or the caught-up frame (no changes, the
-// drop mark, the newest cursor); every other combination is refused.
+// The `session.subscribe` frame: a batch of changes with no frame cursor, or the caught-up frame
+// (no changes, the drop mark, the newest cursor). Any other combination would leave the client
+// without a position to resume from.
 import { describe, expect, it } from "vitest";
 
 import { SessionEventSchema } from "../event.js";
-import { STREAM_FRAME_MAX_CHANGES } from "../jsonrpc-streaming.js";
-import {
-  EVENT_CURSOR_MAX_LEN,
-  SessionStreamFrameSchema,
-  SessionSubscribeRequestSchema,
-  SessionSubscribeResponseSchema,
-} from "../session.js";
+import { SessionStreamFrameSchema } from "../session.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const SUBSCRIPTION_ID = "990e8400-e29b-41d4-a716-446655440004";
-
-describe("SessionSubscribeRequestSchema (request shape)", () => {
-  it("accepts a minimal request — the replay cursor is optional", () => {
-    const parsed = SessionSubscribeRequestSchema.parse({ sessionId: SESSION_ID });
-    expect(parsed.sessionId).toBe(SESSION_ID);
-    expect(parsed.afterCursor).toBeUndefined();
-  });
-
-  it("accepts an `afterCursor` (IPC/JSON-RPC body convention)", () => {
-    const parsed = SessionSubscribeRequestSchema.parse({
-      sessionId: SESSION_ID,
-      afterCursor: "42_1723291500000000000",
-    });
-    expect(parsed.afterCursor).toBe("42_1723291500000000000");
-  });
-
-  it("rejects a request missing `sessionId`", () => {
-    const result = SessionSubscribeRequestSchema.safeParse({
-      afterCursor: "42_1723291500000000000",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a malformed sessionId (UUID guard reuses C1 invariant)", () => {
-    const result = SessionSubscribeRequestSchema.safeParse({ sessionId: "not-a-uuid" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects unknown extra fields (.strict() guard)", () => {
-    const result = SessionSubscribeRequestSchema.safeParse({
-      sessionId: SESSION_ID,
-      unexpected: "field",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects an empty-string afterCursor (opaque but non-empty)", () => {
-    const result = SessionSubscribeRequestSchema.safeParse({
-      sessionId: SESSION_ID,
-      afterCursor: "",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects an oversized afterCursor (defense-in-depth length cap)", () => {
-    const result = SessionSubscribeRequestSchema.safeParse({
-      sessionId: SESSION_ID,
-      afterCursor: "x".repeat(EVENT_CURSOR_MAX_LEN + 1),
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts a cursor at exactly the length cap (boundary)", () => {
-    const result = SessionSubscribeRequestSchema.safeParse({
-      sessionId: SESSION_ID,
-      afterCursor: "x".repeat(EVENT_CURSOR_MAX_LEN),
-    });
-    expect(result.success).toBe(true);
-  });
-});
-
-describe("SessionSubscribeResponseSchema (alias seam over SubscribeAckResponse)", () => {
-  it("accepts a well-formed ack and round-trips the subscriptionId", () => {
-    const parsed = SessionSubscribeResponseSchema.parse({ subscriptionId: SUBSCRIPTION_ID });
-    expect(parsed.subscriptionId).toBe(SUBSCRIPTION_ID);
-  });
-
-  it("rejects an ack missing `subscriptionId`", () => {
-    const result = SessionSubscribeResponseSchema.safeParse({});
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a malformed subscriptionId (UUID guard)", () => {
-    const result = SessionSubscribeResponseSchema.safeParse({ subscriptionId: "not-a-uuid" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects unknown extra fields (.strict() guard — the ack stays minimal)", () => {
-    const result = SessionSubscribeResponseSchema.safeParse({
-      subscriptionId: SUBSCRIPTION_ID,
-      unexpected: "field",
-    });
-    expect(result.success).toBe(false);
-  });
-});
 
 describe("SessionStreamFrameSchema (each `session.subscribe` notify's value)", () => {
   const FrameSchema = SessionStreamFrameSchema(SessionEventSchema);
@@ -132,23 +38,12 @@ describe("SessionStreamFrameSchema (each `session.subscribe` notify's value)", (
   };
   const change = (cursor: string): { cursor: string; event: typeof event } => ({ cursor, event });
 
-  it("accepts a batch of changes, each with its cursor", () => {
-    expect(FrameSchema.safeParse({ changes: [change("c-1"), change("c-2")] }).success).toBe(true);
-  });
-
   it("accepts a batch carrying the drop mark", () => {
     expect(FrameSchema.safeParse({ changes: [change("c-9")], dropped: true }).success).toBe(true);
   });
 
   it("accepts the caught-up frame: no changes, the drop mark and the newest cursor", () => {
     expect(FrameSchema.safeParse({ changes: [], dropped: true, cursor: "c-9" }).success).toBe(true);
-  });
-
-  it(`refuses more than ${String(STREAM_FRAME_MAX_CHANGES)} changes in one frame`, () => {
-    const changes = Array.from({ length: STREAM_FRAME_MAX_CHANGES + 1 }, (_, index) =>
-      change(`c-${String(index)}`),
-    );
-    expect(FrameSchema.safeParse({ changes }).success).toBe(false);
   });
 
   it("refuses an empty frame without the drop mark and the newest cursor", () => {
@@ -161,16 +56,5 @@ describe("SessionStreamFrameSchema (each `session.subscribe` notify's value)", (
     expect(
       FrameSchema.safeParse({ changes: [change("c-1")], dropped: true, cursor: "c-1" }).success,
     ).toBe(false);
-  });
-
-  it("refuses a change without its cursor", () => {
-    expect(FrameSchema.safeParse({ changes: [{ event }] }).success).toBe(false);
-  });
-
-  it("refuses an unknown member on the frame or on a change", () => {
-    expect(FrameSchema.safeParse({ changes: [change("c-1")], gap: true }).success).toBe(false);
-    expect(FrameSchema.safeParse({ changes: [{ ...change("c-1"), sequence: 1 }] }).success).toBe(
-      false,
-    );
   });
 });

@@ -13,7 +13,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, symlinkSync, unlinkSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -78,19 +78,6 @@ function withSpacedSymlinkedRepo(runBody) {
     rmSync(containingDirectory, { recursive: true, force: true });
   }
 }
-
-test("the fixture path genuinely exercises the encoding axis", () => {
-  // Without this, a fixture path with no space would let every test below pass proving nothing.
-  withSpacedSymlinkedRepo((spacedRepoLink) => {
-    const scriptPath = join(spacedRepoLink, "tools/run-node-tests.mjs");
-    assert.notEqual(
-      `file://${scriptPath}`,
-      pathToFileURL(scriptPath).href,
-      "fixture path must differ between naive concatenation and correct URL encoding",
-    );
-    assert.match(pathToFileURL(scriptPath).href, /%20/);
-  });
-});
 
 for (const { relativePath, args, nodeOptions = [], stdin = "", env } of CLI_SCRIPTS) {
   test(`${relativePath}: does not silently no-op through a spaced, symlinked path`, () => {

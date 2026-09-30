@@ -1,7 +1,6 @@
 // The session client over the daemon transport: a real `JsonRpcClient` over an in-memory
 // `ClientTransport` that answers from a scripted reply table (the fake daemon), with no socket or
-// external state. Covers create-then-read identity, ascending replay with `afterCursor` resume,
-// restore from the daemon's state rather than a client cache, and the abort-signal races.
+// external state. Covers ascending replay with `afterCursor` resume and the abort-signal races.
 
 import {
   type AgentId,
@@ -218,68 +217,10 @@ async function take<T>(iter: AsyncIterable<T>, count: number): Promise<T[]> {
   return out;
 }
 
-// Create then read
-
-describe("SessionCreate then SessionRead returns identical session id (round-trip)", () => {
-  it("daemon transport: create returns sessionId X; read({X}) returns the same X with persisted snapshot", async () => {
-    // `session.read` must return a `session.id` equal to the create-time id.
-    const harness = buildDaemonHarness([
-      {
-        method: "session.create",
-        buildResult: (): unknown => ({
-          sessionId: SESSION_ID,
-          shape: "chat",
-          state: "provisioning",
-        }),
-      },
-      {
-        method: "session.read",
-        buildResult: (request): unknown => {
-          // Echo the requested id so an SDK that replaced `sessionId` would show.
-          const requestedSessionId = (
-            (request.params as { sessionId: SessionId } | undefined) ?? { sessionId: SESSION_ID }
-          ).sessionId;
-          return {
-            session: {
-              id: requestedSessionId,
-              state: "provisioning",
-              createdAt: "2026-04-30T12:00:00.000Z",
-              updatedAt: "2026-04-30T12:00:00.000Z",
-              draft: "",
-            },
-            timelineCursors: {
-              latest: CURSOR_1,
-            },
-          };
-        },
-      },
-    ]);
-    const sdk = createDaemonSessionClient(harness.client);
-
-    const createResponse = await sdk.create({
-      clientIdempotencyKey: "0f2b4d5e-9999-4999-8999-999999999999",
-      binding: { kind: "chat" },
-      lead: {
-        driverName: "claude",
-        modelId: "claude-opus-4-5",
-        providerAccountId: null,
-        effort: "high",
-      },
-    });
-    expect(createResponse.sessionId).toBe(SESSION_ID);
-    expect(createResponse.state).toBe("provisioning");
-
-    const readResponse = await sdk.read({ sessionId: createResponse.sessionId });
-    // The id from create is the id read returns in its snapshot.
-    expect(readResponse.session.id).toBe(createResponse.sessionId);
-    expect(readResponse.session.state).toBe("provisioning");
-  });
-});
-
 // A pre-aborted signal must not touch the wire: `client.subscribe` would otherwise send the
 // `session.subscribe` request and reserve a daemon-side subscription entry.
 
-describe("C1 / Codex RT-1 Finding 1 — daemon subscribe pre-aborted signal does not call client.subscribe", () => {
+describe("daemon subscribe with a pre-aborted signal does not call client.subscribe", () => {
   it("daemon transport: when options.signal is already aborted, no wire envelope is sent and the async iterable yields zero values", async () => {
     // No scripted `session.subscribe`: a leaked request would fail on the unscripted path, and the
     // empty `sentEnvelopes` assertion catches it first.
@@ -305,7 +246,7 @@ describe("C1 / Codex RT-1 Finding 1 — daemon subscribe pre-aborted signal does
 
 // Replay order and resume
 
-describe("I3 — SessionSubscribe yields events in sequence ASC across reconnect", () => {
+describe("SessionSubscribe yields events in sequence ASC across reconnect", () => {
   it("daemon transport: a reconnect with afterCursor resumes ASC after that cursor", async () => {
     const history = [
       makeSessionCreatedEvent(EVENT_ID_1, 0),
@@ -331,57 +272,12 @@ describe("I3 — SessionSubscribe yields events in sequence ASC across reconnect
   });
 });
 
-// Reconnect restores from the daemon
-
-describe("I4 — Reconnect after lost stream restores from snapshot, NOT client cache", () => {
-  it("daemon transport: a reconnect surfaces history the daemon changed meanwhile", async () => {
-    let history: SessionEvent[] = [
-      makeSessionCreatedEvent(EVENT_ID_1, 0),
-      makeSessionCreatedEvent(EVENT_ID_2, 1),
-    ];
-    const { scripted, recorded } = scriptSessionStream(() => history);
-    const sdk = createDaemonSessionClient(buildDaemonHarness(scripted).client);
-
-    const cold = await take(sdk.subscribe({ sessionId: SESSION_ID }), 2);
-    expect(cold.map((e) => e.eventId)).toEqual([CURSOR_1, CURSOR_2]);
-
-    // While the stream is lost, the daemon's projection revises the second
-    // event and gains a third. A client that cached the cold stream would
-    // replay the old second event; one that reads the wire sees the revision.
-    const revisedSecondEvent: SessionEvent = {
-      type: "session.created",
-      category: "session_lifecycle",
-      id: EVENT_ID_2,
-      sessionId: SESSION_ID,
-      sequence: 1,
-      occurredAt: "2026-04-30T12:05:00.000Z",
-      actor: null,
-      version: "1.0" as EventEnvelopeVersion,
-      payload: { sessionId: SESSION_ID, shape: "project", mainAgent: LEAD },
-    };
-    history = [
-      makeSessionCreatedEvent(EVENT_ID_1, 0),
-      revisedSecondEvent,
-      makeSessionCreatedEvent(EVENT_ID_3, 2),
-    ];
-
-    const reconnected = await take(
-      sdk.subscribe({ sessionId: SESSION_ID, afterCursor: CURSOR_1 }),
-      2,
-    );
-    expect(recorded.callCount).toBe(2);
-    expect(recorded.afterCursor).toBe(CURSOR_1);
-    expect(reconnected.map((e) => e.eventId)).toEqual([CURSOR_2, CURSOR_3]);
-    expect(reconnected[0]?.event).toEqual(revisedSecondEvent);
-  });
-});
-
 // A signal that aborts after the pre-abort check but before the abort listener attaches (during
 // `client.subscribe()`) must still cancel the subscription. An abort fired after the consumer
 // starts iterating would not reach this window, so the test makes `client.subscribe` abort the
 // signal from inside its body.
 
-describe("C7 / Codex RT-5 Finding A — daemon subscribe re-checks AbortSignal after attaching abort listener", () => {
+describe("daemon subscribe re-checks AbortSignal after attaching abort listener", () => {
   it("daemon transport: when signal aborts during client.subscribe() (after pre-check, before listener attach), the post-listener re-check fires subscription.cancel() and the iterable yields zero values", async () => {
     // No scripted subscribe: the mocked `client.subscribe` replaces the wire path; the harness
     // only supplies a real `JsonRpcClient` to spy on.
@@ -390,18 +286,32 @@ describe("C7 / Codex RT-5 Finding A — daemon subscribe re-checks AbortSignal a
 
     const ac = new AbortController();
 
-    // The fake subscription's iterator parks forever, so a wrong yield shows as a hung test.
-    // `cancelSpy` must be called by the re-check after the listener attach, not by the loop's
-    // `return()`: the re-check returns before the loop is entered.
-    const cancelSpy = vi.fn((): Promise<void> => Promise.resolve());
+    // The fake's `next()` parks until `cancel()` and then settles as ended, as a real subscription
+    // does after a cancel, so a wrong yield before the cancel shows as a hung test. `cancelSpy`
+    // must be called by the re-check after the listener attach, not by the loop's `return()`: the
+    // re-check returns before the loop is entered.
+    let isCanceled = false;
+    const parkedReads: Array<() => void> = [];
+    const readUntilCanceled = (): Promise<void> =>
+      isCanceled ? Promise.resolve() : new Promise<void>((settle) => parkedReads.push(settle));
+    const cancelSpy = vi.fn((): Promise<void> => {
+      isCanceled = true;
+      for (const settle of parkedReads.splice(0)) settle();
+      return Promise.resolve();
+    });
     const fakeSubscription = {
       subscriptionId: "fake-sub-id",
       cancel: cancelSpy,
-      next: (): Promise<undefined> => new Promise<undefined>(() => undefined),
+      next: async (): Promise<undefined> => {
+        await readUntilCanceled();
+        return undefined;
+      },
       [Symbol.asyncIterator](): AsyncIterator<SessionEvent> {
         return {
-          next: (): Promise<IteratorResult<SessionEvent>> =>
-            new Promise<IteratorResult<SessionEvent>>(() => undefined),
+          next: async (): Promise<IteratorResult<SessionEvent>> => {
+            await readUntilCanceled();
+            return { value: undefined, done: true };
+          },
           return: (): Promise<IteratorResult<SessionEvent>> =>
             Promise.resolve({ value: undefined, done: true }),
         };

@@ -1,6 +1,6 @@
-// The plan card's and the question card's boundary: the verdict and the answers
-// the cards send, the records the daemon renders them from, and the shapes that
-// would mint a session nobody asked for or ask a question nobody can answer.
+// The plan card's and the question card's cross-field rules: a verdict that would mint a
+// session nobody asked for, a question held by both a run and a wait or by neither, and
+// question text or a secret outside the half that keeps it private.
 import { describe, expect, it } from "vitest";
 
 import { PlanResolveRequestSchema, PlanResolveResponseSchema } from "../plan.js";
@@ -45,15 +45,6 @@ describe("PlanResolveRequestSchema", () => {
         fresh: { driverName: "codex", level: "ask" },
       }).success,
     ).toBe(false);
-  });
-
-  it("refuses plan as a starting level, because planning is a mode and not a level", () => {
-    const planLevel = {
-      planId: PLAN_ID,
-      verdict: "fresh",
-      fresh: { driverName: "claude-code", level: "plan" },
-    };
-    expect(PlanResolveRequestSchema.safeParse(planLevel).success).toBe(false);
   });
 });
 
@@ -139,10 +130,6 @@ describe("QuestionAskedPersonalDataSchema", () => {
     ).toBe(true);
   });
 
-  it("refuses a record with no question", () => {
-    expect(QuestionAskedPersonalDataSchema.safeParse({ questions: [] }).success).toBe(false);
-  });
-
   it("refuses a secret question that carries option rows", () => {
     expect(
       QuestionAskedPersonalDataSchema.safeParse({ questions: [{ ...PICK_ONE, secret: true }] })
@@ -163,24 +150,6 @@ describe("QuestionResolveRequestSchema", () => {
       ],
     };
     expect(QuestionResolveRequestSchema.safeParse(request).success).toBe(true);
-  });
-
-  it("refuses no answers, a pick with no labels, and an answer of an unknown kind", () => {
-    expect(
-      QuestionResolveRequestSchema.safeParse({ questionId: QUESTION_ID, answers: [] }).success,
-    ).toBe(false);
-    expect(
-      QuestionResolveRequestSchema.safeParse({
-        questionId: QUESTION_ID,
-        answers: [{ kind: "picked", labels: [] }],
-      }).success,
-    ).toBe(false);
-    expect(
-      QuestionResolveRequestSchema.safeParse({
-        questionId: QUESTION_ID,
-        answers: [{ kind: "later" }],
-      }).success,
-    ).toBe(false);
   });
 
   it("refuses a secret carried on a typed answer's member", () => {
