@@ -47,7 +47,6 @@
 ## Preconditions
 
 - The specs and ADRs under `Depends On` say what this one assumes.
-- Blocking open questions are resolved.
 
 For external technical facts (wire formats, vendor limits, protocol numbers) link the source.
 

@@ -38,7 +38,7 @@ A kept session must stay resumable for as long as the product keeps it. How does
 
 ### Trigger
 
-Carrying the rule that nothing deletes a session automatically into the retention spec, and a probe showing that Claude Code's default sweep, and a single repository's settings file, would delete the conversation files of sessions the product still keeps.
+The rule that nothing deletes a session automatically, set against a probe showing that Claude Code's default sweep, and a single repository's settings file, would delete the conversation files of sessions the product still keeps.
 
 ---
 
@@ -149,14 +149,6 @@ The product already promises the person that nothing goes until they say so, and
 ---
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [x] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 

@@ -209,7 +209,7 @@ type DriverCapabilityFlag =
 
 ## The Session Screen's Reads, By Region
 
-An index, not a second contract: each region of the session screen, what it needs, and the operations that answer it, named as the session screen's design names them. It exists because the screen's regions cut across every plan section below, and a builder reading one section cannot see that one region is served by four of them. The operations not built yet, with their members and owners, are listed in [§Operations Not Yet Built](#operations-not-yet-built); this table only names them.
+An index, not a second contract: each region of the session screen, what it needs, and the operations that answer it, named as the session screen's design names them. It exists because the screen's regions cut across every plan section below, and a builder reading one section cannot see that one region is served by several of them. The operations not built yet, with their members and owners, are listed in [§Operations Not Yet Built](#operations-not-yet-built); this table only names them.
 
 | Region | What it needs | What answers it |
 | --- | --- | --- |
@@ -231,7 +231,7 @@ An index, not a second contract: each region of the session screen, what it need
 | Preview | The open pages with each one's address, title, icon, load state, zoom and whether its history has somewhere to go; the discovered dev servers; the machine the page runs on; the live picture on another device; the staged marks | `preview.pageList`, served live; `preview.pageOpen`, `preview.pageClose`, `preview.pageActivate`, `preview.pageReorder`, `preview.navigate` and `preview.zoom`; `preview.devServerList`, served live; `preview.screencastSubscribe` on another device; the staged marks live in the composer store until `preview.marksSend` sends them. The browser's saved-site verbs and the page host's own traffic are in [§Page-Host Method Registry](#page-host-method-registry) |
 | Cloud tasks | The session's tasks sent to a provider's cloud, each one's last reported state and attempts, a ready attempt's diff, and bringing one back | `cloud.taskStart`; `cloud.taskList`, served live; `cloud.taskRead`; `cloud.taskDiffRead`; `cloud.taskApply`; the event `cloud.task_updated` |
 | Voice | Dictation into the draft; a spoken call with the agent; the voices offered; which session voice is on in | `voice.dictationStart`, `voice.dictationWrite`, `voice.dictationStop` and `voice.dictationSubscribe`; `voice.callStart`, `voice.callStop` and `voice.callSubscribe`; `voice.voiceList`; `voice.stateUpdate` and `voice.stateSubscribe` |
-| The working line | What the agent is doing, the elapsed clock, the tokens received this turn, the turn's state word, its task list, and the connection state | `run.subscribeState` for the state and the activity; `turn.usage` for the tokens; `turn.tasks` for the list; the `daemon.status` topic on `daemon.subscribe` for the connection state |
+| The working line | What the agent is doing, or Codex's own sentence while it holds a turn for a safety check; the elapsed clock, the tokens received this turn, the turn's state word, its task list, the warnings count and its list, and the connection state | `run.subscribeState` for the state and the activity; `run.safety_buffering_updated` on `session.subscribe` for Codex's sentence; `turn.usage` for the tokens; `turn.tasks` for the list; the `session.notice` records of kind `provider_warning` for the warnings; the `daemon.status` topic on `daemon.subscribe` for the connection state |
 | The bell and the notifications list | The count of what is waiting, one line per moment, and the moment a banner speaks for | `attention.projectionRead`, served live: the whole projection, then every change. Main settles each banner it posts with `attention.bannerSettle`; no region calls it |
 | The service | Whether the background service answers, its liveness, and the flush before a quit | `daemon.status.read`; `daemon.ping`, main's liveness check; `daemon.flush` before a quit, which never stops the service; the boot card's `Retry` is the bridge's `daemon.requestStart()` |
 | The preload bridge | How the renderer reaches the daemon, the machine and its own windows | `daemon.call` and `daemon.subscribe`; `native.copyToClipboard`, `native.revealInFileExplorer`, `native.showOpenDialog`, `native.getDroppedFileRef`, `native.savePastedImage`, `native.showSaveDialog`, `native.openExternal`, `native.openInEditor` and `native.openInTerminal`, each file operation taking or returning a `FilePathRef` token that main's relay turns into a path; `window.setAppearance`, `window.subscribeAppearance`, `window.subscribeFullscreen`, `window.setMinimumSize` and `window.subscribeToNavigationRequest` |
@@ -595,6 +595,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `run.queueReorder {sessionId, childHandle?, queueItemIds}` | Reorder the waiting messages: one daemon-held order over the items still waiting, on the lead's queue or a child's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T2.11 |
 | `run.recoveryResolve {runId, choice: keep_provider \| undo_to_agreed \| continue_provider \| hand_over}`, event `run.recovery_resolved` | After a restart, settle a mismatch between the session's record and the provider's: a read-only surplus is added with no question, and any other asks with two named choices | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-013](../../plans/013-persistence-recovery-and-replay.md) T15.5 |
 | `run.resume` | The second press of `Pause`, which continues | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.6, T3.5, T4.1 |
+| event `run.safety_buffering_updated` {sessionId, runId, turnId, active, fasterModel?}, relayed live and never kept | Codex's own sentence in the working line's action words while Codex holds a turn for a safety check; no flow row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
 | `run.subscribeQueue` | The queue stream | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T4.1 |
 | `run.subscribeState` | The run-state stream: state slot, activity, the row dots | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.3, T4.1 |
 
@@ -633,6 +634,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.memoryRead` | Inspector `Memory` section: the memory paths and the account's own store | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.36; [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-6-4 |
 | `session.modeUpdate {sessionId, mode: build \| plan}` | The Build or Plan mode chip | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.33 |
 | `session.mute {sessionId}` and `session.unmute {sessionId}` → `{}`, events `session.muted {sessionId, at}` and `session.unmuted {sessionId, at}`; `muted` on `session.list` and `session.read` entries | Mute and unmute a session's notifications; held by the daemon, seen by every device | [Spec-017](../../specs/017-notifications-and-attention-model.md), [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3; [Plan-017](../../plans/017-notifications-and-attention-model.md) |
+| event `session.notice` of kind `provider_warning` {source: warning \| deprecation, text, details?} | The working line's `⚠ N warnings` word and its list, in Codex's own words; no flow row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
 | `session.overviewRead {afterRevision}` → `{revision, sessions: [{id, title, provider, state, agents: [{name, provider, state}]}], remoteControl: {state}}` | The terminal pane's read: every session with its agents and Remote Control's state, answered when anything moves | [Spec-001](../../specs/001-session-core.md), [ADR-037](../../decisions/037-claude-code-mods-are-an-optional-terminal-bridge.md) | [Plan-001](../../plans/001-session-core.md) T6.14 |
 | `session.permissionLevelUpdate {sessionId, level: readonly \| ask \| reviewed \| sandboxed \| yolo}` → `{sessionId, level}` | The permission level chip | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md) | [Plan-010](../../plans/010-approvals-permissions-and-trust-boundaries.md) T3.12 |
 | `session.pin` and `session.unpin`, events `session.pinned` and `session.unpinned` | Pin and unpin a session inside its group, pin order kept; held by the daemon | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md) T6.6 |
@@ -833,7 +835,7 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionSnapshot;
-  timelineCursors: { earliest?: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest?: the position immediately BEFORE the oldest surviving row (Plan-005 T4.3), a directly resumable cursor — V1-constant encode(-1) (compaction stubs rows in place, never deletes; a future retention pass deleting through N-1 moves it to encode(N-1)). Consumer: resume from acknowledged ?? earliest; gap detection decode(acknowledged) < decode(earliest) ⇒ events lost ⇒ reset projection + resume from earliest. Optional for version skew: new daemons always set it; absent ⇒ responder predates the whole Plan-005 Phase-4 read surface; the consumer discovers the absence from this very session.read response and refuses the resume cycle SDK-locally before any projection reset or subsequent replay/subscribe wire call (`Plan-028` clause (d)); required at next MAJOR per ADR-018.
+  timelineCursors: { earliest: EventCursor; latest: EventCursor; acknowledged?: EventCursor }; // earliest: the position immediately BEFORE the oldest surviving row (Plan-005 T4.3), a directly resumable cursor — V1-constant encode(-1) (compaction stubs rows in place, never deletes; a future retention pass deleting through N-1 moves it to encode(N-1)). Consumer: resume from acknowledged ?? earliest; gap detection decode(acknowledged) < decode(earliest) ⇒ events lost ⇒ reset projection + resume from earliest.
 }
 
 // SessionSubscribe
@@ -1211,7 +1213,7 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 **Ordering convention**: ISO 8601 date-strings are lexicographically equivalent to chronologically ordered. The `negotiateProtocol` algorithm uses string-sort() (`[...].sort.at(-1)!`) for max-version selection, with no separate semver parser. Floor / ceiling discrimination uses the same lex order against the daemon's supported set.
 
-**Rationale**: This project is an AI-agent IPC running `claude-driver` and `codex-driver` provider processes; the [Model Context Protocol (MCP) §Architecture overview](https://modelcontextprotocol.io/docs/learn/architecture) is the closest-analog 2024-2026 convention from Anthropic, and MCP uses date-string `protocolVersion` (e.g. `"2025-06-18"`) for the same handshake semantics. Date-strings encode release date inherently, dodge the semver "v1.5 with no v1.4" ambiguity, and are immediately readable in logs and error reports without a parser.
+**Rationale**: This project is an AI-agent IPC running `claude-driver` and `codex-driver` provider processes; the [Model Context Protocol (MCP) §Architecture overview](https://modelcontextprotocol.io/docs/learn/architecture) is the closest analog, and MCP uses date-string `protocolVersion` (e.g. `"2025-06-18"`) for the same handshake semantics. Date-strings encode release date inherently, dodge the semver "v1.5 with no v1.4" ambiguity, and are immediately readable in logs and error reports without a parser.
 
 **Distinction from `EventEnvelopeVersion`**: `protocolVersion` is the JSON-RPC handshake field on every request — it identifies the wire-protocol revision the client and daemon speak. `EventEnvelopeVersion` (per [ADR-018](../../decisions/018-cross-version-compatibility.md), defined under §Plans 004, 005 And 006 below) is a semver `MAJOR.MINOR` brand on event envelopes — it identifies the event-data schema revision. The two surfaces are independent and evolve on independent cadences, and neither stands in for the other.
 
@@ -1958,7 +1960,7 @@ type DriverGoalResult =
 // number-cursor convention as `lastReplayedSequence`/`afterSequence` below — which the daemon
 // compares against its recorded position; divergence reconciliation (halt-for-human, rollback
 // markers as the position floor) is Spec-013's, per ADR-017's
-// local-log-authoritative ruling. The compare also catches a provider silently returning a
+// rule that the local log is authoritative. The compare also catches a provider silently returning a
 // fresh session on resume (e.g. Claude on a working-directory mismatch): a fresh session's
 // position cannot match the recorded one. Timestamps for the resumed case live on
 // `runtime_bindings.updated_at` (Plan-004 T2.1); the result shape carries only the
@@ -2342,7 +2344,7 @@ interface DriverAuthProbeResult {
 // Return type of `ProviderDriver.getCapabilities()`. Spec-004 §Tool Metadata semantically
 // separates whole-driver capability flags from per-tool metadata; the wrapper keeps
 // `DriverCapabilities` pure (flags + contractVersion only) while still carrying both
-// surfaces in a single round-trip. Modern precedent: MCP 2026 separates `initialize`
+// surfaces in a single round-trip. Precedent: MCP separates `initialize`
 // server capabilities from `tools/list`; LSP separates `ServerCapabilities` from
 // registered tool surfaces. `cliVersion` is REQUIRED: a report without a
 // parseable provider version never reaches the daemon (fail-closed by construction).
@@ -2406,6 +2408,35 @@ interface GetCapabilitiesResult {
 }
 
 type CapabilityDetectionSource = "static" | "probed";
+```
+
+**Two Codex signals that draw no flow row.** The Codex driver maps a safety check that holds a turn, and Codex's warnings and deprecations, onto the two shapes below; neither is a row in the flow, and a Claude Code session carries neither, because Claude Code sends neither signal. The names and their categories are [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
+
+```ts
+// run.safety_buffering_updated — Codex's `model/safetyBuffering/updated`, its `showBufferingUi`
+// carried as `active` (Spec-005 §Run Lifecycle). A LIVE event: the daemon relays it on the
+// session's stream and never appends it, so it has no sequence, is not kept in the session's
+// history and is not replayed; a re-opened session does not show it. While `active` is true the
+// working line's action words read Codex's own sentence in place of the verb, and when Codex
+// clears the flag or the reply starts, the verb returns.
+interface RunSafetyBufferingUpdatedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  turnId: string;
+  active: boolean;
+  fasterModel?: string; // the faster model Codex names, carried as sent
+}
+
+// session.notice of kind `provider_warning` (Spec-005 §Session Lifecycle): Codex's `warning`, whose
+// `message` becomes `text`, or its `deprecationNotice`, whose `summary` becomes `text` and whose
+// `details` are kept beside it. Recorded so the working line's warnings count and its list survive
+// a reload; it draws no flow row. `configWarning` and `guardianWarning` are not this kind.
+interface SessionNoticeProviderWarning {
+  kind: "provider_warning";
+  source: "warning" | "deprecation";
+  text: string; // Codex's own words
+  details?: string; // a deprecation's details; absent on a warning
+}
 ```
 
 ### Running-Command Method Registry (Plan-004)
@@ -2660,7 +2691,7 @@ interface EventEnvelope {
 // owns the fence and generation-rotation mechanics) of the five late-append families
 // — assistant_output,
 // tool_activity, usage_telemetry, artifact_publication, and the interactive_request
-// closed pair (driver_ask.requested + driver_ask.canceled): sourceEpoch names the
+// pair (driver_ask.requested + driver_ask.canceled): sourceEpoch names the
 // pre-rollback execution epoch, sourcePosition the normalized session position (the
 // Spec-003 targetPosition turn-boundary vocabulary) the row occupies within it —
 // registered because no run-scoped family payload carries a native position key, and
@@ -2674,15 +2705,8 @@ interface EventEnvelope {
 // every current-epoch row — absence means current-epoch, and the stamp is never
 // fabricated at read time. The pair rides INSIDE payload, so it sits in the RFC 8785
 // canonical bytes with no envelope-level field
-// added — the canonical set above is unchanged — and no version bump: the
-// registration precedes ADR-018 §Reversibility Assessment's point of no return,
-// which is an emission event, not a code merge — pre-first-release, no production
-// deployment exists, so no "1.0" envelope has been emitted in a non-test environment
-// (shipped emitter code on develop does not cross it) — making the
-// pair part of the v1.0 baseline payload contract from first emit; added after that
-// point it would be a MINOR envelope bump per ADR-018 §Decision #8's
-// new-optional-field rule, and Plan-005 T1.9 carries that conditional for its
-// implementer. The audit-stub projection preserves the sourceEpoch + sourcePosition
+// added — the canonical set above is unchanged — and it is part of the v1.0
+// baseline payload contract. The audit-stub projection preserves the sourceEpoch + sourcePosition
 // + runId triple at compaction, on accepted run.rolled_back boundary rows the
 // runId/runVersion/targetPosition rewind cutoff, and on every run-scoped row the
 // runId + resolved originPosition rewind-span detection keys (ORIGIN_POSITION_STUB_KEY
@@ -3492,7 +3516,7 @@ interface UserStateUpdateResponse {
 
 ### User Method-Name Registry
 
-Plan-016's identity / user-state reads and updates are exposed as `user.*` methods (Plan-016 CP-016-6). Names are registered here pending the Plan-006 daemon method-name registry merge; the reciprocal `provides` is recorded on [Plan-006](../../plans/006-local-ipc-and-daemon-control.md). Same `dotted-camelCase` `METHOD_NAME_FORMAT` as the other namespaces above.
+Plan-016's identity / user-state reads and updates are exposed as `user.*` methods (Plan-016 CP-016-6). The reciprocal `provides` is recorded on [Plan-006](../../plans/006-local-ipc-and-daemon-control.md). Same `dotted-camelCase` `METHOD_NAME_FORMAT` as the other namespaces above.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -3646,7 +3670,7 @@ interface WorkspaceListResponse {
 
 ### Repo Method-Name Registry
 
-Plan-007's repo-attachment and workspace-binding surface is exposed as `repo.*` methods (Plan-007 D-007-1, CP-007-5). Names register under the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out; registry-regex conformance to the `METHOD_NAME_FORMAT` is resolved. These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are node-local filesystem state (ADR-004), so no control-plane tRPC sibling exists. Method strings are imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`repo.attached`, `repo.detached`).
+Plan-007's repo-attachment and workspace-binding surface is exposed as `repo.*` methods (Plan-007 D-007-1, CP-007-5). Names register under the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out, and each name matches the `METHOD_NAME_FORMAT`. These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are node-local filesystem state (ADR-004), so no control-plane tRPC sibling exists. Method strings are imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`repo.attached`, `repo.detached`).
 
 | Method               | Procedure type | Request schema         | Response schema         |
 | -------------------- | -------------- | ---------------------- | ----------------------- |
@@ -3658,7 +3682,7 @@ Plan-007's repo-attachment and workspace-binding surface is exposed as `repo.*` 
 
 Canonical Zod schemas live in `packages/contracts/src/repo.ts` per the §Source-of-Truth Policy.
 
-Plan-008's worktree surface adds further `repo.*` methods (Plan-008 D-008-3) — the same namespace, not a new root, because the namespace-root enumeration admits `repo` and mounts, workspaces and worktrees form one repo aggregate — and the session move `session.setWorkingFolder`, which registers on the session root (§Session Method-Name Registry). A session's place is chosen in `session.create` or `repo.workspaceBind`, so no mode select exists, and a worktree's figures ride `repo.worktreeStatusRead`, so no reuse check exists. Registration rides the same Plan-006-partial `MethodRegistry` path; its regex-conformance and typed-domain-error-projection preconditions are both resolved. Method strings stay imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`worktree.created` through `worktree.retired`).
+Plan-008's worktree surface adds further `repo.*` methods (Plan-008 D-008-3) — the same namespace, not a new root, because the namespace-root enumeration admits `repo` and mounts, workspaces and worktrees form one repo aggregate — and the session move `session.setWorkingFolder`, which registers on the session root (§Session Method-Name Registry). A session's place is chosen in `session.create` or `repo.workspaceBind`, so no mode select exists, and a worktree's figures ride `repo.worktreeStatusRead`, so no reuse check exists. Registration rides the same Plan-006-partial `MethodRegistry` path. Method strings stay imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`worktree.created` through `worktree.retired`).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -4150,7 +4174,7 @@ interface PlanResolveResponse {
 
 ### Approval Method-Name Registry
 
-Plan-010's approval surface is exposed as the `approval.*` methods below (D-010-5); `approval.requestCreate` is not one of them: the daemon raises it in process from a provider's callback, so it has no method string and no SDK method. Names register under the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (`repo.*` precedent); the regex precondition (all five tails are camelCase) and the typed-domain-error-projection precondition are both resolved. These methods ride the **daemon JSON-RPC transport only** — approval state is daemon-local SQLite per ADR-017 (coordination-records-only Postgres; no control-plane approval storage or tRPC sibling exists in V1; the person's other devices reach these methods through Remote Control, over their own channel to the machine that runs the session, ADR-017 Option B). Method strings are imperative and disjoint-by-form from the past-participle Spec-005 `approval_flow` durable event names (`approval.resolve` method vs `approval.approved` event; `approval.ruleRevoke` vs `approval.rule_revoked` — the underscore event form is regex-invalid as a method name). `PermissionCheck` is deliberately **not** registered: it is the daemon-internal pre-execution gate (Spec-010: "inside the local daemon"), no V1 client consumes a wire preflight, and exposing one would invite stale-verdict (time-of-check/time-of-use) authorization against the security gate (D-010-5/D-010-18). A plural `approvals.listPending` was once glossed on the desktop side; this registry supersedes it, and the console has no approvals surface of its own to register one from — the one waiting request is a card on the composer.
+Plan-010's approval surface is exposed as the `approval.*` methods below (D-010-5); `approval.requestCreate` is not one of them: the daemon raises it in process from a provider's callback, so it has no method string and no SDK method. Names register under the Plan-006-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (`repo.*` precedent). These methods ride the **daemon JSON-RPC transport only** — approval state is daemon-local SQLite per ADR-017 (coordination-records-only Postgres; no control-plane approval storage or tRPC sibling exists in V1; the person's other devices reach these methods through Remote Control, over their own channel to the machine that runs the session, ADR-017 Option B). Method strings are imperative and disjoint-by-form from the past-participle Spec-005 `approval_flow` durable event names (`approval.resolve` method vs `approval.approved` event; `approval.ruleRevoke` vs `approval.rule_revoked` — the underscore event form is regex-invalid as a method name). `PermissionCheck` is deliberately **not** registered: it is the daemon-internal pre-execution gate (Spec-010: "inside the local daemon"), no V1 client consumes a wire preflight, and exposing one would invite stale-verdict (time-of-check/time-of-use) authorization against the security gate (D-010-5/D-010-18). The console has no approvals list of its own, so no plural list method exists: the one waiting request is a card on the composer.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -4601,7 +4625,7 @@ interface ArtifactManifest {
 // client↔daemon boundary runs the same validation pipeline over `payload`, and one declaring
 // `artifactType: "file"` is refused outright and directed to AttachmentIngest — the file family reaches
 // the manifest space only through the validated ingest path. Daemon- and engine-produced publishes
-// (the common case for the other five families) originate inside the boundary and are not re-validated.
+// (the common case for the other families) originate inside the boundary and are not re-validated.
 interface ArtifactPublishRequest {
   sessionId: SessionId;
   runId?: RunId;
@@ -4655,7 +4679,7 @@ interface ArtifactListResponse {
 // AttachmentIngest — the interface family purpose-built for untrusted caller-supplied bytes, and the
 // primary surface the Spec-012 §Ingest Validation And Payload Bounds (V1) pipeline binds (the pipeline
 // binds to the trust boundary, not to a method name — see the ArtifactPublish note above for the
-// boundary-crossing publish arm). The other five artifactType families are daemon- or engine-produced
+// boundary-crossing publish arm). The other artifactType families are daemon- or engine-produced
 // in the common case and carry no untrusted-upload surface. Ingest is a THREE-CALL STREAM, not a
 // single payload-bearing call (Spec-012 §Ingest Validation And Payload Bounds (V1),
 // transport binding): the local IPC transport enforces a hard 1 MB per-frame ceiling on the declared
@@ -4893,7 +4917,7 @@ The dry run and the undo are `session.restorePreview` and `session.restore`, ses
 
 ### Plan-011 — Live Timeline Visibility And Reasoning Surfaces
 
-Every paged timeline reply is bounded by the frame it becomes (Plan-011 Phase 1). A JSON-RPC reply leaves the daemon inside one `Content-Length`-framed body, and a body over `MAX_MESSAGE_BYTES` is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format), F-006p-2-05). A row-count ceiling does not bound that — a `TimelineRow` carries free-form fields at `EVENT_FIELD_MAX_LEN` plus a 4 KiB `summary`, and `JSON.stringify` expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the paged members — `TimelineReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`TIMELINE_PAGE_MAX_BYTES` = `MAX_MESSAGE_BYTES` less a reserve for the envelope and the reply's non-paged members), a producer stops at whichever of the row limit and the byte budget trips first, and all these replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (Plan-011 Phase 1): `TimelineReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TIMELINE_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honored. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `ChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (Plan-011 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema now refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget does not reach a live event on `session.subscribe`, which is a single event on its own frame: an event that blows a frame by itself is an oversized event payload, and bounding it is an event-envelope and framer decision rather than one a Plan-011 page budget may make on their behalf.
+Every paged timeline reply is bounded by the frame it becomes (Plan-011 Phase 1). A JSON-RPC reply leaves the daemon inside one `Content-Length`-framed body, and a body over `MAX_MESSAGE_BYTES` is not a failed request: the framer refuses to emit it and the **connection closes** ([Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format)). A row-count ceiling does not bound that — a `TimelineRow` carries free-form fields at `EVENT_FIELD_MAX_LEN` plus a 4 KiB `summary`, and `JSON.stringify` expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the paged members — `TimelineReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`TIMELINE_PAGE_MAX_BYTES` = `MAX_MESSAGE_BYTES` less a reserve for the envelope and the reply's non-paged members), a producer stops at whichever of the row limit and the byte budget trips first, and all these replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (Plan-011 Phase 1): `TimelineReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TIMELINE_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honored. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `ChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (Plan-011 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget does not reach a live event on `session.subscribe`, which is a single event on its own frame: an event that blows a frame by itself is an oversized event payload, and bounding it is an event-envelope and framer decision rather than one a Plan-011 page budget may make on their behalf.
 
 ```ts
 // TimelineRead
@@ -4931,7 +4955,7 @@ interface TimelineRowBase {
   payload: Record<string, unknown>;
 }
 
-type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm: carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm. The arm additionally REFUSES category: "run_lifecycle" (Plan-011 Phase 1): all-or-none attribution is enforced by arm SELECTION, so a row whose kind was stamped wrong never reaches the run arm and its missing triple is never checked — it would arrive as a legitimately attribution-free general row. Every Spec-005 §Run Lifecycle type is run-scoped (the state transitions share a payload shape carrying a required runId; the non-state rows each re-list it), so the refusal costs no correct projection. The refusal is THREE-LEGGED, not category alone (Plan-011 Phase 1): category was only ever decisive for run_lifecycle, so the arm also refuses a canonical type in the derived census of Spec-005 types whose registered payload names a run unconditionally, and — for the types whose run identity is registered OPTIONAL (every artifact_publication type, the usage_telemetry types registered that way, user.message), which no type-level test can decide — a payload naming a run under either registered spelling, runId or the intervention family's targetRunId. The census is derived from Plan-005's per-category arrays rather than transcribed, and its size is pinned by a test so a taxonomy growth changes it loudly
+type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm: carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm. The arm additionally REFUSES category: "run_lifecycle" (Plan-011 Phase 1): all-or-none attribution is enforced by arm SELECTION, so a row whose kind was stamped wrong never reaches the run arm and its missing triple is never checked — it would arrive as a legitimately attribution-free general row. Every Spec-005 §Run Lifecycle type is run-scoped (the state transitions share a payload shape carrying a required runId; the non-state rows each re-list it), so the refusal costs no correct projection. The refusal is THREE-LEGGED, not category alone (Plan-011 Phase 1): category was only ever decisive for run_lifecycle, so the arm also refuses a canonical type in the derived census of Spec-005 types whose registered payload names a run unconditionally, and — for the types whose run identity is registered OPTIONAL (every artifact_publication type, the usage_telemetry types registered that way, user.message), which no type-level test can decide — a payload naming a run under either registered spelling, runId or the intervention family's targetRunId. The census is derived from Plan-005's per-category arrays rather than transcribed, so a type added to the taxonomy joins it without an edit here.
 
 type RunScopedTimelineEntry = TimelineRowBase & {
   kind: "run"; // literal discriminator — row.kind narrowing is structural, never a probe of the free-form type: string
@@ -4957,7 +4981,7 @@ type TimelineRollbackBoundary = Omit<TimelineRowBase, "category" | "type" | "pay
   epoch: number; // the epoch the rollback rewound
   superseded?: { targetPosition: number }; // an earlier boundary row is itself superseded when a later rollback cuts below it — same single-field marker semantics as the run arm
   type: "run.rolled_back";
-  payload: RunRolledBackEvent; // validated into the typed shape (defined under §Plans 003 And 016 above) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped. Delivery is visibility-resolved: the boundary reaches every subscription holding any row of the affected run, so a subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree: the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered. The `Omit` on the base is load-bearing rather than stylistic (Plan-011 T1.1, PR shipping `packages/contracts/src/timeline/row.ts`): a plain `TimelineRowBase &` intersection would type `payload` as `Record<string, unknown> & RunRolledBackEvent`, which no `RunRolledBackEvent`-typed value satisfies (an interface carries no implicit index signature) and which `RunRolledBackEventSchema` cannot be annotated against — the typed payload this comment promises would be unconstructible. `type` is Omitted for the same reason it is re-declared: this arm narrows the base's free-form string to one literal
+  payload: RunRolledBackEvent; // validated into the typed shape (defined under §Plans 003 And 016 above) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped. Delivery is visibility-resolved: the boundary reaches every subscription holding any row of the affected run, so a subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree: the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered. The `Omit` on the base is load-bearing rather than stylistic (`packages/contracts/src/timeline/row.ts`): a plain `TimelineRowBase &` intersection would type `payload` as `Record<string, unknown> & RunRolledBackEvent`, which no `RunRolledBackEvent`-typed value satisfies (an interface carries no implicit index signature) and which `RunRolledBackEventSchema` cannot be annotated against — the typed payload this comment promises would be unconstructible. `type` is Omitted for the same reason it is re-declared: this arm narrows the base's free-form string to one literal.
 };
 
 type TimelineRow = TimelineRollbackBoundary | RunScopedTimelineEntry | TimelineEntry; // the row union every timeline surface returns — TimelineReadResponse.entries and ChildRunExpandResponse.entries are both TimelineRow — genuinely discriminated on the literal kind: the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
@@ -4990,9 +5014,7 @@ interface ChildRunSummary {
   //   holds, not the child run's true total, which by definition it cannot know
   completeness: ChildRunCompleteness; // REQUIRED, not optional: an absent marker would be a third state
   //   meaning "probably fine", and Spec-011 §Fallback Behavior's rule is that incompleteness is STATED,
-  //   never inferred from a small count. No compatibility arm — no daemon, SDK, or client ships an
-  //   emitter or parser of this shape (Plan-011 Phase 1 is the first), so ADR-018's rules, which guard
-  //   deployed skew from the first shipped parser onward, impose none.
+  //   never inferred from a small count.
   // runId !== parentRunId (Plan-011 Phase 1): a run that is its own parent makes the
   //   run-lineage graph cyclic, and every consumer of that graph walks it — the renderer nests a child
   //   under its parent, Spec-014's one-layer nesting rule is checked against the chain, and cost
@@ -5852,7 +5874,7 @@ interface SessionGoalClearRequest {
 }
 type SessionGoalClearResponse = { sessionId: SessionId }; // clearing with no goal set succeeds, as Codex does
 
-// Agent surface (A-014-2 — Plan-014 owns the V1 agent identity surface).
+// Agent surface (Plan-014 owns the V1 agent identity surface).
 // An agent has no lifecycle state: it is in its session or it is not. An agent row is created by
 // session.created (a session's lead) or run.queued (an agent resolved from a saved definition), and its binding moves only by the
 // binding events below, so the agents projection is deterministic from the log alone.
@@ -6170,7 +6192,7 @@ interface AgentListResponse {
     name: string;
     driverName: string;
     modelId: string;
-    config: Record<string, unknown>; // driver-scoped persona config (Spec-014 A-014-2); {} when never supplied (agents.config NOT NULL DEFAULT '{}')
+    config: Record<string, unknown>; // driver-scoped persona config; {} when never supplied (agents.config NOT NULL DEFAULT '{}')
     // Where the agent sits in the session's tree: from the lead down to this agent's parent, read
     // from the daemon's parent-to-child index (the same source as orchestration.childRunLinkRead's
     // `ancestry`); empty for the lead.
@@ -6902,10 +6924,10 @@ interface WorkflowRunReadResponse {
 // workflow.canceled event type mint TOGETHER — a cancellation that moved run status
 // without appending its canonical event would break the SA-25 rebuild, because a
 // replay would restore the last suspension payload's schedule and attention key and
-// resurrect a run the operator canceled (I-015-25).
+// resurrect a run the person canceled (I-015-25).
 interface WorkflowRunCancelRequest {
   workflowRunId: WorkflowRunId;
-  // Operator-supplied cause, recorded on the run and carried in the
+  // The person's own cause, recorded on the run and carried in the
   // workflow.canceled payload. Bounded exactly as `parkCause` is — 8 KiB, truncated
   // on a UTF-8 boundary — and never reaching a phase output, artifact, or
   // agent-visible context.
@@ -6926,7 +6948,7 @@ interface WorkflowRunCancelResponse {
   // the original. Deliberately NOT how a run that already ended otherwise answers — a
   // cancel against a run that ended `succeeded`, `failed` or `crashed` refuses
   // `workflow.run_not_cancelable`, because reporting success for a run that had
-  // already ended would misinform the operator about what their action did.
+  // already ended would misinform the person about what their action did.
   alreadyCanceled: boolean;
 }
 
@@ -6944,7 +6966,7 @@ interface WorkflowRunResumeRequest {
   versionRepin?: {
     // The version the caller intends to join. REQUIRED within this member: a repair
     // that resolved "latest" server-side would race the definition's own edits and
-    // leave the audited from/to pair unverifiable against what the operator saw.
+    // leave the audited from/to pair unverifiable against what the person saw.
     targetWorkflowVersionId: string;
   };
 }
@@ -6953,7 +6975,7 @@ interface WorkflowRunResumeResponse {
   // `running` in the ordinary case. `waiting` where the engine immediately
   // re-parked — an SA-40 usage-limit park whose account is still spent re-parks on
   // the next dispatch. That is a legal outcome rather than a refusal, and the
-  // re-park emits its own workflow.phase_suspended, which is how the operator sees
+  // re-park emits its own workflow.phase_suspended, which is how the person sees
   // what happened. Resuming ahead of an armed `resumeAt` is therefore permitted
   // and needs no override flag: the machine's own schedule was advisory pacing, and
   // the worst case is one observable re-park.
@@ -7774,7 +7796,7 @@ interface WorkflowResumedPayload extends WorkflowRunEventPayload {
   repinnedToWorkflowVersionId?: string;
 }
 // workflow.canceled — appended in the same unit of work as the status write, so a projection
-// rebuild cannot replay the last park and resurrect a canceled run. `reason` is operator-supplied
+// rebuild cannot replay the last park and resurrect a canceled run. `reason` is the person's own
 // and bounded exactly as a park cause is: 8 KiB, truncated on a UTF-8 boundary.
 interface WorkflowCanceledPayload extends WorkflowRunEventPayload {
   reason: string;
@@ -7790,7 +7812,7 @@ interface WorkflowPhaseFailedPayload extends WorkflowPhaseEventPayload {
 interface WorkflowPhaseSuspendedPayload extends WorkflowPhaseEventPayload {
   reason: "waiting-human" | "provider-usage-limited";
   parkCause: string;
-  resumeAt?: string; // RFC 3339 UTC — absent narrows the park to operator-resumable
+  resumeAt?: string; // RFC 3339 UTC — absent narrows the park to one only the person resumes
   parkAttentionKey?: string;
 }
 // workflow.phase_waiting_on_pool — diagnostic, naming the resource pool whose capacity the phase is
@@ -7844,7 +7866,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.runStart` | `mutation` | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version, in the asking chat's session or the workflow's own; emits `workflow.started`; adjudicates the SA-39 named action per start and refuses `workflow.start_denied` (ADR-027) |
 | `workflow.runRead` | `query` | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events`. Carries the step array with each waiting step's cause, the chain's first run, whether the run's execution context was captured, the Keep mark and the fix session; the live park members ride each parked `WorkflowStep`, so a parked run renders from this one call (Spec-015 §Park surfacing on the read model) |
 | `workflow.runCancel` | `mutation` | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | The named producer of the `canceled` run status; emits `workflow.canceled` in the same unit of work as the status write (I-015-25); adjudicates `Action::"workflow::cancel"` and refuses `workflow.control_denied`, or `workflow.run_not_cancelable` against a run that ended `succeeded`, `failed` or `crashed` (an already-`canceled` run replays idempotently) |
-| `workflow.runResume` | `mutation` | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | Operator resumption of a parked run, carrying the optional explicit SA-41 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the audited re-pin member on an accepted repair); adjudicates `Action::"workflow::resume"` and refuses `workflow.control_denied`, `workflow.resume_not_parked`, or one of the `workflow.repair_*` codes on the re-pin leg |
+| `workflow.runResume` | `mutation` | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | The person's resumption of a parked run, carrying the optional explicit SA-41 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the audited re-pin member on an accepted repair); adjudicates `Action::"workflow::resume"` and refuses `workflow.control_denied`, `workflow.resume_not_parked`, or one of the `workflow.repair_*` codes on the re-pin leg |
 | `workflow.stepOutputList` | `query` | `WorkflowStepOutputListRequest` → `WorkflowStepOutputListResponse` | The agent and human steps' output summaries and artifact references, for the CLI and an SDK; one step's full input, output or log comes only from `workflow.stepRead`; a retry adds entries, never changes one (SA-16) |
 | `workflow.gateResolve` | `mutation` | `WorkflowGateResolveRequest` → `WorkflowGateResolveResponse` | Answers an approval step, or a chain's question (`approved` keeps going, `rejected` stops them all); appends one `workflow_gate_resolutions` row; emits `workflow.gate_resolved`; refuses `workflow.step_not_waiting` on a step no longer waiting |
 | `workflow.humanFormDraftSave` | `mutation` | `WorkflowHumanFormDraftSaveRequest` → `WorkflowHumanFormDraftSaveResponse` | Writes the daemon-held draft of a form step as it is typed; each save bumps the draft's own revision, and a stale one refuses `workflow.revision_stale` (SA-28) |
@@ -8516,9 +8538,7 @@ interface ProviderAccountListResponse {
   // carry `source: "run"`; provenance is a property of the reading, never of the transport that
   // delivers it, and a consumer must accept both values here rather than assuming `"probe"`.
   usageWindows: ProviderAccountUsageWindow[];
-  // Required, not additive-optional: `ProviderAccountListResponse` is registered here and has not
-  // shipped, so ADR-018's additive-optional rule for already-published shapes does not bind it — the
-  // same reading the neighboring new shapes carry. A reply that could omit readiness would push
+  // Required, not optional. A reply that could omit readiness would push
   // every client back into deriving it locally, which I-026-9 exists to prevent.
   // Exactly one entry per provider the request selects: never zero, never two. With `accountId`
   // supplied the selection is that account's provider, so the reply still carries exactly one entry
@@ -8607,8 +8627,8 @@ interface ProviderAccountUpdateRequest {
   // another of that provider's account names. Omitted = unchanged.
   displayLabel?: string;
   // The durable per-account opt-out AC-19 requires. Carried on the update verb rather than as a
-  // dedicated verb: it is an ordinary mutable account preference, and minting a verb for it would
-  // move the namespace census for a boolean. Omitted = unchanged; the column default is enabled, so
+  // dedicated verb: it is an ordinary mutable account preference, and a verb of its own would add
+  // a verb for a boolean. Omitted = unchanged; the column default is enabled, so
   // silence never silences an observer.
   probeEnabled?: boolean;
   // The window-start switch, carried here for the same reason its sibling is: an ordinary mutable
@@ -9005,7 +9025,7 @@ interface AgentDefinition {
   // One step of the console's twelve-step hue wheel. null = no chosen hue, and the card draws the generic mark's own.
   accentHue: string | null;
   // The provider bindings. `overrides` is present on a stored row and may be empty, so a reader never has
-  // to distinguish "no overrides" from "this row predates overrides".
+  // to tell an empty set from a missing one.
   bindings: {
     default: AgentProviderBinding;
     overrides: AgentProviderBinding[];

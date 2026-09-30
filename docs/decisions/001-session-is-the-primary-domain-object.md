@@ -98,19 +98,11 @@ The single-device case, the person at the desktop app on the machine that runs t
 
 ## Decision Validation
 
-### Pre-Implementation Checklist
-
-- [ ] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
-
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Canonical docs reuse one stable session-centric vocabulary | 100% of foundational docs | Review checklist across domain, architecture, and spec docs | At every review of a domain, architecture or spec document |
+| Canonical docs reuse one stable session-centric vocabulary | 100% of foundational docs | Reading the domain, architecture and spec docs | At every review of a domain, architecture or spec document |
 | Multi-device features do not require parallel root models | 0 duplicate root aggregates | Architecture and spec review | At every architecture and spec review |
 
 ## References

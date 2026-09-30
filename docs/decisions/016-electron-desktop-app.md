@@ -21,13 +21,13 @@ What desktop framework should host the React + Vite renderer, start and watch th
 
 ### Trigger
 
-The console surface fixes a renderer budget, a terminal tier, and a Preview pane that embeds a browser, and the web client reuses the console's front end. V1 ship requires the framework question closed before Plan-021 starts scaffolding.
+The console surface fixes a renderer budget, a terminal tier, and a Preview pane that embeds a browser, and the web client reuses the console's front end. Plan-021's scaffolding builds on the framework, so the framework is chosen first.
 
 ## Decision
 
 Electron is the V1 desktop framework, and **V1 builds run on Electron 44.x only**.
 
-Electron supports its latest three stable branches, currently 42, 43 and 44. V1 admits 44 alone because the console's `browser` pane kind depends on the detached-`WebContentsView` bounds fix ([electron/electron PR #53031](https://github.com/electron/electron/pull/53031)), which landed on 44 and reached 42 and 43 only as late backports — a 42.x or 43.x point release can clear every security floor and still lack the fix, and this ADR does not carry a per-branch fix floor it cannot verify from the release feed. Any build tooling or supervisor that selects a release on an end-of-life branch, or on 42 or 43 for a V1 build, is non-conformant.
+Electron supports its latest three stable branches. V1 admits 44 alone because the console's `browser` pane kind depends on the detached-`WebContentsView` bounds fix ([electron/electron PR #53031](https://github.com/electron/electron/pull/53031)), which landed on 44 and reached 42 and 43 only as late backports — a 42.x or 43.x point release can clear every security floor and still lack the fix, and no per-branch fix floor can be verified from the release feed. Any build tooling or supervisor that selects a release on an end-of-life branch, or on 42 or 43 for a V1 build, is non-conformant.
 
 Every release on a supported branch post-dates the fixed versions published in [GHSA-3c8v-cfp5-9885](https://github.com/electron/electron/security/advisories/GHSA-3c8v-cfp5-9885) for [CVE-2026-34776](https://nvd.nist.gov/vuln/detail/CVE-2026-34776) — an out-of-bounds heap read in the `requestSingleInstanceLock` second-instance IPC message parser on macOS and Linux, with Windows unaffected — so that floor is satisfied by construction and needs no separate check.
 
@@ -78,7 +78,7 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
 - **Steel man:** Similar bundle-size and memory benefits to Tauri; Go ergonomics for backend-familiar developers; simpler build chain than Rust.
 - **Why rejected:**
   1. Same native-webview position as Tauri: the console constraints in §Thesis apply identically (Option B point 1), and the WebKit differences measured on the console's own screens (Option B point 2) are Wails' differences on macOS too.
-  2. Wails v3 is in alpha as of 2026-04; no flagship production apps ship on v3. A desktop framework is a decade-scale foundation commitment; building on alpha tooling is insufficient risk management.
+  2. The Wails v3 status page lists v3 as alpha, with no flagship production apps on it. A desktop framework is a decade-scale foundation commitment; building on alpha tooling is insufficient risk management.
   3. Team is TypeScript-native, not Go-native; introduces language-in-critical-path cost without the offsetting team-expertise benefit that would justify it.
 
 ### Option D: Native per-platform apps (Rejected)
@@ -102,10 +102,12 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | Electron tracks Chromium security patches within 1–2 weeks of Chromium stable releases. | Electron has consistently met this cadence in 2025–2026 release history; Electron maintains a documented patch SLA across its supported stable branches. | We would need to monitor Chromium CVE feeds ourselves, or move to Chromium-Embedded-Framework directly, or change frameworks. |
-| 2 | Electron's branch 44 continues to publish point releases, and the supported set stays 42 / 43 / 44 until 42 ages out. | The head was 44.1.1 as of 2026-09-01 per [releases.electronjs.org](https://releases.electronjs.org/); branch 41 reached end-of-support on 2026-08-25 with the 44.0.0 release, and the published end-of-life dates are 2026-10-20 for 42, 2027-01-05 for 43, and 2027-03-02 for 44. Electron supports the latest three stable branches per the [electron/electron release timeline](https://www.electronjs.org/docs/latest/tutorial/electron-timelines). | Branch 44 ages out before V1 ships, and the V1 target moves to the next branch carrying the `WebContentsView` bounds fix; the build supervisor fails closed rather than selecting an end-of-life branch. |
+| 2 | Electron's branch 44 continues to publish point releases, and the supported set stays 42 / 43 / 44 until 42 ages out. | [releases.electronjs.org](https://releases.electronjs.org/) publishes the 44.x point releases; branch 41 reached end of support with the 44.0.0 release, and the published end-of-life dates are 2026-10-20 for 42, 2027-01-05 for 43, and 2027-03-02 for 44. Electron supports the latest three stable branches per the [electron/electron release timeline](https://www.electronjs.org/docs/latest/tutorial/electron-timelines). | Branch 44 ages out before V1 ships, and the V1 target moves to the next branch carrying the `WebContentsView` bounds fix; the build supervisor fails closed rather than selecting an end-of-life branch. |
 | 3 | `electron-updater` delta-patch flow is reliable across Windows, macOS, Linux. | Proven at scale by VS Code, 1Password (pre-8), Slack, and others. | Larger update payloads; ongoing bandwidth cost; user-visible update-time regression. |
-| 4 | The ~100 MB baseline bundle is acceptable to our target developer audience. | VS Code (~100 MB) and JetBrains IDEs (500 MB+) receive no material user pushback on install size. Our target user already has similar-footprint tools installed. | Competitive pressure from a lightweight alternative with feature parity; Tripwire 4 fires. |
+| 4 | The ~100 MB baseline bundle is acceptable to our target developer audience. | VS Code (~100 MB) and JetBrains IDEs (500 MB+) receive no material user pushback on install size. Our target user already has similar-footprint tools installed. | Competitive pressure from a lightweight alternative with feature parity; revisit trigger 4 fires. |
 | 5 | The app's own processes stay a small share of the machine's memory next to the providers' processes. | The session screen with Preview open used 418.6 MB across the app's own processes; the best alternative measured, Tauri with Chromium for Preview, saved 38 to 46 MB. | Revisit trigger 4 fires, and the saving an alternative offers is measured again on the same screens before any change. |
+
+Plan-021's CI checks assumptions 2 and 3; release monitoring watches 1, 4 and 5.
 
 ## Failure Mode Analysis
 
@@ -113,13 +115,13 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
 | --- | --- | --- | --- | --- |
 | Electron security-patch cadence slips; Chromium CVE unpatched for weeks | Low | High | Automated release-tracking; Chromium CVE feed monitoring | Manual Chromium-patch integration on a maintenance branch; evaluate alternative frameworks |
 | Chromium memory-footprint regression under load | Med | Med | Runtime memory metrics via observability; daemon memory-budget alerts | Renderer-process isolation; lazy-load non-critical panels |
-| Team gains Rust-comfortable engineer with bandwidth (reversal trigger) | Low | Low (positive signal) | Team-composition change | Not a forcing failure; evaluate Tauri revisit window per Tripwire 2 |
+| Team gains Rust-comfortable engineer with bandwidth (reversal trigger) | Low | Low (positive signal) | Team-composition change | Not a forcing failure; evaluate Tauri revisit window per revisit trigger 2 |
 | Electron removes or breaks the `contextBridge` preload model | Low | High | Electron release notes; contract conformance tests | Pin to previous Electron major; migrate to an alternative framework |
 | electron-updater signing pipeline breaks on code-signing-cert rotation | Low | Med | CI signing tests; cert-expiry monitoring | Standby cert; documented rotation runbook |
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Very high once V1 desktop ships. A framework migration touches every renderer-to-main IPC surface, packaging pipeline, auto-update mechanism, code-signing certificate chain, install-tool UX, and native-dialog integration. Multi-month migration under realistic assumptions. Shipped desktop code already binds the Electron main API directly — `app` and `BrowserWindow` in `main/index.ts`, `BrowserWindow` in `main/window.ts`, `contextBridge` in `preload/index.ts`, the `App` type in `main/sidecar-lifecycle.ts` — and Plan-021 builds on `protocol.registerSchemesAsPrivileged` and `net.fetch`, for which the native-webview frameworks offer no equivalent.
+- **Reversal cost:** Very high once V1 desktop ships. A framework migration touches every renderer-to-main IPC surface, packaging pipeline, auto-update mechanism, code-signing certificate chain, install-tool UX, and native-dialog integration. Multi-month migration under realistic assumptions. Shipped desktop code already binds the Electron main API directly — `app`, `BrowserWindow` and the `App` type in the main process, `contextBridge` in the preload — and the renderer's own protocol is served through `protocol.registerSchemesAsPrivileged` and `net.fetch`, for which the native-webview frameworks offer no equivalent.
 - **Blast radius:** the desktop app's main process and renderer, preload bridge contracts, auto-update infrastructure, signed-release pipeline, user-install tooling, every user with an installed version of the prior desktop app.
 - **Migration path:** Build a parallel desktop target under a new package; migrate renderer code (React + Vite is framework-agnostic); migrate the preload bridge to the new framework's equivalent; migrate auto-update; cut over in a major version.
 - **Point of no return:** First V1 desktop release ships to users. Before that milestone, reversal is implementation-cost only, not user-migration cost.
@@ -145,14 +147,6 @@ Bundle size is addressed by asar packaging and by the fact that the target user 
 - Exact V1 desktop bundle size under asar + production optimizations — to be measured in Plan-021 CI once the app's packaging lands.
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan (Plan-021 CI covers Assumptions 2 and 3; ongoing monitoring covers 1, 4 and 5)
-- [x] At least one alternative was seriously considered and steel-manned (Tauri 2.x and Wails v3 both steel-manned)
-- [x] Antithesis was reviewed (written in Thesis/Antithesis/Synthesis triad; reviewed at ADR acceptance)
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 

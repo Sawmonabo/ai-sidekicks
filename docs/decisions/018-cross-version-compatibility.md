@@ -13,11 +13,11 @@
 
 AI Sidekicks is a distributed product. One user runs the background service on their own machines and drives it from their own devices through their own relay ([ADR-020: V1 Deployment Model and OSS License](./020-v1-deployment-model-and-oss-license.md)); the service writes `EventEnvelope` records to its local audit log (SQLite) and serves them to every client. The app and the service are updated separately, and a phone app takes a new front end only in a later build or a signed bundle staged for its next start, so **mixed versions are the normal case, not an edge case**.
 
-The wire format the service writes and its clients read is the `EventEnvelope`, defined in [Spec-005: Session Event Taxonomy and Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md). [Spec-005 §Interfaces And Contracts](../specs/005-session-event-taxonomy-and-audit-log.md#interfaces-and-contracts) already declares `EventEnvelope` must be versioned and lists `version` as an envelope-level field. What Spec-005 does not yet document is the **semantics** of that field: who sets it, who validates it, what happens on mismatch, and how event-type evolution interacts with it.
+The wire format the service writes and its clients read is the `EventEnvelope`, defined in [Spec-005: Session Event Taxonomy and Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md). [Spec-005 §Interfaces And Contracts](../specs/005-session-event-taxonomy-and-audit-log.md#interfaces-and-contracts) declares `EventEnvelope` must be versioned and lists `version` as an envelope-level field. This record sets the **semantics** of that field — who sets it, who validates it, what happens on mismatch, and how event-type evolution interacts with it — which [Spec-005 §EventEnvelope Version Semantics](../specs/005-session-event-taxonomy-and-audit-log.md#eventenvelope-version-semantics) carries.
 
 Additionally, the event log is append-only. Any version-evolution story must preserve that immutability: we cannot rewrite the log on upgrade.
 
-This ADR closes the semantics gap. It is Type 2 because the wire format is a one-way door: once an envelope version is emitted into a production audit log, it is there forever. The cost of a bad decision scales with the installed base.
+It is Type 2 because the wire format is a one-way door: once an envelope version is emitted into a production audit log, it is there forever. The cost of a bad decision scales with the installed base.
 
 ## Problem Statement
 
@@ -25,9 +25,9 @@ How do we evolve `EventEnvelope` and event-type semantics when the app, the back
 
 ### Trigger
 
-- [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) declares `EventEnvelope.version` as a canonical field but provides no semantics; emitters and receivers have no contract to implement against.
-- Plan-001 (session core) needs a settled wire-format contract before authoring emitter code, per the canonical plan ordering.
-- The event taxonomy grows by twenty or more new event types mid-V1-lifecycle. The first envelope-relevant addition arrives before Plan-013 lands, so the version scheme must be specified before then.
+- Every emitter and receiver of `EventEnvelope.version` ([Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md)) implements against one contract.
+- Plan-001 (session core) writes its emitter code against the wire-format contract, so the contract comes first.
+- The event taxonomy keeps growing through V1, and the first envelope-relevant addition arrives before Plan-013 lands, so the version scheme is specified before then.
 
 ## Decision
 
@@ -59,7 +59,7 @@ How do we evolve `EventEnvelope` and event-type semantics when the app, the back
 
 ### Thesis — Why This Option
 
-The pre-decided approach composes three proven 2024–2026 industry patterns against the constraints of a product whose app, background service and phone front ends are updated separately:
+The approach composes three proven 2024–2026 industry patterns against the constraints of a product whose app, background service and phone front ends are updated separately:
 
 - **Kubernetes version-skew policy** (v1.35) establishes the asymmetric read-tolerance principle — old components may read newer peers' output but may not write newer-format messages. AI Sidekicks borrows the asymmetry and the "no-skip-minors" discipline. ([Kubernetes Version Skew Policy](https://kubernetes.io/releases/version-skew-policy/), accessed 2026-04-18.)
 - **Confluent Schema Registry's FORWARD_TRANSITIVE** compatibility class establishes the additive-only-minor-bump discipline checked against _all_ historical versions, not just the immediately-prior one. AI Sidekicks borrows the transitivity (our event log is immutable, so every historical envelope must remain parseable by every future client). ([Schema Evolution and Compatibility](https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html), accessed 2026-04-18.)
@@ -156,27 +156,19 @@ Pin-at-session assumes every client updates in the same step as the service, and
 
 ## Decision Validation
 
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan (Plan-013 replay tests; MINOR-bump compat-test suite; Tripwire 1 revisit)
-- [x] At least one alternative was seriously considered and steel-manned (Options B and C both steel-manned; Options D and E documented)
-- [x] Antithesis was reviewed (Thesis/Antithesis/Synthesis triad in the Decision section)
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified (first production `session.created` emission)
-
 ### Reviewer Checklist for MINOR Bumps
 
 Every proposed MINOR bump MUST be reviewed against this checklist before landing. A failed item flips the bump to MAJOR:
 
-- [ ] No renamed fields (`old_name` → `new_name` is breaking; use a separate new field and deprecate the old).
-- [ ] No changed field types (`int` → `string` is breaking).
-- [ ] No changed field semantics (the field MUST mean the same thing to BOTH a reader that ignored the bump AND a reader that parsed it — a change that coincidentally reads OK for the bump-ignoring path but shifts meaning for the bump-aware path is still a semantic break and requires a MAJOR bump).
-- [ ] No new required fields (every new field has a default or is optional).
-- [ ] No new required semantic invariants on existing fields (e.g., "field X must now be a valid URL" is breaking even if X was always a string).
-- [ ] No removed event types (use deprecation path; retire event-type strings permanently per Protobuf reserved-tag precedent).
-- [ ] No removed enum values (as above).
-- [ ] New event types have a payload schema registered in Spec-005.
-- [ ] Upcaster-chain entry added if the new minor introduces typed behaviors that older clients must be able to stub.
+- No renamed fields (`old_name` → `new_name` is breaking; use a separate new field and deprecate the old).
+- No changed field types (`int` → `string` is breaking).
+- No changed field semantics (the field MUST mean the same thing to BOTH a reader that ignored the bump AND a reader that parsed it — a change that coincidentally reads OK for the bump-ignoring path but shifts meaning for the bump-aware path is still a semantic break and requires a MAJOR bump).
+- No new required fields (every new field has a default or is optional).
+- No new required semantic invariants on existing fields (e.g., "field X must now be a valid URL" is breaking even if X was always a string).
+- No removed event types (use deprecation path; retire event-type strings permanently per Protobuf reserved-tag precedent).
+- No removed enum values (as above).
+- New event types have a payload schema registered in Spec-005.
+- Upcaster-chain entry added if the new minor introduces typed behaviors that older clients must be able to stub.
 
 ### Success Criteria
 

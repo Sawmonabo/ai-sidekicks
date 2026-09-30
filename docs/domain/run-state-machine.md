@@ -18,7 +18,7 @@ This document covers run states, transition rules, and the meaning of control ac
 
 ## What This Is
 
-The run state machine is the source of truth for execution lifecycle semantics.
+The run state machine defines the lifecycle semantics of execution.
 
 ## What This Is Not
 

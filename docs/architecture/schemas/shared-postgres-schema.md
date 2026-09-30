@@ -15,7 +15,7 @@ Per [ADR-017: Shared Event-Sourcing Scope](../../decisions/017-shared-event-sour
 3. **Per-daemon local `session_events` is authoritative** per ADR-017 and [local-sqlite-schema.md](./local-sqlite-schema.md). Each daemon owns its own event log with its own monotonic sequence number; an audit across the person's machines reads each machine's own log, per [Data Architecture §Event-Sourcing Scope](../data-architecture.md#event-sourcing-scope).
 4. **No shared session-event table.** Session events live in each machine's local log ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md)).
 
-These invariants apply to every subsequent `CREATE TABLE` in this schema. Downstream authors extending this file must check compatibility with (1)–(4) before introducing a table whose name or semantics could read as a shared event log.
+These invariants hold for every table in this schema: no table's name or meaning reads as a shared event log.
 
 ---
 
@@ -224,7 +224,7 @@ CREATE TABLE trust_statements (
 
 ## Lock Ordering Across Shared Tables
 
-This is the canonical home for row-lock ordering over the tables above. Every control-plane transaction that takes row locks on more than one table in this schema acquires them in the order recorded here, in the modes recorded here. A transaction MAY skip a level it does not need — skipping is order-consistent and creates no cycle — but it MUST NOT reorder one. A plan whose ceremony locks only its **own** uncontested tables registers that internal order here as well, so there is exactly one place to read a lock order rather than one per plan.
+Row-lock ordering over the tables above is recorded here. Every control-plane transaction that takes row locks on more than one table in this schema acquires them in the order recorded here, in the modes recorded here. A transaction MAY skip a level it does not need — skipping is order-consistent and creates no cycle — but it MUST NOT reorder one. A plan whose ceremony locks only its **own** uncontested tables registers that internal order here as well, so there is exactly one place to read a lock order rather than one per plan.
 
 ### Registrants
 
@@ -246,4 +246,4 @@ Postgres `pg_advisory_xact_lock(bigint)` IDs share a single per-database namespa
 | --- | --- | --- |
 | `9_000_000_001` | Plan-001 control-plane | Serializes the one schema's creation across control-plane replicas that start at the same time. |
 
-**Reserved bands.** `9_000_000_000`–`9_000_000_999` is reserved for control-plane schema-coordination locks (creating the one schema and similar boot-path serialization). Plans that need cross-replica coordination locks for runtime concerns SHOULD allocate above `9_001_000_000` to keep the schema-coordination band contiguous and reviewable. Plan-014 and Plan-019 do not currently allocate any advisory-lock IDs; if a future iteration adds one, append a row above before opening the PR.
+**Reserved bands.** `9_000_000_000`–`9_000_000_999` is reserved for control-plane schema-coordination locks (creating the one schema and similar boot-path serialization). Plans that need cross-replica coordination locks for runtime concerns SHOULD allocate above `9_001_000_000` to keep the schema-coordination band contiguous and reviewable.

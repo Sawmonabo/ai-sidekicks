@@ -299,14 +299,6 @@ This ADR makes the following explicit disclaimers to prevent misreading of the c
 
 ## Decision Validation
 
-### Pre-Implementation Checklist
-
-- [ ] All unvalidated assumptions have a validation plan (Assumptions 4 and 5 — the Windows TPM tier and local-machine persistence — are measured on a Windows machine before build; the Linux hardware tier waits on its probe).
-- [x] At least one alternative was seriously considered and steel-manned (Options B to J above).
-- [x] Antithesis was reviewed by someone other than the author.
-- [x] Failure modes have detection mechanisms (see Failure Mode Analysis table).
-- [x] Point of no return is identified and communicated (a replaced identity key without a `runtimenode.key_rotated` or a rejoin's new `runtimenode.added` drops the machine from every linked device — §Refuse-On-Rotation Invariant).
-
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |

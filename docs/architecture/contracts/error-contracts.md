@@ -60,9 +60,9 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 
 | `data.type` | JSON-RPC `code` | Trigger |
 | --- | --- | --- |
-| `unknown_setting` | `-32602` | Bootstrap rejected an unrecognized SecureDefaults config key (per F-006p-1-2 + T-006p-1-4) |
+| `unknown_setting` | `-32602` | Bootstrap rejected an unrecognized SecureDefaults config key (T-006p-1-4) |
 | `transport.unavailable` | `-32603` | The client cannot reach the daemon's OS-local socket or named pipe; no fallback transport exists |
-| `transport.message_too_large` | `-32600` | Inbound frame exceeded the 1MB body cap (per F-006p-2-05; the spec-required InvalidRequest classification per [Plan-006 §Phase 2: Wire Substrate](../../plans/006-local-ipc-and-daemon-control.md#phase-2-wire-substrate) (T-006p-2-2) mapping). It is a 413-semantic peer mis-framing of the wire layer, never a domain-level refusal. |
+| `transport.message_too_large` | `-32600` | Inbound frame exceeded the 1MB body cap (the InvalidRequest classification of [Plan-006 §Phase 2: Wire Substrate](../../plans/006-local-ipc-and-daemon-control.md#phase-2-wire-substrate), T-006p-2-2). It is a 413-semantic peer mis-framing of the wire layer, never a domain-level refusal. |
 | `transport.invalid_protocol_version` | `-32600` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): missing, wrong type, or fails the ISO 8601 `YYYY-MM-DD` shape. The substrate `dispatchFrame` gate in `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#LocalIpcGateway` enforces per I-006-7 BEFORE handler dispatch; the handshake (`daemon.hello`) is exempt because the negotiation parameter rides in `params.protocolVersion`. Distinct from `protocol.version_mismatch` (NegotiationError, registry-side gate for incompatible negotiated versions on subsequent mutating ops): the wire-layer envelope shape gate fires once-per-frame, the registry-side gate fires once-per-incompatible-mutating-op. |
 | `daemon.lifecycle_conflict` | `-32603` | `daemon.stop` or `daemon.restart` refused because another client is still connected once the drain window (`idleDrainDeadlineMs`) has passed; the requesting client is never counted (Plan-006 I-006-12). Carried on `-32603` with its project code in `data.type`, as `transport.unavailable` is |
 
@@ -111,7 +111,7 @@ Every namespace below follows the same rules:
 - **Listed reasons.** Where one refusal has several causes, the code carries `data.fields.reason` from a list registered with the code, never free text.
 - **The owner's namespace.** A code sits under the root of the domain whose operation refuses (`repo`, `worktree`, `gitflow`), in the registry's `<root>.<noun>_<condition>` form in `snake_case`, the noun left out where the root is itself what is refused (`session.not_found`).
 - **No structure prefixes.** A root names that domain, never the layer, process or pane a refusal passes through.
-- **No retired words.** A code uses the product's current words; a concept the product no longer has names no code.
+- **Current words only.** A code uses the product's current words and names only a concept the product has.
 - **Registered before it is raised.** The unit that builds a capability registers that capability's codes and their reason lists in its contract in `packages/contracts` before the capability is implemented, never while implementing it, and each section below lists what its contract registers. No refusal ships without a registered code.
 
 ### Session
@@ -167,7 +167,7 @@ Orchestration admission-refusal codes (Plan-014 D-014-16). Every code is a zero-
 
 ### Agent
 
-Agent-surface codes (Plan-014 A-014-2 / D-014-16; the provider axis, D-014-26).
+Agent-surface codes (Plan-014 D-014-16; the provider axis, D-014-26).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
@@ -205,7 +205,7 @@ This code is registry-only (code + message; no structured `details`): no accepta
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `runtimenode.permission_denied` | Caller is not authorized for the machine the request names: the caller's verified principal does not own the machine the request's `nodeId` names (`runtime_nodes.user_id`). Another user's machine and an unknown machine collapse into this one refusal, so it never says whether the machine exists (this namespace's header). Domain authz code; deliberately never tRPC `NOT_FOUND`, which this namespace reserves as the old-control-plane procedure-absence discovery signal (Plan-028 Phase 3). | 403 |
+| `runtimenode.permission_denied` | Caller is not authorized for the machine the request names: the caller's verified principal does not own the machine the request's `nodeId` names (`runtime_nodes.user_id`). Another user's machine and an unknown machine collapse into this one refusal, so it never says whether the machine exists (this namespace's header). Domain authz code; deliberately never tRPC `NOT_FOUND`, which on this namespace means only that the control plane has no such procedure. | 403 |
 
 ### PTY
 
@@ -324,7 +324,7 @@ Driver codes ride the daemon JSON-RPC wire with notional HTTP statuses, with **o
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `driver.unavailable` | Provider driver is currently unavailable | 503 |
-| `driver.capability_unsupported` | Requested capability is not supported by the driver. **Producers:** the `ProviderRegistry` pre-dispatch flag gate, the IPC layer's driver-implements-the-operation check, and a `driver.applyIntervention` **steer whose `attachments` list is non-empty**, refused **whole** at the single daemon ingress before any driver method runs. That third producer is the same fact as the other two: no V1 driver declares an attachment-delivery leg and no daemon seam yet resolves an `ArtifactId` to bytes, so the carrier the contract types cannot be honored — and the alternative is a supported steer answering `applied` after silently dropping every element, which is the loss the typed carrier exists to prevent. `data.fields` is **producer-dependent and closed at two wire shapes**, always carrying `driverId`: the registry's flag gate emits `{ driverId, flag }` (`flag` a `DriverCapabilityFlag`, forwarded unchanged by the IPC layer's driver-error translation), while the operation check and the attachment refusal emit `{ driverId, operation }` (`operation` a `ProviderDriver` method name — the attachment refusal takes this shape because no capability flag governs it, only the operation). A consumer reads whichever discriminating member is present and must not reject the other; no new fields member is minted. It lifts when the daemon's attachment-reference resolver ships, at which point the arm is delivered rather than refused | 400 |
+| `driver.capability_unsupported` | Requested capability is not supported by the driver. **Producers:** the `ProviderRegistry` pre-dispatch flag gate, the IPC layer's driver-implements-the-operation check, and a `driver.applyIntervention` **steer whose `attachments` list is non-empty**, refused **whole** at the single daemon ingress before any driver method runs. That third producer is the same fact as the other two: no V1 driver declares an attachment-delivery leg and no daemon seam yet resolves an `ArtifactId` to bytes, so the carrier the contract types cannot be honored — and the alternative is a supported steer answering `applied` after silently dropping every element, which is the loss the typed carrier exists to prevent. `data.fields` **depends on the producer and takes one of two wire shapes**, always carrying `driverId`: the registry's flag gate emits `{ driverId, flag }` (`flag` a `DriverCapabilityFlag`, forwarded unchanged by the IPC layer's driver-error translation), while the operation check and the attachment refusal emit `{ driverId, operation }` (`operation` a `ProviderDriver` method name — the attachment refusal takes this shape because no capability flag governs it, only the operation). A consumer reads whichever discriminating member is present and must not reject the other. It lifts when the daemon's attachment-reference resolver ships, at which point the arm is delivered rather than refused | 400 |
 | `driver.timeout` | Provider driver operation timed out | 504 |
 | `driver.cli_version_unparseable` | The provider CLI's reported version could not be parsed to a semantic version; capability read fails closed and runs cannot start on this driver until the provider install is repaired ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) — the `workspace.stale` blocked-until-repair convention) | 409 |
 | `driver.cli_version_below_floor` | The provider CLI's reported version parsed cleanly but is below the configured per-driver minimum floor; capability read fails closed until the provider install is upgraded ([Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) — distinct from `version.floor_exceeded`, the handshake's refusal of an app older than the service accepts, not a provider CLI install) | 409 |
@@ -437,8 +437,8 @@ Wire-level codes describing peer mis-use of the framing/handshake layer. Distinc
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `transport.unavailable` | The client cannot reach the daemon's OS-local socket or named pipe; no fallback transport exists | 503 |
-| `transport.message_too_large` | Inbound frame's declared body length exceeded the 1MB cap, or daemon-side outbound build exceeded it (Plan-006 F-006p-2-05/F-006p-2-11). 413 semantic. | 413 |
-| `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format) (the ratified wire format): the field is missing, the wrong JS type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-006-7). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
+| `transport.message_too_large` | Inbound frame's declared body length exceeded the 1MB cap, or daemon-side outbound build exceeded it (Plan-006 Phase 2). 413 semantic. | 413 |
+| `transport.invalid_protocol_version` | Per-request envelope-level `protocolVersion` field violates [Spec-006 §Wire Format](../../specs/006-local-ipc-and-daemon-control.md#wire-format): the field is missing, the wrong JS type, or fails the ISO 8601 `YYYY-MM-DD` shape. Substrate-side gate; fires BEFORE handler dispatch (I-006-7). Distinct from `version.floor_exceeded` / `version.ceiling_exceeded` (registry-side handshake-incompatibility) and from `protocol.version_mismatch` (registry-side mutating-op gate after handshake declared incompatible). 400 semantic. | 400 |
 
 ### System
 

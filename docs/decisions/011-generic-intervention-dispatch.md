@@ -19,11 +19,11 @@ How should the driver contract expose mid-run interventions (pause, steer, and f
 
 ### Trigger
 
-Early driver interface drafts added `pauseRun` as a capability flag and method, but neither reference apps nor provider runtimes support pause natively, and the queue for additional interventions (steer, interject, reprioritize) would keep expanding the interface. A generic dispatch pattern was needed before driver implementations proliferated.
+Neither reference apps nor provider runtimes support pause natively, and the list of interventions (steer, interject, reprioritize) keeps growing. A `pauseRun` method and capability flag, and one more of each for every later verb, would keep expanding the interface, so the contract needs a generic dispatch pattern before driver implementations multiply.
 
 ## Decision
 
-Add `applyIntervention(type, payload)` as a generic dispatcher in the driver contract. Remove `pause` from capability flags. Pause becomes an orchestration-layer construct: the daemon interrupts the run, persists checkpoint state, and queues a resume event. Steer and other future interventions follow the same generic dispatch path.
+Add `applyIntervention(type, payload)` as a generic dispatcher in the driver contract. `pause` is not a capability flag. Pause is an orchestration-layer construct: the daemon interrupts the run, persists checkpoint state, and queues a resume event. Steer and other future interventions follow the same generic dispatch path.
 
 **Authorization.** The Cedar `principal` for any `applyIntervention` call is transport-verified and bound daemon-side to the machine owner's user identity (a `UserId`). On the daemon's local socket the caller is one of the owner's own clients, admitted by socket reachability and the session token; a linked device reaches the call only inside its encrypted channel to the machine, from a device key the account's statement chain trusts, and binds the same owner, since one account owns the machine. Authorization evaluates against session ownership, never run authorship. Any body-level actor field (for example `initiatorId` on an `InterventionRequest`) is informational/routing metadata only and is never read by Cedar as an authorization input. See [API Payload Contracts §Authenticated Principal And Authorization Model](../architecture/contracts/api-payload-contracts.md#authenticated-principal-and-authorization-model).
 

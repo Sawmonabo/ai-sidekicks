@@ -18,7 +18,7 @@ Two of the vision's claims bear directly on what V1 must contain:
 1. **Multi-agent orchestration (Spec-014)** — several agents working in one session, a lead running helpers as child runs under the person's budgets and a per-agent turn limit, is a signature feature of the vision, and the product positions itself against commodity single-agent CLI runners on exactly this axis; V1 must include it or the category-positioning claim does not match what ships.
 2. **Desktop GUI** — the vision build order lists desktop as step 6 of V1 delivery, and the product differentiates against CLI-only offerings (Claude Code, Codex CLI, Aider) in part through a richer desktop surface; V1 must include it for the same reason.
 
-The implementation plans and the cross-cutting specs need one authoritative V1 scope source, which the plans and `docs/architecture/cross-plan-dependencies.md` follow. This ADR is that source.
+The implementation plans, the cross-cutting specs and `docs/architecture/cross-plan-dependencies.md` cite the one V1 scope this ADR records.
 
 ## Problem Statement
 
@@ -86,7 +86,7 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 ### Option A: The chosen V1 set
 
 - **What:** Ship the full feature list above as the V1 target.
-- **Steel man:** Aligns shipped scope with vision positioning; resolves the two scope inconsistencies named in §Context; establishes one authoritative source the plans and the cross-cutting specs cite; sets the Multi-agent orchestration quality bar at V1 where it belongs.
+- **Steel man:** Aligns shipped scope with vision positioning; carries the two vision claims named in §Context into what ships; gives the plans and the cross-cutting specs one scope to cite; sets the Multi-agent orchestration quality bar at V1 where it belongs.
 - **Weaknesses:** Larger V1 surface = more implementation work before first ship; Multi-agent orchestration quality bar adds hardening work that would otherwise defer; Desktop GUI adds a second client track in the critical path rather than strictly after CLI proves the contract.
 
 ### Option B: The smaller set (rejected)
@@ -103,16 +103,16 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Low to Medium while pre-code. Adding a feature to V1 or removing one requires: changing this ADR, rewriting `docs/architecture/v1-feature-scope.md`, updating `docs/architecture/cross-plan-dependencies.md`, and updating the affected spec and plan. No code-migration cost before first ship; moderate doc-churn cost. Once V1 ships, removing a feature from it is higher cost.
+- **Reversal cost:** Low to Medium while pre-code. Adding a feature to V1 or removing one touches the feature list here, `docs/architecture/v1-feature-scope.md`, `docs/architecture/cross-plan-dependencies.md`, and the affected spec and plan. No code-migration cost before first ship; moderate doc-churn cost. Once V1 ships, removing a feature from it is higher cost.
 - **Blast radius:** `docs/architecture/v1-feature-scope.md`, `docs/architecture/cross-plan-dependencies.md`, every plan file, any ADR or spec referencing a V1 label.
-- **Migration path:** Replace this ADR with a new one, update every spec and plan whose scope changes, and realign `cross-plan-dependencies.md`.
+- **Migration path:** Edit the feature list, update every spec and plan whose scope changes, and realign `cross-plan-dependencies.md`.
 - **Point of no return:** First V1 ship to users. Until then, reversal is free. After, feature-set expectations carry.
 
 ## Consequences
 
 ### Positive
 
-- Single authoritative scope source for the plans and the cross-cutting specs.
+- One V1 scope that the plans and the cross-cutting specs cite.
 - Shipped scope matches vision positioning on the two claims named in §Context.
 - Multi-agent orchestration quality bar lands at V1 where it meets the category-positioning claim.
 - Desktop GUI lands at V1 so launch positioning includes both client tracks vision names.
@@ -126,7 +126,7 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 
 ### Unknowns
 
-- V1 delivery timeline under the chosen scope — no fixed date commitment; tier discipline drives sequencing.
+- V1 delivery timeline under the chosen scope — no fixed date commitment; the build order in `cross-plan-dependencies.md` drives sequencing.
 - Whether the Multi-agent orchestration V1 quality bar can be met without in-production traffic; the Spec-014 V1-readiness review is the primary gate.
 
 ## References
@@ -140,21 +140,21 @@ The antithesis assumes V1 launch speed is the dominant cost. For this product, l
 - [MCP Authorization (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) — the OAuth surface feature #18's `server OAuth` scope targets: OAuth 2.1 (IETF draft) with Authorization Server Metadata, Dynamic Client Registration, and Protected Resource Metadata (accessed 2026-07-02); Spec-025 pins its flow against this revision
 - Feature #23's Codex leg rides Codex's own realtime surface: the `thread/realtime/*` client requests (`start`, `appendAudio`, `appendText`, `appendSpeech`, `stop`, `listVoices`) and the `thread/realtime/*` server notifications reach a connection only when it sets `initialize.capabilities.experimentalApi`, because the app-server's runtime filter (`should_skip_notification_for_connection`) silently drops every experimental notification for any other connection, and generating the schema cannot show that gate. The daemon's connection to a Codex service sets it, starts a call with `thread/realtime/start` carrying the window's WebRTC offer, and routes those notifications by `threadId` while `/voice` is on — receipts in [`docs/reference/provider-wire/codex.md`](../reference/provider-wire/codex.md), regenerated from the pinned binary via `codex app-server generate-json-schema`, upstream [openai/codex](https://github.com/openai/codex). The Claude Code leg is dictation through Anthropic's speech service, done as Claude Code's own VS Code extension does it.
 
-Feature 17 (workflow authoring and execution) is grounded in primary-source evidence across seven research dimensions: parallel execution (Pass A — DAG executor, resource pools, parallel join policy), multi-agent ownership and sub-workflow lifecycle (Pass B), event taxonomy (CloudEvents / OpenTelemetry / Temporal — anchors SA-18/19/20), persistence patterns (Pass G — SQLite WAL), test infrastructure (fast-check, Jazzer.js — anchors SA-29), freeze-regret evidence from other systems' later releases (Pass D — 7-system V1-shipping-pattern survey backing the full-engine-at-V1 thesis), and security invariants I1–I7 (Pass E — CVE corpus per invariant). Cross-Pass duplications (CloudEvents, OpenTelemetry semconv, Temporal events) are cited once with the broadest-applicable Pass framing. Additional Pass C (human-phase UX), Pass F (event-taxonomy detail), Pass G (persistence-pattern detail), and Pass H (testing-strategy detail) primaries are in [Spec-015 §References](../specs/015-workflow-authoring-and-execution.md#references) and [Plan-015 §References](../plans/015-workflow-authoring-and-execution.md#references).
+Feature 17 (workflow authoring and execution) is grounded in primary sources on: parallel execution (DAG executor, resource pools, parallel join policy), multi-agent ownership and sub-workflow lifecycle, event taxonomy (CloudEvents / OpenTelemetry / Temporal — anchors SA-18/19/20), persistence patterns (SQLite WAL), test infrastructure (fast-check, Jazzer.js — anchors SA-29), freeze-regret evidence from other systems' later releases (the V1-shipping-pattern survey of Airflow, Dagger, GitHub Actions, n8n, Temporal, Argo and CircleCI backing the full-engine-at-V1 thesis), and security invariants I1–I7 (a CVE corpus per invariant). A source that backs several of these is cited once. The sources on human-step UX, event-taxonomy detail, persistence-pattern detail and testing strategy are in [Spec-015 §References](../specs/015-workflow-authoring-and-execution.md#references) and [Plan-015 §References](../plans/015-workflow-authoring-and-execution.md#references).
 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
 | CloudEvents v1.0.2 specification | Specification (CNCF) | Envelope additive-bump rules anchor SA-18 (workflow event envelope additive MINOR bump); subject field carries workflow-run scoping | <https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md> |
 | OpenTelemetry Semantic Conventions for Events | Specification (CNCF) | Event-name hierarchical convention anchors SA-19 (`workflow.<resource>.<lifecycle>` naming) | <https://github.com/open-telemetry/semantic-conventions/blob/main/docs/general/events.md> |
 | Temporal Events Reference | Documentation | Reserved-event taxonomy (`WorkflowExecutionStarted`, `ActivityTaskScheduled`, etc.) anchors SA-20 reserved-event list and projection-rebuild contract | <https://docs.temporal.io/references/events> |
-| SQLite Write-Ahead Logging | Specification (SQLite) | WAL-mode durability and `synchronous=FULL` rationale for the workflow persistence schema (Pass G) | <https://www.sqlite.org/wal.html> |
+| SQLite Write-Ahead Logging | Specification (SQLite) | WAL-mode durability and `synchronous=FULL` rationale for the workflow persistence schema | <https://www.sqlite.org/wal.html> |
 | fast-check (model-based property testing) | Code (MIT) | Property-test framework anchoring SA-29 test-category battery (property/fuzz/load/integration/security-regression) | <https://github.com/dubzzz/fast-check> |
 | Jazzer.js (coverage-guided fuzzing for Node.js) | Code (Apache-2.0) | Fuzz-test framework anchoring SA-29 fuzz-target category for parameter-substitution and event-envelope parsing | <https://github.com/CodeIntelligenceTesting/jazzer.js> |
-| OWASP File Upload Cheat Sheet | Specification (OWASP) | SA-26 form-state lifecycle | <https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html> |
-| Apache Airflow `dag.py` source | Code (Apache-2.0) | Kahn's-algorithm topological-sort DAG executor precedent anchoring C-3 (DAG executor) | <https://github.com/apache/airflow/blob/main/airflow-core/src/airflow/models/dag.py> |
+| OWASP File Upload Cheat Sheet | Specification (OWASP) | A human step's form-state lifecycle | <https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html> |
+| Apache Airflow `dag.py` source | Code (Apache-2.0) | Kahn's-algorithm topological-sort DAG executor precedent for the DAG executor | <https://github.com/apache/airflow/blob/main/airflow-core/src/airflow/models/dag.py> |
 | Apache Airflow Pools | Documentation | Slot-based concurrency pools anchoring SA-3 (resource pools) | <https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/pools.html> |
-| Astronomer — Managing Dependencies (Airflow trigger rules) | Documentation | Trigger-rules taxonomy (`all_success`, `one_failed`, etc.) anchoring C-3 (DAG executor) trigger semantics | <https://www.astronomer.io/docs/learn/managing-dependencies> |
-| Temporal Go SDK (workflow primitives) | Documentation | Durable-execution primitive precedent anchoring C-3 (DAG executor) and C-7 (sub-workflow contract) | <https://docs.temporal.io/develop/go> |
+| Astronomer — Managing Dependencies (Airflow trigger rules) | Documentation | Trigger-rules taxonomy (`all_success`, `one_failed`, etc.) for the DAG executor's trigger semantics | <https://www.astronomer.io/docs/learn/managing-dependencies> |
+| Temporal Go SDK (workflow primitives) | Documentation | Durable-execution primitive precedent for the DAG executor and C-7 (sub-workflow contract) | <https://docs.temporal.io/develop/go> |
 | Argo Workflows — Parallelism | Documentation | Workflow-level parallelism cap anchoring SA-3 (resource pools) parallelism budget | <https://argo-workflows.readthedocs.io/en/latest/parallelism/> |
 | Dagster Run Concurrency | Documentation | Multi-tier resource-pool precedent (run-tags + concurrency keys) anchoring SA-3 (resource pools) | <https://docs.dagster.io/guides/operate/managing-concurrency> |
 | AWS Step Functions — Error Handling | Documentation | `Catch` / `Retry` semantics behind a step's `onError` and `retry` | <https://docs.aws.amazon.com/step-functions/latest/dg/concepts-error-handling.html> |
@@ -164,7 +164,7 @@ Feature 17 (workflow authoring and execution) is grounded in primary-source evid
 | Argo Workflows — DAG walkthrough | Documentation | DAG/template/suspending composition anchoring C-7 (sub-workflow contract) | <https://argo-workflows.readthedocs.io/en/latest/walk-through/dag/> |
 | AWS Step Functions — Best Practices | Documentation | Sub-workflow break-down precedent anchoring C-7 (sub-workflow contract) | <https://docs.aws.amazon.com/step-functions/latest/dg/bp-cwl.html> |
 | Dapr — Workflow Patterns | Documentation | Sub-workflow industry-alignment evidence anchoring C-7 (sub-workflow contract) | <https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-patterns/> |
-| Apache Airflow 3.0 release blog | Release blog | Major-version break pattern evidence backing the full-engine-at-V1 thesis (Pass D freeze-regret) | <https://airflow.apache.org/blog/airflow-three-point-oh-is-here/> |
+| Apache Airflow 3.0 release blog | Release blog | Major-version break pattern evidence backing the full-engine-at-V1 thesis (freeze-regret) | <https://airflow.apache.org/blog/airflow-three-point-oh-is-here/> |
 | Apache Airflow — Release Notes | Documentation | Cross-version migration-cost precedent backing the full-engine-at-V1 thesis | <https://airflow.apache.org/docs/apache-airflow/stable/release_notes.html> |
 | `apache/airflow#9606` (Smart Sensors) | Issue | Smart Sensors deprecate-within-releases precedent backing freeze-regret pattern (deprecate-within-releases) | <https://github.com/apache/airflow/issues/9606> |
 | Apache Airflow 2.4.0 release notes | Release notes | Smart Sensors removal record backing freeze-regret pattern | <https://airflow.apache.org/docs/apache-airflow/2.4.0/release_notes.html> |

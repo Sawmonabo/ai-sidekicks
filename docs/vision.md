@@ -291,7 +291,7 @@ If these are modeled cleanly, most major features become straightforward instead
 ### Keep
 
 - TypeScript for daemon, contracts, CLI, and Electron
-- React 19 for the renderer (pinned `~19.2.5` for auto security uptake; minors require explicit review)
+- React 19 for the renderer
 - Electron for the desktop app
 - Zod and typed contracts across boundaries
 
@@ -432,7 +432,7 @@ If a session must be reachable from every device its owner carries while the wor
 
 It is a distributed runtime with local execution nodes and remote views onto them.
 
-Reaching an agent from a phone is not novel on its own: by mid-2026, several cloud-hosted agent platforms ship a mobile client. What remains unoccupied is the conjunction this architecture is built around — execution on the user's own machine under their own provider subscription, a phone that can do everything the desktop can rather than a read-only status view, a real policy engine governing steering and dispatch, and an encrypted relay that carries the session without being able to read it. The products with good mobile clients host the session in their own cloud; the products that run on your machine give you no way to reach them from anywhere else. Holding both at once is the position, and every architectural choice in this document exists to hold it.
+Reaching an agent from a phone is not novel on its own: several cloud-hosted agent platforms ship a mobile client. What remains unoccupied is the conjunction this architecture is built around — execution on the user's own machine under their own provider subscription, a phone that can do everything the desktop can rather than a read-only status view, a real policy engine governing steering and dispatch, and an encrypted relay that carries the session without being able to read it. The products with good mobile clients host the session in their own cloud; the products that run on your machine give you no way to reach them from anywhere else. Holding both at once is the position, and every architectural choice in this document exists to hold it.
 
 If the architecture is built around that truth from the beginning, it will establish the correct foundation for a runtime people can actually live in.
 

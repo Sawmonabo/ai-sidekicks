@@ -91,7 +91,7 @@ The last row is what keeps the decision from resting on Assumption 1. A provider
 
 #### Where a consuming spec declines the fallback
 
-A fallback being **available** is not the same as a capability being **obliged** to take it. Two of the five rows above have a consuming spec that deliberately declines the substitution in V1, and both declines are named here rather than left to be inferred from the consuming spec's silence — the count is five rows, of which two carry a decline:
+A fallback being **available** is not the same as a capability being **obliged** to take it. Two rows above have a consuming spec that deliberately declines the substitution in V1, and both declines are named here rather than left to be inferred from the consuming spec's silence:
 
 - **Row 1, recovery.** [Spec-013 §Fallback Behavior](../specs/013-persistence-recovery-and-replay.md#fallback-behavior) transitions an unresumable run to `failed` rather than replaying it into a fresh session. The reason is this decision's own boundary: the canonical transcript is authoritative for the **conversation** and never for the **world**. A crashed run's in-flight turn may have executed tool calls whose effects are on disk, and replaying the conversation that requested them reconstructs the request, not the result — file-state restore is the daemon's own checkpoint store, never the driver's ([Spec-004 §Per-Driver Capability Matrix](../specs/004-provider-driver-contract-and-capabilities.md#per-driver-capability-matrix), the `rollback` row). Declining here is what keeps a recovered run from asserting a world state nothing produced.
 - **Row 2, undo.** [Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior) never substitutes a prefix replay for the provider's own conversation cut. Undo reaches every point through the provider's own verbs — the cut, and before Claude Code's last compaction the provider's own copy of the conversation resumed in place — and when the conversation part cannot apply, it reports that part not applied with its cause, beside the files, which the daemon's checkpoint store puts back on its own. A prefix replay would put back an approximation of the conversation under a result that says the conversation went back, and the undo's result has no outcome for an approximation. The decline is fail-closed against that disagreement, not a claim that the prefix is unreachable.
@@ -162,7 +162,7 @@ Both declines are properties of the consuming capability, not of this decision, 
 
 ## Reversibility Assessment
 
-- **Reversal cost:** Weeks. Reversing means every capability that today falls back to replay must acquire a provider-native path, which for the cross-vendor case does not exist at all — so a true reversal is a scope reduction, not a refactor.
+- **Reversal cost:** Weeks. Reversing means every capability that falls back to replay must acquire a provider-native path, which for the cross-vendor case does not exist at all — so a true reversal is a scope reduction, not a refactor.
 - **Blast radius:** Spec-001 (the fork), Spec-003 (undo), Spec-004 (driver boundary and capabilities), Spec-005 (the event shapes the projection folds), Spec-013 (recovery and replay), Spec-014 (the provider switch).
 - **Migration path:** Pin each capability to a provider-native verb, drop the cross-vendor switch, and re-declare the provider store authoritative — i.e. adopt Option B and lose its rejected consequences.
 - **Point of no return:** The first shipped driver whose only continuity path is canonical replay. After that, reversing removes a capability from a shipped provider rather than changing an internal mechanism.
@@ -186,19 +186,11 @@ Both declines are properties of the consuming capability, not of this decision, 
 ### Unknowns
 
 - How large a session gets before the hand-over brief, rather than a full replay, becomes the ordinary same-provider fallback. This is measurable once the context-window telemetry has real sessions behind it, and it changes tuning rather than the decision.
-- Whether a future vendor exposes a portable reasoning representation. If one does, Assumption 3's conservative arm relaxes by ordinary amendment and nothing else moves.
+- Whether a future vendor exposes a portable reasoning representation. If one does, Assumption 3's conservative arm relaxes and nothing else moves.
 
 ---
 
 ## Decision Validation [T2]
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan — Assumption 5 and the Codex half of Assumption 1 are pinned by the in-tree wire references and re-checked by the nightly provider-CLI compatibility check; the **Claude half of Assumption 1 is flagged unvalidated** and its validation plan is the Plan-004 replay assertion, which fails the operation rather than trusting a return value; Assumption 2 is structural (one log, one renderer); Assumptions 3 and 4 are conservative arms whose failure only widens what replay can carry.
-- [x] At least one alternative was seriously considered and steel-manned — Options B, C, and D, each with a [T2] steel man written as its advocate.
-- [x] Antithesis was reviewed by someone other than the author — Codex. The five counter-arguments are answered individually in §Synthesis, and (c) is answered by **narrowing the claim** to visibility sufficiency + declared loss + named non-portability rather than by dismissal.
-- [x] Failure modes have detection mechanisms — every row of §Failure Mode Analysis names a detection that is an assertion about observed behavior, never a return value; the silent-acceptance row exists precisely because the return value is known to be untrustworthy.
-- [x] Point of no return is identified and communicated — §Reversibility Assessment: the first shipped driver whose only continuity path is canonical replay.
 
 ### Success Criteria
 

@@ -29,7 +29,7 @@ This governs identifiers you introduce. When editing code that already follows a
 
 ## Size, comments and docstrings
 
-- **Size.** No file goes over 900 lines. An edit that takes a file past it splits the file at a real seam between two concepts.
+- **Size,** as the root `AGENTS.md` rule 6 sets it: a file stays under about 900 lines, and past that it splits at a real seam between two concepts. Data tables and test suites are not split for size.
 - **Line length.** Prettier's 100-column width (`printWidth` in `prettier.config.js`) for code; comments wrap within the same width.
 - **Comments are short.** One line where one line does, saying why, never restating the code. No task, plan, review or decision prose, no ids, no dates, no history.
 - **Docstrings.** Every exported function, class, component, hook, type and constant carries a `/** … */` docstring of one or two sentences: what it is for, and any contract a caller must know (an error it throws, a unit, an invariant). No `@param` or `@returns` line that repeats the type, and no docstring on a private helper whose name says what it does.

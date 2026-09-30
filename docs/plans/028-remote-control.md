@@ -28,9 +28,9 @@ Backend Phases 1 to 6 in order, Phase 8 after Phase 3, then Phase 7's screens an
 
 ## Phases
 
-### Phase 0 — Already shipped
+### Phase 0 — Existing foundations
 
-Landed facts, not work. Nothing in this phase has tasks; it is written down so the phases above it do not rebuild what exists.
+These exist and carry no tasks; they are named so the later phases build on them rather than rebuild them.
 
 - **A per-device liveness machine**, keyed by device rather than by account: a live reading goes `online → reconnecting → offline` on missed presence beats, on a fifteen-second and forty-five-second grace pair. It is a device's liveness; a machine's reachability is read from its relay connection (Phase 3).
 - **The tRPC host**, serving the runtime-node router behind one fetch handler, with a shared context. Its typed error envelope is built in Phase 3.
@@ -40,9 +40,9 @@ Landed facts, not work. Nothing in this phase has tasks; it is written down so t
 
 ### Phase 1 — The daemon as a running process
 
-The daemon is a library today: modules and tests, with no process anyone can start. This phase gives it one. It gains an entry point, a local socket, a request/response surface over that socket, and a lifecycle — start, ready, shut down, and come back after a crash with its state replayed from SQLite. At its first start it mints the machine's id and identity key and reads the machine's friendly name: on macOS `scutil --get ComputerName`; on Linux `PRETTY_HOSTNAME` from `/etc/machine-info`, falling back to the static hostname; on Windows `os.hostname()`, the DNS host name without its domain, never `%COMPUTERNAME%`. The SDK's local transport is pointed at that socket.
+This phase makes the daemon a process anyone can start. It gains an entry point, a local socket, a request/response surface over that socket, and a lifecycle — start, ready, shut down, and come back after a crash with its state replayed from SQLite. At its first start it mints the machine's id and identity key and reads the machine's friendly name: on macOS `scutil --get ComputerName`; on Linux `PRETTY_HOSTNAME` from `/etc/machine-info`, falling back to the static hostname; on Windows `os.hostname()`, the DNS host name without its domain, never `%COMPUTERNAME%`. The SDK's local transport is pointed at that socket.
 
-The desktop app's main process starts the service and watches it, and never owns its life. A quit must leave the service running, and a utility-process child dies at quit, so the main process starts the service detached and reaches it through its socket (on Linux a logout ends a detached child unless lingering is on, which the install turns on); where a detached child does not survive the app, it starts the service through the per-user service the command line installs. The main process opens with the handshake (`daemon.hello`), sends `daemon.ping` only after 5 seconds with no frame from the service, counts the link as dead after 20 seconds with none, and restarts the service with backoff (100 ms, 300 ms, 1 s, 3 s, 10 s). When the service is asked to stop or restart, after the flush, a daemon that has not exited gets SIGTERM and, 2 seconds later, SIGKILL. The boot card's `Retry` starts the service (`daemon.requestStart()`). The main process carries the service's state to the renderer as the `daemon.status` topic on `daemon.subscribe`: the link state from the liveness check, and the version range — each app accepts its own service version and the previous one, and outside that range the console is read-only, naming the side that is behind with a press to its fix. The bridge refuses every renderer-issued mutating call (`daemon.stop`, `daemon.restart`) unless that topic reads connected, with a valid handshake behind it, returning a typed error; the daemon's own pre-dispatch gate is the authoritative check. A quit flushes the service (`daemon.flush`) and leaves it, every run and every shell running; only Settings › Runtime's `Stop` and `Restart` end work. Nothing in this phase is remote.
+The desktop app's main process starts the service and watches it, and never owns its life. A quit must leave the service running, and a utility-process child dies at quit, so the main process starts the service detached and reaches it through its socket (on Linux a logout ends a detached child unless lingering is on, which the install turns on); where a detached child does not survive the app, it starts the service through the per-user service the command line installs. The main process opens with the handshake (`daemon.hello`), sends `daemon.ping` only after 5 seconds with no frame from the service, counts the link as dead after 20 seconds with none, and restarts the service with backoff (100 ms, 300 ms, 1 s, 3 s, 10 s). When the service is asked to stop or restart, after the flush, a daemon that has not exited gets SIGTERM and, 2 seconds later, SIGKILL. The boot card's `Retry` starts the service (`daemon.requestStart()`). The main process carries the service's state to the renderer as the `daemon.status` topic on `daemon.subscribe`: the link state from the liveness check, and the version range — each app accepts its own service version and the previous one, and outside that range the console is read-only, naming the side that is behind with a press to its fix. The bridge refuses every renderer-issued mutating call (`daemon.stop`, `daemon.restart`) unless that topic reads connected, with a valid handshake behind it, returning a typed error; the daemon's own pre-dispatch gate is the check that decides. A quit flushes the service (`daemon.flush`) and leaves it, every run and every shell running; only Settings › Runtime's `Stop` and `Restart` end work. Nothing in this phase is remote.
 
 **Done when**
 
@@ -56,7 +56,9 @@ The desktop app's main process starts the service and watches it, and never owns
 
 ### Phase 2 — Identity keys and the statement chain
 
-Identity keys are described in the corpus and nothing ships them. This phase ships them, and the statement chain that decides which of them a machine trusts.
+**Precondition:** Phase 1 merged.
+
+This phase builds the identity keys, and the statement chain that decides which of them a machine trusts.
 
 - **The machine key** is the service's Ed25519 identity key, minted in Phase 1, sealed under the master key in the one sealing format every daemon private key uses ([ADR-021](../decisions/021-cli-identity-key-storage-custody.md)).
 - **A device key** is made on the device and never exported: P-256 in the iPhone's Secure Enclave, in the Android Keystore (StrongBox where there is one), and a non-extractable WebCrypto key in the web client.
@@ -77,12 +79,14 @@ Identity keys are described in the corpus and nothing ships them. This phase shi
 
 ### Phase 3 — The relay and the channel
 
+**Precondition:** Phase 2 merged.
+
 The control plane gains a relay the person deploys for themself, in their own Cloudflare account or on their own server. It forwards sealed frames and inspects none of them.
 
 - **The machine registers.** At its first connection to the control plane the machine registers (`runtimenode.register`, its shapes in `packages/contracts/src/runtime-node.ts`) with its id, public key, name, platform and service version, keyed by the machine and its owning user and never by a session. The control plane accepts it only for a key enrolled to that owner: `sidekicks sign-in`, run while the service is stopped, enrolls the identity key's public half as this machine's key through the daemon's custody code ([Plan-006](./006-local-ipc-and-daemon-control.md) T-006r-3-18); `sidekicks rotate-keys` re-enrolls a new key with its `runtimenode.key_rotated` statement, and a removed machine linked again re-enrolls the new key it mints with its new `runtimenode.added`. The control plane keeps that key as the machine's current key in `runtime_nodes.public_key`, never in `devices`; a replaced machine key is kept only in the chain's statement that ended it. `runtimenode.rename` lets the person rename it. The machine keeps one outbound relay connection while its service runs, and its reachability is read from that connection: reachable while it is up, not reachable after 45 seconds without a frame, with no heartbeat.
 - **Typed refusals.** This phase builds the control plane's typed error envelope with its first typed refusal, `runtimenode.permission_denied`: a refusal is thrown as a typed exception, and tRPC's own `errorFormatter` projects it to `{ code, message }` in the error's `data`, so a caller reads the code without parsing the message.
 - **One channel per device and machine**, carrying every session and screen on that machine, on the Noise Protocol Framework's `Noise_KK_25519_ChaChaPoly_SHA256` handshake and transport, with no construction of the product's own. Each end's X25519 channel key is certified by its identity key in the statement that trusts it. A fresh handshake runs on every connection and every 10 minutes on a long one, and the old keys are erased.
-- **The channel's first frame** carries the channel version and the profiles the device runs; the machine answers with the first it also runs or closes the connection with `channel.no_common_profile`. Both ends bind the offer and the answer into the handshake's prologue. Today there is one profile and no fallback. The classical handshake is not post-quantum, and the docs say so; the hybrid profile joins later through this negotiation, on the same keys and frames, once its specification is finished and reviewed.
+- **The channel's first frame** carries the channel version and the profiles the device runs; the machine answers with the first it also runs or closes the connection with `channel.no_common_profile`. Both ends bind the offer and the answer into the handshake's prologue. There is one profile and no fallback. The classical handshake is not post-quantum, and the docs say so; the hybrid profile joins later through this negotiation, on the same keys and frames, once its specification is finished and reviewed.
 - **Relay access.** `RelayNegotiationRequest` carries no session id: negotiation hands back a relay endpoint and a short-lived connect token bound to the device and the machine. The relay holds at most one live connection per key; a new one closes the one before it, and a key that keeps displacing itself, three times within a minute, is refused for a minute and flagged.
 - **The relay's own rules.** On the Workers relay the credential routes (sign-in, token refresh, device linking) count in the per-identity Durable Object, one global counter that rotating edge locations do not reset. On the WebSocket the relay sees only encrypted frames and counts only frames: each device carries a quota of 6,000 device-sent frames a minute with no byte figure; frames the machine sends and bytes either way are bounded by the channel's backpressure, and a device over the quota gets one refusal frame and a 60-second pause, counted in the relay block's rejected frames. A method inside a frame is the machine's to limit, never the relay's: Phase 4's method proxy enforces `presence.heartbeat` at 10 a minute per device. A relay's key is pinned only when it has no publicly trusted certificate: a pinned relay whose key changed is refused and recorded (`relay.pin_refused`, `relay.spki_mismatch`), and `sidekicks relay repin --force` accepts the new one through the daemon's `relay.repin {spkiHash}`, which refuses and changes nothing when the hash does not match the key the relay presents. The relay block of `sidekicks daemon status`, the `relay` field of `daemon.status.read`, counts since the service started.
 - **The shared channel package**, new under `packages/`, holds the channel for every host: the Noise handshake and transport code. The first frame's shape, the profile names and `channel.no_common_profile` are wire, so they live in `packages/contracts`, and the package imports them. It takes a maintained Noise implementation whose Diffie-Hellman can be supplied from WebCrypto; the library chosen, and why, is recorded in this plan when this phase picks it, and the implementation gets an outside review before the first release that carries Remote Control.
@@ -106,6 +110,8 @@ The control plane gains a relay the person deploys for themself, in their own Cl
 
 ### Phase 4 — Phone-to-host method proxy with terminal streaming
 
+**Precondition:** Phase 3 merged.
+
 The SDK transport gains a relay arm. A call from a device is sealed, relayed, opened by the daemon, executed against the machine, and answered back over the same channel. Event subscriptions ride the same channel, so the timeline streams to a device live rather than by polling, and a reconnecting device resumes every stream from its last event. Terminal traffic is the hard case and gets its own handling: it is high-rate, ordered, and bidirectional, so it carries backpressure and a resume point instead of being a best-effort stream that silently drops. A shared port is one byte stream per TCP connection the device's listener accepts (`preview.portTunnelOpen`, `preview.portTunnelClose`, their shapes in `packages/contracts/src/preview.ts`), at most 256 KB buffered each way, under the same backpressure; the machine forwards only to listed ports on its own loopback. Another device's Preview is a live picture: a screencast the service produces on whichever host runs the page (`preview.screencastSubscribe`), with focus emulation, the device's touches reaching the page as touch events, carried over the same channel with no debug port on either host. The method proxy admits at most 10 `presence.heartbeat` a minute per device, counted inside the sealed connection: it drops the excess and keeps the last heartbeat per device, so a device's presence is always its latest.
 
 **Done when**
@@ -120,6 +126,8 @@ The SDK transport gains a relay arm. A call from a device is sealed, relayed, op
 - A device that sends `presence.heartbeat` faster than 10 a minute has the excess dropped by its machine, which keeps that device's last heartbeat, and the relay counts every one of those frames only against the device's frame quota.
 
 ### Phase 5 — Devices, linking and revocation
+
+**Precondition:** Phases 2 and 3 merged.
 
 Linking, renaming, revoking and removing are statements in the chain Phase 2 builds, and every machine verifies them itself.
 
@@ -147,6 +155,8 @@ Rule 15: `web-push` 3.6.7's `encrypt` on the machine and its `getVapidHeaders` o
 
 ### Phase 6 — Per-device event attestation
 
+**Precondition:** Phase 5 merged.
+
 An event a device originates is signed by that device's identity key, so the log records which device acted rather than only that the account did. The daemon verifies the signature before it appends and refuses one it cannot resolve to a known device key. Revoking a device does not retroactively invalidate what that device already signed — the history stays verifiable — but nothing new signed by a revoked key is admitted.
 
 **Done when**
@@ -158,7 +168,9 @@ An event a device originates is signed by that device's identity key, so the log
 
 ### Phase 7 — Frontend
 
-This phase is gated on Phases 1 through 6 being merged. No frontend work for Remote Control starts before then; the screens are built against a relay that already works, not against a mock of one.
+**Precondition:** Phases 1-6 merged.
+
+No frontend work for Remote Control starts before Phases 1 to 6 are in; the screens are built against a relay that already works, not against a mock of one.
 
 It builds the screens and the clients, each with the one front end the desktop runs. The web client's and the phone apps' hosts each implement the front end's `PlatformBridge` from the same front-end source the desktop runs; a member a host cannot serve is absent from that host's implementation, so its control is absent from the screen:
 
@@ -184,7 +196,9 @@ The front end runs in WebKit as well as Chromium: every page declares its doctyp
 
 ### Phase 8 — Self-host deployment
 
-Gated on Phase 3: there is nothing to deploy until the relay exists. This phase makes the relay a thing the person can stand up, and it is the owner of the relay-side half of [Spec-024: Self-Host Secure Defaults](../specs/024-self-host-secure-defaults.md) — rows 1, 2, 3, 4, 5, 8, 9b, and 10.
+**Precondition:** Phase 3 merged.
+
+There is nothing to deploy until the relay exists. This phase makes the relay a thing the person can stand up, and it is the owner of the relay-side half of [Spec-024: Self-Host Secure Defaults](../specs/024-self-host-secure-defaults.md) — rows 1, 2, 3, 4, 5, 8, 9b, and 10.
 
 The relay runs behind a TLS front rather than terminating TLS itself: Caddy v2 on `:443`, with `:80` open only for the ACME HTTP-01 challenge. `DEPLOY_MODE` is declared at config time and decides the issuance path, and renewals run on ACME Renewal Information windows rather than a fixed fraction of the certificate's life. `RELAY_BIND` stays container-internal and is never port-forwarded by the shipped Compose file, and a non-loopback bind with no TLS in front of it exits non-zero at config-parse time instead of starting. The first run is a one-shot service in the Compose file that Postgres and the relay each wait on (`depends_on` with `condition: service_completed_successfully`). It generates the relay's secrets, persists them `0600` and writes the first-run sentinel: the control plane's two token keys, the Ed25519 key that signs access tokens and the symmetric key that seals refresh tokens, with `crypto.randomBytes`; the Web Push VAPID key pair (ECDSA P-256, RFC 8292), whose public key the relay serves to the web client for its push subscription; and the Postgres role's password, with `crypto.randomBytes` (N ≥ 32), before Postgres first starts. Compose hands the password to Postgres as a secret file (`POSTGRES_PASSWORD_FILE`, with `POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256` so initdb writes SCRAM rows) and to the relay as the same file; it never passes through an env var or `.env.example`, and the relay signs in with `scram-sha-256` over the `verify-full` TLS. The APNs and FCM credentials are issued by Apple and Google, so the person supplies them and the relay keeps them. A relay that finds the sentinel absent with its secrets present refuses to start, naming the sentinel and the secrets it found. The `/metrics` endpoint consumes Plan-018's bind and auth contract rather than inventing one, and refuses a non-loopback scrape that carries no credential. The startup banner prints the relay's effective binds, TLS mode and fingerprint, and any active override. The relay's Postgres client defaults to `sslmode=verify-full`, ships the cert-generation helper that makes that reachable on a self-hosted Compose stack, and probes the server's auth configuration and version at startup.
 

@@ -19,7 +19,7 @@ What API layer should the control plane expose given a need for typed request-re
 
 ### Trigger
 
-The control plane was about to gain multiple consumers (CLI, desktop app, browser clients, relay) and needed a single API contract before surface area fragmented into ad-hoc REST and WebSocket shapes. Remote Control (a device driving a session it does not execute) made an SSE-only answer insufficient.
+The control plane serves several consumers (CLI, desktop app, browser clients, relay) and needs a single API contract so its surface does not fragment into ad-hoc REST and WebSocket shapes. Remote Control (a device driving a session it does not execute) makes an SSE-only answer insufficient.
 
 ## Decision
 
@@ -45,7 +45,7 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 ### Option D: oRPC (Rejected)
 
 - **What:** oRPC as a lighter tRPC alternative.
-- **Why rejected:** Too immature (approximately 4 months old at time of evaluation). Insufficient production track record and ecosystem support for a foundational API layer.
+- **Why rejected:** Too immature: an insufficient production track record and ecosystem support for a foundational API layer.
 
 ## Assumptions Audit
 
@@ -87,14 +87,6 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 - tRPC coupling means non-TypeScript clients need a REST adapter or generated OpenAPI layer
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 

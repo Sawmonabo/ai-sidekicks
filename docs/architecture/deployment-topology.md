@@ -58,7 +58,7 @@ The rate limiting interface is identical regardless of deployment. Implementatio
 
 The relay serves one person: their machines and the devices they link. Each machine and each device holds one connection to it, with at most one live connection per key, and every channel joins one device to one machine ([Spec-028 §The encryption envelope](../specs/028-remote-control.md#the-encryption-envelope)). The relay forwards sealed frames and reads none of them.
 
-**Cloudflare Durable Object platform limits (verified 2026-04-19):**
+**Cloudflare Durable Object platform limits:**
 
 - An individual DO has a **soft limit of 1,000 requests/sec**; exceeding it returns an `overloaded` error to the caller ([DO limits][do-limits]).
 - There is **no published cap on concurrent WebSocket connections per DO** — Cloudflare states DOs "can act as WebSocket servers that connect thousands of clients per instance" ([DO WebSockets best practices][do-ws]).

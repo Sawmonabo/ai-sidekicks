@@ -34,7 +34,7 @@ The console design shows the same file in the flow, in Review and in the file vi
 - Changing the theme or the color scheme repaints the same spans in place. No block is colored twice, and none flashes plain first.
 - A diff takes a first pass from its own lines the moment it opens, so it is colored before the whole file's spans arrive, and corrects itself when they do. A string that opens above the hunk is the case that changes.
 - A file whose language is not recognized stays plain and asks the daemon for nothing.
-- The renderer holds no `shiki` instance and no Worker colors anything. `shiki` moves from the desktop package to the daemon package, at the same pin, and the desktop package no longer depends on it.
+- The renderer holds no `shiki` instance and no Worker colors anything. `shiki` belongs to the daemon package, at the pin the desktop package uses, and not to the desktop package.
 
 ### Thesis — Why This Option
 
@@ -118,14 +118,6 @@ Nothing in the console is a code editor: every surface that draws code draws tex
 ---
 
 ## Decision Validation [T2]
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [x] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 

@@ -11,7 +11,7 @@
 
 ## Context
 
-V1 begins with no checked-in code. The repo holds a stub `package.json` (Apache-2.0 licensed) and the docs corpus; [Container Architecture](../architecture/container-architecture.md) §Canonical Implementation Topology is authoritative for the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/`, `apps/cli/`). [Plan-001](../plans/001-session-core.md) is the next code-execution gate and owns the one schema of each database, the daemon's and the control plane's, to which Plans 005, 016, 020 and 028 add their tables and columns.
+[Container Architecture §Implementation Topology](../architecture/container-architecture.md#implementation-topology) gives the workspace shape (`packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/`, `apps/desktop/`, `apps/cli/`). [Plan-001](../plans/001-session-core.md) is the first plan built on the toolchain and owns the one schema of each database, the daemon's and the control plane's, to which Plans 005, 016, 020 and 028 add their tables and columns.
 
 Constraints from accepted ADRs:
 
@@ -21,7 +21,7 @@ Constraints from accepted ADRs:
 - [ADR-009](./009-json-rpc-ipc-wire-format.md) — JSON-RPC 2.0 with LSP-style framing for daemon IPC.
 - [ADR-018](./018-cross-version-compatibility.md) — semver `MAJOR.MINOR` versions, with the app and the service agreeing a version range at the handshake; `engines` declarations set the toolchain floors.
 
-The implementer is Claude Opus 4.7 (AI-implementation economics outweigh human-DX arguments). Multi-year maintenance horizon. Greenfield repo means low reversibility cost _today_ but high cost once Plan-001 ships and subsequent plans bind to the toolchain.
+The implementer is Claude Opus 4.7 (AI-implementation economics outweigh human-DX arguments). Multi-year maintenance horizon. Reversal cost is high once Plan-001 ships and later plans bind to the toolchain.
 
 ## Problem Statement
 
@@ -29,7 +29,7 @@ What workspace, quality, and runtime-driver primitives should V1 use so Plan-001
 
 ### Trigger
 
-Plan-001 was ready to build and the toolchain under it was still undecided. Because primitive choices count as architectural decisions, they were researched against primary sources before being presented. This ADR is where those choices are recorded.
+Plan-001 builds on the toolchain, so the toolchain is chosen first, each primitive against primary sources.
 
 ---
 
@@ -37,7 +37,7 @@ Plan-001 was ready to build and the toolchain under it was still undecided. Beca
 
 We will adopt the following V1 toolchain. Every choice is forward-declared as the V1 default; section [Re-evaluation Triggers](#re-evaluation-triggers) names the criteria that would reopen each.
 
-| Primitive | Choice | Version (2026-04-26) |
+| Primitive | Choice | Version |
 | --- | --- | --- |
 | Package manager | **pnpm** with `nodeLinker: isolated`, workspace catalogs, `allowBuilds` allowlist, and `minimumReleaseAge: 1440` as the supply-chain guard — a resolution-time filter over a package's published-at, so it refuses a freshly published version whether the spec is exact or a range | 10.33+ |
 | Build orchestrator | **Turborepo** with a remote cache backed by the GitHub Actions cache (`rharkor/caching-for-turbo`), signed artifacts, telemetry disabled. The cache is GitHub-hosted rather than self-hosted: what self-hosting bought was independence from a vendor who could relicense the service, and a GitHub Actions cache artifact is subject to no such relicensing, so the property is preserved by a different mechanism. | 2.9+ |
@@ -55,7 +55,7 @@ We will adopt the following V1 toolchain. Every choice is forward-declared as th
 
 Three integration constraints make these choices reinforce each other rather than stand alone:
 
-1. **Two-ABI native bindings.** The renderer (Electron 41 main + preload via `electron-v123` ABI) and the daemon (Node 24 native ABI) share `better-sqlite3` source but require different compiled binaries. The Electron-ABI axis of this constraint is dissolved for `better-sqlite3` by its 13.0.0 move to Node-API — one platform prebuild serves every Node and Electron version — and the V1 shell target is Electron 44 (ABI 149, Node 24.19), which no 12.x release ever shipped a prebuild for; the `pnpm rebuild` against Electron headers is no longer needed for this module. The isolated-linker rationale stands for any remaining per-ABI native module. pnpm's isolated linker is the only manager primitive that keeps each workspace's `node_modules` resolution-scoped, allowing `pnpm rebuild --filter=@ai-sidekicks/desktop better-sqlite3` against Electron headers without disturbing the daemon's Node build (`pnpm/pnpm#9073`, `WiseLibs/better-sqlite3#1393`). Hoisted layouts (npm, Bun default, Yarn `node-modules`) put a single `better-sqlite3` at `node_modules/better-sqlite3` and break one runtime or the other.
+1. **Two-ABI native bindings.** The Electron app (Electron 44, ABI 149, Node 24.19) and the daemon (Node 24's own ABI) can need different compiled binaries of one native module. `better-sqlite3` avoids that through Node-API: since 13.0.0 one platform prebuild serves every Node and Electron version, so it needs no `pnpm rebuild` against Electron headers, and no 12.x release ships an ABI-149 prebuild. The isolated linker matters for any other per-ABI native module: pnpm's isolated linker is the only manager primitive that keeps each workspace's `node_modules` resolution-scoped, allowing a `pnpm rebuild --filter=@ai-sidekicks/desktop <module>` against Electron headers without disturbing the daemon's Node build (`pnpm/pnpm#9073`, `WiseLibs/better-sqlite3#1393`). Hoisted layouts (npm, Bun default, Yarn `node-modules`) put a single copy at `node_modules/<module>` and break one runtime or the other.
 2. **BLOB ergonomics.** better-sqlite3 returns BLOBs as Node `Buffer`; node:sqlite returns `Uint8Array`, requiring an extra `Buffer.from(view)` per read wherever the daemon handles a column as a `Buffer`. Event replay reads the sealed `pii_payload` and `content_payload` columns on every pass, so this is allocation noise we eliminate by binding choice.
 3. **Single-toolchain renderer + Node coverage.** Vitest 4.x with `projects` is the only stable runner that handles Node-class packages, type-only packages, _and_ the React renderer in one toolchain — the renderer project running under a DOM shim (happy-dom), with Browser Mode (Playwright provider, stable since 4.0 / 2025-10-22) available in the same runner for any assertion that later needs a real layout engine. The load-bearing claim is `projects`, not the DOM implementation: one runner, one config, every package. Pairing Vitest with the existing esbuild dependency from the JS-emit toolchain produces zero-config TS execution everywhere.
 
@@ -66,14 +66,14 @@ The pnpm + Turborepo combination is the empirical default among comparable TypeS
 A skeptical staff engineer would argue:
 
 - **Bun monorepo collapses the toolchain.** Bun 1.3 ships a runtime, package manager, test runner, transpiler, and bundler in one binary. Two-ABI bindings are addressable via `bun install --trust` allowlists; workspace install times beat pnpm in vendor benchmarks. For a greenfield project the simplest possible stack is Bun for everything, and we are over-architecting by stitching together pnpm + Turbo + Vitest + esbuild.
-- **Oxlint + tsgolint is the modern lint story.** As of 2026-03, tsgolint covers 59 of 61 typescript-eslint type-aware rules (`oxc.rs/docs/guide/usage/linter/type-aware.html`) at 50–100× ESLint speed. Oxfmt is at Prettier-100% conformance (beta). Choosing ESLint+Prettier in 2026 is the defensive call, not the principal-engineer call.
+- **Oxlint + tsgolint is the modern lint story.** tsgolint covers 59 of 61 typescript-eslint type-aware rules (`oxc.rs/docs/guide/usage/linter/type-aware.html`) at 50–100× ESLint speed. Oxfmt is at Prettier-100% conformance (beta). Choosing ESLint+Prettier in 2026 is the defensive call, not the principal-engineer call.
 - **Stay on Node 22.** Node 22 is in security support through 2027-04 and is already installed on more machines; raising the floor to 24.16 asks a person to update Node before the service and the CLI run.
 - **`tsc` only, no esbuild.** `tsc -b` with `composite: true` is the simplest TypeScript story. esbuild's lack of `.d.ts` emit means we run two tools per package and risk version drift between what tsc validates and what esbuild emits. One tool is better than two.
 
 ### Synthesis — Why It Still Holds
 
-- **Bun rejected; re-evaluated on a named trigger.** Bun's official `bun.com/docs/pm/workspaces` page (verified live 2026-04-26) does not surface isolated installs as a primary workspace primitive — independent reporting places isolated-install support in 1.2.x as a CLI flag, but the absence from canonical docs is itself a maturity signal. Turborepo's first-class lockfile support targets pnpm v10/v11 (turbo canary 2.9.7 added pnpm v11 multi-document lockfile parsing) before equivalent Bun lockfile work. Multi-year ecosystem-bet risk on the first-class primitive is the wrong allocation. Re-evaluate when [Re-evaluation Triggers](#re-evaluation-triggers) item 3 fires. Bun as the runtime and package tool of a workflow Code step is a separate choice this does not touch.
-- **Oxlint+tsgolint rejected, named criterion documented.** tsgolint is alpha (`oxlint-tsgolint` 0.21.1 as of 2026-04-22). Oxfmt is beta. ESLint 10 flat-config (GA 2026-02-06) is mature and meets perf bar via `--cache` plus running type-aware rules in CI only (`typescript-eslint.io/troubleshooting/typed-linting/performance`). Migration trigger: when tsgolint reaches 1.0 stable AND Oxfmt reaches 1.0 stable, evaluate migration with `@oxlint/migrate`.
+- **Bun rejected; re-evaluated on a named trigger.** Bun's official `bun.com/docs/pm/workspaces` page does not surface isolated installs as a primary workspace primitive — independent reporting places isolated-install support in 1.2.x as a CLI flag, but the absence from canonical docs is itself a maturity signal. Turborepo's first-class lockfile support targets pnpm v10/v11 (turbo canary 2.9.7 added pnpm v11 multi-document lockfile parsing) before equivalent Bun lockfile work. Multi-year ecosystem-bet risk on the first-class primitive is the wrong allocation. Re-evaluate when [Re-evaluation Triggers](#re-evaluation-triggers) item 3 fires. Bun as the runtime and package tool of a workflow Code step is a separate choice this does not touch.
+- **Oxlint+tsgolint rejected, named criterion documented.** tsgolint is alpha (`oxlint-tsgolint` 0.21.1, 2026-04-22). Oxfmt is beta. ESLint 10 flat-config (GA 2026-02-06) is mature and meets perf bar via `--cache` plus running type-aware rules in CI only (`typescript-eslint.io/troubleshooting/typed-linting/performance`). Migration trigger: when tsgolint reaches 1.0 stable AND Oxfmt reaches 1.0 stable, evaluate migration with `@oxlint/migrate`.
 - **One Node line, at 24.16.** The memory gate needs `process.availableMemory()` to count inactive and purgeable pages on macOS, which it does only from Node 24.16.0; on Node 22 it returns free pages alone, so a Mac with room reads as full and no step starts. The Electron app already runs Node 24 (Electron 44 bundles 24.19), so the whole workspace targets one line: one `engines.node` floor, one `target: es2024`, one CI matrix, and security support through 2028-04 against Node 22's 2027-04.
 - **`tsc` only fails the hot-build budget.** At the scale of an Electron renderer + the workspace packages + a daemon, `tsc -b` rebuild cycles are tens of seconds. esbuild emits the same TS-stripped JS in hundreds of milliseconds. The two-tool risk (tsc and esbuild disagreeing on a TypeScript edge case) is bounded by `isolatedModules: true` (mandatory) and `isolatedDeclarations: true` (recommended), which constrain TS source to constructs both tools agree on. Adopting `isolatedDeclarations` now is also the maximally-smooth preparation for tsgo / TypeScript 7 native compiler when it stabilizes.
 
@@ -89,9 +89,9 @@ A skeptical staff engineer would argue:
 
 ### Option B: Bun monorepo (Rejected)
 
-- **What:** Bun 1.3 as runtime + package manager + test runner + bundler + transpiler. better-sqlite3 still as binding (Bun-native `bun:sqlite` rejected per research brief).
+- **What:** Bun 1.3 as runtime + package manager + test runner + bundler + transpiler. better-sqlite3 still as binding, not Bun-native `bun:sqlite`.
 - **Steel man:** Single binary collapses 5 primitives into 1. Faster install, faster transpile, growing community. Vendor benchmarks beat pnpm cold install.
-- **Why rejected:** (a) Bun's isolated-install primitive is not a documented workspace setting on `bun.com/docs/pm/workspaces` as of 2026-04-26, raising integration risk for two-ABI native bindings; (b) Turborepo's canonical lockfile support targets pnpm v10/v11 ahead of Bun (turbo 2.9.7 multi-doc lockfile support is pnpm-only); (c) Bun has no documented `catalog:` equivalent for workspace dependency unification; (d) Bun's transpiler doesn't emit `.d.ts`, so we'd still need tsc anyway. Multi-year ecosystem-bet risk too high for V1.
+- **Why rejected:** (a) Bun's isolated-install primitive is not a documented workspace setting on `bun.com/docs/pm/workspaces`, raising integration risk for two-ABI native bindings; (b) Turborepo's canonical lockfile support targets pnpm v10/v11 ahead of Bun (turbo 2.9.7 multi-doc lockfile support is pnpm-only); (c) Bun has no documented `catalog:` equivalent for workspace dependency unification; (d) Bun's transpiler doesn't emit `.d.ts`, so we'd still need tsc anyway. Multi-year ecosystem-bet risk too high for V1.
 
 ### Option C: Nx + ESLint + Vitest + better-sqlite3 + pg + Node 22 only (Rejected)
 
@@ -115,7 +115,7 @@ A skeptical staff engineer would argue:
 
 - **What:** Use the Node.js built-in `node:sqlite` module (added 22.5.0, RC in Node 25.7.0).
 - **Steel man:** Zero native binding to manage. No `electron-rebuild` step. Maintained by the Node.js core team. API parity with better-sqlite3 (synchronous, `prepare`, `function`, `aggregate`, `loadExtension`, sessions). Node 25.x adds `SQLTagStore` LRU.
-- **Why rejected:** (a) on Node 24, the line the service runs, its stability label is Release candidate (1.2) from 24.15.0, not yet Stable (2); (b) BLOB return type is `Uint8Array`, not Node-canonical `Buffer` — every BLOB read requires an extra wrap; (c) Electron 41 still requires `--experimental-sqlite` flag (`electron/electron#45532`) to use it from the renderer; (d) the SQG benchmark (2026-01-19, Node 22) shows better-sqlite3 ahead by 1.11×–1.67× across `getUserById`, `insertUser`, `updatePostViews`. Re-evaluate when node:sqlite reaches Stability 2 on a Node LTS line we actually run.
+- **Why rejected:** (a) on Node 24, the line the service runs, its stability label is Release candidate (1.2) from 24.15.0, not yet Stable (2); (b) BLOB return type is `Uint8Array`, not Node-canonical `Buffer` — every BLOB read requires an extra wrap; (c) the SQG benchmark (2026-01-19, Node 22) shows better-sqlite3 ahead by 1.11×–1.67× across `getUserById`, `insertUser`, `updatePostViews`. Re-evaluate when node:sqlite reaches Stability 2 on a Node LTS line we actually run.
 
 ### Option G: postgres.js (porsager) instead of pg (Rejected)
 
@@ -137,8 +137,8 @@ A skeptical staff engineer would argue:
 | --- | --- | --- | --- |
 | 1 | pnpm 10's isolated linker handles two-ABI native bindings (Electron + Node) cleanly via per-workspace rebuild | `pnpm/pnpm#9073` (better-sqlite3 + native bindings interaction); `WiseLibs/better-sqlite3#1393` (NODE_MODULE_VERSION mismatch under Electron); pnpm.io/settings `nodeLinker: isolated` is the v10 default | Daemon and Electron both load incompatible native binaries; rebuilds break across tiers; we'd fall back to manual `node-gyp` rebuild scripts per tier |
 | 2 | Turborepo's MIT license + open remote-cache HTTP API are durable | `github.com/vercel/turborepo/blob/main/LICENSE` (MIT, verified live 2026-04-26); HTTP API spec documented at `turborepo.dev/docs/core-concepts/remote-caching`; multiple self-host implementations exist (`ducktors/turborepo-remote-cache`, `brunojppb/turbo-cache-server`, `Tapico/tapico-turborepo-remote-cache`) | Vercel relicenses or closes the API. Because the cache is not self-hosted, the live exposure is the GitHub Actions cache backend — `rharkor/caching-for-turbo` going unmaintained, or Turborepo retiring the HTTP cache API the action implements. Either is answered by dropping back to local-only caching (a wall-clock loss, not a correctness one) or by standing up one of the self-host implementations named here. |
-| 3 | Vitest 4.x's `projects` config covers Node + browser packages in one toolchain | Vitest 4.0 release notes 2025-10-22 (Browser Mode stabilized); `vitest.dev/guide/projects` (replaced workspaces in 3.2 / June 2025); Browser Mode supports Playwright/WebDriverIO/preview providers. **Held as shipped (2026-08-25):** the `renderer` project runs happy-dom + `@testing-library/react`, the `main` project runs Node, in one config | The `projects` mechanism itself regresses (the assumption's real subject) — split into per-package runner configs. A DOM-shim shortfall is NOT this failure: it escalates to Browser Mode in the same runner, no toolchain change |
-| 4 | better-sqlite3 12.9.0 ships Electron 41 prebuilds for all V1 platforms. **Re-derived 2026-09-01 for the Electron 44 floor:** the assumption is replaced by _better-sqlite3 13.x ships Node-API platform prebuilds (darwin / linux / linuxmusl / win32 × x64 / arm64) bundled in the npm tarball, ABI-independent across Node and Electron_ | GitHub releases-API enumeration on 2026-04-26: 141 prebuild artifacts including `electron-v145-*` (Electron 41; the original row's `electron-v123` was the Electron 33 ABI, an erratum). Re-enumerated 2026-09-01: 12.9.0 tops out at ABI 145, 12.12.0 (2026-07-15) at 148 (Electron 43), and **no 12.x release ships ABI 149** (Electron 44, per `releases.electronjs.org` `modules`); 13.0.0 (2026-07-21) refactored to `node-addon-api` and publishes eight platform `.node` prebuilds inside the package with no `prebuild-install`; 13.0.3 (2026-08-05) is `latest`; its `engines.node >= 22` overstates — the prebuilds are Node-API 10 (Node ≥ 22.14.0 / 23.6.0), and a Node-API-9 host segfaults at first open, measured 2026-09-01 | A platform falls out of the bundled prebuild set; the package compiles from source at install on that platform (the 13.x documented fallback), which needs a C++ toolchain on that machine. A host below Node 22.14 cannot load the binding at all — observed here as a silent `SIGSEGV` at the first `new Database()`, where Node's documented refusal is a load-time `ThrowNodeApiVersionError` throw; both grades are stated in [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin) — and the workspace's Node floor, 24.16, sits above it |
+| 3 | Vitest 4.x's `projects` config covers Node + browser packages in one toolchain | Vitest 4.0 release notes 2025-10-22 (Browser Mode stabilized); `vitest.dev/guide/projects` (replaced workspaces in 3.2 / June 2025); Browser Mode supports Playwright/WebDriverIO/preview providers. **Holds in the tree:** the `renderer` project runs happy-dom + `@testing-library/react` and the `main-unit` project runs Node, in one config | The `projects` mechanism itself regresses (the assumption's real subject) — split into per-package runner configs. A DOM-shim shortfall is NOT this failure: it escalates to Browser Mode in the same runner, no toolchain change |
+| 4 | better-sqlite3 13.x ships Node-API platform prebuilds (darwin / linux / linuxmusl / win32 × x64 / arm64) bundled in the npm tarball, ABI-independent across Node and Electron | The 12.x per-ABI prebuilds top out at ABI 148 (12.12.0, Electron 43), and **no 12.x release ships ABI 149** (Electron 44, per `releases.electronjs.org` `modules`); 13.0.0 (2026-07-21) refactored to `node-addon-api` and publishes its platform `.node` prebuilds inside the package with no `prebuild-install`; 13.0.3 (2026-08-05) is the pinned release; its `engines.node >= 22` overstates — the prebuilds are Node-API 10 (Node ≥ 22.14.0 / 23.6.0), and a Node-API-9 host segfaults at first open (measured) | A platform falls out of the bundled prebuild set; the package compiles from source at install on that platform (the 13.x documented fallback), which needs a C++ toolchain on that machine. A host below Node 22.14 cannot load the binding at all — observed here as a silent `SIGSEGV` at the first `new Database()`, where Node's documented refusal is a load-time `ThrowNodeApiVersionError` throw; both grades are stated in [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin) — and the workspace's Node floor, 24.16, sits above it |
 | 5 | Node 24 receives security patches through 2028-04-30 | `endoflife.date/nodejs`: Node 24 Active LTS through 2026-10, then Maintenance through 2028-04-30 (the Node.js release schedule row under Research Conducted) | Node 24 EOL accelerates; move the floor to the next LTS line that keeps `process.availableMemory()`'s macOS reading, and the Electron pin to a release that bundles a supported Node |
 | 6 | `isolatedDeclarations: true` plus `tsc --emitDeclarationOnly` produces correct types and prepares the codebase for tsgo / TypeScript 7 migration | TS 5.5 `isolatedDeclarations` proposal `microsoft/TypeScript#47947`; tsgo readme at `github.com/microsoft/typescript-go` documents `isolatedDeclarations`-friendly emit | tsgo emits incompatible declarations; we keep tsc indefinitely (acceptable degradation, not a hard failure) |
 | 7 | `require(esm)` is stable on Node 22.12+ | Joyee Cheung's primary-source post 2025-12-30 (Node TSC member); unflagged in Node 22.12.0 / 20.19.0 late 2025; formally Stable in Node 25.4.0 | Top-level-await ESM modules can't be `require()`'d (still true and acceptable — our code has no TLA) |
@@ -165,7 +165,7 @@ A skeptical staff engineer would argue:
 
 - **Reversal cost:** Medium-to-high. Per-primitive switching cost varies: package-manager swap (≈ 1–2 days, lockfile + CI rewrite + binding rebuild), build-orchestrator swap (≈ 1 day, `turbo.json` → `nx.json`), test-runner swap (≈ 2–3 days, test-API rewrites), linter swap (≈ 1 day with migration tooling), SQLite binding swap (≈ 0.5 day for sync API → sync API; medium for sync → async), Postgres client swap (≈ 1–2 days, query-construction rewrites). The Node floor is one `engines.node` value and one `tsconfig` target (≈ minutes).
 - **Blast radius:** Every package, every CI pipeline, all dev environments, all `electron-rebuild` workflows, all release artifacts.
-- **Migration path:** Adopt new primitive in a feature branch; rebuild lockfile; rebuild bindings; swap CI. For the package manager and test runner specifically, the migration is invasive enough that we should treat the swap as a Type 2 ADR in its own right.
+- **Migration path:** Adopt new primitive in a feature branch; rebuild lockfile; rebuild bindings; swap CI. For the package manager and test runner specifically, the migration is invasive: every package's lockfile entries, scripts or tests move with it.
 - **Point of no return:** After Plan-001 lands and Plans 005, 016, 020 and 028 build on the one schema and the binding ABI. This ADR sets the floor before that boundary is crossed.
 
 ---
@@ -174,7 +174,7 @@ A skeptical staff engineer would argue:
 
 ### Positive
 
-- Reinforcing primitive choices: pnpm enables Turbo's first-class lockfile support, and `better-sqlite3` 13.x's bundled Node-API prebuilds remove the one per-ABI rebuild the toolchain ever carried (2026-09-01), so the daemon's binding needs no `allowBuilds` entry and Vitest's single-runner Node + browser coverage runs with no compile step.
+- Reinforcing primitive choices: pnpm enables Turbo's first-class lockfile support, and `better-sqlite3` 13.x's bundled Node-API prebuilds need no per-ABI rebuild, so the daemon's binding needs no `allowBuilds` entry and Vitest's single-runner Node + browser coverage runs with no compile step.
 - Empirical adoption-validated stack (pnpm + Turbo) confirmed in vercel/turborepo's own repo, trpc/trpc, vercel/next.js (raw `package.json` reads, 2026-04-26).
 - Strong type-aware lint coverage from day one (typescript-eslint full 61-rule set vs Biome's ~10).
 - BLOB ergonomics: `Buffer` end-to-end without per-read wrapping.
@@ -199,22 +199,14 @@ A skeptical staff engineer would argue:
 
 ## Decision Validation
 
-### Pre-Implementation Checklist
-
-- [x] All assumptions cite primary sources (8 entries, all linked)
-- [x] At least one alternative was seriously considered and steel-manned (8 alternatives steel-manned across the primitives)
-- [x] Antithesis was considered (single skeptical-engineer rebuttal across 4 axes, then synthesized)
-- [x] Failure modes have detection mechanisms (8 scenarios, 8 detection signals)
-- [x] Point of no return is identified (post-Plan-001 + downstream-plan binding)
-
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Plan-001 implementation completes without integration friction across all primitives | All Plan-001 acceptance criteria pass with ADR-022 toolchain unchanged | Plan-001 Done Checklist | When Plan-001's last phase lands |
+| A plan builds without integration friction across all primitives | Every acceptance criterion of the plan passes with the ADR-022 toolchain unchanged | Each task's acceptance in the plan | When each plan's last phase lands |
 | CI cold-build under target | < 10 minutes from `pnpm install` to all-package build green | CI pipeline timing | Each CI run |
 | Hot-build under target (single-package change) | < 30 seconds from save to test result | Local `turbo watch` + Vitest watch latency | At each toolchain version change |
-| `better-sqlite3` installs from a bundled Node-API prebuild on every V1 platform | `pnpm install` on macOS x64/arm64, Linux x64/arm64, Windows x64 resolves a bundled `.node` for `better-sqlite3` 13.0.3 with no source compile, and the daemon suite passes on the Node floor (24.16) and under Electron 44's Node ABI 149 | CI matrix run | `2026-09-08` |
+| `better-sqlite3` installs from a bundled Node-API prebuild on every V1 platform | `pnpm install` on macOS x64/arm64, Linux x64/arm64, Windows x64 resolves a bundled `.node` for `better-sqlite3` 13.0.3 with no source compile, and the daemon suite passes on the Node floor (24.16) and under Electron 44's Node ABI 149 | CI matrix run | Each CI run |
 
 ---
 
@@ -243,7 +235,7 @@ Each of the following events triggers a re-evaluation of the named primitive:
 | pnpm releases | Documentation | pnpm 10.33.2 stable (verified 2026-04-26 via npm registry); pnpm 11.0.0-rc.5 (2026-04-21) defaults `minimumReleaseAge` and adds `blockExoticSubdeps` | <https://github.com/pnpm/pnpm/releases> |
 | `pnpm/pnpm#9073` | Issue tracker | Documented better-sqlite3 + Electron + pnpm pattern — isolated linker enables clean two-ABI rebuilds | <https://github.com/pnpm/pnpm/issues/9073> |
 | `WiseLibs/better-sqlite3#1393` | Issue tracker | `NODE_MODULE_VERSION` mismatch under Electron — confirms two-ABI binding constraint | <https://github.com/WiseLibs/better-sqlite3/issues/1393> |
-| Turborepo MIT license | Primary source | License confirmed MIT as of 2026-04-26 (not MPL); self-host posture is durable | <https://github.com/vercel/turborepo/blob/main/LICENSE> |
+| Turborepo MIT license | Primary source | License confirmed MIT, read 2026-04-26 (not MPL); self-host posture is durable | <https://github.com/vercel/turborepo/blob/main/LICENSE> |
 | Turborepo remote caching | Documentation | Open HTTP API; `TURBO_REMOTE_CACHE_SIGNATURE_KEY` for HMAC-SHA256 signed artifacts | <https://turborepo.dev/docs/core-concepts/remote-caching> |
 | Turborepo telemetry | Documentation | On by default; opt-out via `TURBO_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` | <https://turborepo.dev/docs/telemetry> |
 | `ducktors/turborepo-remote-cache` | Self-host implementation | Open-source S3-backed Turbo cache server; the fallback if the GitHub Actions cache backend is ever unavailable | <https://github.com/ducktors/turborepo-remote-cache> |
@@ -259,17 +251,17 @@ Each of the following events triggers a re-evaluation of the named primitive:
 | Node.js test runner reference | Documentation | `node:test` Stability 2 since Node 20; **`--watch` Stability 1 (experimental)**; `--experimental-test-coverage` requires flag; `mock.module()` requires `--experimental-test-module-mocks` | <https://nodejs.org/api/test.html> |
 | Biome v2 announcement | Vendor announcement | First JS/TS linter with type-aware rules without invoking `tsc`; flagship `noFloatingPromises` covers ~75% of typescript-eslint cases | <https://biomejs.dev/blog/biome-v2/> |
 | Biome 2026 roadmap | Vendor announcement | Prioritizes embedded languages, HTML, SCSS, IDE LSP polish — not aggressive type-aware expansion | <https://biomejs.dev/blog/roadmap-2026/> |
-| Oxlint 1.0 announcement | Vendor announcement | 50–100× ESLint speed; 500+ ESLint-compatible rules at GA; 720+ rules as of 2026-03 | <https://voidzero.dev/posts/announcing-oxlint-1-stable> |
+| Oxlint 1.0 announcement | Vendor announcement | 50–100× ESLint speed; 500+ ESLint-compatible rules at GA; 720+ rules by 2026-03 | <https://voidzero.dev/posts/announcing-oxlint-1-stable> |
 | Oxlint type-aware via tsgolint | Documentation | tsgolint covers **59 of 61** typescript-eslint type-aware rules; runs in <10s where ESLint takes ~1 min | <https://oxc.rs/docs/guide/usage/linter/type-aware.html> |
-| Oxfmt beta | Vendor announcement | 100% Prettier conformance at >30× speed; beta as of 2026-02-24 | <https://oxc.rs/blog/2026-02-24-oxfmt-beta> |
+| Oxfmt beta | Vendor announcement | 100% Prettier conformance at >30× speed; beta announced 2026-02-24 | <https://oxc.rs/blog/2026-02-24-oxfmt-beta> |
 | ESLint flat-config evolution | Documentation | `defineConfig()` (March 2025) flattens nested args; flat config default since ESLint 9.0 (April 2024) | <https://eslint.org/blog/2025/03/flat-config-extends-define-config-global-ignores/> |
 | ESLint v10.0.0 release announcement | Vendor announcement | GA 2026-02-06 (Nicholas C. Zakas, ESLint TSC); breaking changes: drops Node <20.19.0/21/23 support; `eslintrc` config system fully removed; flat-config-only — strictly aligns with §Decision row 5's flat-config posture | <https://eslint.org/blog/2026/02/eslint-v10.0.0-released/> |
 | typescript-eslint dependency-versions matrix | Documentation | typescript-eslint v8.x officially supports ESLint `^8.57.0 \|\| ^9.0.0 \|\| ^10.0.0` — confirms ESLint 10 / TS-ESLint 8.59+ pairing pinned in the workspace `package.json` is supported | <https://typescript-eslint.io/users/dependency-versions> |
 | typescript-eslint perf guide | Documentation | `--cache` plus type-aware rules in CI only is the canonical perf strategy for large TS monorepos | <https://typescript-eslint.io/troubleshooting/typed-linting/performance> |
-| `WiseLibs/better-sqlite3` releases | Repository | v12.9.0 (2026-04-12); 141 prebuild artifacts including `electron-v145` (Electron 41 — this row first read `electron-v123`, the Electron 33 ABI, an erratum corrected 2026-09-01) and `node-v137`; embeds SQLite 3.53.0 | <https://github.com/WiseLibs/better-sqlite3/releases> |
+| `WiseLibs/better-sqlite3` releases | Repository | v12.9.0 (2026-04-12); per-ABI prebuild artifacts including `electron-v145` (Electron 41) and `node-v137`; embeds SQLite 3.53.0 | <https://github.com/WiseLibs/better-sqlite3/releases> |
 | better-sqlite3 worker-thread guidance | Documentation | Each worker opens its own `Database` instance in WAL read-only; never share `Database` across threads | <https://github.com/WiseLibs/better-sqlite3/blob/master/docs/threads.md> |
 | Node.js SQLite docs | Documentation | `node:sqlite` Stability 1.2 (Release candidate) from Node 24.15.0, the line the service runs; BLOB return type is `Uint8Array` | <https://nodejs.org/api/sqlite.html> |
-| `electron/electron#45532` | Issue tracker | Electron 41 still requires `--experimental-sqlite` flag to use `node:sqlite` from the renderer | <https://github.com/electron/electron/issues/45532> |
+| `electron/electron#45532` | Issue tracker | `node:sqlite` is on without a flag from Electron 35.0.2, which carries Node 22.14.0, so Electron adds no reason against it | <https://github.com/electron/electron/issues/45532> |
 | better-sqlite3 v13.0.0 release notes | Changelog | First N-API release: prebuilt binaries "should theoretically work across different versions of Node.js and Electron"; `prebuild-install` removed; prebuilds published inside the package; source compile at install as the fallback | <https://github.com/WiseLibs/better-sqlite3/releases/tag/v13.0.0> |
 | better-sqlite3 releases 12.9.0 → 12.12.0 | Registry | Per-ABI Electron prebuilds top out at `electron-v145` (12.9.0 / 12.10.x) and `electron-v148` (12.11.2 / 12.12.0); no release carries `electron-v149`; 13.x releases carry no per-ABI assets at all | <https://github.com/WiseLibs/better-sqlite3/releases> |
 | Electron releases feed | Registry | `modules` (Node ABI) 145 for 41.x, 146 for 42.x, 148 for 43.x, **149** for 44.x; 44.1.1 bundles Node 24.19.0, and so does 44.1.0, the exact pinned release (measured on the installed binary 2026-09-01: Electron 44.1.0 / Chromium 152.0.7977.65 / Node 24.19.0) | <https://releases.electronjs.org/releases.json> |
@@ -298,8 +290,8 @@ Each of the following events triggers a re-evaluation of the named primitive:
 
 ### Related Plans
 
-- [Plan-001: Session Core](../plans/001-session-core.md) — first consumer of this toolchain; tier-entry plan that owns the one schema of each database, the daemon's and the control plane's.
+- [Plan-001: Session Core](../plans/001-session-core.md) — first consumer of this toolchain; owns the one schema of each database, the daemon's and the control plane's.
 
 ### Related Architecture
 
-- [Container Architecture](../architecture/container-architecture.md) — authoritative for the workspace topology (`packages/`/`apps/` tree).
+- [Container Architecture](../architecture/container-architecture.md) — the workspace topology (`packages/`/`apps/` tree).

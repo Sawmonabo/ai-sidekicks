@@ -6,7 +6,7 @@ This document records the V1 feature scope for the product: the features V1 ship
 
 ## V1 Features (21)
 
-Every V1 feature has a governing spec; feature #24 (Remote Control) is governed by [Spec-028](../specs/028-remote-control.md). Feature numbers are stable identifiers cited from other documents, so the list skips the numbers of features the product dropped rather than renumbering the survivors. Cross-cutting V1 specs (identity, observability, rate limiting, data retention) are listed separately in §Supporting V1 Specs below.
+Every V1 feature has a governing spec; feature #24 (Remote Control) is governed by [Spec-028](../specs/028-remote-control.md). Feature numbers are stable identifiers cited from other documents, so the list is never renumbered and some numbers are unused. Cross-cutting V1 specs (identity, observability, rate limiting, data retention) are listed separately in §Supporting V1 Specs below.
 
 | # | Feature | Governing Spec(s) |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Spec Coverage Assessment
 
-- **V1 features:** all 21 have a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-23, SA-25, SA-27 and SA-28 items in its own body; SA-24, SA-29, SA-30 and SA-31 live in Plan-015 as implementation detail.
+- **V1 features:** each has a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-23, SA-25, SA-27 and SA-28 items in its own body; SA-24, SA-29, SA-30 and SA-31 live in Plan-015 as implementation detail.
 
 ## Backlog Coverage Assessment
 

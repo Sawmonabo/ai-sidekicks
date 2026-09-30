@@ -15,7 +15,7 @@
 
 The session screen has a Preview pane: a browser beside the conversation, showing the page an agent is building. Three parties use that page. The person looks at it and marks it. The agent drives it through browser tools. A workflow's browser steps and the daemon's own reads use it too. The console also runs where no desktop window is open, and from other devices through Remote Control.
 
-This record is required before the `browser` pane kind is wired live, because a native browser view hosted beside the renderer and answering an agent's tool calls is a one-way architectural door. Spec-021 §Console Libraries had chosen to build the browser tools by hand on Electron's in-process debugger and to avoid the published browser-automation tool servers, for three reasons: they pin alpha builds, they expose the whole application's debug surface, and they do not support Electron.
+A native browser view hosted beside the renderer and answering an agent's tool calls is a one-way architectural door. The case for building the browser tools by hand on Electron's in-process debugger, and avoiding the published browser-automation tool servers, rests on three objections: they pin alpha builds, they expose the whole application's debug surface, and they do not support Electron.
 
 The versions this record was checked against: `electron` 44.1.0, `playwright-core` 1.62.1, `@modelcontextprotocol/sdk` 1.30.0. The published `@playwright/mcp` 0.0.80 was read and found to be a seven-file shim over `playwright-core`'s own server, so it is not a dependency.
 
@@ -25,7 +25,7 @@ What hosts the Preview page, what do an agent's browser tools attach to, and how
 
 ### Trigger
 
-The console design has Preview in it, and the pane cannot be wired until this record exists.
+The console design has Preview in it, and wiring the `browser` pane kind fixes how the page is hosted and how the agent's tools reach it.
 
 ---
 
@@ -54,7 +54,7 @@ The console design has Preview in it, and the pane cannot be wired until this re
 
 ### Antithesis — The Strongest Case Against [T2]
 
-Spec-021's three objections were not idle.
+The three objections are not idle.
 
 1. **The alpha pin.** `@playwright/mcp` 0.0.80 depends on a `1.63.0-alpha` Playwright pair, ahead of the repository's 1.62.1, and every one of its published versions pins a pre-release pair. A shipped desktop application would carry an alpha dependency in a privileged process.
 2. **Electron is not supported.** The published server expects to launch or own a browser, and Electron is not a target it supports.
@@ -151,14 +151,6 @@ The two hosts share every layer above the resolver, so the second host adds test
 ---
 
 ## Decision Validation [T2]
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [x] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 

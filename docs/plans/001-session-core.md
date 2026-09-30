@@ -8,7 +8,7 @@
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-001: Session Core](../specs/001-session-core.md) |
-| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md), [ADR-018](../decisions/018-cross-version-compatibility.md), [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md), [ADR-022](../decisions/022-v1-toolchain-selection.md), [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). **Phase 1 ship-gate**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) governs the engineering CI surface that lands in Phase 1. **Phase 5 ship-gate (governance)**: [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md) governs CP-001-1 / CP-001-2; [ADR-006](../decisions/006-worktree-first-execution-mode.md) bakes worktree paths into the daemon's session-spawn entry point per CP-001-2. |
+| **Required ADRs** | [ADR-001](../decisions/001-session-is-the-primary-domain-object.md), [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-015](../decisions/015-v1-feature-scope-definition.md), [ADR-017](../decisions/017-shared-event-sourcing-scope.md), [ADR-018](../decisions/018-cross-version-compatibility.md), [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md), [ADR-022](../decisions/022-v1-toolchain-selection.md), [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md). **Phase 1**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) governs the engineering CI surface that lands in Phase 1. **Phase 5**: [ADR-019](../decisions/019-windows-v1-tier-and-pty-sidecar.md) governs CP-001-1 / CP-001-2; [ADR-006](../decisions/006-worktree-first-execution-mode.md) bakes worktree paths into the daemon's session-spawn entry point per CP-001-2. |
 | **Dependencies** | Phase 1–Phase 4: None (the entry plan; creates the first tables of the daemon's one schema and the control plane's one schema, among them the columns [Plan-005](./005-session-event-taxonomy-and-audit-log.md), [Plan-016](./016-identity-and-user-state.md) and [Plan-020](./020-data-retention-and-gdpr.md) give meaning to). Phase 6: [Plan-027](./027-agent-definitions-and-peer-invocation.md) Phase 3 for a definition-led lead, and [Plan-004](./004-provider-driver-contract-and-capabilities.md)'s driver close, `forkConversation`, running set and resume by id. Phase 5 only: [Plan-006](./006-local-ipc-and-daemon-control.md) partial-deliverable (the IPC wire substrate + `session.*` namespace + SDK Zod layer per [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format)). See [Plan-006 §Execution Windows](./006-local-ipc-and-daemon-control.md#execution-windows-v1-carve-out). |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 
@@ -67,9 +67,9 @@ Plan-001 owns the daemon-side session lifecycle and the `PtyHost.spawn` entry-po
 
 ## Preconditions
 
-- [x] **Phase 1 ship-gate**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation. The engineering CI surface that lands in Phase 1 (`.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit framework, commitlint 20.5.2, Renovate dependency-update config, Gitleaks v8.30+ secret scanner, release-please-action@v5 + actions/attest@v4 release skeleton, code-signing custody artifacts) is governed by that ADR.
+- **Phase 1 CI surface**: [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) — V1 CI/CD, Pre-Commit Hooks, and Release Automation. The engineering CI surface that lands in Phase 1 (`.github/workflows/{ci,release}.yml`, lefthook 2.1.6 pre-commit framework, commitlint 20.5.2, Renovate dependency-update config, Gitleaks v8.30+ secret scanner, release-please-action@v5 + actions/attest@v4 release skeleton, code-signing custody artifacts) is governed by that ADR.
 
-Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
+Target paths below assume the implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 
 ## Target Areas
 
@@ -80,7 +80,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Repo Layout And Bootstrap
 
-Workspace topology is authoritative in [Container Architecture](../architecture/container-architecture.md). Toolchain primitives, version pins, and two-tier Node target rules are authoritative in [ADR-022](../decisions/022-v1-toolchain-selection.md). Plan-001 owns the bootstrap artifacts that wire those choices into the repo.
+Workspace topology is described in [Container Architecture](../architecture/container-architecture.md). Toolchain primitives, version pins, and two-tier Node target rules are set by [ADR-022](../decisions/022-v1-toolchain-selection.md). Plan-001 owns the bootstrap artifacts that wire those choices into the repo.
 
 ### Root Scaffolding
 
@@ -192,7 +192,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 ### Phase 1 — Workspace Bootstrap
 
-**Precondition:** [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md) accepted — gates Phase 1 only.
+**Precondition:** none.
 
 **Goal:** All packages compile; one passing tooling test verifies the workspace is healthy; the daemon's native-binding rebuild path is exercised at bootstrap; the engineering CI surface (per [ADR-023](../decisions/023-v1-ci-cd-and-release-automation.md)) is wired and gates subsequent PRs.
 
@@ -307,7 +307,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 **Goal:** Tests I1, I3, and I4 go green; the manual desktop smoke test passes.
 
-**Precondition:** Phase 5 ships in three lanes with per-task gating, not as a single monolithic gate. Each lane unblocks when its named upstream substrate is at HEAD on `develop`. The per-task `Files:` rows at T5.1, T5.3 and T5.4 below define the per-lane boundaries.
+**Precondition:** Phase 5 ships in three lanes with per-task gating, not as a single monolithic gate. Each lane unblocks when its named upstream substrate has merged. The per-task `Files:` rows at T5.1, T5.3 and T5.4 below define the per-lane boundaries.
 
 - **Lane A** (T5.1 — `session-client.ts`): consumes the [Plan-006 partial sequence](./006-local-ipc-and-daemon-control.md#partial-pr-sequence) (SecureDefaults Bootstrap, Wire Substrate, `session.*` Handlers + SDK Layer).
 - **Lane B** (T5.4 — `spawn-cwd-translator.ts`): unblocks once [Plan-022 T-022-2-1](./022-rust-pty-sidecar.md) ships the `PtyHostContract` interface at `packages/runtime-daemon/src/pty/pty-host.ts`.
@@ -335,13 +335,15 @@ Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies
 
 ### Phase 6 — The Session Directory And Lifecycle
 
-**Precondition:** Phases 2 and 3 merged. T6.1 and T6.8 resolve a definition-led lead through [Plan-027 §Phase 3 — Resolution when a run starts](./027-agent-definitions-and-peer-invocation.md#phase-3--resolution-when-a-run-starts); T6.5, T6.8 and T6.12 call the driver's close, `forkConversation`, running set and resume by id from [Plan-004](./004-provider-driver-contract-and-capabilities.md).
+**Precondition:** Phases 2 and 3 merged. T6.5, T6.8 and T6.12 call the driver's close, `forkConversation`, running set and resume by id from [Plan-004](./004-provider-driver-contract-and-capabilities.md).
 
 **Goal:** the daemon serves every session verb [Spec-001 §Interfaces And Contracts](../specs/001-session-core.md#interfaces-and-contracts) names, with a chat's managed workspace and an idle Claude Code session's sleep, each task done when its acceptance holds.
 
 #### Tasks
 
 ##### T6.1 — `session.create` with the lead, the place it works and a chat's workspace
+
+**Waits on:** Plan-027 Phase 3 merged — a definition-led lead resolves through [Plan-027 §Phase 3 — Resolution when a run starts](./027-agent-definitions-and-peer-invocation.md#phase-3--resolution-when-a-run-starts).
 
 **Files:** `packages/contracts/src/session.ts`, `packages/contracts/src/event.ts`, `packages/runtime-daemon/src/session/session-service.ts`, the daemon's managed-workspace service (`ManagedWorkspaceService`) under `packages/runtime-daemon/src/workspace/` **Acceptance:** `session.create` takes the lead (`leadDefinitionId`, the axes spelled out in `lead`, or both) with its model and effort and uses those, never a value from the machine's settings file; in a project its `binding` names the project and `provisioned-worktree` or `bound-root`, and the session is bound there in the same step; for a chat, `ManagedWorkspaceService.create` makes the git-initialized folder at `<home>/.ai-sidekicks/workspaces/<session-id>` and registers it as a mount whose origin is managed, in the same call; the request has no provider-account member and the reply echoes the account the daemon resolved; `session.created` names the lead; with `scratch: true` the record carries `scratchForDefinitionId`, so Try it finds its scratch session again rather than minting another. **Spec coverage:** Spec-001 §Interfaces And Contracts, §Default Behavior, §Required Behavior (the session shapes) **Verifies invariant:** none
 
@@ -370,6 +372,8 @@ Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies
 **Files:** `packages/contracts/src/session.ts`, `packages/runtime-daemon/src/session/session-service.ts`, `ManagedWorkspaceService` **Acceptance:** `session.convert {sessionId, path}` takes the typed path as data and checks it before anything is copied; it attaches the repository through [Plan-007](./007-repo-attachment-and-workspace-binding.md)'s attach, copies the workspace's files in, skips every path the repository already holds and leaves that file untouched, keeps the managed workspace and its history, changes the session's binding and `shape` in place with the same session id and timeline, appends `session.converted` and one system message counting what was and was not copied, and sends the session's agent one short message naming the skipped files. **Spec coverage:** Spec-001 §Required Behavior (a chat becomes a project in place), AC10 **Verifies invariant:** none
 
 ##### T6.8 — Fork
+
+**Waits on:** Plan-027 Phase 3 merged — a definition-led lead resolves through [Plan-027 §Phase 3 — Resolution when a run starts](./027-agent-definitions-and-peer-invocation.md#phase-3--resolution-when-a-run-starts).
 
 **Files:** `packages/contracts/src/session.ts`, `packages/runtime-daemon/src/session/session-service.ts`, `ManagedWorkspaceService` **Acceptance:** `session.fork` takes a message anchor and returns the new session's id; the conversation is copied through the driver's `forkConversation`; the new session carries the transcript through that message, its posture, model, effort and tool configuration; a chat fork gets its own managed workspace and a project fork a new worktree off the parent's current one at its current commit; the parent is recorded on the new session's `session.created`; the parent's id, timeline and runs are unchanged. **Spec coverage:** Spec-001 §Required Behavior (forking a session), AC11 **Verifies invariant:** none
 
@@ -412,12 +416,3 @@ After Phase 6 lands green and the manual smoke passes, Plan-001 is complete.
 ## Risks And Blockers
 
 - Event ordering mistakes between the daemon's event log and the snapshot a device replays
-
-## Done Checklist
-
-- [x] Code changes implemented — Phases 1-5 across contracts, daemon, control plane and client SDK.
-- [ ] Code changes implemented — Phase 6, the session directory and lifecycle, each task's acceptance holding.
-- [x] Tests added or updated — C1-C3 (contracts), D1-D5 (daemon schema + projection, including the D5 schema test), and the I-tier suite at Phase 5: cross-platform unit tests plus platform-gated Windows-CI tests for T5.4, and per-backend shutdown tests for T5.3.
-- [x] Verification completed — the I-tier unit and integration suite is green.
-- [x] Related docs updated.
-- [ ] All `TODO(Plan-001 Phase N)` annotations in the source tree are resolved or moved to a follow-up issue: `rg "TODO\(Plan-001 " packages/ apps/` returns nothing.

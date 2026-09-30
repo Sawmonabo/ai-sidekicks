@@ -2,7 +2,7 @@
 
 Canonical schema for the local daemon's SQLite database. Each runtime node maintains its own instance.
 
-The database is one schema, created whole when the daemon first opens it. There are no numbered migrations and no upgrade steps: a feature that needs a table or a column adds it to this schema, and to the schema's test, in the change that builds the feature. Every table is `STRICT`, so each column is typed `INTEGER`, `REAL`, `TEXT`, `BLOB` or `ANY`, JSON is stored as `TEXT`, and a value that cannot be stored losslessly in its column's type is refused on write rather than kept under a looser affinity. A primary-key column of a `STRICT` table is `NOT NULL` whether or not it says so ([SQLite, STRICT Tables](https://www.sqlite.org/stricttables.html), fetched 2026-09-27).
+The database is one schema, created whole when the daemon first opens it. There are no numbered migrations and no upgrade steps: a feature that needs a table or a column adds it to this schema, and to the schema's test, in the change that builds the feature. Every table is `STRICT`, so each column is typed `INTEGER`, `REAL`, `TEXT`, `BLOB` or `ANY`, JSON is stored as `TEXT`, and a value that cannot be stored losslessly in its column's type is refused on write rather than kept under a looser affinity. A primary-key column of a `STRICT` table is `NOT NULL` whether or not it says so ([SQLite, STRICT Tables](https://www.sqlite.org/stricttables.html)).
 
 **Storage boundary:** Machine-scoped execution truth and recovery data. See [Data Architecture](../data-architecture.md).
 
@@ -399,7 +399,7 @@ CREATE TABLE driver_contract_meta (
 );
 ```
 
-The build-metadata rejection above is grounded in the SemVer specification itself: per [Semantic Versioning 2.0.0 §10](https://semver.org/#spec-item-10), "Build metadata MUST be ignored when determining version precedence. Thus two versions that differ only in the build metadata, have the same precedence." (fetched 2026-06-15). Because `1.2.3+build.5` and `1.2.3+build.6` denote the SAME contract version under that precedence rule, persisting them as byte-distinct `contract_version` strings would let a non-change masquerade as a change. The shared write-path Zod guard (`assertValidContractVersion`, invoked from both the T2.2 `runtime_bindings` and T2.4 `driver_contract_meta` write paths) therefore REJECTS — rather than strips/normalizes — any value carrying build metadata, keeping the stored value byte-identical to what was validated and both `contract_version` columns canonical-identifying.
+The build-metadata rejection above is grounded in the SemVer specification itself: per [Semantic Versioning 2.0.0 §10](https://semver.org/#spec-item-10), "Build metadata MUST be ignored when determining version precedence. Thus two versions that differ only in the build metadata, have the same precedence." Because `1.2.3+build.5` and `1.2.3+build.6` denote the SAME contract version under that precedence rule, persisting them as byte-distinct `contract_version` strings would let a non-change masquerade as a change. The shared write-path Zod guard (`assertValidContractVersion`, invoked from both the T2.2 `runtime_bindings` and T2.4 `driver_contract_meta` write paths) therefore REJECTS — rather than strips/normalizes — any value carrying build metadata, keeping the stored value byte-identical to what was validated and both `contract_version` columns canonical-identifying.
 
 **Cloud tasks.** `cloud_tasks` holds one row per task a session sent to its provider's own cloud (`cloud.taskStart`), read by `cloud.taskList` and `cloud.taskRead`. Each row belongs to its session and records the task's state exactly as the provider last reported it, never a state the daemon inferred: on Codex `pending`, `ready`, `applied` or `error`, and on Claude Code `submitted` for the task's whole life, because Claude Code's command line reports no later state. [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) owns the row's columns.
 
@@ -572,7 +572,7 @@ CREATE TABLE artifact_manifests (
   created_by         TEXT,                       -- user_id of the publishing caller; NULL for a daemon-produced artifact with no attributable caller
   artifact_type      TEXT NOT NULL              -- Spec-012 §Interfaces And Contracts discriminator (D-012-4)
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design', 'workflow_output')),
-  subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-012-2, Spec-012 §State And Data Implications, A-012-4)
+  subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-012-2, Spec-012 §State And Data Implications)
   state              TEXT NOT NULL DEFAULT 'pending'
                      CHECK(state IN ('pending', 'published', 'superseded')),
   content_hash       TEXT NOT NULL,              -- SHA-256 content address (OCI `digest`); intrinsic to a content-addressed manifest (I-012-1), set at insert by the writing producer (AttachmentIngest or ArtifactPublish) from its own payload — D-012-1
@@ -768,7 +768,7 @@ No `REFERENCES` clauses: citing runs are event-sourced (`run.running` posture st
 
 Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I7), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store and the workflow secrets' records ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth; tables 3, 5 and 6 are rebuildable projections, 1, 2 and 4 are immutable truth, and 7 to 10 are MUTABLE truth: what this machine is armed to do next, and which secrets it holds, are facts no event history can reconstruct, so the durable row is the truth and the in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-25)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-25)). One column on the projection tier is truth as well: a waiting step's `wait_deadline_at` is written when the step starts waiting, and the deadline timer is a cache over it.
 
-The normalized-table-over-blob shape and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution), fetched 2026-04-26); and large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/), fetched 2026-04-25). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) enumerates the full primary-source corpus.
+The normalized-table-over-blob shape and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution)); and large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/)). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) enumerates the full primary-source corpus.
 
 **Canvas geometry is stored, and it is not definition bytes.** A document's own `layout` section — a position per node, an optional viewport and the sticky notes — sits **outside** the hashed body and outside the BLAKE3 preimage, and is persisted in a `layout_json` column beside the body on `workflow_definitions` and on `workflow_versions` ([Spec-015 §Canvas layout is not definition bytes (SA-35)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-35)). It is part of the document rather than a client's private note, so it travels with the document — the file form carries it as an optional section, and a document that arrives with none is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so a definition is never unopenable and opens the same way twice. Because no byte the engine reads changes with it, a drag mints no version and enters no rebuild; it is not a storage tier of its own. Park-and-resume is the `waiting` status on tables 3 and 6, with a waiting step's cause, its armed resume instant, its account attention key and its deadline on the step's row; its always-on engine event record lands on the Plan-018-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-43)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-43)), whose bucket registration — including the new bucket's storage shape and any table it adds to this schema, the existing buckets being SQLite tables of this schema — is Plan-018's to record when it registers the bucket (Plan-015 CP-015-9); no bucket for it exists in this schema today and none is added here.
 
@@ -777,7 +777,7 @@ The normalized-table-over-blob shape and the rebuildable-projection split align 
 -- 1. workflow_definitions — content-hashed, immutable, schema-versioned
 -- ========================================================================
 -- Owner: Plan-015
--- Wave-1 commitments: C-1 (YAML + TS SDK), C-8 (schema version marker)
+-- Commitments: C-1 (one document plus a typed TypeScript SDK), C-8 (schema version marker)
 CREATE TABLE workflow_definitions (
   id                   TEXT PRIMARY KEY,               -- ULID; NOT the content hash
   session_id           TEXT NOT NULL,                  -- owning session
@@ -836,7 +836,7 @@ CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(conte
 -- 2. workflow_versions — definition history chain (F13 additive versioning)
 -- ========================================================================
 -- Owner: Plan-015
--- Wave-1 commitments: F13 / C-8 version-API-at-V1; see Spec-015 §Required Behavior
+-- Commitments: F13 / C-8 version-API-at-V1; see Spec-015 §Required Behavior
 CREATE TABLE workflow_versions (
   id                   TEXT PRIMARY KEY,               -- ULID
   definition_id        TEXT NOT NULL REFERENCES workflow_definitions(id),
@@ -908,7 +908,7 @@ CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 -- 4. workflow_gate_resolutions — append-only per C-13 / I7
 -- ========================================================================
 -- Owner: Plan-015
--- Wave-1 commitment: C-13 append-only approval history; the invariant
+-- Commitment: C-13 append-only approval history; the invariant
 -- is I7 in Spec-015 §Pitfalls To Avoid.
 CREATE TABLE workflow_gate_resolutions (
   id                         TEXT PRIMARY KEY,          -- ULID
@@ -1122,7 +1122,7 @@ CREATE TABLE workflow_secrets (
 
 ## Orchestration Tables (Plan-014)
 
-DDL per D-014-15, A-014-5, A-014-2 and D-014-5. Posture per table: `run_links` and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented), and so are the session-messaging tables, the `agents.pending_switch` column (written before a switch is acknowledged, since no event records a switch being asked for) and `agent_tree_nodes` (written by the daemon alone when an agent starts and when it finishes), so none of them is rebuilt from the log.
+DDL per Plan-014 D-014-5. Posture per table: `run_links` and `agents` are events-canonical projections ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented), and so are the session-messaging tables, the `agents.pending_switch` column (written before a switch is acknowledged, since no event records a switch being asked for) and `agent_tree_nodes` (written by the daemon alone when an agent starts and when it finishes), so none of them is rebuilt from the log.
 
 ```sql
 -- Owner: Plan-014 (events-canonical projection of the run.queued orchestration-carrier fields — D-014-3)
@@ -1142,7 +1142,7 @@ CREATE TABLE run_links (
 CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (orchestration.childRunLinkRead; the session's agent tree)
 CREATE INDEX idx_run_links_session ON run_links(session_id);
 
--- Owner: Plan-014 (events-canonical projection of the agent events — A-014-2).
+-- Owner: Plan-014 (events-canonical projection of the agent events).
 -- No wire verb brings an agent into a session or takes one out: a row appears where an agent
 -- takes part -- the session's own lead, a delegation from it, or an agent the person named in the
 -- composer -- and a row has no lifecycle state: an agent is in its session or it is not. The values
@@ -1447,7 +1447,7 @@ CREATE INDEX idx_tool_traces_expiry ON tool_traces(expires_at)
 
 ## MCP Governance Tables (Plan-025)
 
-Node-scoped governance state for [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) (V1 feature #18): the trust store (which servers the person trusts), the per-tool override store, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-025 § State And Data Implications](../../specs/025-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; the audit trail is the five `mcp.*` event types in the `mcp_governance` category, appended through the Plan-005 `EventLogService` path with daemon-scope sentinel binding (receipts are retry-window dedup evidence, deliberately not audit rows).
+Node-scoped governance state for [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) (V1 feature #18): the trust store (which servers the person trusts), the per-tool override store, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-025 § State And Data Implications](../../specs/025-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; the audit trail is the `mcp.*` event types in the `mcp_governance` category, appended through the Plan-005 `EventLogService` path with daemon-scope sentinel binding (receipts are retry-window dedup evidence, deliberately not audit rows).
 
 ```sql
 -- Owner: Plan-025
@@ -1686,7 +1686,7 @@ CREATE INDEX idx_provider_account_usage_turns_account_model
   ON provider_account_usage_turns(account_id, model_id);
 ```
 
-## Rows are appended and never rewritten. A provider's own usage history, where it publishes one, is drawn **beside** this table with the vendor named and is never reconciled into it: two accountants counting the same tokens differently is what one source of truth exists to prevent.
+Rows are appended and never rewritten. A provider's own usage history, where it publishes one, is drawn **beside** this table with the vendor named and is never reconciled into it: two accountants counting the same tokens differently is what one source of truth exists to prevent.
 
 ## Agent Definition Tables (Plan-027)
 
@@ -1763,7 +1763,7 @@ CREATE UNIQUE INDEX idx_agent_definitions_name_folded
   ON agent_definitions(origin, plugin_name, scope, scope_ref, name_folded);
 ```
 
-**Why a stored fold key rather than `COLLATE NOCASE`.** SQLite's built-in `NOCASE` collation folds only the 26 ASCII letters — [SQLite datatype documentation](https://sqlite.org/datatype3.html#collating_sequences), accessed 2026-08-26 — so an index built on it collides `Reviewer` with `reviewer` but admits a pair differing only in a non-ASCII case mapping. A full-Unicode check in the definition store beside an ASCII index would not hold, because the layer performing the real fold is the layer that cannot be atomic: two concurrent creates of `Ärger` and `ärger` would each pass the service precheck, and the ASCII index would then accept both. Persisting the fold (`name_folded`, written by the store on every insert and update) moves the full-Unicode comparison into the unique index itself, so uniqueness is decided once, by the database, under the same folding the service uses. The store still performs the fold — it owns the Unicode algorithm — but it is not the correctness boundary, only the producer of the key. `name` continues to hold the person's original casing for display.
+**Why a stored fold key rather than `COLLATE NOCASE`.** SQLite's built-in `NOCASE` collation folds only the 26 ASCII letters — [SQLite datatype documentation](https://sqlite.org/datatype3.html#collating_sequences) — so an index built on it collides `Reviewer` with `reviewer` but admits a pair differing only in a non-ASCII case mapping. A full-Unicode check in the definition store beside an ASCII index would not hold, because the layer performing the real fold is the layer that cannot be atomic: two concurrent creates of `Ärger` and `ärger` would each pass the service precheck, and the ASCII index would then accept both. Persisting the fold (`name_folded`, written by the store on every insert and update) moves the full-Unicode comparison into the unique index itself, so uniqueness is decided once, by the database, under the same folding the service uses. The store still performs the fold — it owns the Unicode algorithm — but it is not the correctness boundary, only the producer of the key. `name` continues to hold the person's original casing for display.
 
 ## Attention Delivery State (Plan-017)
 

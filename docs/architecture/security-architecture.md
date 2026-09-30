@@ -58,7 +58,7 @@ The product combines one account, several of that account's devices, one or more
 
 ### Local Daemon Authentication
 
-The local daemon uses a layered trust model based on socket reachability **plus** a 256-bit session token. The desktop **renderer is not a direct daemon client** — all renderer-originated requests are brokered by the desktop app's main process via the preload bridge and arrive at the daemon as main-process traffic. See [Spec-021 §Trust Stance](../specs/021-desktop-app-and-renderer.md#trust-stance) and [container-architecture.md §Trust Boundaries](./container-architecture.md#trust-boundaries) for the canonical renderer-untrusted stance this section aligns with.
+The local daemon uses a layered trust model based on socket reachability **plus** a 256-bit session token. The desktop **renderer is not a direct daemon client** — all renderer-originated requests are brokered by the desktop app's main process via the preload bridge and arrive at the daemon as main-process traffic. See [Spec-021 §Trust Stance](../specs/021-desktop-app-and-renderer.md#trust-stance) and [container-architecture.md §Trust Boundaries](./container-architecture.md#trust-boundaries) for the renderer-untrusted stance this section follows.
 
 **Socket reachability model:**
 
@@ -141,7 +141,7 @@ Each live sign-in has one row in `refresh_token_families` (`family_id`, `user_id
 **DPoP sender-constraining:**
 
 - The client holds a DPoP key pair; the machine's is sealed under the daemon master key like every daemon private key, and its private half never leaves the daemon
-- The access token accompanying the proof is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — **never `Bearer`**, which a conforming resource server rejects for a DPoP-bound token and a lax one accepts while silently dropping proof-of-possession enforcement. This is the canonical statement of the scheme; the daemon session token's `Authorization: Bearer` above is a different credential on a different transport
+- The access token accompanying the proof is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — **never `Bearer`**, which a conforming resource server rejects for a DPoP-bound token and a lax one accepts while silently dropping proof-of-possession enforcement. The daemon session token's `Authorization: Bearer` above is a different credential on a different transport
 - Each API request includes a `DPoP` header containing a signed proof: `{jti, htm, htu, iat, ath}` signed by the client's private key — `ath` is the SHA-256 hash of the presented access token, required by [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3) when a proof accompanies an access-token presentation
 - The control plane verifies the DPoP proof's signature matches the `cnf.jkt` thumbprint in the access token
 - Prevents stolen access tokens from being used by a different client
@@ -174,7 +174,7 @@ Every public key carries its algorithm tag (`p256` or `ed25519`). Trust is the a
 | Protocol | The Noise Protocol Framework's `Noise_KK_25519_ChaChaPoly_SHA256` handshake and transport; no construction of the product's own |
 | Authentication | Both static keys are known from the statement chain (`KK`); a handshake from a key the chain does not hold fails with nothing to click past |
 | Forward secrecy | A fresh handshake on every connection and every 10 minutes on a long one, with the old keys erased |
-| Profile | The connection's first frame offers the channel version and the profiles the device runs; the machine answers with one it runs or closes the connection (`channel.no_common_profile`); offer and answer are bound into the handshake's prologue. One profile today, no fallback |
+| Profile | The connection's first frame offers the channel version and the profiles the device runs; the machine answers with one it runs or closes the connection (`channel.no_common_profile`); offer and answer are bound into the handshake's prologue. One profile, no fallback |
 | Post-quantum | Not provided: traffic recorded today could be opened by a future large quantum computer. The hybrid profile joins through the same negotiation once its specification is reviewed |
 | What the relay sees | The device id and machine id at connection, the channel version and the profile, frame sizes and times; never a method, a name or a byte of a session |
 

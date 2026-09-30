@@ -13,13 +13,13 @@
 
 The product ships an agentic coding runtime for one user and their agents. Execution is always local (per ADR-002 `local-execution-shared-control-plane`); what varies by deployment is where the coordination control plane and relay run. `docs/architecture/deployment-topology.md` names four supported topologies: `Single-Device Local`, `Workers Relay`, `Compose Relay`, and `Relay-Assisted Remote Access`. The V1 scope decision (ADR-015) is about which features ship; this ADR is about how those features reach users.
 
-Two product postures have been considered during V1 planning:
+Two product postures are possible:
 
-1. **Enterprise commercial-SaaS posture** — V1 ships as a hosted-only product, commercial support contracts, optional future self-host for paying enterprise customers. The pre-decision research evaluated this posture under an enterprise-commercial-SaaS cost model and recommended **Option B (V1 hosted-only)** on vendor-support-cost grounds; the analytic content of that evaluation is preserved below in §Alternatives Option B (steel-man + rejection rationale) and the underlying primary sources are cataloged in §Research Conducted.
+1. **Enterprise commercial-SaaS posture** — V1 ships as a hosted-only product, commercial support contracts, optional future self-host for paying enterprise customers. Under an enterprise-commercial-SaaS cost model this posture favors **Option B (V1 hosted-only)** on vendor-support-cost grounds; that case is in §Alternatives Option B (steel-man + rejection rationale), and its primary sources are in §Research Conducted.
 
-2. **OSS developer-tool posture** — V1 ships as an open-source project that any developer can install and use from any of their linked devices, with a relay they deploy for themself. The product framing settles it: (1) this is a developer-category OSS product for one user, not an enterprise commercial platform; (2) the vendor-support-cost framing in the brief assumed an enterprise model that does not apply; (3) the competitive and category-positioning arguments for OSS are strong — Supabase, PostHog, Sentry, tmate, Mattermost, and GitLab have all built successful developer-category products that people run on their own infrastructure.
+2. **OSS developer-tool posture** — V1 ships as an open-source project that any developer can install and use from any of their linked devices, with a relay they deploy for themself. The product framing settles it: (1) this is a developer-category OSS product for one user, not an enterprise commercial platform; (2) the vendor-support-cost framing assumes an enterprise model that does not apply; (3) the competitive and category-positioning arguments for OSS are strong — Supabase, PostHog, Sentry, tmate, Mattermost, and GitLab have all built successful developer-category products that people run on their own infrastructure.
 
-This ADR formalizes the OSS developer-tool posture as the V1 deployment model.
+This record takes the OSS developer-tool posture as the V1 deployment model.
 
 Related architectural choices already in place:
 
@@ -34,7 +34,7 @@ How is V1 delivered: where does the person's relay run, under what license, and 
 ### Trigger
 
 - Deployment-option ambiguity blocks the rate-limiter plan, the self-host secure-defaults work, and downstream first-run UX.
-- The product is an OSS developer tool for one user, not an enterprise commercial platform, which inverts the cost-benefit of the research brief's Option B recommendation.
+- The product is an OSS developer tool for one user, not an enterprise commercial platform, which inverts the cost-benefit behind Option B under the enterprise cost model.
 - License-file commitment (`LICENSE` at repo root) and relay-infrastructure choice must land before public code push or community contribution can begin.
 
 ## Decision
@@ -54,7 +54,7 @@ A relay serving other people — a project-operated public relay, or a hosted se
 
 **Apache-2.0** at repo root from day one. MIT was the alternative and was rejected: Apache-2.0's explicit patent grant (§3) protects contributors and users from patent litigation by other contributors, §5 codifies inbound-is-outbound contribution semantics so a separate CLA is not needed for casual contributors, it is the dominant choice in modern developer-tool OSS, and the SPDX identifier `Apache-2.0` is recognized by every major dependency scanner — all of which outweigh MIT's marginally cleaner GPL-compatibility story for a contributor-rich developer-tool category. The `LICENSE` file at the repo root carries the verbatim canonical Apache-2.0 text, the root `package.json` `license` field is `Apache-2.0`, and [README.md §License](../../README.md) links to both. Revisit only on concrete competitive re-hosting signal; the Sentry BSL→FSL precedent governs the reversal path if ever triggered.
 
-Runtime and bundled dependencies stay inside the MIT / Apache-2.0 / BSD / ISC norm this commitment assumes. Two waivers stand. The first: `axe-core` (MPL-2.0) is admitted as a **never-distributed devDependency** of `apps/desktop` for the console's accessibility test tier ([Spec-021 §Console Test Tiers](../specs/021-desktop-app-and-renderer.md#console-test-tiers)), because it ships in no release artifact and is linked into no distributed bundle, so no MPL file-level copyleft obligation attaches to anything a user receives. A runtime or bundled use of an MPL-2.0 package is not covered by that waiver and needs its own decision here. The second: `@ibm/plex-sans-variable` 0.2.0 and `@ibm/plex-mono-variable` 1.0.0, both SIL Open Font License 1.1, supply the two faces the console self-hosts ([Spec-021 §Console Libraries](../specs/021-desktop-app-and-renderer.md#console-libraries)); the font bytes ship, so this is a bundled outside-norm use and takes its own entry. The waiver holds because OFL-1.1's obligations are met by construction: the faces ship **unmodified** (verified 2026-09-09 at these pins by comparing the SHA-256 of all four emitted faces against the package sources, byte-identical), so the Reserved Font Name clause is not engaged; each package carries its own `LICENSE.txt` and declares `"license": "OFL-1.1"`; the packages are `devDependencies` so their `@ibm/telemetry-js` runtime dependency never enters the artifact; and **reproducing the license text in the packaged application is an open obligation on the packaging configuration**, which no release artifact carries yet.
+Runtime and bundled dependencies stay inside the MIT / Apache-2.0 / BSD / ISC norm this commitment assumes. Two waivers stand. The first: `axe-core` (MPL-2.0) is admitted as a **never-distributed devDependency** of `apps/desktop` for the console's accessibility test tier ([Spec-021 §Console Test Tiers](../specs/021-desktop-app-and-renderer.md#console-test-tiers)), because it ships in no release artifact and is linked into no distributed bundle, so no MPL file-level copyleft obligation attaches to anything a user receives. A runtime or bundled use of an MPL-2.0 package is not covered by that waiver. The second: `@ibm/plex-sans-variable` 0.2.0 and `@ibm/plex-mono-variable` 1.0.0, both SIL Open Font License 1.1, supply the two faces the console self-hosts ([Spec-021 §Console Libraries](../specs/021-desktop-app-and-renderer.md#console-libraries)); the font bytes ship, so this is a bundled outside-norm use and takes its own entry. The waiver holds because OFL-1.1's obligations are met by construction: the faces ship **unmodified** (at these pins the SHA-256 of all four emitted faces matches the package sources byte for byte), so the Reserved Font Name clause is not engaged; each package carries its own `LICENSE.txt` and declares `"license": "OFL-1.1"`; the packages are `devDependencies` so their `@ibm/telemetry-js` runtime dependency never enters the artifact; and **the packaged application reproduces the license text**, an obligation on the packaging configuration.
 
 ### First-Run UX
 
@@ -110,7 +110,7 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 
 ### Option B: V1 Hosted-Only (Rejected)
 
-- **What:** Ship V1 as a hosted-only service the project runs for its users. The research brief recommended this under an enterprise-commercial-SaaS cost model.
+- **What:** Ship V1 as a hosted-only service the project runs for its users. An enterprise-commercial-SaaS cost model favors this.
 - **Steel man:** Smallest V1 surface; QA matrix is single-backend; nothing for the person to deploy; matches how most successful commercial dev tools (Linear, Notion, Figma, Warp) launched; concentrates engineering effort on one path.
 - **Why rejected:** A hosted service serves other people, which is out of scope for one user, and the enterprise-commercial-SaaS posture its cost model assumed does not apply to an OSS developer tool: (1) there is no vendor-support commitment to monetize; (2) the product's value is the tool itself, which the person runs without a hosted wrapper; (3) OSS-first is the category norm in the developer-tools market, and launching hosted-only loses mindshare to whichever OSS alternative ships first in the same space. The Linear / Notion / Figma / Warp precedents do not transfer: those products' value is their hosted surface, not the underlying code.
 
@@ -181,14 +181,6 @@ The QA-matrix cost is structurally limited by the decision to put both relay bac
 - Actual community-support drag rate — sets the Tripwire 2 signal level.
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan (audience signal tracked post-launch; cost/drag tracked via metrics; feature-parity via CI)
-- [x] At least one alternative was seriously considered and steel-manned (Options B–E all steel-manned)
-- [x] Antithesis was reviewed (Thesis/Antithesis/Synthesis triad in the Decision section)
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified
 
 ### Success Criteria
 

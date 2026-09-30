@@ -41,7 +41,7 @@ The rail has exactly five destinations, in this order: **Sessions, Sidekicks, Sk
 
 ### Antithesis — The Strongest Case Against [T2]
 
-Five is a lot of top-level navigation for a product with one user whose time is spent almost entirely in Sessions. Sidekicks and Skills could be one "Library" destination with two tabs, which keeps the rail short and leaves room to add a third library later without widening the rail. Fixing the list in a one-way record also makes the rail harder to change when a new kind of surface appears.
+Five is a lot of top-level navigation for a product with one user whose time is spent almost entirely in Sessions. Sidekicks and Skills could be one "Library" destination with two tabs, which keeps the rail short and leaves room to add a third library later without widening the rail. A fixed list also makes the rail harder to change when a new kind of surface appears.
 
 ### Synthesis — Why It Still Holds [T2]
 
@@ -77,7 +77,7 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 | --- | --- | --- | --- |
 | 1 | An agent definition has at least two consumers | Spec-027 resolves a definition whenever a run starts under it — a session's lead, an agent named in a composer, a workflow step; Spec-015's agent step runs on the same definitions | With one consumer the definition could live beside it, and the destination would be overhead |
 | 2 | Skills differ enough from agents to need their own screen | A skill is a folder of files loaded by a provider's own path; a definition is a record bound to a provider and a model | If the two converge, they share one destination |
-| 3 | The five destinations hold every V1 screen | Every console surface in Spec-021 §The surface set, Spec-027, Spec-030 and Spec-015 routes to one of the five | The rail gains a destination, sorted by the same make-or-use rule |
+| 3 | The five destinations hold every V1 screen | Every console surface in [Spec-021 §The surface set](../specs/021-desktop-app-and-renderer.md#the-surface-set), Spec-027, Spec-030 and Spec-015 routes to one of the five | The rail gains a destination, sorted by the same make-or-use rule |
 
 ---
 
@@ -114,14 +114,6 @@ A rail of five icons costs five small squares of a fixed-width column and no tra
 ---
 
 ## Decision Validation [T2]
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [x] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 

@@ -99,7 +99,7 @@ All intervention types also carry a **mandatory** requester-generated `clientIde
 
 ## Field-Level Consistency
 
-The following field inventory maps each intervention payload to the canonical sources and confirms cross-document consistency.
+The following field inventory maps each intervention payload to its sources.
 
 **`steer` payload:**
 
@@ -112,7 +112,7 @@ The following field inventory maps each intervention payload to the canonical so
 | `attachments` | no | `InterventionRequestPayload` (optional, `ArtifactId[]`) | `SteerPayload.attachments` (optional, `ArtifactId[]`) |
 | `expectedTurnId` | no | `InterventionRequestPayload` (optional) | `SteerPayload.expectedTurnId` (optional) |
 
-At-rest routing: `content` is user-authored directive text, so it rests on the durable intervention row in `interventions.pii_payload`, sealed under the session's content key (the target run's session), rather than in the plaintext `payload` column, as [Spec-003 §State And Data Implications](../specs/003-queue-steer-pause-resume.md#state-and-data-implications) requires of every body on the intervention and queue tables. This changes neither the wire shape above nor what the driver receives: the split happens daemon-side at persist, and the driver leg is handed the decrypted text as before. `attachments` are references, not bodies, and are unaffected.
+At-rest routing: `content` is user-authored directive text, so it rests on the durable intervention row in `interventions.pii_payload`, sealed under the session's content key (the target run's session), rather than in the plaintext `payload` column, as [Spec-003 §State And Data Implications](../specs/003-queue-steer-pause-resume.md#state-and-data-implications) requires of every body on the intervention and queue tables. This changes neither the wire shape above nor what the driver receives: the split happens daemon-side at persist, and the driver leg is handed the decrypted text. `attachments` are references, not bodies, and are unaffected.
 
 Element type: both `attachments` columns above are `ArtifactId[]` — ids into [Spec-012](../specs/012-artifacts-files-and-attachments.md)'s manifest space. The two are one carrier seen from its two ends, so the ordering rule, the cause-bearing unresolved-marker rule, and both count bounds are stated once, on `SteerPayload` in [api-payload-contracts.md §Plan-004 — Provider Driver Contract (Internal Interface)](../architecture/contracts/api-payload-contracts.md#plan-004--provider-driver-contract-internal-interface), and cited from the intervention arm rather than restated.
 

@@ -19,7 +19,7 @@ What policy engine should evaluate the approval categories so that authorization
 
 ### Trigger
 
-Approval logic was accumulating inside application code, making it impossible to audit or modify policies without a full deploy. A dedicated policy engine has to be chosen before the approval specs and UI surface are built.
+Approval logic written inside application code cannot be audited, and no policy in it changes without a full deploy. A dedicated policy engine has to be chosen before the approval specs and UI surface are built.
 
 ## Decision
 
@@ -174,7 +174,7 @@ Workload: one verification at each start and one per new bundle. Budget: at most
 
 ### Cedar Version Pin
 
-The daemon pins `@cedar-policy/cedar-wasm` at Cedar **v4.11** from **V1** (current stable as of 2026-06, verified against the npm registry; 12.9 MB unpacked at 4.11.2, and the registry's latest is 4.13.0 at 13.1 MB as of 2026-09-21 while the pin stays on the 4.11 line; [Plan-010](../plans/010-approvals-permissions-and-trust-boundaries.md) pins 4.11.x on the embedded set). Every bundle, the built-in one included, names its target Cedar version in its manifest's `cedarVersion`, and the service refuses a bundle whose target does not match its cedar-wasm version (`policy_bundle.rejected` with reason `cedar`). A Cedar major-version upgrade ships with a service update and a bundle rebuilt for it.
+The daemon pins `@cedar-policy/cedar-wasm` on the Cedar **v4.11** line from **V1** (12.9 MB unpacked at 4.11.2; [Plan-010](../plans/010-approvals-permissions-and-trust-boundaries.md) pins 4.11.x on the embedded set). Every bundle, the built-in one included, names its target Cedar version in its manifest's `cedarVersion`, and the service refuses a bundle whose target does not match its cedar-wasm version (`policy_bundle.rejected` with reason `cedar`). A Cedar major-version upgrade ships with a service update and a bundle rebuilt for it.
 
 ### Related Operational Docs
 
@@ -183,14 +183,6 @@ The procedures for publishing an approval-rules bundle, reading a refused bundle
 - [Cedar Policy Signing And Rotation](../operations/cedar-policy-signing-and-rotation.md)
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 

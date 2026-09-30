@@ -20,7 +20,7 @@ The system already has a two-store split per [ADR-004: SQLite Local State and Po
 
 Per [ADR-010](./010-tokens-passkeys-and-the-remote-channel.md), each device reaches each machine over one channel of its own: the Noise Protocol Framework's `Noise_KK_25519_ChaChaPoly_SHA256` handshake and transport, with no construction of the project's own and a fresh handshake on every connection and every 10 minutes. With one person, every channel has two ends, one device and one machine, so there is no group to encrypt to. The relay is zero-knowledge: it sees the device and machine ids at connection, the channel version and profile, and frame sizes and times, never a method, a name or a byte of a session, and it has no ability to read, append to, or sequence session content. A machine's identity is its service's Ed25519 key (§Machine Identity And Reachability below).
 
-The current schema is already de facto per-daemon: `session_events` is owned by Plan-001 in the Local SQLite schema, and `shared-postgres-schema.md` contains no `session_events_shared` or equivalent table. What has been missing is a decision document that names this scope, bounds the trade-offs, and aligns vision.md and data-architecture.md with the implementation.
+The schema is per-daemon: `session_events` is owned by Plan-001 in the Local SQLite schema, and `shared-postgres-schema.md` contains no `session_events_shared` or equivalent table. This record names that scope and bounds its trade-offs.
 
 ## Problem Statement
 
@@ -28,7 +28,7 @@ Should V1 ship with a shared server-side event log where the person's daemons ap
 
 ### Trigger
 
-vision.md §5. Session Engine promises event-sourcing semantics without scoping the event log's location. The absence of a `session_events_shared` table in shared-postgres-schema.md is unexplained. Downstream schema ownership, replay spec (Spec-013), and audit-log spec (Spec-005) all depend on this scope being fixed before Plan-001 Session Core begins implementation.
+vision.md §5. Session Engine promises event-sourcing semantics without scoping the event log's location. Downstream schema ownership, the replay spec (Spec-013) and the audit-log spec (Spec-005) all depend on this scope being fixed before Plan-001 Session Core is built.
 
 ## Decision
 

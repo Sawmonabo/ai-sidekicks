@@ -91,7 +91,7 @@ The layout cost is bounded by the document itself: geometry is part of what is s
 | 2 | A connection-validity predicate evaluated during the drag makes the per-connection refusal rules edit-time. | The predicate covers per-connection rules; the whole-graph rules — an orphan node, the trigger count, an empty document — are evaluated on the post-change graph rather than during the drag. **Partly unvalidated** — validated at T5.5 against the real component. | Some rules become save-time rather than drag-time refusals. Product degradation only: the daemon check is authoritative regardless (I-015-16), so no invalid definition persists. |
 | 3 | The node catalog is the palette's only source, so no kind is ever hand-listed in the renderer. | One declarative description per kind drives the palette row, the ports, the parameter form, the summary and the validation, and the daemon serves that registry over `workflow.kindList`; the counter-pressure toward parity with a general automation editor is real and named in §Antithesis. | A kind could appear on the palette with no executor behind it, or an executor could ship unreachable. Both are caught by the registry being the one list, which is why nothing renders from a literal. |
 | 4 | Layout outside the hash, but inside the document, is the right split. | Dragging must be free of version churn, which requires exclusion from the preimage; a definition must open as it was arranged, which requires the geometry to travel with it — and [Spec-015 §Canvas layout is not definition bytes (SA-35)](../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-35) is the rule that holds both. | Either dragging mints versions, or a definition opens rearranged. The layout-perturbation property test holds the first half; the deterministic layout of a document with no layout section holds the second. |
-| 5 | No governance facet will ever need to live in a definition. | Facets are set from this machine's own client or any linked device, never from a session, and per binding scope in [Spec-025 §Tool-Level Overrides](../specs/025-mcp-server-configuration-and-governance.md#tool-level-overrides); a portable definition carrying them is a privilege-escalation vector by construction. | I-015-14 would have to be re-cut, which is a security decision requiring its own ADR. |
+| 5 | No governance facet will ever need to live in a definition. | Facets are set from this machine's own client or any linked device, never from a session, and per binding scope in [Spec-025 §Tool-Level Overrides](../specs/025-mcp-server-configuration-and-governance.md#tool-level-overrides); a portable definition carrying them is a privilege-escalation vector by construction. | I-015-14 would have to be re-cut, and a portable definition would then carry policy onto a machine whose owner never set it. |
 | 6 | Attribution branding in the canvas is acceptable in-product. | Attribution removal is gated behind a paid subscription tier (§Research Conducted row 3); no such subscription is assumed available. | A subscription decision, not an engineering one. Recorded so no reader assumes the attribution is hideable for free. |
 
 ## Failure Mode Analysis
@@ -124,12 +124,12 @@ The layout cost is bounded by the document itself: geometry is part of what is s
 - The builder's expressive power equals the engine's by construction, so there is no class of drawable-but-unrunnable definitions.
 - Definitions stay byte-stable under visual editing: no version churn, no replay noise, no verification cost from geometry.
 - Tool governance is set only from this machine's own client or any linked device, never from a session; no authoring path can set an approval posture, and no imported file can carry one.
-- CLI parity is structural rather than promised: one file form, one canonical byte sequence, one set of SDK operations behind both surfaces.
+- CLI parity is structural rather than promised: one file form, one canonical byte sequence, one set of SDK operations behind both surfaces, and every CLI verb resolves to a named SDK operation rather than one the client derives.
 - Promotion to `shared` scope and file import both ride the one definition-create operation, so every route into `shared` clears the same authorization and an import can carry no governance state with it.
 
 ### Negative (accepted trade-offs)
 
-- One production dependency enters the renderer bundle, with its transitive state and utility packages.
+- One production dependency enters the renderer bundle, with its transitive state and utility packages; it resolves under the workspace's minimum-release-age and sub-dependency policies and needs no build-allowlist entry.
 - The canvas carries the library's attribution mark; removal requires a paid subscription tier that is not assumed available.
 - A document written with no layout at all — through the SDK, the CLI or an agent — opens through the deterministic layout rather than as someone arranged it, and the definition body gains a section that carries no executable meaning.
 - Canvas accessibility must be built deliberately — keyboard-reachable node creation, connection, and inspection — where a list editor would have had it for free. Recorded as an obligation on the implementation.
@@ -141,23 +141,6 @@ The layout cost is bounded by the document itself: geometry is part of what is s
 - Whether the canvas's keyboard and announcer surface reaches the standard a list editor would have had for free. It is an obligation on the implementation rather than a property of the library.
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-The checked rows are decision-quality gates. The rows below them are **build-time** checks, each carried by a named Plan-015 task.
-
-- [x] All unvalidated assumptions have a validation plan (§Assumptions Audit rows 2 and 4 are flagged and carry theirs)
-- [x] At least one alternative was seriously considered and steel-manned (Options B, C, and D)
-- [x] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms (every §Failure Mode Analysis row names one)
-- [x] Point of no return is identified and communicated (the first user-authored definition)
-- [ ] The graph-to-execution mapping is a pure function over shared-contract types, importing nothing from the rendering library (build-time; Plan-015 T1.7)
-- [ ] A typed split makes it structurally impossible for the canonicalizer to read geometry (build-time; Plan-015 T1.7)
-- [ ] The palette enumerates the node catalog exactly as the daemon serves it, sourced from the kind registry rather than hand-listed (build-time; Plan-015 T5.5)
-- [ ] The binding type declares no governance facet, and each facet name is rejected at parse (build-time; Plan-015 T1.8)
-- [ ] The builder subtree passes the renderer import-boundary lint with no exceptions (build-time; Plan-015 T5.6)
-- [ ] Every CLI verb resolves to a named SDK operation; none is client-derived
-- [ ] The dependency resolves under the workspace's minimum-release-age and sub-dependency policies and needs no build-allowlist entry
 
 ### Success Criteria
 

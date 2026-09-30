@@ -107,10 +107,6 @@ This spec covers:
 - PII must be stored in a separate `pii_payload` column (encrypted) from day one. Non-PII must be stored in a `payload` column (plaintext).
 - This separation is part of the daemon's one schema.
 
-### Data Map Prerequisite
-
-- A data map documenting all PII fields across both the SQLite event log and Postgres control plane must be produced before crypto-shredding logic is implemented. The PII data map is documented in the [PII Data Map](#pii-data-map) section below.
-
 ## Default Behavior
 
 - `Keep sessions for` is 90 days, `Keep run data for` 30 days and `Keep diagnostic logs for` 7 days. A session becomes eligible for deletion once `Keep sessions for` has passed since it was archived or closed.
@@ -288,9 +284,10 @@ The data map enumerates **every** PII-carrying path the data acts reach — `Del
 | --- | --- | --- | --- | --- |
 | `driver_raw_events` (SQLite, daemon-local) | `bucket_payload` | Provider-native prompts, completions, tool-call bodies — **provider-native and a superset**, not the only home for this content: the normalized body also lands durably in `session_events.content_payload` above, so this bucket holds the un-normalized provider frame around it and the pre-truncation bytes of anything the canonical column stored as a prefix | `Keep diagnostic logs for` (7 days by default) | Dropped past `Keep diagnostic logs for`; deleted with the data folder by `Erase all data`. The drop is a **diagnostic** drop rather than the destruction of the only copy — the canonical row keeps its normalized body under the canonical column's own disposition |
 | `command_output` (SQLite, daemon-local) | `bucket_payload` | Shell command output (stdout / stderr bytes) | `Keep diagnostic logs for` (7 days by default) | Dropped past `Keep diagnostic logs for`; deleted with the data folder by `Erase all data` |
-| `tool_traces` (SQLite, daemon-local) | `bucket_payload` | Tool call arguments and result bodies — same disposition as `driver_raw_events` above: a provider-native superset of the normalized bodies `session_events.content_payload` now carries, plus the pre-truncation bytes of any body the canonical column stored as a prefix | `Keep diagnostic logs for` (7 days by default) | Dropped past `Keep diagnostic logs for`; deleted with the data folder by `Erase all data` |
+| `tool_traces` (SQLite, daemon-local) | `bucket_payload` | Tool call arguments and result bodies — same disposition as `driver_raw_events` above: a provider-native superset of the normalized bodies `session_events.content_payload` carries, plus the pre-truncation bytes of any body the canonical column stored as a prefix | `Keep diagnostic logs for` (7 days by default) | Dropped past `Keep diagnostic logs for`; deleted with the data folder by `Erase all data` |
+| `workflow_engine_events` (daemon-local files, one per day) | — (files) | The workflow engine's always-on record of its own decisions: the typed values each decision was made from, keyed by workflow run, step run, attempt and sequence, in engine-authored words — never secret material and never a provider prompt or completion ([Spec-015 §Engine event record (SA-43)](015-workflow-authoring-and-execution.md#engine-event-record-sa-43)) | `Keep diagnostic logs for` (7 days by default) | A day's file deleted once its day is past `Keep diagnostic logs for`; deleted with the data folder by `Erase all data` |
 
-> **Bucket-column shape.** Each of the diagnostic tables stores its PII in a single `bucket_payload BLOB` column — the canonical shape per [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md), which is the build-time authority. The **PII Type** column above names what each bucket carries, not separate columns.
+> **Bucket shape.** Each of the diagnostic tables stores its PII in a single `bucket_payload BLOB` column — the shape [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) defines; `workflow_engine_events` is newline-delimited JSON files in the daemon's data folder, not a table. The **PII Type** column above names what each bucket carries, not separate columns.
 
 **Nothing is exported off the machine.** The app sends no telemetry and has no outbound telemetry sink: a crash report is built on the machine that crashed, stripped of personal data there, kept there and deleted with the diagnostic logs, and no workflow run is sent to an OpenTelemetry collector or any other exporter. Each provider's own telemetry export from the processes the daemon starts is received on one loopback port on this machine, read to price the requests a session's stream leaves out, and dropped; nothing of it is stored but the priced request.
 
@@ -345,11 +342,11 @@ Destroying the master key is the crypto-shred: every row of `session_content_key
 
 ### Path 3 — Bounded-retention diagnostic buckets (age bound and erase)
 
-**Mechanism.** Each diagnostic table listed in the [§PII Data Map](#pii-data-map) bounded-retention tier (`driver_raw_events`, `command_output`, `tool_traces`) drops its rows past `Keep diagnostic logs for`, 7 days by default, on the service's one scheduler; the same bound drops what a provider writes into each account home and never reads back for a session. `Erase all data` deletes every table with the data folder. There is no per-person flush: the tier belongs to the one person whose machine it is, and it never outlives its bound.
+**Mechanism.** Each diagnostic table listed in the [§PII Data Map](#pii-data-map) bounded-retention tier (`driver_raw_events`, `command_output`, `tool_traces`) drops its rows past `Keep diagnostic logs for`, 7 days by default, on the service's one scheduler, and the workflow engine's bucket `workflow_engine_events` deletes a day's file once that day is past the same bound; the same bound drops what a provider writes into each account home and never reads back for a session. `Erase all data` deletes every table and file with the data folder. There is no per-person flush: the tier belongs to the one person whose machine it is, and it never outlives its bound.
 
 The daemon MAY retain summary-only variants that never contained PII by construction per [Spec-018 §Required Behavior](018-observability-and-failure-recovery.md#required-behavior). Summary-only variants hold no personal data by construction, so the diagnostic bound does not apply to them.
 
-**Scope.** Every row in the bounded-retention diagnostic tier, and the provider's own non-session files in each account home the app manages.
+**Scope.** Every row and file in the bounded-retention diagnostic tier, and the provider's own non-session files in each account home the app manages.
 
 **Audit artifact.** None; a dropped diagnostic row is not a session fact.
 

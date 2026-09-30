@@ -27,7 +27,7 @@ Where does the value of a workflow secret live, where may a step's reference to 
 
 ### Trigger
 
-The workflows design makes a secret a daemon record with create, replace, delete and list verbs, reached from the step's Credential field, and has no expression spelling that lets any param resolve a secret. Contracts for the record and its verbs land before execution is built, and they fix the custody model on the wire. The same custody question arrived at once for two more values the daemon sends on the person's behalf: the mail password behind the email digest, and the web address that receives attention moments together with its signing secret.
+The workflows design makes a secret a daemon record with create, replace, delete and list verbs, reached from the step's Credential field, and has no expression spelling that lets any param resolve a secret. Contracts for the record and its verbs land before execution is built, and they fix the custody model on the wire. The same custody question applies to two more values the daemon sends on the person's behalf: the mail password behind the email digest, and the web address that receives attention moments together with its signing secret.
 
 ---
 
@@ -78,7 +78,7 @@ The decision has six parts.
 
 - **Locked keychains are a named failure, not a hang.** The step fails with `cause: locked`, the run's header and the node say so, and `Retry from this step` resumes it after the person unlocks. That is the outcome the person would choose over having the value stored somewhere weaker, and it matches what a pasted provider token does on the same machine. The cost is accepted.
 - **Headless Linux refuses, and says why.** The encrypted-file tier is the app's own storage under another name. It would need a passphrase typed at daemon start, which puts a person back in the loop on the machines it was meant to serve, and it is the fallback the product's custody rule rules out. `unavailable` is the true answer there, and a headless machine can still run every workflow that needs no secret.
-- **The background read is measured before it is claimed.** The detached-daemon read and the read before login are listed below as unknowns owed to the signed build. Until they pass, the product does not claim unattended secret resolution for that start path, and a failed read reaches the person as `secret_store_unavailable` with its cause, never as a hang.
+- **The background read is measured before it is claimed.** The detached-daemon read and the read before login are listed below as unknowns the signed build answers. Until they pass, the product does not claim unattended secret resolution for that start path, and a failed read reaches the person as `secret_store_unavailable` with its cause, never as a hang.
 - **Opaque entries are the price of not leaking names.** A secret's name can itself say what service a person uses. Keying the entry by id keeps names in the daemon's database, where the Credential chooser shows them.
 - **Sensitive fields cover the uses that matter.** The HTTP step's auth and headers take a reference directly, and a node kind that needs a credential elsewhere declares that param sensitive. What is lost is composing a secret into free text, which is the path that leaks it.
 
@@ -178,21 +178,13 @@ The decision has six parts.
 
 ## Decision Validation
 
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [x] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
-
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| A resolved value appears in any step record, log, event, error or diagnostic write | Zero | Redaction canary tests planting a value in raw, base64, URL-encoded and JSON-string forms through every writer | Every pull request that touches the executor or a writer |
-| A `secret://` reference outside a sensitive field, or an expression naming a secret, saves | Zero | Save-time refusal tests over every param kind | Every pull request that touches the kind contract |
-| A locked or missing keychain stores a value anywhere else | Zero | Adapter tests with the keychain locked and absent, on each platform in CI | Every pull request that touches the keychain module |
+| A resolved value appears in any step record, log, event, error or diagnostic write | Zero | Redaction canary tests planting a value in raw, base64, URL-encoded and JSON-string forms through every writer | Every change that touches the executor or a writer |
+| A `secret://` reference outside a sensitive field, or an expression naming a secret, saves | Zero | Save-time refusal tests over every param kind | Every change that touches the kind contract |
+| A locked or missing keychain stores a value anywhere else | Zero | Adapter tests with the keychain locked and absent, on each platform in CI | Every change that touches the keychain module |
 | A daemon started detached and one started from the command line resolve a secret without a prompt | Both pass | Manual run on the signed, packaged build on macOS, Windows and a Linux desktop | Before the first signed release |
 | A crash between seal and commit leaves a record without its value, or a crash mid-delete leaves a removal unfinished after the next start | Zero | Fault-injection test at each step of both orders | When the secret store lands |
 

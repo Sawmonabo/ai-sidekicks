@@ -9,7 +9,7 @@
 | **Author(s)** | Claude (AI-assisted)                     |
 | **Reviewers** | Sawmon Abo                               |
 
-> **Type guidance:** Type 2. This record has the background service hold, renew and hand out credentials for the MCP servers a person signs in to. Once refresh tokens live in the operating system's credential store under the service's own items and both providers reach signed-in servers through the service, taking custody back out means signing the person out of every server and moving every session's server connections back to each provider's own sign-in. All sections completed.
+> **Type guidance:** Type 2. This record has the background service hold, renew and hand out credentials for the MCP servers a person signs in to. Once refresh tokens live in the operating system's credential store under the service's own items and both providers reach signed-in servers through the service, taking custody back out means signing the person out of every server and moving every session's server connections back to each provider's own sign-in.
 
 ---
 
@@ -19,7 +19,7 @@
 
 **Why the providers' own sign-ins cannot meet it.**
 
-- **Codex never asks a server for its prompts.** Codex 0.156.0 has no prompt verb on its app-server and none on `main`; its MCP client methods are `mcpServerStatus/list`, `mcpServer/oauth/login`, `config/mcpServer/reload`, `mcpServer/resource/read`, `mcpServer/tool/call` and an event stream that serves only hosted apps. The upstream request is open ([openai/codex#5059](https://github.com/openai/codex/issues/5059)). So on a Codex session the service lists and reads a server's prompts through its own MCP client, and that client needs a credential for a server behind a sign-in.
+- **Codex never asks a server for its prompts.** Codex 0.156.0 has no prompt verb on its app-server and none on `main`; its MCP client methods are `mcpServerStatus/list`, `mcpServer/oauth/login`, `config/mcpServer/reload`, `mcpServer/resource/read`, `mcpServer/tool/call` and an event stream that serves only hosted apps. An upstream request asks for one ([openai/codex#5059](https://github.com/openai/codex/issues/5059)). So on a Codex session the service lists and reads a server's prompts through its own MCP client, and that client needs a credential for a server behind a sign-in.
 - **Codex has no MCP Tasks and cannot move a long call to the background** ([openai/codex#48617](https://github.com/openai/codex/issues/48617)). So the service fronts every tool server a Codex session reaches, on its own route, with its own MCP client holding the real connection ([Spec-025 §Long tool calls and the fronted route](../specs/025-mcp-server-configuration-and-governance.md#long-tool-calls-and-the-fronted-route)). A fronted server behind a sign-in needs a credential the service can present.
 - **A second party cannot share a provider's sign-in.** The MCP authorization specification registers each client itself (a Client ID Metadata Document, pre-registration, or dynamic registration), requires clients to "implement secure token storage", and requires an authorization server to rotate refresh tokens for public clients ([MCP authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization), [Security considerations §Token Theft](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations)). Measured against a server that rotates on every renewal, on Codex 0.156.0 and on Claude Code 2.1.283: once a second party renewed the provider's saved sign-in, the provider's own renewal was refused (400), its next tool call failed, and the server read `needs-auth` / `notLoggedIn` on that provider.
 - **A server that demands proof-of-possession (DPoP) tokens cannot be reached by either provider.** The draft DPoP extension for MCP (SEP-1932) binds a token to the client's signing key and needs a fresh signed proof on every request. The only DPoP code in Codex 0.156.0 and Claude Code 2.1.283 serves their own AWS sign-in.
@@ -63,15 +63,15 @@ Codex prompts, long calls moved to the background on Codex, and DPoP servers on 
 - **It is the only option that meets the requirement as stated.** One press and one consent cover tools, resources and prompts on both providers, in every account, in both directions. Every other option either asks for a second consent, fails outright on some servers, or depends on a provider's private store.
 - **It is built from hooks each provider documents.** The header helper is a published configuration key on both providers, and the measured runs show each provider connecting on the helper's credential and renewing through it after a rejection, with no provider file read and no provider store touched.
 - **It follows the MCP specification's own model.** Each client registers itself, keeps its own tokens and renews its own refresh token. The service is one more client of the server, never a second holder of someone else's sign-in.
-- **It closes the DPoP case on both providers.** Neither provider can reach a DPoP server by any route today; the service signs in with its own key and fronts the server, and the measured client renews with a signed proof on its own.
+- **It closes the DPoP case on both providers.** Neither provider can reach a DPoP server by any route of its own; the service signs in with its own key and fronts the server, and the measured client renews with a signed proof on its own.
 - **It keeps the credential inside the boundary the providers already use.** The refresh token sits in the operating system's credential store under the service's own item, so no cross-application keychain prompt fires, and the helper's socket is same-user, the same boundary as the providers' own stores.
 
 ### Antithesis — The Strongest Case Against
 
-- **It puts the service in the credential blast radius of every server the person signs in to.** A compromised service can mint access tokens for all of them, where today a compromise of one provider exposes only that provider's sign-ins.
+- **It puts the service in the credential blast radius of every server the person signs in to.** A compromised service can mint access tokens for all of them, where otherwise a compromise of one provider exposes only that provider's sign-ins.
 - **The adopted sign-in rides a private format.** Taking over a provider's saved sign-in reads a file layout (`.credentials.json`, the Claude Code blob) that neither provider documents, and a release can change it.
 - **The helper is a new executable path into every provider process.** A helper that answers the wrong session, or a socket another user can reach, hands a token to a process that should not have it.
-- **Claude Code's helper trust rule is version-sensitive.** Its documentation already tightened the rule once for project and local-scope servers, and the measured "no trust step" holds on 2.1.282 for servers the session's own set passes.
+- **Claude Code's helper trust rule is version-sensitive.** Its documentation puts the helper behind the folder's trust dialog for project and local-scope servers, and the measured "no trust step" holds on 2.1.282 for servers the session's own set passes.
 - **A sign-out the service performs does not revoke the token at the authorization server.** An access token already handed to a provider stays valid until it expires.
 
 ### Synthesis — Why It Still Holds
@@ -175,14 +175,6 @@ Codex prompts, long calls moved to the background on Codex, and DPoP servers on 
 ---
 
 ## Decision Validation
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [x] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 
