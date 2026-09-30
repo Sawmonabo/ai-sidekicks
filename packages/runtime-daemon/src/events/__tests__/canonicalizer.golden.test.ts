@@ -3,6 +3,7 @@
 // transcribed or pinned, never recomputed, so a one-byte drift fails here.
 
 import {
+  EVENT_ENVELOPE_SEQUENCE_MAX,
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
   SessionIdSchema,
@@ -27,6 +28,18 @@ function hexToBytes(groupedHex: string): Uint8Array {
 
 function decodeUtf8(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
+}
+
+/** Reconstructs an IEEE 754 binary64 value from the big-endian hex Appendix B tabulates. */
+function ieee754HexToNumber(ieee754Hex: string): number {
+  const view = new DataView(new ArrayBuffer(8));
+  for (let byteIndex = 0; byteIndex < 8; byteIndex++) {
+    view.setUint8(
+      byteIndex,
+      Number.parseInt(ieee754Hex.slice(byteIndex * 2, byteIndex * 2 + 2), 16),
+    );
+  }
+  return view.getFloat64(0);
 }
 
 /** Captures the message of the error a thunk throws, or fails loudly if it throws nothing. */
@@ -89,6 +102,54 @@ const RFC_8785_EXPECTED_SORTED_VALUES: readonly string[] = [
   "Hebrew Letter Dalet With Dagesh",
 ];
 
+// RFC 8785 Appendix B, Table 1: all 26 rows, in the RFC's order. A `null` expectation is the
+// RFC's empty "JSON Representation" cell (note 3, "Values out of range are not permitted in
+// JSON"); those two rows must be refused, not serialized.
+const RFC_8785_NUMBER_SAMPLES: ReadonlyArray<{
+  readonly ieee754Hex: string;
+  readonly expectedJson: string | null;
+  readonly comment: string;
+}> = [
+  { ieee754Hex: "0000000000000000", expectedJson: "0", comment: "Zero" },
+  { ieee754Hex: "8000000000000000", expectedJson: "0", comment: "Minus zero" },
+  { ieee754Hex: "0000000000000001", expectedJson: "5e-324", comment: "Min pos number" },
+  { ieee754Hex: "8000000000000001", expectedJson: "-5e-324", comment: "Min neg number" },
+  {
+    ieee754Hex: "7fefffffffffffff",
+    expectedJson: "1.7976931348623157e+308",
+    comment: "Max pos number",
+  },
+  {
+    ieee754Hex: "ffefffffffffffff",
+    expectedJson: "-1.7976931348623157e+308",
+    comment: "Max neg number",
+  },
+  { ieee754Hex: "4340000000000000", expectedJson: "9007199254740992", comment: "Max pos int" },
+  { ieee754Hex: "c340000000000000", expectedJson: "-9007199254740992", comment: "Max neg int" },
+  { ieee754Hex: "4430000000000000", expectedJson: "295147905179352830000", comment: "~2**68" },
+  { ieee754Hex: "7fffffffffffffff", expectedJson: null, comment: "NaN" },
+  { ieee754Hex: "7ff0000000000000", expectedJson: null, comment: "Infinity" },
+  { ieee754Hex: "44b52d02c7e14af5", expectedJson: "9.999999999999997e+22", comment: "" },
+  { ieee754Hex: "44b52d02c7e14af6", expectedJson: "1e+23", comment: "" },
+  { ieee754Hex: "44b52d02c7e14af7", expectedJson: "1.0000000000000001e+23", comment: "" },
+  { ieee754Hex: "444b1ae4d6e2ef4e", expectedJson: "999999999999999700000", comment: "" },
+  { ieee754Hex: "444b1ae4d6e2ef4f", expectedJson: "999999999999999900000", comment: "" },
+  { ieee754Hex: "444b1ae4d6e2ef50", expectedJson: "1e+21", comment: "" },
+  { ieee754Hex: "3eb0c6f7a0b5ed8c", expectedJson: "9.999999999999997e-7", comment: "" },
+  { ieee754Hex: "3eb0c6f7a0b5ed8d", expectedJson: "0.000001", comment: "" },
+  { ieee754Hex: "41b3de4355555553", expectedJson: "333333333.3333332", comment: "" },
+  { ieee754Hex: "41b3de4355555554", expectedJson: "333333333.33333325", comment: "" },
+  { ieee754Hex: "41b3de4355555555", expectedJson: "333333333.3333333", comment: "" },
+  { ieee754Hex: "41b3de4355555556", expectedJson: "333333333.3333334", comment: "" },
+  { ieee754Hex: "41b3de4355555557", expectedJson: "333333333.33333343", comment: "" },
+  {
+    ieee754Hex: "becbf647612f3696",
+    expectedJson: "-0.0000033333333333333333",
+    comment: "",
+  },
+  { ieee754Hex: "43143ff3c1cb0959", expectedJson: "1424953923781206.2", comment: "Round to even" },
+];
+
 describe("RFC 8785 published vectors", () => {
   it("canonicalizes the RFC 8785 sample document to its published bytes", () => {
     const canonicalBytes = canonicalizeJson(JSON.parse(RFC_8785_SAMPLE_DOCUMENT_SOURCE));
@@ -122,6 +183,30 @@ describe("RFC 8785 published vectors", () => {
       RFC_8785_EXPECTED_SORTED_VALUES.indexOf("Hebrew Letter Dalet With Dagesh"),
     );
   });
+
+  for (const sample of RFC_8785_NUMBER_SAMPLES) {
+    const label =
+      sample.comment === "" ? sample.ieee754Hex : `${sample.ieee754Hex} (${sample.comment})`;
+
+    if (sample.expectedJson === null) {
+      it(`Appendix B — ${label} is refused: JSON admits no such value`, () => {
+        // RFC 8785 section 3.2.2.3 requires an error here. The refusal comes from
+        // `canonicalize@3.0.0` with its bare wording; pinning it makes a library swap that emits
+        // `null` (plain `JSON.stringify` behavior) fail loudly.
+        const message = captureThrownMessage(() =>
+          canonicalizeJson(ieee754HexToNumber(sample.ieee754Hex)),
+        );
+        expect(message).toBe(`${sample.comment} is not allowed`);
+      });
+      continue;
+    }
+
+    it(`Appendix B — ${label} serializes as ${sample.expectedJson}`, () => {
+      expect(decodeUtf8(canonicalizeJson(ieee754HexToNumber(sample.ieee754Hex)))).toBe(
+        sample.expectedJson,
+      );
+    });
+  }
 });
 
 const SESSION_ID: SessionId = SessionIdSchema.parse("0192f3a4-5b6c-7d8e-9f01-234567890abc");
@@ -198,6 +283,33 @@ describe("canonicalizeEvent — the canonical envelope", () => {
     );
   });
 
+  it("ignores declaration order — RFC 8785 section 3.2.3 lex-sort fixes the byte order", () => {
+    // The same eleven members in reverse declaration order; declaration order must not matter.
+    const reverseDeclarationOrder: EventEnvelope = {
+      version: GOLDEN_ENVELOPE.version,
+      causationId: GOLDEN_ENVELOPE.causationId,
+      correlationId: GOLDEN_ENVELOPE.correlationId,
+      payload: GOLDEN_ENVELOPE.payload,
+      actor: GOLDEN_ENVELOPE.actor,
+      type: GOLDEN_ENVELOPE.type,
+      category: GOLDEN_ENVELOPE.category,
+      occurredAt: GOLDEN_ENVELOPE.occurredAt,
+      sequence: GOLDEN_ENVELOPE.sequence,
+      sessionId: GOLDEN_ENVELOPE.sessionId,
+      id: GOLDEN_ENVELOPE.id,
+    };
+    expect(decodeUtf8(canonicalizeEvent(reverseDeclarationOrder))).toBe(
+      GOLDEN_ENVELOPE_CANONICAL_TEXT,
+    );
+  });
+
+  it("serializes version as a quoted string, never as a JSON number", () => {
+    // `version` is a "MAJOR.MINOR" string on the wire. A numeric `1.0` would serialize as `1` and
+    // change the bytes of every row.
+    expect(decodeUtf8(canonicalizeEvent(GOLDEN_ENVELOPE))).toContain('"version":"1.0"');
+    expect(decodeUtf8(canonicalizeEvent(GOLDEN_ENVELOPE))).not.toContain('"version":1');
+  });
+
   it("projects only the canonical set — a runtime-only member is not serialized", () => {
     // `pii_payload` is a storage column, not an envelope member: crypto-shred clears it, so the
     // canonical bytes must not depend on it. The explicit projection in `canonicalizeEvent`
@@ -239,6 +351,14 @@ describe("canonicalizeEvent — the canonical envelope", () => {
     expect(decodeUtf8(canonicalizeEvent(utcSpelling))).toBe(GOLDEN_ENVELOPE_CANONICAL_TEXT);
   });
 
+  it("refuses an envelope whose occurredAt cannot be normalized", () => {
+    const subMillisecond: EventEnvelope = {
+      ...GOLDEN_ENVELOPE,
+      occurredAt: "2026-03-04T05:06:07.0081Z",
+    };
+    expect(() => canonicalizeEvent(subMillisecond)).toThrow(/sub-millisecond precision/);
+  });
+
   it("keeps present-null and absent distinguishable in the canonical bytes", () => {
     // A member with value null must be included. JSON has no `undefined`, so an absent member is
     // an absent key, and the two must not collapse; the append path chooses between them.
@@ -270,6 +390,74 @@ describe("canonicalizeEvent — the canonical envelope", () => {
   });
 });
 
+/** Extracts the union of member names whose declared type admits `null`. */
+type MemberAdmittingNull<Envelope> = {
+  [MemberName in keyof Envelope]-?: null extends Envelope[MemberName] ? MemberName : never;
+}[keyof Envelope];
+
+// Compile-time check by mutual assignability between the derived union and `"actor"`. If a
+// second `EventEnvelope` member admits `null`, the conditional resolves to `false` and this
+// initializer fails to typecheck (TS2322) before any test runs.
+const NULL_ADMITTING_MEMBER_IS_ACTOR_ONLY: [MemberAdmittingNull<EventEnvelope>] extends ["actor"]
+  ? ["actor"] extends [MemberAdmittingNull<EventEnvelope>]
+    ? true
+    : false
+  : false = true;
+
+const CANONICAL_MEMBER_NAMES: readonly (keyof EventEnvelope)[] = [
+  "id",
+  "sessionId",
+  "sequence",
+  "occurredAt",
+  "category",
+  "type",
+  "actor",
+  "payload",
+  "correlationId",
+  "causationId",
+  "version",
+];
+
+describe("actor is the canonical set's only null-admitting member", () => {
+  it("set-equals the wire authority's declared member set", () => {
+    // Set equality against the schema's members, not a count: if the schema gained or lost a
+    // member while this list stayed at eleven, count assertions would stay green, and the
+    // runtime derivation below iterates this list. Both directions in one assertion, so no
+    // member is missing and none is extra. A same-size swap for a stray key is also refused at
+    // compile time by the `keyof EventEnvelope` element type.
+    //
+    // The cast is needed because `EventEnvelopeSchema` is exported as `z.ZodType<EventEnvelope>`
+    // (required by `isolatedDeclarations`), which hides `.shape` from the type but not from the
+    // runtime object. `session-event.test.ts` in contracts uses the same cast.
+    const declaredMembers = Object.keys(
+      (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
+    ).sort();
+
+    // The count is taken from the derived array, so "eleven" comes from the schema, not this file.
+    expect(declaredMembers).toHaveLength(11);
+    expect([...CANONICAL_MEMBER_NAMES].sort()).toEqual(declaredMembers);
+    // Only the hand-written list can hold a duplicate. The equality above would already fail on
+    // one, but as an opaque array diff; this names it.
+    expect(new Set(CANONICAL_MEMBER_NAMES).size).toBe(CANONICAL_MEMBER_NAMES.length);
+    // `EventEnvelopeSchema` is `.strict()`, so a clean parse shows the golden envelope carries
+    // every declared member and nothing else, which makes it a valid stand-in for the wire shape.
+    expect(EventEnvelopeSchema.safeParse(GOLDEN_ENVELOPE).success).toBe(true);
+  });
+
+  it("derives the null-admitting member set from the contract, at compile time", () => {
+    expect(NULL_ADMITTING_MEMBER_IS_ACTOR_ONLY).toBe(true);
+  });
+
+  it("derives the null-admitting member set from the contract, at runtime", () => {
+    // Independent of the type-level check: asks the runtime validator which members accept `null`.
+    const membersAcceptingNull = CANONICAL_MEMBER_NAMES.filter(
+      (memberName) =>
+        EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, [memberName]: null }).success,
+    );
+    expect(membersAcceptingNull).toStrictEqual(["actor"]);
+  });
+});
+
 /** Wraps `innermostLeaf` in `containerLevels` objects, so the leaf sits at depth levels + 1. */
 function buildNestedContainerChain(containerLevels: number, innermostLeaf: unknown): unknown {
   let nested = innermostLeaf;
@@ -282,6 +470,31 @@ describe("canonicalizeJson — refusals", () => {
     expect(() => canonicalizeJson(buildNestedContainerChain(65, 0))).toThrow(
       /nests containers deeper than 64 levels/,
     );
+  });
+
+  it("accepts a SCALAR at depth 65 while refusing a CONTAINER at depth 65", () => {
+    // Both inputs have the same 64 wrapper containers and differ only in the kind of node at
+    // depth 65. `assertWithinCanonicalDepth` queues containers only and skips a scalar before
+    // checking its depth, so a scalar leaf at depth 65 is accepted. Moving the depth check above
+    // that skip, or dropping the container-only filter, breaks only this test.
+    expect(() =>
+      canonicalizeJson(buildNestedContainerChain(64, "scalar-at-depth-65")),
+    ).not.toThrow();
+    expect(() => canonicalizeJson(buildNestedContainerChain(64, {}))).toThrow(
+      /nests containers deeper than 64 levels/,
+    );
+  });
+
+  it("reports a cyclic own-property graph as depth exhaustion, not as a hang", () => {
+    // The depth walk drives a cycle's depth up without bound, so it fires before
+    // `canonicalize@3.0.0`'s own cycle detection. Pinning which message arrives shows the
+    // iterative guard ran, not the library's recursion, which would overflow the stack on deep
+    // untrusted input.
+    const cyclic: Record<string, unknown> = {};
+    cyclic["self"] = cyclic;
+    const message = captureThrownMessage(() => canonicalizeJson(cyclic));
+    expect(message).toMatch(/nests containers deeper than 64 levels/);
+    expect(message).not.toMatch(/Circular reference detected/);
   });
 
   it("refuses undefined at the top level rather than emitting zero bytes", () => {
@@ -324,6 +537,15 @@ describe("canonicalizeJson — lone surrogates", () => {
     expect(() => canonicalizeJson({ [VALID_SURROGATE_PAIR]: "v" })).not.toThrow();
   });
 
+  it("refuses a lone surrogate in a PROPERTY NAME", () => {
+    // The RFC's JSON string data includes object property names.
+    const message = captureThrownMessage(() =>
+      canonicalizeJson({ [LONE_HIGH_SURROGATE]: "well-formed value" }),
+    );
+    expect(message).toMatch(LONE_SURROGATE_REFUSAL);
+    expect(message).toMatch(/a property name/);
+  });
+
   it("reports the code unit and index but NEVER the offending string", () => {
     // The PII codec calls `canonicalizeJson(input.piiPayload)` directly, so this guard runs over
     // PII plaintext and its message reaches logs. The locator must not quote the value.
@@ -346,6 +568,32 @@ describe("canonicalizeJson — lone surrogates", () => {
     expect(parseResult.success).toBe(true);
     expect(() => canonicalizeEvent(parsed as EventEnvelope)).toThrow(LONE_SURROGATE_REFUSAL);
   });
+
+  it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
+    // The well-formedness walk has no cycle detection or depth bound, so on a cyclic graph it
+    // would spin forever; it is safe only because `assertWithinCanonicalDepth` throws first. This
+    // input is cyclic and holds a lone surrogate, so reversing the two guards in
+    // `canonicalizeJson` turns this test from a refusal into a hang.
+    const cyclic: Record<string, unknown> = { field: LONE_HIGH_SURROGATE };
+    cyclic["self"] = cyclic;
+    const message = captureThrownMessage(() => canonicalizeJson(cyclic));
+    expect(message).toMatch(/nests containers deeper than 64 levels/);
+    expect(message).not.toMatch(LONE_SURROGATE_REFUSAL);
+  });
+
+  it("reports the sequence refusal ahead of a simultaneous lone surrogate", () => {
+    // Refusal order on this entry point is sequence, occurredAt, depth, toJSON, well-formedness;
+    // the caller sees only the first to fire.
+    const message = captureThrownMessage(() =>
+      canonicalizeEvent({
+        ...GOLDEN_ENVELOPE,
+        sequence: 9007199254740992,
+        actor: LONE_HIGH_SURROGATE,
+      }),
+    );
+    expect(message).toMatch(/canonicalization refused: sequence .* is not a safe integer/);
+    expect(message).not.toMatch(LONE_SURROGATE_REFUSAL);
+  });
 });
 
 // `canonicalize@3.0.0` serializes whatever a callable `toJSON` returns, an uninspected tree, so
@@ -353,6 +601,14 @@ describe("canonicalizeJson — lone surrogates", () => {
 const TO_JSON_REFUSAL = /canonicalization refused: .* carries a callable toJSON/;
 
 describe("canonicalizeJson — refuses a callable toJSON", () => {
+  it("refuses a top-level callable toJSON, closing that bypass", () => {
+    const message = captureThrownMessage(() =>
+      canonicalizeJson({ toJSON: () => ({ a: LONE_HIGH_SURROGATE }) }),
+    );
+    expect(message).toMatch(TO_JSON_REFUSAL);
+    expect(message).toMatch(/the top-level value/);
+  });
+
   it("locates the offender by NESTING DEPTH and never by property path", () => {
     // Like `assertNoLoneSurrogate`: the PII codec calls `canonicalizeJson(input.piiPayload)`
     // directly, so property names are caller data and this message reaches logs. Depth is
@@ -364,6 +620,86 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     expect(message).toMatch(/nested 2 containers deep/);
     expect(message).not.toContain("patient-record-4417");
     expect(message).not.toContain("1970-01-01");
+  });
+
+  it("costs one more getter invocation per member — the count the module documents", () => {
+    // `assertWithinCanonicalDepth`'s docblock states six invocations of an own enumerable getter
+    // end to end: one per walk (depth, `toJSON`, well-formedness) and three inside the
+    // serializer's per-member `undefined` / `symbol` / recurse sequence. A non-idempotent getter
+    // is the one residual the `toJSON` refusal does not close, so this count bounds how many
+    // different trees it can hand out.
+    let accessorCalls = 0;
+    const withGetter: Record<string, unknown> = {
+      get member(): unknown {
+        accessorCalls += 1;
+        return "value";
+      },
+    };
+    expect(decodeUtf8(canonicalizeJson(withGetter))).toBe('{"member":"value"}');
+    expect(accessorCalls).toBe(6);
+  });
+
+  it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
+    // This walk has no cycle detection either, so it is safe only because
+    // `assertWithinCanonicalDepth` reports a cycle as depth exhaustion first. The input is cyclic
+    // and has a `toJSON`, so moving this guard above the depth walk turns a refusal into a hang.
+    const cyclic: Record<string, unknown> = { toJSON: (): unknown => ({ v: 1 }) };
+    cyclic["self"] = cyclic;
+    const message = captureThrownMessage(() => canonicalizeJson(cyclic));
+    expect(message).toMatch(/nests containers deeper than 64 levels/);
+    expect(message).not.toMatch(TO_JSON_REFUSAL);
+  });
+
+  it("runs BEFORE the well-formedness walk, so the accurate refusal is the one reported", () => {
+    // The lone surrogate sits in a subtree the serializer would discard, because `toJSON`
+    // replaces it, so reporting it would be wrong. The `toJSON` refusal makes the well-formedness
+    // verdict a statement about the output, so it must fire first.
+    const carriesBoth = {
+      discarded: LONE_HIGH_SURROGATE,
+      toJSON: (): unknown => ({ kept: "well-formed" }),
+    };
+    const message = captureThrownMessage(() => canonicalizeJson(carriesBoth));
+    expect(message).toMatch(TO_JSON_REFUSAL);
+    expect(message).not.toMatch(LONE_SURROGATE_REFUSAL);
+  });
+
+  it("SHADOWS the library's third refusal in both shapes that could reach it", () => {
+    // `Circular reference detected` is the third library throw the module header lists. No
+    // ordinary input reaches it, and a regression in either guard would surface it.
+    //
+    // Shape 1: an own-property cycle drives the depth walk past the ceiling, so this module's
+    // depth refusal fires first.
+    const ownPropertyCycle: Record<string, unknown> = {};
+    ownPropertyCycle["self"] = ownPropertyCycle;
+    expect(captureThrownMessage(() => canonicalizeJson(ownPropertyCycle))).not.toBe(
+      "Circular reference detected",
+    );
+
+    // Shape 2: a cycle reachable only through a `toJSON` result is invisible to both walks
+    // (`toJSON` is a function, so it fails their `typeof === "object"` child filter). The
+    // `toJSON` refusal catches the carrier before any serialization runs.
+    const cycleReachableOnlyViaToJson: { toJSON: () => unknown } = {
+      toJSON: () => ({ nested: cycleReachableOnlyViaToJson }),
+    };
+    const message = captureThrownMessage(() => canonicalizeJson(cycleReachableOnlyViaToJson));
+    expect(message).toMatch(TO_JSON_REFUSAL);
+    expect(message).not.toBe("Circular reference detected");
+
+    // Residual case: a non-idempotent accessor hands the guards one tree and the serializer
+    // another, so the library's cycle detection is the last line for that shape alone.
+    // `canonicalizeJson` runs three walks before serializing (depth, `toJSON`, well-formedness),
+    // so a getter that turns cyclic on call 4 shows every guard an acyclic tree and the
+    // serializer a cyclic one. The threshold is the walk count from the six-invocation test.
+    let accessorCalls = 0;
+    const nonIdempotentAccessor: Record<string, unknown> = {
+      get member(): unknown {
+        accessorCalls += 1;
+        return accessorCalls > 3 ? nonIdempotentAccessor : { acyclic: true };
+      },
+    };
+    expect(captureThrownMessage(() => canonicalizeJson(nonIdempotentAccessor))).toBe(
+      "Circular reference detected",
+    );
   });
 
   it("is inherited by canonicalizeEvent through the payload", () => {
@@ -413,6 +749,16 @@ const OCCURRED_AT_NORMALIZATIONS: ReadonlyArray<{
     normalized: "2026-01-01T00:00:00.123Z",
     why: "trailing zeros past the third digit are pure notation",
   },
+  {
+    input: "2026-02-28T23:59:59.999Z",
+    normalized: "2026-02-28T23:59:59.999Z",
+    why: "clock-tick boundary — last millisecond of a non-leap February",
+  },
+  {
+    input: "2026-03-01T00:00:00.000Z",
+    normalized: "2026-03-01T00:00:00.000Z",
+    why: "clock-tick boundary — first millisecond of the next month",
+  },
 ];
 
 const OCCURRED_AT_REFUSALS: ReadonlyArray<{
@@ -434,10 +780,22 @@ const OCCURRED_AT_REFUSALS: ReadonlyArray<{
     why: "2026 is not a leap year",
   },
   {
+    input: "0000-01-01T00:00:00+05:00",
+    expected: /does not fold into the canonical form/,
+    rejected: /does not exist on the calendar/,
+    why: "year-fold UNDERFLOW — folds back to year -1, outside the four-digit range",
+  },
+  {
     input: "9999-12-31T23:59:59-05:00",
     expected: /does not fold into the canonical form/,
     rejected: /does not exist on the calendar/,
     why: "year-fold OVERFLOW — folds forward to year 10000",
+  },
+  {
+    input: "2026-01-01t00:00:00.000Z",
+    expected: /must be an RFC 3339 date-time with an uppercase T separator/,
+    rejected: /sub-millisecond/,
+    why: "RFC 3339 section 5.6 permits lowercase t, but the wire schema does not",
   },
 ];
 
@@ -457,4 +815,98 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
       expect(message).not.toMatch(vector.rejected);
     });
   }
+
+  it("reports sub-millisecond precision BEFORE calendar validity — check order is observable", () => {
+    // This input trips both the sub-millisecond guard and the calendar-existence guard;
+    // `normalizeOccurredAt` runs the sub-millisecond guard first, so only that message appears.
+    // The single-fault rows in the refusal table above show each guard fires on its own input,
+    // so this test shows order, not a broken calendar guard.
+    const message = captureThrownMessage(() => normalizeOccurredAt("2026-02-30T00:00:00.0001Z"));
+    expect(message).toMatch(/carries sub-millisecond precision/);
+    expect(message).not.toMatch(/does not exist on the calendar/);
+  });
+
+  it("is idempotent — the canonical form is a fixed point of every branch", () => {
+    // A stored row must re-canonicalize to the same bytes whether the append path persisted the
+    // raw or the normalized string.
+    for (const vector of OCCURRED_AT_NORMALIZATIONS) {
+      const onceNormalized = normalizeOccurredAt(vector.input);
+      expect(normalizeOccurredAt(onceNormalized)).toBe(onceNormalized);
+    }
+  });
+});
+
+// Sequence ceiling: the canonical bytes must stay injective.
+//
+// `canonicalizeEvent` does not parse. Every other bound on `sequence` lives on
+// `EventEnvelopeSchema`, so an in-process caller that builds an `EventEnvelope` literal (the type
+// permits it, `sequence` being a plain `number`) meets no schema at all; the guard therefore
+// sits at the canonicalizer. Above 2^53 - 1 distinct integers share one IEEE-754 double, so two
+// events would canonicalize to identical bytes and share one replay key.
+
+describe("canonicalizeEvent — sequence must be faithfully representable", () => {
+  const sequenceRefusalPattern = /canonicalization refused: sequence .* is not a safe integer/;
+
+  it("refuses the collapsed pair that would otherwise share canonical bytes", () => {
+    // Why the guard exists, in three steps.
+    //
+    // Step 1: the collapse is reachable on the read path. `session_events.sequence` is a 64-bit
+    // SQLite INTEGER; `SessionService` reads it with `safeIntegers(true)` so it arrives as a
+    // `bigint`, and `hydrateRow` narrows it with `Number(row.sequence)`. Two distinct stored rows
+    // land on one number.
+    const collapsedLower = Number(9007199254740992n);
+    const collapsedUpper = Number(9007199254740993n);
+    expect(collapsedUpper).toBe(collapsedLower);
+
+    // Step 2: the generic serializer is correct to emit the collapsed value. RFC 8785
+    // canonicalizes the double it is handed and cannot know two integers produced it, so the
+    // guard cannot live in `canonicalizeJson`.
+    expect(bytesToHex(canonicalizeJson({ sequence: collapsedLower }))).toBe(
+      bytesToHex(canonicalizeJson({ sequence: collapsedUpper })),
+    );
+
+    // Step 3: the refusal has to happen where the value is still known to be an event's
+    // `sequence`. Both members of the collapsed pair are refused.
+    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: collapsedLower })).toThrow(
+      sequenceRefusalPattern,
+    );
+    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: collapsedUpper })).toThrow(
+      sequenceRefusalPattern,
+    );
+  });
+
+  it("keeps the daemon guard and the contract ceiling on the same boundary", () => {
+    // `canonicalizer.ts` does not import `EVENT_ENVELOPE_SEQUENCE_MAX`; it enforces
+    // `Number.isSafeInteger`, the property the bytes need, and a shared import would make the two
+    // agree even on a wrong value. This checks that the schema and the canonicalizer flip at the
+    // same integer.
+    const atCeiling = EVENT_ENVELOPE_SEQUENCE_MAX;
+    const oneAbove = EVENT_ENVELOPE_SEQUENCE_MAX + 1;
+
+    expect(EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, sequence: atCeiling }).success).toBe(
+      true,
+    );
+    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: atCeiling })).not.toThrow();
+
+    expect(EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, sequence: oneAbove }).success).toBe(
+      false,
+    );
+    expect(() => canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: oneAbove })).toThrow(
+      sequenceRefusalPattern,
+    );
+  });
+
+  it("reports the sequence refusal ahead of a simultaneous occurredAt defect", () => {
+    // Refusal order is observable, so `canonicalizeEvent` fixes it. This envelope trips both the
+    // sequence guard and `normalizeOccurredAt`'s sub-millisecond refusal.
+    const message = captureThrownMessage(() =>
+      canonicalizeEvent({
+        ...GOLDEN_ENVELOPE,
+        sequence: 9007199254740992,
+        occurredAt: "2026-03-04T05:06:07.0081Z",
+      }),
+    );
+    expect(message).toMatch(sequenceRefusalPattern);
+    expect(message).not.toMatch(/sub-millisecond|millisecond precision/);
+  });
 });

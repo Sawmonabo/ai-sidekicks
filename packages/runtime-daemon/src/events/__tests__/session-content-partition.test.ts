@@ -15,12 +15,14 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { openDatabase } from "../../session/migration-runner.js";
+import { canonicalizeEvent } from "../canonicalizer.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
 import {
   BODY_BEARING_EVENT_TYPES,
   openContentPayload,
   writeEventWithPii,
   type ContentOnlyEventInput,
+  type PiiCarryingEventInput,
   type PiiEncryptor,
   type PiiEventWriteResult,
   type RawEventInput,
@@ -90,6 +92,27 @@ function makeContentOnlyInput(overrides?: {
       body: overrides?.body ?? "the assistant said this",
       contentKey: overrides?.contentKey ?? CONTENT_KEY,
     },
+  };
+}
+
+function makePiiCarryingInput(overrides?: {
+  readonly withContent?: boolean;
+}): PiiCarryingEventInput {
+  return {
+    id: nextEventId(),
+    sessionId: SESSION,
+    sequence: 1,
+    occurredAt: "2026-08-30T12:00:00.000Z",
+    category: "assistant_output",
+    type: "assistant.message",
+    actor: "agent-1",
+    payload: { sessionId: SESSION, runId: "run-1" },
+    version: ENVELOPE_VERSION,
+    piiUserId: USER,
+    piiPayload: { quoted: "something a person typed" },
+    ...(overrides?.withContent === true
+      ? { content: { body: "the assistant said this", contentKey: CONTENT_KEY } }
+      : {}),
   };
 }
 
@@ -216,6 +239,81 @@ describe("session content key substitution", () => {
 });
 
 // ----------------------------------------------------------------------------
+// Routing: each partition combination lands the columns and members it owes, and no others
+// ----------------------------------------------------------------------------
+
+/** Which columns and which codec-added payload members one partition combination owes. */
+interface CodecRoutingExpectation {
+  readonly piiColumnPresent: boolean;
+  readonly contentColumnPresent: boolean;
+  readonly encryptorCalled: boolean;
+  readonly codecPayloadKeys: readonly string[];
+}
+
+interface CodecRoutingCase {
+  readonly name: string;
+  readonly build: () => RawEventInput;
+  readonly expected: CodecRoutingExpectation;
+}
+
+const CODEC_ROUTING_MATRIX: readonly CodecRoutingCase[] = [
+  {
+    name: "user partition alone",
+    build: () => makePiiCarryingInput(),
+    expected: {
+      piiColumnPresent: true,
+      contentColumnPresent: false,
+      encryptorCalled: true,
+      codecPayloadKeys: [],
+    },
+  },
+  {
+    name: "machine content partition alone",
+    build: () => makeContentOnlyInput(),
+    expected: {
+      piiColumnPresent: false,
+      contentColumnPresent: true,
+      encryptorCalled: false,
+      codecPayloadKeys: [CONTENT_LENGTH_PAYLOAD_KEY],
+    },
+  },
+  {
+    name: "both partitions on one row",
+    build: () => makePiiCarryingInput({ withContent: true }),
+    expected: {
+      piiColumnPresent: true,
+      contentColumnPresent: true,
+      encryptorCalled: true,
+      codecPayloadKeys: [CONTENT_LENGTH_PAYLOAD_KEY],
+    },
+  },
+];
+
+describe("content partition routing", () => {
+  for (const routingCase of CODEC_ROUTING_MATRIX) {
+    it(`routes ${routingCase.name} into the columns and members it owes`, async () => {
+      const encryptor = new DeterministicPiiEncryptor();
+      const result = await seal(routingCase.build(), encryptor);
+
+      expect(result.piiPayload !== undefined).toBe(routingCase.expected.piiColumnPresent);
+      expect(result.contentPayload !== undefined).toBe(routingCase.expected.contentColumnPresent);
+      expect(encryptor.encryptCallCount > 0).toBe(routingCase.expected.encryptorCalled);
+
+      const payload = result.envelope.payload as Record<string, unknown>;
+      for (const key of routingCase.expected.codecPayloadKeys) {
+        expect(Object.hasOwn(payload, key)).toBe(true);
+      }
+      // The content length member never leaks onto a row that carries no body.
+      if (!routingCase.expected.codecPayloadKeys.includes(CONTENT_LENGTH_PAYLOAD_KEY)) {
+        expect(Object.hasOwn(payload, CONTENT_LENGTH_PAYLOAD_KEY)).toBe(false);
+      }
+      // No body here exceeds the bound, so `contentTruncated` is absent.
+      expect(Object.hasOwn(payload, CONTENT_TRUNCATED_PAYLOAD_KEY)).toBe(false);
+    });
+  }
+});
+
+// ----------------------------------------------------------------------------
 // The sealing codec's content half
 // ----------------------------------------------------------------------------
 
@@ -233,6 +331,16 @@ describe("machine content sealing", () => {
     expect(() => openContentPayload(sealed, CONTENT_KEY, SESSION, "evt-other")).toThrow();
     const wrongKey = new Uint8Array(SESSION_CONTENT_KEY_BYTES).fill(8);
     expect(() => openContentPayload(sealed, wrongKey, SESSION, input.id)).toThrow();
+  });
+
+  it("keeps the stored ciphertext out of the canonical bytes", async () => {
+    const input = makeContentOnlyInput();
+    const result = await seal(input, new DeterministicPiiEncryptor());
+
+    // The ciphertext must not appear in the canonical form.
+    const canonical = canonicalizeEvent(result.envelope);
+    const canonicalText = new TextDecoder().decode(canonical);
+    expect(canonicalText).not.toContain(bytesToHex(result.contentPayload!.subarray(0, 8)));
   });
 
   it("keeps the ciphertext out of the measured canonical byte length", async () => {
@@ -253,6 +361,15 @@ describe("the plaintext bound", () => {
   /** Multi-byte on purpose: the cut has to land on a codepoint boundary. */
   const EM_DASH = "—";
   const EM_DASH_BYTES = 3;
+
+  it("leaves a body exactly at the bound whole and unmarked", async () => {
+    const body = "a".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX);
+    const result = await seal(makeContentOnlyInput({ body }), new DeterministicPiiEncryptor());
+    const payload = result.envelope.payload as Record<string, unknown>;
+
+    expect(payload[CONTENT_LENGTH_PAYLOAD_KEY]).toBe(CONTENT_PAYLOAD_PLAINTEXT_MAX);
+    expect(Object.hasOwn(payload, CONTENT_TRUNCATED_PAYLOAD_KEY)).toBe(false);
+  });
 
   it("cuts at a codepoint boundary when the bound lands mid-sequence", async () => {
     // One filler byte short of the bound, then a three-byte codepoint straddling it. A byte-exact

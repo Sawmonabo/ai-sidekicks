@@ -9,6 +9,7 @@ import {
   CONTENT_TRUNCATED_PAYLOAD_KEY,
   EventEnvelopeVersionSchema,
   SessionIdSchema,
+  type EventEnvelope,
   type HydratedContentUnavailableReason,
   type HydratedSessionEvent,
   type SessionId,
@@ -33,6 +34,21 @@ beforeEach(() => {
 afterEach(() => {
   database.close();
 });
+
+/** An unsealed envelope carrying `payload`, for rows built without the codec. */
+function makeEnvelope(payload: Record<string, unknown>): EventEnvelope {
+  return {
+    id: nextEventId(),
+    sessionId: SESSION,
+    sequence: 1,
+    occurredAt: "2026-08-30T12:00:00.000Z",
+    category: "assistant_output",
+    type: "assistant.message",
+    actor: "agent-1",
+    payload,
+    version: ENVELOPE_VERSION,
+  };
+}
 
 /** Seals `body` under this session's real key and returns the row it produces. */
 async function sealedRow(
@@ -113,6 +129,28 @@ describe("hydrating machine-authored prose", () => {
     // The body lives on the content arm only, so a caller can tell stored members from supplied
     // ones.
     expect(JSON.stringify(hydrated.event)).not.toContain("the model wrote this");
+  });
+
+  it("passes a clean row that never carried a body", async () => {
+    const { reader } = buildReader();
+    const hydrated = await reader.hydrate({
+      envelope: makeEnvelope({ runId: "run-1", contentType: "text/markdown" }),
+      contentPayload: null,
+      retentionClass: null,
+    });
+    expectUnavailable(hydrated, "absent");
+  });
+
+  it("reports a column that is neither bytes nor NULL as undecryptable rather than skipping it", async () => {
+    const { reader, store } = buildReader();
+    const { row } = await sealedRow(store, "the original prose");
+
+    for (const hostileColumn of ["a string", 42, {}, []] as readonly unknown[]) {
+      expectUnavailable(
+        await reader.hydrate({ ...row, contentPayload: hostileColumn }),
+        "decrypt_failed",
+      );
+    }
   });
 
   it("names the purge even if the column somehow survived it", async () => {

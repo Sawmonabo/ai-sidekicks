@@ -266,6 +266,20 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
     return { ...template, payload: { filler: "x".repeat(targetBytes - emptyFillerLength) } };
   }
 
+  it("admits a row whose canonical form sits exactly AT the ceiling", async () => {
+    const { service } = buildService();
+
+    const receipt = await service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX, 0));
+
+    expect(receipt.sequence).toBe(0);
+    const rows = readRawRows(SESSION);
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    if (row === undefined) return;
+    // The stored row re-canonicalizes to exactly the ceiling: the bound is inclusive.
+    expect(canonicalizeEvent(hydrate(row).envelope).length).toBe(EVENT_CANONICAL_BYTES_MAX);
+  });
+
   it("refuses ONE byte over with the typed 400-equivalent envelope, writing nothing", async () => {
     const { service } = buildService();
 
@@ -406,6 +420,53 @@ describe("EventLogService — the append lock", () => {
     expect(receipt.sequence).toBe(0);
   });
 
+  it("does not let one session's hold block another session's append", async () => {
+    const { service } = buildService();
+    let release!: () => void;
+    const parked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holding = withSessionAppendLock(SESSION, async () => {
+      await parked;
+    });
+    await tick();
+
+    // The lock is keyed on `sessionId`; a global mutex would make this pend.
+    await expect(service.append(makeEnvelope({ sessionId: OTHER_SESSION }))).resolves.toMatchObject(
+      { sequence: 0 },
+    );
+
+    release();
+    await holding;
+  });
+
+  it("makes two parallel holds on one session take turns", async () => {
+    // Tests the lock directly rather than through `append()`, so "the second one waits" holds for
+    // any critical section.
+    const order: string[] = [];
+    let releaseFirst!: () => void;
+    const firstParked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const first = withSessionAppendLock(SESSION, async () => {
+      order.push("first-enter");
+      await firstParked;
+      order.push("first-exit");
+    });
+    const second = withSessionAppendLock(SESSION, () => {
+      order.push("second-enter");
+      return Promise.resolve();
+    });
+
+    expect(await settlesWithin(second, 4)).toBe(false);
+    expect(order).toEqual(["first-enter"]);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["first-enter", "first-exit", "second-enter"]);
+  });
+
   it("releases the hold to a WAITER when the acquiring critical section rejects", async () => {
     // The lock state is a module singleton, so a hold leaked on rejection wedges the session until
     // the process restarts. The waiter queues before the failure on purpose: a caller arriving
@@ -426,6 +487,36 @@ describe("EventLogService — the append lock", () => {
 
     expect(await settlesWithin(queuedBehind, 4)).toBe(true);
     await expect(queuedBehind).resolves.toMatchObject({ sequence: 0 });
+  });
+
+  it("releases nothing when a REENTRANT frame rejects and its owner catches it", async () => {
+    // An owner that catches an inner rejection is still the owner. If the inner rejection released,
+    // the outer frame would hold a lock it no longer owns, its next nested call would queue behind
+    // itself, and the release would fire twice.
+    const { service } = buildService();
+    let innerRejectionCaught = false;
+    let nestedCallProgressed = false;
+
+    const receipt = await withSessionAppendLock(SESSION, async () => {
+      try {
+        await withSessionAppendLock(SESSION, () => Promise.reject(new Error("inner leg failed")));
+      } catch {
+        innerRejectionCaught = true;
+      }
+      const nested = service.append(makeEnvelope());
+      nestedCallProgressed = await settlesWithin(nested, 4);
+      // Abandon the nested call when it got no hold: awaiting it would hang the owner too and turn
+      // a named failure into a suite-wide timeout.
+      return nestedCallProgressed ? await nested : undefined;
+    });
+
+    expect(innerRejectionCaught).toBe(true);
+    expect(nestedCallProgressed).toBe(true);
+    expect(receipt?.sequence).toBe(0);
+
+    // Released exactly once, on the owner's settle: a fresh acquisition now proceeds.
+    const afterOwnerSettled = withSessionAppendLock(SESSION, () => Promise.resolve("free"));
+    expect(await settlesWithin(afterOwnerSettled, 4)).toBe(true);
   });
 
   it("rolls the whole transaction back when the prelude throws, consuming no sequence", async () => {
@@ -470,6 +561,33 @@ describe("EventLogService — terminal-key backstop", () => {
     // The refusal costs no sequence: the INSERT aborts inside the transaction.
     expect(readRawRows(SESSION)).toHaveLength(1);
     await expect(service.append(makeEnvelope())).resolves.toMatchObject({ sequence: 1 });
+  });
+
+  it("admits a second terminal for the same run at a DIFFERENT runVersion", async () => {
+    // The key is the (runId, runVersion) pair: a re-run is a new `runVersion` with its own
+    // terminal event.
+    const { service } = buildService();
+
+    await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
+    await expect(
+      service.append(terminalEnvelope({ runId: "run-1", runVersion: 2 })),
+    ).resolves.toMatchObject({ sequence: 1 });
+  });
+
+  it("lets a NON-terminal run_lifecycle duplicate through — the index is terminal-scoped", async () => {
+    // `run_lifecycle` also carries non-terminal types; an index guarding the whole category would
+    // refuse the ordinary progression events.
+    const { service } = buildService();
+    const runKey = { runId: "run-1", runVersion: 1 };
+
+    await service.append(
+      makeEnvelope({ category: "run_lifecycle", type: "run.running", payload: runKey }),
+    );
+    await expect(
+      service.append(
+        makeEnvelope({ category: "run_lifecycle", type: "run.running", payload: runKey }),
+      ),
+    ).resolves.toMatchObject({ sequence: 1 });
   });
 
   it("refuses a terminal event whose run key is missing or the wrong storage class", async () => {

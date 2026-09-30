@@ -161,8 +161,14 @@ interface StoredStubProjection {
   readonly retentionClass?: string;
   readonly purgedAt?: string;
   readonly summary?: string;
+  readonly runId?: string;
+  readonly runVersion?: number;
+  readonly targetPosition?: number;
+  readonly sourceEpoch?: number;
+  readonly sourcePosition?: number;
   readonly contentLength?: number;
   readonly contentTruncated?: boolean;
+  readonly extra?: unknown;
 }
 
 function readRow(id: string): StoredEventRow {
@@ -301,6 +307,36 @@ describe("SessionPurge — resuming a purge that stopped part way", () => {
 });
 
 describe("SessionPurge — the stub projection", () => {
+  it("keeps the run, posture, rewind and epoch members and drops the rest", async () => {
+    const terminal = seed({
+      category: "run_lifecycle",
+      type: "run.completed",
+      payload: { runId: "run-1", runVersion: 3, extra: "dropped" },
+    });
+    const rolledBack = seed({
+      category: "run_lifecycle",
+      type: "run.rolled_back",
+      payload: { runId: "run-1", runVersion: 4, targetPosition: 12 },
+    });
+    const stamped = seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { runId: "run-1", sourceEpoch: 2, sourcePosition: 5 },
+    });
+
+    const outcome = await buildPurge().purge([SESSION]).then(onlyOutcome);
+
+    expect(outcome.rowsStubbed).toBe(3);
+    const terminalStub = stubProjection(terminal.id);
+    expect(terminalStub.runId).toBe("run-1");
+    expect(terminalStub.runVersion).toBe(3);
+    expect(terminalStub.extra).toBeUndefined();
+    expect(stubProjection(rolledBack.id).targetPosition).toBe(12);
+    const stampedStub = stubProjection(stamped.id);
+    expect(stampedStub.sourceEpoch).toBe(2);
+    expect(stampedStub.sourcePosition).toBe(5);
+  });
+
   it("shortens the minted summary until the stored stub sits at the ceiling", async () => {
     // A row written outside the append path's ceiling: the `type` scalar fits
     // the bound on its own and the summary, which embeds it, pushes it over.
