@@ -10,7 +10,7 @@
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
-import { formatByteQuantity, formatClockTime, formatCount } from "@renderer/lib/wire-figures.js";
+import { formatClockTime } from "@renderer/lib/wire-figures.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 
@@ -72,33 +72,6 @@ export function wireFacet(label: string, value: unknown, memberName: string): En
   };
 }
 
-/** A whole number the wire supplied, grouped per locale by the figures chokepoint. */
-export function countFacet(label: string, value: unknown, memberName: string): EntityFacet {
-  return {
-    label,
-    value:
-      typeof value === "number" && Number.isFinite(value)
-        ? { form: "derived", text: formatCount(value) }
-        : unrecorded(memberName),
-  };
-}
-
-/**
- * A byte quantity, scaled by 1024 in the one module that scales bytes.
- *
- * Negative is refused: a byte count below zero is a defect in its producer, and `-1 B` would
- * assert a size.
- */
-export function byteFacet(label: string, value: unknown, memberName: string): EntityFacet {
-  return {
-    label,
-    value:
-      typeof value === "number" && Number.isFinite(value) && value >= 0
-        ? { form: "derived", text: formatByteQuantity(value).text }
-        : unrecorded(memberName),
-  };
-}
-
 /**
  * An instant, as a wall-clock reading.
  *
@@ -111,31 +84,6 @@ export function instantFacet(label: string, value: unknown, memberName: string):
     return { label, value: unrecorded(memberName) };
   }
   return { label, value: { form: "derived", text: formatClockTime(value) } };
-}
-
-/**
- * An expiry, which has three answers rather than two.
- *
- * A member projected as `null` is a decision that never lapses and says "No expiry"; a member
- * nobody projected is absent.
- */
-export function expiryFacet(label: string, value: unknown, memberName: string): EntityFacet {
-  if (value === null) {
-    return { label, value: { form: "derived", text: "No expiry" } };
-  }
-  return instantFacet(label, value, memberName);
-}
-
-/**
- * How many entities of one kind this session attributes to a user.
- *
- * Read off the typed `StoredEntity.attributedTo`, not a body member.
- */
-export function countAttributedTo(
-  entities: Readonly<Record<string, StoredEntity>>,
-  userId: string,
-): number {
-  return Object.values(entities).filter((entity) => entity.attributedTo === userId).length;
 }
 
 /** The sentence an absent member carries; one generator so the claim cannot drift. */

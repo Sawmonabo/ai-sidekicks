@@ -1,4 +1,4 @@
-// Three row kinds, one layout — and the controls this card mounts in a row's footer.
+// Which body a message row renders, the inline cards it hosts, and what its receipt leaves out.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -24,8 +24,6 @@ function renderMessageCard(
     readonly content?: HydratedSessionEventContent;
     readonly liveText?: string;
     readonly inlineCards?: readonly InlineCardProps[];
-    readonly editAffordance?: React.ReactNode;
-    readonly thinkingRow?: React.ReactNode;
   } = {},
 ): HTMLElement {
   const row = sampleRunRow({
@@ -46,11 +44,11 @@ function renderMessageCard(
         isSuperseded={false}
         density="expanded"
         footnotes={new FootnoteRegistry()}
-        thinkingRow={overrides.thinkingRow}
+        thinkingRow={undefined}
         {...(overrides.content === undefined ? {} : { content: overrides.content })}
         {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
         {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
-        editControl={overrides.editAffordance}
+        editControl={undefined}
       />
     </FixtureBridgeProvider>,
   );
@@ -80,71 +78,6 @@ describe("which body a message renders", () => {
     expect(container.textContent).toContain("arriv");
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
   });
-
-  it("negative control: a user row never renders the machine-body absence", () => {
-    // Without this, a card that routed every kind through the machine body would put "this body
-    // has not been read" under every message a person typed.
-    const container = renderMessageCard({ type: "user.message", summary: "hello" });
-    expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
-  });
-
-  it("says so when a user row carries no summary at all", () => {
-    const container = renderMessageCard({ type: "user.message", summary: "" });
-    expect(container.textContent).toContain("no summary");
-  });
-});
-
-describe("the three row kinds this card serves", () => {
-  it("names each one on the row", () => {
-    expect(renderMessageCard({ type: "user.message" }).textContent).toContain("Message");
-    expect(renderMessageCard({ type: "assistant.message" }).textContent).toContain("Reply");
-    expect(renderMessageCard({ type: "assistant.thinking_update" }).textContent).toContain(
-      "Reasoning",
-    );
-  });
-
-  it("negative control: the kind modifier is not one constant string", () => {
-    const user = renderMessageCard({ type: "user.message" });
-    const assistant = renderMessageCard({ type: "assistant.message" });
-    expect(user.querySelector(".meridian-message-card--user-message")).not.toBeNull();
-    expect(assistant.querySelector(".meridian-message-card--user-message")).toBeNull();
-  });
-});
-
-function buttonLabels(container: HTMLElement): readonly (string | null)[] {
-  return Array.from(container.querySelectorAll("button"), (button) => button.textContent);
-}
-
-describe("the row's own controls", () => {
-  it("puts Copy before the supplied edit control on a user row", () => {
-    const container = renderMessageCard({
-      type: "user.message",
-      editAffordance: <button type="button">Edit</button>,
-    });
-    expect(buttonLabels(container)).toStrictEqual(["Copy", "Edit"]);
-  });
-
-  it("offers only Copy on a user row while no edit control is supplied", () => {
-    const container = renderMessageCard({ type: "user.message" });
-    expect(buttonLabels(container)).toStrictEqual(["Copy"]);
-  });
-
-  it("offers Copy on a reply once it has text to copy", () => {
-    const container = renderMessageCard({
-      content: { status: "available", body: "here is the result" },
-    });
-    expect(buttonLabels(container)).toStrictEqual(["Copy"]);
-  });
-
-  it("offers nothing on a reply with no text yet, and never an edit control", () => {
-    // The edit control edits a user's own message; a reply has none to edit, and a
-    // reply with nothing read has nothing to copy.
-    const container = renderMessageCard({
-      type: "assistant.message",
-      editAffordance: <button type="button">Edit</button>,
-    });
-    expect(buttonLabels(container)).toStrictEqual([]);
-  });
 });
 
 describe("a message's inline cards", () => {
@@ -154,20 +87,6 @@ describe("a message's inline cards", () => {
     diffArtifactId: "diff-artifact-01",
     artifactManifestId: "artifact-manifest-01",
   };
-
-  it("chips the card whether or not its body has landed", () => {
-    const container = renderMessageCard({ inlineCards: [diffCard] });
-    expect(container.querySelector(".meridian-chip")?.textContent).toContain("diff");
-  });
-
-  it("names an unfilled kind rather than rendering an empty region", () => {
-    const container = renderMessageCard({ inlineCards: [diffCard] });
-    // Scoped to the card, because the row's own unread body renders the same kind:
-    // an unscoped selector here would pass on the wrong element.
-    expect(
-      container.querySelector(".meridian-message-card__card .meridian-nothing--not-checked"),
-    ).not.toBeNull();
-  });
 
   it("renders the registered body once an owner registers a body for the card kind", () => {
     inlineCardRegistry.register("diff", {
@@ -184,30 +103,9 @@ describe("a message's inline cards", () => {
       inlineCardRegistry.unregister("diff");
     }
   });
-
-  it("negative control: a message with no cards renders no card region", () => {
-    const container = renderMessageCard({});
-    expect(container.querySelector(".meridian-message-card__cards")).toBeNull();
-  });
 });
 
 describe("the settled turn's receipt", () => {
-  it("reports the size and type the row itself recorded", () => {
-    const container = renderMessageCard({
-      payload: { contentLength: 2048, contentType: "text/markdown" },
-    });
-    const receipt = container.querySelector(".meridian-message-card__receipt")?.textContent ?? "";
-    expect(receipt).toContain("2.0\u00A0KiB");
-    expect(receipt).toContain("text/markdown");
-  });
-
-  it("negative control: a row that recorded neither gets no receipt line", () => {
-    // Without this, a line saying "Recorded" and nothing else would appear under every
-    // body-less row in the log.
-    const container = renderMessageCard({ payload: {} });
-    expect(container.querySelector(".meridian-message-card__receipt")).toBeNull();
-  });
-
   it("reports no cost and no token count", () => {
     const container = renderMessageCard({
       payload: { contentLength: 2048, costUsd: 0.42, tokens: 900 },

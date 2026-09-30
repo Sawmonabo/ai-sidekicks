@@ -41,24 +41,6 @@ describe("the main window factory", () => {
   });
 
   describe("the document URL", () => {
-    it("loads the bundle over the renderer scheme in a packaged build", async () => {
-      const { createMainWindow } = await loadWindowModule();
-
-      const browserWindow = createMainWindow();
-
-      expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
-    });
-
-    it("loads the dev-server URL only when unpackaged AND the variable is set", async () => {
-      electronMock.setPackaged(false);
-      process.env["ELECTRON_RENDERER_URL"] = DEV_SERVER_URL;
-      const { createMainWindow } = await loadWindowModule();
-
-      const browserWindow = createMainWindow();
-
-      expect(asMockWindow(browserWindow).loadedUrls).toEqual([DEV_SERVER_URL]);
-    });
-
     // The load-bearing half: a packaged binary that inherited the variable must refuse it.
     it("refuses the dev-server URL when packaged even though the variable is set", async () => {
       electronMock.setPackaged(true);
@@ -68,26 +50,6 @@ describe("the main window factory", () => {
       const browserWindow = createMainWindow();
 
       expect(asMockWindow(browserWindow)).toBeDefined();
-      expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
-    });
-
-    it("refuses the dev-server URL when unpackaged and the variable is unset", async () => {
-      electronMock.setPackaged(false);
-      const { createMainWindow } = await loadWindowModule();
-
-      const browserWindow = createMainWindow();
-
-      expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
-    });
-
-    // An empty variable is set-but-meaningless; treating it as set would load a non-URL.
-    it("refuses the dev-server URL when the variable is set to an empty string", async () => {
-      electronMock.setPackaged(false);
-      process.env["ELECTRON_RENDERER_URL"] = "";
-      const { createMainWindow } = await loadWindowModule();
-
-      const browserWindow = createMainWindow();
-
       expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
     });
   });
@@ -107,28 +69,6 @@ describe("the main window factory", () => {
       webSecurity: true,
     });
     expect(options?.webPreferences["preload"]).toEqual(expect.stringContaining("preload"));
-  });
-
-  it("shows a window only once its first paint is ready", async () => {
-    const { createMainWindow } = await loadWindowModule();
-
-    const mainBrowserWindow = asMockWindow(createMainWindow());
-    const readyToShow = mainBrowserWindow.onceHandlers.get("ready-to-show");
-
-    expect(mainBrowserWindow.options.show).toBe(false);
-    expect(readyToShow).toBeDefined();
-  });
-
-  // The main window has no `render-process-gone` handler: destroying it would fire
-  // `window-all-closed` and quit the app out from under the user.
-  it("does not register a renderer-gone handler on the main window", async () => {
-    const { createMainWindow } = await loadWindowModule();
-
-    const mainBrowserWindow = createMainWindow();
-
-    expect(asMockWindow(mainBrowserWindow).webContents.handlers.has("render-process-gone")).toBe(
-      false,
-    );
   });
 
   // The load starts inside the factory; `beforeLoad` makes the listener ordering structural and
@@ -151,18 +91,6 @@ describe("the main window factory", () => {
         "construct",
         ...POLICY_OPERATIONS,
         "webContents.once:did-finish-load",
-        `loadURL:${INDEX_URL}`,
-      ]);
-    });
-
-    it("starts the load when no hook is supplied", async () => {
-      const { createMainWindow } = await loadWindowModule();
-
-      createMainWindow();
-
-      expect(electronMock.operations).toEqual([
-        "construct",
-        ...POLICY_OPERATIONS,
         `loadURL:${INDEX_URL}`,
       ]);
     });

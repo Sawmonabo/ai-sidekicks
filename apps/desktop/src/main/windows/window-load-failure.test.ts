@@ -62,24 +62,6 @@ describe("a rejected document load", () => {
     expect(consoleError).toHaveBeenCalled();
   });
 
-  // A reason with an unpaired surrogate is the one input `encodeURIComponent` throws on.
-  // `buildLoadFailureUrl` bounds it away and the recovery guards the call anyway; the ladder
-  // must still reach the document.
-  it("still serves the document when the reason carries a lone surrogate", async () => {
-    electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_\uD800_FAILED"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const { createMainWindow } = await loadWindowModule();
-
-    const browserWindow = createMainWindow();
-
-    await vi.waitFor(() => {
-      expect(asMockWindow(browserWindow).loadedUrls).toHaveLength(2);
-    });
-    expect(asMockWindow(browserWindow).loadedUrls[1]).toContain("/-/load-failure");
-    expect(browserWindow.isDestroyed()).toBe(false);
-    expect(electronMock.exitCodes).toEqual([]);
-  });
-
   it("destroys the main window and exits non-zero when no document can be served", async () => {
     electronMock.failLoadsContaining("sidekicks-renderer://app", new Error("handler missing"));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});

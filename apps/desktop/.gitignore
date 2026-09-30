@@ -1,7 +1,6 @@
 # Package-scoped exception to the repo-root `build/` ignore rule: `apps/desktop/build/` holds
-# build-time TypeScript scripts (e.g. `assert-webprefs.ts`) that run as part of `pnpm build` to
-# enforce the shell's security-hardening invariants. They are first-class source, not generated
-# artifacts, so this narrow un-ignore re-admits the desktop one.
+# the build's own TypeScript and its tests. They are first-class source, not generated artifacts,
+# so this narrow un-ignore re-admits the desktop one.
 !build/
 
 # Package-scoped build-artifact ignore for `apps/desktop/out/`, the emit target for two generators:

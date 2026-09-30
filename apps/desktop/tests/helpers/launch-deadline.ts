@@ -23,8 +23,7 @@
 // The caller's test body is a slice too: it runs between the settled launch and the cleanup, and
 // `launch-body.ts` bounds it. The tier timeout is derived from the sum, not written down:
 // `tierTimeoutFor()` sums the launch budget, the tier's body allowance and the settlement
-// residual, and `vitest/tier-projects.ts` calls it. `launch-deadline.test.ts` resolves the real
-// projects and holds each tier's `testTimeout` and `hookTimeout` against the derived figures.
+// residual, and `vitest/tier-projects.ts` calls it.
 
 import {
   CLEANUP_BUDGET_MS,
@@ -43,8 +42,6 @@ import {
  * `unterminable` verdict existed and before the profile came off disk.
  *
  * A count, not a second duration, so `budgets.json` keeps one row for one bound.
- * `cleanup-slice-derivation.test.ts` drives the whole-cleanup spend against an injected clock, so
- * a third phase, or a loop that stopped restarting, fails there.
  */
 export const CLEANUP_PHASES = 2;
 
@@ -197,7 +194,7 @@ export class LaunchDeadline {
     // `Promise.race` keeps both promises handled by calling `then` on each, so an abandoned
     // operation rejecting after the caller closes the application, or the expiry promise
     // rejecting into nothing when the work wins, cannot fail the tier. A rejection that arrives
-    // first still propagates as itself. `launch-deadline.test.ts` pins this.
+    // first still propagates as itself.
     try {
       return await Promise.race([work, budgetExpired]);
     } finally {

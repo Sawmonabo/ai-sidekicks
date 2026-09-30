@@ -13,8 +13,8 @@ import type {
 } from "../node-pty-host.js";
 import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 import { makeFakeChild } from "./_fakes.js";
-
-import type { DrainResult, SpawnRequest } from "@ai-sidekicks/contracts";
+import type { SpawnRequest } from "../pty-host-protocol.js";
+import type { DrainResult } from "../pty-host.js";
 
 const SAMPLE_SPAWN: SpawnRequest = {
   kind: "spawn_request",

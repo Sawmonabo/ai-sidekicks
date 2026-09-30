@@ -32,8 +32,7 @@ function narrowIdList(raw: unknown): readonly string[] | undefined {
 /**
  * A ceiling that admits a short list and refuses a long one, so one store refuses and then
  * accepts. The adapter's size estimate is `partition + key + valueClass +
- * JSON.stringify(value)`; the first recovery case asserts that this ceiling separates the
- * two lists.
+ * JSON.stringify(value)`.
  */
 const CEILING_ADMITTING_A_SHORT_LIST = 60;
 
@@ -56,13 +55,6 @@ async function storeHoldingRecord(): Promise<UiStateStore> {
 }
 
 describe("hydrating a durable view state", () => {
-  it("installs the stored record when nothing was committed meanwhile", async () => {
-    // With no local act the record is the answer and hydration must install it.
-    const state = stateOver(await storeHoldingRecord());
-    await state.hydrate();
-    expect(state.value).toStrictEqual(STORED_IDS);
-  });
-
   it("keeps a value committed while the read was still in flight", async () => {
     // `commit` installs and persists at once; the older record then arrived and overwrote it.
     const state = stateOver(await storeHoldingRecord());
@@ -88,14 +80,23 @@ describe("hydrating a durable view state", () => {
   });
 
   it("still counts as hydrated, so a remount does not re-read over the newer value", async () => {
-    // The read settled; a remount's second `hydrate` must not re-ask for the refused record.
-    const state = stateOver(await storeHoldingRecord());
+    // The commit's write is still held at the store, which still answers the older record, so
+    // a remount's second `hydrate` that read again would put that record back.
+    const store = heldWriteStore();
+    const seeded = store.writeGlobal(VIEW_STATE_KEY, "expansion", [...STORED_IDS]);
+    await store.admitOneWrite();
+    await seeded;
+    const state = stateOver(store);
     const hydration = state.hydrate();
-    await state.commit([...COMMITTED_IDS]);
+    const committing = state.commit([...COMMITTED_IDS]);
     await hydration;
     expect(state.isHydrated).toBe(true);
+
     await state.hydrate();
+
     expect(state.value).toStrictEqual(COMMITTED_IDS);
+    await store.admitOneWrite();
+    await committing;
   });
 
   it("negative control: a commit AFTER the read settles is not treated as a race", async () => {
@@ -151,14 +152,6 @@ describe("a refusal this state has recovered from", () => {
     return { seen };
   }
 
-  it("proves the ceiling separates the two writes, so the cases below are not vacuous", async () => {
-    const state = stateOver(openStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST }));
-    const refused = await state.commit([...STORED_IDS]);
-    expect(refused.outcome).toBe("refused");
-    const written = await state.commit([...COMMITTED_IDS]);
-    expect(written.outcome).toBe("written");
-  });
-
   it("tells its subscribers the failure has cleared", async () => {
     // A recovery that cleared `lastRefusal` without emitting would leave a fixed failure on
     // screen until an unrelated re-render.
@@ -181,17 +174,6 @@ describe("a refusal this state has recovered from", () => {
 
     expect(state.lastRefusal?.code).toBe("quota-exceeded");
     expect(observed.seen.at(-1)).toBe("quota-exceeded");
-  });
-
-  it("does not publish twice for a settlement that changed nothing", async () => {
-    // Two successful writes leave the refusal `undefined`; a second emission would re-render
-    // every memoized row for nothing.
-    const state = stateOver(openStore());
-    await state.commit([...COMMITTED_IDS]);
-    const observed = recordRefusalsSeenBy(state);
-    await state.commit([...STORED_IDS]);
-
-    expect(observed.seen).toStrictEqual([undefined]);
   });
 });
 

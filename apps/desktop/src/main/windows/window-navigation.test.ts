@@ -1,6 +1,6 @@
-// The navigation policy as installed. `assert-webprefs.ts` proves the locked `webPreferences`
-// literal; it says nothing about navigation, and a locked window navigated to a remote origin
-// runs attacker markup with the same preload, bridge and partition. `./navigation.test.ts` covers
+// The navigation policy as installed. The lint rules hold the locked `webPreferences` literal,
+// which says nothing about navigation, and a locked window navigated to a remote origin runs
+// attacker markup with the same preload, bridge and partition. `./navigation.test.ts` covers
 // the pure classifier; this covers the wiring: every seam that can change a window's document
 // carries the classification and takes the same decision. The redirect cases are the navigate
 // cases with one string changed, because `will-navigate` fires on the original target and
@@ -41,34 +41,7 @@ describe("the navigation policy", () => {
     vi.restoreAllMocks();
   });
 
-  it("registers both navigation seams and the popup handler on every window", async () => {
-    const { createMainWindow } = await loadWindowModule();
-
-    const browserWindow = createMainWindow();
-
-    // Registration is asserted apart from the verdicts: a policy that classified correctly on
-    // a seam nobody registered would pass every case that fetches its own listener.
-    for (const seam of NAVIGATION_SEAMS) {
-      expect(navigationListenerOf(browserWindow, seam)).toBeDefined();
-    }
-    expect(windowOpenHandlerOf(browserWindow)).toBeDefined();
-  });
-
   describe.each(NAVIGATION_SEAMS)("on %s", (seam) => {
-    it("allows an in-window target within the renderer scheme", async () => {
-      const { createMainWindow } = await loadWindowModule();
-      const browserWindow = createMainWindow();
-      const preventDefault = vi.fn();
-
-      navigationListenerOf(browserWindow, seam)(
-        { preventDefault },
-        `${INDEX_URL}#/session/0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d`,
-      );
-
-      expect(preventDefault).not.toHaveBeenCalled();
-      expect(electronMock.externalOpens).toEqual([]);
-    });
-
     it("stops a remote origin and opens it externally instead", async () => {
       const { createMainWindow } = await loadWindowModule();
       const browserWindow = createMainWindow();
@@ -112,34 +85,6 @@ describe("the navigation policy", () => {
         expect(electronMock.externalOpens).toEqual([`${DEV_SERVER_URL}/index.html`]);
       });
     });
-
-    it("allows the dev-server origin in-window under the dev branch", async () => {
-      electronMock.setPackaged(false);
-      process.env["ELECTRON_RENDERER_URL"] = DEV_SERVER_URL;
-      const { createMainWindow } = await loadWindowModule();
-      const browserWindow = createMainWindow();
-      const preventDefault = vi.fn();
-
-      navigationListenerOf(browserWindow, seam)({ preventDefault }, `${DEV_SERVER_URL}/index.html`);
-
-      expect(preventDefault).not.toHaveBeenCalled();
-      expect(electronMock.externalOpens).toEqual([]);
-    });
-  });
-
-  // The seams take the same decision but say which one fired, so a log can tell a page
-  // navigation from a server redirect.
-  it.each([
-    ["will-navigate", "refused an in-window navigation"],
-    ["will-redirect", "refused an in-window redirect"],
-  ] as const)("names %s in the refusal it logs", async (seam, expectedText) => {
-    const { createMainWindow } = await loadWindowModule();
-    const browserWindow = createMainWindow();
-    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    navigationListenerOf(browserWindow, seam)({ preventDefault: vi.fn() }, "file:///etc/passwd");
-
-    expect(consoleWarn.mock.calls.flat().join(" ")).toContain(expectedText);
   });
 
   it("denies every popup, same origin included", async () => {

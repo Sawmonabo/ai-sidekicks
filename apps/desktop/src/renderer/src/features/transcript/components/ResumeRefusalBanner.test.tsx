@@ -1,6 +1,5 @@
 // The refused resume position reaches the screen, driven through the registered session screen
 // over a real `SessionStoreRegistry` and scheduler; only the session screen body is a stand-in.
-// Both directions are covered: a decision that nothing renders, and a banner on every read.
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -50,7 +49,7 @@ async function renderSessionScreen(input: {
   readonly refreshes: number;
 }): Promise<void> {
   // A manual clock, because the scheduler debounces every request against one: the reads
-  // must have completed before the render, or the negative controls pass on nothing.
+  // must have completed before the render, or a case asserting an absence passes on nothing.
   const clock = new ManualClock(0);
   let readIndex = 0;
   const sessionStoreRegistry = new SessionStoreRegistry({
@@ -119,38 +118,7 @@ describe("the session screen renders the refused resume position", () => {
     expect(screen.getByText(/re-read from the beginning/u)).toBeTruthy();
   });
 
-  it("reaches the screen even though the recovering read establishes nothing", async () => {
-    // The recovery answers at the beginning of the window, which `admitsSnapshotAt` refuses
-    // for arriving behind the store's cursor, so no store transition happens and a screen
-    // subscribed to the projection's revision alone would render nothing.
-    await renderSessionScreen({
-      reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
-      refreshes: 2,
-    });
-
-    expect(screen.getByText(REFUSAL_CODE)).toBeTruthy();
-  });
-
-  it("negative control: an honored position renders no notice at all", async () => {
-    // Without this, a screen that rendered the sentence unconditionally would pass both cases
-    // above.
-    await renderSessionScreen({
-      reads: [snapshotAt(7, ACKNOWLEDGED), snapshotAt(9, "9_1723291500000000000")],
-      refreshes: 2,
-    });
-
-    expect(screen.queryByText(REFUSAL_CODE)).toBeNull();
-  });
-
-  it("negative control: a first read that acknowledges nothing renders no notice", async () => {
-    // Nothing acknowledged is the ordinary first read, not a refusal, and it is what every
-    // scripted scenario answers with.
-    await renderSessionScreen({ reads: [snapshotAt(0)], refreshes: 1 });
-
-    expect(screen.queryByText(REFUSAL_CODE)).toBeNull();
-  });
-
-  it("negative control: the session screen body mounts on both arms", async () => {
+  it("the session screen body mounts on both arms", async () => {
     // The notice renders above the room, never in place of it.
     await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],

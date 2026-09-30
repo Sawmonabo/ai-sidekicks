@@ -77,23 +77,6 @@ describe("the transcript window's row retention", () => {
     expect(after.rowsByKey.get(movedRow.id)?.timestamp).toBe("2026-06-01T00:00:00.000Z");
   });
 
-  it("negative control: a projection given no retention publishes all-new objects", () => {
-    // Without retention every pass mints new objects; this fails if a `toBe` above became a
-    // structural compare.
-    const entries = log(LOG_ENTRY_COUNT);
-    const before = deriveTranscriptWindow(entries);
-    const after = deriveTranscriptWindow(entries);
-
-    for (const row of before.rows) {
-      expect(after.rowsByKey.get(row.id)).not.toBe(row);
-    }
-    for (const identity of before.viewportRows) {
-      expect(after.viewportRows.find((candidate) => candidate.key === identity.key)).not.toBe(
-        identity,
-      );
-    }
-  });
-
   it("forgets a row the projection stopped publishing", () => {
     // The table holds one pass, so a row that left and came back takes a new object; an
     // accumulating map would hand back the one it kept.

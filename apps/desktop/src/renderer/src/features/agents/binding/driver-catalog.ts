@@ -4,7 +4,6 @@
 // and an absent list (`undefined`) is a different answer from an empty one.
 
 import type {
-  DriverCapabilityFlag,
   ListCapabilitiesResult,
   ListModelsResult,
   ProviderModel,
@@ -45,39 +44,6 @@ export function effortLevelsFor(
     return undefined;
   }
   return modelsFor(catalog, driverName).find((model) => model.id === modelId)?.effortLevels;
-}
-
-/**
- * One driver's declared output-speed vocabulary. An absent or empty one makes the axis
- * unsettable (the mutation refuses fail-closed), so no control is drawn.
- */
-export function outputSpeedLevelsFor(
-  catalog: DriverCatalogReading,
-  driverName: string | undefined,
-): readonly string[] | undefined {
-  if (driverName === undefined) {
-    return undefined;
-  }
-  return catalog.capabilities.drivers.find((report) => report.driverName === driverName)
-    ?.outputSpeedLevels;
-}
-
-/**
- * One capability flag as the driver declared it. `undefined` where the catalog named no such
- * driver, which is not `false`: the console asserts no capability it was not told about.
- */
-export function capabilityFlagFor(
-  catalog: DriverCatalogReading,
-  driverName: string | undefined,
-  flag: DriverCapabilityFlag,
-): boolean | undefined {
-  if (driverName === undefined) {
-    return undefined;
-  }
-  const report = catalog.capabilities.drivers.find(
-    (candidate) => candidate.driverName === driverName,
-  );
-  return report?.capabilities.flags[flag];
 }
 
 /**

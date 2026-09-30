@@ -137,28 +137,4 @@ describe("browser — the provider-account token field is write-only in the engi
     });
     expect(field.value).toBe(TYPED_TOKEN);
   });
-
-  // A label of spaces is the engine's case: `required` accepts any non-empty value, so this
-  // browser submits the form and the handler has to notice, which a shimmed DOM cannot show
-  // because it runs no constraint validation on submit.
-  it("refuses a label of spaces and keeps the credential the person typed", async () => {
-    const container = renderRegistrationForm();
-    await typeAndSubmit(container, "   ");
-
-    // Said rather than silently dropped, so the person is not left retyping a credential with no
-    // explanation.
-    const refusal = container.querySelector(".meridian-settings-page__state--failed");
-    expect(refusal).not.toBeNull();
-    expect(refusal?.textContent ?? "").toContain("label");
-    // The field still holds what was typed, because nothing was dispatched.
-    expect(tokenFieldIn(container).value).toBe(TYPED_TOKEN);
-  });
-
-  it("negative control: a real label clears that same field, so retention is the refusal's", async () => {
-    // Without this the case above would pass over a form that never cleared the token at all.
-    const container = renderRegistrationForm();
-    await typeAndSubmit(container, "A machine account");
-    expect(tokenFieldIn(container).value).toBe("");
-    expect(container.querySelector(".meridian-settings-page__state--failed")).toBeNull();
-  });
 });

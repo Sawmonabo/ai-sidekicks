@@ -12,8 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
 import { resolveSidecarBinaryPath } from "../sidecar-binary-path.js";
 import { translateSpawnCwd } from "../../session/spawn-cwd-translator.js";
-
-import type { SpawnRequest, SpawnResponse } from "@ai-sidekicks/contracts";
+import type { SpawnRequest, SpawnResponse } from "../pty-host-protocol.js";
 
 // Returns `null` when the production resolver finds no binary (it throws
 // `PtyBackendUnavailableError`), so the test can skip with a message instead of failing.

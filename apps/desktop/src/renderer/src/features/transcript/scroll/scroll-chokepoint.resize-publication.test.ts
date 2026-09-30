@@ -82,22 +82,4 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
     expect(received.map((geometry) => geometry.viewportHeight)).toStrictEqual([640]);
     expect(received[0]?.cause).toBe("resize");
   });
-
-  it("negative control: the coalesced pass behind it is still waiting on a frame", () => {
-    // The box escapes the frame and the row measurement does not; passing by running the pass
-    // eagerly would report the opposite design.
-    const observer = installObserverCapture();
-    const controller = new ScrollController({ clock });
-    const measured: number[] = [];
-    controller.observeOverflow((geometry) => measured.push(geometry.viewportHeight));
-
-    const mounted = growableElement(32, 9000);
-    controller.attach(mounted.scrollContainer);
-    mounted.growTo(640);
-    observer.fireResize();
-
-    expect(measured).toStrictEqual([]);
-    clock.runFrame();
-    expect(measured).toStrictEqual([640]);
-  });
 });

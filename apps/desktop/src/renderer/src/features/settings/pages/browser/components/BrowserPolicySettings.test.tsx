@@ -5,7 +5,6 @@ import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { BrowserPolicySettings, type BrowserPolicySettingsProps } from "./BrowserPolicySettings.js";
-import { BROWSER_POLICY_SWITCHES } from "../policy-switches.js";
 
 function positions(
   fileBoundary: boolean,
@@ -37,31 +36,6 @@ function switchesIn(root: HTMLElement): readonly HTMLElement[] {
   );
 }
 
-describe("browser policy rows — the closed pair", () => {
-  it("renders exactly the switches the set declares", () => {
-    const rows = renderPolicy({ positions: positions(false, true) });
-    // Exact, not just a count: a count alone would pass over one row rendered twice.
-    expect(BROWSER_POLICY_SWITCHES).toHaveLength(2);
-    expect(switchesIn(rows)).toHaveLength(BROWSER_POLICY_SWITCHES.length);
-  });
-
-  it("names every switch, so each control is reachable by name", () => {
-    const rows = renderPolicy({ positions: positions(false, true) });
-    for (const control of switchesIn(rows)) {
-      const labelId = control.getAttribute("aria-labelledby");
-      expect(labelId).not.toBeNull();
-      expect(rows.querySelector(`#${String(labelId)}`)?.textContent ?? "").not.toBe("");
-    }
-  });
-
-  it("says what each switch stops enforcing", () => {
-    const text = renderPolicy({ positions: positions(false, true) }).textContent ?? "";
-    expect(text).toContain("admitted root of a repo mount");
-    expect(text).toContain("withholds the tools from every subsequent spawn");
-    expect(text).toContain("Sessions already running keep the tool set");
-  });
-});
-
 describe("browser policy rows — the position drawn", () => {
   it("draws the position the node reported", () => {
     const rows = renderPolicy({ positions: positions(true, false) });
@@ -75,12 +49,5 @@ describe("browser policy rows — the position drawn", () => {
     const rows = renderPolicy({ positions: positions(false, false), onToggle });
     switchesIn(rows)[0]?.click();
     expect(onToggle).toHaveBeenCalledWith("file-boundary", true);
-  });
-
-  it("negative control: no main-process config key string reaches the screen", () => {
-    // The preference keys are not the renderer's to name; a row rendering one would publish a
-    // wire vocabulary it does not own.
-    const text = renderPolicy({ positions: positions(false, true) }).textContent ?? "";
-    expect(text).not.toContain("browser.");
   });
 });

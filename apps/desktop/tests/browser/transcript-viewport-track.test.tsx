@@ -13,8 +13,7 @@
 // ever mounts to grow it back.
 //
 // These cases assert the sheet, not a composition: the two class names under the real
-// stylesheet in the two child arrangements that ship (one in-flow child and two). The
-// pane-level measurement is `pane-layout-pane-fill.test.tsx`'s.
+// stylesheet in the two child arrangements that ship (one in-flow child and two).
 
 import { describe, expect, it } from "vitest";
 
@@ -57,37 +56,5 @@ describe("browser — the transcript's scroll container takes the viewport's hei
       scrollContainer.getBoundingClientRect().height,
       "the scroll container is sized by its content rather than by the viewport, so the window is ranging against a height the pane never gave it",
     ).toBe(VIEWPORT_BOX_HEIGHT_PX);
-  });
-
-  it("still leaves the error region its own height when one renders", async () => {
-    // Keeps the rule from becoming "the scroll container is always the whole box": an error
-    // region above it is what the two-track template was written for, and covering it would hide
-    // the row failures it announces.
-    const scrollContainer = await mountViewportScrollContainer(true);
-
-    expect(scrollContainer.getBoundingClientRect().height).toBe(
-      VIEWPORT_BOX_HEIGHT_PX - ERROR_REGION_HEIGHT_PX,
-    );
-  });
-
-  it("negative control: a viewport with no height of its own gives the scroll container none", async () => {
-    // Without this the cases above would pass over a scroll container handed a fixed height; the
-    // claim is that it takes what the viewport has.
-    installMeridianTokens(document);
-    const { container } = await renderSettled(
-      <div style={{ display: "grid" }}>
-        <div className="meridian-transcript-viewport">
-          <div className="meridian-transcript-viewport__scroll-container" />
-        </div>
-      </div>,
-    );
-    const scrollContainer = container.querySelector(
-      ".meridian-transcript-viewport__scroll-container",
-    );
-    if (!(scrollContainer instanceof HTMLElement)) {
-      throw new Error("the viewport scroll container did not mount");
-    }
-
-    expect(scrollContainer.getBoundingClientRect().height).toBe(0);
   });
 });

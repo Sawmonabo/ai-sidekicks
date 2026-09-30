@@ -1,58 +1,27 @@
-// Shared scaffolding for the enumeration suites: one holder over one fixture bridge, so a second
-// reader's case is about the same reading rather than a second one.
+// Shared scaffolding for the enumeration suites: a fixture bridge that records every daemon call,
+// and a composer target addressed at one agent.
 
-import type { ProviderCommandListResult } from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../fixtures/scenarios/waiting-for-input.js";
 import type { ComposerTarget } from "../composer-target.js";
-import { addressedProviderBinding, type AddressedProviderBinding } from "./command-list-entries.js";
 
 /** The wire method the enumeration calls. */
-export const ENUMERATION_METHOD = "driver.listProviderCommands";
+const ENUMERATION_METHOD = "driver.listProviderCommands";
 
-/**
- * The fixture bridge with a recorder in front of `daemon.call`. `parkedEnumerations`, where given,
- * collects a resolver per enumeration call instead of answering, so one bridge's reply can be held
- * across a swap to another bridge and then let land.
- */
-export function recordingBridge(
-  recorded: RecordedDaemonCall[],
-  parkedEnumerations?: ((reply: unknown) => void)[],
-): PlatformBridge {
+/** The fixture bridge with a recorder in front of `daemon.call`. */
+export function recordingBridge(recorded: RecordedDaemonCall[]): PlatformBridge {
   return bridgeAnswering((call, forward) => {
     recorded.push({ method: call.method, params: call.params });
-    if (parkedEnumerations !== undefined && call.method === ENUMERATION_METHOD) {
-      return new Promise<unknown>((resolveEnumeration) => {
-        parkedEnumerations.push(resolveEnumeration);
-      });
-    }
     return forward();
   }, WAITING_FOR_INPUT_SCENARIO).bridge;
 }
 
-/** A reply naming one command, named distinctively so a case can tell which bridge answered. */
-export function enumerationReplyNaming(commandName: string): ProviderCommandListResult {
-  const binding = { driverName: "claude", providerAccountId: null };
-  return {
-    bindings: [
-      {
-        runId: null,
-        binding,
-        entries: [{ name: commandName, kind: "command", binding }],
-        complete: true,
-      },
-    ],
-  };
-}
-
 /**
- * Two distinct agent addresses shaped as the wire requires: the request declares `agentId` a UUID
- * and `callDaemon` parses it before sending, so a label-shaped id refuses as `request-unsendable`.
+ * An agent address shaped as the wire requires: the request declares `agentId` a UUID and
+ * `callDaemon` parses it before sending, so a label-shaped id refuses as `request-unsendable`.
  */
 export const FIRST_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3301";
-/** A second agent id, so a case can address a different agent. */
-export const SECOND_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3302";
 
 /** A provider-bound composer target addressed at the given agent. */
 export function targetForAgent(agentId: string): ComposerTarget {
@@ -66,11 +35,6 @@ export function targetForAgent(agentId: string): ComposerTarget {
     providerFailureDetail: undefined,
   };
 }
-
-/** The binding the send path's lookup is scoped to, derived from the same target the hook uses. */
-export const ADDRESSED: AddressedProviderBinding = addressedProviderBinding(
-  targetForAgent(FIRST_AGENT),
-);
 
 /** The recorded calls that were enumeration requests. */
 export function enumerationCalls(

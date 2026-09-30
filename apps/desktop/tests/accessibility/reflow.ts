@@ -103,16 +103,3 @@ function describeElement(element: Element): string {
   const classes = Array.from(element.classList, (className) => `.${className}`).join("");
   return `${element.localName}${identifier}${classes}`;
 }
-
-/**
- * The tier's negative control: a box wider than the floor, inside the console. At the narrowed
- * width it overflows and the walk must name it; at the default 1440 viewport it fits, so a
- * narrowing that silently did nothing turns this control red. The caller removes the node.
- */
-export function plantHorizontalOverflow(parent: Element, floorCssPixels: number): HTMLElement {
-  const planted = document.createElement("div");
-  planted.style.width = `${floorCssPixels + 80}px`;
-  planted.style.height = "1px";
-  parent.append(planted);
-  return planted;
-}

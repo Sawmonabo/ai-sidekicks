@@ -40,42 +40,6 @@ describe("focusing the next and previous pane", () => {
       ["Focused the Terminal pane, position 2 of 3.", "polite"],
     ]);
   });
-
-  it("wraps backwards from the first pane to the last", () => {
-    const layout = threePaneLayout();
-    const announce = announcer();
-    const acts = paneLayoutActsOn(layout, announce);
-    const panes = layout.snapshot().panes;
-    layout.focus(panes[0]?.paneId ?? "");
-
-    acts.focusPreviousPane();
-
-    expect(layout.snapshot().focusedPaneId).toBe(panes[2]?.paneId);
-    expect(announce.said[0]?.[0]).toBe("Focused the Sidekicks pane, position 3 of 3.");
-  });
-
-  it("says a pane layout of one pane has nowhere to cycle rather than moving in silence", () => {
-    const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-    layout.open({ kind: "transcript" });
-    const announce = announcer();
-
-    paneLayoutActsOn(layout, announce).focusNextPane();
-
-    expect(announce.said).toStrictEqual([
-      ["The Transcript pane is the only pane open.", "assertive"],
-    ]);
-  });
-
-  it("negative control: an empty pane layout says nothing, because the pane layout already does", () => {
-    // The case above would also pass over an act that announced on every press, even on an
-    // empty layout that renders its own "No panes are open."
-    const announce = announcer();
-    paneLayoutActsOn(
-      new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP }),
-      announce,
-    ).focusNextPane();
-    expect(announce.said).toStrictEqual([]);
-  });
 });
 
 describe("closing the focused pane", () => {

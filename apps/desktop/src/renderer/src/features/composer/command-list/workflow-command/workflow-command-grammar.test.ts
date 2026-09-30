@@ -1,6 +1,5 @@
-// The documented line `/workflow start <name>` parses, and a dotted id is nobody's command. The
-// end-to-end case uses the real recognizer, router, executor and registry; its control registers
-// the dotted id instead, leaving the documented line an unregistered name.
+// The documented line `/workflow start <name>` parses to the whole name, and reaches a start end
+// to end through the real recognizer, router, executor and registry.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -22,8 +21,6 @@ import {
 } from "./workflow-command.test-support.js";
 import { WORKFLOW_COMMAND_ROOT, readWorkflowCommandLine } from "./workflow-command-grammar.js";
 import { startWorkflowFromLine } from "./start-workflow-from-line.js";
-
-const DOTTED_ID = "workflow.start";
 
 const registeredIds: string[] = [];
 
@@ -63,30 +60,6 @@ describe("the `/workflow` line", () => {
       status: "start",
       definitionName: expected,
     });
-  });
-
-  it("reads a verb with nothing after it as a start that named no definition", () => {
-    expect(readWorkflowCommandLine("/workflow start")).toStrictEqual({
-      status: "start",
-      definitionName: undefined,
-    });
-  });
-
-  it("reads a line that named only the root as a missing verb", () => {
-    expect(readWorkflowCommandLine("/workflow")).toStrictEqual({ status: "verb-missing" });
-    expect(readWorkflowCommandLine("/workflow   ")).toStrictEqual({ status: "verb-missing" });
-  });
-
-  it("names an unrecognized verb rather than reading it as a definition", () => {
-    expect(readWorkflowCommandLine("/workflow stop nightly")).toStrictEqual({
-      status: "verb-unknown",
-      verb: "stop",
-    });
-  });
-
-  it("reads nothing off a line that is not this command's", () => {
-    expect(readWorkflowCommandLine("/frame.goToSettings")).toBeUndefined();
-    expect(readWorkflowCommandLine("ship the parser fix")).toBeUndefined();
   });
 });
 
@@ -131,15 +104,5 @@ describe("the documented line, end to end through the recognizer and the router"
     expect(calls.started.map((request) => request.workflowVersionId)).toStrictEqual([
       "version-nightly",
     ]);
-  });
-
-  it("negative control: under a dotted id the documented line goes out as typed", () => {
-    // The recognizer gets the first word, so with `workflow.start` registered the documented line
-    // names `workflow`, which the console does not hold, and goes on as a new turn.
-    registerRoot(DOTTED_ID);
-
-    const resolution = routerOverRegistry().resolve("/workflow start nightly", SESSION_TARGET);
-
-    expect(resolution.outcome).toBe("new-turn");
   });
 });

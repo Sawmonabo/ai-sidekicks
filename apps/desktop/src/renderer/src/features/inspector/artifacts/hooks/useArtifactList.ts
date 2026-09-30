@@ -2,7 +2,6 @@
 //
 // The reader is stamped to its subject because it holds subject-scoped state (the payload and
 // the single-flight fetch are both about one artifact), so a component reused for another
-// artifact must not keep the first one's bytes or held control.
 // artifact must not keep the first artifact's bytes or its held control.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";

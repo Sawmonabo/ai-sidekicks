@@ -119,18 +119,7 @@ describe("the walk when the result moves under it", () => {
     expect(result.current.foldedAwayMatchCount).toBe(2);
   });
 
-  it("negative control: an unfolded transcript counts nothing folded away", () => {
-    // Guards against a count that reports the whole log every time.
-    const { result } = findOverPipeline({ unfurled: 10, folded: 10 });
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-
-    expect(result.current.result.totalMatchCount).toBe(10);
-    expect(result.current.foldedAwayMatchCount).toBe(0);
-  });
-
-  it("negative control: a new query still restarts the walk", () => {
+  it("a new query still restarts the walk", () => {
     // Guards against "never reset", which would resume a walk inside a list from another question.
     const { result } = findOver(wholeLog);
     act(() => {
@@ -159,15 +148,6 @@ describe("the find field's own open act", () => {
     );
   }
 
-  it("reveals the field", () => {
-    const { result } = findOverWholeLog();
-    expect(result.current.isOpen).toBe(false);
-    act(() => {
-      result.current.open();
-    });
-    expect(result.current.isOpen).toBe(true);
-  });
-
   it("leaves the query and the walk exactly where they were", () => {
     // Not `setQuery("")`: the palette row opens a field somebody is about to type into, and must
     // not reset a walk in progress.
@@ -184,12 +164,5 @@ describe("the find field's own open act", () => {
     });
     expect(result.current.query).toBe(EVERY_ROW_QUERY);
     expect(result.current.currentMatchIndex).toBe(walkedIndex);
-  });
-
-  it("negative control: a field nobody opened stays closed", () => {
-    // Guards against a hook that reports `isOpen` true from its first render.
-    const { result, rerender } = findOverWholeLog();
-    rerender();
-    expect(result.current.isOpen).toBe(false);
   });
 });

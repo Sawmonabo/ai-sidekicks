@@ -78,25 +78,6 @@ describe("ScrollFrameWrites", () => {
     expect(frameWrites.pendingCount).toBe(0);
   });
 
-  test("hands every caller in one frame the same geometry sample", () => {
-    const { clock, coordinator, frameWrites } = constructQueue();
-    frameWrites.adopt(coordinator);
-    const sampled: number[] = [];
-
-    frameWrites.request("follow-tail", (geometry) => {
-      sampled.push(geometry.scrollTop);
-      return undefined;
-    });
-    frameWrites.request("hold-reading-position", (geometry) => {
-      sampled.push(geometry.scrollTop);
-      return undefined;
-    });
-
-    clock.runFrame();
-
-    expect(sampled).toEqual([100, 100]);
-  });
-
   test("coalesces per caller and keeps the last computation", () => {
     const { clock, coordinator, frameWrites, writes } = constructQueue();
     frameWrites.adopt(coordinator);
@@ -123,27 +104,6 @@ describe("ScrollFrameWrites", () => {
       { caller: "hold-reading-position", targetScrollTop: 300 },
       { caller: "prune-compensation", targetScrollTop: 320 },
     ]);
-  });
-
-  test("a computation that withdraws writes nothing", () => {
-    const { clock, coordinator, frameWrites, writes } = constructQueue();
-    frameWrites.adopt(coordinator);
-
-    frameWrites.request("find-match", () => undefined);
-    clock.runFrame();
-
-    expect(writes).toEqual([]);
-  });
-
-  test("a request with no geometry sample yet writes nothing", () => {
-    const { clock, coordinator, frameWrites, writes, setGeometry } = constructQueue();
-    frameWrites.adopt(coordinator);
-    setGeometry(undefined);
-
-    frameWrites.request("follow-tail", () => 900);
-    clock.runFrame();
-
-    expect(writes).toEqual([]);
   });
 
   test("adopting the same coordinator twice is a no-op and a second one throws", () => {

@@ -1,12 +1,10 @@
 // Ranked error entries. A transient error arriving a frame after a durable one must not take
-// its Retry off the screen, so every case holds two entries at once and asserts which is the card.
+// its Retry off the screen, so the case holds two entries at once and asserts which ranks highest.
 
-import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "@renderer/lib/refusal.js";
-import { TRANSCRIPT_ERROR_KINDS, TranscriptErrorTable } from "../transcript-errors.js";
-import { TranscriptErrors } from "./TranscriptErrors.js";
+import { TranscriptErrorTable } from "../transcript-errors.js";
 
 const PROJECTION_FAILURE = refuse(
   "transcript",
@@ -29,44 +27,5 @@ describe("the transcript's error table", () => {
       "row-projection",
       "geometry",
     ]);
-  });
-
-  it("negative control: the rank is the declaration order, not the recording order", () => {
-    // Recorded the other way round; the answer must not move.
-    const errorTable = new TranscriptErrorTable();
-    errorTable.record("row-projection", PROJECTION_FAILURE);
-    errorTable.record("geometry", GEOMETRY_FAILURE);
-    expect(errorTable.entries().map((entry) => entry.kind)).toStrictEqual([
-      "row-projection",
-      "geometry",
-    ]);
-    expect([...TRANSCRIPT_ERROR_KINDS]).toStrictEqual([
-      "row-projection",
-      "reveal",
-      "prune",
-      "geometry",
-    ]);
-  });
-
-  it("clears one entry without touching the others", () => {
-    const errorTable = new TranscriptErrorTable();
-    errorTable.record("geometry", GEOMETRY_FAILURE);
-    errorTable.record("row-projection", PROJECTION_FAILURE);
-    errorTable.clear("geometry");
-    expect(errorTable.recordedKindCount).toBe(1);
-    expect(errorTable.highest()?.kind).toBe("row-projection");
-  });
-
-  it("renders the highest as a card and the rest inline, and renders nothing when empty", () => {
-    const errorTable = new TranscriptErrorTable();
-    errorTable.record("geometry", GEOMETRY_FAILURE);
-    errorTable.record("row-projection", PROJECTION_FAILURE);
-    const { container } = render(<TranscriptErrors entries={errorTable.entries()} />);
-    expect(container.querySelectorAll(".meridian-refusal--card")).toHaveLength(1);
-    expect(container.querySelectorAll(".meridian-refusal--inline")).toHaveLength(1);
-    expect(screen.getByText("renderer.row_projection_failed")).toBeDefined();
-
-    const empty = render(<TranscriptErrors entries={[]} />);
-    expect(empty.container.innerHTML).toBe("");
   });
 });

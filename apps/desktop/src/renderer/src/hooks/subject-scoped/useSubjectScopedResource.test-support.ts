@@ -1,4 +1,4 @@
-// The subjects and the open/close ledger both resource suites are driven with.
+// The subjects and the open/close ledger the resource tests are driven with.
 //
 // The ledger is the whole instrument: a leak and a double close are the two failures these
 // suites exist to see, and they are visible only if opens and closes are counted by name

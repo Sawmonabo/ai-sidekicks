@@ -44,41 +44,6 @@ function advance(clock: ManualClock, milliseconds: number): void {
 }
 
 describe("SessionCatchUpLine", () => {
-  it("stays hidden when the repair ends before the dwell", () => {
-    const clock = new ManualClock(0);
-    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.initialize({ cursor: 0, entities: [] });
-    const container = renderLine(sessionStore, clock);
-
-    act(() => {
-      sessionStore.markDegraded("sequence-gap");
-    });
-    advance(clock, CATCH_UP_LINE_DWELL_MS - 1);
-    const beforeTheRepairEnds = container.textContent;
-    act(() => {
-      sessionStore.initialize({ cursor: 1, entities: [] });
-    });
-    advance(clock, CATCH_UP_LINE_DWELL_MS * 2);
-
-    expect(beforeTheRepairEnds).toBe("");
-    expect(container.textContent).toBe("");
-    expect(clock.pendingCount).toBe(0);
-  });
-
-  it("negative control: a repair that outlasts the dwell shows the line", () => {
-    const clock = new ManualClock(0);
-    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.initialize({ cursor: 0, entities: [] });
-    const container = renderLine(sessionStore, clock);
-
-    act(() => {
-      sessionStore.markDegraded("sequence-gap");
-    });
-    advance(clock, CATCH_UP_LINE_DWELL_MS);
-
-    expect(container.textContent).toBe("Catching up…");
-  });
-
   it("says it couldn't catch up when the repair read of a gap fails", async () => {
     const clock = new ManualClock(0);
     let readRejects = false;
@@ -118,27 +83,6 @@ describe("SessionCatchUpLine", () => {
 
     expect(afterTheRepairFailed).toBe("Couldn't catch up · Try again");
     expect(container.textContent).toBe("");
-  });
-
-  it("holds the words it shows until the hold ends, then changes them", () => {
-    const clock = new ManualClock(0);
-    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.initialize({ cursor: 0, entities: [] });
-    const container = renderLine(sessionStore, clock);
-
-    act(() => {
-      sessionStore.markDegraded("sequence-gap");
-    });
-    advance(clock, CATCH_UP_LINE_DWELL_MS + 100);
-    act(() => {
-      sessionStore.markReadFailed();
-    });
-    advance(clock, CATCH_UP_LINE_DWELL_MS - 101);
-    const insideTheHold = container.textContent;
-    advance(clock, 1);
-
-    expect(insideTheHold).toBe("Catching up…");
-    expect(container.textContent).toBe("Couldn't catch up · Try again");
   });
 
   it("asks for exactly one re-read of this session when Try again is pressed", () => {

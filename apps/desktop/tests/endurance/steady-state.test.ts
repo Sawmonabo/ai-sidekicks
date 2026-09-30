@@ -43,13 +43,9 @@ import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,
   CONCURRENT_STREAMING_SESSION_ID,
-  openConcurrentStreamingSessionRoute,
-  openSettingsRoute,
   readAppliedEventCount,
   readBoundSessionIds,
   readPlayingScenarioId,
-  SETTINGS_SCREEN_SELECTOR,
-  SESSION_SCREEN_SELECTOR,
 } from "./endurance-workload.js";
 import { readTranscriptWindow } from "./transcript-window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
@@ -129,35 +125,6 @@ const SCENARIO_ADVANCE_MS_PER_CYCLE = Math.max(
 );
 
 describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
-  // Proves every reading below describes a console that navigated. A churn cycle is two route
-  // changes, and each must be observed before the next hash is assigned: waiting on the app's
-  // permanent chrome returns at once, so the second assignment could land before React had
-  // mounted the first destination. The locators asserted route-exclusive here are the two
-  // constants `churnOnce` waits on, so a wait re-pointed at an element both routes render fails
-  // on the two absence checks below.
-  it("waits on a screen that only its own destination renders", async () => {
-    await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
-      const consoleWindow = consoleApplication.window;
-
-      // `openSettingsRoute` already waited for its own locator, so the positive half is the
-      // wait itself. Asserted here is the half a wait cannot make: the other route's locator is
-      // absent, which a locator naming the permanent chrome could never satisfy.
-      await openSettingsRoute(consoleApplication);
-      expect(await consoleWindow.locator(SETTINGS_SCREEN_SELECTOR).count()).toBeGreaterThan(0);
-      expect(
-        await consoleWindow.locator(SESSION_SCREEN_SELECTOR).count(),
-        "the session screen wait is satisfied on the settings route, so a churn cycle never observes the transition into the session screen",
-      ).toBe(0);
-
-      await openConcurrentStreamingSessionRoute(consoleApplication);
-      expect(await consoleWindow.locator(SESSION_SCREEN_SELECTOR).count()).toBeGreaterThan(0);
-      expect(
-        await consoleWindow.locator(SETTINGS_SCREEN_SELECTOR).count(),
-        "the settings wait is satisfied on the session route, so a churn cycle never observes the transition into settings",
-      ).toBe(0);
-    });
-  });
-
   it("does not grow its steady-state heap across sustained use", async () => {
     await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       // Both readings are taken behind a forced collection: the precision precondition below

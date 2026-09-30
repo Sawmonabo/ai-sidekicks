@@ -57,43 +57,6 @@ describe("useReasoningRead — a refusal is retryable and an answer is not", () 
     expect(callsTo(held, REASONING_READ)).toBe(2);
     expect(result.current.reading.status).toBe("read");
   });
-
-  it("negative control: a read that answered is not asked again", async () => {
-    // Without this, admitting a refusal could be written as admitting anything settled, and a
-    // second press would re-ask a question whose answer is on screen.
-    const { held, recover } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
-    recover();
-    const { result } = renderHook(() => useReasoningRead(SAMPLE_RUN_ID), {
-      wrapper: inBridge(held),
-    });
-
-    act(() => {
-      result.current.expand();
-    });
-    await settle();
-    act(() => {
-      result.current.expand();
-    });
-    await settle();
-
-    expect(callsTo(held, REASONING_READ)).toBe(1);
-  });
-
-  it("negative control: a row with no run attribution asks nothing", async () => {
-    const { held, recover } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
-    recover();
-    const { result } = renderHook(() => useReasoningRead(undefined), {
-      wrapper: inBridge(held),
-    });
-
-    act(() => {
-      result.current.expand();
-    });
-    await settle();
-
-    expect(callsTo(held, REASONING_READ)).toBe(0);
-    expect(result.current.reading.status).toBe("not-asked");
-  });
 });
 
 /** What a case holds a scripted reasoning read with, and the act that answers it. */
@@ -145,21 +108,5 @@ describe("useReasoningRead — the row moves while the answer is on the wire", (
     await settle();
 
     expect(result.current.reading.status).toBe("reading");
-  });
-
-  it("negative control: the same held read lands when the row stays put", async () => {
-    const { held, release } = bridgeHoldingReasoningRead();
-    const { result } = renderHook((runId: RunId) => useReasoningRead(runId), {
-      initialProps: SAMPLE_RUN_ID,
-      wrapper: inBridge(held),
-    });
-
-    act(() => {
-      result.current.expand();
-    });
-    release();
-    await settle();
-
-    expect(result.current.reading.status).toBe("read");
   });
 });

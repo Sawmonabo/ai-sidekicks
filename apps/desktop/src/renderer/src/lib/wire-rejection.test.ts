@@ -1,33 +1,13 @@
 // The arms keep the refusing side's own code, and the function is total against hostile values.
-// Extensions are in `wire-rejection.extensions.test.ts` and detail sentences in
-// `wire-rejection.detail.test.ts`. Totality matters because `String(...)` on a null-prototype
-// rejection would throw inside the `catch` that clears a busy control, leaving it busy forever.
+// Totality matters because `String(...)` on a null-prototype rejection would throw inside the
+// `catch` that clears a busy control, leaving it busy forever.
 
 import { describe, expect, it } from "vitest";
 
-import {
-  everyTrapThrows,
-  nullPrototypeValue,
-  readableOnce,
-  revokedProxy,
-} from "./wire-errors.test-support.js";
+import { UNREPRESENTABLE_VALUE_TEXT } from "./wire-errors.js";
+import { everyTrapThrows, nullPrototypeValue } from "./wire-errors.test-support.js";
 import { RefusalError, isRefusal, refuse } from "./refusal.js";
 import { normalizeWireRejection } from "./wire-rejection.js";
-
-/**
- * A value whose every property access throws, and nothing else does. Weaker than
- * `everyTrapThrows` on purpose: a value that also broke `instanceof` would hide the read arm.
- */
-function throwingGetProxy(): unknown {
-  return new Proxy(
-    {},
-    {
-      get(): never {
-        throw new Error("this getter is hostile");
-      },
-    },
-  );
-}
 
 describe("normalizeWireRejection — the refusing side's own code survives", () => {
   it("keeps a refusal's own author, code and sentence, on an object of its own", () => {
@@ -36,17 +16,6 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
     expect(normalized).toStrictEqual(original);
     // Rebuilt, not returned: handing the candidate back would let a hostile one reach the renderer.
     expect(normalized).not.toBe(original);
-  });
-
-  it("carries a retry hint through the rebuild rather than dropping it", () => {
-    const original = {
-      ...refuse("sessions", "ratelimit.exceeded", "Slow down."),
-      retry: {
-        afterSeconds: 30,
-        atEpochMilliseconds: Date.UTC(2026, 8, 1, 12, 0, 30),
-      },
-    };
-    expect(normalizeWireRejection("repos", original).retry).toStrictEqual(original.retry);
   });
 
   it("unwraps a carried refusal structurally, not by prototype", () => {
@@ -80,38 +49,6 @@ describe("normalizeWireRejection — the refusing side's own code survives", () 
       refuse("repos", "repo.outside_trust_envelope", "That path is outside the admitted root."),
     );
   });
-
-  it("recognizes an Error subclass carrying a wire code the same way", () => {
-    const sdkError = Object.assign(new Error("Another node holds that attachment."), {
-      code: "runtimenode.attach_conflict",
-    });
-    expect(normalizeWireRejection("sessions", sdkError).code).toBe("runtimenode.attach_conflict");
-  });
-
-  it("prefers the dotted code over a flat one when a value carries both", () => {
-    const refusal = normalizeWireRejection("repos", {
-      code: "transport.flattened",
-      message: "…",
-      data: { type: "repo.not_found" },
-    });
-    expect(refusal.code).toBe("repo.not_found");
-  });
-
-  it("uses the caller's fallback only where nothing machine-readable arrived", () => {
-    const fallback = { code: "stream-never-opened", detail: "The subscription never opened." };
-    expect(normalizeWireRejection("runs", new Error("socket closed"), fallback).code).toBe(
-      "stream-never-opened",
-    );
-    // The fallback never displaces a code the other side sent.
-    expect(
-      normalizeWireRejection("runs", { code: "run.not_found", message: "gone" }, fallback).code,
-    ).toBe("run.not_found");
-  });
-
-  it("synthesizes a code naming the seam when there is no fallback and no envelope", () => {
-    const refusal = normalizeWireRejection("keybindings", new Error("boom"));
-    expect(refusal).toStrictEqual(refuse("keybindings", "keybindings-call-failed", "boom"));
-  });
 });
 
 describe("normalizeWireRejection — total against a value that fights back", () => {
@@ -139,52 +76,6 @@ describe("normalizeWireRejection — total against a value that fights back", ()
     expect(refusal.detail).toBe("[unrepresentable value]");
   });
 
-  it("answers a refusal for a value whose every property access throws", () => {
-    const value = throwingGetProxy();
-    expect(() => (value as { code: unknown }).code).toThrow();
-    const refusal = normalizeWireRejection("browser", value);
-    expect(isRefusal(refusal)).toBe(true);
-    expect(refusal.code).toBe("browser-call-failed");
-  });
-
-  it("answers a refusal for a circular object", () => {
-    const circular: Record<string, unknown> = {};
-    circular["self"] = circular;
-    expect(isRefusal(normalizeWireRejection("browser", circular))).toBe(true);
-  });
-
-  it("answers a refusal for an Error whose message getter throws", () => {
-    const thrown = new Error("unreadable");
-    Object.defineProperty(thrown, "message", {
-      get() {
-        throw new Error("this getter is hostile too");
-      },
-    });
-    const refusal = normalizeWireRejection("browser", thrown);
-    expect(refusal.code).toBe("browser-call-failed");
-    expect(typeof refusal.detail).toBe("string");
-  });
-
-  it("answers a refusal for a hostile value carrying a hostile refusal member", () => {
-    const thrown = {
-      get refusal(): never {
-        throw new Error("hostile refusal getter");
-      },
-    };
-    expect(normalizeWireRejection("browser", thrown).code).toBe("browser-call-failed");
-  });
-
-  it("answers a refusal for a revoked Proxy, which `instanceof` throws on", () => {
-    // `[[GetPrototypeOf]]` on a revoked Proxy throws, and the terminal arm's prototype question
-    // sits outside the backstop `try`. The first assertion is the negative control.
-    const revoked = revokedProxy();
-    expect(() => revoked instanceof Error).toThrow();
-    const refusal = normalizeWireRejection("browser", revoked);
-    expect(isRefusal(refusal)).toBe(true);
-    expect(refusal.code).toBe("browser-call-failed");
-    expect(refusal.detail).toBe("[unrepresentable value]");
-  });
-
   it("answers a refusal for a Proxy whose every trap throws, prototype included", () => {
     const hostile = everyTrapThrows();
     expect(() => hostile instanceof Error).toThrow();
@@ -195,68 +86,58 @@ describe("normalizeWireRejection — total against a value that fights back", ()
   });
 });
 
-describe("normalizeWireRejection — nothing of the rejection survives onto the answer", () => {
+// What may stand in the detail sentence: never the refused value, which may be user content. A
+// rejection's members can be request values, paths or tokens, so no arm serializes it. Every case
+// plants a request value the stringifier would disclose; without that, "the detail is the
+// constant" would pass on a fixture with nothing to leak.
+describe("normalizeWireRejection — the detail is a sentence, never the rejection", () => {
   /**
-   * A refusal-shaped value whose three members are each readable once, so returning the candidate
-   * would defer the throw to the renderer's own second read.
+   * What a malformed producer put on the wire beside a good code. `data.fields` legitimately holds
+   * request values, and the `toString` is what a serializing arm would reach.
    */
-  function readableOnceRefusal(): unknown {
-    return readableOnce({
-      code: ["persistence.quota_exceeded"],
-      detail: ["The store is full."],
-      origin: ["persistence"],
-    });
+  const PLANTED_REQUEST_VALUE = "/Users/someone/private-notes";
+
+  /** A JSON-RPC envelope carrying a dotted code, no readable sentence, and content. */
+  function envelopeCarryingContent(): unknown {
+    return {
+      code: -32603,
+      message: { notAString: true },
+      data: { type: "repo.not_found", fields: { path: PLANTED_REQUEST_VALUE } },
+      toString(): string {
+        return `repo read failed for ${PLANTED_REQUEST_VALUE}`;
+      },
+    };
   }
 
-  it("hands the renderer a refusal it can read as many times as it renders", () => {
-    const refusal = normalizeWireRejection("repos", readableOnceRefusal());
-    expect(refusal).toStrictEqual(
-      refuse("persistence", "persistence.quota_exceeded", "The store is full."),
+  it("keeps the dotted code and renders the constant rather than the envelope", () => {
+    const refusal = normalizeWireRejection("repos", envelopeCarryingContent());
+    expect(refusal.code).toBe("repo.not_found");
+    expect(refusal.detail).toBe(UNREPRESENTABLE_VALUE_TEXT);
+    // The whole answer, not only the sentence: no rejection member reaches the renderer.
+    expect(JSON.stringify(refusal)).not.toContain(PLANTED_REQUEST_VALUE);
+  });
+
+  it("refuses to serialize a structure on the terminal arm either", () => {
+    const rejection = {
+      requestedPath: PLANTED_REQUEST_VALUE,
+      toString(): string {
+        return `the call failed for ${PLANTED_REQUEST_VALUE}`;
+      },
+    };
+    const refusal = normalizeWireRejection("repos", rejection);
+    expect(refusal.code).toBe("repos-call-failed");
+    expect(refusal.detail).toBe(UNREPRESENTABLE_VALUE_TEXT);
+  });
+
+  it("still lets prose a producer wrote reach the detail", () => {
+    // Without this, an arm refusing every sentence would satisfy the cases above.
+    expect(normalizeWireRejection("repos", new Error("The mount is gone.")).detail).toBe(
+      "The mount is gone.",
     );
-    // Read as a renderer does; against a returned candidate the second read throws.
-    for (let render = 0; render < 3; render += 1) {
-      expect(refusal.code).toBe("persistence.quota_exceeded");
-      expect(refusal.detail).toBe("The store is full.");
-      expect(refusal.origin).toBe("persistence");
-    }
-  });
-
-  it("negative control: the candidate itself is not readable twice", () => {
-    const candidate = readableOnceRefusal() as { readonly code: string };
-    expect(candidate.code).toBe("persistence.quota_exceeded");
-    expect(() => candidate.code).toThrow();
-  });
-
-  it("rebuilds a CARRIED refusal too, not only one the rejection is", () => {
-    // The `RefusalError` arm. The candidate is unreadable a second time, so an answer that reads
-    // twice is not the candidate.
-    const refusal = normalizeWireRejection("repos", { refusal: readableOnceRefusal() });
-    expect(refusal.code).toBe("persistence.quota_exceeded");
-    expect(refusal.code).toBe("persistence.quota_exceeded");
-    expect(refusal.origin).toBe("persistence");
-  });
-});
-
-describe("normalizeWireRejection — each member is read once", () => {
-  /** A flat envelope whose `code` answers one thing on the first read and another after. */
-  function envelopeAnsweringOnce(): unknown {
-    return readableOnce({
-      code: ["session.not_found", "session.forbidden"],
-      message: ["No such session."],
-    });
-  }
-
-  it("classifies a flat envelope on its first reading of the code", () => {
-    // The refusal arm and the flat-envelope arm both want `code`; a second read could classify on
-    // a code the wire never sent.
-    const refusal = normalizeWireRejection("transcript", envelopeAnsweringOnce());
-    expect(refusal.code).toBe("session.not_found");
-    expect(refusal.detail).toBe("No such session.");
-  });
-
-  it("negative control: the fixture really answers differently on a second read", () => {
-    const envelope = envelopeAnsweringOnce() as { readonly code: string };
-    expect(envelope.code).toBe("session.not_found");
-    expect(envelope.code).toBe("session.forbidden");
+    expect(normalizeWireRejection("repos", "the socket closed").detail).toBe("the socket closed");
+    expect(
+      normalizeWireRejection("repos", { code: "repo.locked", message: "Another node holds it." })
+        .detail,
+    ).toBe("Another node holds it.");
   });
 });

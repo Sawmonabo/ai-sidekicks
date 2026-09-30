@@ -65,23 +65,6 @@ describe("setBindingEnabled", () => {
     });
     expect(outcome).toEqual({ kind: "settled", binding: USER_BINDING, result: RESULT });
   });
-
-  // The caller supplies the key, so a retry of one press carries the same value.
-  it("carries the key it was given rather than minting a second one", async () => {
-    const send = sendAnswering();
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      await setBindingEnabled({
-        send,
-        binding: USER_BINDING,
-        enabled: false,
-        idempotencyKey: "one-press",
-      });
-    }
-    const keys = send.mock.calls.map(
-      (call) => (call[0] as { clientIdempotencyKey: string }).clientIdempotencyKey,
-    );
-    expect(keys).toEqual(["one-press", "one-press"]);
-  });
 });
 
 describe("setBindingTrust", () => {

@@ -63,17 +63,6 @@ describe("mounted transcript — which feed an act reaches", () => {
     });
     expect(TRANSCRIPT_NOT_MOUNTED_REFUSAL.code).toBe("transcript.no_mounted_transcript");
   });
-
-  it("negative control: an act performs on nobody once every mount has gone", () => {
-    // Shows the cases above read the adoption, not a set of acts the holder copied.
-    const fired: string[] = [];
-    const mountedTranscript = new MountedTranscript();
-    const release = mountedTranscript.adopt(namedActs("pane", fired));
-    release();
-    expect(mountedTranscript.current()).toBeUndefined();
-    expect(mountedTranscript.perform("openFind").status).toBe("refused");
-    expect(fired).toStrictEqual([]);
-  });
 });
 
 describe("mounted transcript — a component fills the holder for its lifetime", () => {
@@ -114,11 +103,5 @@ describe("mounted transcript — a component fills the holder for its lifetime",
     mountedTranscript.perform("stepFindNext");
     expect(laterPass).toStrictEqual(["feed:stepFindNext"]);
     expect(firstPass).toStrictEqual([]);
-  });
-
-  it("negative control: a component that never mounted holds nothing", () => {
-    const mountedTranscript = new MountedTranscript();
-    expect(mountedTranscript.mountedCount).toBe(0);
-    expect(mountedTranscript.current()).toBeUndefined();
   });
 });

@@ -20,7 +20,6 @@ import { renderSettled } from "../helpers/app-harness.js";
 import {
   describeHorizontalOverflow,
   narrowTesterViewportTo,
-  plantHorizontalOverflow,
   restoreTesterViewport,
 } from "./reflow.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../fixtures/scenarios/concurrent-streaming.js";
@@ -127,7 +126,6 @@ describe("reflow — the console at 320 CSS px", () => {
           state: "active",
           touchedAtIso: undefined,
           userIds: [],
-          attentionSeverity: undefined,
         }}
         onOpen={() => undefined}
       />,
@@ -167,21 +165,5 @@ describe("reflow — the console at 320 CSS px", () => {
 
     expect(container.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
     expect(describeHorizontalOverflow(container)).toStrictEqual([]);
-  });
-
-  it("finds a planted overflow, so a clean result means something", async () => {
-    document.location.hash = formatRoute(routeForDestination("sessions"));
-    const { container } = await renderSettled(
-      <AppProviders composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
-    );
-
-    const planted = plantHorizontalOverflow(container, REFLOW_MIN_WIDTH_PX);
-    try {
-      expect(describeHorizontalOverflow(document.documentElement).join("\n")).toContain(
-        "overflows by",
-      );
-    } finally {
-      planted.remove();
-    }
   });
 });

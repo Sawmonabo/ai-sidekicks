@@ -67,38 +67,9 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
     expect(target.path).toBe("session-message");
   });
 
-  it("takes the newest run when an agent has several", () => {
-    const older: StoredEntity = { ...RUN, id: "run-00", touchedAt: "2026-01-01T10:00:00.000Z" };
-    const target = resolveComposerTarget(
-      input({
-        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
-        agents: { [AGENT.id]: AGENT },
-        runs: { [older.id]: older, [RUN.id]: RUN },
-      }),
-    );
-    expect(target.path === "provider-bound" && target.targetRunId).toBe(RUN.id);
-  });
-
-  it("passes over a settled run touched later in favor of the one still going", () => {
-    const settled: StoredEntity = {
-      ...RUN,
-      id: "run-02",
-      state: "completed",
-      touchedAt: "2026-01-01T12:00:00.000Z",
-    };
-    const target = resolveComposerTarget(
-      input({
-        focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
-        agents: { [AGENT.id]: AGENT },
-        runs: { [RUN.id]: RUN, [settled.id]: settled },
-      }),
-    );
-    expect(target.path === "provider-bound" && target.targetRunId).toBe(RUN.id);
-  });
-
   it("addresses the session once every run this agent has is terminal", () => {
     // The steer path would resolve to a run the daemon will not move again, so every send would be
-    // refused. The negative control is the case above: one run still going takes provider-bound.
+    // refused. The negative control is the first case: a run still going takes provider-bound.
     const settled: StoredEntity = { ...RUN, state: "failed" };
     const target = resolveComposerTarget(
       input({

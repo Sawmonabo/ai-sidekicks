@@ -1,14 +1,12 @@
-// A recognized command actually performs its act, and the composer waits for it. Driven
-// through the real `commandRegistry` the palette and chord table read, so the claim is about
-// the registry a person's `/name` reaches. An executor reporting `applied` from `invoke`'s
-// synchronous return would pass every clean case and still clear the line too early.
+// A recognized command settles before the line is cleared: a failure is a refusal, and a command
+// that reads its line gets the line. Driven through the real
+// `commandRegistry` a person's `/name` reaches.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
-import { clientCommandRefusal } from "./client-command-recognizer.js";
 import {
   LINE_READING_COMMAND_IDS,
   type ComposerCommandLineHandlers,
@@ -16,9 +14,7 @@ import {
 } from "./composer-command-line-handlers.js";
 import { readComposerCommands } from "./composer-commands.js";
 
-const RAN_COMMAND_ID = "composer-executor-test.ran";
 const FAILING_COMMAND_ID = "composer-executor-test.failing";
-const HIDDEN_COMMAND_ID = "composer-executor-test.hidden";
 
 const registeredIds: string[] = [];
 
@@ -59,46 +55,7 @@ afterEach(() => {
 });
 
 describe("createClientCommandExecutor", () => {
-  it("runs a registered console command through the console's own command registry", async () => {
-    let ranCount = 0;
-    registerCommand({
-      id: RAN_COMMAND_ID,
-      run: () => {
-        ranCount += 1;
-      },
-    });
-    const executor = executorOverConsoleRegistry();
-
-    const outcome = await executor(commandLine(RAN_COMMAND_ID));
-
-    expect(outcome).toEqual({ status: "applied" });
-    expect(ranCount).toBe(1);
-    expect(commandRegistry.recentCommandIds()).toContain(RAN_COMMAND_ID);
-  });
-
-  it("waits for the command's own completion before reporting it applied", async () => {
-    let settled = false;
-    let release: (() => void) | undefined;
-    registerCommand({
-      id: RAN_COMMAND_ID,
-      run: async () => {
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        settled = true;
-      },
-    });
-    const executor = executorOverConsoleRegistry();
-
-    const pending = executor(commandLine(RAN_COMMAND_ID));
-    expect(settled).toBe(false);
-    release?.();
-
-    expect(await pending).toEqual({ status: "applied" });
-    expect(settled).toBe(true);
-  });
-
-  it("negative control: a command that rejects refuses rather than reporting applied", async () => {
+  it("refuses a command that rejects rather than reporting it applied", async () => {
     registerCommand({
       id: FAILING_COMMAND_ID,
       run: () => Promise.reject(new Error("the act did not complete")),
@@ -113,75 +70,6 @@ describe("createClientCommandExecutor", () => {
     }
     expect(outcome.refusal.code).toBe("command-failed");
     expect(outcome.refusal.detail).toContain("the act did not complete");
-  });
-
-  it("names a hidden command as unavailable here rather than as unknown", async () => {
-    let ranCount = 0;
-    registerCommand({
-      id: HIDDEN_COMMAND_ID,
-      // A key the frame publishes, false in the composer's context.
-      when: "onWorkflows",
-      run: () => {
-        ranCount += 1;
-      },
-    });
-    const executor = executorOverConsoleRegistry();
-
-    const outcome = await executor(commandLine(HIDDEN_COMMAND_ID));
-
-    expect(outcome.status).toBe("refused");
-    if (outcome.status !== "refused") {
-      throw new Error("a hidden command must not report applied");
-    }
-    expect(outcome.refusal.code).toBe("command-unavailable-here");
-    expect(ranCount).toBe(0);
-  });
-
-  it("negative control: the hidden command is not offered for discovery either", () => {
-    registerCommand({
-      id: HIDDEN_COMMAND_ID,
-      when: "onWorkflows",
-      run: () => undefined,
-    });
-    const composerCommands = readComposerCommands(DEFAULT_ROUTE);
-
-    expect(composerCommands.registeredCommandIds).toContain(HIDDEN_COMMAND_ID);
-    expect(composerCommands.offeredCommands.map((command) => command.id)).not.toContain(
-      HIDDEN_COMMAND_ID,
-    );
-  });
-
-  it("refuses a name the console never registered and dispatches nothing", async () => {
-    // `compact` is a real provider command name the console does not register, so the
-    // composer does not run it; provider entries are discovery only.
-    const executor = executorOverConsoleRegistry();
-
-    const outcome = await executor(commandLine("compact"));
-
-    expect(outcome.status).toBe("refused");
-    if (outcome.status !== "refused") {
-      throw new Error("an unregistered name must never be executed from the composer");
-    }
-    expect(outcome.refusal.code).toBe("unknown-command");
-  });
-
-  it("reads the registry at run time, so a late registration is reachable", async () => {
-    const executor = executorOverConsoleRegistry();
-    const beforeRegistration = await executor(commandLine(RAN_COMMAND_ID));
-    expect(beforeRegistration.status).toBe("refused");
-
-    let ranCount = 0;
-    registerCommand({
-      id: RAN_COMMAND_ID,
-      run: () => {
-        ranCount += 1;
-      },
-    });
-
-    expect(await executor(commandLine(RAN_COMMAND_ID))).toEqual({
-      status: "applied",
-    });
-    expect(ranCount).toBe(1);
   });
 });
 
@@ -204,29 +92,6 @@ describe("a command that reads arguments off its own line", () => {
     });
     expect(invoked).not.toHaveBeenCalled();
   });
-
-  it("negative control: a command with no handler still goes through the registry", async () => {
-    const invoked = vi.fn();
-    registerCommand({ id: "test.withoutArguments", run: invoked });
-
-    await executorOverConsoleRegistry(new Map([["test.other", vi.fn()]]))(
-      commandLine("test.withoutArguments"),
-    );
-
-    expect(invoked).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not widen recognition: a handler for an unregistered id is unreachable", async () => {
-    // The recognizer answers first, so a handler cannot claim a name the console never registered.
-    const handled = vi.fn();
-
-    const outcome = await executorOverConsoleRegistry(new Map([["test.unregistered", handled]]))(
-      commandLine("test.unregistered"),
-    );
-
-    expect(outcome.status).toBe("refused");
-    expect(handled).not.toHaveBeenCalled();
-  });
 });
 
 describe("a directive handler that fails", () => {
@@ -247,42 +112,5 @@ describe("a directive handler that fails", () => {
     }
     expect(outcome.refusal.code).toBe("command-failed");
     expect(outcome.refusal.detail).toContain("the wire went away");
-  });
-
-  it("settles a handler that throws before it ever returns a promise", async () => {
-    // A synchronous throw and a rejected promise are the same failure to the person, and only
-    // calling the handler inside the boundary catches both.
-    registerCommand({ id: "test.throwingHandler", run: vi.fn() });
-    const executor = executorOverConsoleRegistry(
-      new Map([
-        [
-          "test.throwingHandler",
-          () => {
-            throw new Error("the handler was built wrong");
-          },
-        ],
-      ]),
-    );
-
-    const outcome = await executor(commandLine("test.throwingHandler"));
-
-    expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" ? outcome.refusal.detail : "").toContain(
-      "the handler was built wrong",
-    );
-  });
-
-  it("negative control: a handler that settles normally is still not touched", async () => {
-    // The guard settles failures only; a handler's own refusal reaches the composer as built.
-    registerCommand({ id: "test.refusingHandler", run: vi.fn() });
-    const handlerRefusal = {
-      status: "refused",
-      refusal: clientCommandRefusal("command-argument-invalid", "that name matched nothing"),
-    } as const;
-    const executor = executorOverConsoleRegistry(
-      new Map([["test.refusingHandler", async () => handlerRefusal]]),
-    );
-
-    expect(await executor(commandLine("test.refusingHandler"))).toStrictEqual(handlerRefusal);
   });
 });

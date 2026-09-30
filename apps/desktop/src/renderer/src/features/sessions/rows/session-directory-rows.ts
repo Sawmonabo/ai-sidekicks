@@ -8,7 +8,6 @@
 // that returned no rows is `empty`. Deciding from `rows.length === 0` would conflate them.
 
 import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
-import type { AttentionSeverity } from "@ai-sidekicks/contracts";
 import type { SessionListRow } from "./session-rows.js";
 
 /** The kind of nothing the destination renders when it has no row: two of the five kinds. */
@@ -51,7 +50,6 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
         state: summary.state,
         touchedAtIso: undefined,
         userIds: [],
-        attentionSeverity: undefined,
       });
     }
   }
@@ -62,7 +60,6 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
         state: undefined,
         touchedAtIso: undefined,
         userIds: [],
-        attentionSeverity: undefined,
       });
     }
   }
@@ -75,15 +72,4 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
     });
   }
   return [...rowsBySessionId.values()];
-}
-
-/**
- * Stamps each row with what the attention projection says about it. A row the projection did not
- * mention carries `undefined`, which the ordering rule reads differently from "clear".
- */
-export function withAttentionSeverity(
-  rows: readonly SessionListRow[],
-  severityFor: (sessionId: string) => AttentionSeverity | undefined,
-): readonly SessionListRow[] {
-  return rows.map((row) => ({ ...row, attentionSeverity: severityFor(row.sessionId) }));
 }

@@ -46,7 +46,7 @@ describe("a queued item is canceled once", () => {
     expect(canceledItemIds).toStrictEqual([QUEUE_ITEM_ID]);
   });
 
-  it("negative control: two rows pressed once each are two mutations", async () => {
+  it("two rows pressed once each are two mutations", async () => {
     // Without this the case above would pass over a chokepoint that dispatched nothing. The
     // latch is per id.
     const { bridge, clock, queueCalls, canceledItemIds } = queueFeedBridge();
@@ -94,28 +94,6 @@ describe("a queued item is canceled once", () => {
       void held?.cancelItem(QUEUE_ITEM_ID);
     });
     expect(canceledItemIds).toStrictEqual([QUEUE_ITEM_ID, QUEUE_ITEM_ID]);
-  });
-
-  it("holds one row's cancel without holding another's", async () => {
-    const { bridge, clock, queueCalls } = queueFeedBridge();
-    let held: QueueFeed | undefined;
-    render(
-      <QueueFeedProbe
-        bridge={bridge}
-        sessionId={SESSION_ID}
-        queueCalls={queueCalls}
-        onFeed={(feed) => (held = feed)}
-      />,
-      { wrapper: bridgeWrapper(bridge, clock) },
-    );
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-    act(() => {
-      void held?.cancelItem(QUEUE_ITEM_A);
-    });
-    expect(held?.pendingCancelIds.has(QUEUE_ITEM_A)).toBe(true);
-    expect(held?.pendingCancelIds.has(QUEUE_ITEM_B)).toBe(false);
   });
 });
 

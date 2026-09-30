@@ -101,8 +101,12 @@ allowBuilds:
   "@ibm/telemetry-js": false
 
 # Workspace-wide dependency unification via pnpm catalogs. Catalogs eliminate per-package version
-# drift for cross-cutting devDependencies (the testing runner first; expand on demand). Consumers
-# reference them via `"vitest": "catalog:testing"`.
+# drift for a dependency several packages declare. Consumers reference the default catalog as
+# `"zod": "catalog:"` and a named one as `"vitest": "catalog:testing"`.
+catalog:
+  # One version across every package: the contracts build their schemas with it and every other
+  # package parses with those schemas, so two versions would be two schema runtimes.
+  zod: 4.3.6
 catalogs:
   testing:
     # Exact pins, moved in lockstep. `@vitest/coverage-v8` declares an exact peer on its runner

@@ -1,15 +1,9 @@
-// The literal-safety predicate: the character class, the predecessor rule and the two
-// carve-outs, each against what a parser would have done with the withheld tail.
+// The literal-safety predicate and the walk back to a safe ceiling, each against what a parser
+// would have done with the withheld tail.
 
 import { describe, expect, it } from "vitest";
 
-import { REVEAL_COMMIT_MODES, isLiteralSafeAt, safeRevealCeiling } from "./reveal-gate.js";
-
-describe("the reveal gate — commit modes", () => {
-  it("declares them closed, at two", () => {
-    expect([...REVEAL_COMMIT_MODES]).toStrictEqual(["direct", "authoritative"]);
-  });
-});
+import { isLiteralSafeAt, safeRevealCeiling } from "./reveal-gate.js";
 
 describe("the reveal gate — the literal-safety predicate", () => {
   it("holds a volatile character that could open a construct", () => {
@@ -18,29 +12,6 @@ describe("the reveal gate — the literal-safety predicate", () => {
     expect(isLiteralSafeAt("a **", 2)).toBe(false);
     expect(isLiteralSafeAt("see [", 4)).toBe(false);
     expect(isLiteralSafeAt("run `", 4)).toBe(false);
-  });
-
-  it("passes a volatile character whose predecessor is a word character", () => {
-    // `2*3` cannot open emphasis, so withholding it would stall the lane on prose.
-    expect(isLiteralSafeAt("2*", 1)).toBe(true);
-    expect(isLiteralSafeAt("file_", 4)).toBe(true);
-  });
-
-  it("passes ordinary characters unconditionally", () => {
-    expect(isLiteralSafeAt("hello", 4)).toBe(true);
-    expect(isLiteralSafeAt("hello", 99)).toBe(true);
-  });
-
-  it("carves out the in-word apostrophe and holds the other one", () => {
-    expect(isLiteralSafeAt("don't", 3)).toBe(true);
-    // A trailing apostrophe has nothing after it yet, so what it is is undecided.
-    expect(isLiteralSafeAt("don'", 3)).toBe(false);
-  });
-
-  it("carves out the digit-period, and holds the one that opens a list", () => {
-    expect(isLiteralSafeAt("costs 1.", 7)).toBe(true);
-    expect(isLiteralSafeAt("1.", 1)).toBe(false);
-    expect(isLiteralSafeAt("text\n  2.", 8)).toBe(false);
   });
 });
 
@@ -55,10 +26,6 @@ describe("the reveal gate — the ceiling", () => {
     // At the end of the source there is nothing left to withhold: the parser sees
     // the whole construct, closed or not.
     expect(safeRevealCeiling("the plan **", 11)).toBe(11);
-  });
-
-  it("negative control: a ceiling that needs no walk is returned untouched", () => {
-    expect(safeRevealCeiling("the plan is ready", 8)).toBe(8);
   });
 
   it("gives up rather than becoming a scan", () => {

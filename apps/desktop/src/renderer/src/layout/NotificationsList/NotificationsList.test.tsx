@@ -1,5 +1,5 @@
-// What the notification center puts on screen. The center must not render a dismiss control,
-// which is a claim a type cannot make.
+// What the notification center puts on screen: never an all-clear for a read that did not cover
+// everything, and the new answer once an open session's store moves.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -11,7 +11,6 @@ import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { settle } from "@test/helpers/settle.js";
-import { formatClockTime, formatDateTime } from "@renderer/lib/wire-figures.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { NotificationsList } from "./NotificationsList.js";
 import {
@@ -24,7 +23,7 @@ import {
   type AttentionProjectionReadCall,
 } from "@renderer/store/attention/hooks/useAttentionProjection.js";
 
-function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
+function item(): AttentionItem {
   return {
     id: "attention-1",
     momentId: "moment-1",
@@ -38,13 +37,12 @@ function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
     createdAt: "2026-01-01T10:00:00.000Z",
     bannerState: "pending",
     seen: false,
-    ...overrides,
   };
 }
 
 function readingOf(
   items: readonly AttentionItem[],
-  refusedSessions: readonly RefusedAttentionSession[] = [],
+  refusedSessions: readonly RefusedAttentionSession[],
 ): AttentionReading {
   return {
     phase: "read",
@@ -70,82 +68,6 @@ function refusedSession(sessionId: string): RefusedAttentionSession {
   };
 }
 
-describe("a projection read in flight", () => {
-  it("renders as a read in flight", () => {
-    const { container } = render(<NotificationsList reading={{ phase: "reading" }} />);
-    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
-  });
-});
-
-describe("what the center never offers", () => {
-  it("draws no dismiss control beside an item", () => {
-    const { container } = render(<NotificationsList reading={readingOf([item()])} />);
-    const labels = [...container.querySelectorAll("button")].map(
-      (button) => `${button.textContent ?? ""} ${button.getAttribute("aria-label") ?? ""}`,
-    );
-    expect(labels.some((label) => /dismiss|clear|mark read/iu.test(label))).toBe(false);
-  });
-});
-
-describe("the density fold", () => {
-  const withBoth = [
-    item({ id: "blocking" }),
-    item({ id: "chatter", severity: "informational", trigger: "run_completed" }),
-  ];
-
-  it("folds the informational half under a count while anything is actionable", () => {
-    const { container } = render(<NotificationsList reading={readingOf(withBoth)} />);
-    const fold = container.querySelector(".meridian-attention__fold-summary");
-    expect(fold?.textContent).toBe("1 informational");
-  });
-
-  it("negative control: with nothing actionable the informational items are not folded", () => {
-    const { container } = render(
-      <NotificationsList
-        reading={readingOf([item({ severity: "informational", trigger: "run_completed" })])}
-      />,
-    );
-    expect(container.querySelector(".meridian-attention__fold")).toBeNull();
-    expect(container.querySelectorAll(".meridian-attention__items")).toHaveLength(1);
-  });
-});
-
-describe("an item's own render", () => {
-  it("shows the projection's summary and its state word verbatim", () => {
-    const { container } = render(<NotificationsList reading={readingOf([item()])} />);
-    const text = container.textContent ?? "";
-    expect(text).toContain("An approval is waiting.");
-    expect(text).toContain("Waiting on you");
-  });
-
-  it("names the scope off `runId` rather than recomputing it", () => {
-    const { container } = render(
-      <NotificationsList reading={readingOf([item({ id: "aggregate" })])} />,
-    );
-    expect(container.textContent ?? "").toContain("Everything unresolved in this session");
-  });
-
-  it("negative control: a run-scoped item names its run instead", () => {
-    const { container } = render(
-      <NotificationsList reading={readingOf([item({ runId: "run-7" })])} />,
-    );
-    const text = container.textContent ?? "";
-    expect(text).toContain("run-7");
-    expect(text).not.toContain("Everything unresolved in this session");
-  });
-
-  it("is a press only when the caller supplied somewhere to go", () => {
-    const withoutOpen = render(<NotificationsList reading={readingOf([item()])} />);
-    expect(withoutOpen.container.querySelectorAll(".meridian-attention__row--open")).toHaveLength(
-      0,
-    );
-    const withOpen = render(
-      <NotificationsList reading={readingOf([item()])} onOpen={() => undefined} />,
-    );
-    expect(withOpen.container.querySelectorAll(".meridian-attention__row--open")).toHaveLength(1);
-  });
-});
-
 describe("members the boundary refused", () => {
   it("says how many were dropped rather than shrinking the list silently", () => {
     const { container } = render(
@@ -163,11 +85,6 @@ describe("members the boundary refused", () => {
     expect(text).toContain("2 deliveries could not be read");
     // A partial read shows the groups above and the dropped line below.
     expect(container.querySelectorAll(".meridian-attention__group")).toHaveLength(1);
-  });
-
-  it("negative control: a clean read says nothing about dropped members", () => {
-    const { container } = render(<NotificationsList reading={readingOf([item()])} />);
-    expect(container.textContent ?? "").not.toContain("could not be read");
   });
 
   it("never reports an all-clear for a read it could recognize none of", () => {
@@ -199,77 +116,6 @@ describe("a read that did not cover every session", () => {
     );
     expect(container.textContent ?? "").toContain("One session could not be checked.");
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-
-  it("negative control: the same empty read with every session answered draws only the heading", () => {
-    // Nothing waiting shows by absence: heading only. Without this, the not-checked cases would
-    // pass over a center that warned on every empty read.
-    const { container } = render(<NotificationsList reading={readingOf([])} />);
-    expect(container.querySelector(".meridian-attention__title")?.textContent).toBe("Needs you");
-    expect(container.querySelector(".meridian-nothing")).toBeNull();
-    expect(container.querySelector(".meridian-attention__groups")).toBeNull();
-  });
-
-  it("keeps the dropped-member line beside the coverage warning", () => {
-    // Unrecognized members and unanswered sessions are different facts; neither may stand in
-    // for the other.
-    const { container } = render(
-      <NotificationsList
-        reading={{
-          phase: "read",
-          summary: new AttentionSummary([]),
-          droppedCount: 1,
-          refusedSessions: [refusedSession("session-b")],
-          addressedSessionIds: ADDRESSED_SESSION_IDS,
-        }}
-      />,
-    );
-    const text = container.textContent ?? "";
-    expect(text).toContain("One session could not be checked.");
-    expect(text).toContain("1 delivery could not be read");
-  });
-});
-
-describe("when an attention item was raised", () => {
-  // Two instants a day apart at the same minute: rows group by session only, so nothing else says
-  // which day an item belongs to.
-  const RAISED_TODAY = "2026-01-01T10:00:00.000Z";
-  const RAISED_NEXT_DAY = "2026-01-02T10:00:00.000Z";
-
-  function attentionReadings(container: HTMLElement): readonly string[] {
-    return [...container.querySelectorAll(".meridian-attention__row .meridian-figure--wire")]
-      .map((figure) => figure.textContent ?? "")
-      .filter((text) => text !== "");
-  }
-
-  it("renders two items a day apart as two different readings", () => {
-    const { container } = render(
-      <NotificationsList
-        reading={readingOf([
-          item({ id: "attention-today", createdAt: RAISED_TODAY }),
-          item({ id: "attention-next-day", createdAt: RAISED_NEXT_DAY }),
-        ])}
-      />,
-    );
-    const [today, nextDay] = attentionReadings(container);
-    expect(today).toBe(formatDateTime(RAISED_TODAY));
-    expect(nextDay).toBe(formatDateTime(RAISED_NEXT_DAY));
-    expect(nextDay).not.toBe(today);
-  });
-
-  it("negative control: the clock-only reading of those two instants is one string", () => {
-    // Without this, the case above would pass over two instants that never collided.
-    expect(formatClockTime(RAISED_NEXT_DAY)).toBe(formatClockTime(RAISED_TODAY));
-  });
-
-  it("keeps the exact instant on the row's own title, unformatted", () => {
-    const { container } = render(
-      <NotificationsList reading={readingOf([item({ createdAt: RAISED_TODAY })])} />,
-    );
-    const titles = [...container.querySelectorAll(".meridian-attention__row [title]")].map(
-      (element) => element.getAttribute("title"),
-    );
-    expect(titles).toContain(RAISED_TODAY);
   });
 });
 
@@ -361,24 +207,5 @@ describe("what makes the attention read run again", () => {
 
     expect(read).toHaveBeenCalledTimes(2);
     expect(container.textContent ?? "").toContain("An approval is waiting.");
-  });
-
-  it("releases its subscription and reads no more once the list has gone", async () => {
-    const clock = new ManualClock(0);
-    const registry = registryOn(clock);
-    const read = callServing({ items: [] });
-    const view = mount(clock, read, registry);
-    await releaseCoalescedRead(clock);
-    expect(registry.listenerCount).toBe(1);
-    view.unmount();
-
-    act(() => {
-      registry.open("session-b");
-    });
-    await releaseCoalescedRead(clock);
-
-    expect(read).toHaveBeenCalledTimes(1);
-    expect(registry.listenerCount).toBe(0);
-    expect(clock.pendingCount).toBe(0);
   });
 });

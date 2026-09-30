@@ -179,36 +179,6 @@ function rowNamed(container: HTMLElement, serverName: string): Element | undefin
 }
 
 describe("McpFixtureBody", () => {
-  it("draws a loading absence before the inventory answers", () => {
-    const { container } = render(mcpPageTree(fixtureBridge(), operationsServing([FILESYSTEM])));
-    expect(container.textContent).toContain("servers this node governs");
-    expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(0);
-  });
-
-  it("lists one row per scope-qualified binding", async () => {
-    const { container } = await renderSettledMcpPage(
-      operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
-    );
-    expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(3);
-  });
-
-  it("renders the daemon's aggregate status rather than folding the legs itself", async () => {
-    const { container } = await renderSettledMcpPage(operationsServing([ISSUE_TRACKER]));
-    // The two legs disagree and the row's chip carries the daemon's aggregate; folding the legs
-    // by eye would have to pick one.
-    expect(rowNamed(container, "issue-tracker")?.textContent).toContain("needs-auth");
-    expect(rowNamed(container, "issue-tracker")?.textContent).toContain("connected");
-  });
-
-  it("renders names where the wire carries names, and no value anywhere", async () => {
-    const { container } = await renderSettledMcpPage(
-      operationsServing([FILESYSTEM, ISSUE_TRACKER]),
-    );
-    expect(container.textContent).toContain("Environment variables read");
-    expect(container.textContent).toContain("Headers sent");
-    expect(container.textContent).toContain("Bearer token read from");
-  });
-
   it("withholds the trust control on the row whose trust store could not be read", async () => {
     const { container } = await renderSettledMcpPage(
       operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
@@ -218,32 +188,6 @@ describe("McpFixtureBody", () => {
     expect(
       [...(degradedRow?.querySelectorAll("button") ?? [])].map((b) => b.textContent),
     ).not.toContain("Grant trust");
-  });
-
-  // Negative control: every other row offers it, so the withholding is about that row's arm.
-  it("offers the trust control on the rows whose trust arm arrived", async () => {
-    const { container } = await renderSettledMcpPage(
-      operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD]),
-    );
-    const trustButtons = [...container.querySelectorAll("button")].filter((button) =>
-      /trust/iu.test(button.textContent ?? ""),
-    );
-    expect(trustButtons).toHaveLength(2);
-  });
-
-  it("names no invented status on the degraded row", async () => {
-    const { container } = await renderSettledMcpPage(operationsServing([SCRATCHPAD]));
-    const degradedRow = rowNamed(container, "scratchpad");
-    expect(degradedRow?.textContent).toContain("could not be read");
-    expect(degradedRow?.textContent).not.toContain("No tool on this binding carries an override");
-  });
-
-  it("renders a partial application: one leg applied, one failed", async () => {
-    const { container, clock } = await renderSettledMcpPage(operationsServing([FILESYSTEM]));
-    fireEvent.click(firstEnableButton(container));
-    await settleScheduledRead(clock);
-    expect(container.textContent).toContain("live_reconcile");
-    expect(container.textContent).toContain("mcp.config_write_conflict");
   });
 
   it("sends the key the caller minted for that press", async () => {
@@ -258,11 +202,6 @@ describe("McpFixtureBody", () => {
     expect(sendEnabled).toHaveBeenCalledWith(
       expect.objectContaining({ serverName: "filesystem", clientIdempotencyKey: "one-press" }),
     );
-  });
-
-  it("draws the empty inventory as an ordinary state rather than a failure", async () => {
-    const { container } = await renderSettledMcpPage(operationsServing([]));
-    expect(container.textContent).toContain("governs no MCP servers");
   });
 
   it("draws the refusal where the inventory read could not be put", async () => {

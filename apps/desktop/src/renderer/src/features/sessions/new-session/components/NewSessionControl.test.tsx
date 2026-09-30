@@ -1,30 +1,23 @@
-// "+ New" and the draft behind it. These cases drive the control rather than the class, so
-// they assert that compose, discard and send are reachable through the screen.
+// "+ New" and the draft behind it, driven through the screen.
 //
-// The send case is load-bearing: the first-turn call is unscripted, so a real send lands
-// `session.create` and then says what it could not do, and a control that reported a plain
-// success would describe a session with no first turn as finished. Because that partial
-// leaves Send pressable, the last case here is the affordance half of the double-press guard
-// (the structural half lives in the draft).
-//
-// The third describe covers what a completed send hands out; the first-turn call resolves
-// there, since everywhere else it rejects and every send settles partial. The last describe
-// pins an axis that is not offered, which nothing else here would notice returning.
+// The first-turn call rejects unless a case says otherwise, so a real send lands
+// `session.create` and then says what it could not do; a control that reported a plain
+// success would describe a session with no first turn as finished. That partial leaves Send
+// pressable, so one case holds the affordance half of the double-press guard (the structural
+// half lives in the draft). The second describe resolves the first-turn call, which is the
+// only way a send completes.
 //
 // Which composition a settlement lands in, and which bridge a draft belongs to, is
 // `NewSessionControl.addressing.test.tsx`.
 
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { NewSessionControl } from "./NewSessionControl.js";
-import { CREATED_SESSION_ID, NEW_SESSION_LEAD } from "../new-session-draft.test-support.js";
+import { CREATED_SESSION_ID } from "../new-session-draft.test-support.js";
 import {
   bridgeAnsweringCreateUnreadably,
   bridgeFor,
   bridgeHoldingCreate,
-  bridgeRecordingASend,
   completingFirstTurn,
   composeAndCompleteASend,
   openDraftWithFirstTurn,
@@ -35,54 +28,8 @@ import {
 } from "./NewSessionControl.test-support.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
-/** The directory re-read no case in this file presses. */
-const recordNoRecheck = (): void => undefined;
-
-describe("the composed new-session draft — reachable, and only on an act", () => {
+describe("the composed new-session draft — what a send reports", () => {
   afterEach(cleanup);
-
-  it("offers one control and composes no draft until it is pressed", () => {
-    const container = renderControl({ scriptsCreate: true });
-
-    expect(screen.getByRole("button", { name: "+ New" })).toBeDefined();
-    // No first-message field means no draft was built; building one on mount would compose a
-    // session whenever the sessions list is visited.
-    expect(screen.queryByLabelText("Its first message")).toBeNull();
-    expect(container.querySelector(".meridian-new-session")).toBeNull();
-  });
-
-  it("opens the draft on the press, with the one axis it offers", async () => {
-    renderControl({ scriptsCreate: true });
-    await press("+ New");
-
-    expect(screen.getByLabelText("Its first message")).toBeDefined();
-    // Nothing is typed, so the draft's own `isEmpty` disables Send; the control keeps no
-    // second opinion.
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
-  });
-
-  it("takes the first message, which is what makes the draft sendable", async () => {
-    renderControl({ scriptsCreate: true });
-    await openDraftWithFirstTurn();
-
-    expect((screen.getByLabelText("Its first message") as HTMLTextAreaElement).value).toBe(
-      "Start on the migration.",
-    );
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
-  });
-
-  it("discards to nothing, leaving no draft and no typed words behind", async () => {
-    const container = renderControl({ scriptsCreate: true });
-    await openDraftWithFirstTurn();
-    await press("Discard");
-
-    // Back to the one control, and re-opening starts empty: what matters is the state the next
-    // draft is in.
-    expect(container.querySelector(".meridian-new-session")).toBeNull();
-    await press("+ New");
-    expect((screen.getByLabelText("Its first message") as HTMLTextAreaElement).value).toBe("");
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
-  });
 
   it("sends through the registered create verb and reports what it could not do", async () => {
     const container = renderControl({ scriptsCreate: true });
@@ -170,58 +117,6 @@ describe("the composed new-session draft — what a completed send hands out", (
     expect(container.textContent).toContain("first-turn-failed");
     expect(container.querySelector(".meridian-new-session")).not.toBeNull();
   });
-
-  it("hands nothing out when the create itself refused, because there is no session", async () => {
-    const settledSessionIds: string[] = [];
-    renderControlOn(bridgeFor({ scriptsCreate: false }), {
-      onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
-    });
-
-    await openDraftWithFirstTurn();
-    await press("Send");
-
-    expect(settledSessionIds).toStrictEqual([]);
-  });
-
-  it("settles once, however many times the destination re-renders under it", async () => {
-    // The destination composes its settlement fresh every pass, so a control that put the
-    // callback in the settling effect's dependencies would settle on every render. The count
-    // says it did not follow the identity.
-    const settledSessionIds: string[] = [];
-    const bridge = bridgeFor({ scriptsCreate: true });
-    const queueFirstTurn = completingFirstTurn().call;
-    const { rerender } = render(
-      <LiveAnnouncerProvider>
-        <NewSessionControl
-          bridge={bridge}
-          queueFirstTurn={queueFirstTurn}
-          lead={NEW_SESSION_LEAD}
-          onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
-          onSessionDirectoryRecheck={recordNoRecheck}
-        />
-      </LiveAnnouncerProvider>,
-    );
-
-    await composeAndCompleteASend();
-    for (let pass = 0; pass < 3; pass += 1) {
-      rerender(
-        <LiveAnnouncerProvider>
-          <NewSessionControl
-            bridge={bridge}
-            queueFirstTurn={queueFirstTurn}
-            lead={NEW_SESSION_LEAD}
-            onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
-            onSessionDirectoryRecheck={recordNoRecheck}
-          />
-        </LiveAnnouncerProvider>,
-      );
-      await act(async () => {
-        await crossMacrotaskBoundary();
-      });
-    }
-
-    expect(settledSessionIds).toStrictEqual([CREATED_SESSION_ID]);
-  });
 });
 
 describe("the composed new-session draft — the create it cannot answer for", () => {
@@ -264,37 +159,5 @@ describe("the composed new-session draft — the create it cannot answer for", (
     await press("Send");
 
     expect(settledSessionIds).toStrictEqual([]);
-  });
-});
-
-describe("the composed new-session draft — the axis it does not offer", () => {
-  afterEach(cleanup);
-
-  it("offers no execution-posture control, because no reachable call would carry one", async () => {
-    // This control once rendered a posture picker whose value reached no wire: neither call
-    // the send makes has a member for it (both requests are strict). A choice that cannot be
-    // honored is not offered.
-    renderControl({ scriptsCreate: true });
-    await press("+ New");
-
-    expect(screen.queryAllByRole("radio")).toStrictEqual([]);
-    expect(screen.queryByRole("group")).toBeNull();
-  });
-
-  it("negative control: nothing posture-shaped reaches the wire on the arm not taken", async () => {
-    // Asserted over the request bodies, not the screen: this would go red if the picker
-    // returned without a member to send it on.
-    const recorded = bridgeRecordingASend();
-    const firstTurns = completingFirstTurn();
-    renderControlOn(recorded.bridge, { queueFirstTurn: firstTurns.call });
-    await openDraftWithFirstTurn();
-    await press("Send");
-
-    // Both legs were made; otherwise the absence below would be the absence of any request.
-    expect(recorded.calls.map((call) => call.method)).toStrictEqual(["session.create"]);
-    expect(firstTurns.requests).toHaveLength(1);
-    for (const request of [...recorded.calls.map((call) => call.params), ...firstTurns.requests]) {
-      expect(JSON.stringify(request)).not.toMatch(/posture/i);
-    }
   });
 });

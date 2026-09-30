@@ -1,17 +1,12 @@
-//! Spawn smoke tests, one per platform: spawn `sh -c 'echo hello; exit 0'` (unix) or
-//! `cmd.exe /c "echo hello"` (Windows), then assert that stdout is delivered and the exit code
-//! propagates.
-//!
-//! The deeper registry behavior (sequence numbers, kill paths, resize, write) is covered in
-//! `tests/pty_session.rs`. Platform gating is per test (`#[cfg(unix)]` / `#[cfg(windows)]`) because
-//! the spawn, reader and waiter paths are platform-agnostic; only `kill()` differs, and these
-//! children exit on their own so it is never called.
-//!
-//! ## Spawn shape
+//! Windows spawn smoke test: spawn `cmd.exe /c "echo hello"`, then assert that stdout is delivered
+//! and the exit code propagates. The unix registry behavior (spawn, sequence numbers, kill, write,
+//! drop) is covered in `tests/pty_session.rs`.
 //!
 //! `PtySessionRegistry::spawn` clears the child environment, so `PATH` is empty and bare command
-//! names do not resolve. The tests pass absolute binaries (`/bin/sh`,
-//! `C:\Windows\System32\cmd.exe`) and absolute working directories (`/tmp`, `C:\`).
+//! names do not resolve. The test passes an absolute binary (`C:\Windows\System32\cmd.exe`) and an
+//! absolute working directory (`C:\`).
+
+#![cfg(windows)]
 
 use std::time::Duration;
 
@@ -82,7 +77,7 @@ fn assert_spawn_smoke_envelopes(envelopes: &[Envelope], session_id: &str) {
         assert_eq!(
             df.stream,
             DataStream::Stdout,
-            "Phase 1 emits all DataFrames as Stdout (PTY merges stdout+stderr)"
+            "every DataFrame is Stdout (the PTY merges stdout and stderr)"
         );
     }
     // `extend_from_slice`, as in `tests/pty_session.rs`.
@@ -112,40 +107,7 @@ fn assert_spawn_smoke_envelopes(envelopes: &[Envelope], session_id: &str) {
         "ExitCodeNotification carries the spawned session_id"
     );
     assert_eq!(exit.exit_code, 0, "echo should propagate exit_code: 0");
-    assert_eq!(
-        exit.signal_code, None,
-        "Phase 1 emits signal_code: None for every exit per pty_session.rs"
-    );
-}
-
-/// Unix: spawning `/bin/sh -c 'echo hello; exit 0'` yields a [`DataFrame`] containing `"hello"` and
-/// one [`ExitCodeNotification`] with `exit_code == 0`.
-///
-/// The PTY may translate LF to CRLF, so the assertion uses `.contains("hello")`.
-///
-/// [`DataFrame`]: sidecar_rust_pty::protocol::DataFrame
-/// [`ExitCodeNotification`]: sidecar_rust_pty::protocol::ExitCodeNotification
-#[cfg(unix)]
-#[tokio::test]
-async fn spawn_smoke_sh_echo_hello_exits_zero() {
-    let (registry, mut rx) = PtySessionRegistry::new();
-
-    // `/bin/sh` is absolute because `env_clear()` strips PATH in the child.
-    let response = registry
-        .spawn(SpawnRequest {
-            command: "/bin/sh".to_string(),
-            args: vec!["-c".to_string(), "echo hello; exit 0".to_string()],
-            env: Vec::new(),
-            cwd: "/tmp".to_string(),
-            rows: 24,
-            cols: 80,
-        })
-        .await
-        .expect("spawn of `sh -c 'echo hello; exit 0'` should succeed");
-
-    let session_id = response.session_id.clone();
-    let envelopes = drain_until_exit(&mut rx).await;
-    assert_spawn_smoke_envelopes(&envelopes, &session_id);
+    assert_eq!(exit.signal_code, None, "signal_code is None for every exit");
 }
 
 /// Windows: spawning `cmd.exe /c "echo hello"` yields a [`DataFrame`] containing `"hello"` and one
@@ -154,7 +116,6 @@ async fn spawn_smoke_sh_echo_hello_exits_zero() {
 ///
 /// [`DataFrame`]: sidecar_rust_pty::protocol::DataFrame
 /// [`ExitCodeNotification`]: sidecar_rust_pty::protocol::ExitCodeNotification
-#[cfg(windows)]
 #[tokio::test]
 async fn spawn_smoke_cmd_exe_echo_hello_exits_zero() {
     let (registry, mut rx) = PtySessionRegistry::new();

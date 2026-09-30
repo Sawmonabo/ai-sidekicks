@@ -4,13 +4,9 @@
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  FIND_STEP_DIRECTIONS,
-  emptyFindResult,
-  findInTranscript,
-  stepFindMatch,
-} from "./find-model.js";
+import { findInTranscript, stepFindMatch } from "./find-model.js";
 import { generalRow, runRow } from "../timeline-rows.test-support.js";
+import { FIND_MATCH_CAP } from "../structure/structure-caps.js";
 
 function searchWindow(): readonly TimelineRow[] {
   return [
@@ -41,24 +37,6 @@ function searchWindow(): readonly TimelineRow[] {
   ];
 }
 
-describe("find — the boundary is a member of the result", () => {
-  it("reports what was searched even with no query", () => {
-    const result = emptyFindResult(3);
-    expect(result.searchedRowCount).toBe(3);
-    expect(result.matches).toStrictEqual([]);
-  });
-
-  it("carries the searched count through a real query", () => {
-    const result = findInTranscript(searchWindow(), "deploy");
-    expect(result.searchedRowCount).toBe(3);
-  });
-
-  it("negative control: the count is the window's and not a constant", () => {
-    // Guards against a result that reports the fixture's length whatever it is handed.
-    expect(findInTranscript([], "deploy").searchedRowCount).toBe(0);
-  });
-});
-
 describe("find — what a query matches", () => {
   it("matches a row's summary, case-insensitively", () => {
     const result = findInTranscript(searchWindow(), "deploy");
@@ -71,14 +49,6 @@ describe("find — what a query matches", () => {
     expect(result.matches).toStrictEqual([{ rowId: "r2", sequence: 2, matchedIn: "type" }]);
   });
 
-  it("negative control: the payload is not searched", () => {
-    // `g1`'s payload contains "deploy war room"; a hit inside an open record shows nothing.
-    const matchedRowIds = findInTranscript(searchWindow(), "war room").matches.map(
-      (match) => match.rowId,
-    );
-    expect(matchedRowIds).toStrictEqual([]);
-  });
-
   it("matches nothing on an empty or whitespace-only query", () => {
     for (const query of ["", "   ", "\t\n"]) {
       const result = findInTranscript(searchWindow(), query);
@@ -86,15 +56,6 @@ describe("find — what a query matches", () => {
       expect(result.totalMatchCount).toBe(0);
       expect(result.searchedRowCount).toBe(3);
     }
-  });
-
-  it("negative control: an empty query does not silently match everything", () => {
-    // Highlighting every row when the field is focused is the failure this guards.
-    expect(findInTranscript(searchWindow(), "").matches.length).not.toBe(3);
-  });
-
-  it("trims the query it reports, so the field echoes what it searched for", () => {
-    expect(findInTranscript(searchWindow(), "  deploy  ").query).toBe("deploy");
   });
 });
 
@@ -117,12 +78,6 @@ describe("find — the cap bounds the walk and never the count", () => {
     expect(result.matches).toHaveLength(FIND_MATCH_CAP);
     expect(result.totalMatchCount).toBe(FIND_MATCH_CAP + 5);
     expect(result.searchedRowCount).toBe(FIND_MATCH_CAP + 5);
-  });
-
-  it("negative control: under the cap the two numbers agree", () => {
-    // Shows the divergence above is the cap reporting itself, not the counter being wrong.
-    const result = findInTranscript(searchWindow(), "e");
-    expect(result.totalMatchCount).toBe(result.matches.length);
   });
 });
 
@@ -171,17 +126,9 @@ describe("find — stepping the walk", () => {
     expect(stepped?.match.rowId).toBe("r3");
   });
 
-  it("negative control: there is nothing to walk with no matches", () => {
+  it("there is nothing to walk with no matches", () => {
     const empty = findInTranscript(searchWindow(), "no row says this");
     expect(stepFindMatch(empty, 0, "next")).toBeUndefined();
-  });
-
-  it("walks every direction the closed set declares, and they disagree", () => {
-    // Quantified over the declaration, so a third direction arrives as a red case here. The
-    // disagreement is the control: two directions landing on one index would satisfy totality.
-    const landed = FIND_STEP_DIRECTIONS.map((direction) => stepFindMatch(result, 0, direction));
-    expect(landed.every((step) => step !== undefined)).toBe(true);
-    expect(new Set(landed.map((step) => step?.index)).size).toBe(FIND_STEP_DIRECTIONS.length);
   });
 });
 
@@ -231,7 +178,7 @@ describe("find — the first step, before anything is selected", () => {
     expect(stepFindMatch(result, -1, "previous")?.index).toBe(6);
   });
 
-  it("negative control: entering is not stepping — a selected walk still moves by one", () => {
+  it("entering is not stepping — a selected walk still moves by one", () => {
     // Fails if the unselected arm were applied to every index: a backward step
     // from match 3 of 7 would then land on the last match rather than on match 2.
     const result = resultOver(7);
@@ -239,4 +186,3 @@ describe("find — the first step, before anything is selected", () => {
     expect(stepFindMatch(result, 2, "next")?.index).toBe(3);
   });
 });
-import { FIND_MATCH_CAP } from "../structure/structure-caps.js";

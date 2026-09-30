@@ -157,7 +157,10 @@ async function* daemonSubscribe(
       sig.removeEventListener("abort", abortListener);
       // Over a socket the subscribe reply has not arrived yet, so this cancel only ends the
       // subscription locally, and the transport sends the wire cancel once the reply lands.
-      await subscription.cancel();
+      const cancelFailure = await cancelAndReadFailure(subscription);
+      if (cancelFailure !== undefined) {
+        throw cancelFailure;
+      }
       return;
     }
   }

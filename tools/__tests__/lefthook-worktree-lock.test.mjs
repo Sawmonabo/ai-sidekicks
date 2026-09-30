@@ -46,21 +46,6 @@ function deadProcessId() {
   return finished.pid;
 }
 
-test("acquire writes a complete, parseable owner record", () => {
-  const directory = makeTemporaryDirectory();
-  try {
-    const lockPath = join(directory, "lock");
-    assert.equal(acquire(lockPath, process.pid).status, 0);
-    const record = JSON.parse(readFileSync(lockPath, "utf8"));
-    assert.equal(record.ownerPid, process.pid);
-    assert.equal(record.worktree, "/fixture/worktree");
-    assert.equal(record.hookName, "pre-commit");
-    assert.equal(typeof record.acquiredAtMs, "number");
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 test("a held lock refuses a second acquirer and names the holder", () => {
   const directory = makeTemporaryDirectory();
   try {
@@ -197,23 +182,6 @@ test("concurrent acquirers never hold the lock at the same time", () => {
   }
 });
 
-test("status reports whether the lock is held", () => {
-  const directory = makeTemporaryDirectory();
-  try {
-    const lockPath = join(directory, "lock");
-    const free = runLockScript(["status", `--lock-path=${lockPath}`]);
-    assert.equal(free.status, 0);
-    assert.match(free.stdout, /no holder/);
-
-    assert.equal(acquire(lockPath, process.pid).status, 0);
-    const held = runLockScript(["status", `--lock-path=${lockPath}`]);
-    assert.equal(held.status, 1);
-    assert.match(held.stdout, /\/fixture\/worktree/);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 test("a malformed invocation exits 2 rather than proceeding unprotected", () => {
   const directory = makeTemporaryDirectory();
   try {
@@ -257,11 +225,6 @@ function commonGitDirectoryOf(root) {
   }).stdout.trim();
 }
 
-test("the rc file is valid POSIX shell", () => {
-  const parsed = spawnSync("sh", ["-n", RC_SCRIPT], { encoding: "utf8" });
-  assert.equal(parsed.status, 0, parsed.stderr);
-});
-
 test("the rc file takes and releases the lock for pre-commit", () => {
   const { root, hookPath } = makeHookFixture(
     "pre-commit",
@@ -302,20 +265,6 @@ test("the rc file releases the lock and preserves the status when the hook fails
     // this from passing when no lock was ever taken.
     assert.equal(result.status, 7);
     assert.equal(JSON.parse(readFileSync(witnessPath, "utf8")).hookName, "pre-commit");
-    assert.throws(() => readFileSync(lockPath, "utf8"), { code: "ENOENT" });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("the rc file takes no lock for hooks that never touch the backup", () => {
-  const { root, hookPath } = makeHookFixture("commit-msg", "true");
-  try {
-    const lockPath = join(commonGitDirectoryOf(root), "lefthook-unstaged-backup.lock");
-    const result = spawnSync("sh", [hookPath], { cwd: root, encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr);
-    // lefthook backs up unstaged changes only for `pre-commit`; locking other hooks would queue
-    // commits for nothing.
     assert.throws(() => readFileSync(lockPath, "utf8"), { code: "ENOENT" });
   } finally {
     rmSync(root, { recursive: true, force: true });

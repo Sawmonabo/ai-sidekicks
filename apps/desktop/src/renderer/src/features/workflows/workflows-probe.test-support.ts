@@ -12,9 +12,6 @@ import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 /** The session every workflows suite addresses. */
 export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
-/** The other session, for a case whose whole claim is that the scope moved off the first. */
-export const SECOND_PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3402";
-
 /** The continuation token the paged cases hand back. */
 export const SECOND_PAGE_CURSOR = "definitions-page-2";
 
@@ -61,31 +58,31 @@ export async function settle(): Promise<void> {
 }
 
 /** The first phase of every fixture run: drafting. */
-export const PHASE_DRAFT = "019b7a10-0280-7e44-8100-9ba5e1150001";
+const PHASE_DRAFT = "019b7a10-0280-7e44-8100-9ba5e1150001";
 
 /** The build phase: running in the working run, parked on a usage window in the parked one. */
-export const PHASE_BUILD = "019b7a10-0280-7e44-8100-9ba5e1150002";
+const PHASE_BUILD = "019b7a10-0280-7e44-8100-9ba5e1150002";
 
 /** The review phase: pending in the working run, skipped in the canceled one. */
-export const PHASE_REVIEW = "019b7a10-0280-7e44-8100-9ba5e1150003";
+const PHASE_REVIEW = "019b7a10-0280-7e44-8100-9ba5e1150003";
 
 /** The phase the parked run waits on a person for. */
-export const PHASE_SIGN_OFF = "019b7a10-0280-7e44-8100-9ba5e1150004";
+const PHASE_SIGN_OFF = "019b7a10-0280-7e44-8100-9ba5e1150004";
 
 /** The phase that runs on the sign-off answer; pending in the parked run. */
-export const PHASE_PUBLISH = "019b7a10-0280-7e44-8100-9ba5e1150005";
+const PHASE_PUBLISH = "019b7a10-0280-7e44-8100-9ba5e1150005";
 
 /** The release checks workflow's latest version, pinned by the working run. */
-export const VERSION_RELEASE_CHECKS_LATEST = "019b7a10-0280-7d22-8100-be5100150004";
+const VERSION_RELEASE_CHECKS_LATEST = "019b7a10-0280-7d22-8100-be5100150004";
 
 /** The ship pipeline's latest version, pinned by the parked run. */
-export const VERSION_SHIP_PIPELINE_LATEST = "019b7a10-0280-7d22-8100-be5100150003";
+const VERSION_SHIP_PIPELINE_LATEST = "019b7a10-0280-7d22-8100-be5100150003";
 
 /** An older ship pipeline version, pinned by the run that trails the latest. */
-export const VERSION_SHIP_PIPELINE_PINNED = "019b7a10-0280-7d22-8100-be5100150001";
+const VERSION_SHIP_PIPELINE_PINNED = "019b7a10-0280-7d22-8100-be5100150001";
 
 /** The incident triage workflow's latest version, pinned by the canceled run. */
-export const VERSION_INCIDENT_TRIAGE_LATEST = "019b7a10-0280-7d22-8100-be5100150002";
+const VERSION_INCIDENT_TRIAGE_LATEST = "019b7a10-0280-7d22-8100-be5100150002";
 
 /** A run parked on a provider's usage window and on a person's sign-off. */
 export const PARKED_RUN: WorkflowRunSnapshot = {

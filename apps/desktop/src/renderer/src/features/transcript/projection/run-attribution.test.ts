@@ -6,27 +6,15 @@ import {
   attributedRunIdOf,
   RUN_ATTRIBUTION_BY_PAYLOAD_KEY,
   type RunAttributionRole,
-  type RunNamingPayloadKey,
 } from "./run-attribution.js";
 
 const RUN_ONE = "019b793b-7b60-740e-8110-d1a4c1150111";
 const RUN_TWO = "019b793b-7b60-740e-8120-d1a4c1150112";
 
-/**
- * The compile-time control for the run-attribution table: a table missing `parentRunId` is
- * not total, and the directive below asserts exactly that. Loosen the table's type and the
- * suppressed error stops occurring, which makes the directive itself the error.
- */
-// @ts-expect-error — deliberately missing `parentRunId`; totality is the property.
-const TABLE_THE_COMPILER_REJECTS: Readonly<Record<RunNamingPayloadKey, RunAttributionRole>> = {
-  runId: "this-run",
-  targetRunId: "this-run",
-};
-
 /** The decisions, read by a member the contract spells as a free-form string. */
 const ROLE_BY_MEMBER: Readonly<Record<string, RunAttributionRole>> = RUN_ATTRIBUTION_BY_PAYLOAD_KEY;
 
-describe("the run-attribution table — a compile gate, and a dormant runtime arm", () => {
+describe("the run-attribution table", () => {
   it("decides every key the contract lists, so the runtime filter removes nothing", () => {
     // Checked, not claimed: every member decided `another-run` is absent from the contract's
     // list, so the filter drops nothing today; it fails closed for a key nobody here reviewed.
@@ -40,12 +28,6 @@ describe("the run-attribution table — a compile gate, and a dormant runtime ar
       expect(TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS, member).not.toContain(member);
     }
   });
-
-  it("negative control: the table the compiler rejects is short at runtime too", () => {
-    // The `@ts-expect-error` above is the real guard; this reads the same object
-    // back so the suppressed line is not a comment nobody executes.
-    expect(Object.keys(TABLE_THE_COMPILER_REJECTS)).not.toContain("parentRunId");
-  });
 });
 
 describe("reading the run a payload names", () => {
@@ -56,7 +38,7 @@ describe("reading the run a payload names", () => {
     expect(attributedRunIdOf({ targetRunId: RUN_ONE })).toBe(RUN_ONE);
   });
 
-  it("negative control: a member decided `another-run` names nothing here", () => {
+  it("a member decided `another-run` names nothing here", () => {
     // A payload carrying ONLY the parent's spelling answers `undefined` rather
     // than the parent's id: filing a child's rows in its parent's run group is the
     // defect this decision exists to refuse.

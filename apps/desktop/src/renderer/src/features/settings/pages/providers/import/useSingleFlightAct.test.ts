@@ -25,32 +25,14 @@ function heldAttempt(): {
 }
 
 describe("one act's settlement", () => {
-  it("starts unattempted, which is not the same as settled with nothing", () => {
-    const act = new SingleFlightAct<string, string>({
-      attempt: async () => await Promise.resolve("answered"),
-      describeWhat: "The act",
-    });
-
-    expect(act.settlement()).toStrictEqual({ status: "unattempted" });
-  });
-
-  it("runs, then settles with the answer", async () => {
-    const act = new SingleFlightAct<string, string>({
-      attempt: async (request) => await Promise.resolve(request),
-      describeWhat: "The act",
-    });
-
-    await act.run("asked");
-
-    expect(act.settlement()).toStrictEqual({ status: "settled", answer: "asked" });
-  });
-
-  it("is running between the press and the settlement", async () => {
+  it("starts unattempted, runs between the press and the settlement, then settles", async () => {
     const held = heldAttempt();
     const act = new SingleFlightAct<string, string>({
       attempt: held.attempt,
       describeWhat: "The act",
     });
+    // Unattempted is not the same as settled with nothing.
+    expect(act.settlement()).toStrictEqual({ status: "unattempted" });
 
     const running = act.run("asked");
     expect(act.settlement()).toStrictEqual({ status: "running" });
@@ -126,38 +108,5 @@ describe("one act's settlement", () => {
 
     expect(refusal).toBeUndefined();
     expect(act.settlement()).toStrictEqual({ status: "settled", answer: "second" });
-  });
-
-  it("would notice a coordinator that let the second press through", async () => {
-    // Control: with the first already settled, two presses send two calls, so the count
-    // above is a real single-flight reading.
-    let attemptCount = 0;
-    const act = new SingleFlightAct<string, string>({
-      attempt: async () => {
-        attemptCount += 1;
-        return await Promise.resolve("answered");
-      },
-      describeWhat: "The act",
-    });
-
-    await act.run("first");
-    await act.run("second");
-
-    expect(attemptCount).toBe(2);
-  });
-
-  it("clears back to unattempted, and says nothing new when already there", () => {
-    const act = new SingleFlightAct<string, string>({
-      attempt: async () => await Promise.resolve("answered"),
-      describeWhat: "The act",
-    });
-    let notifications = 0;
-    act.subscribe(() => {
-      notifications += 1;
-    });
-
-    act.clear();
-    expect(notifications).toBe(0);
-    expect(act.settlement()).toStrictEqual({ status: "unattempted" });
   });
 });

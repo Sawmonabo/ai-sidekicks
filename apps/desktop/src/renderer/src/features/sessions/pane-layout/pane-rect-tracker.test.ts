@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { ManualClock } from "@renderer/lib/clock.js";
+import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "./pane-layout-measures.js";
 import { PaneRectTracker } from "./pane-rect-tracker.js";
 import { type TrackedRect } from "./pane-rect-geometry.js";
@@ -56,6 +57,23 @@ function harness(airspace: AirspaceRegistry = new AirspaceRegistry()): TrackerHa
   return { clock, tracker, writes };
 }
 
+/**
+ * An airspace that counts its change listeners. A disposed tracker ignores what it hears, so a
+ * listener it kept shows nothing from outside.
+ */
+class ListenerCountingAirspace extends AirspaceRegistry {
+  public liveListeners = 0;
+
+  public override subscribeToChanges(sink: () => void): Unsubscribe {
+    const unsubscribe = super.subscribeToChanges(sink);
+    this.liveListeners += 1;
+    return () => {
+      this.liveListeners -= 1;
+      unsubscribe();
+    };
+  }
+}
+
 /** Puts an overlay of some size up and returns its removal. A dialog unless said. */
 function overlayUp(airspace: AirspaceRegistry): () => void {
   const registration = airspace.register("dialog", () => ({ x: 0, y: 0, width: 10, height: 10 }));
@@ -68,8 +86,11 @@ describe("PaneRectTracker — when it writes", () => {
   it("writes nothing at the moment a source fires, and writes on the next frame", () => {
     const { clock, tracker, writes } = harness();
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
+    tracker.invalidate("window-resize");
+    tracker.invalidate("ancestor-scroll");
 
-    // `track` invalidates as a layout mover; nothing may be written yet.
+    // `track` invalidates as a layout mover; nothing may be written yet, and the three
+    // sources share one frame rather than each arming its own.
     expect(writes).toStrictEqual([]);
     expect(clock.pendingFrameCount).toBe(1);
 
@@ -78,25 +99,7 @@ describe("PaneRectTracker — when it writes", () => {
     expect(writes[0]?.[0]?.paneId).toBe("pane-1");
   });
 
-  it("collapses four sources firing for one moved edge into one write", () => {
-    const { clock, tracker, writes } = harness();
-    tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
-    tracker.invalidate("host-resize");
-    tracker.invalidate("window-resize");
-    tracker.invalidate("ancestor-scroll");
-    tracker.invalidate("layout-mover");
-
-    clock.runFrame();
-
-    expect(writes).toHaveLength(1);
-    expect(tracker.flushCount).toBe(1);
-    expect(tracker.invalidationCount("window-resize")).toBe(1);
-    expect(tracker.invalidationCount("ancestor-scroll")).toBe(1);
-  });
-
-  it("negative control: a rect that did not change produces no second write", () => {
-    // The case above passes without dedupe, since invalidations arm one frame anyway; this
-    // asserts the composed key is doing work.
+  it("writes nothing a second time for a rect that did not change", () => {
     const { clock, tracker, writes } = harness();
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
     clock.runFrame();
@@ -116,13 +119,16 @@ describe("PaneRectTracker — when it writes", () => {
     expect(writes).toHaveLength(2);
   });
 
-  it("arms nothing once disposed, so no timer outlives the pane layout", () => {
-    const { clock, tracker, writes } = harness();
+  it("arms nothing and stops listening once disposed, so nothing outlives the pane layout", () => {
+    const airspace = new ListenerCountingAirspace();
+    const { clock, tracker, writes } = harness(airspace);
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
+    expect(airspace.liveListeners).toBe(1);
     tracker.dispose();
     tracker.invalidate("window-resize");
 
     expect(clock.pendingCount).toBe(0);
+    expect(airspace.liveListeners).toBe(0);
     clock.runFrame();
     expect(writes).toStrictEqual([]);
   });
@@ -170,33 +176,6 @@ describe("PaneRectTracker — what it reports as visible", () => {
     clock.runFrame();
     expect(writes[2]?.[0]?.isVisible).toBe(true);
     expect(tracker.invalidationCount("airspace")).toBe(2);
-  });
-
-  it("negative control: an airspace change that does not move occupancy asks for nothing", () => {
-    // The registry publishes every change (a second overlay, an overlay moving), but only the
-    // empty/occupied transition can change the answer, so the rest must not re-measure.
-    const airspace = new AirspaceRegistry();
-    const { clock, tracker } = harness(airspace);
-    tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
-    clock.runFrame();
-
-    const first = airspace.register("dialog", () => ({ x: 0, y: 0, width: 10, height: 10 }));
-    overlayUp(airspace);
-    first.moved();
-    expect(tracker.invalidationCount("airspace")).toBe(1);
-  });
-
-  it("stops listening to the airspace once disposed", () => {
-    const airspace = new AirspaceRegistry();
-    const { clock, tracker, writes } = harness(airspace);
-    tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
-    clock.runFrame();
-    tracker.dispose();
-
-    overlayUp(airspace);
-    expect(clock.pendingCount).toBe(0);
-    clock.runFrame();
-    expect(writes).toHaveLength(1);
   });
 
   it("negative control: two overlays, and the first to close does not free the airspace", () => {

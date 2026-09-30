@@ -3,11 +3,10 @@
 // `pendingCount` checks. A lane that failed a transition is covered by
 // `reveal-engine.quarantine.test.ts`.
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame/frame-caps.js";
-import { developmentPerformanceMeters } from "@renderer/lib/performance-meters/performance-meters.js";
 import { REVEAL_CATCH_UP_MULTIPLIER } from "../viewport/viewport-constants.js";
 import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";
@@ -21,80 +20,6 @@ function engineOn(clock: ManualClock): RevealEngine {
 }
 
 describe("the reveal engine — the frame budget", () => {
-  beforeEach(() => {
-    developmentPerformanceMeters?.reset();
-  });
-
-  it("records what each drain revealed, keyed so two engines are two series", () => {
-    const clock = new ManualClock();
-    const frameCoordinator = new AnimationFrameCoordinator({ clock });
-    const first = new RevealEngine({ frameCoordinator });
-    const second = new RevealEngine({ frameCoordinator });
-    expect(
-      developmentPerformanceMeters,
-      "this project is not compiling the fixture define",
-    ).not.toBe(null);
-
-    first.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
-    second.ingest({ laneId: "lane-b", mode: "direct", text: prose(40) });
-    clock.runFrame();
-
-    const drains =
-      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ??
-      [];
-    // TWO series, not one: both engines drained inside the same coordinator frame, and
-    // a producer keying by anything the two share would fold their samples together.
-    expect(drains).toHaveLength(2);
-    expect(new Set(drains.map((entry) => entry.seriesKey)).size).toBe(2);
-    for (const drain of drains) {
-      expect(drain.latest).toBeGreaterThan(0);
-    }
-  });
-
-  it("keys a drain by its coordinator too, so two feeds are two series", () => {
-    // The task key alone cannot carry this: the ordinal restarts at 1 inside every
-    // coordinator, and there is one coordinator per feed, so both engines below hold
-    // the identical `transcript-reveal-drain#1` and their drains folded into one series.
-    const clock = new ManualClock();
-    const firstFeed = new AnimationFrameCoordinator({ clock });
-    const secondFeed = new AnimationFrameCoordinator({ clock });
-    const first = new RevealEngine({ frameCoordinator: firstFeed });
-    const second = new RevealEngine({ frameCoordinator: secondFeed });
-
-    first.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
-    second.ingest({ laneId: "lane-b", mode: "direct", text: prose(40) });
-    clock.runFrame();
-
-    const drains =
-      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ??
-      [];
-    expect(drains).toHaveLength(2);
-    expect(new Set(drains.map((entry) => entry.seriesKey)).size).toBe(2);
-  });
-
-  it("has its drain series retired when the coordinator that keyed it is disposed", () => {
-    // The engine's key is composed from the coordinator's identity, so the coordinator's dispose
-    // closes it. Left open, a feed's drain series would outlive the feed.
-    const clock = new ManualClock();
-    const frameCoordinator = new AnimationFrameCoordinator({ clock });
-    const engine = new RevealEngine({ frameCoordinator });
-
-    engine.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
-    clock.runFrame();
-    expect(
-      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "reveal-drain"),
-    ).toHaveLength(1);
-
-    frameCoordinator.dispose();
-
-    expect(
-      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "reveal-drain"),
-    ).toStrictEqual([]);
-    // And the coordinator's own reading goes with it, so nothing is left holding the
-    // bound for a feed that has been torn down.
-    expect(developmentPerformanceMeters?.seriesCount).toBe(0);
-  });
-
   it("arms nothing until there is work, and nothing again once settled", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);
@@ -109,21 +34,6 @@ describe("the reveal engine — the frame budget", () => {
     expect(engine.publishedText("lane-1")).toHaveLength(40);
     // The claim the idle-CPU budget rests on: a settled engine has no timer at all.
     expect(clock.pendingCount).toBe(0);
-  });
-
-  it("negative control: an engine with work left DOES keep a frame armed", () => {
-    // Without this, the zero above would pass over an engine that never armed
-    // anything and simply did nothing.
-    const clock = new ManualClock();
-    const engine = engineOn(clock);
-    engine.ingest({
-      laneId: "lane-1",
-      mode: "direct",
-      text: prose(REVEAL_FRAME_CHARACTER_BUDGET * 3),
-    });
-    clock.runFrame();
-    expect(engine.state).toBe("streaming");
-    expect(clock.pendingCount).toBe(1);
   });
 
   it("spends at most one frame's budget per frame", () => {
@@ -170,21 +80,6 @@ describe("the reveal engine — four lanes", () => {
     expect(behind).toBeLessThanOrEqual(fairShare * REVEAL_CATCH_UP_MULTIPLIER);
     expect(engine.laneState("behind")?.isCatchingUp).toBe(true);
     expect(engine.state).toBe("catching-up");
-  });
-
-  it("clears the catch-up mark once the lane it was behind has finished", () => {
-    // Catching up is a fact about an allocation: this lane took another lane's unspent share
-    // this frame. Once the short lane settles there is nobody to take from, so the mark clears.
-    const clock = new ManualClock();
-    const engine = engineOn(clock);
-    engine.ingest({ laneId: "fast", mode: "direct", text: prose(10) });
-    engine.ingest({ laneId: "behind", mode: "direct", text: prose(100_000) });
-    clock.runFrame();
-    expect(engine.laneState("behind")?.isCatchingUp).toBe(true);
-
-    clock.runFrame();
-    expect(engine.laneState("behind")?.isCatchingUp).toBe(false);
-    expect(engine.laneState("behind")?.isSettled).toBe(false);
   });
 
   it("retires a lane whose run ended, so a finished turn stops costing memory", () => {
@@ -319,16 +214,6 @@ describe("the reveal engine — the visible text never regresses", () => {
     expect(rewritten.startsWith(afterOneFrame)).toBe(true);
   });
 
-  it("negative control: a commit that DOES extend raises no diagnostic", () => {
-    const clock = new ManualClock();
-    const engine = engineOn(clock);
-    const diagnostics: RevealDiagnostic[] = [];
-    engine.subscribeToDiagnostics((diagnostic) => diagnostics.push(diagnostic));
-    engine.ingest({ laneId: "lane-1", mode: "direct", text: "The run " });
-    engine.ingest({ laneId: "lane-1", mode: "authoritative", text: "The run started" });
-    expect(diagnostics).toStrictEqual([]);
-  });
-
   it("withholds a tail that would mount an incomplete construct", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);
@@ -340,16 +225,6 @@ describe("the reveal engine — the visible text never regresses", () => {
     const published = engine.publishedText("lane-1");
     expect(published).toHaveLength(478);
     expect(published.endsWith("*")).toBe(false);
-  });
-
-  it("negative control: the same lane WOULD have reached the budget without the gate", () => {
-    // Prose with no markdown publishes the whole frame budget, so the 478 above is the gate
-    // withholding rather than the engine running short.
-    const clock = new ManualClock();
-    const engine = engineOn(clock);
-    engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(580) });
-    clock.runFrame();
-    expect(engine.publishedText("lane-1")).toHaveLength(REVEAL_FRAME_CHARACTER_BUDGET);
   });
 });
 

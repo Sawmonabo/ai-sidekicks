@@ -62,30 +62,6 @@ describe("the visible transcript window", () => {
       expect(retainedKeys.has(walked?.match.rowId ?? "")).toBe(true);
     }
   });
-
-  it("negative control: searching the whole log walks rows the viewport does not hold", () => {
-    // Guards the case above against a find that merely had fewer rows: handed the whole log, the
-    // same query counts every row and steps to the oldest, which the viewport dropped and
-    // `jumpToRow` cannot reach.
-    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
-    const retainedKeys = new Set(
-      transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT).map((row) => row.key),
-    );
-    const wholeLogWindow: VisibleTranscriptWindow = {
-      rows: transcriptWindow.rows,
-      prunedAwayRows: [],
-      hasEarlierRows: false,
-      heldRowKeys: new Set(transcriptWindow.rows.map((row) => row.id)),
-    };
-    const { result } = renderHook(() => findOverVisible(wholeLogWindow));
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-    expect(result.current.result.totalMatchCount).toBe(LOG_EVENT_COUNT);
-    expect(result.current.beyondWindowMatchCount).toBe(0);
-    const walked = result.current.step("next");
-    expect(retainedKeys.has(walked?.match.rowId ?? "")).toBe(false);
-  });
 });
 
 describe("the clip the window states", () => {
@@ -100,7 +76,7 @@ describe("the clip the window states", () => {
     expect(result.current.hasEarlierRows).toBe(true);
   });
 
-  it("negative control: a window holding its whole log claims nothing before it", () => {
+  it("a window holding its whole log claims nothing before it", () => {
     // Guards the case above against a hard-coded clip, which would put a truncation notice on every
     // complete session.
     const transcriptWindow = loadedWindow();

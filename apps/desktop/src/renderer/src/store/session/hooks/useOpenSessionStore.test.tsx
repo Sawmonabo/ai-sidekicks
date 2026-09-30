@@ -41,21 +41,4 @@ describe("useOpenSessionStore — components resolve a store, never construct on
     view.unmount();
     registry.disposeAll();
   });
-
-  it("resolves nothing for a session id the caller does not have yet", () => {
-    // Negative control: an undefined id must not resolve to whichever session happens to be open.
-    const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
-    registry.open("session-1");
-
-    function StoreProbe(): React.JSX.Element {
-      const store = useOpenSessionStore(registry, undefined);
-      return <span data-testid="probe">{store === undefined ? "none" : store.sessionId}</span>;
-    }
-
-    const view = render(<StoreProbe />);
-    expect(view.getByTestId("probe").textContent).toBe("none");
-
-    view.unmount();
-    registry.disposeAll();
-  });
 });

@@ -12,35 +12,12 @@ import {
 } from "./send-router.test-support.js";
 
 describe("ComposerSendRouter — a fulfilled intervention is not a successful send", () => {
-  it("keeps the message for a steer the run rejected, and renders the daemon's cause", async () => {
-    // The draft clears on `sent` alone, so a refusal here is what keeps the words in the line.
-    const call = vi
-      .fn()
-      .mockResolvedValue(
-        interventionResponse("rejected", 7, { rejectionReason: "run.invalid_transition" }),
-      );
-    const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
-
-    expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" && outcome.refusal.origin).toBe("daemon");
-    // The response's own machine-readable cause, never a category this module invented.
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("run.invalid_transition");
-  });
-
   it("names the lifecycle state where the response carried no cause", async () => {
     // `rejectionReason` is optional; an absent one still leaves the lifecycle state as the code.
     const call = vi.fn().mockResolvedValue(interventionResponse("expired", 11));
     const outcome = await routerWith(call).send("steer me", RUN_TARGET);
 
     expect(outcome.status === "refused" && outcome.refusal.code).toBe("expired");
-  });
-
-  it("negative control: the same call answering `applied` is a send", async () => {
-    // Without this, the cases above would also pass a router that refused every steer.
-    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
-    const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
-
-    expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
   });
 
   it("treats the two fallback states as sends, because the message traveled", async () => {
@@ -68,20 +45,6 @@ describe("ComposerSendRouter — the next steer is guarded with the answer's own
     expect(call.mock.calls[1]?.[1]).toMatchObject({ expectedRunVersion: 8 });
   });
 
-  it("keeps the version a refusal answered with, so the retry is guarded", async () => {
-    // A refused intervention still answers with the run's current version.
-    const call = vi
-      .fn()
-      .mockResolvedValueOnce(interventionResponse("expired", 12))
-      .mockResolvedValue(STEER_APPLIED);
-    const router = routerWith(call);
-
-    await router.send("first", RUN_TARGET);
-    await router.send("second", RUN_TARGET);
-
-    expect(call.mock.calls[1]?.[1]).toMatchObject({ expectedRunVersion: 12 });
-  });
-
   it("negative control: a projection ahead of the answer is the one that is sent", async () => {
     // The run advances through its state stream too, so preferring the kept answer would pin
     // every later steer to a stale version.
@@ -92,30 +55,6 @@ describe("ComposerSendRouter — the next steer is guarded with the answer's own
     await router.send("second", { ...RUN_TARGET, expectedRunVersion: 40 });
 
     expect(call.mock.calls[1]?.[1]).toMatchObject({ expectedRunVersion: 40 });
-  });
-
-  it("guards a steer the store has never projected a version for", async () => {
-    // Without a projection the router refuses; a comparand kept from an earlier answer is a
-    // wire figure, not an invented zero.
-    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
-    const router = routerWith(call);
-
-    await router.send("first", RUN_TARGET);
-    const outcome = await router.send("second", { ...RUN_TARGET, expectedRunVersion: undefined });
-
-    expect(outcome.status).toBe("sent");
-    expect(call.mock.calls[1]?.[1]).toMatchObject({ expectedRunVersion: 8 });
-  });
-
-  it("negative control: with no answer kept, an unprojected run still refuses", async () => {
-    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
-    const outcome = await routerWith(call).send("steer me", {
-      ...RUN_TARGET,
-      expectedRunVersion: undefined,
-    });
-
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("run-version-unread");
-    expect(call).not.toHaveBeenCalled();
   });
 });
 

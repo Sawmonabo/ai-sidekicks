@@ -185,10 +185,10 @@ export interface LocalSubscriptionProducer<T> {
   /**
    * Registers a callback for when the subscription is cancelled from outside: by `cancel()`, by
    * the client's cancel call, or by the connection closing. It does not fire on `complete()`. A
-   * handler releases upstream resources; a throwing handler does not stop the others, and its error
-   * is swallowed. Handlers run in registration order after the subscription is removed, and
-   * registering on an already-cancelled subscription runs the handler at once. Registering the
-   * same function twice runs it twice.
+   * handler releases upstream resources; on a cancel a throwing handler does not stop the others,
+   * and its error is swallowed. Handlers run in registration order after the subscription is
+   * removed. Registering on an already-cancelled subscription runs the handler at once and throws
+   * its failure to the registrant. Registering the same function twice runs it twice.
    */
   onCancel(fn: () => void): void;
 }

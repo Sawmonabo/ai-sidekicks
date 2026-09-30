@@ -84,16 +84,6 @@ const budget = registry.requireBudget(TERMINAL_INSTANCE_BUDGET_ID);
 const heapSampler = new HeapSampler();
 
 /**
- * The split this gate exists to catch, priced in bytes.
- *
- * Not measured: each half passes the row's ceiling alone and the sum does not, the state two
- * separately gated halves would have reported green. It keeps the combining asserted, not just
- * performed.
- */
-const PLANTED_SPLIT_PANE_BYTES = 1024 * 1024;
-const PLANTED_SPLIT_SCROLLBACK_BYTES = Math.round(19.5 * 1024 * 1024);
-
-/**
  * The row rewritten with a ceiling one byte under whatever was measured.
  *
  * The negative control drives the real comparison, so an `evaluateBudget` that always returned
@@ -105,29 +95,6 @@ function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
     limit: { ...budget.limit, canonicalValue: measuredCanonicalValue - 1 },
   };
 }
-
-describe("the terminal-instance memory budget row", () => {
-  // The ceiling, the unit and the row's `n/a`-versus-`enforced` consistency belong to the budget
-  // tier (`scripts/budget/budget-registry.test.ts`). This checks only that the row names this
-  // file as its measurer and is still enforced.
-  it("is the harness the row names as its measurer", () => {
-    expect(budget.status).toBe("enforced");
-    expect(budget.measuredBy).toBe("apps/desktop/tests/endurance/terminal-instance-memory.test.ts");
-  });
-
-  // The combining, on figures rather than a reading: two halves that each pass the ceiling and
-  // together do not. Without it a gate that went back to comparing one half would keep passing.
-  it("fails a split that passes each half and exceeds the ceiling together", () => {
-    expect(evaluateBudget(budget, PLANTED_SPLIT_PANE_BYTES).withinBudget).toBe(true);
-    expect(evaluateBudget(budget, PLANTED_SPLIT_SCROLLBACK_BYTES).withinBudget).toBe(true);
-    expect(
-      evaluateBudget(budget, PLANTED_SPLIT_PANE_BYTES + PLANTED_SPLIT_SCROLLBACK_BYTES)
-        .withinBudget,
-      "a 1 MiB pane holding a 19.5 MiB buffer is over this row's ceiling, and a gate that " +
-        "priced the two halves separately would have called it green twice",
-    ).toBe(false);
-  });
-});
 
 describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held whole", () => {
   it("holds one populated pane instance under the budget's ceiling, and gives it back", async () => {

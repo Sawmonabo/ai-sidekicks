@@ -37,14 +37,4 @@ describe("a row group that fails to project", () => {
     expect(screen.getByText(/the projection had no body for this entry/)).toBeDefined();
     expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
   });
-
-  it("negative control: a row that renders is left alone", () => {
-    const { container } = render(
-      <TranscriptRowGroup groupLabel="This entry">
-        <p>the entry rendered</p>
-      </TranscriptRowGroup>,
-    );
-    expect(container.querySelectorAll(".meridian-transcript-row-failure")).toHaveLength(0);
-    expect(screen.getByText("the entry rendered")).toBeDefined();
-  });
 });

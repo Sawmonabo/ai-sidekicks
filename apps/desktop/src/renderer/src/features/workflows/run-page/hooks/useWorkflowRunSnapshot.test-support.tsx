@@ -1,5 +1,5 @@
-// What the run-snapshot suites share: the probe that mounts the hook and a call that answers a
-// run read from the probe fixtures.
+// A probe that mounts the run-snapshot hook at a chosen round, and a call that answers a run read
+// from the probe fixtures.
 
 import { render } from "@testing-library/react";
 
@@ -10,21 +10,8 @@ import {
   type WorkflowRunSnapshotState,
 } from "./useWorkflowRunSnapshot.js";
 
-/** The round every case but the re-arm ones reads at; the hook reads once per round. */
+/** The round a case first reads at; the hook reads once per round. */
 export const FIRST_REFRESH = 0;
-
-/** Mounts the hook and hands every rendered state to `onObserve`. */
-export function SnapshotProbe(props: {
-  readonly readRun: WorkflowRunReadCall;
-  readonly workflowRunId: string | undefined;
-  readonly readRound?: number;
-  readonly onObserve: (state: WorkflowRunSnapshotState) => void;
-}): React.JSX.Element {
-  props.onObserve(
-    useWorkflowRunSnapshot(props.readRun, props.workflowRunId, props.readRound ?? FIRST_REFRESH),
-  );
-  return <></>;
-}
 
 /** A run read that answers from the probe runs, by id. */
 export function runReadingCall(): WorkflowRunReadCall {
@@ -66,4 +53,14 @@ export function observeRefreshes(readRun: WorkflowRunReadCall): {
       view.rerender(element);
     },
   };
+}
+
+function SnapshotProbe(props: {
+  readonly readRun: WorkflowRunReadCall;
+  readonly workflowRunId: string;
+  readonly readRound: number;
+  readonly onObserve: (state: WorkflowRunSnapshotState) => void;
+}): React.JSX.Element {
+  props.onObserve(useWorkflowRunSnapshot(props.readRun, props.workflowRunId, props.readRound));
+  return <></>;
 }

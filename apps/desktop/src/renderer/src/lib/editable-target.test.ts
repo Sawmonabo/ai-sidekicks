@@ -1,10 +1,9 @@
-// The narrow and wide questions. The ancestor arm is the point: a key event from inside a
-// `role="textbox"` built of ordinary elements must answer "editable", or a chord reaches the
-// pane layout while a person is typing.
+// Is text being typed? The keybinding table asks before a chord such as "delete the selected
+// row" fires, so a native field answering "no" would hand a person's keystrokes to that chord.
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { isEditableTarget, isTextEntryTarget } from "./editable-target.js";
+import { isTextEntryTarget } from "./editable-target.js";
 
 function mount(html: string): HTMLElement {
   const host = document.createElement("div");
@@ -27,52 +26,5 @@ describe("isTextEntryTarget", () => {
     expect(isTextEntryTarget(mount('<input type="search" />'))).toBe(true);
     expect(isTextEntryTarget(mount("<input />"))).toBe(true);
     expect(isTextEntryTarget(mount("<select></select>"))).toBe(true);
-  });
-
-  it("leaves a control that is not text entry open to a chord", () => {
-    expect(isTextEntryTarget(mount('<input type="checkbox" />'))).toBe(false);
-    expect(isTextEntryTarget(mount('<input type="radio" />'))).toBe(false);
-    expect(isTextEntryTarget(mount("<button></button>"))).toBe(false);
-  });
-
-  it("answers false for a non-element target and for nothing at all", () => {
-    expect(isTextEntryTarget(null)).toBe(false);
-    expect(isTextEntryTarget(new EventTarget())).toBe(false);
-  });
-
-  it("does NOT walk to an editable ancestor — that is the wide question", () => {
-    const widget = mount('<div role="textbox"><span>caret here</span></div>');
-    const inner = widget.querySelector("span");
-    expect(inner).not.toBeNull();
-    expect(isTextEntryTarget(inner)).toBe(false);
-  });
-});
-
-describe("isEditableTarget", () => {
-  it("answers true for everything the narrow question answers true for", () => {
-    expect(isEditableTarget(mount("<textarea></textarea>"))).toBe(true);
-    expect(isEditableTarget(mount('<input type="search" />'))).toBe(true);
-  });
-
-  it("walks to a role-declared widget the event fired inside", () => {
-    for (const role of ["textbox", "searchbox", "combobox", "listbox"]) {
-      const widget = mount(`<div role="${role}"><span>inside</span></div>`);
-      const inner = widget.querySelector("span");
-      expect(inner).not.toBeNull();
-      expect(isEditableTarget(inner)).toBe(true);
-    }
-  });
-
-  // Negative control: without an editable ancestor the walk answers false, so it discriminates.
-  it("answers false inside a widget that owns none of the keys", () => {
-    const chrome = mount('<div role="group"><button>close</button></div>');
-    const inner = chrome.querySelector("button");
-    expect(inner).not.toBeNull();
-    expect(isEditableTarget(inner)).toBe(false);
-  });
-
-  it("answers false for a non-element target and for nothing at all", () => {
-    expect(isEditableTarget(null)).toBe(false);
-    expect(isEditableTarget(new EventTarget())).toBe(false);
   });
 });

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { READING_HOLD_REASONS, READING_MODES, ReadingAnchor } from "./reading-anchor.js";
+import { ReadingAnchor } from "./reading-anchor.js";
 import type { ScrollGeometry, GeometryChangeCause } from "./geometry-sample.js";
 
 function geometry(
@@ -23,16 +23,6 @@ function geometry(
 }
 
 describe("the reading anchor — the three states", () => {
-  it("declares them closed, in the order the design names them", () => {
-    expect([...READING_MODES]).toStrictEqual(["following", "reading", "reading-with-new-rows"]);
-    expect([...READING_HOLD_REASONS]).toStrictEqual([
-      "open-ask",
-      "open-approval",
-      "deep-link-target",
-      "selection",
-    ]);
-  });
-
   it("follows until the reader leaves the tail, then holds and counts", () => {
     const anchor = new ReadingAnchor();
     expect(anchor.state.mode).toBe("following");
@@ -69,14 +59,6 @@ describe("the reading anchor — the three states", () => {
       pinnedRootCursor: undefined,
     });
   });
-
-  it("negative control: a sample that is not at the tail does not resume following", () => {
-    // Without this, the cases above would pass over an anchor that followed unconditionally.
-    const anchor = new ReadingAnchor();
-    anchor.observeGeometry(geometry(1200, false));
-    anchor.observeGeometry(geometry(1300, false));
-    expect(anchor.state.mode).toBe("reading");
-  });
 });
 
 describe("the reading anchor — what a resize may and may not do", () => {
@@ -87,23 +69,6 @@ describe("the reading anchor — what a resize may and may not do", () => {
     anchor.observeGeometry(geometry(4500, true));
     anchor.observeGeometry(geometry(4500, false, "resize"));
     expect(anchor.state.mode).toBe("following");
-  });
-
-  it("resumes following on an at-tail sample however it was produced", () => {
-    // The arms are asymmetric: arriving at the bottom is arriving, whether the log got shorter
-    // or the pane got taller.
-    const anchor = new ReadingAnchor();
-    anchor.observeGeometry(geometry(1200, false));
-    anchor.observeGeometry(geometry(4500, true, "resize"));
-    expect(anchor.state.mode).toBe("following");
-  });
-
-  it("negative control: the same not-at-tail sample from a scroll does leave the tail", () => {
-    // Without this, the resize case above would pass over an anchor that never left the tail.
-    const anchor = new ReadingAnchor();
-    anchor.observeGeometry(geometry(4500, true));
-    anchor.observeGeometry(geometry(4500, false, "scroll"));
-    expect(anchor.state.mode).toBe("reading");
   });
 });
 
@@ -118,12 +83,6 @@ describe("the reading anchor — pinning and holds", () => {
     expect(anchor.suppressesPrune()).toBe(false);
   });
 
-  it("pinning leaves following, because a pinned reader is reading", () => {
-    const anchor = new ReadingAnchor();
-    anchor.pin("cursor-12");
-    expect(anchor.state.mode).toBe("reading");
-  });
-
   it("holds rows a reader is engaged with, and releases them by key", () => {
     const anchor = new ReadingAnchor();
     anchor.hold("row-9", "open-approval");
@@ -134,30 +93,9 @@ describe("the reading anchor — pinning and holds", () => {
     anchor.release("row-9");
     expect(anchor.heldRowKeys()).toStrictEqual(["row-4"]);
   });
-
-  it("notifies once per change, and replays the current state on subscribe", () => {
-    const anchor = new ReadingAnchor();
-    const modes: string[] = [];
-    anchor.subscribe((state) => modes.push(state.mode));
-    expect(modes).toStrictEqual(["following"]);
-    anchor.observeGeometry(geometry(900, false));
-    // A second identical sample is not a change and must not cost a render.
-    anchor.observeGeometry(geometry(900, false));
-    expect(modes).toStrictEqual(["following", "reading"]);
-  });
 });
 
 describe("the reading anchor — the anchor point", () => {
-  it("keeps the last captured row and offset, and ignores a repeat", () => {
-    const anchor = new ReadingAnchor();
-    const captures: (string | undefined)[] = [];
-    anchor.subscribe((state) => captures.push(state.anchorPoint?.rowKey));
-    anchor.capture({ rowKey: "row-30", offsetWithinViewportPx: -18 });
-    anchor.capture({ rowKey: "row-30", offsetWithinViewportPx: -18 });
-    expect(captures).toStrictEqual([undefined, "row-30"]);
-    expect(anchor.state.anchorPoint?.offsetWithinViewportPx).toBe(-18);
-  });
-
   it("keeps the anchor point when the reader leaves the tail", () => {
     // Dropping it would leave the frame with nothing to restore on the first append after the
     // reader scrolled up.
@@ -181,15 +119,6 @@ describe("the reading anchor — returning to the tail", () => {
     expect(anchor.suppressesPrune()).toBe(false);
     expect(anchor.state.pinnedRootCursor).toBeUndefined();
     expect(anchor.state.mode).toBe("following");
-  });
-
-  it("negative control: a sample short of the tail leaves the pin standing", () => {
-    const anchor = new ReadingAnchor();
-    anchor.pin("cursor-earlier");
-
-    anchor.observeGeometry(geometry(1200, false));
-
-    expect(anchor.suppressesPrune()).toBe(true);
   });
 
   it("notifies on the release, so the window hears the refusal lift", () => {

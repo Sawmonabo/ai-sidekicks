@@ -35,7 +35,7 @@ describe("one session's queue is read once for every view", () => {
     expect(listedSessionIds).toStrictEqual([SESSION_ID]);
   });
 
-  it("negative control: two sessions on one bridge are two readings", async () => {
+  it("two sessions on one bridge are two readings", async () => {
     const { bridge, clock, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
     render(
       <TwoQueueReaders
@@ -51,7 +51,7 @@ describe("one session's queue is read once for every view", () => {
     expect(listedSessionIds).toStrictEqual([SESSION_ID, SECOND_SESSION_ID]);
   });
 
-  it("negative control: two bridges are two readings of the same session", async () => {
+  it("two bridges are two readings of the same session", async () => {
     // The key is the pair. One window's reading is never handed to another's bridge,
     // which is what would happen if the readings were keyed on the session alone.
     const first = queueFeedBridge();

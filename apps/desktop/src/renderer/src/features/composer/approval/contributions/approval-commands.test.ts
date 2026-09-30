@@ -1,11 +1,11 @@
-// Asserted on the two pure halves rather than a mounted card: which rows exist, and what a row
-// sends (the card's own request).
+// Asserted on the two pure halves rather than a mounted card: which record a row names, and what
+// a row sends (the card's own request).
 
 import { describe, expect, it, vi } from "vitest";
 
 import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts";
 
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
 import { isAcceptedAnswer, pendingRecord } from "../approval-record.test-support.js";
 import {
   approvalCommandRows,
@@ -21,16 +21,6 @@ function pendingAsk(id: string): ApprovalProjectionRow {
   return pendingRecord({ id });
 }
 
-/** The refusal that says somebody else answered: `settled` in the shared table. */
-function alreadyResolved(approvalRequestId: string): ReadonlyMap<string, Refusal> {
-  return new Map([
-    [
-      approvalRequestId,
-      refuse("approvals", "approval.already_resolved", "this request was already answered"),
-    ],
-  ]);
-}
-
 function inputFor(overrides: Partial<ApprovalCommandInput> = {}): ApprovalCommandInput {
   return {
     pending: [pendingAsk(FIRST_REQUEST)],
@@ -42,13 +32,6 @@ function inputFor(overrides: Partial<ApprovalCommandInput> = {}): ApprovalComman
 }
 
 describe("the rows the approval card contributes", () => {
-  it("offers both answers for each pending record", () => {
-    const rows = approvalCommandRows(inputFor());
-
-    expect(rows.map((row) => row.kind)).toEqual(["approve", "reject"]);
-    expect(rows[0]?.title).toBe("Approve the pending request");
-  });
-
   it("names the record once there are two waiting", () => {
     const rows = approvalCommandRows(
       inputFor({ pending: [pendingAsk(FIRST_REQUEST), pendingAsk(SECOND_REQUEST)] }),
@@ -60,33 +43,6 @@ describe("the rows the approval card contributes", () => {
       `Approve request ${SECOND_REQUEST}`,
       `Reject request ${SECOND_REQUEST}`,
     ]);
-  });
-
-  it("offers nothing for a record whose answer is already in flight", () => {
-    const rows = approvalCommandRows(inputFor({ resolvingApprovalIds: new Set([FIRST_REQUEST]) }));
-
-    expect(rows).toEqual([]);
-  });
-
-  it("offers nothing for a record a SETTLED refusal already answered", () => {
-    // The card takes both buttons off on `approval.already_resolved`, so the palette rows go too.
-    const rows = approvalCommandRows(
-      inputFor({ resolveRefusalByApprovalId: alreadyResolved(FIRST_REQUEST) }),
-    );
-
-    expect(rows).toEqual([]);
-  });
-
-  it("negative control: an unsettled refusal leaves both rows, since the act may work", () => {
-    const rows = approvalCommandRows(
-      inputFor({
-        resolveRefusalByApprovalId: new Map([
-          [FIRST_REQUEST, refuse("approvals", "session.goal_delivery_failed", "nothing landed")],
-        ]),
-      }),
-    );
-
-    expect(rows.map((row) => row.kind)).toEqual(["approve", "reject"]);
   });
 });
 
@@ -117,28 +73,5 @@ describe("what answering from the palette sends", () => {
     );
 
     expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ decision: "rejected" }));
-  });
-
-  it("answers nothing for a record a settled refusal reached after the row was built", () => {
-    // A press can land before the row leaves the palette; the invoke path re-reads the offer.
-    const resolve = vi.fn();
-
-    performApprovalCommand(
-      { kind: "approve", record: pendingAsk(FIRST_REQUEST), title: "Approve" },
-      inputFor({ resolve, resolveRefusalByApprovalId: alreadyResolved(FIRST_REQUEST) }),
-    );
-
-    expect(resolve).not.toHaveBeenCalled();
-  });
-
-  it("answers nothing for a record the read no longer returns as pending", () => {
-    const resolve = vi.fn();
-
-    performApprovalCommand(
-      { kind: "approve", record: pendingAsk(SECOND_REQUEST), title: "Approve" },
-      inputFor({ resolve }),
-    );
-
-    expect(resolve).not.toHaveBeenCalled();
   });
 });

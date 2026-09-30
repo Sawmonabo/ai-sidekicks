@@ -12,8 +12,7 @@ import {
   parseFramesFromStdin,
   spawnReturning,
 } from "./_fakes.js";
-
-import type { Envelope, SpawnRequest } from "@ai-sidekicks/contracts";
+import type { Envelope, SpawnRequest } from "../pty-host-protocol.js";
 
 interface PathFixture {
   readonly worktree: string;

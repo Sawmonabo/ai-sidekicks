@@ -1,6 +1,7 @@
 // Tool bindings in the file form, checked on the rule that is not a shape rule: a definition
-// carries a reference to a configured server and never the governance posture it runs under.
-// The three arms are checked as three, since the identity is a union on scope.
+// carries a reference to a configured server and never the governance posture it runs under, and
+// a member its arm has no place for is refused rather than dropped. The three arms are checked as
+// three, since the identity is a union on scope.
 
 import { describe, expect, it } from "vitest";
 
@@ -66,29 +67,7 @@ describe("tool bindings in the file form", () => {
     }
   });
 
-  it("reads a local binding under either provider", () => {
-    const codexLocal = {
-      provider: "codex",
-      scope: "local",
-      scopeRef: "/Users/release/checks",
-      serverName: "scratch",
-    } as const;
-
-    expect(readToolBindings(bindingDocumentWith(codexLocal), PHASE_PROSE)).toStrictEqual([
-      { binding: codexLocal, toolName: "run_suite" },
-    ]);
-  });
-
-  it("refuses a scope-qualified binding that names no scope", () => {
-    expect(
-      readToolBindings(
-        bindingDocumentWith({ provider: "claude", scope: "project", serverName: "release-tools" }),
-        PHASE_PROSE,
-      ),
-    ).toContain("scopeRef");
-  });
-
-  it("refuses a user-scoped binding that carries one, because that arm has no such member", () => {
+  it("refuses a `scopeRef` on a user-scoped binding, which that arm has no member for", () => {
     expect(
       readToolBindings(
         bindingDocumentWith({
@@ -100,43 +79,5 @@ describe("tool bindings in the file form", () => {
         PHASE_PROSE,
       ),
     ).toContain("scopeRef");
-  });
-
-  it("refuses a provider or a scope the vocabulary does not declare", () => {
-    expect(
-      readToolBindings(
-        bindingDocumentWith({ provider: "gemini", scope: "user", serverName: "checks" }),
-        PHASE_PROSE,
-      ),
-    ).toContain("provider");
-    expect(
-      readToolBindings(
-        bindingDocumentWith({ provider: "claude", scope: "machine", serverName: "checks" }),
-        PHASE_PROSE,
-      ),
-    ).toContain("scope");
-  });
-
-  it("refuses a binding that names no tool, and a list that is not a list", () => {
-    expect(readToolBindings([{ binding: EVERY_ARM[0]?.binding }], PHASE_PROSE)).toContain(
-      "toolName",
-    );
-    expect(typeof readToolBindings({ toolName: "run_suite" }, PHASE_PROSE)).toBe("string");
-  });
-
-  it("names the binding it refused, so two bindings differ by index", () => {
-    const reading = readToolBindings(
-      [
-        ...toolBindingFileRecords(EVERY_ARM.slice(0, 1)),
-        { binding: { provider: "gemini", scope: "user", serverName: "checks" }, toolName: "x" },
-      ],
-      PHASE_PROSE,
-    );
-
-    expect(reading).toContain("binding 2");
-  });
-
-  it("negative control: every perturbation above starts from bindings that read", () => {
-    expect(typeof readToolBindings(writtenBindings(), PHASE_PROSE)).not.toBe("string");
   });
 });

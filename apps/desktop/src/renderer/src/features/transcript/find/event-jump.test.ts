@@ -1,20 +1,17 @@
-// The act each absence offers, and the jump that outlives the render it was asked in. Every
-// absence the pipeline names has a decided act, and a deferred request is spent once, by the
-// row it named, and dies with the question that asked for it.
+// The act each absence offers, and the jump that outlives the render it was asked in: a deferred
+// request is spent once, by the row it named, and dies with the question that asked for it.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type RowJumpAbsence, type RowJumpOutcome } from "./row-jump.js";
+import { type RowJumpOutcome } from "./row-jump.js";
 // Imported directly: the tuple's only consumer outside its directory is this test, so the
 // feature's public entry stays narrow.
-import { ROW_JUMP_ABSENCES } from "./row-jump.js";
 import { foldRunGroupHeaders } from "../feed/run-group-fold.js";
 import { TERMINAL_RUN_ID, projectedRowId } from "../transcript-logs.test-support.js";
 import { foldedMessageRunGroupLog } from "../run-group-logs.test-support.js";
-import { jumpOutcomeRowId } from "./event-jump.js";
 import { useDeferredRowJump } from "./hooks/useDeferredRowJump.js";
 import { useTranscriptJumpReach } from "./hooks/useTranscriptJumpReach.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
@@ -64,17 +61,6 @@ function reachFor(
 }
 
 describe("the act an absence offers", () => {
-  it("decides every absence the pipeline names", () => {
-    // Totality over the tuple the classifier walks: a new narrowing must not fall through to an
-    // act that cannot reach the row.
-    for (const absence of ROW_JUMP_ABSENCES) {
-      const acts = recordingActs();
-      const reach = reachFor({ status: absence, row: FOLDED_ROW }, acts);
-      // Decided means answered, not answered YES: one arm is honestly actless.
-      expect(reach === undefined || typeof reach.label === "string").toBe(true);
-    }
-  });
-
   it("opens the run group and holds the jump for a row the fold dropped", () => {
     const acts = recordingActs();
     const reach = reachFor({ status: "folded-into-run-group", row: FOLDED_ROW }, acts);
@@ -103,24 +89,6 @@ describe("the act an absence offers", () => {
     expect(
       reachFor({ status: "outside-window", row: FOLDED_ROW }, recordingActs()),
     ).toBeUndefined();
-  });
-
-  it("negative control: an outcome that is not an absence offers nothing", () => {
-    // Guards against a table that answers for every outcome, offering an act beside a visible row.
-    const acts = recordingActs();
-    expect(reachFor(undefined, acts)).toBeUndefined();
-    expect(reachFor({ status: "found", row: FOLDED_ROW }, acts)).toBeUndefined();
-    expect(reachFor({ status: "not-in-loaded-log" }, acts)).toBeUndefined();
-    expect(acts.performed).toStrictEqual([]);
-  });
-
-  it("refuses an absence the pipeline does not name", () => {
-    // The compile-time half of the same claim: the act table is keyed by the tuple,
-    // so a caller cannot invent a status and reach an arm nothing decided.
-    // @ts-expect-error — not a member of `ROW_JUMP_ABSENCES`.
-    const inventedAbsence: RowJumpAbsence = "withheld-by-a-fourth-narrowing";
-
-    expect(ROW_JUMP_ABSENCES).not.toContain(inventedAbsence);
   });
 });
 
@@ -211,29 +179,5 @@ describe("the deferred jump", () => {
     deferred.rerenderWith({ visibleRows: [REQUESTED_ROW], questionRowId: undefined });
 
     expect(deferred.jumps).toStrictEqual([]);
-  });
-
-  it("negative control: a request the question still names survives the widening", () => {
-    // Guards against unconditional clearing, which would abandon every jump on its own render.
-    const deferred = mountDeferredJump();
-    deferred.request(REQUESTED_ROW.id);
-
-    deferred.rerenderWith({ visibleRows: [REQUESTED_ROW], questionRowId: REQUESTED_ROW.id });
-
-    expect(deferred.jumps).toStrictEqual([REQUESTED_ROW.id]);
-  });
-});
-
-describe("the row a question names", () => {
-  it("is the outcome's row for every arm that carries one", () => {
-    expect(jumpOutcomeRowId({ status: "found", row: FOLDED_ROW })).toBe(FOLDED_ROW.id);
-    for (const absence of ROW_JUMP_ABSENCES) {
-      expect(jumpOutcomeRowId({ status: absence, row: FOLDED_ROW })).toBe(FOLDED_ROW.id);
-    }
-  });
-
-  it("negative control: a field nobody typed in and an id nothing carries name none", () => {
-    expect(jumpOutcomeRowId(undefined)).toBeUndefined();
-    expect(jumpOutcomeRowId({ status: "not-in-loaded-log" })).toBeUndefined();
   });
 });

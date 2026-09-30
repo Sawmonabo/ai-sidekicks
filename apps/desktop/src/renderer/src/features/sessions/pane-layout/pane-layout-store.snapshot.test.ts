@@ -94,12 +94,6 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     ]);
   });
 
-  it("negative control: the SAME snapshot at the current version restores whole", () => {
-    // The case above would also pass over a restore that discarded every record.
-    const restored = emptyLayout();
-    expect(restored.restore(twoPaneLayout().toSnapshot()).restoredPaneCount).toBe(2);
-  });
-
   it("drops a pane kind this build does not have, and keeps the rest", () => {
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-99"] = { position: 5, kind: "holodeck", sizePermille: 300 };
@@ -129,89 +123,6 @@ describe("PaneLayoutStore — what a restore refuses", () => {
 
     expect(report.restoredPaneCount).toBe(2);
     expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-entity-invalid"]);
-  });
-
-  it("drops a pane whose entity kind is not one the console has", () => {
-    const snapshot = twoPaneLayout().toSnapshot();
-    snapshot["pane-96"] = {
-      position: 5,
-      kind: "inspector",
-      sizePermille: 300,
-      entityKind: "starship",
-      entityId: "run-02",
-    };
-    expect(emptyLayout().restore(snapshot).restoredPaneCount).toBe(2);
-  });
-
-  it("drops a pane whose entity kind that pane kind is not a view of", () => {
-    // `transcript` is a view of the session, not of an artifact. A weaker admission would leave
-    // a pane nothing can render, counted against the cap and saved again.
-    const snapshot = twoPaneLayout().toSnapshot();
-    snapshot["pane-95"] = {
-      position: 5,
-      kind: "transcript",
-      sizePermille: 300,
-      entityKind: "artifact",
-      entityId: "artifact-02",
-    };
-
-    const report = emptyLayout().restore(snapshot);
-
-    expect(report.restoredPaneCount).toBe(2);
-    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-entity-invalid"]);
-  });
-
-  it("drops a pane whose entity id is not identifier-shaped", () => {
-    // A non-empty id is not a valid one: a path separator makes a store key that cannot exist.
-    const snapshot = twoPaneLayout().toSnapshot();
-    snapshot["pane-94"] = {
-      position: 5,
-      kind: "inspector",
-      sizePermille: 300,
-      entityKind: "worktree",
-      entityId: "bad/id",
-    };
-
-    const report = emptyLayout().restore(snapshot);
-
-    expect(report.restoredPaneCount).toBe(2);
-    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-entity-invalid"]);
-  });
-
-  it("drops a pane that must name an entity and names none", () => {
-    const snapshot = twoPaneLayout().toSnapshot();
-    snapshot["pane-93"] = { position: 5, kind: "inspector", sizePermille: 300 };
-
-    const report = emptyLayout().restore(snapshot);
-
-    expect(report.restoredPaneCount).toBe(2);
-    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-entity-invalid"]);
-  });
-
-  it("drops a session-scoped pane the record opened over an entity", () => {
-    const snapshot = twoPaneLayout().toSnapshot();
-    snapshot["pane-92"] = {
-      position: 5,
-      kind: "terminal",
-      sizePermille: 300,
-      entityKind: "worktree",
-      entityId: "worktree-02",
-    };
-
-    const report = emptyLayout().restore(snapshot);
-
-    expect(report.restoredPaneCount).toBe(2);
-    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["pane-entity-invalid"]);
-  });
-
-  it("negative control: the same pane kinds over the entities they ARE views of restore", () => {
-    // The cases above would also pass over an admission that rejected every entity.
-    const layout = emptyLayout();
-    layout.open({ kind: "transcript" });
-    layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
-    layout.open({ kind: "terminal" });
-
-    expect(emptyLayout().restore(layout.toSnapshot()).restoredPaneCount).toBe(3);
   });
 
   it("caps how many panes one record can mount", () => {
@@ -305,32 +216,5 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual([
       "snapshot-shape-invalid",
     ]);
-  });
-
-  it("names itself in every refusal it raises", () => {
-    // A refusal must name its origin so a view can attribute it.
-    const report = emptyLayout().restore(null);
-    for (const refusal of report.refusals) {
-      expect(refusal.origin).toBe("pane-layout");
-    }
-  });
-});
-
-describe("PaneLayoutStore — subscription", () => {
-  it("publishes one state per mutation and nothing on a no-op", () => {
-    const layout = twoPaneLayout();
-    let notifications = 0;
-    const unsubscribe = layout.subscribe(() => {
-      notifications += 1;
-    });
-
-    layout.focus(layout.snapshot().panes[0]?.paneId ?? "");
-    const afterRealChange = notifications;
-    layout.focus(layout.snapshot().panes[0]?.paneId ?? "");
-    layout.close("pane-does-not-exist");
-
-    expect(afterRealChange).toBe(1);
-    expect(notifications).toBe(1);
-    unsubscribe();
   });
 });

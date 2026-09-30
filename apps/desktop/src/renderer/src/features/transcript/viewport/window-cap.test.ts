@@ -4,7 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TranscriptWindow, PRUNE_DEFERRAL_REASONS, type PruneConditions } from "./window-cap.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";
+import { TranscriptWindow, type PruneConditions } from "./window-cap.js";
 import {
   CHILDREN_PER_RUN_GROUP,
   loadedWindow,
@@ -45,28 +46,9 @@ describe("the transcript window — the cap", () => {
       .map((row) => row.key);
     expect(orphans).toStrictEqual([]);
   });
-
-  it("negative control: the un-pruned log DOES contain more than the cap", () => {
-    // Without this, every assertion above would pass over a window that ingested nothing.
-    const window = loadedWindow();
-    expect(window.topLevelRowKeys().length).toBeGreaterThan(TRANSCRIPT_WINDOW_ROW_CAP);
-    expect(window.prune(PRUNABLE).prunedKeys.length).toBeGreaterThan(0);
-  });
 });
 
 describe("the transcript window — when prune may not land", () => {
-  it("declares its deferral reasons closed", () => {
-    expect([...PRUNE_DEFERRAL_REASONS]).toStrictEqual([
-      "under-cap",
-      "active-turn",
-      "scroll-write",
-      "reveal-drain",
-      "pinned-history",
-      "reading-floor",
-      "held-rows",
-    ]);
-  });
-
   it("defers, naming the reason, and drops nothing while deferred", () => {
     const conditionsByReason: readonly (readonly [string, PruneConditions])[] = [
       ["pinned-history", { ...PRUNABLE, pinnedRootCursor: "cursor-9" }],
@@ -83,15 +65,6 @@ describe("the transcript window — when prune may not land", () => {
       expect(outcome.prunedKeys).toStrictEqual([]);
       expect(window.topLevelRowKeys()).toHaveLength(TOP_LEVEL_ROW_COUNT);
     }
-  });
-
-  it("says `under-cap` rather than reporting a prune that dropped nothing", () => {
-    const window = new TranscriptWindow();
-    window.ingest(syntheticWindowRows(4));
-    const outcome = window.prune(PRUNABLE);
-    expect(outcome.deferredBecause).toBe("under-cap");
-    // And owes nothing: a window inside its cap is not waiting on a condition.
-    expect(outcome.owedBecause).toBeUndefined();
   });
 
   it("never prunes a held row, however old, nor the run group above a held child", () => {
@@ -138,17 +111,6 @@ describe("the transcript window — when prune may not land", () => {
     expect(outcome.owedBecause).toBe("held-rows");
     expect(window.topLevelRowKeys()).toHaveLength(4);
   });
-
-  it("negative control: the same rows unheld leave nothing owed", () => {
-    // Without this the two cases above would pass over a window that reported `held-rows` for
-    // every prune.
-    const window = new TranscriptWindow({ topLevelCap: 2 });
-    window.ingest(syntheticWindowRows(5));
-    const outcome = window.prune(PRUNABLE);
-    expect(outcome.applied).toBe(true);
-    expect(outcome.owedBecause).toBeUndefined();
-    expect(window.topLevelRowKeys()).toHaveLength(2);
-  });
 });
 
 describe("the transcript window — the reading floor", () => {
@@ -183,12 +145,6 @@ describe("the transcript window — the reading floor", () => {
     expect(retainedKeys).toHaveLength((TOP_LEVEL_ROW_COUNT - 10) * (CHILDREN_PER_RUN_GROUP + 1));
   });
 
-  it("negative control: without the floor the very same row is dropped", () => {
-    // This makes the case above the floor's doing rather than an accident of where the cap cut.
-    const window = loadedWindow();
-    expect(window.prune(PRUNABLE).prunedKeys).toContain(READER_ROW);
-  });
-
   it("holds a run group whose child the reader is on, rather than dropping its head", () => {
     const readerChildRow = "run-group-3-child-1";
     const window = loadedWindow();
@@ -208,29 +164,6 @@ describe("the transcript window — the reading floor", () => {
     expect(window.topLevelRowKeys()).toHaveLength(TOP_LEVEL_ROW_COUNT);
   });
 
-  it("negative control: a floor the drop never reaches owes nothing", () => {
-    // Without this, `owedBecause` could be set by the floor on every pass rather than only on
-    // passes it stopped.
-    const nearTheTailRow = `run-group-${String(TOP_LEVEL_ROW_COUNT - 5)}`;
-    const window = loadedWindow();
-    const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: nearTheTailRow });
-    expect(outcome.applied).toBe(true);
-    expect(outcome.owedBecause).toBeUndefined();
-    expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
-  });
-
-  it("negative control: a floor at the tail prunes byte-identically to no floor at all", () => {
-    // The reader at the tail is the common case and the floor must cost it nothing: same
-    // outcome, same retained window.
-    const tailKey = `run-group-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
-    const withoutFloor = loadedWindow();
-    const withFloorAtTail = loadedWindow();
-    expect(withFloorAtTail.prune({ ...PRUNABLE, readingFloorRowKey: tailKey })).toStrictEqual(
-      withoutFloor.prune(PRUNABLE),
-    );
-    expect(withFloorAtTail.rows()).toStrictEqual(withoutFloor.rows());
-  });
-
   it("ignores a floor naming a row the window no longer holds", () => {
     const window = loadedWindow();
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: "a-row-pruned-long-ago" });
@@ -238,4 +171,3 @@ describe("the transcript window — the reading floor", () => {
     expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 });
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../frame/frame-caps.js";

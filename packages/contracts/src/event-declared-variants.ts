@@ -155,8 +155,8 @@ export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
 // claiming a workspace state stays a parse error. `worktree.created` and `worktree.retired` add
 // the members worktree-events.ts declares. There is no `worktree.failed`: the worktree row's
 // `-> failed` transition emits no worktree event, because `workspace.stale` already records the
-// failure, and `SessionEventSchema` must keep rejecting it (pinned in
-// `__tests__/worktree.test.ts`). None is run-scoped, so none takes the epoch stamp.
+// failure, and `SessionEventSchema` must keep rejecting it. None is run-scoped, so none takes the
+// epoch stamp.
 
 /** Emitted with worktree row creation; carries the kept copy a put-back came from, if any. */
 export interface WorktreeCreatedEvent extends EventEnvelope {

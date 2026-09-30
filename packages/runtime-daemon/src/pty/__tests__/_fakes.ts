@@ -9,8 +9,7 @@ import { vi } from "vitest";
 
 import type { NodePtyChild } from "../node-pty-host.js";
 import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar-child-supervisor.js";
-
-import type { Envelope } from "@ai-sidekicks/contracts";
+import type { Envelope } from "../pty-host-protocol.js";
 
 // Matches `NodePtyChild.onExit`'s event type. Under `exactOptionalPropertyTypes` the
 // `| undefined` on `signal` also permits an explicit `{ signal: undefined }`.

@@ -132,8 +132,7 @@ export class StreamingPrimitive {
     };
 
     const fireOnCancelHandlers = (): void => {
-      // A throwing handler must not stop the others or block teardown; handlers log their own
-      // failures.
+      // A throwing handler must not stop the others or block teardown.
       for (const handler of entry.onCancelHandlers) {
         try {
           handler();
@@ -191,12 +190,10 @@ export class StreamingPrimitive {
       },
       onCancel(fn: () => void): void {
         // Fires at once on an already canceled subscription, so a late-acquired resource is freed.
+        // It is the only handler running and its registrant is the caller, so a failure reaches
+        // the registrant.
         if (entry.state === "canceled") {
-          try {
-            fn();
-          } catch {
-            // Same isolation as the bulk fire above.
-          }
+          fn();
           return;
         }
         // A completed subscription drops the handler so unconditional registration is safe.

@@ -9,8 +9,8 @@ import { selectPtyHost } from "../pty-host-selector.js";
 import type { PtyHostSelectorDeps } from "../pty-host-selector.js";
 import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 
-import type { PtyHost } from "@ai-sidekicks/contracts";
 import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
+import type { PtyHost } from "../pty-host.js";
 
 /** Stands in for a `NodePtyHost`; the tests assert identity, so the right factory was called. */
 const NODE_PTY_SENTINEL: PtyHost = { kind: "NodePtyHost-mock" } as unknown as PtyHost;

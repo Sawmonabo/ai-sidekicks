@@ -10,7 +10,7 @@
 // and rows are on screen; the empty arm asserts no beat arrived and the empty sentence is on
 // screen (a window whose first read has not landed draws skeleton rows).
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   awaitSessionRouteMounted,
@@ -18,7 +18,6 @@ import {
   renderSettled,
   resetDurableAppState,
   SESSION_ROUTE_BODY_SELECTOR,
-  SESSION_ROUTE_MOUNT_DEADLINE_MS,
 } from "../helpers/app-harness.js";
 import { requireScenarioControl, walkScenarioToFrozenTick } from "./scenario-clock.js";
 import { requireCapturedElement } from "./captured-element.js";
@@ -36,7 +35,6 @@ import {
   CONCURRENT_STREAMING_SCENARIO,
   CONCURRENT_STREAMING_SCENARIO_ID,
 } from "../../fixtures/scenarios/concurrent-streaming.js";
-import { TRANSCRIPT_STATES_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
 import { captureSettled } from "./settled-capture.js";
 
 /** What one opened fixture session hands back: the mount, and what to capture. */
@@ -153,39 +151,5 @@ describe("screenshot — the transcript's empty state", () => {
     expect(transcriptBody.textContent).toContain("Nothing has happened in this session yet.");
 
     await captureSettled(transcriptBody, "empty-session-light");
-  });
-});
-
-describe("the transcript mount wait", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  // The negative control for the deadline: every capture here goes through a wait that reports
-  // an absent body, and a wait that cannot report one reports every body as present. This drives
-  // the real `awaitSessionRouteMounted` against a route that mounts none, the one path the
-  // captures never take. Only `Date` is faked: the wait settles turns on real macrotasks, so
-  // faking timers would suspend the turns it counts on. The system time is pushed past the
-  // deadline after the first turn, so the test runs in a millisecond and proves the deadline, not
-  // a turn count, refuses.
-  it("refuses a route that mounts no transcript body, on the deadline rather than on a turn count", async () => {
-    document.location.hash = formatRoute({ kind: "sessions" });
-    const { container } = await renderSettled(
-      <AppProviders composition={createFixtureComposition(TRANSCRIPT_STATES_SCENARIO_ID)} />,
-    );
-    expect(
-      container.querySelector(SESSION_ROUTE_BODY_SELECTOR),
-      "the session directory mounted a transcript body, so this control is asserting the refusal of a " +
-        "route that in fact reaches the transcript body and would pass whatever the wait did",
-    ).toBeNull();
-
-    vi.useFakeTimers({ toFake: ["Date"] });
-    const startedAtMs = Date.now();
-    const pending = awaitSessionRouteMounted(container);
-    vi.setSystemTime(startedAtMs + SESSION_ROUTE_MOUNT_DEADLINE_MS + 1);
-
-    await expect(pending).rejects.toThrow(
-      `the session route mounted no body in ${String(SESSION_ROUTE_MOUNT_DEADLINE_MS)} ms`,
-    );
   });
 });

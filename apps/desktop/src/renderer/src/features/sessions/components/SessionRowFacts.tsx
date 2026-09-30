@@ -21,12 +21,6 @@ export function SessionRowFacts(props: { readonly row: SessionListRow }): React.
       ) : (
         <Chip label={row.state} mono />
       )}
-      {row.attentionSeverity === undefined ? null : (
-        <Chip
-          tone={row.attentionSeverity === "actionable" ? "attention" : "neutral"}
-          label={row.attentionSeverity === "actionable" ? "Needs you" : "Something happened"}
-        />
-      )}
       {row.touchedAtIso === undefined ? null : (
         <WireFigure value={formatDateTime(row.touchedAtIso)} title={row.touchedAtIso} />
       )}

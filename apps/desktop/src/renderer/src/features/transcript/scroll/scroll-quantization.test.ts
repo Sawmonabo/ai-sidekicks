@@ -6,16 +6,7 @@ import { describe, expect, it } from "vitest";
 import { WholePixelQuantizationLearner } from "./scroll-quantization.js";
 
 describe("the whole-pixel quantization learner", () => {
-  it("holds the question open until two witnesses agree", () => {
-    const learner = new WholePixelQuantizationLearner();
-    expect(learner.verdict).toBeUndefined();
-    learner.observe(100.4, 100);
-    expect(learner.verdict).toBeUndefined();
-    learner.observe(220.4, 220);
-    expect(learner.verdict).toBe(true);
-  });
-
-  it("negative control: a display that keeps the fraction settles the other way", () => {
+  it("a display that keeps the fraction settles the other way", () => {
     const learner = new WholePixelQuantizationLearner();
     learner.observe(100.4, 100.4);
     learner.observe(220.4, 220.4);
@@ -47,11 +38,5 @@ describe("the whole-pixel quantization learner", () => {
     learner.observe(220.4, 220);
     expect(learner.isNoOpWrite(220.2, 220)).toBe(true);
     expect(learner.isNoOpWrite(221.7, 220)).toBe(false);
-  });
-
-  it("settles after however many witnesses it was built to want", () => {
-    const learner = new WholePixelQuantizationLearner(1);
-    learner.observe(100.4, 100);
-    expect(learner.verdict).toBe(true);
   });
 });

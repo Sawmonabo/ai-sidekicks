@@ -73,30 +73,15 @@ describe("cancelSignIn", () => {
     expect(endedBecause(state)).toContain("was canceled");
   });
 
-  it("says there was nothing to cancel when the daemon found none", async () => {
+  // Guards the two statuses staying apart: a `notFound` reported as a cancellation would
+  // claim the console stopped something it did not.
+  it("reports a notFound as nothing to cancel, never as a cancellation", async () => {
     const state = await cancelSignIn(
       accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
       PROVIDER_SIGN_IN_ATTEMPT,
     );
     expect(endedBecause(state)).toContain("no sign-in left to cancel");
-  });
-
-  // Guards the two statuses staying apart: a `notFound` reported as a cancellation would
-  // claim the console stopped something it did not.
-  it("does not report a notFound as a cancellation", async () => {
-    const state = await cancelSignIn(
-      accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
-      PROVIDER_SIGN_IN_ATTEMPT,
-    );
     expect(endedBecause(state)).not.toContain("was canceled");
-  });
-
-  it("never claims the account is authenticated", async () => {
-    const state = await cancelSignIn(
-      accountPlaneCalls({ cancel: { status: "canceled" } }).cancelLogin,
-      PROVIDER_SIGN_IN_ATTEMPT,
-    );
-    expect(endedBecause(state)).not.toMatch(/authenticated/iu);
   });
 });
 
@@ -108,21 +93,14 @@ describe("submitTokenRegistration", () => {
     nonInteractiveToken: "a-vendor-minted-token",
   } as const;
 
-  it("answers with the account the daemon created", async () => {
+  // The reply has no token member, so nothing can echo one; asserted over the serialized
+  // outcome because that is what a devtools inspection would read.
+  it("answers with the account the daemon created, carrying no token anywhere", async () => {
     const outcome = await submitTokenRegistration(
       accountPlaneCalls({ register: REGISTERED }).register,
       REQUEST,
     );
     expect(outcome).toEqual({ kind: "registered", account: REGISTERED.account });
-  });
-
-  // The reply has no token member, so nothing can echo one; asserted over the serialized
-  // outcome because that is what a devtools inspection would read.
-  it("carries no token anywhere in the outcome it answers with", async () => {
-    const outcome = await submitTokenRegistration(
-      accountPlaneCalls({ register: REGISTERED }).register,
-      REQUEST,
-    );
     expect(JSON.stringify(outcome)).not.toContain("a-vendor-minted-token");
   });
 });
@@ -161,16 +139,5 @@ describe("readRegistrationFields", () => {
     expect(
       refusalOf(readRegistrationFields({ ...typed("Metered"), billingMode: "not-a-mode" }))?.code,
     ).toBe("registration-billing-mode-unadmitted");
-  });
-
-  it("echoes no refused value back into the sentence a person reads", () => {
-    // A label is user content; `detail` says what would change the answer.
-    const refusal = refusalOf(readRegistrationFields(typed(" \t ")));
-    expect(JSON.stringify(refusal)).not.toContain("\\t");
-  });
-
-  it("negative control: an ordinary label is admitted, so the refusals are the reading's", () => {
-    // Without this the cases above would pass over a reader that refused everything.
-    expect(readRegistrationFields(typed("A machine account")).kind).toBe("admitted");
   });
 });

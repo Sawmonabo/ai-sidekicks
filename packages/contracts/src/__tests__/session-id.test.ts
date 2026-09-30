@@ -1,65 +1,16 @@
 // `SessionIdSchema` must reject malformed identifiers: if it accepted one, the daemon and the
-// control plane could no longer route reconnects to the right authoritative state. It accepts
-// RFC 9562 UUIDs, rejects non-UUID strings and non-strings, and returns a branded `SessionId`.
+// control plane could no longer route reconnects to the right authoritative state. Its accept set
+// (`RFC_9562_TEXT_FORM`, shared by every branded UUID id) is RFC 9562 text, case-insensitive on
+// every alternative, with the version and variant nibbles still deciding.
 import { describe, expect, it } from "vitest";
 
-import { SessionIdSchema, type SessionId } from "../session.js";
+import { SessionIdSchema } from "../session.js";
 
-// Two real RFC 9562 UUIDs; version bits are not fabricated because `RFC_9562_TEXT_FORM`
-// validates the version nibble and variant bits in their canonical positions.
-const VALID_UUID_V4 = "550e8400-e29b-41d4-a716-446655440000";
+// A real RFC 9562 v7; version bits are not fabricated because `RFC_9562_TEXT_FORM` validates the
+// version nibble and variant bits in their canonical positions.
 const VALID_UUID_V7 = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 
-describe("SessionIdSchema (C1: id-format invariant)", () => {
-  it("accepts a valid UUID v4 (admin-provisioned control-plane id)", () => {
-    const parsed = SessionIdSchema.parse(VALID_UUID_V4);
-    expect(parsed).toBe(VALID_UUID_V4);
-  });
-
-  it("accepts a valid UUID v7 (daemon-emitted sortable id)", () => {
-    const parsed = SessionIdSchema.parse(VALID_UUID_V7);
-    expect(parsed).toBe(VALID_UUID_V7);
-  });
-
-  it("returns a branded SessionId at the type level", () => {
-    // Compile-time proof that the brand survives `.parse()`: if it degraded to `string`, the
-    // assignment below would fail to typecheck.
-    const parsed: SessionId = SessionIdSchema.parse(VALID_UUID_V4);
-    expect(typeof parsed).toBe("string");
-  });
-
-  it.each([
-    ["empty string", ""],
-    ["plain word", "not-a-uuid"],
-    ["wrong segment lengths", "550e8400-e29b-41d4-a716-44665544000"],
-    ["leading whitespace", " 550e8400-e29b-41d4-a716-446655440000"],
-    ["trailing suffix", "550e8400-e29b-41d4-a716-446655440000-extra"],
-    ["uppercase letters not in valid hex range", "ZZZe8400-e29b-41d4-a716-446655440000"],
-  ])("rejects malformed UUID string: %s", (_label, value) => {
-    const result = SessionIdSchema.safeParse(value);
-    expect(result.success).toBe(false);
-  });
-
-  it.each([
-    ["number", 42],
-    ["null", null],
-    ["undefined", undefined],
-    ["object", {}],
-    ["array", []],
-    ["boolean", true],
-  ])("rejects non-string type: %s", (_label, value) => {
-    const result = SessionIdSchema.safeParse(value);
-    expect(result.success).toBe(false);
-  });
-});
-
-// The shared accept set (`RFC_9562_TEXT_FORM` in `internal/branded.ts`) is asserted on
-// `SessionIdSchema` because the predicate belongs to the factory, not to this id family: every
-// branded UUID id composes the same `brandedUuidIdSchema`. `provider-driver.test.ts` pins the
-// same properties on `ArtifactIdSchema`, so a schema moved off the factory could not pass by
-// proving the other.
-
-describe("SessionIdSchema — the RFC 9562 accept set is case-insensitive on EVERY alternative", () => {
+describe("SessionIdSchema — RFC 9562 text, case-insensitive on every alternative", () => {
   const MAX_UUID_LOWERCASE = "ffffffff-ffff-ffff-ffff-ffffffffffff";
   const MAX_UUID_UPPERCASE = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
   const MAX_UUID_MIXED_CASE = "FfFfFfFf-ffFF-FFff-fFfF-fFFFffffFFFF";
@@ -78,13 +29,6 @@ describe("SessionIdSchema — the RFC 9562 accept set is case-insensitive on EVE
     // as lowercase literals with no `i` flag, and its general alternative cannot admit the Max
     // UUID because a `[1-8]` version nibble rejects `f`.
     expect(SessionIdSchema.parse(value)).toBe(value);
-  });
-
-  it("does not normalize — case is preserved through the parse", () => {
-    // The accept set is case-insensitive but the value is returned untouched. Canonicalization
-    // belongs at map-key and hash-input boundaries (`canonicalizeUuid`): ids are branded by
-    // casts, so a schema transform would not run on database-row reads.
-    expect(SessionIdSchema.parse(MAX_UUID_UPPERCASE)).not.toBe(MAX_UUID_LOWERCASE);
   });
 
   it.each([

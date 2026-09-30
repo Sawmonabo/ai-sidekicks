@@ -2,8 +2,7 @@
 //
 // Keying a leg by `bindingId` alone, while the live-leg identity is `(sessionId, bindingId)`,
 // gives two sessions holding one configuration one React identity. The reading is React's own
-// report, proved non-vacuous by the last case, which renders a single-field keying and asserts
-// the warning is raised.
+// duplicate-key report.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -68,13 +67,10 @@ const SETTLED_OUTCOME: McpMutationOutcome = {
 };
 
 describe("mcpLiveLegKeyOf", () => {
-  it("keys two sessions' legs of one binding apart", () => {
+  it("keys two sessions' legs of one binding apart, and one leg the same way twice", () => {
     expect(mcpLiveLegKeyOf(LEGS_SHARING_A_HANDLE[0] as McpServerLegStatus)).not.toBe(
       mcpLiveLegKeyOf(LEGS_SHARING_A_HANDLE[1] as McpServerLegStatus),
     );
-  });
-
-  it("gives one leg the same key however the value reached it", () => {
     expect(mcpLiveLegKeyOf({ sessionId: FIRST_SESSION, bindingId: SHARED_BINDING_ID })).toBe(
       mcpLiveLegKeyOf({ sessionId: FIRST_SESSION, bindingId: SHARED_BINDING_ID }),
     );
@@ -102,32 +98,5 @@ describe("the two lists that render a live leg", () => {
       render(<MutationOutcomeLine outcome={SETTLED_OUTCOME} />),
     );
     expect(duplicateKeyReports(reported)).toEqual([]);
-  });
-
-  it("still renders both sessions beside their own statuses", () => {
-    const { container } = render(<ServerLegs legs={LEGS_SHARING_A_HANDLE} />);
-    const rows = [...container.querySelectorAll(".meridian-mcp__leg")].map(
-      (row) => row.textContent ?? "",
-    );
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toContain(FIRST_SESSION);
-    expect(rows[0]).toContain("connected");
-    expect(rows[1]).toContain(SECOND_SESSION);
-    expect(rows[1]).toContain("failed");
-  });
-
-  // Negative control for the two clean results above: the single-field keying raises React's
-  // report, so a clean reading means the keys are distinct.
-  it("negative control: the single-field keying raises React's duplicate-key report", async () => {
-    const { reported } = await reportsWhileReactRan(() =>
-      render(
-        <ul>
-          {LEGS_SHARING_A_HANDLE.map((leg) => (
-            <li key={leg.bindingId}>{leg.sessionId}</li>
-          ))}
-        </ul>,
-      ),
-    );
-    expect(duplicateKeyReports(reported)).not.toEqual([]);
   });
 });

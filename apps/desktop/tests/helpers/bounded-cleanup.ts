@@ -76,7 +76,7 @@ export class BoundedCleanup {
     const closing = this.#application.close().then(() => "closed" as const);
     // Killing the process rejects an abandoned close, and unhandled that would fail the tier on
     // the wrong error. `Promise.race` attaches handlers to both promises, so the loser stays
-    // handled; `bounded-cleanup.test.ts` checks this.
+    // handled.
     let raced: "closed" | "expired" | "rejected";
     let closeRejection: unknown;
     try {
@@ -140,9 +140,8 @@ export class BoundedCleanup {
    * the first attempt. The close's remaining budget is already zero on the path this loop exists
    * for. Every reader inside the loop, the pause included, is charged to that deadline. Charged to
    * the close's origin, each pause would be zero-length and the attempts would run back to back.
-   * `CLEANUP_PHASES` in `launch-deadline.ts` counts this restart, and
-   * `cleanup-slice-derivation.test.ts` measures the class's end-to-end spend against it. Giving up
-   * an ask never gives up the profile removal in `close()`.
+   * `CLEANUP_PHASES` in `launch-deadline.ts` counts this restart. Giving up an ask never gives up
+   * the profile removal in `close()`.
    */
   async #terminateUntilGone(processId: number): Promise<boolean> {
     const terminationStartedAt = this.#readClock();

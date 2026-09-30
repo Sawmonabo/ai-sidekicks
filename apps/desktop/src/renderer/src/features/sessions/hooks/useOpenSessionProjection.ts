@@ -226,8 +226,5 @@ function projectOneStore(store: SessionStore): readonly SessionListRow[] {
     state: entity.state,
     touchedAtIso: entity.touchedAt,
     userIds: entity.id === store.sessionId ? userIds : [],
-    // Attention is one projection for the destination, stamped over the merged list by the
-    // screen; reading it per source could give one session two severities.
-    attentionSeverity: undefined,
   }));
 }

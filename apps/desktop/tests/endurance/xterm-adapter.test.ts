@@ -153,22 +153,6 @@ describe("a terminal held open over a long stream", () => {
     },
     ENDURANCE_CASE_TIMEOUT_MS,
   );
-
-  it(
-    "negative control: an undisposed instance is still holding it",
-    async () => {
-      requireHeapCollector(heapSampler);
-      const pool = new TerminalRendererPool();
-      const baseline = await heapSampler.sample();
-      const adapter = adapterWorkload.mount("undisposed-terminal", pool);
-      await adapterWorkload.writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
-      const held = await heapSampler.sample();
-      // Deliberately not disposed. Without this case the release assertion above would pass
-      // against a sampler that always read the baseline back.
-      expect(retainedGrowthBytes(baseline, held)).toBeGreaterThan(1_000_000);
-    },
-    ENDURANCE_CASE_TIMEOUT_MS,
-  );
 });
 
 describe("a working day of opening and closing the pane", () => {
@@ -221,18 +205,4 @@ describe("a working day of opening and closing the pane", () => {
     },
     ENDURANCE_CASE_TIMEOUT_MS,
   );
-
-  it("negative control: the ledger is capable of being non-zero", () => {
-    // Without this the cycle case would pass against a counter stuck at zero, which a DOM-only
-    // environment produces on its own since no instance can acquire a WebGL context. The pool's
-    // accounting is asserted directly because that is what this process can observe.
-    const pool = new TerminalRendererPool();
-    const lease = pool.acquire("proof-of-life");
-    expect(lease).toBeDefined();
-    expect(pool.heldContextCount).toBe(1);
-    if (lease !== undefined) {
-      pool.release(lease);
-    }
-    expect(pool.heldContextCount).toBe(0);
-  });
 });

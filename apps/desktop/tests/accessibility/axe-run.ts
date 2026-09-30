@@ -18,8 +18,7 @@ import axe, { type Result } from "axe-core";
  * not everything its conformance requires: `wcag22aa` alone would claim 2.2 at both levels and
  * select only one. At the pinned `axe-core`, `wcag22a` selects no rule (2.2's Level A
  * additions are Consistent Help and Redundant Entry, which axe does not automate) and
- * `wcag22aa` selects `target-size`; `axe-run.test.ts` holds both halves, so a rule landing
- * under `wcag22a` turns the run red.
+ * `wcag22aa` selects `target-size`.
  */
 export const AXE_TAGS: readonly string[] = [
   "wcag2a",

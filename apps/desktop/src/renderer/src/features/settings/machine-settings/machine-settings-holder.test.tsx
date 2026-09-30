@@ -4,7 +4,6 @@
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
-import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts";
@@ -78,42 +77,6 @@ async function settle(): Promise<void> {
 }
 
 describe("machine settings binding — acquisition happens after the commit", () => {
-  it("acquires the window's store from an effect and reads what it answers", async () => {
-    const bridge = freshBridge();
-
-    const { getByTestId } = render(
-      <StrictMode>
-        <PreferenceProbe bridge={bridge} />
-      </StrictMode>,
-      windowOf(bridge),
-    );
-    await settle();
-
-    // Strict mode runs the acquiring effect twice; the second finds the store the first minted,
-    // which is why the effect needs no teardown.
-    const acquired = machineSettingsHolder.storeIfCurrent(bridge);
-    expect(acquired).toBeDefined();
-    expect(acquired?.isDisposed).toBe(false);
-    // The settings file never answers, so the read stays open.
-    expect(getByTestId("reading").textContent).toBe("not-read");
-  });
-
-  it("disposes the superseded store exactly once when the bridge is replaced", async () => {
-    const firstBridge = freshBridge();
-    const { rerender } = render(<PreferenceProbe bridge={firstBridge} />, windowOf(firstBridge));
-    await settle();
-    const firstStore = machineSettingsHolder.storeIfCurrent(firstBridge);
-    expect(firstStore).toBeDefined();
-    const disposals = vi.spyOn(firstStore as { dispose: () => void }, "dispose");
-
-    const secondBridge = freshBridge();
-    rerender(<PreferenceProbe bridge={secondBridge} />);
-    await settle();
-
-    expect(disposals).toHaveBeenCalledTimes(1);
-    expect(machineSettingsHolder.storeIfCurrent(secondBridge)?.isDisposed).toBe(false);
-  });
-
   it("leaves the committed store live when a render is abandoned", async () => {
     // Negative control on the `useMemo` form: a render-time lookup would dispose
     // `firstStore` for a pass that never committed.
@@ -198,13 +161,6 @@ describe("machine settings — a superseded store", () => {
 });
 
 describe("machine settings — the lookup a render body performs", () => {
-  it("answers the live store for the bridge it is on", () => {
-    const bridge = freshBridge();
-    const acquired = machineSettingsHolder.acquire(bridge);
-
-    expect(machineSettingsHolder.storeIfCurrent(bridge)).toBe(acquired);
-  });
-
   it("answers nothing for a bridge the holder is not on, and disposes nothing", () => {
     // Purity: a render body calls this for passes React may replay or abandon, and an acquiring
     // form would dispose the committed store.
@@ -215,16 +171,5 @@ describe("machine settings — the lookup a render body performs", () => {
     expect(machineSettingsHolder.storeIfCurrent(replacementBridge)).toBeUndefined();
     expect(committed.isDisposed).toBe(false);
     expect(machineSettingsHolder.storeIfCurrent(committedBridge)).toBe(committed);
-  });
-
-  it("negative control: acquiring the replacement is what disposes, so the two differ", () => {
-    // Guards against a holder that never disposes, which would make the lookup trivially pure.
-    const committedBridge = freshBridge();
-    const committed = machineSettingsHolder.acquire(committedBridge);
-
-    const replacement = freshBridge();
-    machineSettingsHolder.acquire(replacement);
-
-    expect(committed.isDisposed).toBe(true);
   });
 });

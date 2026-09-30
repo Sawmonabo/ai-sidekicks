@@ -83,23 +83,16 @@ export const answeringCreate: WorkflowDefinitionCreateCall = async () => ({
   createdAt: "2026-01-01T07:05:00.000Z",
 });
 
-/** The host seam an act reaches, replaceable. */
-export interface BridgeParts {
-  /** Replaces the host's clipboard write. Absent accepts every write. */
-  readonly copyToClipboard?: (file: string) => Promise<void>;
-}
-
 /** One mounted hook: what it reads now, and a way to press it and let answers land. */
 export interface MountedAuthoring {
   readonly current: () => WorkflowDefinitionAuthoring;
   readonly press: (pressed: () => void) => Promise<void>;
 }
 
-/** A bridge carrying exactly the seam an act reaches: the host's clipboard. */
-export function authoringBridge(parts: BridgeParts = {}): PlatformBridge {
-  const copyToClipboard = parts.copyToClipboard ?? (async () => undefined);
+/** A bridge carrying the one seam an act reaches: a host clipboard that takes every write. */
+export function authoringBridge(): PlatformBridge {
   return {
-    native: { copyToClipboard },
+    native: { copyToClipboard: async () => undefined },
   } as unknown as PlatformBridge;
 }
 
@@ -130,18 +123,6 @@ export function mountAuthoring(
   };
 }
 
-/** The code on an outcome that refused, or the kind it took instead. */
-export function refusalCode(outcome: WorkflowDetailActOutcome): string {
-  return outcome.kind === "refused" ? outcome.refusal.code : `not refused: ${outcome.kind}`;
-}
-
-/** Whatever sentence an outcome carries, or the kind it took instead. */
-export function outcomeDetail(outcome: WorkflowDetailActOutcome): string {
-  return outcome.kind === "dispatching" || outcome.kind === "settled"
-    ? outcome.detail
-    : `no detail: ${outcome.kind}`;
-}
-
 /**
  * Assert one act refused with a declared code: the specific code, and its membership in the
  * closed tuple, so a refusal raised with an undeclared string cannot pass.
@@ -152,4 +133,9 @@ export function expectLocalRefusal(
 ): void {
   expect(refusalCode(outcome)).toBe(code);
   expect(WORKFLOW_DETAIL_REFUSAL_CODES).toContain(code);
+}
+
+/** The code on an outcome that refused, or the kind it took instead. */
+function refusalCode(outcome: WorkflowDetailActOutcome): string {
+  return outcome.kind === "refused" ? outcome.refusal.code : `not refused: ${outcome.kind}`;
 }

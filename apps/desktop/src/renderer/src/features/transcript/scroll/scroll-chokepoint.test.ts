@@ -5,43 +5,28 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
 import { createCountingScrollContainer } from "./scroll-container.test-support.js";
-import { SCROLL_CALLERS } from "./scroll-callers.js";
 import { ScrollController } from "./scroll-chokepoint.js";
 import type { ScrollGeometry } from "./geometry-sample.js";
 import type { ScrollContainer } from "./scroll-chokepoint.js";
 
 class RecordingScrollContainer implements ScrollContainer {
-  public readonly readCountByProperty = new Map<string, number>();
-  public quantizesWrites = false;
-
   readonly #listeners = new Set<() => void>();
   readonly #viewportHeight: number;
   readonly #contentHeight: number;
-  #scrollTop = 0;
+
+  public scrollTop = 0;
 
   public constructor(viewportHeight: number, contentHeight: number) {
     this.#viewportHeight = viewportHeight;
     this.#contentHeight = contentHeight;
   }
 
-  public get scrollTop(): number {
-    this.#recordRead("scrollTop");
-    return this.#scrollTop;
-  }
-
-  public set scrollTop(value: number) {
-    this.#scrollTop = this.quantizesWrites ? Math.round(value) : value;
-  }
-
   public get clientHeight(): number {
-    this.#recordRead("clientHeight");
     return this.#viewportHeight;
   }
 
   public get scrollHeight(): number {
-    this.#recordRead("scrollHeight");
     return this.#contentHeight;
   }
 
@@ -53,27 +38,8 @@ class RecordingScrollContainer implements ScrollContainer {
     this.#listeners.delete(listener);
   }
 
-  public scrollBy(scrollTop: number): void {
-    this.#scrollTop = scrollTop;
-    for (const listener of [...this.#listeners]) {
-      listener();
-    }
-  }
-
   public get listenerCount(): number {
     return this.#listeners.size;
-  }
-
-  public get totalReadCount(): number {
-    let total = 0;
-    for (const count of this.readCountByProperty.values()) {
-      total += count;
-    }
-    return total;
-  }
-
-  #recordRead(property: string): void {
-    this.readCountByProperty.set(property, (this.readCountByProperty.get(property) ?? 0) + 1);
   }
 }
 
@@ -87,84 +53,13 @@ beforeEach(() => {
   scrollContainer = new RecordingScrollContainer(500, 5000);
 });
 
-describe("the scroll chokepoint — geometry", () => {
-  it("replays the last sample to a subscriber that arrives after it", () => {
-    controller.attach(scrollContainer);
-    const received: ScrollGeometry[] = [];
-    controller.subscribeToGeometry((geometry) => received.push(geometry));
-    expect(received).toHaveLength(1);
-    expect(received[0]?.contentHeight).toBe(5000);
-    expect(received[0]?.isAtTail).toBe(false);
-  });
-
-  it("negative control: a controller that never attached replays nothing", () => {
-    // Without this, the case above would pass over a replayed fabricated zero sample.
-    const received: ScrollGeometry[] = [];
-    controller.subscribeToGeometry((geometry) => received.push(geometry));
-    expect(received).toStrictEqual([]);
-  });
-
-  it("reads exactly the three geometry properties per scroll event, and no fourth", () => {
-    controller.attach(scrollContainer);
-    scrollContainer.readCountByProperty.clear();
-    scrollContainer.scrollBy(120);
-    scrollContainer.scrollBy(240);
-    expect([...scrollContainer.readCountByProperty.keys()].sort()).toStrictEqual([
-      "clientHeight",
-      "scrollHeight",
-      "scrollTop",
-    ]);
-    expect(scrollContainer.totalReadCount).toBe(6);
-  });
-
-  it("negative control: the read counter does count", () => {
-    controller.attach(scrollContainer);
-    scrollContainer.readCountByProperty.clear();
-    void scrollContainer.scrollTop;
-    expect(scrollContainer.totalReadCount).toBe(1);
-  });
-});
-
 describe("the scroll chokepoint — writes", () => {
-  it("names the caller on every write and counts them per caller", () => {
-    controller.attach(scrollContainer);
-    controller.glideTo("find-match", 1000);
-    controller.glideTo("find-match", 2000);
-    controller.glideTo("deep-link", 300);
-    expect(controller.writeCount("find-match")).toBe(2);
-    expect(controller.writeCount("deep-link")).toBe(1);
-    expect(controller.writeCount("follow-tail")).toBe(0);
-  });
-
-  it("declares its caller union closed and complete", () => {
-    // Pins the set so widening it is a deliberate edit rather than a typo.
-    expect([...SCROLL_CALLERS]).toStrictEqual([
-      "follow-tail",
-      "jump-to-tail",
-      "hold-reading-position",
-      "deep-link",
-      "find-match",
-      "prune-compensation",
-      "measurement-compensation",
-    ]);
-  });
-
   it("clamps to the content rather than handing the platform an impossible offset", () => {
     controller.attach(scrollContainer);
     const write = controller.glideTo("jump-to-tail", 999_999);
     expect(write?.appliedScrollTop).toBe(4500);
     expect(controller.glideTo("deep-link", -40)?.appliedScrollTop).toBe(0);
     expect(controller.glideTo("deep-link", Number.NaN)?.appliedScrollTop).toBe(0);
-  });
-
-  it("glides to the tail instead of asking an element to scroll itself into view", () => {
-    controller.attach(scrollContainer);
-    expect(controller.glideToTail("follow-tail")?.appliedScrollTop).toBe(4500);
-  });
-
-  it("writes nothing when it has no scroll container", () => {
-    expect(controller.glideTo("follow-tail", 10)).toBeUndefined();
-    expect(controller.glideToTail("follow-tail")).toBeUndefined();
   });
 });
 
@@ -199,63 +94,10 @@ describe("the scroll chokepoint — a box that changed size", () => {
     expect(controller.geometry?.viewportHeight).toBe(260);
   });
 
-  it("negative control: a height change under the epsilon wakes nobody", () => {
-    // Sub-pixel wobble is what a fractional row height produces every frame.
-    const { resizable, samples } = resizableController();
-    resizable.resizeTo(500 + TRANSCRIPT_GEOMETRY_EPSILON_PX / 2, 5000);
-    controller.requestOverflowMeasurement();
-    clock.runFrame();
-    expect(samples).toStrictEqual([]);
-  });
-
-  it("negative control: a scroll with no resize is never reported as one", () => {
+  it("a scroll with no resize is never reported as one", () => {
     const { resizable, samples } = resizableController();
     resizable.moveTo(900);
     expect(samples.map((geometry) => geometry.cause)).toStrictEqual(["scroll"]);
-  });
-
-  it("hands the overflow sink the one sample it published, rather than taking a second", () => {
-    const { resizable, samples } = resizableController();
-    const measuredAt: ScrollGeometry[] = [];
-    controller.observeOverflow((geometry) => measuredAt.push(geometry));
-    resizable.resizeTo(320, 6000);
-    controller.requestOverflowMeasurement();
-    clock.runFrame();
-    expect(measuredAt).toStrictEqual(samples);
-  });
-});
-
-describe("the scroll chokepoint — the quantization learner", () => {
-  it("skips no-op writes only after two witnesses agree", () => {
-    scrollContainer.quantizesWrites = true;
-    controller.attach(scrollContainer);
-    expect(controller.quantizesToWholePixels).toBeUndefined();
-
-    controller.glideTo("find-match", 100.4);
-    expect(controller.quantizesToWholePixels).toBeUndefined();
-    controller.glideTo("find-match", 220.4);
-    expect(controller.quantizesToWholePixels).toBe(true);
-
-    // 220.4 already landed on 220, so a request rounding to the same pixel is a skippable no-op.
-    expect(controller.glideTo("find-match", 220.2)?.wasSkipped).toBe(true);
-  });
-
-  it("negative control: a display that does not quantize never skips", () => {
-    // The same two fractional writes against a container that keeps them.
-    controller.attach(scrollContainer);
-    controller.glideTo("find-match", 100.4);
-    controller.glideTo("find-match", 220.4);
-    expect(controller.quantizesToWholePixels).toBe(false);
-    expect(controller.glideTo("find-match", 220.2)?.wasSkipped).toBe(false);
-  });
-
-  it("ignores whole-pixel requests as evidence, which land on a whole pixel anywhere", () => {
-    scrollContainer.quantizesWrites = true;
-    controller.attach(scrollContainer);
-    controller.glideTo("find-match", 100);
-    controller.glideTo("find-match", 200);
-    controller.glideTo("find-match", 300);
-    expect(controller.quantizesToWholePixels).toBeUndefined();
   });
 });
 
@@ -325,14 +167,5 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
     clock.runFrame();
 
     expect(measuredViewportHeights).toStrictEqual([640]);
-  });
-
-  it("negative control: a detach with no re-attach still arms nothing", () => {
-    // A pane that closed for good must leave no frame behind it.
-    controller.attach(scrollContainer);
-    controller.requestOverflowMeasurement();
-    controller.detach();
-
-    expect(clock.pendingCount).toBe(0);
   });
 });

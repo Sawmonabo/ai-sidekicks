@@ -13,8 +13,7 @@ import type {
   TaskkillResult,
 } from "../node-pty-host.js";
 import { makeFakeChild } from "./_fakes.js";
-
-import type { SpawnRequest } from "@ai-sidekicks/contracts";
+import type { SpawnRequest } from "../pty-host-protocol.js";
 
 // Distinctive, so a failing assertion names the fixture.
 const FIXTURE_PID = 67890;

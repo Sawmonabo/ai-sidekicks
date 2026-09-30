@@ -5,7 +5,7 @@ import { type ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 import { transcriptFixtureStampAt } from "../transcript-logs.test-support.js";
 
 /** Session id of the shared log. */
-export const VISIBLE_WINDOW_SESSION_ID = "session-visible-window";
+const VISIBLE_WINDOW_SESSION_ID = "session-visible-window";
 /** Long enough that the cap has something to take, short enough to enumerate. */
 export const LOG_EVENT_COUNT = 10;
 /** What a capped viewport is left holding, so the difference is a real prune. */

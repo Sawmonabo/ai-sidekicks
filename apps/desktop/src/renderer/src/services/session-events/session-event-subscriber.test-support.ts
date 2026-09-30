@@ -1,7 +1,7 @@
-// The registry, fixture bridge and subscriber that the delivery and payload suites both need, built
-// once. The registry takes the engine's clock, not one of its own, so the apply queue's coalescing
-// window and the scenario's beats cannot advance independently. The retry suite builds its own
-// harness over a transport scripted to refuse.
+// The registry, fixture bridge and subscriber the delivery suite drives, and the session and time
+// every subscriber suite shares. The registry takes the engine's clock, not one of its own, so the
+// apply queue's coalescing window and the scenario's beats cannot advance independently. The drop
+// and retry suites build their own harnesses.
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";

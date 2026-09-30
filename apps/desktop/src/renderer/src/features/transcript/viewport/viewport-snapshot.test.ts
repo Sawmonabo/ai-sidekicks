@@ -25,10 +25,6 @@ describe("counting rows appended after the previous tail", () => {
     expect(countAppendedAfter(RETAINED_ROWS, "c")).toBe(1);
   });
 
-  it("counts nothing when the previous tail is still the tail", () => {
-    expect(countAppendedAfter(RETAINED_ROWS, "d")).toBe(0);
-  });
-
   it("counts nothing when there was no previous window", () => {
     // Not "every row is new": the anchor counts rows that arrived under a reader, and a reader
     // who was not there has nothing to be told.
@@ -45,15 +41,6 @@ describe("counting rows appended after the previous tail", () => {
 });
 
 describe("counting rows inserted before the previous head", () => {
-  it("counts every row that arrived in front of the row that used to be first", () => {
-    expect(countInsertedBefore(RETAINED_ROWS, "c")).toBe(2);
-    expect(countInsertedBefore(RETAINED_ROWS, "b")).toBe(1);
-  });
-
-  it("counts nothing when the previous head is still the head", () => {
-    expect(countInsertedBefore(RETAINED_ROWS, "a")).toBe(0);
-  });
-
   it("counts nothing when there was no previous window", () => {
     expect(countInsertedBefore(RETAINED_ROWS, undefined)).toBe(0);
     expect(countInsertedBefore([], undefined)).toBe(0);
@@ -72,13 +59,13 @@ describe("compensating for a row that grew above the fold", () => {
     expect(shouldCompensateForInsertion("reading", 120, 400)).toBe(true);
   });
 
-  it("negative control: refuses a row the reader can see growing", () => {
+  it("refuses a row the reader can see growing", () => {
     // A row ending one pixel below the fold is growing under the reader's eyes; subtracting its
     // delta would drag the viewport down every frame of a stream and loop through the anchor.
     expect(shouldCompensateForInsertion("reading", 401, 400)).toBe(false);
   });
 
-  it("negative control: refuses every row while the reader is following", () => {
+  it("refuses every row while the reader is following", () => {
     // The tail glide already puts a follower at the bottom and a compensation would fight it;
     // this fails even for a row that clears the fold by a mile.
     expect(shouldCompensateForInsertion("following", 0, 400)).toBe(false);

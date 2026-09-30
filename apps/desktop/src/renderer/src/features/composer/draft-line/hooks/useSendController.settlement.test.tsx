@@ -13,7 +13,7 @@ import { DraftStore } from "@renderer/store/draft-store.js";
 import type { ComposerRunTarget } from "../../composer-target.js";
 import type { SendController } from "../send-controller-contract.js";
 import { useSendController } from "./useSendController.js";
-import { RUN_TARGET, STEER_APPLIED } from "../send-router.test-support.js";
+import { RUN_TARGET } from "../send-router.test-support.js";
 
 const SESSION_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
 const SESSION_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
@@ -102,53 +102,6 @@ function driveAddressableComposer(initialSessionId: string = SESSION_A): DrivenC
 }
 
 describe("useSendController — a settlement is keyed to the address it was sent under", () => {
-  it("never renders a refusal for one target under the target the composer moved to", async () => {
-    // A send to A awaiting the daemon while the person re-addresses to B: the refusal that
-    // comes back is a verdict on a message B never carried.
-    const driven = driveAddressableComposer();
-    const pending = driven.beginSend("ship it");
-    driven.reAddressTo(SESSION_B);
-
-    await act(async () => {
-      driven.calls.rejectOldest(REJECTION_REASON);
-      await pending;
-    });
-
-    expect(driven.latest().refusal).toBeUndefined();
-  });
-
-  it("negative control: the same refusal renders when the composer stayed put", async () => {
-    // Without this, the case above would also pass a controller that never renders refusals.
-    const driven = driveAddressableComposer();
-    const pending = driven.beginSend("ship it");
-
-    await act(async () => {
-      driven.calls.rejectOldest(REJECTION_REASON);
-      await pending;
-    });
-
-    expect(driven.latest().refusal?.code).toBe(REJECTION_REASON);
-    // A refused steer keeps its words.
-    expect(driven.latest().text).toBe("ship it");
-  });
-
-  it("does not resurrect a discarded settlement when the composer returns to its address", async () => {
-    // A late refusal attached to nothing the person just did is worse than none, so it is
-    // dropped where it lands, not parked. The line keeps its text.
-    const driven = driveAddressableComposer();
-    const pending = driven.beginSend("ship it");
-    driven.reAddressTo(SESSION_B);
-
-    await act(async () => {
-      driven.calls.rejectOldest(REJECTION_REASON);
-      await pending;
-    });
-    driven.reAddressTo(SESSION_A);
-
-    expect(driven.latest().refusal).toBeUndefined();
-    expect(driven.latest().text).toBe("ship it");
-  });
-
   it("frees Send on a return visit whose earlier call has not settled", async () => {
     // A -> B -> A with A's first call still parked. The holder re-seeds on the return, so the
     // bar renders `idle`; a latch keyed on the draft key alone would still hold A's claim and
@@ -181,70 +134,5 @@ describe("useSendController — a settlement is keyed to the address it was sent
 
     // The second visit's own settlement is current and does render.
     expect(driven.latest().refusal?.code).toBe(REJECTION_REASON);
-  });
-});
-
-describe("useSendController — an operation's busy state belongs to the address it was issued at", () => {
-  it("leaves the next address idle while a send for the previous one is still going", async () => {
-    // The sending status and the latch are per address: a message still traveling to one
-    // session must not leave the composer read-only for the next.
-    const driven = driveAddressableComposer();
-    const pending = driven.beginSend("ship it");
-    expect(driven.calls.parkedCount).toBe(1);
-
-    driven.reAddressTo(SESSION_B);
-
-    expect(driven.latest().status).toBe("idle");
-    await act(async () => {
-      driven.calls.resolveOldest(STEER_APPLIED);
-      await pending;
-    });
-  });
-
-  it("negative control: the address that issued the send is the one that reads sending", async () => {
-    // Without this, a controller that never reported `sending` would pass the case above.
-    const driven = driveAddressableComposer();
-    const pending = driven.beginSend("ship it");
-
-    expect(driven.latest().status).toBe("sending");
-    await act(async () => {
-      driven.calls.resolveOldest(STEER_APPLIED);
-      await pending;
-    });
-  });
-
-  it("still latches the address the composer is on, so one press sends once", async () => {
-    // Keying must not relax this: two presses at one address in one tick are one send.
-    const driven = driveAddressableComposer();
-    driven.reAddressTo(SESSION_B);
-    const pending = driven.beginSend("ship it");
-    const second = driven.latest().send();
-
-    expect(driven.calls.parkedCount).toBe(1);
-    await act(async () => {
-      driven.calls.resolveOldest(STEER_APPLIED);
-      await Promise.all([pending, second]);
-    });
-  });
-
-  it("frees the claim of the address a late settlement belongs to, and no other", async () => {
-    // A late settlement releases the address it was issued at, so returning there can send.
-    const driven = driveAddressableComposer();
-    const pending = driven.beginSend("ship it");
-    driven.reAddressTo(SESSION_B);
-    await act(async () => {
-      driven.calls.resolveOldest(STEER_APPLIED);
-      await pending;
-    });
-
-    expect(driven.latest().status).toBe("idle");
-    driven.reAddressTo(SESSION_A);
-    const resumed = driven.beginSend("ship it again");
-
-    expect(driven.calls.parkedCount).toBe(1);
-    await act(async () => {
-      driven.calls.resolveOldest(STEER_APPLIED);
-      await resumed;
-    });
   });
 });

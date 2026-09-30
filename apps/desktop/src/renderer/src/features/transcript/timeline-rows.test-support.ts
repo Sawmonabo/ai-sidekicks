@@ -12,27 +12,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 /** The one session every fixture row belongs to. */
-export const FIXTURE_SESSION_ID = "11111111-2222-4333-8444-555555555555" as SessionId;
-
-/** What every builder takes, beyond what its own arm requires. */
-export interface FixtureRowInput {
-  readonly id: string;
-  readonly sequence: number;
-  readonly type: string;
-  readonly category?: EventCategory;
-  readonly actor?: string;
-  readonly summary?: string;
-  readonly timestamp?: string;
-  readonly payload?: Readonly<Record<string, unknown>>;
-}
-
-/**
- * A wall-clock instant derived from the sequence: one second per step from a fixed epoch, so
- * rows order the same way by sequence and by `occurredAt` unless a case says otherwise.
- */
-export function fixtureTimestamp(sequence: number): string {
-  return new Date(Date.UTC(2026, 0, 1, 9, 0, sequence)).toISOString();
-}
+const FIXTURE_SESSION_ID = "11111111-2222-4333-8444-555555555555" as SessionId;
 
 /** The `general` arm — a row carrying no run attribution. */
 export function generalRow(input: FixtureRowInput): TimelineRow {
@@ -123,6 +103,26 @@ export function rollbackBoundaryRow(
       targetPosition: input.targetPosition ?? input.position,
     },
   };
+}
+
+/** What every builder takes, beyond what its own arm requires. */
+interface FixtureRowInput {
+  readonly id: string;
+  readonly sequence: number;
+  readonly type: string;
+  readonly category?: EventCategory;
+  readonly actor?: string;
+  readonly summary?: string;
+  readonly timestamp?: string;
+  readonly payload?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * A wall-clock instant derived from the sequence: one second per step from a fixed epoch, so
+ * rows order the same way by sequence and by `occurredAt` unless a case says otherwise.
+ */
+function fixtureTimestamp(sequence: number): string {
+  return new Date(Date.UTC(2026, 0, 1, 9, 0, sequence)).toISOString();
 }
 
 function commonFields(input: FixtureRowInput): {

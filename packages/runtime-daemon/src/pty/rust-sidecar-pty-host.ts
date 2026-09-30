@@ -10,15 +10,6 @@
 // - Effectful primitives are injectable through `RustSidecarPtyHostDeps`.
 
 import { Buffer } from "node:buffer";
-import {
-  type DrainResult,
-  type Envelope,
-  type ExitCodeNotification,
-  type PtyHost,
-  type PtySignal,
-  type SpawnRequest,
-  type SpawnResponse,
-} from "@ai-sidekicks/contracts";
 import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js";
 import { PtyBackendUnavailableError, resolveSidecarBinaryPath } from "./sidecar-binary-path.js";
 import { isStrictBase64, serializeFrame, SidecarFrameDecodeError } from "./sidecar-frame-codec.js";
@@ -29,6 +20,14 @@ import {
   type SidecarSpawnFn,
 } from "./sidecar-child-supervisor.js";
 import { SidecarPreSpawnBuffer } from "./sidecar-pre-spawn-buffer.js";
+import type {
+  Envelope,
+  ExitCodeNotification,
+  PtySignal,
+  SpawnRequest,
+  SpawnResponse,
+} from "./pty-host-protocol.js";
+import type { DrainResult, PtyHost } from "./pty-host.js";
 
 /** Effectful primitives `RustSidecarPtyHost` reaches through; tests inject a double for each. */
 export interface RustSidecarPtyHostDeps {

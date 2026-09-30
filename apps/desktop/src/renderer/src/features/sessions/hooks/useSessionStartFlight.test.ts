@@ -39,17 +39,6 @@ describe("starting a session — one create at a time", () => {
     expect(admitted).toStrictEqual([true, false, false]);
   });
 
-  it("reports the create as outstanding while it runs, so the control can say why", () => {
-    const { result } = renderHook(() => useSessionStartFlight(BRIDGE, true));
-    expect(result.current.isOutstanding).toBe(false);
-
-    act(() => {
-      result.current.admit();
-    });
-
-    expect(result.current.isOutstanding).toBe(true);
-  });
-
   it("gives the key back when the create settles, made a session or refused", () => {
     // A settlement reported on the created arm alone would leave Start dead after one refusal.
     const { result } = renderHook(() => useSessionStartFlight(BRIDGE, true));

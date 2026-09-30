@@ -70,18 +70,6 @@ describe("NewSessionDraft — the send", () => {
     });
   });
 
-  it("names the missing first turn when the person typed none", async () => {
-    // The turn is the only call left after the create, and its absence is the person's choice,
-    // not a fact about the build, hence its own code.
-    const draft = draftFor({ scriptsCreate: true });
-    draft.setPosture("trusted");
-    const result = await draft.send();
-
-    expect(result.outcome).toBe("partial");
-    expect(result.completedCalls).toStrictEqual(["session.create"]);
-    expect(result.refusal?.code).toBe("first-turn-missing");
-  });
-
   it("refuses the turn that could not be queued, without claiming it landed", async () => {
     const draft = draftFor({ scriptsCreate: true });
     draft.setFirstTurn("Start on the parser.");
@@ -143,19 +131,14 @@ describe("NewSessionDraft — what a send that REJECTED reports", () => {
   // place would clear the result and leave Send doing nothing, so the sentence is asserted
   // where it is built.
 
-  it("carries a code of the draft's own vocabulary rather than clearing the press", () => {
+  it("carries a code of the draft's own vocabulary and claims nothing was created", () => {
     const reported = refuseSendThatRejected();
 
     expect(reported.outcome).toBe("refused");
     expect(reported.refusal?.code).toBe("send-failed");
     expect(reported.refusal?.origin).toBe(NEW_SESSION_DRAFT_REFUSAL_ORIGIN);
-  });
-
-  it("negative control: it claims nothing was created", () => {
-    // Without this, the case above would pass over a report that still carried a session id,
-    // telling a person to retry a create that may have landed.
-    const reported = refuseSendThatRejected();
-
+    // A report still carrying a session id would tell a person to retry a create that may
+    // have landed.
     expect(reported.sessionId).toBeUndefined();
     expect(reported.completedCalls).toStrictEqual([]);
   });

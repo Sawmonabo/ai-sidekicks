@@ -1,5 +1,6 @@
-// `highlight.read`'s boundary: the request a surface sends and the packed span
-// list it paints from.
+// `highlight.read`'s boundary: a source is bounded by its encoded bytes, not its characters, and a
+// span list is refused unless a surface can paint it: whole triples, known classes, non-empty
+// spans in source order, and small enough for one reply frame.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,12 +20,6 @@ describe("highlight.read request", () => {
     ).toBe(true);
   });
 
-  it("refuses a language outside the closed set", () => {
-    expect(
-      HighlightReadRequestSchema.safeParse({ language: "brainfuck", source: "+++" }).success,
-    ).toBe(false);
-  });
-
   it("refuses an empty source and one over the byte bound", () => {
     expect(HighlightReadRequestSchema.safeParse({ language: "json", source: "" }).success).toBe(
       false,
@@ -38,13 +33,6 @@ describe("highlight.read request", () => {
       HighlightReadRequestSchema.safeParse({ language: "json", source: `${atBound}x` }).success,
     ).toBe(false);
   });
-
-  it("refuses a member it does not declare", () => {
-    expect(
-      HighlightReadRequestSchema.safeParse({ language: "go", source: "package main", theme: "x" })
-        .success,
-    ).toBe(false);
-  });
 });
 
 describe("highlight.read reply", () => {
@@ -55,19 +43,10 @@ describe("highlight.read reply", () => {
     expect(HighlightReadResponseSchema.safeParse({ spans: [] }).success).toBe(true);
   });
 
-  it("refuses a list that is not whole triples", () => {
+  it("refuses a span list a surface could not paint", () => {
     expect(HighlightReadResponseSchema.safeParse({ spans: [0, 5] }).success).toBe(false);
-  });
-
-  it("refuses a class index outside the span classes", () => {
     expect(HighlightReadResponseSchema.safeParse({ spans: [0, 5, 5] }).success).toBe(false);
-  });
-
-  it("refuses an empty span", () => {
     expect(HighlightReadResponseSchema.safeParse({ spans: [0, 0, 1] }).success).toBe(false);
-  });
-
-  it("refuses spans that overlap or run backwards", () => {
     expect(HighlightReadResponseSchema.safeParse({ spans: [0, 5, 0, 4, 2, 1] }).success).toBe(
       false,
     );

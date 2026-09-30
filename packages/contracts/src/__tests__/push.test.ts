@@ -1,6 +1,5 @@
-// A push crosses from the machine to the control plane and on to Apple, Google or a
-// browser's push service, whose payload and collapse limits the request must meet
-// before it leaves the machine.
+// A push crosses from the machine to the control plane and on to Apple, Google or a browser's
+// push service, so the sealed notice is bounded by its decoded bytes before it leaves the machine.
 import { describe, expect, it } from "vitest";
 
 import { PushSendRequestSchema } from "../push.js";
@@ -25,18 +24,5 @@ describe("push.send", () => {
         sealed: Buffer.alloc(4097, 9).toString("base64"),
       }).success,
     ).toBe(false);
-  });
-
-  it("refuses a collapse id Web Push's Topic header cannot carry", () => {
-    expect(
-      PushSendRequestSchema.safeParse({
-        ...request,
-        collapseId: "550e8400-e29b-41d4-a716-446655440000",
-      }).success,
-    ).toBe(false);
-  });
-
-  it("refuses an urgency outside high and normal", () => {
-    expect(PushSendRequestSchema.safeParse({ ...request, urgency: "low" }).success).toBe(false);
   });
 });

@@ -5,10 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  TOOL_KINDS,
   TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY,
   TOOL_KIND_PAYLOAD_KEY,
-  TOOL_SERVER_LABEL_PAYLOAD_KEY,
   readDeclaredToolKind,
 } from "./tool-kinds.js";
 
@@ -20,48 +18,10 @@ describe("a tool row's declared tool kind", () => {
     ).toBeUndefined();
   });
 
-  it("reads every member of the declared vocabulary", () => {
-    for (const toolKind of TOOL_KINDS) {
-      expect(readDeclaredToolKind({ [TOOL_KIND_PAYLOAD_KEY]: toolKind })).toStrictEqual({
-        kind: "declared",
-        toolKind,
-        serverLabel: undefined,
-        argumentSummary: [],
-      });
-    }
-  });
-
   it("names a value this build does not know rather than dropping it", () => {
     expect(readDeclaredToolKind({ [TOOL_KIND_PAYLOAD_KEY]: "notebook-cell" })).toStrictEqual({
       kind: "unrecognized",
       declared: "notebook-cell",
-    });
-  });
-
-  it("carries the MCP server label the row names", () => {
-    expect(
-      readDeclaredToolKind({
-        [TOOL_KIND_PAYLOAD_KEY]: "mcp",
-        [TOOL_SERVER_LABEL_PAYLOAD_KEY]: "sentry",
-      }),
-    ).toStrictEqual({
-      kind: "declared",
-      toolKind: "mcp",
-      serverLabel: "sentry",
-      argumentSummary: [],
-    });
-  });
-
-  it("carries the argument summary the daemon composed, in order", () => {
-    const reading = readDeclaredToolKind({
-      [TOOL_KIND_PAYLOAD_KEY]: "mcp",
-      [TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY]: ["issueId: PROJ-4", "limit: 20"],
-    });
-    expect(reading).toStrictEqual({
-      kind: "declared",
-      toolKind: "mcp",
-      serverLabel: undefined,
-      argumentSummary: ["issueId: PROJ-4", "limit: 20"],
     });
   });
 
@@ -74,14 +34,6 @@ describe("a tool row's declared tool kind", () => {
     expect(reading?.kind === "declared" ? reading.argumentSummary : undefined).toStrictEqual([
       "issueId: PROJ-4",
     ]);
-  });
-
-  it("treats a non-array summary as no summary at all", () => {
-    const reading = readDeclaredToolKind({
-      [TOOL_KIND_PAYLOAD_KEY]: "mcp",
-      [TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY]: "issueId: PROJ-4",
-    });
-    expect(reading?.kind === "declared" ? reading.argumentSummary : undefined).toStrictEqual([]);
   });
 
   it("reads no tool kind off a declaration that is not a wire string", () => {

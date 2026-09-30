@@ -1,7 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates `build/`, the code that runs during `pnpm build` (`assert-webprefs.ts`), without
-  // emitting. The production `tsconfig.json` has `rootDir: ./src` and does not cover it; this
+  // Type-validates `build/`, the build's own code and its tests, without emitting. The production `tsconfig.json` has `rootDir: ./src` and does not cover it; this
   // sibling mirrors `tsconfig.test.json` (noEmit, isolated buildinfo) so it is typechecked without
   // touching the project-references graph or the production `dist/` layout.
   //

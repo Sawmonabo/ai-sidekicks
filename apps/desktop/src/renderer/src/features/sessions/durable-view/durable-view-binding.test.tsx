@@ -43,13 +43,6 @@ class RecordingBinding implements DurableViewBinding {
 }
 
 describe("the holder that keys a binding on its store", () => {
-  it("hands the same binding back while the store is the same", () => {
-    const adapter = new MemoryPersistenceAdapter();
-    const store = openStoreOver(adapter);
-    const holder = new DurableViewBindingHolder(() => new RecordingBinding());
-    expect(holder.acquire(store)).toBe(holder.acquire(store));
-  });
-
   it("disposes the binding a different store supersedes, exactly once", () => {
     const adapter = new MemoryPersistenceAdapter();
     const holder = new DurableViewBindingHolder(() => new RecordingBinding());

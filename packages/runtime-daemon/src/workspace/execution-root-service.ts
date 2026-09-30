@@ -36,6 +36,7 @@ import {
   type ReusableWorktreeCandidate,
   type ValidateWorktreeReuseInput,
 } from "../git/worktree-service.js";
+import { HOOK_NEUTRALIZATION_SEGMENT } from "../git/worktree-git.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 
 import { RepoMountNotFoundError } from "./repo-errors.js";
@@ -45,9 +46,6 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 /** Two minutes, matching the worktree service; the only git call here is a `symbolic-ref` read. */
 const DEFAULT_EXECUTION_ROOT_GIT_TIMEOUT_MS = 120_000;
-
-/** Same name as in `../git/worktree-service.ts`, so both services share one hooks directory. */
-const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
 
 /** A space is illegal in a git ref, so this cannot be mistaken for a real branch name. */
 const DETACHED_HEAD_BRANCH_LABEL = "(detached HEAD)";

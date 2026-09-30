@@ -1,11 +1,8 @@
 // Mounting the accounts fixture body over a registry reading built here, and reading it back.
-// Three suites drive this page (the registry reading, and the sign-in tracker while a flow runs
-// or after it ends) and share the registry, the mount and the readers. The registry is built
-// from the contract types, so every state a case reaches is one the wire can carry.
+// The registry is built from the contract types, so every state a case reaches is one the wire
+// can carry.
 
 import { fireEvent, render } from "@testing-library/react";
-import { vi } from "vitest";
-
 import type {
   ProviderAccount,
   ProviderAccountId,
@@ -23,21 +20,9 @@ import {
   type AccountOperations,
 } from "./AccountsFixtureBody.js";
 
-/** A mounted fixture body, and the handles a case needs to change what it is handed. */
-export interface MountedAccountsPage {
-  readonly container: HTMLElement;
-  /** Re-render the same mount with another registry reading. */
-  readonly showRegistry: (registry: AccountListReading) => void;
-  /** Called each time the fixture body asks for a fresh registry read. */
-  readonly requestRegistryRead: ReturnType<typeof vi.fn<() => void>>;
-}
-
 const WORK_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const PERSONAL_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 const BATCH_ACCOUNT_ID = "pa-0003" as ProviderAccountId;
-
-/** Provider-published limit identifiers, which the page must never draw. */
-export const WIRE_LIMIT_IDS = ["weekly_all", "weekly_opus", "weekly_code"] as const;
 
 /** An account the daemon observed and found signed in. */
 const WORK_ACCOUNT: ProviderAccount = {
@@ -144,38 +129,15 @@ export const ACCOUNT_REGISTRY: AccountListReading = {
   newestLoginCompletion: undefined,
 };
 
-/** A registry whose first read has not landed. */
-export const UNREAD_ACCOUNT_REGISTRY: AccountListReading = {
-  phase: "reading",
-  accounts: [],
-  readiness: [],
-  usageWindows: [],
-  newestLoginCompletion: undefined,
-};
-
-/** The registry, reporting the brokered attempt with this id finished. */
-export function registryReportingCompleted(attemptId: string): AccountListReading {
-  return {
-    ...ACCOUNT_REGISTRY,
-    newestLoginCompletion: {
-      kind: "login_completed",
-      attemptId,
-      accountId: PERSONAL_ACCOUNT_ID,
-      outcome: "succeeded",
-    },
-  };
-}
-
 /**
  * Mount the fixture body under the two providers every console screen renders inside.
  *
- * A verb the case does not supply never answers. The operations object is created once so
- * a re-render does not rebuild the sign-in tracker.
+ * A verb the case does not supply never answers.
  */
 export function mountAccountsPage(options: {
   readonly registry: AccountListReading;
   readonly operations?: Partial<AccountOperations>;
-}): MountedAccountsPage {
+}): { readonly container: HTMLElement } {
   const fixture = createFixtureBridge({ scenario: unscriptedScenario("accounts-fixture-body") });
   const operations: AccountOperations = {
     login: () => NEVER_SETTLES,
@@ -183,26 +145,18 @@ export function mountAccountsPage(options: {
     register: () => NEVER_SETTLES,
     ...options.operations,
   };
-  const requestRegistryRead = vi.fn<() => void>();
-  const tree = (registry: AccountListReading): React.JSX.Element => (
+  const { container } = render(
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
         <AccountsFixtureBody
-          registry={registry}
-          requestRegistryRead={requestRegistryRead}
+          registry={options.registry}
+          requestRegistryRead={() => undefined}
           operations={operations}
         />
       </LiveAnnouncerProvider>
-    </FixtureBridgeProvider>
+    </FixtureBridgeProvider>,
   );
-  const { container, rerender } = render(tree(options.registry));
-  return {
-    container,
-    requestRegistryRead,
-    showRegistry: (registry) => {
-      rerender(tree(registry));
-    },
-  };
+  return { container };
 }
 
 /** Every start-sign-in control the readiness list is currently offering. */
@@ -219,14 +173,4 @@ export function pressFirstStartControl(container: HTMLElement): void {
     throw new Error("the readiness list offered no sign-in control to press");
   }
   fireEvent.click(control);
-}
-
-/** Open one account's detail the way a person does — by pressing its row. */
-export function selectAccount(container: HTMLElement, displayLabel: string): void {
-  const rows = [...container.querySelectorAll<HTMLButtonElement>(".meridian-accounts__row")];
-  const row = rows.find((button) => (button.textContent ?? "").includes(displayLabel));
-  if (row === undefined) {
-    throw new Error(`the registry rendered no account row labeled ${displayLabel}`);
-  }
-  fireEvent.click(row);
 }

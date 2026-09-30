@@ -20,9 +20,6 @@ import type {
 // Not `refs/heads/`, so snapshots stay out of branch history, PR preparation and diffs.
 const SNAPSHOT_REF_ROOT = "refs/sidekicks/runs";
 
-/** Must match `./worktree-service.ts`, so a temp reaper cannot remove one from under the other. */
-export const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
-
 /** Outside the worktree, so scratch indexes never show up in `ls-files -o` or `git status`. */
 export const SNAPSHOT_INDEX_SEGMENT = ".snapshot-indexes";
 

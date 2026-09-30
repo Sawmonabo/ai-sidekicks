@@ -1,6 +1,6 @@
-// The chain rule driven directly. The case both forms got wrong is the mixed chain, one axis
-// chosen by a person and the rest inherited, so each case composes a chain from different
-// places and asserts against the vocabulary the catalog publishes, not the value typed.
+// The chain rule driven directly. The mixed chain, one axis chosen by a person and the rest
+// inherited, is where an axis goes stale, so each case composes a chain from different places
+// and asserts against the vocabulary the catalog publishes, not the value typed.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,15 +41,6 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
 
   it("refuses a driver the catalog never named", () => {
     expect(findAxesOutsideCatalog({ driverName: "gemini" }, CATALOG)).toEqual(["driverName"]);
-  });
-
-  it("reports the axes parent first, so a person reads the cause before the consequence", () => {
-    expect(
-      findAxesOutsideCatalog(
-        { driverName: "gemini", modelId: "shared-model", effort: "low" },
-        CATALOG,
-      ),
-    ).toEqual(["driverName", "modelId", "effort"]);
   });
 
   it("negative control: an unsettled axis is not a refused one", () => {

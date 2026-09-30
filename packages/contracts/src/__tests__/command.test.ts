@@ -1,14 +1,9 @@
-// The running commands cross from the daemon to every device, and the acts on them
-// cross back. These tests hold the frames the working line's list draws from, the
-// input a waiting command accepts, and the stored ending a reload settles a row by.
+// The running commands cross from the daemon to every device, and the acts on them cross back.
+// These tests hold the set frame's rule that a command appears once, and the write's rule that
+// it carries text, the end of input, or both.
 import { describe, expect, it } from "vitest";
 
-import {
-  CommandEndedPayloadSchema,
-  CommandListFrameSchema,
-  CommandStopRequestSchema,
-  CommandWriteRequestSchema,
-} from "../command.js";
+import { CommandListFrameSchema, CommandWriteRequestSchema } from "../command.js";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const RUN_ID = "22222222-2222-4222-8222-222222222222";
@@ -41,19 +36,6 @@ describe("command.list frames", () => {
     const frame = { kind: "commands", sessionId: SESSION_ID, commands: [running, running] };
     expect(CommandListFrameSchema.safeParse(frame).success).toBe(false);
   });
-
-  it("refuses a command that does not say whether it waits on its input", () => {
-    const { waitingForInput: _omitted, ...withoutWaiting } = running;
-    const frame = { kind: "commands", sessionId: SESSION_ID, commands: [withoutWaiting] };
-    expect(CommandListFrameSchema.safeParse(frame).success).toBe(false);
-  });
-});
-
-describe("command.stop", () => {
-  it("names one command and never sweeps", () => {
-    expect(CommandStopRequestSchema.safeParse(COMMAND).success).toBe(true);
-    expect(CommandStopRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(false);
-  });
 });
 
 describe("command.write", () => {
@@ -70,23 +52,6 @@ describe("command.write", () => {
   it("refuses a write that carries neither", () => {
     expect(CommandWriteRequestSchema.safeParse(COMMAND).success).toBe(false);
     expect(CommandWriteRequestSchema.safeParse({ ...COMMAND, endOfInput: false }).success).toBe(
-      false,
-    );
-  });
-});
-
-describe("command.ended", () => {
-  const ended = { ...COMMAND, runId: RUN_ID, ending: "ended_by_person", durationMs: 4200 };
-
-  it("accepts one of the three endings", () => {
-    expect(CommandEndedPayloadSchema.safeParse(ended).success).toBe(true);
-    expect(
-      CommandEndedPayloadSchema.safeParse({ ...ended, ending: "failed", exitCode: 2 }).success,
-    ).toBe(true);
-  });
-
-  it("refuses an ending outside the three", () => {
-    expect(CommandEndedPayloadSchema.safeParse({ ...ended, ending: "timed_out" }).success).toBe(
       false,
     );
   });

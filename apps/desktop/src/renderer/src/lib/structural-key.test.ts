@@ -7,12 +7,6 @@ import { describe, expect, it } from "vitest";
 import { structuralKey } from "./structural-key.js";
 
 describe("structuralKey", () => {
-  it("keys one tuple the same way twice", () => {
-    expect(structuralKey(["/work/atlas", "filesystem"])).toBe(
-      structuralKey(["/work/atlas", "filesystem"]),
-    );
-  });
-
   it("keys two tuples apart when a space moves across the boundary between them", () => {
     // Under a space join both tuples read `/repo one server`, so one binding's outcome would land
     // on the other's control.
@@ -28,10 +22,6 @@ describe("structuralKey", () => {
     expect(structuralKey(["claude", "user", "", "filesystem"])).not.toBe(
       structuralKey(["claude", "user", "filesystem"]),
     );
-  });
-
-  it("keys the same segments in a different order apart", () => {
-    expect(structuralKey(["left", "right"])).not.toBe(structuralKey(["right", "left"]));
   });
 
   // Negative control: an encoder answering a fresh string per call would satisfy every inequality

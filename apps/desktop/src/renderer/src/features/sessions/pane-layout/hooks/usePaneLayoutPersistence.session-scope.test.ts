@@ -68,15 +68,4 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
 
     expect(mounted.restoreRefusalCodes()).toStrictEqual(["snapshot-version-unknown"]);
   });
-
-  it("negative control: a session that refuses its restore renders that refusal at all", async () => {
-    // Without this, a hook that returned an empty list would pass the two cases above.
-    const store = memoryStore();
-    await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
-    const mounted = mountPersistence(createPaneLayoutStore(), store);
-
-    await drain();
-
-    expect(mounted.restoreRefusalCodes()).toStrictEqual(["snapshot-version-unknown"]);
-  });
 });

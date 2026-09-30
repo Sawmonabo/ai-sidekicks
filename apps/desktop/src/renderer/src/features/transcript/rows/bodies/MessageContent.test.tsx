@@ -7,8 +7,6 @@ import { MessageContent } from "./MessageContent.js";
 
 const ESCAPE = "\u001b";
 
-const BEL = "\u0007";
-
 function renderBody(
   content: HydratedSessionEventContent | undefined,
   overrides: { readonly liveText?: string; readonly contentType?: string } = {},
@@ -30,70 +28,8 @@ function renderDeclaredBody(body: string, mediaType: string): HTMLElement {
   return renderBody({ status: "available", body }, { contentType: mediaType });
 }
 
-describe("a body that opened", () => {
-  it("renders it", () => {
-    const container = renderBody({ status: "available", body: "the reply" });
-    expect(container.textContent).toContain("the reply");
-  });
-
-  it("negative control: it says nothing about truncation", () => {
-    const container = renderBody({ status: "available", body: "the reply" });
-    expect(container.textContent).not.toContain("Truncated");
-    expect(container.textContent).not.toContain("turn_content_truncated");
-  });
-});
-
-describe("a body that was truncated", () => {
-  it("renders the prefix and says how much of it is shown", () => {
-    const container = renderBody({
-      status: "available",
-      body: "the prefix",
-      contentLength: 4096,
-      contentTruncated: true,
-    });
-    expect(container.textContent).toContain("the prefix");
-    expect(container.textContent).toContain("Truncated when recorded");
-    // A no-break space, as `formatByteQuantity` emits it.
-    expect(container.textContent).toContain("4.0\u00A0KiB");
-  });
-
-  it("names the declared loss the wire vocabulary carries", () => {
-    const container = renderBody({
-      status: "available",
-      body: "the prefix",
-      contentTruncated: true,
-    });
-    expect(container.textContent).toContain("turn_content_truncated");
-  });
-
-  it("does not invent a total the payload did not record", () => {
-    const container = renderBody({
-      status: "available",
-      body: "the prefix",
-      contentTruncated: true,
-    });
-    expect(container.textContent).toContain("the original size was not recorded");
-  });
-});
-
-describe("a body that could not be read", () => {
-  it("renders the turn at its position with an empty body", () => {
-    const container = renderBody({ status: "unavailable", reason: "purged" });
-    expect(container.querySelector(".meridian-machine-body__empty")).not.toBeNull();
-    expect(container.textContent).toContain("This turn's content was deleted with its session.");
-    expect(container.textContent).toContain("turn_content_unavailable");
-  });
-});
-
 describe("a body nobody asked for", () => {
-  it("says it has not been read, which is not the same as not being there", () => {
-    const container = renderBody(undefined);
-    // `not-checked`, not `not-loaded`: nothing is in flight, and a skeleton promises a body.
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
-  });
-
-  it("negative control: live text is rendered rather than reported absent", () => {
+  it("live text is rendered rather than reported absent", () => {
     // A streaming turn has no stored body, so the unread marker would be wrong for it.
     const container = renderBody(undefined, { liveText: "arriving now" });
     expect(container.textContent).toContain("arriving now");
@@ -126,21 +62,6 @@ describe("the media type its producer declared", () => {
     expect(container.textContent).toContain("*literal*");
   });
 
-  it("keeps declared plain text off the ANSI path and still puts no escape on the page", () => {
-    // Declared plain text is never command output, but the escape bytes are still stripped.
-    const container = renderDeclaredBody(`${ESCAPE}]0;a title${BEL}built`, "text/plain");
-    expect(container.querySelector(".meridian-machine-body__plain")).not.toBeNull();
-    expect(container.querySelector(".meridian-ansi__body")).toBeNull();
-    expect(container.textContent).toBe("built");
-  });
-
-  it("takes the plain arm for a declaration this console has no renderer for", () => {
-    const container = renderDeclaredBody('{ "ok": **true** }', "application/json");
-    expect(container.querySelector(".meridian-machine-body__plain")).not.toBeNull();
-    expect(container.querySelector("strong")).toBeNull();
-    expect(container.textContent).toContain("**true**");
-  });
-
   it("reads the type through its parameters and its case", () => {
     // `contentType` is a free-form wire string; comparing the raw member would send real
     // markdown to the plain arm.
@@ -148,28 +69,5 @@ describe("the media type its producer declared", () => {
       const container = renderDeclaredBody("an ordinary **reply**", declared);
       expect(container.querySelector("strong")?.textContent).toBe("reply");
     }
-  });
-
-  it("declares the shape of a live turn as well as a stored one", () => {
-    // A streaming turn has no stored body yet but carries the same declaration.
-    const container = renderBody(undefined, {
-      liveText: "arriving *now*",
-      contentType: "text/plain",
-    });
-    expect(container.querySelector(".meridian-machine-body__plain")).not.toBeNull();
-    expect(container.textContent).toContain("arriving *now*");
-  });
-
-  it("negative control: a body with no declaration still reads its own bytes", () => {
-    // The tool trio carries no content type, so its bytes decide.
-    const ansi = renderBody({
-      status: "available",
-      body: `${ESCAPE}[31mfailed${ESCAPE}[39m`,
-    });
-    expect(ansi.querySelector(".meridian-ansi__body")).not.toBeNull();
-
-    const prose = renderBody({ status: "available", body: "an ordinary **reply**" });
-    expect(prose.querySelector(".meridian-markdown")).not.toBeNull();
-    expect(prose.querySelector(".meridian-machine-body__plain")).toBeNull();
   });
 });

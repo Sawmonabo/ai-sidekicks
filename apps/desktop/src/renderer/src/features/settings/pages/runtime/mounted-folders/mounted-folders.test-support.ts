@@ -14,7 +14,7 @@ import type {
 export const SESSION_ID = "019b7911-0000-7000-8000-000000000001";
 
 /** The node every mount below is attached on. */
-export const NODE_ID = "019b7911-0003-7000-8000-000000000001";
+const NODE_ID = "019b7911-0003-7000-8000-000000000001";
 
 /** The project every mount below belongs to. */
 export const PROJECT_ID = "019b7911-0005-7000-8000-000000000001";

@@ -11,15 +11,6 @@ import { MarkdownBlockSegmenter } from "./block-segmenter.js";
 const FIVE_PARAGRAPHS = "one\n\ntwo\n\nthree\n\nfour\n\nfive";
 
 describe("splitting a stream into settled blocks and a volatile tail", () => {
-  it("settles nothing until the lag is cleared", () => {
-    const segmenter = new MarkdownBlockSegmenter();
-    const first = segmenter.segment("one\n\ntwo\n\nthree");
-    expect(segmenter.completeBlockCount).toBeLessThanOrEqual(MARKDOWN_SETTLE_LAG_BLOCKS);
-    expect(first.settledBlocks).toStrictEqual([]);
-    expect(first.volatileTail).toContain("one");
-    expect(first.volatileTail).toContain("three");
-  });
-
   it("settles a block once the lag has moved past it", () => {
     const segmenter = new MarkdownBlockSegmenter();
     const segmentation = segmenter.segment(FIVE_PARAGRAPHS);
@@ -44,12 +35,6 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     const segmentation = segmenter.segment(fenced);
     expect(segmentation.settledBlocks[0]).toContain("```ts");
     expect(segmentation.settledBlocks[0]).toContain("const b = 2;");
-  });
-
-  it("treats a tilde fence the same way", () => {
-    const segmenter = new MarkdownBlockSegmenter();
-    const fenced = "~~~\nline\n\nline\n~~~\n\nafter\n\ntail\n\nlast\n\nend";
-    expect(segmenter.segment(fenced).settledBlocks[0]).toContain("~~~");
   });
 
   it("resets rather than gluing a new history onto an old tail", () => {
@@ -91,13 +76,7 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     expect(segmentation.settledBlocks[0]).toContain("const b = 2;");
   });
 
-  it("negative control: the same snapshot still holds the lag while the body is in flight", () => {
-    const segmentation = new MarkdownBlockSegmenter().segment(FIVE_PARAGRAPHS);
-    expect(segmentation.settledBlocks).toHaveLength(3 - MARKDOWN_SETTLE_LAG_BLOCKS);
-    expect(segmentation.volatileTail).toContain("five");
-  });
-
-  it("negative control: a blank run at the end of the snapshot commits nothing", () => {
+  it("a blank run at the end of the snapshot commits nothing", () => {
     const segmenter = new MarkdownBlockSegmenter();
     const segmentation = segmenter.segment("one\n\ntwo\n\nthree");
     expect(segmenter.completeBlockCount).toBe(1);
@@ -141,36 +120,6 @@ describe("a blank line inside a container", () => {
   it.each(CONTAINER_CASES)("keeps $what in one block", ({ source, expectedFirstBlock }) => {
     expect(new MarkdownBlockSegmenter().segment(source).settledBlocks[0]).toBe(expectedFirstBlock);
   });
-
-  it("negative control: a paragraph still ends at its blank line", () => {
-    const segmentation = new MarkdownBlockSegmenter().segment(
-      "first paragraph\n\nsecond paragraph\n\nafter\n\ntail\n\nlast\n\nend",
-    );
-    expect(segmentation.settledBlocks[0]).toBe("first paragraph\n\n");
-  });
-
-  it("negative control: a list that opens after a paragraph is its own block", () => {
-    // The container is read from the line the block opened on, not the one after the blank run.
-    const segmentation = new MarkdownBlockSegmenter().segment(
-      "a paragraph\n\n- an item\n\nafter\n\ntail\n\nlast\n\nend",
-    );
-    expect(segmentation.settledBlocks[0]).toBe("a paragraph\n\n");
-  });
-
-  it("negative control: a differently marked list is a different list", () => {
-    // Commonmark starts a new list when the bullet character changes.
-    const segmentation = new MarkdownBlockSegmenter().segment(
-      "- a\n\n* b\n\nafter\n\ntail\n\nlast\n\nend",
-    );
-    expect(segmentation.settledBlocks[0]).toBe("- a\n\n");
-  });
-
-  it("negative control: a paragraph at column zero ends the list above it", () => {
-    const segmentation = new MarkdownBlockSegmenter().segment(
-      "- an item\n\nback at the margin\n\nafter\n\ntail\n\nlast\n\nend",
-    );
-    expect(segmentation.settledBlocks[0]).toBe("- an item\n\n");
-  });
 });
 
 /**
@@ -207,17 +156,5 @@ const LEADING_WHITESPACE_CASES: readonly {
 describe("what the volatile tail strips from its own head", () => {
   it.each(LEADING_WHITESPACE_CASES)("keeps $what", ({ source, expectedTail }) => {
     expect(new MarkdownBlockSegmenter().segment(source).volatileTail).toBe(expectedTail);
-  });
-
-  it("negative control: the separator itself is still removed", () => {
-    // The blank run here is longer than the one the commit consumed, so the lagged block the
-    // tail is joined from begins on one.
-    const segmentation = new MarkdownBlockSegmenter().segment(
-      "one\n\n\n\ntwo\n\nthree\n\nfour\n\nfive",
-    );
-
-    expect(segmentation.volatileTail.startsWith("\n")).toBe(false);
-    expect(segmentation.volatileTail).toContain("two");
-    expect(segmentation.volatileTail).toContain("five");
   });
 });

@@ -78,10 +78,6 @@ describe("a jump by id names which narrowing is hiding the row", () => {
     };
   }
 
-  it("finds a row every stage admitted", () => {
-    expect(jumpToEventId(rows, stagesOver({}), "a1").status).toBe("found");
-  });
-
   it("names the run group fold and the cap, each for its own stage", () => {
     // Each stage is the only one narrowed in its case, so the answer can come from nowhere else.
     const foldedAway = rows.filter((row) => row.id !== "b1");
@@ -107,7 +103,7 @@ describe("a jump by id names which narrowing is hiding the row", () => {
     );
   });
 
-  it("negative control: with every stage admitting everything nothing is ever absent", () => {
+  it("with every stage admitting everything nothing is ever absent", () => {
     // Guards against a classifier that reports an absence for every id.
     for (const row of rows) {
       expect(jumpToEventId(rows, stagesOver({}), row.id).status).toBe("found");

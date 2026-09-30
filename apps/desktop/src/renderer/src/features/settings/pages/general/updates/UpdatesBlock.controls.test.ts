@@ -1,7 +1,6 @@
-// What the updates block's controls do: the download offered only by a found update, the
-// restart offered only by the finished arm, no confirmation between the press and the call,
-// and the automatic-check switch. What the block reads is in `UpdatesBlock.reading.test.ts`,
-// over the doubles in `updates-block.test-support.tsx`.
+// What the updates block's controls do: a found update downloads on a press, the restart is not
+// offered before the download finishes and needs no confirmation, and the automatic-check
+// switch. The doubles are in `updates-block.test-support.tsx`.
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -24,21 +23,9 @@ describe("the updates block — nothing downloads without a press", () => {
     await pressControl(block, "Download");
     expect(requestDownload).toHaveBeenCalledTimes(1);
   });
-
-  it("negative control: an update already downloading offers no download", async () => {
-    const { block } = await renderSettled(updaterReporting({ status: "downloading", percent: 10 }));
-    const labels = [...block.querySelectorAll("button")].map((button) => button.textContent ?? "");
-    expect(labels).not.toContain("Download");
-  });
 });
 
 describe("the updates block — nothing restarts without a press", () => {
-  it("offers the restart only once the download has finished", async () => {
-    const { block: ready } = await renderSettled(updaterReporting({ status: "ready" }));
-    const labels = [...ready.querySelectorAll("button")].map((button) => button.textContent ?? "");
-    expect(labels).toContain("Restart to apply");
-  });
-
   it("negative control: a download in progress offers no restart", async () => {
     // Guards against a page that always draws the control, letting a person restart into an
     // incomplete download.

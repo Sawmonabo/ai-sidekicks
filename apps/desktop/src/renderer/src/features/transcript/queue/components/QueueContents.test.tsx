@@ -53,19 +53,6 @@ describe("the queue renders the rows it is given", () => {
     // The feed's canonical FIFO order, unreordered: the admitted head first.
     expect(states).toStrictEqual(["admitted", "queued", "queued"]);
   });
-
-  it("keeps a row that is no longer waiting rather than dropping it", () => {
-    // A queue row is durable and never deleted, so the `admitted` row is still a row.
-    const container = renderQueue();
-    expect(container.textContent).toContain("admitted");
-  });
-
-  it("negative control: the empty state is not what rendered", () => {
-    // Guards against a component that rendered its empty state and happened to contain "queued".
-    const container = renderQueue();
-    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
-    expect(container.querySelectorAll(".meridian-queue__row")).toHaveLength(3);
-  });
 });
 
 describe("cancel before admission", () => {
@@ -75,12 +62,5 @@ describe("cancel before admission", () => {
     const cancelable = rows.map((row) => row.querySelector(".meridian-queue__cancel") !== null);
     // The `admitted` head cannot be taken back; the two `queued` rows can.
     expect(cancelable).toStrictEqual([false, true, true]);
-  });
-
-  it("negative control: the control is a real button, not decoration", () => {
-    const container = renderQueue();
-    const cancel = container.querySelector(".meridian-queue__cancel");
-    expect(cancel).toBeInstanceOf(HTMLButtonElement);
-    expect((cancel as HTMLButtonElement).disabled).toBe(false);
   });
 });

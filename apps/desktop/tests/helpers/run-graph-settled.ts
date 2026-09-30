@@ -72,8 +72,7 @@ function fittedViewportTransform(mountedElement: HTMLElement): string | undefine
  * little as a collapsed one: the root's height says there is somewhere to draw, and a node's box
  * inside it says something is drawn. Both are measured rather than inferred from a style
  * attribute. The node is compared against the root, not the pane's canvas box, because where the
- * picture sits in the surrounding view is the geometry gate's subject
- * (`browser/run-graph-geometry.test.ts`).
+ * picture sits in the surrounding view is a separate question.
  */
 function isGraphPainted(mountedElement: HTMLElement): boolean {
   const paintedRoot = mountedElement.querySelector<HTMLElement>(".meridian-run-graph .react-flow");

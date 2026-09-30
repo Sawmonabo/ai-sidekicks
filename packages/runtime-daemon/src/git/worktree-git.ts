@@ -40,7 +40,11 @@ export interface WorktreeFilesystem {
   removeDirectory(path: string): Promise<void>;
 }
 
-/** A dotted sibling of the per-mount root directories, so it can never collide with a mount id. */
+/**
+ * A dotted sibling of the per-mount root directories, so it can never collide with a mount id.
+ * The worktree, turn-snapshot and execution-root services share this one hooks directory, so a
+ * temp reaper in one cannot remove a hooks path from under another.
+ */
 export const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
 
 /**

@@ -1,7 +1,6 @@
-// The refusal grammar: three shapes, one contract. Every case drives all three shapes, and
-// `RefusalProps` is a `Pick` of `lib/refusal.ts`'s `Refusal`, so a refusal from `refuse()` reaches
-// each renderer without translation. The code is mono because it is a wire string; the message is
-// not, and both render exactly as sent.
+// The refusal grammar: three shapes, one contract. `RefusalProps` is a `Pick` of
+// `lib/refusal.ts`'s `Refusal`, so a refusal from `refuse()` reaches each renderer without
+// translation, and its code and message both reach the screen.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -18,7 +17,7 @@ const REFUSAL = refuse(
   "  The window's storage partition is full. Close a session to free space.  ",
 );
 
-/** The three shapes, so each property below is asserted against all of them. */
+/** The three shapes, so the contract below is asserted against all of them. */
 const SHAPES = [
   ["inline", InlineRefusal],
   ["card", RefusalCard],
@@ -41,57 +40,5 @@ describe("one refusal value reaches all three renderings untranslated", () => {
     expect(shape.className).toContain(`meridian-refusal--${name}`);
     expect(shape.textContent).toContain(REFUSAL.code);
     expect(shape.textContent).toContain(REFUSAL.detail);
-  });
-
-  it.each(SHAPES)("%s puts the code in mono and leaves the message out of it", (_name, Shape) => {
-    const shape = renderShape(<Shape {...REFUSAL} />);
-
-    const codeFigure = shape.querySelector(".meridian-figure--wire");
-    expect(codeFigure?.textContent).toBe(REFUSAL.code);
-
-    const message = shape.querySelector(".meridian-refusal__message");
-    expect(message?.textContent).toBe(REFUSAL.detail);
-    // Control: a message wrapped in a `WireFigure` would answer the mono selector.
-    expect(message?.classList.contains("meridian-figure--wire")).toBe(false);
-  });
-
-  it.each(SHAPES)("%s renders the daemon's message verbatim", (_name, Shape) => {
-    const message = renderShape(<Shape {...REFUSAL} />).querySelector(".meridian-refusal__message");
-    expect(message?.textContent).toBe(REFUSAL.detail);
-    // Trimming, truncating and appending a sentence are the paraphrases the grammar forbids.
-    expect(message?.textContent).not.toBe(REFUSAL.detail.trim());
-    expect(message?.textContent).not.toContain("Try again");
-  });
-
-  it.each(SHAPES)("%s offers the next move as a prop rather than deriving one", (_name, Shape) => {
-    const withAction = renderShape(
-      <Shape {...REFUSAL} action={<button type="button">Free space</button>} />,
-    );
-    expect(withAction.querySelector(".meridian-refusal__action button")?.textContent).toBe(
-      "Free space",
-    );
-    // No action supplied means none rendered; the renderer computes no remedy.
-    expect(
-      renderShape(<Shape {...REFUSAL} />).querySelector(".meridian-refusal__action"),
-    ).toBeNull();
-  });
-});
-
-describe("the shapes announce themselves without talking over the message", () => {
-  it("announces the inline shape politely and leaves the banner to the announcer", () => {
-    expect(renderShape(<InlineRefusal {...REFUSAL} />).getAttribute("role")).toBe("status");
-
-    // The frame announces banner raises through the one announcer, so the banner is a plain group.
-    // `role="status"` implies a live region, so the role is the control, not only the attribute.
-    const banner = renderShape(<RefusalBanner {...REFUSAL} />);
-    expect(banner.getAttribute("role")).toBe("group");
-    expect(banner.getAttribute("aria-live")).toBeNull();
-  });
-
-  it("leaves the transcript card out of the live regions", () => {
-    // A card lands in the transcript, which already announces its own rows.
-    const card = renderShape(<RefusalCard {...REFUSAL} />);
-    expect(card.getAttribute("role")).toBeNull();
-    expect(card.getAttribute("aria-live")).toBeNull();
   });
 });

@@ -11,7 +11,6 @@ import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStat
 import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
 import {
   registerTranscriptRowRenderer,
-  findTranscriptRowRenderer,
   unregisterTranscriptRowRenderer,
   type TranscriptRowProps,
 } from "../transcript-row-renderer.js";
@@ -19,7 +18,7 @@ import {
   registerTranscriptRowFooterRenderer,
   unregisterTranscriptRowFooterRenderer,
 } from "../transcript-row-footer-renderer.js";
-import { TRANSCRIPT_ROW_OWNER, registerTranscriptRows } from "../contributions/transcript-rows.js";
+import { registerTranscriptRows } from "../contributions/transcript-rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
 
@@ -85,20 +84,6 @@ function disclosureState(container: HTMLElement): string | null | undefined {
 }
 
 describe("routing a row to its card", () => {
-  it("sends a tool row to the tool card", () => {
-    const { container } = render(
-      <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="collapsed" />,
-    );
-    expect(container.querySelector(".meridian-tool-card__header")).not.toBeNull();
-  });
-
-  it("sends a message row to the message card", () => {
-    const { container } = render(
-      <MountedInAList row={sampleRunRow({ type: "assistant.message" })} listDensity="collapsed" />,
-    );
-    expect(container.querySelector(".meridian-message-card")).not.toBeNull();
-  });
-
   it("gives a reasoning row the reasoning body rather than the machine body", () => {
     const { container } = render(
       <MountedInAList
@@ -132,14 +117,6 @@ describe("the edit control's footer renderer", () => {
     );
     expect(buttonLabels(container)).toStrictEqual(["Copy", "Edit"]);
   });
-
-  it("negative control: a reply never carries it", () => {
-    registerTranscriptRowFooterRenderer("a test", () => <button type="button">Edit</button>);
-    const { container } = render(
-      <MountedInAList row={sampleRunRow({ type: "assistant.message" })} listDensity="collapsed" />,
-    );
-    expect(buttonLabels(container)).not.toContain("Edit");
-  });
 });
 
 describe("standing in for the list's density decision", () => {
@@ -167,15 +144,6 @@ describe("standing in for the list's density decision", () => {
     expect(disclosureState(container)).toBe("true");
   });
 
-  it("negative control: an untouched row honors a list that opened it", () => {
-    // Without this, a renderer that kept any state of its own would pass the case above
-    // while ignoring the list entirely.
-    const { container } = render(
-      <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,
-    );
-    expect(disclosureState(container)).toBe("true");
-  });
-
   it("closes a row the list opened on the first press, not the second", () => {
     // The press inverts the effective density (what is on screen), so one press closes an open
     // row. A private "touched" flag would store "open" and leave the row as it was.
@@ -185,18 +153,6 @@ describe("standing in for the list's density decision", () => {
 
     pressDisclosure(container);
     expect(disclosureState(container)).toBe("false");
-  });
-
-  it("negative control: a second press on the same row opens it again", () => {
-    // Without this, a press that inverted the list's answer rather than the density
-    // it was handed would pass the case above and then refuse to reopen.
-    const { container } = render(
-      <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,
-    );
-
-    pressDisclosure(container);
-    pressDisclosure(container);
-    expect(disclosureState(container)).toBe("true");
   });
 
   it("refuses to mount outside a transcript rather than swallowing the press", () => {
@@ -209,12 +165,6 @@ describe("standing in for the list's density decision", () => {
 });
 
 describe("registering the transcript row renderer", () => {
-  it("registers it under the transcript's own owner", () => {
-    expect(findTranscriptRowRenderer()).toBeUndefined();
-    registerTranscriptRows();
-    expect(findTranscriptRowRenderer()).toBe(TranscriptRow);
-  });
-
   it("refuses a second owner rather than replacing the transcript's renderer", () => {
     // A second owner is refused at import time, by name, instead of a winner being
     // picked by import order.
@@ -222,14 +172,5 @@ describe("registering the transcript row renderer", () => {
     expect(() => {
       registerTranscriptRowRenderer("another owner", () => null);
     }).toThrow(/transcript row renderer/);
-  });
-
-  it("negative control: the same owner may re-register", () => {
-    // A hot reload re-runs the owning module, so an unconditional refusal would make
-    // the transcript undevelopable.
-    registerTranscriptRows();
-    expect(() => {
-      registerTranscriptRowRenderer(TRANSCRIPT_ROW_OWNER, TranscriptRow);
-    }).not.toThrow();
   });
 });

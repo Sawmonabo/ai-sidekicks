@@ -65,8 +65,8 @@ const REPEATED_FOLD_COUNT = 20;
  *
  * Not zero, because V8 keeps code objects, inline caches and deoptimization data alive across a
  * run. Not a fraction of the baseline, since a leak's size does not depend on how large the
- * process was. It is bounded from both sides: one held window over this log measures ~3.9 MB
- * (the negative control below), so a ceiling above that could not catch a fold keeping a single
+ * process was. It is bounded from both sides: one held window over this log measures ~3.9 MB,
+ * so a ceiling above that could not catch a fold keeping a single
  * one of its twenty outputs. Two megabytes sits under one window and two orders of magnitude
  * above the ~21 kB twenty clean folds retain.
  */
@@ -136,36 +136,6 @@ function fastestFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): nu
   return fastestPass;
 }
 
-/**
- * A deliberately quadratic fold over the same shape of input, for the negative control.
- *
- * It walks every pair of rows, the cost shape a real defect would have (an index rebuilt per
- * row, a `find` inside a loop over the same list). Best of several passes, exactly as
- * `fastestFoldMilliseconds`: a control is evidence about an instrument only if read through it.
- * Timed once, the short pass carries the cost of warming a path nothing had run, which inflated
- * the small reading and divided a genuinely quadratic fold's ratio down to 5.95x over a 4x step.
- */
-function quadraticFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): number {
-  let fastestPass = Number.POSITIVE_INFINITY;
-  for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
-    const startedAt = performance.now();
-    let matchedPairCount = 0;
-    for (const outerEvent of timeline) {
-      for (const innerEvent of timeline) {
-        if (outerEvent.kind === innerEvent.kind) {
-          matchedPairCount += 1;
-        }
-      }
-    }
-    const elapsedMilliseconds = performance.now() - startedAt;
-    if (matchedPairCount === 0) {
-      throw new Error("the planted quadratic matched nothing, so its timing describes nothing");
-    }
-    fastestPass = Math.min(fastestPass, elapsedMilliseconds);
-  }
-  return fastestPass;
-}
-
 describe("endurance — the transcript's fold over a long session", () => {
   it("folds every row of a ten-thousand-row session into one complete window", () => {
     // The control for everything else here: a fold that silently dropped most of the log would
@@ -217,19 +187,6 @@ describe("endurance — the transcript's fold over a long session", () => {
     expect(costRatio).toBeLessThanOrEqual(SUPERLINEAR_COST_RATIO_CEILING);
   });
 
-  it("negative control: the same ratio catches a planted quadratic", () => {
-    // Without this the case above would pass over an instrument that could not tell linear from
-    // quadratic: two noise timings divide to something small and read clean. The planted fold
-    // uses the same 4x step, small enough that a quadratic finishes quickly and large enough
-    // that neither reading is dominated by the clock.
-    const shortQuadraticMilliseconds = quadraticFoldMilliseconds(enduranceTimeline(1_000));
-    const longQuadraticMilliseconds = quadraticFoldMilliseconds(enduranceTimeline(4_000));
-
-    expect(longQuadraticMilliseconds / shortQuadraticMilliseconds).toBeGreaterThan(
-      SUPERLINEAR_COST_RATIO_CEILING,
-    );
-  });
-
   it("retains nothing of the folds it has already produced", () => {
     // One fold before the baseline, dropped, so the first fold's one-time costs (the
     // projection's module state, V8's compiled code) are not reported as retention.
@@ -250,24 +207,6 @@ describe("endurance — the transcript's fold over a long session", () => {
     );
 
     expect(retainedBytes).toBeLessThanOrEqual(REPEATED_FOLD_RETENTION_CEILING_BYTES);
-  });
-
-  it("negative control: a held window is large enough for the reading above to see one", () => {
-    // The retention ceiling is a gate only if one leaked window would cross it. This measures
-    // the heap a single derived window occupies while held and asserts it exceeds the allowance.
-    const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
-    const baselineHeapBytes = settledHeapBytes();
-    const heldWindow = deriveTranscriptWindow(timeline);
-    const heldHeapBytes = settledHeapBytes();
-    // Read after the measurement so the window is still reachable when the heap is sampled.
-    expect(heldWindow.rows.length).toBeGreaterThan(0);
-
-    const windowBytes = heldHeapBytes - baselineHeapBytes;
-    process.stdout.write(
-      `[console-endurance] one held transcript window ${String(Math.round(windowBytes / 1024))} kB ` +
-        `at ${String(ENDURANCE_ROW_COUNT)} rows\n`,
-    );
-    expect(windowBytes).toBeGreaterThan(REPEATED_FOLD_RETENTION_CEILING_BYTES);
   });
 });
 

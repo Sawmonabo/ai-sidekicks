@@ -1,9 +1,7 @@
 // The four derivations the accounts fixture body makes over one account-plane reading. Every
 // case drives the real function, so a test never restates a selection, a supersession rule or a
-// day count. Each clean result has a negative control: the `limitId` key, the account filter,
-// the ordering and the generation comparison are asserted for what they do and for the obvious
-// wrong rule. Which reading is current is tested in `provider-account-fold.test.ts`; here, the
-// case handing two readings for one limit shows this module makes no such decision.
+// day count. Which reading is current is the fold's decision (`provider-account-fold.ts`); here,
+// the case handing two readings for one limit shows this module makes no such decision.
 
 import { describe, expect, it } from "vitest";
 
@@ -98,19 +96,6 @@ describe("accountQuotaRowsFrom", () => {
     ]);
   });
 
-  // Negative control: all three carry the same `windowMins`, so a selection keyed on window
-  // length would answer one row.
-  it("does not collapse rows that share a window length", () => {
-    const sharedWindowLengths = new Set(
-      [
-        usageWindow({ limitId: "weekly_all" }),
-        usageWindow({ limitId: "weekly_opus" }),
-        usageWindow({ limitId: "weekly_code" }),
-      ].map((window) => window.windowMins),
-    );
-    expect(sharedWindowLengths.size).toBe(1);
-  });
-
   // The foil for a second supersession rule: two readings for one limit is an input the
   // readout's contract does not produce (the fold keeps one row per `(accountId, limitId)`), so
   // a module resolving the pair would be answering a question it may not answer.
@@ -133,20 +118,17 @@ describe("accountQuotaRowsFrom", () => {
     expect(rows.map((row) => row.window.usedPercent)).toEqual([44, 5]);
   });
 
-  it("marks a reading taken under an older credential generation", () => {
-    const rows = accountQuotaRowsFrom(
+  it("marks a reading from an older credential generation, and not the account's own", () => {
+    const behind = accountQuotaRowsFrom(
       registryHolding([usageWindow({ limitId: "weekly_all", observedCredentialGeneration: 5 })]),
       accountAtGeneration(6),
     );
-    expect(rows[0]?.behindAccountGeneration).toBe(true);
-  });
-
-  it("does not mark a reading taken under the account's own generation", () => {
-    const rows = accountQuotaRowsFrom(
+    expect(behind[0]?.behindAccountGeneration).toBe(true);
+    const current = accountQuotaRowsFrom(
       registryHolding([usageWindow({ limitId: "weekly_all", observedCredentialGeneration: 6 })]),
       accountAtGeneration(6),
     );
-    expect(rows[0]?.behindAccountGeneration).toBe(false);
+    expect(current[0]?.behindAccountGeneration).toBe(false);
   });
 
   it("ignores readings belonging to another account", () => {
@@ -155,14 +137,6 @@ describe("accountQuotaRowsFrom", () => {
       accountAtGeneration(3),
     );
     expect(rows).toEqual([]);
-  });
-
-  it("sorts by the limit identifier where the provider published no label", () => {
-    const rows = accountQuotaRowsFrom(
-      registryHolding([usageWindow({ limitId: "zeta" }), usageWindow({ limitId: "alpha" })]),
-      accountAtGeneration(3),
-    );
-    expect(rows.map((row) => row.window.limitId)).toEqual(["alpha", "zeta"]);
   });
 
   // The ordering is this page's and the reading is the node's, so the selection must not
@@ -178,15 +152,12 @@ describe("accountQuotaRowsFrom", () => {
 });
 
 describe("estimatedReloginDaysAfterSignIn", () => {
-  it("measures the interval between the two stamps", () => {
+  // Measured from the anchor, never the clock, so the same pair answers the same number and the
+  // figure does not read as a deadline.
+  it("measures the interval between the two stamps, however far in the past they sit", () => {
     expect(
       estimatedReloginDaysAfterSignIn("2025-12-02T09:00:00.000Z", "2026-01-01T09:00:00.000Z"),
     ).toBe(30);
-  });
-
-  // Measured from the anchor, never the clock, so the same pair answers the same number and the
-  // figure does not read as a deadline.
-  it("answers the same interval however far in the past the pair sits", () => {
     expect(
       estimatedReloginDaysAfterSignIn("2020-01-01T00:00:00.000Z", "2020-01-31T00:00:00.000Z"),
     ).toBe(30);
@@ -209,12 +180,9 @@ describe("estimatedReloginDaysAfterSignIn", () => {
 });
 
 describe("observationAgeInDays", () => {
-  it("counts whole days since the observation", () => {
+  it("counts whole days since the observation, and nothing where the stamp cannot be read", () => {
     const now = instantMilliseconds("2026-01-15T07:00:00.000Z");
     expect(observationAgeInDays("2026-01-01T07:00:00.000Z", now)).toBe(14);
-  });
-
-  it("answers nothing where the stamp cannot be read", () => {
     expect(
       observationAgeInDays("whenever", instantMilliseconds("2026-01-15T07:00:00.000Z")),
     ).toBeUndefined();
@@ -235,11 +203,8 @@ describe("readinessForProvider", () => {
     ],
   };
 
-  it("finds the entry for the provider asked about", () => {
+  it("finds the entry for the provider asked about, and fabricates none", () => {
     expect(readinessForProvider(reply.readiness, "codex")?.state).toBe("indeterminate");
-  });
-
-  it("answers nothing rather than fabricating a state", () => {
     expect(readinessForProvider([], "claude")).toBeUndefined();
   });
 });

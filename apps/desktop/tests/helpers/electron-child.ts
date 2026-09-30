@@ -190,7 +190,6 @@ export function spawnManagedElectronChild(
     // is the only disposal it will get: it asks as many times as the settle-time path, through
     // `disposeUntilKillDelivered`. A failure inside the disposal is not swallowed, since a tree
     // kill that threw leaves the child's fate unknown, which is more urgent than the refusal.
-    // `electron-child-lifetime.test.ts` drives this arm.
     managed.disposeUntilKillDelivered();
     throw registrationRefusal;
   }

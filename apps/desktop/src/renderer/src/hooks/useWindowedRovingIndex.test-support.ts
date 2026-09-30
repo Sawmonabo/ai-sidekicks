@@ -1,4 +1,4 @@
-// The scans the roving-index suites read the list with, and the press they drive it by.
+// The scans the roving-index suite reads the list with, and the press it drives the list by.
 //
 // Not a test file: no `include` glob reaches it. The list is `RovingList.test-support.tsx`.
 

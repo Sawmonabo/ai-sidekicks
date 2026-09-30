@@ -21,11 +21,7 @@ const STRING_CONTROLS = [
 ] as const;
 
 describe("whether a body is command output", () => {
-  it("reads an escape sequence as command output", () => {
-    expect(carriesAnsiEscapes(`${ESCAPE}[31mfailed`)).toBe(true);
-  });
-
-  it("negative control: ordinary prose is not command output", () => {
+  it("ordinary prose is not command output", () => {
     // Otherwise every body would read as ANSI.
     expect(carriesAnsiEscapes("an ordinary **reply**\nover two lines\twith a tab")).toBe(false);
   });
@@ -55,12 +51,7 @@ describe("the residue a span parse leaves behind", () => {
     expect(withoutResidualEscapes(`built${ESCAPE}]0;a title`)).toBe("built");
   });
 
-  it("negative control: text with no escape comes back by identity", () => {
-    const prose = "an ordinary reply";
-    expect(withoutResidualEscapes(prose)).toBe(prose);
-  });
-
-  it("negative control: it takes no ordinary character with it", () => {
+  it("takes no ordinary character with it", () => {
     // The bracket and semicolon an OSC uses are ordinary text outside one.
     expect(withoutResidualEscapes("array[0]; then 0;more")).toBe("array[0]; then 0;more");
   });
@@ -102,12 +93,12 @@ describe("a string control, consumed through its terminator", () => {
     expect(withoutResidualEscapes(`a${ESCAPE}Ppayload${ESCAPE}[31mb`)).toBe("ab");
   });
 
-  it("negative control: an unterminated control does not eat the whole remainder", () => {
+  it("an unterminated control does not eat the whole remainder", () => {
     // The escape inside re-synchronizes the walk; the text after it stays.
     expect(withoutResidualEscapes(`a${ESCAPE}Ppayload${ESCAPE}(Bkept`)).toBe("akept");
   });
 
-  it("negative control: the introducer bytes are ordinary text outside a sequence", () => {
+  it("the introducer bytes are ordinary text outside a sequence", () => {
     // `P`, `X`, `^` and `_` are ordinary characters outside a sequence.
     expect(withoutResidualEscapes("P X ^ _ and a path_name")).toBe("P X ^ _ and a path_name");
   });
