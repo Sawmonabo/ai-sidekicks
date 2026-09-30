@@ -42,7 +42,6 @@ import {
   DEFAULT_TURN_SNAPSHOT_FILESYSTEM,
   DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS,
   describeRejection,
-  HOOK_NEUTRALIZATION_SEGMENT,
   isNonNegativeInteger,
   isSafeRefComponent,
   runTurnSnapshotGitWithExecFile,
@@ -50,6 +49,7 @@ import {
   USE_REPLACE_REFS_PIN,
   warnDiagnostic,
 } from "./turn-snapshot-git.js";
+import { HOOK_NEUTRALIZATION_SEGMENT } from "./worktree-git.js";
 import {
   EXCLUDE_PER_DIRECTORY_GITIGNORE,
   type SparseListingPartition,
