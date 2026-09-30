@@ -14,10 +14,10 @@
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
-import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 import {
   createTranscriptPipelineState,
   foldTurns,
+  orderDeclaredLosses,
   repairPairingIntegrity,
   segmentContentIsUnavailable,
   stripNonPortableContent,
@@ -537,9 +537,4 @@ function applyPortabilityTransforms(projection: CanonicalTranscriptProjection): 
   state = stripNonPortableContent(state);
   state = repairPairingIntegrity(state);
   return { turns: state.turns, losses: state.declaredLosses };
-}
-
-function orderDeclaredLosses(losses: readonly DeclaredLossKind[]): readonly DeclaredLossKind[] {
-  const present: Set<DeclaredLossKind> = new Set<DeclaredLossKind>(losses);
-  return DECLARED_LOSS_KINDS.filter((kind) => present.has(kind));
 }
