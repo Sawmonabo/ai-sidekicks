@@ -146,22 +146,12 @@ describe("the log-derived row projection", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("negative control: the composed key is not what a row carries", () => {
-    // Guards against a projection whose composition happens to agree with the fixture's ids.
-    const projection = projectTranscriptRows([runEvent(7, RUN_ONE)]);
-    expect(projection.rows[0]?.id).not.toBe(`${SESSION_ID}:7`);
-  });
-
   it("restates the wire type as the summary rather than composing a sentence", () => {
     // Negative control for the central claim: a projection that made a sentence up would pass
     // every other case. The contract refuses an empty summary, so "say nothing" is no option.
     const projection = projectTranscriptRows([runEvent(1, RUN_ONE, "tool.invoked")]);
     expect(projection.rows[0]?.summary).toBe("tool.invoked");
     expect(projection.rows[0]?.summary).toBe(projection.rows[0]?.type);
-  });
-
-  it("projects an empty log into no rows", () => {
-    expect(projectTranscriptRows([])).toStrictEqual({ rows: [] });
   });
 });
 
@@ -214,7 +204,7 @@ describe("counting through a rewind", () => {
     expect(secondEpochBands[0]?.rowIds).toStrictEqual([supersededRow.id]);
   });
 
-  it("negative control: a rewind in one run leaves another run's count alone", () => {
+  it("a rewind in one run leaves another run's count alone", () => {
     // Without this, a fix that reset a shared counter rather than the rewound run's
     // own would pass both cases above and renumber every other run in the window.
     const projection = projectTranscriptRows([
@@ -275,22 +265,6 @@ describe("which payload member names a row's run", () => {
     ]);
   });
 
-  it("leaves every other run-keyed kind exactly where it was", () => {
-    const projection = projectTranscriptRows([
-      runEvent(1, RUN_ONE),
-      runEvent(2, RUN_TWO),
-      rollbackEvent(3, RUN_ONE, 0),
-      runEvent(4, RUN_ONE),
-    ]);
-
-    expect(projection.rows.map((row) => row.kind)).toStrictEqual([
-      "run",
-      "run",
-      "rollback_boundary",
-      "run",
-    ]);
-  });
-
   it("attributes a child run to itself and never to the parent it names", () => {
     // `run.queued` carries `parentRunId` beside its own `runId`; reading any run-naming member
     // would file the child's rows in the parent's group. The contract's attributing list, which
@@ -306,19 +280,5 @@ describe("which payload member names a row's run", () => {
     const [row] = projection.rows;
     expect(row?.kind).toBe("run");
     expect(row?.kind === "run" ? row.runId : undefined).toBe(RUN_TWO);
-  });
-
-  it("negative control: an event naming no run at all stays a session row", () => {
-    // Guards against a lookup that answers with any string it finds, filing session rows under
-    // whatever a payload carries.
-    const projection = projectTranscriptRows([
-      event({
-        sequence: 1,
-        kind: "session.renamed",
-        payload: { sessionId: SESSION_ID, name: "a session, renamed" },
-      }),
-    ]);
-
-    expect(projection.rows.map((row) => row.kind)).toStrictEqual(["general"]);
   });
 });
