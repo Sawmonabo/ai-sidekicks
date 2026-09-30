@@ -64,7 +64,7 @@ export class WorkflowRunLiveRefresh implements ReadTriggerTarget {
   }
 
   /** The round the caller keys its read on. Starts at zero and only ever rises. */
-  public get round(): number {
+  public get snapshot(): number {
     return this.#round;
   }
 
