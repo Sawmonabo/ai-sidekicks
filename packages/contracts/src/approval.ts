@@ -505,9 +505,11 @@ export const ApprovalDenialOverrideResponseSchema: z.ZodType<ApprovalDenialOverr
 // `Record<string, unknown>`, which an interface cannot satisfy.
 
 /**
- * `approval.requested`. `askId` names the provider's own ask when the ask came
- * from one; the daemon supplies it and no client can, so an answer reaches the
- * right native ask after a restart when several are open on one run.
+ * `approval.requested`. `askId` is present when the request is a provider's
+ * permission ask: the daemon's own durable id for the ask, which it mints and no
+ * client can, so an answer reaches the right ask after a restart when several are
+ * open on one run. The ask's tool name and the provider's prompt text ride
+ * `resourceDescriptor`.
  */
 export type ApprovalRequestedPayload = {
   sessionId: SessionId;

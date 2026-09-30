@@ -706,27 +706,28 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 //
 // WRAP ADMISSION — which payload branches take the stamp. Admission is keyed
 // on RUN-SCOPEDNESS (the variant's payload carries `runId`), NOT on family
-// membership alone: the late-append window covers the five run-scoped
-// families (`assistant_output`, `tool_activity`, `usage_telemetry`,
-// `artifact_publication`, and the `interactive_request` CLOSED PAIR
-// `driver_ask.requested` + `driver_ask.canceled`), and within them only the
-// run-attributed variants admit the pair. The account-plane
+// membership alone: the late-append window covers the four run-scoped
+// body-bearing families (`assistant_output`, `tool_activity`,
+// `usage_telemetry`, `artifact_publication`), and within them only the
+// run-attributed variants admit the pair. A permission ask or a question from
+// a superseded epoch is ABSORBED at the epoch check like a lifecycle
+// straggler: nothing is appended and the daemon logs it, because such an ask
+// never reaches a person. The account-plane
 // `usage.rate_limit_update` (no `runId`) is the named exclusion: an epoch
 // stamp on a row with no run identity is unattributable by construction.
 // `run_lifecycle` branches never admit it either — a lifecycle straggler is
 // ABSORBED, never late-appended.
 //
-// The wrap set holds exactly six variants: the five body-bearing ones
+// The wrap set holds exactly seven variants: the five body-bearing ones
 // registered below — `assistant.message`, `assistant.thinking_update`,
-// `tool.invoked`, `tool.result`, `tool.error` — and `command.ended`, each a
-// `tool_activity` or `assistant_output` row with a required `runId`. Every
-// other branch stays unwrapped: the lifecycle rows (`session.*`, `repo.*`,
-// `workspace.*`, `worktree.*`, `cloud.*`), the
-// `approval_flow`, `security_events` and `mcp_governance` rows, and the
-// daemon-scope `event_maintenance` rows sit outside the
-// late-append families; `question.asked` is an `interactive_request` row
-// outside that category's admitted pair; and `git.settled` names a run on only
-// some of its causes, so it is not run-scoped. Later registrants of the
+// `tool.invoked`, `tool.result`, `tool.error` — `command.ended` and
+// `usage.model_rerouted`, each with a required `runId`. Every other branch
+// stays unwrapped: the lifecycle rows (`session.*`, `repo.*`, `workspace.*`,
+// `worktree.*`, `cloud.*`), the `interactive_request`, `approval_flow`,
+// `security_events` and `mcp_governance` rows, and the daemon-scope
+// `event_maintenance` rows sit outside the late-append window; and
+// `git.settled` names a run on only some of its causes, so it is not
+// run-scoped. Later registrants of the
 // families arriving through the union-registration
 // seam (class) inherit the admission requirement — a strict payload schema
 // that skipped the wrap would REJECT a stamped row at every site that parses
@@ -1548,11 +1549,9 @@ export const ToolErrorEventSchema: z.ZodType<ToolErrorEvent> = z
 // TWO EPOCH STAMPS. `command.ended` (`tool_activity`) and `usage.model_rerouted`
 // (`usage_telemetry`) are the run-scoped members of a late-append family here,
 // each with a required `runId`, so they alone take `withEpochStamp`. The
-// `approval_flow`, `session_lifecycle`,
+// `approval_flow`, `session_lifecycle`, `interactive_request`,
 // `security_events` and `mcp_governance` variants are outside the late-append
-// window; `question.asked` is an `interactive_request` row outside that
-// category's admitted pair; and `git.settled` names a run on only some of its
-// causes.
+// window; and `git.settled` names a run on only some of its causes.
 //
 // ONE BUILDER, NO SECOND COPY. Each arm is built once by
 // `buildSessionEventVariantSchema` and registered in the union directly: the
@@ -2699,8 +2698,8 @@ export type SessionEventType =
   | "subagent.started"
   | "subagent.completed"
   | "command.ended"
-  // + intervention + driver-ask subfamilies, plus the `user.message` row
-  // registered here and `question.asked`.
+  // + intervention subfamilies, plus the `user.message` row registered here and
+  // `question.asked`.
   | "queue_item.created"
   | "queue_item.admitted"
   | "queue_item.superseded"
@@ -2712,9 +2711,6 @@ export type SessionEventType =
   | "intervention.rejected"
   | "intervention.degraded"
   | "intervention.expired"
-  | "driver_ask.requested"
-  | "driver_ask.responded"
-  | "driver_ask.canceled"
   | "user.message"
   | "question.asked"
   | "artifact.published"
@@ -3003,9 +2999,6 @@ export const INTERACTIVE_REQUEST_EVENT_TYPES: readonly SessionEventType[] = [
   "intervention.rejected",
   "intervention.degraded",
   "intervention.expired",
-  "driver_ask.requested",
-  "driver_ask.responded",
-  "driver_ask.canceled",
   "user.message",
   "question.asked",
 ] as const;
@@ -3231,9 +3224,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "intervention.rejected": "interactive_request",
   "intervention.degraded": "interactive_request",
   "intervention.expired": "interactive_request",
-  "driver_ask.requested": "interactive_request",
-  "driver_ask.responded": "interactive_request",
-  "driver_ask.canceled": "interactive_request",
   "user.message": "interactive_request",
   "question.asked": "interactive_request",
   // artifact_publication
@@ -3426,18 +3416,14 @@ export const SESSION_EVENT_CATEGORY_BY_TYPE: ReadonlyMap<SessionEventType, Event
 //
 // The arm itself is RETAINED, not removed — it is the reusable mechanism
 // for a future census amendment that mints a literal ahead of its
-// registration, and __tests__/event-disposition.test.ts keeps compile pins
-// on its shape that fire at zero registry instances. What guards
-// registry/census agreement from here is the standing bijection pair: the
-// `satisfies Record<SessionEventType, EventCategory>` totality check above
-// (a census literal cannot go unregistered) plus the both-direction
-// set-equality assertions in __tests__/session-event.test.ts, with every
-// `eventType` cross-checked against `SESSION_EVENT_CATEGORY_BY_TYPE` in the
-// disposition suite (a flip to a category the census disagrees with fails
-// there). Registration is not emission license: normalizers route every
-// flipped kind to their default-branch diagnostic until its payload variant
-// is registered in `SessionEventSchema` by its owning surface — emission turns on
-// variant-by-variant, never on the registry flip alone. Should the arm ever
+// registration. What guards registry/census agreement from here is the
+// standing bijection pair: the `satisfies Record<SessionEventType,
+// EventCategory>` totality check above (a census literal cannot go
+// unregistered) plus the both-direction set-equality assertions in
+// __tests__/session-event.test.ts. Registration is not emission license:
+// normalizers route every flipped kind to their default-branch diagnostic
+// until its payload variant is registered in `SessionEventSchema` by its
+// owning surface — emission turns on variant-by-variant, never on the registry flip alone. Should the arm ever
 // be used again, a pending kind routes to that same diagnostic rather than
 // constructing an envelope against a missing type — no envelope, no silent
 // drop.
@@ -3495,10 +3481,7 @@ export type NormalizedEventKind =
 // The census as an iterable const tuple (same affordance as the
 // per-category `*_EVENT_TYPES` arrays above; same isolatedDeclarations-
 // clean annotation). The union keying of `EVENT_DISPOSITION_RECORD` below
-// already makes a MISSING kind a compile error; the runtime both-direction
-// set-equality check in __tests__/event-disposition.test.ts additionally
-// catches a tuple/union drift (this annotation admits any subset of the
-// union, so the tuple alone cannot prove completeness at compile time).
+// makes a MISSING kind a compile error.
 export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
   "init",
   "text_delta",
@@ -3551,9 +3534,8 @@ export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
  *     mechanism for the next such amendment. The `?: never` keys forbid
  *     both-present; the arm split forbids neither-present. `eventType`
  *     names the row's PRIMARY target only — outcome-dependent fan-out
- *     (`tool.error`, `approval.rejected` / `.expired` / `.canceled`,
- *     `driver_ask.canceled`, `subagent.completed`) is
- *     normalizer detail, not registry data.
+ *     (`tool.error`, `approval.rejected` / `.canceled`,
+ *     `subagent.completed`) is normalizer detail, not registry data.
  *   • `correlate`/`discard` entries carry only the non-empty `reason` —
  *     the no-silent-capability-loss justification — and NO taxonomy
  *     target: a correlate folds into an existing row via `correlation_id`
@@ -3631,11 +3613,13 @@ const EVENT_DISPOSITION_RECORD = {
   turn_start: { disposition: "adopt", category: "run_lifecycle", eventType: "run.turn_started" },
   // Turn complete; `completionKind` turn-vs-task carve per the B1 taxonomy.
   turn_complete: { disposition: "adopt", category: "run_lifecycle", eventType: "run.completed" },
-  // Permission ask.
+  // A provider's permission ask that reaches a person, recorded once as the
+  // approval it opens. An ask the daemon answers itself, by a policy allow or a
+  // remembered rule, appends nothing: the tool row is the record.
   approval_request: {
     disposition: "adopt",
-    category: "interactive_request",
-    eventType: "driver_ask.requested",
+    category: "approval_flow",
+    eventType: "approval.requested",
   },
   // Approval resolution; fans by outcome to `approval.rejected` /
   // `approval.canceled`.
@@ -3644,17 +3628,16 @@ const EVENT_DISPOSITION_RECORD = {
     category: "approval_flow",
     eventType: "approval.approved",
   },
-  // Input ask (same driver-ask family as approval_request).
+  // A structured question to the person: the question record the card renders.
   user_input_request: {
     disposition: "adopt",
     category: "interactive_request",
-    eventType: "driver_ask.requested",
+    eventType: "question.asked",
   },
-  // Driver-ask resolution; fans to `driver_ask.canceled`.
   user_input_resolved: {
-    disposition: "adopt",
-    category: "interactive_request",
-    eventType: "driver_ask.responded",
+    disposition: "discard",
+    reason:
+      "the answer is recorded as the person's own user.message turn by the call that answered the question; its delivery to the provider is kept in the daemon's log only",
   },
   // Coarse provider status under the B18-pinned no-fabricated-transition
   // rule: provider status observations never drive the nine `session.*`

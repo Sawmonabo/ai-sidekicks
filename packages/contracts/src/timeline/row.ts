@@ -121,11 +121,14 @@ export const TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS: readonly string[] = Object.f
  *     identity is OPTIONAL: a message accepted before any run exists is
  *     legitimately session-scoped, so the type alone cannot decide and the
  *     payload-key leg decides per row.
+ *   * `question.asked` — `{questionId, sessionId, runId?, waitId?, …}`. An
+ *     agent's question names its run, and a workflow step's names its wait
+ *     instead, so the payload-key leg decides per row.
  *
  * Everything else in the category — the six `intervention.*` (required
- * `targetRunId`) and the four `driver_ask.*` (required `runId`) — is
- * unconditionally run-attributed, so the set below is derived by SUBTRACTING
- * these six from the category array rather than by re-listing the ten. A type
+ * `targetRunId`) — is unconditionally run-attributed, so the set below is
+ * derived by SUBTRACTING these seven from the category array rather than by
+ * re-listing the six. A type
  * added to that category therefore lands INSIDE the run-scoped set by default,
  * which is the fail-closed direction: an unknown interactive-request type is
  * refused from the attribution-free arm rather than silently admitted to it.
@@ -137,6 +140,7 @@ const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: ReadonlySet<string> = new 
   "queue_item.canceled",
   "queue_item.not_delivered",
   "user.message",
+  "question.asked",
 ]);
 
 /**
