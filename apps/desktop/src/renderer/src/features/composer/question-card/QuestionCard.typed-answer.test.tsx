@@ -13,6 +13,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { QuestionPrompt } from "@ai-sidekicks/contracts";
+
 import {
   UNSENT_ANSWER_DELIVERY,
   type QuestionReading,
@@ -25,6 +27,13 @@ const SHARED_QUESTION: QuestionReading = {
   pageCount: 1,
 };
 
+const SHARED_PROMPT: QuestionPrompt = {
+  text: "Which branch should this land on?",
+  options: [],
+  severalAnswers: false,
+  secret: false,
+};
+
 /** One question drawn twice in one document, as two panes hold it. */
 function renderQuestionTwice(): HTMLElement {
   const { container } = render(
@@ -34,6 +43,7 @@ function renderQuestionTwice(): HTMLElement {
           key={pane}
           body={undefined}
           question={SHARED_QUESTION}
+          questions={[SHARED_PROMPT]}
           delivery={UNSENT_ANSWER_DELIVERY}
           onAnswer={() => {
             // The dispatch is another suite's subject; this one is about identity.

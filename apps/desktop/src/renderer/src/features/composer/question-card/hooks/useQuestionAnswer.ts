@@ -15,7 +15,11 @@ import { useCallback, useState } from "react";
 
 import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
-import type { QuestionResolveRequest, QuestionResolveResponse } from "@ai-sidekicks/contracts";
+import type {
+  QuestionAnswer,
+  QuestionResolveRequest,
+  QuestionResolveResponse,
+} from "@ai-sidekicks/contracts";
 import {
   UNSENT_ANSWER_DELIVERY,
   type AnswerDelivery,
@@ -29,15 +33,12 @@ export type ResolveQuestionCall = (
 /** Where one question's answer has got to, and the call that dispatches one. */
 export interface QuestionAnswerHandle {
   readonly delivery: AnswerDelivery;
-  /** Deliver a typed answer, or do nothing while one is out or already taken. */
-  readonly answer: (response: string) => void;
+  /** Deliver one answer per question, or do nothing while one is out or already taken. */
+  readonly answer: (answers: QuestionAnswer[]) => void;
 }
 
 /**
- * Deliver a typed answer to a question, and hold what the reply said about it.
- *
- * The typed text travels as the question's one answer, which is what a single-question
- * record takes.
+ * Deliver a question record's answers, and hold what the reply said about them.
  *
  * SINGLE-FLIGHT, AND NO SECOND ANSWER AFTER ONE LANDED. A press while a call is in flight
  * is answered with the state already on screen; a press after the daemon took an answer
@@ -51,21 +52,21 @@ export function useQuestionAnswer(
 ): QuestionAnswerHandle {
   const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
   const answer = useCallback(
-    (response: string) => {
+    (answers: QuestionAnswer[]) => {
       if (delivery.status === "delivering" || delivery.status === "accepted") {
         return;
       }
-      setDelivery({ status: "delivering", response });
+      setDelivery({ status: "delivering" });
       // NO `catch` ARM: the call answers `served` or `refused` for every outcome a
       // transport can have, so a `catch` here would be a branch nothing can reach.
       void resolveQuestion({
         questionId: heldIdAsWireId(questionId),
-        answers: [{ kind: "typed", text: response }],
+        answers,
       }).then((reply) => {
         setDelivery(
           reply.status === "served"
-            ? { status: "accepted", response }
-            : { status: "refused", response, refusal: reply.refusal },
+            ? { status: "accepted" }
+            : { status: "refused", refusal: reply.refusal },
         );
       });
     },

@@ -9,7 +9,7 @@
 // WHAT THE ROW CARRIES. The payload is the plain half of the question record: which
 // question it is, the run that holds it, and how many pages it has. The questions
 // themselves are the record's personal-data half, sealed apart from the payload, so
-// nothing here reads a question's text or its options.
+// nothing here reads a question's text or its options; the card takes those as a prop.
 //
 // NO TIMER AND NO LOCAL SETTLEMENT. A question is held open until it is answered, with
 // no deadline on either provider, and it has no terminal event of its own: the person's
@@ -41,20 +41,12 @@ export interface QuestionReading {
  * that rejected the request, a reply the registered schema does not admit — must not
  * be discarded: the run stays blocked on a question nobody has answered, and the
  * person has to be told.
- *
- * THE RESPONSE TRAVELS ON EVERY ARM PAST `unsent` because two arms need it: `refused`
- * is what a retry re-sends and what keeps a draft that was never delivered, and
- * `delivering` is what a second press is refused against.
  */
 export type AnswerDelivery =
   | { readonly status: "unsent" }
-  | { readonly status: "delivering"; readonly response: string }
-  | { readonly status: "accepted"; readonly response: string }
-  | {
-      readonly status: "refused";
-      readonly response: string;
-      readonly refusal: Refusal;
-    };
+  | { readonly status: "delivering" }
+  | { readonly status: "accepted" }
+  | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** Nothing dispatched. The state every question starts in, as one frozen value. */
 export const UNSENT_ANSWER_DELIVERY: AnswerDelivery = Object.freeze({ status: "unsent" });

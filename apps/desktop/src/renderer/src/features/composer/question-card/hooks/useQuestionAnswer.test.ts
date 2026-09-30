@@ -7,12 +7,17 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { QuestionResolveRequest } from "@ai-sidekicks/contracts";
+import type { QuestionAnswer, QuestionResolveRequest } from "@ai-sidekicks/contracts";
 
 import { settle } from "@test/helpers/settle.js";
 import { useQuestionAnswer, type ResolveQuestionCall } from "./useQuestionAnswer.js";
 
 const SAMPLE_QUESTION_ID = "019b793b-7b60-7a21-9f14-6b0c2a7d0e11";
+
+const SAMPLE_ANSWERS: QuestionAnswer[] = [
+  { kind: "picked", labels: ["develop"] },
+  { kind: "typed", text: "the flaky test is known" },
+];
 
 /** A call that refuses until `recover` is called, and records every request it took. */
 function resolveFailingUntilCleared(): {
@@ -49,18 +54,17 @@ describe("useQuestionAnswer — an answer is a settled act", () => {
     );
 
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
 
     expect(result.current.delivery).toMatchObject({
       status: "refused",
-      response: "develop",
       refusal: { code: "call-rejected" },
     });
   });
 
-  it("settles as accepted when the daemon takes the typed answer", async () => {
+  it("settles as accepted when the daemon takes the answers, sent as they were given", async () => {
     const call = resolveFailingUntilCleared();
     call.recover();
     const { result } = renderHook(() =>
@@ -68,13 +72,13 @@ describe("useQuestionAnswer — an answer is a settled act", () => {
     );
 
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
 
-    expect(result.current.delivery).toStrictEqual({ status: "accepted", response: "develop" });
+    expect(result.current.delivery).toStrictEqual({ status: "accepted" });
     expect(call.requests).toStrictEqual([
-      { questionId: SAMPLE_QUESTION_ID, answers: [{ kind: "typed", text: "develop" }] },
+      { questionId: SAMPLE_QUESTION_ID, answers: SAMPLE_ANSWERS },
     ]);
   });
 
@@ -85,12 +89,12 @@ describe("useQuestionAnswer — an answer is a settled act", () => {
     );
 
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
     call.recover();
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
 
@@ -107,11 +111,11 @@ describe("useQuestionAnswer — an answer is a settled act", () => {
     );
 
     act(() => {
-      result.current.answer("develop");
+      result.current.answer(SAMPLE_ANSWERS);
     });
     await settle();
     act(() => {
-      result.current.answer("main");
+      result.current.answer([{ kind: "typed", text: "main" }]);
     });
     await settle();
 
