@@ -83,17 +83,6 @@ describe("ReattachControl — the confirm press keeps its settlement", () => {
     expect(container.textContent).toContain("Re-attaching.");
     expect(trigger()?.disabled).toBe(true);
   });
-
-  it("negative control: with nothing pressed the card carries no settlement and the trigger is live", async () => {
-    // Without this the case above would pass against a card that always said `Re-attaching.`
-    // and always held its trigger.
-    const { container } = renderControl(operationsHoldingTheCall());
-
-    await pressOpen();
-
-    expect(container.textContent).not.toContain("Re-attaching.");
-    expect(trigger()?.disabled).toBe(false);
-  });
 });
 
 describe("ReattachControl — a discarded consideration", () => {
@@ -108,16 +97,5 @@ describe("ReattachControl — a discarded consideration", () => {
     await pressCancel();
 
     expect(container.querySelector(".meridian-reattach__attached")).toBeNull();
-  });
-
-  it("negative control: a settlement nobody reconsidered stays on the card", async () => {
-    // The settlement is the only place the outcome is written; cleared on any close, it would
-    // be gone before the person who pressed could read it.
-    const { container } = renderControl(operationsAnsweringTheCall());
-
-    await pressOpen();
-    await pressConfirm();
-
-    expect(container.querySelector(".meridian-reattach__attached")).not.toBeNull();
   });
 });

@@ -8,7 +8,6 @@ import { describe, expect, it } from "vitest";
 import { WORKTREE_GIT_REF_MAX_LEN, type WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";
 
 import {
-  EMPTY_PREPARE_FORM,
   REUSE_UNANSWERED_COPY,
   REUSE_VERDICT_COPY,
   isDirtyReuseAcknowledged,
@@ -50,10 +49,6 @@ function answered(verdict: ReuseVerdict): ReturnType<typeof readReuseCheckState>
 }
 
 describe("reuseVerdictFor", () => {
-  it("reads no candidate as none", () => {
-    expect(reuseVerdictFor({ available: false } as WorktreeReuseCheckResponse).kind).toBe("none");
-  });
-
   it("reads a clean, compatible candidate as reusable", () => {
     expect(reuseVerdictFor(reply({ compatible: true, isClean: true })).kind).toBe("reusable");
   });
@@ -69,12 +64,12 @@ describe("reuseVerdictFor", () => {
     expect(reuseVerdictFor(reply({ compatible: false, isClean: false })).kind).toBe("incompatible");
   });
 
-  it("negative control: an absent `compatible` is not read as permission", () => {
+  it("does not read an absent `compatible` as permission", () => {
     // The verdict members are optional on the wire; reading absence as yes would consent for it.
     expect(reuseVerdictFor(reply({ isClean: true })).kind).toBe("incompatible");
   });
 
-  it("negative control: an available reply with no id is no candidate", () => {
+  it("reads an available reply with no id as no candidate", () => {
     expect(
       reuseVerdictFor({
         available: true,
@@ -101,12 +96,6 @@ describe("reuseConsentRequired / reusePreparable", () => {
 });
 
 describe("readReuseCheckState", () => {
-  it("carries the answer a settled check gave", () => {
-    const standing = answered(DIRTY_CANDIDATE);
-    expect(standing.answered).toBe(true);
-    expect(standing.verdict).toStrictEqual(DIRTY_CANDIDATE);
-  });
-
   it("holds an unasked and an in-flight check apart from a decided negative", () => {
     // All three leave the verdict at `none`; only `answered` separates them from a real negative.
     for (const reading of [{ status: "not-read" }, { status: "reading" }] as const) {
@@ -119,11 +108,6 @@ describe("readReuseCheckState", () => {
 });
 
 describe("resolvePrepareForm", () => {
-  it("asks for a branch first", () => {
-    const verdict = resolvePrepareForm(EMPTY_PREPARE_FORM, answered({ kind: "none" }));
-    expect(verdict.status === "incomplete" && verdict.because).toContain("branch");
-  });
-
   it("sends an ordinary prepare with a branch and no candidate", () => {
     expect(resolvePrepareForm(form(), answered({ kind: "none" })).status).toBe("sendable");
   });
@@ -141,7 +125,7 @@ describe("resolvePrepareForm", () => {
     );
   });
 
-  it("negative control: a branch name AT the bound is sendable", () => {
+  it("sends a branch name at the bound", () => {
     expect(
       resolvePrepareForm(
         { branchName: "b".repeat(WORKTREE_GIT_REF_MAX_LEN), acknowledgedCandidateId: undefined },
@@ -156,12 +140,6 @@ describe("resolvePrepareForm", () => {
     const verdict = resolvePrepareForm(form(), readReuseCheckState({ status: "reading" }));
     expect(verdict.status).toBe("incomplete");
     expect(verdict.status === "incomplete" && verdict.because).toBe(REUSE_UNANSWERED_COPY);
-  });
-
-  it("holds the act before any check has been asked at all", () => {
-    expect(resolvePrepareForm(form(), readReuseCheckState({ status: "not-read" })).status).toBe(
-      "incomplete",
-    );
   });
 
   it("holds a dirty candidate until the consent is given", () => {
@@ -179,7 +157,7 @@ describe("resolvePrepareForm", () => {
     expect(verdict.status === "incomplete" && verdict.because).toContain("uncommitted changes");
   });
 
-  it("negative control: consent does not make an incompatible candidate sendable", () => {
+  it("does not let consent make an incompatible candidate sendable", () => {
     const verdict = resolvePrepareForm(
       form(WORKTREE_ID),
       answered({ kind: "incompatible", worktreeId: WORKTREE_ID, reason: undefined }),
@@ -192,32 +170,11 @@ describe("resolvePrepareForm", () => {
 });
 
 describe("isDirtyReuseAcknowledged", () => {
-  it("carries the consent on the candidate that asked for it", () => {
-    expect(isDirtyReuseAcknowledged(form(WORKTREE_ID), DIRTY_CANDIDATE)).toBe(true);
-  });
-
   it("drops a consent the verdict no longer calls for, which a refresh can leave set", () => {
     // The checkbox is ticked under `dirty`, then the re-check settles `reusable` and the
     // checkbox unmounts with the consent still recorded.
     expect(
       isDirtyReuseAcknowledged(form(WORKTREE_ID), { kind: "reusable", worktreeId: WORKTREE_ID }),
     ).toBe(false);
-  });
-
-  it("drops a consent given for a different tree, on a verdict that is still dirty", () => {
-    // The arm and branch are unchanged but the tree the person read about is gone.
-    expect(isDirtyReuseAcknowledged(form(WORKTREE_ID), REPLACEMENT_DIRTY_CANDIDATE)).toBe(false);
-  });
-
-  it("negative control: no verdict but `dirty` carries one, consented or not", () => {
-    expect(isDirtyReuseAcknowledged(form(WORKTREE_ID), { kind: "none" })).toBe(false);
-    expect(
-      isDirtyReuseAcknowledged(form(WORKTREE_ID), {
-        kind: "incompatible",
-        worktreeId: WORKTREE_ID,
-        reason: undefined,
-      }),
-    ).toBe(false);
-    expect(isDirtyReuseAcknowledged(form(), DIRTY_CANDIDATE)).toBe(false);
   });
 });

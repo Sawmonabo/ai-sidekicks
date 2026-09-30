@@ -1,34 +1,8 @@
 /*
- * The mount half of the repos section: the section, and the mount and workspace cards.
- * Imported by `MountList.tsx`. No literal values: lengths on the space scale, sizes on the
- * type scale, colors as custom properties. The shared act-dialog shape is `../mount-controls.css`.
+ * The mount list, and the mount and workspace cards. Imported by `MountList.tsx`. No literal
+ * values: lengths on the space scale, sizes on the type scale, colors as custom properties. The
+ * shared act-dialog shape is `../mount-controls.css`.
  */
-
-/* --------------------------------------------------------- sidebar section */
-
-.meridian-repo-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-}
-
-/* A collapsed section's one line carries the same absence the open section does; saying
-   nothing would read as a section with nothing in it. */
-.meridian-repo-section__summary {
-  margin: 0;
-  padding: 0 var(--meridian-space-3);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* Where the mount cards land. No box of its own: the cards carry their edges, and a container
-   edge would draw a second boundary around a single-mount session. */
-.meridian-repo-section__mounts {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  padding: 0 var(--meridian-space-3) var(--meridian-space-2);
-}
 
 /* -------------------------------------------------------------- mount card */
 
@@ -182,12 +156,4 @@
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-xs);
   overflow-wrap: anywhere;
-}
-
-/* --------------------------------------------------- repo section, count */
-
-/* The mount count beside the section heading. */
-.meridian-repo-section__count {
-  font-family: var(--meridian-font-mono);
-  color: var(--meridian-text-muted);
 }

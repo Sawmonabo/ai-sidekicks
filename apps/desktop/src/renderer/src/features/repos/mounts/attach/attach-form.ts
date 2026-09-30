@@ -12,7 +12,11 @@ export interface AttachFormState {
   readonly localPath: string;
 }
 
-/** An empty form: nothing typed. */
+/**
+ * An empty form: nothing typed.
+ *
+ * @consumedBy the attach dialog, which opens and resets on it
+ */
 export const EMPTY_ATTACH_FORM: AttachFormState = { localPath: "" };
 
 /**

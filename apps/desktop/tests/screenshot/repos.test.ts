@@ -2,7 +2,7 @@
 // mechanism: every capture is written into the gitignored `__screenshots__/` and compared against
 // nothing, so this file gates on whether each view can be captured at all.
 //
-// The two are different compositions, not states of one. The repos section with its degraded
+// The two are different compositions, not states of one. The mount list with its degraded
 // mounts: three mounts, two answering the failing health verdicts `unreachable` and
 // `identity_mismatch`; a bad mount must read as bad at a glance and still offer what it can,
 // which for the second verdict is the re-attach that recovers it. That is a claim about what is
@@ -13,7 +13,7 @@
 import { afterEach, beforeEach, describe, it } from "vitest";
 
 import { emulateSystemScheme } from "../helpers/app-harness.js";
-import { mountDiffPane, mountRepoSection } from "../helpers/feature-mounts/repos.js";
+import { mountDiffPane, mountMountList } from "../helpers/feature-mounts/repos.js";
 import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import { captureSettled } from "./settled-capture.js";
 
@@ -28,7 +28,7 @@ const PINNED_VIEWS: readonly {
   readonly captureName: string;
   readonly mount: () => Promise<MountedView>;
 }[] = [
-  { captureName: "repos-section-degraded-mount", mount: mountRepoSection },
+  { captureName: "repos-mount-list-degraded-mount", mount: mountMountList },
   { captureName: "repos-diff-pane", mount: mountDiffPane },
 ];
 
@@ -42,7 +42,7 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("screenshot — the repos section and diff pane", () => {
+describe("screenshot — the mount list and diff pane", () => {
   for (const view of PINNED_VIEWS) {
     for (const scheme of COLOR_SCHEMES) {
       it(`renders ${view.captureName} in the ${scheme} scheme`, async () => {

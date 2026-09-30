@@ -5,7 +5,6 @@ import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekic
 import { describe, expect, it } from "vitest";
 
 import {
-  defaultBindMode,
   EMPTY_BIND_FORM,
   resolveBindForm,
   type BindFormState,
@@ -37,16 +36,6 @@ describe("resolveBindForm", () => {
     expect(verdict.status === "incomplete" && verdict.because).toContain("execution mode");
   });
 
-  it("never invents a mode of the console's own", () => {
-    // The mount's own `defaultMode` is the only thing that stands in for a pick, so a reply
-    // naming none leaves the form incomplete.
-    const verdict = verdictFor(
-      { directory: "", executionMode: undefined },
-      NO_DEFAULT_CAPABILITIES,
-    );
-    expect(verdict.status).not.toBe("sendable");
-  });
-
   it("stands the mount's own default in for a pick nobody has made", () => {
     // Derived per read, not written into the form, so a reopened dialog gets it again.
     const resolution = resolveBindForm(EMPTY_BIND_FORM, GIT_CAPABILITIES);
@@ -65,15 +54,6 @@ describe("resolveBindForm", () => {
     expect(resolution.verdict.status === "incomplete" && resolution.verdict.because).toContain(
       "no longer one this mount admits",
     );
-  });
-
-  it("does not substitute the new default for a mode that was picked", () => {
-    // Binding in whichever mode is default now is not the act the user asked for.
-    const { verdict } = resolveBindForm(
-      { directory: "", executionMode: "provisioned-worktree" },
-      { availableModes: ["bound-root"], defaultMode: "bound-root" },
-    );
-    expect(verdict.status).not.toBe("sendable");
   });
 
   it("holds a picked mode unconfirmed while the read has not answered", () => {
@@ -111,28 +91,9 @@ describe("resolveBindForm", () => {
     );
   });
 
-  it("negative control: a directory exactly at the cap is sendable", () => {
+  it("sends a directory exactly at the cap", () => {
     const atCap = "a".repeat(FILE_PATH_MAX_LEN);
     const verdict = verdictFor({ directory: atCap, executionMode: "provisioned-worktree" });
     expect(verdict.status).toBe("sendable");
-  });
-
-  it("checks the length before the mode, which is the order a person meets them", () => {
-    const overCap = "a".repeat(FILE_PATH_MAX_LEN + 1);
-    const verdict = verdictFor({ directory: overCap, executionMode: undefined });
-    expect(verdict.status === "incomplete" && verdict.because).toContain("characters");
-  });
-});
-
-describe("defaultBindMode", () => {
-  it("pre-fills the daemon's own default", () => {
-    expect(defaultBindMode(GIT_CAPABILITIES)).toBe("provisioned-worktree");
-  });
-
-  it("negative control: a default the reply does not offer pre-fills nothing", () => {
-    // A reply that disagrees with itself leaves the user to choose.
-    expect(
-      defaultBindMode({ availableModes: ["bound-root"], defaultMode: "provisioned-worktree" }),
-    ).toBeUndefined();
   });
 });

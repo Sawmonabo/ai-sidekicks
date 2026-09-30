@@ -3,11 +3,7 @@
 // `vi.mock` is module-scoped, so each consumer declares it in its own file (mocking it in
 // `xterm-adapter.test.ts` would move all of that file's cases onto a renderer they do not assert).
 
-import {
-  terminalRendererPool,
-  TerminalRendererPool,
-  type TerminalContextLease,
-} from "./renderer-pool.js";
+import { TerminalRendererPool, type TerminalContextLease } from "./renderer-pool.js";
 
 /**
  * A renderer that activates, then loses its context on demand. Instances register themselves,
@@ -78,14 +74,7 @@ export function newestRenderer(): FakeWebglRenderer {
   return renderer;
 }
 
-/**
- * The teardown half that exists because a renderer really activated; run after
- * `disposeLiveEmulators`. A mount took a context from the page ledger with none behind it, so
- * the allowance is reclaimed rather than left spent.
- */
-export function resetWebglFallback(componentTerminalIds: readonly string[] = []): void {
+/** Forget every stand-in renderer; run after `disposeLiveEmulators`. */
+export function resetWebglFallback(): void {
   FakeWebglRenderer.live.length = 0;
-  for (const terminalId of componentTerminalIds) {
-    terminalRendererPool.reclaimEveryContextFor(terminalId);
-  }
 }

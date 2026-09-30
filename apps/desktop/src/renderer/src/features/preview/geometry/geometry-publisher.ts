@@ -88,8 +88,9 @@ export class PaneGeometryPublisher {
    * frame replaces the pending sample rather than queueing a second frame.
    */
   public invalidate(reason: GeometryInvalidationReason): void {
+    // Disposal clears the host, so a late event after it reads nothing.
     const element = this.#hostElement;
-    if (this.#disposed || element === undefined) {
+    if (element === undefined) {
       return;
     }
     this.#pendingSample = composePaneGeometrySample({
@@ -158,7 +159,7 @@ export class PaneGeometryPublisher {
   #flush(): void {
     const sample = this.#pendingSample;
     this.#pendingSample = undefined;
-    if (this.#disposed || sample === undefined) {
+    if (sample === undefined) {
       return;
     }
     if (sample.key === this.#lastPublishedKey) {

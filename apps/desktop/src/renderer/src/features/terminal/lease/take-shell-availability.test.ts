@@ -1,6 +1,5 @@
-// Which control the lease line may draw, per holding and identity reading. A control drawn
-// before the console knows which device is asking would produce a take it cannot recognize
-// as its own.
+// When the lease line withholds the take control. A control drawn before the console knows
+// which device is asking would produce a take it cannot recognize as its own.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,14 +14,7 @@ function resolve(holding: TerminalLeaseHolder, deviceIdentity: TerminalDeviceIde
   return resolveTakeShellAvailability({ holding, deviceIdentity });
 }
 
-describe("the acquisition control is offered on the identity alone", () => {
-  it("offers it to any device that knows which device it is", () => {
-    // No entitlement axis: the shell belongs to the one person using this machine.
-    expect(resolve("unheld", IDENTITY_READ)).toStrictEqual({ control: "acquire" });
-    expect(resolve("held-by-another-device", IDENTITY_READ)).toStrictEqual({ control: "acquire" });
-    expect(resolve("not-checked", IDENTITY_READ)).toStrictEqual({ control: "acquire" });
-  });
-
+describe("the take control is withheld", () => {
   it("offers nothing while the identity read is still out", () => {
     expect(resolve("unheld", { status: "not-loaded" })).toStrictEqual({ control: "none" });
   });

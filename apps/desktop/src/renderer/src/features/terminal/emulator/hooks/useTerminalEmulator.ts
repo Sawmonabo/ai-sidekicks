@@ -33,33 +33,24 @@ export const LOADING_EMULATOR: TerminalEmulatorState = { status: "loading" };
 
 /**
  * Fetch the emulator's chunk and say where it got to. A hook because `import()` is a side
- * effect a discarded render pass must not start. An unmount before the chunk arrives is
- * ignored on both the resolve and the reject arm; the loader's memo means the next mount
- * reuses that fetch.
+ * effect a discarded render pass must not start. A chunk arriving after an unmount sets state
+ * React drops; the loader's memo means the next mount reuses that fetch.
  */
 export function useTerminalEmulator(loader: TerminalEmulatorLoader): TerminalEmulatorState {
   const [emulator, setEmulator] = useState<TerminalEmulatorState>(LOADING_EMULATOR);
 
   useEffect(() => {
-    let isMounted = true;
     loader.load().then(
       (module) => {
-        if (isMounted) {
-          setEmulator({ status: "loaded", module });
-        }
+        setEmulator({ status: "loaded", module });
       },
       (loadError: unknown) => {
-        if (isMounted) {
-          setEmulator({
-            status: "failed",
-            refusal: normalizeWireRejection(EMULATOR_REFUSAL_ORIGIN, loadError),
-          });
-        }
+        setEmulator({
+          status: "failed",
+          refusal: normalizeWireRejection(EMULATOR_REFUSAL_ORIGIN, loadError),
+        });
       },
     );
-    return () => {
-      isMounted = false;
-    };
   }, [loader]);
 
   return emulator;

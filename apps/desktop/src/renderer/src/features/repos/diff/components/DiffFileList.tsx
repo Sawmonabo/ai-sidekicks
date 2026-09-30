@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef } from "react";
+import { useCallback, useId, useMemo, useRef } from "react";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
@@ -52,7 +52,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     getScrollElement: () => scrollerRef.current,
     estimatedRowHeightPx: DIFF_FILE_ROW_HEIGHT_PX,
     // Where the list opens: first paint precedes any scroll, so a reopened deep selection would
-    // start unmounted at the top. The effect below carries every later move.
+    // start unmounted at the top. The roving index reveals every later move of the anchor.
     initialOffsetPx: openingIndex * DIFF_FILE_ROW_HEIGHT_PX,
   });
   const revealIndex = useCallback(
@@ -72,11 +72,6 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     rowSetIdentity: entries,
     windowRevision: virtualRows,
   });
-
-  // Keeps the selected row inside the window on every change; the filter can move its index.
-  useEffect(() => {
-    entryWindow.scrollToIndex(openingIndex);
-  }, [entryWindow, openingIndex]);
 
   const isScrolling = props.diff.files.length > DIFF_FILE_LIST_SCROLL_THRESHOLD;
 

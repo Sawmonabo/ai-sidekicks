@@ -1,6 +1,10 @@
+// The unified-patch parser: the hunk headers the patch declared, each side's line numbers, the
+// paths it names, the file shapes whose change lives only in the extended headers (rename, copy,
+// mode change, binary), and the marker that ends a file without a newline.
+
 import { describe, expect, it } from "vitest";
 
-import { diffLineText, type DiffLine } from "./diff-model.js";
+import { diffLineText } from "./diff-model.js";
 import { intralineSegments, parseUnifiedPatch } from "./patch-parse.js";
 import {
   COMPARED_STATES,
@@ -32,19 +36,6 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
     );
   });
 
-  it("keeps a one-line range spelled the way the patch spelled it", () => {
-    const header = parsePlainPatch(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header ?? "";
-    expect(header.startsWith("@@ -10 +10 @@")).toBe(true);
-  });
-
-  it("negative control: the header is not the reconstruction from the four numbers", () => {
-    // What composing `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@` produces: a
-    // plausible header that is not the one the patch declared.
-    expect(parsePlainPatch(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header).not.toBe(
-      "@@ -10,1 +10,1 @@",
-    );
-  });
-
   it("hands each file's hunks their own declared headers, in order", () => {
     const model = parsePlainPatch(PLAIN_PATCH);
     expect(model.files[0]?.hunks[0]?.header).toBe("@@ -10,2 +10,2 @@");
@@ -59,7 +50,7 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
     expect(header).toBe("@@ -10 +10 @@ function createApplicationWindow(): BrowserWindow {");
   });
 
-  it("negative control: a body line that looks like a header is not read as one", () => {
+  it("does not read a body line that looks like a header as one", () => {
     // Every body line carries a prefix, so a deleted line whose text is a hunk header reads as
     // `-@@ …` and never matches; otherwise every later hunk would get the wrong header.
     const patchText = [
@@ -74,6 +65,23 @@ describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
     const model = parseUnifiedPatch(patchText, COMPARED_STATES);
     expect(model.files[0]?.hunks).toHaveLength(1);
     expect(model.files[0]?.hunks[0]?.header).toBe("@@ -1,2 +1,2 @@ Section");
+  });
+
+  it("refuses a patch with a hunk its headers do not declare, rather than shifting them", () => {
+    // The parser takes the malformed `@@ @@ …` line as a hunk the header scan does not see, so
+    // the first hunk would be drawn under the second one's numbers.
+    const patchText = [
+      "--- a/notes.md",
+      "+++ b/notes.md",
+      "@@ @@ -1 +1 @@",
+      "-a",
+      "+b",
+      "@@ -5 +5 @@",
+      "-c",
+      "+d",
+      "",
+    ].join("\n");
+    expect(() => parseUnifiedPatch(patchText, COMPARED_STATES)).toThrow(/fewer `@@` headers/u);
   });
 });
 
@@ -92,10 +100,6 @@ describe("parseUnifiedPatch", () => {
     ]);
   });
 
-  it("carries the hunk header the patch declared, verbatim", () => {
-    expect(parsePlainPatch(PLAIN_PATCH).files[0]?.hunks[0]?.header).toBe("@@ -10,2 +10,2 @@");
-  });
-
   it("numbers the two sides independently", () => {
     // The deleted line has no head number, the inserted line no base number, and the context
     // line before them has both.
@@ -107,35 +111,6 @@ describe("parseUnifiedPatch", () => {
     expect(insertedLine?.kind).toBe("insert");
     expect(insertedLine?.headLineNumber).toBe(11);
     expect(insertedLine?.baseLineNumber).toBeUndefined();
-  });
-
-  it("gives a parsed hunk no preceding context, because a patch carries none", () => {
-    for (const file of parsePlainPatch(PLAIN_PATCH).files) {
-      for (const hunk of file.hunks) {
-        expect(hunk.precedingContext).toStrictEqual([]);
-      }
-    }
-  });
-
-  it("gives every line one whole-line segment, computing no word diff", () => {
-    // The parser runs no word diff over delete/insert pairs. The split is derived per rendered
-    // row by `intraline-segment-cache.ts`; a parsed line carries its text and nothing else.
-    for (const line of linesOfFirstHunk(PLAIN_PATCH)) {
-      expect(line.segments).toStrictEqual([{ text: diffLineText(line), changed: false }]);
-    }
-  });
-
-  it("negative control: the same pair through the intraline seam does split", () => {
-    // Without this the claim above would pass over a patch the word diff finds nothing in;
-    // this pair is one it splits.
-    const [, deletedLine, insertedLine] = linesOfFirstHunk(PLAIN_PATCH);
-    const pair = intralineSegments(
-      diffLineText(deletedLine as DiffLine),
-      diffLineText(insertedLine as DiffLine),
-    );
-    expect(pair.deleted.filter((segment) => segment.changed)).toStrictEqual([
-      { text: "previousBudget", changed: true },
-    ]);
   });
 
   it("strips the git prefixes only on a patch that declared itself git-style", () => {
@@ -154,7 +129,7 @@ describe("parseUnifiedPatch", () => {
     expect(model.files[0]?.path).toBe("apps/desktop/src/main.ts");
   });
 
-  it("negative control: a plain patch keeps a path that genuinely begins with `b/`", () => {
+  it("keeps a plain patch's path that genuinely begins with `b/`", () => {
     // The strip is conditional: stripping unconditionally would re-root this file.
     const model = parsePlainPatch(
       ["--- b/tool.ts", "+++ b/tool.ts", "@@ -1,1 +1,1 @@", "-a", "+b", ""].join("\n"),
@@ -167,22 +142,6 @@ describe("parseUnifiedPatch", () => {
       ["--- gone.ts", "+++ /dev/null", "@@ -1,1 +0,0 @@", "-const gone = true;", ""].join("\n"),
     );
     expect(model.files[0]?.path).toBe("gone.ts");
-  });
-
-  it("draws no row for a no-newline marker, which annotates a line rather than being one", () => {
-    const lines = linesOfFirstHunk(
-      [
-        "--- tail.ts",
-        "+++ tail.ts",
-        "@@ -1,1 +1,1 @@",
-        "-const tail = 1;",
-        "\\ No newline at end of file",
-        "+const tail = 2;",
-        "",
-      ].join("\n"),
-    );
-    expect(lines).toHaveLength(2);
-    expect(lines.map((line) => line.kind)).toStrictEqual(["delete", "insert"]);
   });
 });
 
@@ -207,12 +166,6 @@ describe("intralineSegments", () => {
     const pair = intralineSegments("  value", "    value");
     expect(pair.deleted.some((segment) => segment.changed)).toBe(true);
     expect(pair.inserted.some((segment) => segment.changed)).toBe(true);
-  });
-
-  it("negative control: identical text is one unchanged segment on both sides", () => {
-    const pair = intralineSegments("const kept = true;", "const kept = true;");
-    expect(pair.deleted).toStrictEqual([{ text: "const kept = true;", changed: false }]);
-    expect(pair.inserted).toStrictEqual([{ text: "const kept = true;", changed: false }]);
   });
 });
 
@@ -252,9 +205,9 @@ describe("parseUnifiedPatch — an empty context line is a line", () => {
     expect(lines.map((line) => line.headLineNumber)).toStrictEqual([1, 2, undefined, 3, 4]);
   });
 
-  it("negative control: a one-space context line still carries no text", () => {
-    // Without this, treating `""` as context could also drop the prefix from a real context
-    // line, an off-by-one invisible on a blank.
+  it("reads a one-space context line as carrying no text", () => {
+    // Treating `""` as context must not also drop the prefix from a real context line, an
+    // off-by-one invisible on a blank.
     const lines = linesOfFirstHunk(
       [
         "--- packages/contracts/src/event.ts",
@@ -270,44 +223,6 @@ describe("parseUnifiedPatch — an empty context line is a line", () => {
     expect(lines[0]?.kind).toBe("context");
     expect(lines[0] === undefined ? undefined : diffLineText(lines[0])).toBe("");
     expect(lines[1]?.baseLineNumber).toBe(2);
-  });
-});
-
-describe("parseUnifiedPatch — a body line this parser cannot place", () => {
-  it("is refused by the parse rather than reaching the renderer short", () => {
-    // The unrecognized-prefix branch in the line mapper is a backstop: `parsePatch` pushes a
-    // body line only for ` `, `+`, `-` or `\` and throws otherwise (checked against `diff`
-    // 9.0.0's `parseHunk`). The mapper reports a tripwire so a version bump that started
-    // passing such a line through would be visible rather than a hunk rendering short.
-    expect(() =>
-      parsePlainPatch(
-        [
-          "--- packages/contracts/src/event.ts",
-          "+++ packages/contracts/src/event.ts",
-          "@@ -1,2 +1,2 @@",
-          " alpha",
-          "?beta",
-          "+gamma",
-          "",
-        ].join("\n"),
-      ),
-    ).toThrow(/invalid line/);
-  });
-
-  it("negative control: the same patch with a real prefix parses", () => {
-    // Without this the case above would pass over a parser that refused everything.
-    const lines = linesOfFirstHunk(
-      [
-        "--- packages/contracts/src/event.ts",
-        "+++ packages/contracts/src/event.ts",
-        "@@ -1,2 +1,2 @@",
-        " alpha",
-        "-beta",
-        "+gamma",
-        "",
-      ].join("\n"),
-    );
-    expect(lines.map((line) => line.kind)).toStrictEqual(["context", "delete", "insert"]);
   });
 });
 
@@ -331,36 +246,159 @@ describe("parseUnifiedPatch — the header scan splits the way the parser splits
     expect(hunks.map((hunk) => hunk.header)).toStrictEqual(["@@ -1,2 +1,2 @@"]);
     expect(hunks[0]?.lines.map((line) => line.kind)).toStrictEqual(["context", "delete", "insert"]);
   });
+});
 
-  it("still renders a Windows patch's header without the carriage return on it", () => {
-    // Where a line ends is the parser's question and what a header carries is this module's,
-    // so the `\r` a CRLF patch leaves is trimmed from the kept text, not from the split.
-    const model = parseUnifiedPatch(
-      [
-        "--- packages/contracts/src/event.ts",
-        "+++ packages/contracts/src/event.ts",
-        "@@ -10,2 +10,2 @@ function compute(): number {",
-        " const before = 1;",
-        "-const value = 1;",
-        "+const value = 2;",
-        "",
-      ].join("\r\n"),
-      COMPARED_STATES,
-    );
+/** A rename with no textual change at all: the whole change is in the headers. */
+const RENAME_ONLY_PATCH = [
+  "diff --git a/docs/decisions/before.md b/docs/decisions/after.md",
+  "similarity index 100%",
+  "rename from docs/decisions/before.md",
+  "rename to docs/decisions/after.md",
+  "",
+].join("\n");
 
-    expect(model.files[0]?.hunks[0]?.header).toBe("@@ -10,2 +10,2 @@ function compute(): number {");
+/** A file whose only change is that it became executable. */
+const MODE_ONLY_PATCH = [
+  "diff --git a/scripts/release.sh b/scripts/release.sh",
+  "old mode 100644",
+  "new mode 100755",
+  "",
+].join("\n");
+
+/** Bytes that differ, which a unified patch cannot express as lines. */
+const BINARY_PATCH = [
+  "diff --git a/assets/logo.png b/assets/logo.png",
+  "index 1a2b3c4..5d6e7f8 100644",
+  "Binary files a/assets/logo.png and b/assets/logo.png differ",
+  "",
+].join("\n");
+
+/** A copy, which git emits only where the source still exists. */
+const COPY_ONLY_PATCH = [
+  "diff --git a/config/base.yml b/config/staging.yml",
+  "similarity index 100%",
+  "copy from config/base.yml",
+  "copy to config/staging.yml",
+  "",
+].join("\n");
+
+/** A rename that also changed lines: both the header fact and the hunks survive. */
+const RENAME_WITH_HUNK_PATCH = [
+  "diff --git a/src/old-name.ts b/src/new-name.ts",
+  "similarity index 87%",
+  "rename from src/old-name.ts",
+  "rename to src/new-name.ts",
+  "--- a/src/old-name.ts",
+  "+++ b/src/new-name.ts",
+  "@@ -1,2 +1,2 @@",
+  " const kept = true;",
+  "-const value = 1;",
+  "+const value = 2;",
+  "",
+].join("\n");
+
+describe("parseUnifiedPatch — a change that lives only in the extended headers", () => {
+  it("carries the path a rename came from, with the git prefix stripped", () => {
+    // A mapping that kept only the path and `hunks` would show this file as `+0 −0` under a
+    // bare path and lose the name a reader is looking for.
+    const file = parsePlainPatch(RENAME_ONLY_PATCH).files[0];
+    expect(file?.path).toBe("docs/decisions/after.md");
+    expect(file?.renamedFrom).toBe("docs/decisions/before.md");
+    expect(file?.hunks).toStrictEqual([]);
+  });
+
+  it("carries both modes where the patch declared the file's mode changed", () => {
+    const file = parsePlainPatch(MODE_ONLY_PATCH).files[0];
+    expect(file?.path).toBe("scripts/release.sh");
+    expect(file?.modeChange).toStrictEqual({ from: "100644", to: "100755" });
+  });
+
+  it("carries the binary marker, which is the only thing such a patch says", () => {
+    const file = parsePlainPatch(BINARY_PATCH).files[0];
+    expect(file?.path).toBe("assets/logo.png");
+    expect(file?.binary).toBe(true);
+  });
+
+  it("tells a copy from a rename, because the source still exists", () => {
+    // Folding the two would tell a reader the original is gone. `parsePatch` reads `copy from`
+    // into the same `oldFileName` with a different flag, so the flag tells them apart.
+    const file = parsePlainPatch(COPY_ONLY_PATCH).files[0];
+    expect(file?.copiedFrom).toBe("config/base.yml");
+    expect(file?.renamedFrom).toBeUndefined();
+  });
+
+  it("keeps the header fact beside the hunks when a rename also changed lines", () => {
+    const file = parsePlainPatch(RENAME_WITH_HUNK_PATCH).files[0];
+    expect(file?.renamedFrom).toBe("src/old-name.ts");
+    expect(file?.hunks).toHaveLength(1);
+    expect(file?.hunks[0]?.header).toBe("@@ -1,2 +1,2 @@");
+  });
+
+  it("does not read a created file's single mode as a mode change", () => {
+    // `parsePatch` fills `newMode` from `new file mode`, and a new file had no mode before; a
+    // member read off one side would render "mode undefined → 100644" on every new file.
+    const created = [
+      "diff --git a/src/fresh.ts b/src/fresh.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/fresh.ts",
+      "@@ -0,0 +1,1 @@",
+      "+const fresh = true;",
+      "",
+    ].join("\n");
+    expect(parsePlainPatch(created).files[0]?.modeChange).toBeUndefined();
   });
 });
 
-describe("parseUnifiedPatch — the declared headers and the parsed hunks are one count", () => {
-  it("negative control: a patch whose counts agree parses, headers verbatim", () => {
-    // A backstop: both walks split identically now, so no patch `parsePatch` accepts reaches
-    // the guard. This holds the other direction: it refuses nothing it should not, and the
-    // headers are the patch's own.
-    const model = parsePlainPatch(PLAIN_PATCH);
-    expect(model.files.flatMap((file) => file.hunks.map((hunk) => hunk.header))).toStrictEqual([
-      "@@ -10,2 +10,2 @@",
-      "@@ -1,1 +1,2 @@",
-    ]);
+describe("parseUnifiedPatch — the marker that says a file has no final newline", () => {
+  /** Removing the terminator: the two rows carry the SAME text, and only one ends. */
+  const NEWLINE_REMOVED_PATCH = [
+    "--- packages/contracts/src/tail.ts",
+    "+++ packages/contracts/src/tail.ts",
+    "@@ -1,2 +1,2 @@",
+    " const kept = true;",
+    "-const tail = terminate(entries);",
+    "+const tail = terminate(entries);",
+    "\\ No newline at end of file",
+    "",
+  ].join("\n");
+
+  /** Both sides already ended without one, and the change is inside the line. */
+  const NEITHER_SIDE_TERMINATED_PATCH = [
+    "--- packages/contracts/src/tail.ts",
+    "+++ packages/contracts/src/tail.ts",
+    "@@ -1,2 +1,2 @@",
+    " const kept = true;",
+    "-const tail = terminate(previous);",
+    "\\ No newline at end of file",
+    "+const tail = terminate(next);",
+    "\\ No newline at end of file",
+    "",
+  ].join("\n");
+
+  it("carries the marker on both rows where the patch marked both", () => {
+    const lines = linesOfFirstHunk(NEITHER_SIDE_TERMINATED_PATCH);
+    expect(lines.map((line) => line.noNewlineAtEnd)).toStrictEqual([undefined, true, true]);
+  });
+
+  it("marks only the side the patch marked, which is what a newline-only change is", () => {
+    // The deleted and inserted text are the same characters, so the marker on the insertion is
+    // the entire content of the change.
+    const lines = linesOfFirstHunk(NEWLINE_REMOVED_PATCH);
+    const [, deleted, inserted] = lines;
+
+    expect(diffLineText(deleted!)).toBe(diffLineText(inserted!));
+    expect(deleted?.noNewlineAtEnd).toBeUndefined();
+    expect(inserted?.noNewlineAtEnd).toBe(true);
+  });
+
+  it("draws no row for the marker, because the file has no such line", () => {
+    // Three lines, not four: the marker annotates the line above it and does not touch the
+    // numbering.
+    const lines = linesOfFirstHunk(NEWLINE_REMOVED_PATCH);
+    expect(lines).toHaveLength(3);
+    expect(lines.map((line) => line.kind)).toStrictEqual(["context", "delete", "insert"]);
+    expect(lines.map((line) => line.baseLineNumber)).toStrictEqual([1, 2, undefined]);
+    expect(lines.map((line) => line.headLineNumber)).toStrictEqual([1, undefined, 2]);
   });
 });

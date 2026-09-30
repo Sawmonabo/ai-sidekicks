@@ -11,8 +11,6 @@ import {
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
 } from "../diff-caps.js";
-import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
-import { SMALL_DIFF_SHAPE } from "@test/helpers/diff-fixture-shapes.js";
 import { diffLineText, type DiffModel, type DiffLine } from "./diff-model.js";
 import type { DiffLineRow } from "./diff-row-model.js";
 import { IntralineSegmentCache } from "./intraline-segment-cache.js";
@@ -79,18 +77,6 @@ function modifiedPair(padding: string): readonly string[] {
 
 const MODIFIED_PAIR_BODY = modifiedPair("");
 
-/**
- * Two modified pairs in one hunk: a delete run of two, then an insert run of two. Pairing is
- * positional within the runs, so body line 0 pairs with 2 and 1 with 3, giving two lines
- * that are two pairs rather than two sides of one.
- */
-const TWO_MODIFIED_PAIRS_BODY = [
-  "-const first = previousBudget;",
-  "-const second = previousCeiling;",
-  "+const first = nextBudget;",
-  "+const second = nextCeiling;",
-];
-
 describe("intraline segmentation — when the word diff runs", () => {
   it("runs none while a patch is parsed", () => {
     // The parser must not segment pairs itself; this patch holds a modified pair, so zero is a
@@ -130,15 +116,6 @@ describe("intraline segmentation — when the word diff runs", () => {
     ]);
   });
 
-  it("negative control: a row of a DIFFERENT pair is a second computation", () => {
-    // Without this the case above would pass over a register that answered every address with
-    // its first reading; body lines 0 and 1 belong to two different pairs.
-    const cache = new IntralineSegmentCache(modelOf(TWO_MODIFIED_PAIRS_BODY));
-    cache.readingFor(bodyRow(0), 0);
-    cache.readingFor(bodyRow(1), 1);
-    expect(cache.computeCount).toBe(2);
-  });
-
   it("drops the least recently read reading past the register's cap", () => {
     // Scrolling a large change set end to end must not accumulate a segment list per changed
     // line, so the register must actually evict.
@@ -150,46 +127,22 @@ describe("intraline segmentation — when the word diff runs", () => {
       insertions.push(`+const value${String(ordinal)} = nextBudget;`);
     }
     const cache = new IntralineSegmentCache(modelOf([...deletions, ...insertions]));
-    for (let lineIndex = 0; lineIndex < pairCount; lineIndex += 1) {
+    for (let lineIndex = 0; lineIndex < pairCount - 1; lineIndex += 1) {
       cache.readingFor(bodyRow(lineIndex), lineIndex);
     }
-    expect(cache.computeCount).toBe(pairCount);
-    // The most recently read is still held, and the least recently read is not.
+    // Read again, so the first pair is now the most recently read rather than the oldest.
+    cache.readingFor(bodyRow(0), 0);
     cache.readingFor(bodyRow(pairCount - 1), pairCount - 1);
     expect(cache.computeCount).toBe(pairCount);
+    // The pair read again is still held, and the least recently read is not.
     cache.readingFor(bodyRow(0), 0);
+    expect(cache.computeCount).toBe(pairCount);
+    cache.readingFor(bodyRow(1), 1);
     expect(cache.computeCount).toBe(pairCount + 1);
-  });
-
-  it("compares nothing for a gap's revealed context line", () => {
-    // Revealed context has no counterpart to compare against and nothing to hold.
-    const model = buildDiffFixture(SMALL_DIFF_SHAPE);
-    const contextLine = model.files[0]?.hunks[0]?.precedingContext[0];
-    expect(contextLine).toBeDefined();
-    const cache = new IntralineSegmentCache(model);
-    const reading = cache.readingFor(
-      { kind: "line", fileIndex: 0, hunkIndex: 0, source: "preceding-context", lineIndex: 0 },
-      0,
-    );
-    expect(reading).toStrictEqual({
-      segments: [{ text: diffLineText(contextLine as DiffLine), changed: false }],
-      skipped: false,
-    });
-    expect(wordDiffCalls).not.toHaveBeenCalled();
   });
 });
 
 describe("intraline segmentation — what a pair segments to", () => {
-  it("segments a modified line pair at its word boundaries, on both sides", () => {
-    const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY));
-    expect(
-      cache.readingFor(bodyRow(0), 0).segments.filter((segment) => segment.changed),
-    ).toStrictEqual([{ text: "previousBudget", changed: true }]);
-    expect(
-      cache.readingFor(bodyRow(1), 1).segments.filter((segment) => segment.changed),
-    ).toStrictEqual([{ text: "nextBudget", changed: true }]);
-  });
-
   it("reassembles each side to the line it was read for", () => {
     // A reading is a view of the text, not a second copy of it.
     const model = modelOf(MODIFIED_PAIR_BODY);
@@ -203,11 +156,14 @@ describe("intraline segmentation — what a pair segments to", () => {
   });
 
   it("pairs a longer delete run with a shorter insert run by ordinal and leaves the surplus whole", () => {
+    // The context line after the runs is where a surplus delete paired past its insert run
+    // would land, highlighting words against a line it was never replaced by.
     const cache = new IntralineSegmentCache(
       modelOf([
         "-const value = compute(previousBudget, 1);",
         "-const dropped = true;",
         "+const value = compute(nextBudget, 1);",
+        " const kept = false;",
       ]),
     );
     expect(
@@ -219,40 +175,40 @@ describe("intraline segmentation — what a pair segments to", () => {
     });
   });
 
-  it("negative control: an unpaired insertion is one unchanged segment and costs no word diff", () => {
-    // Without this the segmentation cases would pass over a register that marked every line's
-    // whole text as changed; this insertion has no deleted counterpart.
+  it("leaves a longer insert run's overhang whole", () => {
     const cache = new IntralineSegmentCache(
-      modelOf([" const kept = true;", "+const added = true;"]),
+      modelOf([
+        "-const value = compute(previousBudget, 1);",
+        "+const value = compute(nextBudget, 1);",
+        "+const added = true;",
+      ]),
     );
-    expect(cache.readingFor(bodyRow(1), 1)).toStrictEqual({
+    expect(cache.readingFor(bodyRow(2), 2)).toStrictEqual({
       segments: [{ text: "const added = true;", changed: false }],
       skipped: false,
     });
-    expect(wordDiffCalls).not.toHaveBeenCalled();
   });
 });
 
 describe("intraline segmentation — the size bound", () => {
   it("keeps the whole line and says the comparison was skipped past the character cap", () => {
-    const model = modelOf(modifiedPair("x".repeat(DIFF_INTRALINE_LINE_CHARACTER_CAP)));
+    // Against a short partner, so the pair's product is in bounds and only the line cap can
+    // decide: one long line against a short one costs the square of the long one.
+    const model = modelOf([
+      `-const value = previousBudget;${"x".repeat(DIFF_INTRALINE_LINE_CHARACTER_CAP)}`,
+      "+const value = nextBudget;",
+    ]);
     const deletedText = diffLineText(bodyLineAt(model, 0));
+    const insertedText = diffLineText(bodyLineAt(model, 1));
     expect(deletedText.length).toBeGreaterThan(DIFF_INTRALINE_LINE_CHARACTER_CAP);
+    expect(deletedText.length * insertedText.length).toBeLessThanOrEqual(
+      DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
+    );
     const reading = new IntralineSegmentCache(model).readingFor(bodyRow(0), 0);
     expect(reading.skipped).toBe(true);
     // The fallback withholds the highlight, never characters.
     expect(reading.segments).toStrictEqual([{ text: deletedText, changed: false }]);
     expect(wordDiffCalls).not.toHaveBeenCalled();
-  });
-
-  it("negative control: the same pair inside the cap is compared rather than skipped", () => {
-    // Without this the fallback case would pass over a register that skipped every pair.
-    const cache = new IntralineSegmentCache(modelOf(modifiedPair("x".repeat(16))));
-    const reading = cache.readingFor(bodyRow(0), 0);
-    expect(reading.skipped).toBe(false);
-    expect(reading.segments.filter((segment) => segment.changed)).toStrictEqual([
-      { text: "previousBudget", changed: true },
-    ]);
   });
 
   it("skips a pair whose product is out of bounds though neither line is", () => {

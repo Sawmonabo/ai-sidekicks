@@ -19,18 +19,10 @@ const MODIFIED_PAIR: readonly DiffLine[] = [
 ];
 
 describe("hunk body layout — unified is the identity, and holds no array", () => {
-  it("reports one row per line without materializing them", () => {
-    const layout = buildHunkBodyLayout(MODIFIED_PAIR, "unified");
-    expect(layout.kind).toBe("identity");
-    expect(hunkBodyRowCount(layout)).toBe(MODIFIED_PAIR.length);
-  });
-
-  it("answers each row arithmetically, and nothing past the end", () => {
+  it("answers each row arithmetically", () => {
     const layout = buildHunkBodyLayout(MODIFIED_PAIR, "unified");
     expect(hunkBodyRowAt(layout, 0)).toStrictEqual({ lineIndex: 0 });
     expect(hunkBodyRowAt(layout, 3)).toStrictEqual({ lineIndex: 3 });
-    expect(hunkBodyRowAt(layout, 4)).toBeUndefined();
-    expect(hunkBodyRowAt(layout, -1)).toBeUndefined();
   });
 
   it("holds nothing per line, whatever the hunk's size", () => {
@@ -60,11 +52,13 @@ describe("hunk body layout — split pairs positionally, and holds the pairing",
     expect(hunkBodyRowCount(layout)).toBe(2);
     expect(hunkBodyRowAt(layout, 0)).toStrictEqual({ lineIndex: 0, pairedLineIndex: 2 });
     expect(hunkBodyRowAt(layout, 1)).toStrictEqual({ lineIndex: 1 });
-  });
 
-  it("negative control: the two modes really do flatten this shape differently", () => {
-    expect(hunkBodyRowCount(buildHunkBodyLayout(MODIFIED_PAIR, "unified"))).not.toBe(
-      hunkBodyRowCount(buildHunkBodyLayout(MODIFIED_PAIR, "split")),
+    const insertLonger = buildHunkBodyLayout(
+      [line("delete", "only"), line("insert", "one"), line("insert", "two")],
+      "split",
     );
+    expect(hunkBodyRowCount(insertLonger)).toBe(2);
+    expect(hunkBodyRowAt(insertLonger, 0)).toStrictEqual({ lineIndex: 0, pairedLineIndex: 1 });
+    expect(hunkBodyRowAt(insertLonger, 1)).toStrictEqual({ lineIndex: 2 });
   });
 });

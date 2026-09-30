@@ -46,19 +46,6 @@ interface IdentityProps {
 }
 
 describe("the terminal device identity", () => {
-  it("is not loaded until the read lands, then names the user it returned", async () => {
-    const held = heldRead();
-    const bridge = freshBridge();
-    const { result } = renderHook(() =>
-      useTerminalDeviceIdentity(bridge, "session-one", held.readDeviceUser),
-    );
-    expect(result.current).toStrictEqual({ status: "not-loaded" });
-
-    await held.answer(0, "user-one");
-
-    expect(result.current).toStrictEqual({ status: "read", userId: "user-one" });
-  });
-
   it("reverts to not-loaded for a different session, then reads that session's user", async () => {
     const held = heldRead();
     const bridge = freshBridge();

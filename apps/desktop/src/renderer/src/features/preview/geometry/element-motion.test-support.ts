@@ -1,11 +1,6 @@
 // Fakes for the motion sources: Web Animations readings and mutation-record settling. The size
 // observer's fake is `tests/helpers/element-resize.ts`, beside the seam it drives.
 
-/** One animation in a fixed play state; the motion sources read nothing else about it. */
-export function fakeAnimation(playState: AnimationPlayState): Animation {
-  return { playState } as unknown as Animation;
-}
-
 /**
  * One animation whose play state the test moves, read live through the getter, so a case can
  * settle the motion between two sampler frames without handing over a different object.
@@ -26,8 +21,7 @@ export function movingAnimation(): { readonly animation: Animation; settle: () =
 
 /**
  * One animation with the effect the motion filter reads: the properties its keyframes name and
- * the element it runs on. `fakeAnimation` carries only a play state and so reads as unreadable,
- * the fail-safe arm.
+ * the element it runs on.
  */
 export function fakeAnimationOf(options: {
   readonly playState: AnimationPlayState;

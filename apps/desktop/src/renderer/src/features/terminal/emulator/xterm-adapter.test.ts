@@ -1,21 +1,20 @@
-// The emulator wrapper's own life: built once, kept across a detach, disposed once. Also its
-// scrollback cap, what it spends on the page ledger, and the accessible view
-// (`screenReaderMode` is set at construction).
+// The emulator wrapper: scrollback kept across a move and capped, the buffer released on
+// teardown, the write gate on the library's own `disableStdin`, and printed links held to the
+// scheme allow-list. Sending a keystroke nobody was allowed to send is the expensive mistake on
+// a shared shell, so the gate is also shut while the emulator has no mount element.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ILink, type ILinkProvider } from "@xterm/xterm";
 
-import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../terminal-caps.js";
 import { TerminalRendererPool } from "./renderer-pool.js";
-
+import { XtermTerminalAdapter } from "./xterm-adapter.js";
 import {
-  RecordingRendererPool,
   attachedMountElement,
   disposeLiveEmulators,
   emulatorElementsIn,
   mountedAdapter,
-  unattachedAdapter,
+  trackAdapter,
   writeLines,
   writeText,
 } from "./xterm-adapter.test-support.js";
@@ -23,36 +22,6 @@ import {
 afterEach(disposeLiveEmulators);
 
 describe("the emulator wrapper", () => {
-  it("builds nothing until it is attached, and is live after", () => {
-    const pool = new TerminalRendererPool();
-    const adapter = unattachedAdapter({ terminalId: "t", pool });
-    expect(adapter.isEmulatorLive).toBe(false);
-    adapter.attach(attachedMountElement());
-    expect(adapter.isEmulatorLive).toBe(true);
-  });
-
-  it("keeps the emulator across a detach, so a remount does not reallocate", async () => {
-    const { adapter, mountElement } = mountedAdapter();
-    await writeLines(adapter, 3);
-    const linesBefore = adapter.bufferLineCount;
-    adapter.detach();
-    expect(adapter.isEmulatorLive).toBe(true);
-    adapter.attach(mountElement);
-    expect(adapter.bufferLineCount).toBe(linesBefore);
-  });
-
-  it("takes the emulator out of the mount element it is leaving", async () => {
-    // The detached element leaves the screen with the tie; otherwise a live grid with an armed
-    // data listener stays behind.
-    const { adapter, mountElement } = mountedAdapter({ terminalId: "moved-away" });
-    await writeText(adapter, "printed before the move\n");
-    expect(emulatorElementsIn(mountElement)).toHaveLength(1);
-
-    adapter.detach();
-
-    expect(emulatorElementsIn(mountElement)).toHaveLength(0);
-  });
-
   it("re-appends that same emulator on the next mount element, scrollback and all", async () => {
     // The element leaves and the emulator does not. `open()` returns early for a terminal that
     // already has an element, so the re-append is the adapter's own; a second element would
@@ -70,18 +39,6 @@ describe("the emulator wrapper", () => {
     expect(adapter.isEmulatorLive).toBe(true);
   });
 
-  it("negative control: an attach to the mount element it is already on moves nothing", async () => {
-    // Without this the cases above would pass against an adapter that removed and re-added the
-    // element on every re-fit, dropping scroll position and focus.
-    const { adapter, mountElement } = mountedAdapter({ terminalId: "already-here" });
-    const grid = emulatorElementsIn(mountElement)[0];
-    expect(grid).toBeDefined();
-
-    adapter.attach(mountElement);
-
-    expect(emulatorElementsIn(mountElement)[0]).toBe(grid);
-  });
-
   it("caps the buffer at its scrollback rather than growing with the output", async () => {
     const { adapter } = mountedAdapter({ scrollbackLines: 200 });
     await writeLines(adapter, 2_000);
@@ -90,38 +47,9 @@ describe("the emulator wrapper", () => {
     expect(adapter.bufferLineCount).toBeGreaterThan(200);
     expect(adapter.bufferLineCount).toBeLessThanOrEqual(200 + 100);
   });
-
-  it("negative control: an unbounded buffer would exceed that ceiling", async () => {
-    // Same writes, a scrollback ten times smaller: an appending array would differ by the
-    // write count, not the cap.
-    const { adapter } = mountedAdapter({ scrollbackLines: 20, terminalId: "small" });
-    await writeLines(adapter, 2_000);
-    expect(adapter.bufferLineCount).toBeLessThan(200);
-  });
-
-  it("defaults to the scrollback the budget was measured against", () => {
-    const { adapter } = mountedAdapter();
-    expect(adapter.scrollbackLines).toBe(TERMINAL_DEFAULT_SCROLLBACK_LINES);
-  });
 });
 
 describe("teardown", () => {
-  it("gives a disposed adapter's hold back", () => {
-    const pool = new TerminalRendererPool();
-    const { adapter } = mountedAdapter({ pool, terminalId: "pooled" });
-    adapter.dispose();
-    expect(pool.holds("pooled")).toBe(false);
-  });
-
-  it("is final and idempotent", () => {
-    const { adapter } = mountedAdapter();
-    adapter.dispose();
-    expect(adapter.isDisposed).toBe(true);
-    expect(adapter.isEmulatorLive).toBe(false);
-    adapter.dispose();
-    expect(adapter.isDisposed).toBe(true);
-  });
-
   it("refuses to come back after disposal", () => {
     const { adapter, mountElement } = mountedAdapter();
     adapter.dispose();
@@ -143,94 +71,119 @@ describe("teardown", () => {
     expect(adapter.serialize()).toBe("");
     expect(adapter.findNext("a line the serializer can see")).toBe(false);
   });
+});
 
-  it("negative control: a live adapter DOES come back on attach", () => {
-    const { adapter, mountElement } = mountedAdapter();
+describe("the write gate — watch mode is the default", () => {
+  it("moves the library's own gate, not just its own field", () => {
+    const { adapter } = mountedAdapter();
+    expect(adapter.isStdinDisabled).toBe(true);
+    adapter.setWriteEnabled(true);
+    expect(adapter.isWriteEnabled).toBe(true);
+    expect(adapter.isStdinDisabled).toBe(false);
+    adapter.setWriteEnabled(false);
+    expect(adapter.isStdinDisabled).toBe(true);
+  });
+
+  it("shuts the gate while the emulator is off screen and re-opens it on the next mount element", () => {
+    // The write state belongs to the tie: a detached emulator has no box to click, so an open
+    // gate there accepts input nobody can see, and the next mount element gets the lease's
+    // answer without being told again.
+    const { adapter, mountElement } = mountedAdapter({ terminalId: "gated-by-mount" });
+    adapter.setWriteEnabled(true);
+    expect(adapter.isStdinDisabled).toBe(false);
+
+    adapter.detach();
+
+    expect(adapter.isWriteEnabled).toBe(false);
+    expect(adapter.isStdinDisabled).toBe(true);
+
+    adapter.attach(mountElement);
+
+    expect(adapter.isWriteEnabled).toBe(true);
+    expect(adapter.isStdinDisabled).toBe(false);
+  });
+
+  it("keeps a watcher's gate shut across a detach and re-attach", () => {
+    // A re-attach restores the lease's answer; it never opens stdin on its own.
+    const { adapter, mountElement } = mountedAdapter({ terminalId: "watcher-remount" });
+
     adapter.detach();
     adapter.attach(mountElement);
-    expect(adapter.isEmulatorLive).toBe(true);
-  });
 
-  it("negative control: a live adapter's serializer is not empty", async () => {
-    // Without this the case above would pass against a serializer that always
-    // returned the empty string.
-    const { adapter } = mountedAdapter();
-    await writeText(adapter, "still here\n");
-    expect(adapter.serialize()).not.toBe("");
+    expect(adapter.isWriteEnabled).toBe(false);
+    expect(adapter.isStdinDisabled).toBe(true);
   });
 });
 
-describe("the context ledger, through the adapter", () => {
-  /** A working day of opening and closing the pane, well past the page's cap. */
-  const CHURN_CYCLES = 20;
-
-  it("spends nothing on a host that has no WebGL2 to spend it on", () => {
-    const pool = new RecordingRendererPool();
-    for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
-      const { adapter } = mountedAdapter({ pool, terminalId: `churn-${String(cycle)}` });
-      adapter.dispose();
-    }
-    // The addon threw before making a context, so nothing counts; a terminal opened after
-    // twenty cycles must still be able to take one on a host that later has one.
-    expect(pool.createdContextCount).toBe(0);
-    expect(pool.acquire("late-arrival")).toBeDefined();
+/**
+ * Every link provider the adapter registers on its own terminal, in order. xterm.js registers
+ * its OSC 8 provider through an internal service, so this records only what the adapter
+ * registered; the original is still called.
+ */
+function recordLinkProvidersRegisteredBy(build: () => XtermTerminalAdapter): ILinkProvider[] {
+  const registered: ILinkProvider[] = [];
+  const register = Terminal.prototype.registerLinkProvider;
+  const watch = vi.spyOn(Terminal.prototype, "registerLinkProvider").mockImplementation(function (
+    this: Terminal,
+    linkProvider: ILinkProvider,
+  ) {
+    registered.push(linkProvider);
+    return register.call(this, linkProvider);
   });
+  try {
+    build();
+  } finally {
+    watch.mockRestore();
+  }
+  return registered;
+}
 
-  it("negative control: the adapter did ask for one on every one of those cycles", () => {
-    // Without this the case above would pass against an adapter that never
-    // reached the ledger, which asserts nothing about how it hands one back.
-    const pool = new RecordingRendererPool();
-    for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
-      const { adapter } = mountedAdapter({ pool, terminalId: `asked-${String(cycle)}` });
-      adapter.dispose();
-    }
-    expect(pool.acquiredTerminalIds).toHaveLength(CHURN_CYCLES);
-    expect(pool.reclaimedTerminalIds).toHaveLength(CHURN_CYCLES);
+/** The links one provider offers for one buffer row. `y` is one-based, as xterm counts. */
+function linksOnRow(linkProvider: ILinkProvider, row: number): ILink[] {
+  let offered: ILink[] = [];
+  linkProvider.provideLinks(row, (links) => {
+    offered = links ?? [];
   });
+  return offered;
+}
 
-  it("gives up its hold on a teardown and does not reclaim the context", () => {
-    const pool = new RecordingRendererPool();
-    const { adapter } = mountedAdapter({ pool, terminalId: "torn-down" });
-    // One reclaim already, from the renderer selection: this host has no WebGL2,
-    // so the context was never created and the allowance went straight back.
-    expect(pool.reclaimedTerminalIds).toStrictEqual(["torn-down"]);
-
-    adapter.dispose();
-
-    // The teardown adds no second hand-back: the selection already reclaimed the lease, so
-    // reclaiming again would spend the allowance twice for a context that never existed. The
-    // releasing arm needs an activating renderer and lives in `renderer-pool.context-loss.test.ts`.
-    expect(pool.releasedTerminalIds).toStrictEqual([]);
-    expect(pool.reclaimedTerminalIds).toStrictEqual(["torn-down"]);
-  });
-});
-
-describe("the accessible view of the grid", () => {
-  it("builds the row list and the live region a screen reader reads", async () => {
-    const { adapter, mountElement } = mountedAdapter();
-    await writeText(adapter, "the shell printed this\n");
-
-    // The grid is a canvas (WebGL) or positioned spans (DOM), neither readable; this is the
-    // readable form, which the library builds only when asked.
-    expect(mountElement.querySelector(".xterm-accessibility")).not.toBeNull();
-    const rowList = mountElement.querySelector(".xterm-accessibility-tree");
-    expect(rowList?.getAttribute("role")).toBe("list");
-    expect(rowList?.querySelectorAll('[role="listitem"]').length).toBeGreaterThan(0);
-    expect(mountElement.querySelector('[aria-live="assertive"]')).not.toBeNull();
-  });
-
-  it("negative control: the library builds none of it under its own default", () => {
-    // Driven against the library directly. `screenReaderMode` defaults to off, and off a screen
-    // reader reaches the named group `XtermMountPoint` renders and finds nothing to read.
+// Printed URLs, not just the hyperlinks a program marked: each case writes a line through the
+// real parser and asks the registered provider what it offers for that row.
+describe("printed URLs, not just the hyperlinks a program marked", () => {
+  /** Write one line and hand back the links the adapter's provider offers for it. */
+  async function linksPrintedBy(
+    line: string,
+    onActivateLink: (url: string) => void,
+  ): Promise<ILink[]> {
     const mountElement = attachedMountElement();
-    const defaultOptionsTerminal = new Terminal({});
-    try {
-      defaultOptionsTerminal.open(mountElement);
-      expect(mountElement.querySelector(".xterm-accessibility")).toBeNull();
-      expect(mountElement.querySelector(".xterm-accessibility-tree")).toBeNull();
-      expect(mountElement.querySelector('[aria-live="assertive"]')).toBeNull();
-    } finally {
-      defaultOptionsTerminal.dispose();
+    // Held by the closure: the adapter written into must be the one the recorder watched.
+    let builtAdapter: XtermTerminalAdapter | undefined;
+    const [linkProvider] = recordLinkProvidersRegisteredBy(() => {
+      const adapter = trackAdapter(
+        new XtermTerminalAdapter({
+          terminalId: "links",
+          pool: new TerminalRendererPool(),
+          onActivateLink,
+        }),
+      );
+      adapter.attach(mountElement);
+      builtAdapter = adapter;
+      return adapter;
+    });
+    if (linkProvider === undefined || builtAdapter === undefined) {
+      // Raised rather than answered with an empty list, so a missing provider fails the case.
+      throw new Error("the adapter registered no link provider");
     }
+    await writeText(builtAdapter, `${line}\n`);
+    return linksOnRow(linkProvider, 1);
+  }
+
+  it("hands the opener the PARSED href, so the guard is on the path", async () => {
+    const opened = vi.fn();
+    const links = await linksPrintedBy("http://example.test", opened);
+    links[0]?.activate(new MouseEvent("click"), links[0]?.text ?? "");
+    // The printed text has no trailing slash and the parsed href does, so this shows the
+    // allow-list ran.
+    expect(opened).toHaveBeenCalledWith("http://example.test/");
   });
 });

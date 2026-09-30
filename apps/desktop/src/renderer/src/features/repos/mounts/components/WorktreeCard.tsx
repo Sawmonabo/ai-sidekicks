@@ -19,7 +19,9 @@ import { WORKTREE_STATE_PRESENTATION } from "../execution-root-model.js";
 import {
   WORKTREE_COLUMN_LABELS,
   WORKTREE_DETAIL_COLUMNS,
+  WORKTREE_SUMMARY_COLUMNS,
   worktreeColumnCell,
+  type WorktreeSummaryColumnKey,
 } from "../execution-root-columns.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 
@@ -56,19 +58,12 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
       <p className="meridian-root-card__meaning">{statePresentation.meaning}</p>
 
       <dl className="meridian-root-card__summary">
-        <div className="meridian-root-card__pair">
-          <dt>{WORKTREE_COLUMN_LABELS.fsRoot}</dt>
-          <dd className="meridian-root-card__path" title={record.fsRoot}>
-            <WireFigure value={record.fsRoot} />
-          </dd>
-        </div>
-        <div className="meridian-root-card__pair">
-          <dt>{WORKTREE_COLUMN_LABELS.createdAt}</dt>
-          {/* `title` carries the exact stamp beside the derived reading. */}
-          <dd title={record.createdAt}>
-            <DerivedFigure text={formatRelativeTime(record.createdAt, nowMilliseconds)} />
-          </dd>
-        </div>
+        {WORKTREE_SUMMARY_COLUMNS.map((column) => (
+          <div className="meridian-root-card__pair" key={column}>
+            <dt>{WORKTREE_COLUMN_LABELS[column]}</dt>
+            {summaryCell(record, column, nowMilliseconds)}
+          </div>
+        ))}
       </dl>
 
       <details className="meridian-root-card__detail">
@@ -94,4 +89,27 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
       </details>
     </article>
   );
+}
+
+/** One summary row's value: the root verbatim, or the age read relatively. */
+function summaryCell(
+  record: WorktreeStatusRecord,
+  column: WorktreeSummaryColumnKey,
+  nowMilliseconds: number,
+): React.JSX.Element {
+  switch (column) {
+    case "fsRoot":
+      return (
+        <dd className="meridian-root-card__path" title={record.fsRoot}>
+          <WireFigure value={record.fsRoot} />
+        </dd>
+      );
+    case "createdAt":
+      // `title` carries the exact stamp beside the derived reading.
+      return (
+        <dd title={record.createdAt}>
+          <DerivedFigure text={formatRelativeTime(record.createdAt, nowMilliseconds)} />
+        </dd>
+      );
+  }
 }

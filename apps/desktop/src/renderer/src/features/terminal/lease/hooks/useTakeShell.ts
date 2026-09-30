@@ -42,8 +42,8 @@ export function useTakeShell(
     () => IDLE_TERMINAL_LEASE_TAKE,
   );
   // The latch refuses a second claim while one is live, which the control's disabled state
-  // renders. Its claim is also the serial a settlement compares, so an earlier press's `finally`
-  // cannot clear the flag a later press set.
+  // renders. A press's `finally` publishes through its own visit, so it cannot clear the flag
+  // a press on a later visit set.
   const dispatches = useGenerationLatch();
 
   const takeShell = useCallback(async (): Promise<void> => {
@@ -56,9 +56,7 @@ export function useTakeShell(
     try {
       await calls.acquire({ sessionId });
     } finally {
-      dispatch.settle(() => {
-        publish({ isInFlight: false });
-      });
+      publish({ isInFlight: false });
       dispatch.release();
     }
   }, [calls, dispatches, publish, sessionId]);

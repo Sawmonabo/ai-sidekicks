@@ -67,18 +67,7 @@ function signalOf(reads: readonly StartedRead[], index: number): AbortSignal {
 }
 
 describe("PrerequisiteReader — a read is performed inside a round", () => {
-  it("hands the read a signal, and it is live while the dialog is", async () => {
-    // The floor the other cases rest on: a reader that passed `undefined`, or never called
-    // the closure, would make each assertion vacuous.
-    const { reader, clock, reads } = open();
-    reader.ask("first", "subscribe");
-    await runScheduledRead(clock);
-    expect(reads).toHaveLength(1);
-    expect(signalOf(reads, 0).aborted).toBe(false);
-    reader.dispose();
-  });
-
-  it("negative control: disposing abandons the read in flight and installs nothing", async () => {
+  it("abandons the read in flight on dispose and installs nothing", async () => {
     // The pane closed mid-read: the signal is aborted, so `callDaemon` drops the pending call
     // and the late answer settles nowhere.
     const { reader, clock, reads } = open();

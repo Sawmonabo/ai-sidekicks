@@ -2,9 +2,9 @@
 // this user may type into it.
 //
 // Stdin starts disabled (watch mode) and opens only when the lease says this window holds the
-// shell. The gate is applied twice on purpose: the `disableStdin` option stops the DOM
-// listener and the check inside `onData` stops a programmatic write. Keystrokes go to the
-// wire, never the local buffer, because the daemon echoes a shared shell.
+// shell. The gate is the library's own `disableStdin` option, which shuts the input element
+// and drops every data event, programmatic input included. Keystrokes go to the wire, never
+// the local buffer, because the daemon echoes a shared shell.
 //
 // The gate is the lease's answer and a mount element being on screen. The lease's answer is
 // stored, so a detached binding reports the shut gate and re-opens it on the next mount
@@ -56,16 +56,6 @@ export class XtermMountBinding {
     return this.#isWriteAllowedByLease && this.#mountElement !== undefined;
   }
 
-  /**
-   * The `disableStdin` a fresh emulator is constructed with, read from the composed gate so a
-   * lease told before the emulator existed is not dropped. A fresh emulator is built before
-   * its mount element is recorded, so this is `true` at every build and `showOn` opens it in
-   * the same `attach()` call.
-   */
-  public get isStdinDisabledAtBuild(): boolean {
-    return !this.isWriteEnabled;
-  }
-
   /** The library's own gate read back; `isWriteEnabled` would not notice the option not moving. */
   public get isStdinDisabled(): boolean | undefined {
     return this.#terminal?.options.disableStdin;
@@ -75,11 +65,7 @@ export class XtermMountBinding {
   public bindEmulator(terminal: Terminal): void {
     this.#terminal = terminal;
     if (this.#onKeystroke !== undefined) {
-      this.#keystrokeSubscription = terminal.onData((data: string) => {
-        if (this.isWriteEnabled) {
-          this.#onKeystroke?.(data);
-        }
-      });
+      this.#keystrokeSubscription = terminal.onData(this.#onKeystroke);
     }
   }
 
@@ -93,7 +79,10 @@ export class XtermMountBinding {
     this.#applyStdinGate();
   }
 
-  /** Record the mount element the emulator is now on, and re-fit whenever its box changes. */
+  /**
+   * Record the mount element the emulator is now on, and re-fit whenever its box changes. A
+   * fresh emulator gets its gate here, in the same `attach()` call that built it.
+   */
   public showOn(mountElement: HTMLElement): void {
     this.#mountElement = mountElement;
     this.#stopObservingMountSize?.();

@@ -1,10 +1,10 @@
-// The lease fold's ordinary answers for a well-formed log. The arms where the fold refuses to
-// answer are in `lease-model.unreadable.test.ts`; reading one event is `lease-transition.test.ts`.
+// The lease fold, which the pane's write gate opens on: the holder is the newest readable
+// transition's, and every arm it cannot read leaves nobody holding the shell rather than the
+// holder before it, so stdin is never left open on a guess.
 
 import { describe, expect, it } from "vitest";
-
 import { TERMINAL_LEASE_SCENARIO } from "../../../../../../fixtures/scenarios/terminal-lease.js";
-import { UNREAD_TERMINAL_LEASE, projectTerminalLease } from "./lease-model.js";
+import { projectTerminalLease } from "./lease-model.js";
 import {
   COMMAND_ID,
   OTHER_DEVICE_ID,
@@ -12,18 +12,11 @@ import {
   RUN_ID,
   SHELL_ID,
   THIS_DEVICE_ID,
+  leaseEventWithPayload,
   transitionEvent,
 } from "./lease-model.test-support.js";
 
 describe("the lease fold — what the wire said, and only that", () => {
-  it("reads nothing as `not-checked`, which is not the free lease", () => {
-    const state = projectTerminalLease([], { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID });
-    expect(state).toStrictEqual(UNREAD_TERMINAL_LEASE);
-    // Unread and free are different facts: collapsing them would offer a take against a shell
-    // never asked about as though it were known to be free.
-    expect(state.holding).not.toBe("unheld");
-  });
-
   it("takes the holder from the newest transition's own payload", () => {
     const state = projectTerminalLease(
       [
@@ -35,18 +28,6 @@ describe("the lease fold — what the wire said, and only that", () => {
     );
     expect(state.holding).toBe("held-by-this-device");
     expect(state.holderDeviceId).toBe(THIS_DEVICE_ID);
-  });
-
-  it("renders a null holder as the free lease, explicitly", () => {
-    const state = projectTerminalLease(
-      [
-        transitionEvent(1, "taken", OTHER_DEVICE_ID),
-        transitionEvent(2, "auto_released_disconnect", null, OTHER_DEVICE_ID),
-      ],
-      { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
-    );
-    expect(state.holding).toBe("unheld");
-    expect(state.holderDeviceId).toBeNull();
   });
 
   it("tells this device's hold apart from another device's", () => {
@@ -114,15 +95,66 @@ describe("the lease fold — what the wire said, and only that", () => {
     // take, and the fold would then report no holder at all.
     expect(state.holding).toBe("held-by-another-device");
   });
+});
 
-  it("negative control: a fold that echoed the payload would pass every case above", () => {
-    // It would not pass this one: a payload naming a holder is not a holder when its reason is
-    // not one the console understands.
-    const state = projectTerminalLease([transitionEvent(1, "seized", OTHER_DEVICE_ID)], {
+describe("an unread transition — ignorance about a write lease is not the old holder", () => {
+  // The take that granted this device the lease, then a move this build cannot read.
+  const grantedThenUnread = [
+    transitionEvent(1, "taken", THIS_DEVICE_ID),
+    transitionEvent(2, "auto_released_quota_exhausted", null, THIS_DEVICE_ID),
+  ];
+
+  it("stops reporting this device as the holder the moment a transition cannot be read", () => {
+    const state = projectTerminalLease(grantedThenUnread, {
       terminalId: SHELL_ID,
       thisDeviceId: THIS_DEVICE_ID,
     });
-    expect(state.holderDeviceId).toBeNull();
+    // The one reading that would keep stdin open for somebody who no longer holds the shell;
+    // `SessionTerminalPane` opens the write gate on exactly this value.
+    expect(state.holding).not.toBe("held-by-this-device");
     expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holderDeviceId).toBeNull();
+  });
+
+  it("reads a move that names no shell as this shell's, so it cannot leave stdin open", () => {
+    // A move that lost its shell could be about any shell, this one included; only a
+    // move that names ANOTHER shell is someone else's.
+    const state = projectTerminalLease(
+      [
+        transitionEvent(1, "taken", THIS_DEVICE_ID),
+        leaseEventWithPayload(2, { reason: "seized", holderDeviceId: null }),
+      ],
+      { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+  });
+
+  it("stays unread when the readable transition came FIRST", () => {
+    // Order is the whole claim: a readable transition before the unread one says nothing about
+    // the state after it.
+    const state = projectTerminalLease(
+      [
+        ...grantedThenUnread,
+        transitionEvent(3, "taken", THIS_DEVICE_ID),
+        transitionEvent(4, "seized", OTHER_DEVICE_ID),
+      ],
+      { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.unreadTransition?.reason).toBe("seized");
+  });
+});
+
+// The contract refuses a holder shape that contradicts its reason; the fold owes that the
+// refusal reads as ignorance rather than as a confident state.
+describe("a holder shape that contradicts its reason is unread, not normalized", () => {
+  it("refuses a release that names this device, rather than reading it as its hold", () => {
+    const state = projectTerminalLease(
+      [transitionEvent(1, "auto_released_run_idle", THIS_DEVICE_ID, THIS_DEVICE_ID)],
+      { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
+    );
+    // The one reading that opens stdin for somebody the daemon just took the shell from.
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holderDeviceId).toBeNull();
   });
 });

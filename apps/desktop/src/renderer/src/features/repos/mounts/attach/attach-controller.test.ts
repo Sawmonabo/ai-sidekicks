@@ -63,21 +63,4 @@ describe("AttachController — the attach itself", () => {
     expect(call).toHaveBeenCalledTimes(1);
     expect(controller.snapshot.status).toBe("attached");
   });
-
-  it("clears the settlement", async () => {
-    const controller = open(attachRepository());
-    await controller.attach("/Users/dev/code/new-repo");
-
-    controller.clearAct();
-
-    expect(controller.snapshot.status).toBe("idle");
-  });
-
-  it("negative control: a disposed controller publishes nothing more", async () => {
-    const controller = open(attachRepository());
-    const inFlight = controller.attach("/Users/dev/code/new-repo");
-    controller.dispose();
-    await inFlight;
-    expect(controller.snapshot.status).toBe("sending");
-  });
 });

@@ -27,21 +27,6 @@ export function requireLabeledRegion(
 }
 
 /**
- * Finds a view that announces no name of its own, by the class it renders under.
- *
- * The sidebar section is the one such view: the chrome owns its heading and disclosure state, so
- * a second announced name would put two regions in the tree. Throws instead of returning null so
- * a tier never compares an empty box against a baseline.
- */
-export function requireElement(container: HTMLElement, selector: string): HTMLElement {
-  const element = container.querySelector(selector);
-  if (!(element instanceof HTMLElement)) {
-    throw new Error(`nothing in the mounted tree matches \`${selector}\``);
-  }
-  return element;
-}
-
-/**
  * What the pane chrome calls a pane of one kind mounted over `sessionId`.
  *
  * Every scope the address carries, then what the pane is.

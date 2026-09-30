@@ -121,13 +121,8 @@ export class XtermTerminalAdapter {
       return;
     }
     const terminal = this.#terminal ?? this.#buildTerminal();
-    // Before the same-element return, so a remount onto an element whose declared face moved
-    // follows it; a no-op when it has not.
+    // So a remount onto an element whose declared face moved follows it.
     applyDeclaredMonospaceFamily(terminal, mountElement);
-    if (this.#mountBinding.mountElement === mountElement) {
-      this.fitToMountPoint();
-      return;
-    }
     const builtElement = terminal.element;
     if (builtElement !== undefined) {
       mountElement.append(builtElement);
@@ -210,7 +205,6 @@ export class XtermTerminalAdapter {
       scrollback: this.#scrollbackLines,
       // The only proposed API this wrapper uses is the `unicode` getter.
       allowProposedApi: true,
-      disableStdin: this.#mountBinding.isStdinDisabledAtBuild,
       // The only textual output: the grid is a canvas under WebGL and positioned spans under
       // DOM. xterm builds its accessible row list and live region only under this option, and
       // `XtermMountPoint.tsx` names the region without announcing anything itself.

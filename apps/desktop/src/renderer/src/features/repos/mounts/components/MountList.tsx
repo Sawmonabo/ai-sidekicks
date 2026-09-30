@@ -8,7 +8,6 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type RepoOperations } from "../../repo-operations.js";
 import { type WorkspaceId, type ExecutionMode } from "@ai-sidekicks/contracts";
-import { REPO_MOUNTS_NOT_READ_TITLE } from "../repo-mounts-copy.js";
 
 /** What the mount list reads and the handlers it passes through to each card. */
 export interface MountListProps {
@@ -70,7 +69,7 @@ export function MountList(props: MountListProps): React.JSX.Element | null {
     <Nothing
       kind="not-checked"
       placement="block"
-      title={REPO_MOUNTS_NOT_READ_TITLE}
+      title="Repo mounts have not been read."
       detail="This section will name each mount's resolved root and whether it is still the repository it was attached as."
     />
   );

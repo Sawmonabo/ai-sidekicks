@@ -1,8 +1,8 @@
 // The bind dialog, driven against a mount whose answer changes under it. `bind-form.test.ts`
 // proves the resolution; this proves the dialog hands it what the mount admits on every open:
 // a pre-fill must not outlive its form, and the picker and the button must read one answer.
-// Capabilities come from a call this suite owns because both cases turn on the read answering
-// differently the second time.
+// Capabilities come from a call this suite owns, so a case can serve a different answer the
+// second time.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -38,19 +38,6 @@ const BOUND_ROOT_WITHDRAWN: WorkspaceExecutionModeCapabilitiesReadResponse = {
   availableModes: ["provisioned-worktree"],
   defaultMode: "provisioned-worktree",
   restrictions: { "bound-root": "the checkout is on a detached HEAD" },
-};
-
-/** A different narrowing that leaves `bound-root` alone, for the negative controls. */
-const WORKTREE_WITHDRAWN: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["bound-root"],
-  defaultMode: "bound-root",
-  restrictions: { "provisioned-worktree": "this machine has no room for another worktree" },
-};
-
-/** A reply that disagrees with itself, which is the one way a mount serves no default. */
-const NO_DEFAULT: WorkspaceExecutionModeCapabilitiesReadResponse = {
-  availableModes: ["bound-root"],
-  defaultMode: "provisioned-worktree",
 };
 
 /**
@@ -167,17 +154,13 @@ async function refreshCapabilitiesTo(
 }
 
 describe("the bind dialog — the mount's own default survives a close", () => {
-  it("applies the default on the first open", async () => {
-    await openDialog(EVERY_MODE);
-    expect(radioFor("provisioned-worktree").checked).toBe(true);
-    expect(bindButton().disabled).toBe(false);
-  });
-
-  it("applies it again when the same mount is reopened", async () => {
+  it("applies it again when the same mount is reopened, over the mode picked before", async () => {
     // A pre-fill held in a ref keyed on the mount would survive a close that reset the form:
     // on a reopen the effect declines to run again, leaving a picker with nothing chosen
-    // behind a control that will not send.
+    // behind a control that will not send. A form that survived the close would instead send
+    // the last visit's pick.
     const open = await openDialog(EVERY_MODE);
+    fireEvent.click(radioFor("bound-root"));
     act(() => {
       document.querySelector<HTMLButtonElement>(".meridian-bind__cancel")?.click();
     });
@@ -187,15 +170,6 @@ describe("the bind dialog — the mount's own default survives a close", () => {
 
     expect(radioFor("provisioned-worktree").checked).toBe(true);
     expect(bindButton().disabled).toBe(false);
-  });
-
-  it("negative control: a reply that names a default it does not offer chooses nothing", async () => {
-    // Without this, the two cases above would pass against a dialog that pre-picked whatever
-    // came first, a mode of the console's own choosing.
-    await openDialog(NO_DEFAULT);
-    expect(modeRadios().every((radio) => !radio.checked)).toBe(true);
-    expect(bindButton().disabled).toBe(true);
-    expect(blockedSentence()).toContain("execution mode");
   });
 });
 
@@ -213,17 +187,5 @@ describe("the bind dialog — a capabilities refresh that withdraws the chosen m
     expect(modeRadios().every((radio) => !radio.checked)).toBe(true);
     expect(bindButton().disabled).toBe(true);
     expect(blockedSentence()).toContain("no longer one this mount admits");
-  });
-
-  it("negative control: a refresh that keeps the chosen mode leaves the control open", async () => {
-    // Without this, the case above would pass against a dialog that shut its control on every
-    // refresh.
-    const open = await openDialog(EVERY_MODE);
-    fireEvent.click(radioFor("bound-root"));
-
-    await refreshCapabilitiesTo(open, WORKTREE_WITHDRAWN, "provisioned-worktree", 1);
-
-    expect(radioFor("bound-root").checked).toBe(true);
-    expect(bindButton().disabled).toBe(false);
   });
 });

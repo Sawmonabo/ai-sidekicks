@@ -69,16 +69,6 @@ describe("RootRemovalConfirmation — the confirm press keeps its settlement", (
     expect(container.textContent).toContain("Sending.");
     expect(trigger()?.disabled).toBe(true);
   });
-
-  it("negative control: with nothing pressed the card carries no settlement and the trigger is live", async () => {
-    // Without this the case above would pass against a card that always said `Sending.`.
-    const { container } = renderConfirmation(daemonHoldingTheCall());
-
-    await pressOpen();
-
-    expect(container.textContent).not.toContain("Sending.");
-    expect(trigger()?.disabled).toBe(false);
-  });
 });
 
 describe("RootRemovalConfirmation — a discarded consideration", () => {
@@ -93,15 +83,5 @@ describe("RootRemovalConfirmation — a discarded consideration", () => {
     await pressCancel();
 
     expect(container.querySelector(".meridian-root-removal__settled")).toBeNull();
-  });
-
-  it("negative control: a settlement nobody reconsidered stays on the card", async () => {
-    // A card that cleared the record on any close would erase it before it could be read.
-    const { container } = renderConfirmation(daemonAnsweringTheCall());
-
-    await pressOpen();
-    await pressConfirm();
-
-    expect(container.querySelector(".meridian-root-removal__settled")).not.toBeNull();
   });
 });

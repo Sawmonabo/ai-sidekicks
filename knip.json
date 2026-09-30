@@ -144,6 +144,11 @@
         "src/renderer/src/features/inspector/artifacts/components/ArtifactsSection.tsx",
         // The inspector's Rules section with Revoke.
         "src/renderer/src/features/inspector/rules/components/RulesSection.tsx",
+        // Attaching a folder by path, for the session strip's `Attach a repo` and `Open folder…`.
+        "src/renderer/src/features/repos/mounts/attach/AttachRepositoryDialog.tsx",
+        // What the git host reports about a pull request, for the Pull request tab's header,
+        // check rows and review list.
+        "src/renderer/src/features/repos/mounts/hosting-status.ts",
         // The sessions list: its rows, what it says with no sessions, and its header line when a
         // refresh goes unanswered.
         "src/renderer/src/features/sessions/components/SessionList.tsx",

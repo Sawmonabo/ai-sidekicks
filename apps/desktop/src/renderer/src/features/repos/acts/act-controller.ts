@@ -221,13 +221,10 @@ export class PrerequisiteReader<TValue> implements ReadTriggerTarget {
   }
 
   /**
-   * Ask again, on a reason the refresh policy admits. Asks nothing while no question is
-   * named, so a window focus over an untouched dialog puts no call on the wire.
+   * Ask again, on a reason the refresh policy admits. The read asks nothing while no question
+   * is named, so a window focus over an untouched dialog puts no call on the wire.
    */
   public requestRead(reason: RefreshReason): void {
-    if (this.#disposed || this.#question === undefined) {
-      return;
-    }
     this.#scheduler.request(reason);
   }
 
