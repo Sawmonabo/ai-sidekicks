@@ -1,7 +1,9 @@
 // The log-derived row projection: this window's event log read as `TimelineRow`s. The console
 // receives raw events, not the daemon's read projection, so rows carry what the log supports
 // (id, sequence, `type`, `actor` and `payload` verbatim) and `summary` is the wire type
-// restated, since no registered payload carries one.
+// restated, since no registered payload carries one. The id is the daemon's opaque one, carried not
+// composed: the hydrated-event read keys on {sessionId, eventId} and a row jump finds a row by it,
+// so a `session:sequence` key would resolve for no caller.
 
 import {
   SESSION_EVENT_CATEGORY_BY_TYPE,

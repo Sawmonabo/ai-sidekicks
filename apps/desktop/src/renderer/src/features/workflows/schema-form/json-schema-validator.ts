@@ -30,7 +30,9 @@ export type SchemaValidationReport =
       /**
        * The value the schema accepted, which a submission must carry: the reader supplies
        * declared defaults, so `{}` can be valid as `{ approver: "ada" }`. The reader has no
-       * switch to compile without defaults (zod 4.3.6).
+       * switch to compile without defaults. Measured at zod 4.3.6: defaults are its only change
+       * (an unknown member passes, `format` transforms nothing, `additionalProperties: false`
+       * refuses), so nothing typed is lost.
        */
       readonly acceptedValue: unknown;
     }

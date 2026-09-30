@@ -2,6 +2,9 @@
 // re-read from the start; the recovery is otherwise invisible. It has no `onDismiss`, so it
 // clears when the next completed read resumes normally, and it renders above the session
 // screen body, never in place of it: only a remembered position was lost, not the stream.
+//
+// Owned here, not by the session screen body: this feature holds the registry together with the
+// route's session id, and that body is deliberately handed no registry.
 
 import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 import { useTimelineResume } from "@renderer/store/session/hooks/useSessionInitialized.js";
