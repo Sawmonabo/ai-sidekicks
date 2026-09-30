@@ -1,7 +1,8 @@
 // The provider-account tables on the schema the real migration runner builds. Every member of the
 // provider, billing-mode and health-state unions is stored and a value outside each is refused, a
-// generation below the floor is refused, a quota reading is keyed by account and limit alone, and
-// a memory-import outcome whose count and time disagree with it is refused. The member lists are
+// generation below the floor is refused, a provider holds one default account at most, a
+// credential home belongs to one account, a quota reading is keyed by account and limit alone,
+// and a memory-import outcome whose count and time disagree with it is refused. The member lists are
 // `Record<Union, true>` maps, so a member added to the contract is a type error here until its
 // case exists, and that case then fails until the CHECK admits it.
 
@@ -44,6 +45,8 @@ interface AccountColumns {
   readonly memoryImportOutcome: string | null;
   readonly memoryImportCount: number | null;
   readonly memoryImportedAt: string | null;
+  readonly isDefault: 0 | 1;
+  readonly credentialHomePath: string | null;
 }
 
 const VALID_ACCOUNT: AccountColumns = {
@@ -54,6 +57,8 @@ const VALID_ACCOUNT: AccountColumns = {
   memoryImportOutcome: null,
   memoryImportCount: null,
   memoryImportedAt: null,
+  isDefault: 0,
+  credentialHomePath: null,
 };
 
 describe("provider-account schema", () => {
@@ -70,8 +75,9 @@ describe("provider-account schema", () => {
     db.close();
   });
 
-  // Each account gets its own id and home path, and none is a default, so the unique indexes
-  // never refuse a row for a reason other than the column under test. A health state is stored
+  // Each account gets its own id and, unless a case names one, its own home path, and none is a
+  // default unless a case says so, so the unique indexes never refuse a row for a reason other
+  // than the column under test. A health state is stored
   // with the time it was observed, as the schema requires of the pair.
   function insertAccount(overrides: Partial<AccountColumns>): string {
     const account = { ...VALID_ACCOUNT, ...overrides };
@@ -80,12 +86,12 @@ describe("provider-account schema", () => {
     db.prepare(
       `INSERT INTO provider_accounts (account_id, provider, display_label, credential_home_path,
          credential_generation, billing_mode, health_state, health_observed_at, memory_import_outcome,
-         memory_import_count, memory_imported_at, created_at, updated_at)
-       VALUES (?, ?, 'Work', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         memory_import_count, memory_imported_at, is_default, created_at, updated_at)
+       VALUES (?, ?, 'Work', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       accountId,
       account.provider,
-      `/homes/${accountId}`,
+      account.credentialHomePath ?? `/homes/${accountId}`,
       account.credentialGeneration,
       account.billingMode,
       account.healthState,
@@ -93,6 +99,7 @@ describe("provider-account schema", () => {
       account.memoryImportOutcome,
       account.memoryImportCount,
       account.memoryImportedAt,
+      account.isDefault,
       TIMESTAMP,
       TIMESTAMP,
     );
@@ -138,6 +145,22 @@ describe("provider-account schema", () => {
         CHECK_FAILURE,
       );
     });
+  });
+
+  it("allows each provider one default account and refuses a second", () => {
+    insertAccount({ provider: "claude", isDefault: 1 });
+    expect(() => insertAccount({ provider: "codex", isDefault: 1 })).not.toThrow();
+    expect(() => insertAccount({ provider: "claude", isDefault: 0 })).not.toThrow();
+    expect(() => insertAccount({ provider: "claude", isDefault: 1 })).toThrow(
+      /UNIQUE constraint failed/,
+    );
+  });
+
+  it("refuses a second account on a credential home, whatever its provider", () => {
+    insertAccount({ provider: "claude", credentialHomePath: "/homes/shared" });
+    expect(() => insertAccount({ provider: "codex", credentialHomePath: "/homes/shared" })).toThrow(
+      /UNIQUE constraint failed/,
+    );
   });
 
   it("keys a quota reading on (account_id, limit_id), with window_mins an attribute", () => {
