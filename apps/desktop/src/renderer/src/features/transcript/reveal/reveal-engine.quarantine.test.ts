@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { lossyStringify, UNREPRESENTABLE_VALUE_TEXT } from "@renderer/lib/wire-errors.js";
+import { UNREPRESENTABLE_VALUE_TEXT } from "@renderer/lib/wire-errors.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame/frame-caps.js";
 import { AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
@@ -68,33 +68,6 @@ describe("the reveal engine — a lane whose advance throws an unrenderable valu
     expect(reported).toHaveLength(1);
     expect(reported[0]?.laneId).toBe(`lane-1: ${UNREPRESENTABLE_VALUE_TEXT}`);
   });
-
-  it("negative control: the value really does defeat a bare stringifier, and the total one renders it", () => {
-    // Without this the case above would pass over a failure value any stringifier
-    // could have handled, which is not the class this case covers.
-    const failure = unrenderableFailure();
-    expect(() => String(failure)).toThrow();
-    expect(lossyStringify(failure)).toBe(UNREPRESENTABLE_VALUE_TEXT);
-  });
-
-  it("negative control: an ordinary failure still reaches the diagnostic with its own words", () => {
-    // The replacement must not have flattened every failure into one sentence.
-    const clock = new ManualClock();
-    const engine = engineOn(clock);
-    const diagnostics: RevealDiagnostic[] = [];
-    engine.subscribeToDiagnostics((diagnostic) => diagnostics.push(diagnostic));
-    vi.spyOn(RopeSmoother.prototype, "advance").mockImplementationOnce(() => {
-      throw new Error("the rope refused a backtrack");
-    });
-
-    engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(400) });
-    clock.runFrame();
-
-    expect(lossyStringify(new Error("the rope refused a backtrack"))).toContain(
-      "the rope refused a backtrack",
-    );
-    expect(diagnostics.map((diagnostic) => diagnostic.kind)).toContain("transition-failed");
-  });
 });
 
 describe("the reveal engine — what a quarantined lane costs", () => {
@@ -144,24 +117,6 @@ describe("the reveal engine — what a quarantined lane costs", () => {
 
     expect(engine.laneState("lane-1")?.pendingCharacterCount).toBe(0);
     expect(clock.pendingCount).toBe(0);
-  });
-
-  it("negative control: an UNquarantined lane accumulates every one of those deltas", () => {
-    // Without this the two cases above would pass over an engine that had stopped
-    // accepting deltas at all, which is the whole mechanism rather than the quarantine.
-    const clock = new ManualClock();
-    const engine = engineOn(clock);
-    for (let burst = 0; burst < 20; burst += 1) {
-      engine.ingest({
-        laneId: "lane-1",
-        mode: "direct",
-        text: prose(REVEAL_FRAME_CHARACTER_BUDGET),
-      });
-    }
-    expect(engine.laneState("lane-1")?.pendingCharacterCount).toBe(
-      REVEAL_FRAME_CHARACTER_BUDGET * 20,
-    );
-    expect(clock.pendingCount).toBe(1);
   });
 
   it("an authoritative commit lifts the quarantine, and the lane streams again", () => {

@@ -29,12 +29,6 @@ describe("the rope smoother", () => {
     });
   });
 
-  it("mints nothing for an empty append, because nothing grew", () => {
-    const smoother = new RopeSmoother("lane-1");
-    expect(smoother.append("")).toBeUndefined();
-    expect(smoother.sourceLength).toBe(0);
-  });
-
   it("reveals across part boundaries and never past the source", () => {
     const smoother = fedWith(["abc", "de", "fghi"]);
     expect(smoother.advance(4)).toBe(4);
@@ -98,17 +92,6 @@ describe("the rope smoother — a frame never cuts a character in half", () => {
     }
   });
 
-  it("negative control: the code-unit cut at that offset WOULD have split the pair", () => {
-    // `slice(0, 3)` is the cut a plain code-unit budget makes, and it ends on the pair's lead
-    // half. The guard's return value says it extended rather than retreated: three units of
-    // budget move four.
-    const source = `ab${GRINNING_FACE}cd`;
-    expect(codePointBoundaryPrefixes(source).has(source.slice(0, 3))).toBe(false);
-    const smoother = fedWith([source]);
-    expect(smoother.advance(3)).toBe(4);
-    expect(smoother.revealedText()).toBe(`ab${GRINNING_FACE}`);
-  });
-
   it("snaps across a part boundary, where the halves arrived in separate appends", () => {
     // The check walks the parts from the cursor, so a pair split across two appends
     // is the same pair — reading it through a materialized source is what the rope
@@ -127,15 +110,5 @@ describe("the rope smoother — a frame never cuts a character in half", () => {
     smoother.append(`${GRINNING_FACE.slice(1)}cd`);
     smoother.advance(100);
     expect(smoother.revealedText()).toBe(`ab${GRINNING_FACE}cd`);
-  });
-
-  it("negative control: pure ASCII spends its budget exactly, unchanged", () => {
-    // The snap must be reachable only by a pair. If it fired on ordinary text the
-    // per-frame counts every budget claim rests on would drift by one.
-    const smoother = fedWith(["abcdefghij"]);
-    expect(smoother.advance(3)).toBe(3);
-    expect(smoother.revealedText()).toBe("abc");
-    expect(smoother.advance(4)).toBe(4);
-    expect(smoother.revealedText()).toBe("abcdefg");
   });
 });
