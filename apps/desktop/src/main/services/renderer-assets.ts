@@ -67,7 +67,7 @@ function isSourceMapRequest(rawPath: string): boolean {
 }
 
 /** Content type served for any extension outside the closed map above. */
-export const FALLBACK_CONTENT_TYPE = "application/octet-stream";
+const FALLBACK_CONTENT_TYPE = "application/octet-stream";
 
 /**
  * The outcome of resolving one `sidekicks-renderer://app/<path>` request against the built

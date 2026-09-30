@@ -1,6 +1,6 @@
 // What the context meter puts on screen: the not-checked state before the daemon has reported
-// anything, the share the reading carries once it has, and no hint, status line or state
-// attribute on the fill however full the window is. Uses the real `SessionStore`.
+// anything, the share the reading carries once it has, and no hint, status line, state attribute
+// or color class on the fill however full the window is. Uses the real `SessionStore`.
 
 import { describe, expect, it } from "vitest";
 
@@ -24,7 +24,7 @@ describe("ComposerToolbar — the context meter", () => {
     expect(meter?.getAttribute("aria-valuenow")).toBe("84");
   });
 
-  it("adds no hint, status line or fill attribute at 80% or past the window", () => {
+  it("adds no hint, status line, fill attribute or fill class at 80% or past the window", () => {
     // Fullness changes the figure only.
     const nearFull = mountToolbar([contextWindowEvent(1)], ADDRESSED);
     const pastTheWindow = mountToolbar(
@@ -45,9 +45,9 @@ describe("ComposerToolbar — the context meter", () => {
 
     for (const container of [nearFull, pastTheWindow]) {
       expect(container.querySelector(".meridian-context-ring__hint")).toBeNull();
-      expect(
-        container.querySelector(".meridian-context-ring__fill")?.getAttributeNames(),
-      ).toStrictEqual(["class", "style"]);
+      const fill = container.querySelector(".meridian-context-ring__fill");
+      expect(fill?.getAttributeNames()).toStrictEqual(["class", "style"]);
+      expect(fill?.className).toBe("meridian-context-ring__fill");
       expect(container.querySelector('[role="status"]')).toBeNull();
     }
     expect(nearFull.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(

@@ -4,13 +4,6 @@
 
 import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 
-/** What one cache reports about itself, so a budget test can read it. */
-export interface ByteBoundedCacheStats {
-  readonly entryCount: number;
-  readonly retainedByteCount: number;
-  readonly byteCap: number;
-}
-
 /** Content-addressed LRU cache with a byte cap; an entry larger than the cap is not stored. */
 export class ByteBoundedCache<TValue> {
   readonly #byteCap: number;
@@ -58,14 +51,6 @@ export class ByteBoundedCache<TValue> {
     this.#entriesByKey.set(key, { value, byteLength });
     this.#retainedByteCount += byteLength;
     this.#evictToCap();
-  }
-
-  public stats(): ByteBoundedCacheStats {
-    return {
-      entryCount: this.#entriesByKey.size,
-      retainedByteCount: this.#retainedByteCount,
-      byteCap: this.#byteCap,
-    };
   }
 
   /** Forget everything. The cap survives — it is how the cache was built. */

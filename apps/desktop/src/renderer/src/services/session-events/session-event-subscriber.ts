@@ -42,7 +42,7 @@ import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
 /** The site every tripwire this module reports names. */
-const SITE = "console/frame/session-event-binder.ts";
+const SITE = "services/session-events/session-event-subscriber.ts";
 
 /** Options for `SessionEventSubscriber`. */
 export interface SessionEventSubscriberOptions {

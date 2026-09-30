@@ -135,11 +135,8 @@
         "src/main/**",
         "src/shared/**",
         "build/**",
-        // Named file by file rather than as `scripts/**`, on the `test:smoke` precedent: a tree
-        // glob would pull in budget harnesses this project does not read. The registry is read,
-        // since `launch-deadline.test.ts` holds the harness bounds against the rows it serves.
-        "scripts/test-changed.ts",
-        "scripts/test-changed.test.ts",
+        // The budget scripts rather than `scripts/**`, whose other files no test here reads. The
+        // registry is read, since the budget scripts' own tests evaluate its rows.
         "scripts/budget/**",
         "tests/budget/budgets.json",
         "tests/helpers/**",

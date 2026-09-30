@@ -17,17 +17,6 @@ describe("the footnote registry", () => {
     expect(registry.definitionsFor("event-02").get("1")?.bodyNodes).toStrictEqual([]);
   });
 
-  it("forgets everything one source declared when its row leaves the window", () => {
-    const registry = new FootnoteRegistry();
-    registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
-    registry.register({ sourceId: "event-01", identifier: "2", bodyNodes: BODY });
-    registry.register({ sourceId: "event-02", identifier: "1", bodyNodes: BODY });
-    registry.forgetSource("event-01");
-    expect(registry.definitionsFor("event-01").get("1")).toBeUndefined();
-    expect(registry.definitionsFor("event-01").get("2")).toBeUndefined();
-    expect(registry.definitionsFor("event-02").get("1")).not.toBeUndefined();
-  });
-
   it("re-registering one identifier replaces rather than accumulates", () => {
     const registry = new FootnoteRegistry();
     registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
@@ -48,9 +37,8 @@ describe("the footnote registry", () => {
 
     registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
     registry.register({ sourceId: "event-02", identifier: "1", bodyNodes: [] });
-    registry.forgetSource("event-01");
 
-    expect(changed).toStrictEqual(["event-01", "event-02", "event-01"]);
+    expect(changed).toStrictEqual(["event-01", "event-02"]);
   });
 
   it("holds a bounded number of definitions and drops the oldest first", () => {

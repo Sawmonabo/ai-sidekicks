@@ -24,8 +24,6 @@ describe("the walk when the result moves under it", () => {
       rows,
       prunedAwayRows: [],
       hasEarlierRows: false,
-      // Nothing outside this window, so stage membership is the rows themselves.
-      heldRowKeys: new Set(rows.map((row) => row.id)),
     };
   }
 

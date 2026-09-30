@@ -21,7 +21,6 @@ export interface AttachmentIngestClientOptions {
 }
 
 /** Every attachment a user has handed this staged list, in the order they chose. */
-/** Every attachment a user has handed this staged list, in the order they chose. */
 export class AttachmentIngestClient {
   readonly #ledger = new AttachmentIngestEntries();
   readonly #reclaimer: AttachmentSpoolReclaimer;
@@ -80,9 +79,7 @@ export class AttachmentIngestClient {
       state: "declared",
       refusal: undefined,
       disposition: undefined,
-      ...(restarting
-        ? { ingestId: undefined, receivedBytes: 0, openedAtMilliseconds: undefined }
-        : {}),
+      ...(restarting ? { ingestId: undefined, receivedBytes: 0 } : {}),
     });
     void this.#streams.drive(localId);
   }

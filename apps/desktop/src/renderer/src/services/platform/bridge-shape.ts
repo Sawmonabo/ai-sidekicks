@@ -1,8 +1,8 @@
 // The bridge's shape, read at runtime. The fixture bridge must carry the preload's namespaces
 // exactly. Types cover most of that, since both bridges are `PlatformBridge`, but the live bridge
 // is an object graph handed across `contextBridge` by a preload this program does not compile
-// with, so this is the runtime check. Its readers are the "did the preload run" probe in
-// `live-bridge.ts` and `bridge-shape.test.ts`.
+// with, so this is the runtime check. `live-bridge.ts` reads its namespace list to tell whether the
+// preload ran.
 //
 // A shape maps each namespace to its member names, each with its `typeof`, and data members count
 // as much as methods. The `typeof` separates a missing member from one that is there with the
@@ -64,6 +64,8 @@ const BRIDGE_SIGNAL_MEMBERS: Readonly<
  * renderer a plain object graph, so own keys are every member, while the prototype chain would add
  * `Object`'s members. It takes `PlatformBridge`, not `unknown`, and describes without deciding
  * whether the description is acceptable.
+ *
+ * @consumedBy the check that the fixture bridge has the live bridge's shape
  */
 export function describeBridgeShape(bridge: PlatformBridge): BridgeShape {
   const shape = new Map<string, readonly string[]>();
@@ -79,6 +81,8 @@ export function describeBridgeShape(bridge: PlatformBridge): BridgeShape {
 /**
  * Every way two shapes differ, one sentence each; empty means identical. Sentences rather than a
  * boolean so a failed assertion names the namespace or member that moved.
+ *
+ * @consumedBy the check that the fixture bridge has the live bridge's shape
  */
 export function diffBridgeShapes(
   left: LabeledBridgeShape,

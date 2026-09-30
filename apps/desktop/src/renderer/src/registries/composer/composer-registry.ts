@@ -45,11 +45,6 @@ export function registerComposer(owner: string, render: ComposerRenderer): void 
   composerRegistry.register({ owner, render });
 }
 
-/** Empties the registry. Test scaffolding: nothing in the shipped tree withdraws the composer. */
-export function unregisterComposer(): void {
-  composerRegistry.unregister();
-}
-
 /** The composer body, or `undefined` while the registry is empty. */
 export function findComposerRenderer(): ComposerRenderer | undefined {
   return composerRegistry.renderer();

@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { FALLBACK_CONTENT_TYPE, resolveRendererAsset } from "./renderer-assets.js";
+import { resolveRendererAsset } from "./renderer-assets.js";
 
 // Extensions the closed content-type map covers, paired with the exact type served.
 const MAPPED_CONTENT_TYPES: ReadonlyArray<readonly [string, string]> = [
@@ -159,7 +159,7 @@ describe("resolveRendererAsset content types", () => {
       );
       expect(resolution.outcome).toBe("resolved");
       expect(resolution.outcome === "resolved" && resolution.contentType).toBe(
-        FALLBACK_CONTENT_TYPE,
+        "application/octet-stream",
       );
     },
   );

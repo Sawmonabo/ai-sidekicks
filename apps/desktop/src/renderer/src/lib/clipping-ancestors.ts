@@ -16,9 +16,6 @@
  */
 export const CLIPPING_OVERFLOW_VALUES = ["hidden", "clip", "scroll", "auto", "overlay"] as const;
 
-/** One computed `overflow` value that clips. */
-export type ClippingOverflowValue = (typeof CLIPPING_OVERFLOW_VALUES)[number];
-
 /** Whether one computed `overflow` value clips its contents. */
 export function clipsItsContents(overflowValue: string): boolean {
   return CLIPPING_OVERFLOW_VALUES.some((clippingValue) => clippingValue === overflowValue);

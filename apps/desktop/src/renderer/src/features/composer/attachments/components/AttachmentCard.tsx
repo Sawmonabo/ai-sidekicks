@@ -11,18 +11,14 @@ import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatByteQuantity, formatDuration } from "@renderer/lib/wire-figures.js";
+import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   attachmentMediaTypeReadings,
   attachmentNameReading,
 } from "../attachment-provenance.js";
 import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "../attachment-policy.js";
-import {
-  UNRESOLVED_ATTACHMENT_PRESENTATION,
-  ingestCeilingRemainingMs,
-  isIngestStalled,
-} from "../attachment-presentation.js";
+import { UNRESOLVED_ATTACHMENT_PRESENTATION, isIngestStalled } from "../attachment-presentation.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import type { AttachmentIngestEntry, AttachmentReading } from "../attachment-shapes.js";
 
@@ -88,7 +84,6 @@ function renderIngesting(
 ): React.JSX.Element {
   const receivedFigure = formatByteQuantity(entry.receivedBytes);
   const declaredFigure = formatByteQuantity(entry.declared.byteLength);
-  const ceilingRemainingMs = ingestCeilingRemainingMs(entry, props.nowMilliseconds);
   const nameReading = attachmentNameReading(entry);
   return (
     <>
@@ -129,10 +124,9 @@ function renderIngesting(
         aria-label={`Uploaded ${receivedFigure.text} of ${declaredFigure.text}`}
       />
 
-      {isIngestStalled(entry, props.nowMilliseconds) && ceilingRemainingMs !== undefined ? (
+      {isIngestStalled(entry, props.nowMilliseconds) ? (
         <p className="meridian-attachment__note" role="status">
-          This upload has gone quiet. One ingest stream is bounded at six hours from the moment it
-          opened; <DerivedFigure text={formatDuration(ceilingRemainingMs)} /> of that remains.
+          This upload has gone quiet.
         </p>
       ) : null}
 

@@ -36,8 +36,6 @@ describe("the visible transcript window", () => {
     const { result } = renderHook(() => useVisibleTranscriptWindow(transcriptWindow, retained));
     expect(result.current.rows).toHaveLength(RETAINED_ROW_COUNT);
     expect(result.current.prunedAwayRows).toHaveLength(LOG_EVENT_COUNT - RETAINED_ROW_COUNT);
-    const retainedKeys = new Set(retained.map((row) => row.key));
-    expect([...result.current.heldRowKeys].sort()).toStrictEqual([...retainedKeys].sort());
   });
 
   it("walks only rows the viewport can scroll to, and names the matches beyond it", () => {

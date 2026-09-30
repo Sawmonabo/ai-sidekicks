@@ -255,6 +255,8 @@ export function formatPercent(fraction: number, locale?: string): string {
  * currency with a finer minor unit (KWD, BHD, TND) keeps its own three, and a sub-unit amount
  * keeps four since a token price is not the cent it rounds to. The sub-unit test is on the
  * absolute value, so a refund and a charge of the same size share a column width.
+ *
+ * @consumedBy the session's spend figure
  */
 export function formatMoney(amount: number, currency: string, locale?: string): string {
   if (!Number.isFinite(amount)) {
@@ -286,18 +288,4 @@ function formatDescriptorMember(value: unknown): string {
     return UNSET_DESCRIPTOR_MEMBER_TEXT;
   }
   return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-/** The currency the accountant's cents figures count in; budget caps are in US-dollar cents. */
-const ACCOUNTANT_CURRENCY_CODE = "USD";
-
-/** Cents to the currency unit. */
-const CENTS_PER_CURRENCY_UNIT = 100;
-
-/**
- * Renders a cents figure the accountant supplied as money. Precision is `formatMoney`'s; this adds
- * only the unit conversion. `cents` is the exact wire value, never a figure a renderer computed.
- */
-export function formatCentsAsCurrency(cents: number, locale?: string): string {
-  return formatMoney(cents / CENTS_PER_CURRENCY_UNIT, ACCOUNTANT_CURRENCY_CODE, locale);
 }

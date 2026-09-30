@@ -83,8 +83,7 @@ describe("diff file list — reaching an entry the window has not mounted", () =
     // keeps every entry reachable.
     //
     // This tier cannot see whether the focus ring moved: happy-dom focuses any element, an
-    // `<li>` without `tabindex` included. `tests/browser/windowed-list-focus.test.tsx` covers
-    // that in Chromium; this case asserts the index arithmetic.
+    // `<li>` without `tabindex` included. This case asserts the index arithmetic.
     const container = renderFileList(TEXTUAL_ONLY_DIFF);
     firstEntry(container).focus();
 

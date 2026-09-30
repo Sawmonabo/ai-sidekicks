@@ -14,22 +14,10 @@ import type { Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { Scenario, ScenarioBeat } from "../../fixtures/scenario.js";
+import type { Scenario } from "../../fixtures/scenario.js";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { SESSION_EVENT_STREAM } from "@renderer/services/daemon/session-event-streams.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
-
-/** The scripted latency both settling suites spend. Longer than one tick. */
-export const SCRIPTED_LATENCY_MS = 120;
-
-/** The one call both settling suites script a resolving answer for. */
-export const DELAYED_CALL = "agent.list";
-
-/** What that call resolves to, asserted verbatim so a stub cannot pass. */
-export const DELAYED_RESULT: { readonly agents: readonly unknown[] } = { agents: [] };
-
-/** The run this file's run-transition beats are about. */
-export const PROBE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
 
 /** The fixture bridge and the engine driving its scenario. */
 export interface FixtureUnderTest {
@@ -47,24 +35,6 @@ export interface RecordedDaemonCall {
 export interface BridgeUnderTest {
   readonly bridge: PlatformBridge;
   readonly calls: readonly RecordedDaemonCall[];
-}
-
-/**
- * One run-transition beat in the shape the shipped scenarios script one. Shared because the
- * run-stream delivery suite and the projector suite both script transitions.
- */
-export function runTransitionBeat(payload: Readonly<Record<string, unknown>>): ScenarioBeat {
-  return {
-    atMs: 0,
-    event: {
-      id: "019b79ee-0280-7ea1-8110-e5e0d1150077",
-      sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
-      sequence: 1,
-      kind: "run.running",
-      occurredAt: "2026-01-01T14:20:00.500Z",
-      payload,
-    },
-  };
 }
 
 /**

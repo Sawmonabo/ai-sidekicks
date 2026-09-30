@@ -35,7 +35,11 @@ export function readQueueItemId(value: string): QueueItemId | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
-/** The workspace identifier the wire admits, or `undefined` where it admits none. */
+/**
+ * The workspace identifier the wire admits, or `undefined` where it admits none.
+ *
+ * @consumedBy preparing an execution root on the session's own workspace
+ */
 export function readWorkspaceId(value: string): WorkspaceId | undefined {
   const parsed = WorkspaceIdSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;

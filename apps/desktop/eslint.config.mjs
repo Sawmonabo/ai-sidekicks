@@ -691,7 +691,7 @@ export default [
     },
   },
   {
-    // The two time-ban negative controls, which have to CALL the banned API to
+    // The time-ban negative controls, which have to CALL the banned API to
     // demonstrate what it answers. Everything else the renderer carries stays on.
     files: TIME_READING_EXEMPT_FILES,
     rules: {

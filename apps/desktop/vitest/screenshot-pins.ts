@@ -44,7 +44,6 @@ export const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
     // `Intl.DateTimeFormat` with no `timeZone` reads the host's, so a capture with a formatted
     // time would record where the machine was. `locale` is pinned because month names, digit
     // shapes and the 12- or 24-hour clock are locale-resolved.
-    // `tests/screenshot/rendering-conditions.test.ts` drives both.
     timezoneId: "UTC",
     locale: "en-US",
   },

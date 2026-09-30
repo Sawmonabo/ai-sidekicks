@@ -3,9 +3,9 @@
 //
 // Every kind is a key of a record checked with `satisfies Record<...>` against a union derived from
 // the contracts census, so a newly registered run state or queue row fails the compile. The census
-// import is type-only to keep the taxonomy out of the initial bundle; the runtime cross-check
-// lives in the test. The tables are frozen records and arrays, not `Set`s or `Map`s, so nothing in
-// the process can add a kind and re-route every subscription.
+// import is type-only to keep the taxonomy out of the initial bundle. The tables are frozen records
+// and arrays, not `Set`s or `Map`s, so nothing in the process can add a kind and re-route every
+// subscription.
 
 import type { QueueItemState, SessionEventType } from "@ai-sidekicks/contracts";
 

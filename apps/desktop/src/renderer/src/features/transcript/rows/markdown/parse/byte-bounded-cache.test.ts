@@ -28,19 +28,19 @@ describe("the byte-bounded cache", () => {
   });
 
   it("re-inserting one key does not double-count its bytes", () => {
-    const cache = new ByteBoundedCache<number>(1024);
+    // The cap holds exactly two five-byte keys, so a doubled charge for `alpha` would evict it.
+    const cache = new ByteBoundedCache<number>(2 * measureUtf8ByteLength("alpha"));
     cache.set("alpha", 1);
     cache.set("alpha", 2);
-    expect(cache.stats().entryCount).toBe(1);
-    expect(cache.stats().retainedByteCount).toBe(measureUtf8ByteLength("alpha"));
+    cache.set("bravo", 3);
     expect(cache.get("alpha")).toBe(2);
+    expect(cache.get("bravo")).toBe(3);
   });
 
   it("charges a value its caller can measure beside its key", () => {
     // A span cache that charged only the source would hold its spans outside its bound.
     const cache = new ByteBoundedCache<Uint32Array>(16, (spans) => spans.byteLength);
     cache.set("abcd", new Uint32Array(3));
-    expect(cache.stats().retainedByteCount).toBe(16);
     cache.set("abcde", new Uint32Array(3));
     expect(cache.get("abcde")).toBeUndefined();
     expect(cache.get("abcd")).not.toBeUndefined();

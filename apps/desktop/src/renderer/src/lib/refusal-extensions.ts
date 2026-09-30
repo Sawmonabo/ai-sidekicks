@@ -117,11 +117,6 @@ const REFUSAL_EXTENSION_READERS: {
     identifierListOf(readGuardedProperty(candidate, "failedBindingIds")),
 };
 
-/** Every registered extension member, for a test to walk. */
-export const REFUSAL_EXTENSION_MEMBERS: readonly (keyof RefusalExtensions)[] = Object.keys(
-  REFUSAL_EXTENSION_READERS,
-) as (keyof RefusalExtensions)[];
-
 /**
  * Reads every registered extension a candidate carries, and nothing else. Total, like
  * `isRefusal`: an absent, unreadable or mistyped member is left off the answer. The cast is on the

@@ -3,12 +3,9 @@
 // nothing here reads it, and no View Transitions wrapper exists because nothing starts one.
 //
 // Motion uses platform primitives (CSS transitions, `@starting-style`, the Web Animations API)
-// with our own spring sampler emitting `linear()` easings, and no animation library on the render
-// path, where one would fight the virtualizer. The sampler is not in this file: both its inputs
-// are constants, so it would recompute the same 106 characters at every mount, and it is 625
-// bytes of shipped arithmetic larger than the string it answers. The string is emitted below;
-// the sampler is `spring-sampler.test-support.ts`, which nothing that ships imports, and
-// `motion.test.ts` holds the constant to it.
+// with a spring written out as a `linear()` easing, and no animation library on the render path,
+// where one would fight the virtualizer. No sampler ships: the spring's inputs are constants, so
+// sampling it at every mount would recompute the same 106 characters.
 //
 // This file lives in `styles/` and carries no DOM type: the assets tier reads `styles/` from
 // Node, where `Document` and `Window` do not exist.
@@ -25,10 +22,8 @@ export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
 
 /**
  * The console's one settle easing: the chrome spring sampled into a `linear()` the compositor
- * runs under the platform's own timing. Written out because the sampler's inputs are constants.
- * It is not hand-drawn: these numbers are what `sampleSpringEasing(CHROME_SETTLE_SPRING)`
- * answers, and `motion.test.ts` fails if they stop being so. It is emitted under the name every
- * stylesheet reads, `--meridian-ease-settle`.
+ * runs under the platform's own timing, written out because the spring's inputs are constants.
+ * It is emitted under the name every stylesheet reads, `--meridian-ease-settle`.
  */
 export const CHROME_SETTLE_EASING: string =
   "linear(0, 0.3554, 0.7127, 0.8883, 0.9596, 0.986, 0.9953, 0.9985, 0.9995, 0.9998, 0.9999, 1, 1, 1, 1, 1, 1)";

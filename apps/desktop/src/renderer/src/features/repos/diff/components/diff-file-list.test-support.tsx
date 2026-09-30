@@ -1,6 +1,4 @@
-// Shared mount and readers for the file-list suites (`DiffFileList.test.tsx` for entries,
-// `DiffFileList.windowing.test.ts` for which entries are mounted), declared once so a change
-// cannot leave one copy behind.
+// The mount and readers for the file-list suite, `DiffFileList.test.tsx`.
 
 import { fireEvent, render } from "@testing-library/react";
 

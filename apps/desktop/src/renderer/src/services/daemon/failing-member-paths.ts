@@ -14,7 +14,7 @@ const NAMED_FAILING_PATH_CAP = 3;
  * Takes `unknown` because the validator is not imported above the bridge, and is total: reads go
  * through `readGuardedProperty` and segments through `lossyStringify`, so a null, a throwing
  * getter or a null-prototype segment yields no clause instead of a throw. Exported for
- * `callDaemon` and its test only, so no view composes a second refusal sentence.
+ * `callDaemon` only, so no view composes a second refusal sentence.
  */
 export function describeFailingPaths(error: unknown): string {
   const issues = readGuardedProperty(error, "issues");

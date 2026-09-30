@@ -111,8 +111,12 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
     // An arrow in a toolbar is a movement; letting it also scroll would move the row away.
     event.preventDefault();
     const buttons = [...(actionRowRef.current?.querySelectorAll("button") ?? [])];
-    const focusedAt = buttons.findIndex((button) => button === document.activeElement);
-    const next = buttons[(Math.max(focusedAt, 0) + step + buttons.length) % buttons.length];
+    const focusedAt = Math.max(
+      buttons.findIndex((button) => button === document.activeElement),
+      0,
+    );
+    // The walk stops at each end rather than wrapping around.
+    const next = buttons[Math.min(Math.max(focusedAt + step, 0), buttons.length - 1)];
     next?.focus();
   }, []);
 

@@ -2,8 +2,8 @@
 // one out of it.
 //
 // Shared by `patch-parse.test.ts` (hunk header, line kinds, intraline segments) and
-// `patch-parse.file-shapes.test.ts` (files whose change is in their extended headers), which
-// parse through the same fixed compared-states pair.
+// `intraline-segment-cache.test.ts` (what the intraline register costs), which parse through the
+// same fixed compared-states pair.
 
 import { parseUnifiedPatch } from "@renderer/features/repos/diff/patch-parse.js";
 import type { DiffLine } from "@renderer/features/repos/diff/diff-model.js";

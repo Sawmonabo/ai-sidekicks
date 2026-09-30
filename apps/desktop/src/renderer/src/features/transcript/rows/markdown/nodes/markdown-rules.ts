@@ -6,6 +6,8 @@
 /**
  * The URL `remend` writes into a link whose target has not finished arriving, copied verbatim
  * from the library. The mapper renders such a link as its text with no anchor, like any other.
+ *
+ * @consumedBy live links in a reply, which hold a half-typed link as its text
  */
 export const INCOMPLETE_LINK_SENTINEL = "streamdown:incomplete-link";
 

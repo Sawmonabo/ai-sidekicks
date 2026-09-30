@@ -7,7 +7,7 @@
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
-import { StrictMode, createElement, type ReactElement } from "react";
+import { createElement, type ReactElement } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -73,19 +73,6 @@ export function renderArtifactPayloadSection(
   artifactId: ArtifactId = OPENED_ARTIFACT_ID,
 ): ReturnType<typeof render> {
   return render(artifactPayloadTree(subject, artifactId));
-}
-
-/**
- * Mount the bound section the way React's development double-mount does.
- *
- * `StrictMode` runs each effect's setup, cleanup and setup again, which disposes a reader and then
- * calls `start()` on it. A binding that cannot recover is inert with nothing on screen to say so.
- */
-export function renderArtifactPayloadSectionStrictly(
-  subject: ArtifactPayloadSubject,
-  artifactId: ArtifactId = OPENED_ARTIFACT_ID,
-): ReturnType<typeof render> {
-  return render(createElement(StrictMode, null, artifactPayloadTree(subject, artifactId)));
 }
 
 interface BoundArtifactPayloadSectionProps {

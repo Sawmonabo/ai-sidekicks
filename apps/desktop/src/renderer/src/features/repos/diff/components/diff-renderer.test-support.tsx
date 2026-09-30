@@ -1,7 +1,6 @@
-// Shared mount, props builder and row-count reader for the renderer suites
-// (`DiffRenderer.test.ts` for rows, `DiffRenderer.geometry.test.tsx` for offsets). The props
-// builder names every prop, so a stale copy would keep compiling against a component nobody
-// renders that way.
+// The mount, props builder and row-count reader for the renderer suite, `DiffRenderer.test.ts`.
+// The props builder names every prop, so a stale copy would keep compiling against a component
+// nobody renders that way.
 
 import { render } from "@testing-library/react";
 

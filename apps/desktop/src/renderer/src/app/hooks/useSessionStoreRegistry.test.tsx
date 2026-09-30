@@ -1,20 +1,16 @@
-// What the registry this hook mints folds with and is fed by: the projectors its stores open with,
-// the subscriber that binds the open session, and the daemon read a store opens on. A store with
-// no projectors still holds a timeline and one nothing feeds still renders, so each case drives
-// the hook's own registry.
+// What the registry this hook mints folds with and is fed by: the projectors its stores open with
+// and the subscriber that binds the open session. A store with no projectors still holds a
+// timeline and one nothing feeds still renders, so each case drives the hook's own registry.
 
 import { act, render } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { RefusalError } from "@renderer/lib/refusal.js";
 import { type BridgeComposition } from "@renderer/services/platform/bridge-context.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { sessionReadThroughDaemon } from "@renderer/services/daemon/session-read.js";
 import {
   SessionProbe,
   fixtureBridgeWrapper,
@@ -131,33 +127,5 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     expect(diagnostics?.openSessionIds()).toEqual([BOUND_SESSION_ID]);
 
     expect(diagnostics?.boundSessionIds()).toEqual([BOUND_SESSION_ID]);
-  });
-});
-
-describe("sessionReadThroughDaemon — the base state a store opens on", () => {
-  it("opens at the bottom of the stream and carries the daemon's cursor block unread", async () => {
-    const { bridge } = bridgeAnswering((_call, passThrough) => passThrough());
-
-    const snapshot = await sessionReadThroughDaemon(bridge)(
-      CONCURRENT_STREAMING_SCENARIO.sessionId,
-      [],
-      undefined,
-    );
-
-    expect(snapshot).toStrictEqual({
-      cursor: 0,
-      entities: [],
-      timelineCursors: { latest: "concurrent-streaming-cursor-45" },
-    });
-  });
-
-  it("raises the refusal instead of reading nothing", async () => {
-    const { bridge } = bridgeAnswering(() =>
-      Promise.reject({ code: "session.not_found", message: "gone" }),
-    );
-
-    await expect(
-      sessionReadThroughDaemon(bridge)(CONCURRENT_STREAMING_SCENARIO.sessionId, [], undefined),
-    ).rejects.toBeInstanceOf(RefusalError);
   });
 });

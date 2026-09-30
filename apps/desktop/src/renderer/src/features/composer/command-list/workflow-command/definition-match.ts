@@ -31,7 +31,11 @@ export function matchWorkflowDefinition(
     : { status: "ambiguous", count: candidates.length };
 }
 
-/** The definitions a partially typed name could still become; an empty prefix offers all. */
+/**
+ * The definitions a partially typed name could still become; an empty prefix offers all.
+ *
+ * @consumedBy the definitions a `/workflow start` name autocompletes over
+ */
 export function workflowDefinitionCandidates(
   definitions: readonly WorkflowDefinitionSummary[],
   typedPrefix: string | undefined,

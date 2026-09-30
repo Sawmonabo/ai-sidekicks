@@ -50,6 +50,8 @@ export function settingsSelection(route: AppRoute): string | undefined {
 /**
  * The settings address for one page, scoped to a selection where the caller has one.
  * Omits the `selection` key when there is none, which the parse round trip depends on.
+ *
+ * @consumedBy opening a Settings page at one selection, such as one device
  */
 export function settingsRoute(page: string, selection: string | undefined): AppRoute {
   return selection === undefined
@@ -72,14 +74,6 @@ export function routeSessionId(route: AppRoute): string | undefined {
     case "not-found":
       return undefined;
   }
-}
-
-/**
- * The phase a route is focused on, or `undefined` where it names none. Total over the union,
- * like `routeSessionId`: every other arm answers `undefined`.
- */
-export function routeWorkflowPhase(route: AppRoute): WorkflowPhaseFocus | undefined {
-  return route.kind === "session" ? route.workflowPhase : undefined;
 }
 
 /** Structural route comparison, so an unchanged hash costs no transition. */

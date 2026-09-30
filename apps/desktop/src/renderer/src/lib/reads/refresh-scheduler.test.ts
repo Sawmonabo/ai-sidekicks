@@ -1,7 +1,7 @@
 // The refresh scheduler on frozen time: a continuous stream still gets a read, a request made
 // mid-flight runs as the next read, each read runs inside a round the next one supersedes, and
-// nothing stays armed after dispose. `ManualClock.pendingCount` is how "no timer left armed" is checked, which real timers
-// cannot.
+// nothing stays armed after dispose. `ManualClock.pendingCount` is how "no timer left armed" is
+// checked, which real timers cannot.
 
 import { describe, expect, it } from "vitest";
 

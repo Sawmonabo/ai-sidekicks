@@ -15,7 +15,6 @@ export interface IngestEntryOptions {
   readonly derived?: AttachmentIngestEntry["derived"];
   readonly refusal?: AttachmentIngestEntry["refusal"];
   readonly disposition?: AttachmentIngestEntry["disposition"];
-  readonly openedAtMilliseconds?: number;
   readonly lastProgressAtMilliseconds?: number;
 }
 
@@ -73,7 +72,6 @@ function commonRecord(
     derived: options.derived,
     refusal: options.refusal,
     disposition: options.disposition,
-    openedAtMilliseconds: options.openedAtMilliseconds,
     lastProgressAtMilliseconds: options.lastProgressAtMilliseconds,
   };
 }

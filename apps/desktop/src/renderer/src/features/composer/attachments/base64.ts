@@ -15,21 +15,3 @@ export function encodeBase64(bytes: Uint8Array): string {
   }
   return btoa(latin1);
 }
-
-/**
- * How many raw bytes a base64 string decodes to, computed from its length and padding without
- * decoding it. Malformed input answers `0` rather than throwing; the daemon's decode is what
- * rejects a bad chunk.
- */
-export function base64DecodedByteLength(encoded: string): number {
-  if (encoded.length === 0 || encoded.length % 4 !== 0) {
-    return 0;
-  }
-  let paddingCount = 0;
-  if (encoded.endsWith("==")) {
-    paddingCount = 2;
-  } else if (encoded.endsWith("=")) {
-    paddingCount = 1;
-  }
-  return (encoded.length / 4) * 3 - paddingCount;
-}

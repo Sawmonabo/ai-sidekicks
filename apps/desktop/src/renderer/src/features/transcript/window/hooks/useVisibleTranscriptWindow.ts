@@ -21,8 +21,6 @@ export interface VisibleTranscriptWindow {
    * `earlier-history-reader.ts`.
    */
   readonly hasEarlierRows: boolean;
-  /** The keys the viewport kept: the set the partition is decided by. */
-  readonly heldRowKeys: ReadonlySet<string>;
 }
 
 /**
@@ -50,7 +48,6 @@ export function useVisibleTranscriptWindow(
       rows,
       prunedAwayRows,
       hasEarlierRows: prunedAwayRows.length > 0,
-      heldRowKeys: visibleKeys,
     };
   }, [transcriptWindow, viewportRows]);
 }

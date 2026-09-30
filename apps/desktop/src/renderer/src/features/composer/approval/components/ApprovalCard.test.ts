@@ -107,6 +107,19 @@ describe("the action row is keyboard-walkable", () => {
     expect(document.activeElement).toBe(approve);
   });
 
+  it("stops at each end rather than wrapping around", () => {
+    renderCard(pendingRecord());
+    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
+    const approve = screen.getByRole("button", { name: "Approve" });
+    const reject = screen.getByRole("button", { name: "Reject" });
+    approve.focus();
+    fireEvent.keyDown(actions, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(approve);
+    reject.focus();
+    fireEvent.keyDown(actions, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(reject);
+  });
+
   it("negative control: a key the row does not own moves nothing and is not suppressed", () => {
     renderCard(pendingRecord());
     const actions = screen.getByRole("toolbar", { name: "Answer this request" });

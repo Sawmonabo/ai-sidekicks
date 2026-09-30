@@ -133,8 +133,3 @@ interface ConsolePaneRegistrationBase {
 
 /** The process-wide pane registry. */
 export const paneRegistry: PaneRegistry = new PaneRegistry();
-
-/** Which pane kinds the process-wide registry has a body for. */
-export function registeredPaneKinds(): readonly PaneKind[] {
-  return paneRegistry.registeredPaneKinds();
-}

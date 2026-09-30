@@ -22,7 +22,7 @@ export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.map((destina
 
 /**
  * Where a rail click goes. Total and argument-free; `railDestinationFor` is its inverse on every
- * arm, which `rail-navigation.test.ts` checks.
+ * arm.
  */
 export function routeForDestination(destination: RailDestination): AppRoute {
   switch (destination) {

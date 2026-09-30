@@ -33,8 +33,7 @@ export const GLYPH_VIEWBOX_SIZE = 16;
 /**
  * Stroke width every glyph is drawn at, in {@link GLYPH_VIEWBOX_SIZE} units. A ratio rather than
  * a per-collection number: a borrowed face drawn in a larger box carries the same share of it, so
- * the set reads as one weight. `vitest/icon-compilation.ts` does the arithmetic and
- * `components/Glyph/glyph-icons.test.ts` reads the ratio back off every compiled face.
+ * the set reads as one weight. `vitest/icon-compilation.ts` does the arithmetic.
  */
 export const GLYPH_STROKE_WIDTH = 1.5;
 
@@ -42,12 +41,9 @@ export const GLYPH_STROKE_WIDTH = 1.5;
 export const GLYPH_DEFAULT_SIZE = 16;
 
 // The icon scale is a token so that tightening the icons by a pixel moves every glyph together.
-// The three steps are named for the density they belong to, and each is strictly below
+// The two steps are named for the density they belong to, and each is strictly below
 // `GLYPH_DEFAULT_SIZE`, the standalone size, because a glyph inside a row, chip or chrome is
-// subordinate to the text beside it. `glyphs.test.ts` asserts both properties.
-
-/** Inside a dense gutter or a numeric column — the smallest step the set reads at. */
-export const GLYPH_SIZE_DENSE = 10;
+// subordinate to the text beside it.
 
 /** Inside a row, a chip, a toolbar toggle, or a card's leading mark. */
 export const GLYPH_SIZE_ROW = 12;
@@ -114,6 +110,8 @@ export type GlyphName = (typeof GLYPH_NAMES)[number];
  * Whether a string names a glyph in the set. A view that maps a wire value onto a glyph renders
  * the unrecognized shape when this is false, rather than indexing the face map and drawing
  * nothing. Reads the array so it can live below `components/`.
+ *
+ * @consumedBy an agent definition's icon, read from its saved file
  */
 export function isGlyphName(value: string): value is GlyphName {
   return (GLYPH_NAMES as readonly string[]).includes(value);
