@@ -270,7 +270,7 @@ test(
         samples: partitioned.samples,
         context: {
           ...sharedContext,
-          storeShape: "console/store/entities/entity-partitions.ts mergeUpsert",
+          storeShape: "store/session/entities/entity-partitions.ts mergeUpsert",
         },
       },
     ];
