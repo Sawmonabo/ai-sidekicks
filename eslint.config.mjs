@@ -140,22 +140,22 @@ export default tseslint.config(
         {
           selector: 'ImportDeclaration[source.value="./event.js"]',
           message:
-            "Plan-001 T1.12: event-core.ts is the acyclic leaf of the contracts module graph — importing ./event.js from it re-closes the cycle that hoist exists to remove.",
+            "event-core.ts is the acyclic leaf of the contracts module graph — importing ./event.js from it closes an import cycle, which can leave a module-scope schema undefined with no error.",
         },
         {
           selector: 'ImportExpression[source.value="./event.js"]',
           message:
-            "Plan-001 T1.12: event-core.ts is the acyclic leaf of the contracts module graph — a dynamic import of ./event.js re-closes the cycle just as the static form does.",
+            "event-core.ts is the acyclic leaf of the contracts module graph — a dynamic import of ./event.js closes the cycle just as the static form does.",
         },
         {
           selector: 'ExportNamedDeclaration[source.value="./event.js"]',
           message:
-            "Plan-001 T1.12: event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
+            "event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
         },
         {
           selector: 'ExportAllDeclaration[source.value="./event.js"]',
           message:
-            "Plan-001 T1.12: event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
+            "event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
         },
       ],
     },
@@ -278,7 +278,7 @@ export default tseslint.config(
             {
               regex: "^(?!@ai-sidekicks/contracts$).*$",
               message:
-                "The read-side projectors are pure (Plan-007 / Plan-008): @ai-sidekicks/contracts is the only import they may carry, because any other specifier can reach I/O transitively. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The read-side projectors are pure: @ai-sidekicks/contracts is the only import they may carry, because any other specifier can reach I/O transitively. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },
@@ -286,10 +286,10 @@ export default tseslint.config(
     },
   },
   // The memo projection floor makes the same purity claim as the projectors above.
-  // `memo-projection.ts` folds an already-read canonical projection into the memo turn and hands it
-  // to a writer; it persists nothing. The allow-list enumerates specifiers rather than admitting a
-  // shape: a relative-path shape was rejected because `../../db/` reaches the database layer and is
-  // spelled like the sibling this module legitimately imports.
+  // `memo-projection.ts` folds an already-read canonical projection into the memo turn and persists
+  // nothing; delivering the memo is `memo-delivery.ts`'s job. The allow-list enumerates specifiers
+  // rather than admitting a shape: a relative-path shape would admit `../../db/`, which reaches the
+  // database layer and is spelled like the sibling this module legitimately imports.
   //
   // The projectors' replace-not-merge trade and dynamic-`import()` gap apply here unchanged.
   {
@@ -301,9 +301,9 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./drivers/outbound-frame\\.js)$).*$",
+                "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js)$).*$",
               message:
-                "The memo projection floor is pure (Plan-004 T3.21): it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The memo projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the four this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },
@@ -327,12 +327,12 @@ export default tseslint.config(
         {
           name: "Date",
           message:
-            "I-008-20: worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+            "worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
         },
         {
           name: "performance",
           message:
-            "I-008-20: worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+            "worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
         },
       ],
       "no-restricted-properties": [
@@ -342,13 +342,13 @@ export default tseslint.config(
           object: "globalThis",
           property: "Date",
           message:
-            "I-008-20: worktree-projector.ts reads no clock — reaching `Date` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
+            "worktree-projector.ts reads no clock — reaching `Date` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
         },
         {
           object: "globalThis",
           property: "performance",
           message:
-            "I-008-20: worktree-projector.ts reads no clock — reaching `performance` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
+            "worktree-projector.ts reads no clock — reaching `performance` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
         },
       ],
     },

@@ -18,6 +18,7 @@ import {
   JSONRPC_VERSION,
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
+  SubscriptionCancelResultSchema,
   SubscriptionIdSchema,
   type SubscriptionId,
   SubscriptionNotifyParamsSchema,
@@ -442,7 +443,7 @@ export class JsonRpcClient {
             SUBSCRIPTION_CANCEL_METHOD,
             { subscriptionId: result.subscriptionId },
             passthroughSchema,
-            cancelResultSchema,
+            SubscriptionCancelResultSchema,
           ).catch(() => {
             // The local state is already terminal; a failed cleanup cancel changes nothing.
           });
@@ -575,7 +576,7 @@ export class JsonRpcClient {
         SUBSCRIPTION_CANCEL_METHOD,
         { subscriptionId: state.subscriptionId },
         passthroughSchema,
-        cancelResultSchema,
+        SubscriptionCancelResultSchema,
       ).catch(() => {
         // Ignore failures: the local state is already terminal.
       });
@@ -645,7 +646,7 @@ export class JsonRpcClient {
         { subscriptionId: state.subscriptionId },
         // The cancel params are internal, so skip brand validation; the daemon validates.
         passthroughSchema,
-        cancelResultSchema,
+        SubscriptionCancelResultSchema,
       );
     } catch (err) {
       // End locally even if the daemon did not confirm, so `next()` does not hang; the
@@ -675,8 +676,3 @@ const subscribeInitResultSchema: ZodType<{ subscriptionId: SubscriptionId }> = z
     subscriptionId: SubscriptionIdSchema,
   })
   .loose();
-
-/** Cancel response `{ canceled }`. */
-const cancelResultSchema: ZodType<{ canceled: boolean }> = z.object({
-  canceled: z.boolean(),
-});

@@ -33,6 +33,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import type { JsonRpcClient } from "./transport/json-rpc-client.js";
+import type { LocalSubscriptionConsumer } from "./transport/types.js";
 
 /**
  * One delivered session event with the cursor the consumer retains for an
@@ -141,26 +142,32 @@ async function* daemonSubscribe(
   );
 
   // A listener, not a check inside the loop: the consumer parks on `next()` between values, so a
-  // loop check would only fire after the next value lands.
+  // loop check would only fire after the next value lands. `cancel()` never rejects: a failed
+  // cancel ends the subscription with its error, which that parked `next()` then throws.
   let abortListener: (() => void) | undefined;
   if (options.signal !== undefined) {
     const sig = options.signal;
     abortListener = (): void => {
-      void subscription.cancel().catch(() => undefined);
+      void subscription.cancel();
     };
     sig.addEventListener("abort", abortListener, { once: true });
     // The signal may have aborted before the listener was added; without this re-check the
     // subscription stays live and the loop parks forever on a canceled stream.
     if (sig.aborted) {
       sig.removeEventListener("abort", abortListener);
-      void subscription.cancel().catch(() => undefined);
+      // Over a socket the subscribe reply has not arrived yet, so this cancel only ends the
+      // subscription locally, and the transport sends the wire cancel once the reply lands.
+      await subscription.cancel();
       return;
     }
   }
 
+  // Frames are pulled with `next()` rather than `for await`: leaving a `for await` on a throw
+  // cancels the subscription itself and discards that cancel's failure.
+  let loopThrew = false;
   try {
     let lastCursor = options.afterCursor;
-    for await (const frame of subscription) {
+    for (let frame = await subscription.next(); frame !== undefined; ) {
       // The drop mark rides the first frame after the gap, so it is raised
       // before that frame's changes: yielding them would hide the hole.
       if (frame.dropped === true) {
@@ -170,12 +177,61 @@ async function* daemonSubscribe(
         lastCursor = change.cursor;
         yield { eventId: change.cursor, event: change.event };
       }
+      frame = await subscription.next();
     }
+  } catch (loopError) {
+    loopThrew = true;
+    throw withCancelFailure(loopError, await cancelAndReadFailure(subscription));
   } finally {
     if (abortListener !== undefined && options.signal !== undefined) {
       options.signal.removeEventListener("abort", abortListener);
     }
-    // Cancel is idempotent; this covers the early-throw path.
-    await subscription.cancel().catch(() => undefined);
+    // A completed stream and the consumer's `break` leave through here alone; `break` reaches no
+    // other block, so a failed cancel can surface only by being thrown here.
+    if (!loopThrew) {
+      const cancelFailure = await cancelAndReadFailure(subscription);
+      if (cancelFailure !== undefined) {
+        // eslint-disable-next-line no-unsafe-finally -- a failure after `break` surfaces only here
+        throw cancelFailure;
+      }
+    }
   }
+}
+
+/**
+ * Cancels the subscription and returns the error it ended with, or `undefined` when it ended
+ * cleanly. `cancel()` records a failed cancel on the subscription rather than rejecting, so the
+ * error is read by draining it: once canceled, `next()` hands back any queued frames, which the
+ * stream no longer wants, and then ends or throws the error.
+ */
+async function cancelAndReadFailure(
+  subscription: LocalSubscriptionConsumer<SessionStreamFrame<SessionEvent>>,
+): Promise<unknown> {
+  await subscription.cancel();
+  try {
+    while ((await subscription.next()) !== undefined) {
+      // A frame queued before the cancel; the stream has ended, so it is not yielded.
+    }
+  } catch (subscriptionError) {
+    return subscriptionError;
+  }
+  return undefined;
+}
+
+/**
+ * The error a failed stream ends with: its own, carrying the cancel's failure as `cause` when the
+ * cancel failed too and the stream's error has no cause yet, or both in an `AggregateError`.
+ */
+function withCancelFailure(streamError: unknown, cancelFailure: unknown): unknown {
+  if (cancelFailure === undefined || cancelFailure === streamError) {
+    return streamError;
+  }
+  if (streamError instanceof Error && streamError.cause === undefined) {
+    streamError.cause = cancelFailure;
+    return streamError;
+  }
+  return new AggregateError(
+    [streamError, cancelFailure],
+    "The session stream failed, and canceling it failed too.",
+  );
 }

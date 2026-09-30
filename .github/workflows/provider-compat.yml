@@ -206,12 +206,11 @@ jobs:
               //
               // It is NOT what the driver ships as. codex.md records that
               // `item/tool/requestUserInput` is experimental and that the
-              // Plan-004 interactive-request leg must set experimentalApi at
+              // driver's interactive-request path must set experimentalApi at
               // `initialize`. Drift on that opted-in surface is therefore a
               // NAMED GAP in this check, not something it covers. Closing it
               // needs a second opted-in handshake asserting the experimental
-              // methods the driver actually enables — which is Plan-004's to
-              // specify, since no driver code names that set yet.
+              // methods the driver enables, once the driver names that set.
               capabilities: { experimentalApi: false, requestAttestation: false },
             },
           });

@@ -1,6 +1,8 @@
+import { concatBytes, equalBytes } from "@noble/ciphers/utils.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { pae } from "./pae.js";
 import { InvalidKeyError, InvalidTokenError } from "./errors.js";
+import { base64UrlDecode, base64UrlEncode } from "./internal/base64url.js";
 
 const HEADER = "v4.public.";
 const HEADER_BYTES = new TextEncoder().encode(HEADER);
@@ -38,7 +40,7 @@ export function signV4Public(
   const m2 = pae([HEADER_BYTES, payload, f, i]);
   const sig = ed25519.sign(m2, secretKey);
 
-  const bodyBytes = concat(payload, sig);
+  const bodyBytes = concatBytes(payload, sig);
   const body = base64UrlEncode(bodyBytes);
 
   return f.length === 0 ? `${HEADER}${body}` : `${HEADER}${body}.${base64UrlEncode(f)}`;
@@ -92,7 +94,7 @@ export function verifyV4Public(
     } catch {
       throw new InvalidTokenError("footer base64url decode failed");
     }
-    if (!bytesEqualStructural(expF, tokenFooter)) {
+    if (!equalBytes(expF, tokenFooter)) {
       throw new InvalidTokenError("footer mismatch");
     }
   }
@@ -143,34 +145,4 @@ function assertPublicKey(key: Uint8Array): void {
   if (key.length !== 32) {
     throw new InvalidKeyError("v4.public public key must be 32 bytes");
   }
-}
-
-function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("base64url");
-}
-
-function base64UrlDecode(s: string): Uint8Array {
-  // PASETO requires strictly canonical unpadded base64url. Node's `Buffer.from(s, "base64url")`
-  // tolerates `=` padding and silently skips invalid characters, so different token strings could
-  // decode to the same bytes and defeat replay or revocation checks keyed by token text. Decoding
-  // then re-encoding and comparing to the input rejects any deviation.
-  const decoded = new Uint8Array(Buffer.from(s, "base64url"));
-  if (Buffer.from(decoded).toString("base64url") !== s) {
-    throw new InvalidTokenError("base64url input is not strictly canonical");
-  }
-  return decoded;
-}
-
-// The footer is public, so this comparison need not be constant time.
-function bytesEqualStructural(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
 }

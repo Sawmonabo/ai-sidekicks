@@ -838,7 +838,7 @@ const EVENT_DISPOSITION_RECORD = {
   user_text: {
     disposition: "correlate",
     reason:
-      "correlation-only wire echo — folds into the originating app-sent user-message row via correlation_id (delivery confirmation of the pending send; no new persisted type); correlate target user.message (B18-minted 2026-07-22, registered in this census so the target literal resolves; the echo keeps routing to normalizer default-branch diagnostic until user.message payload variant joins the union)",
+      "a wire echo of a message the app sent: it confirms delivery and folds into that message's user.message row via correlation_id, adding no persisted type; until user.message has a payload variant, the echo routes to the normalizers' diagnostic branch",
   },
   // Heavy, persisted: the payload goes to SQLite and light metadata to the client.
   diff: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
