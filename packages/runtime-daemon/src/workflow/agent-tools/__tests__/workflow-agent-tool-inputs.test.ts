@@ -1,7 +1,6 @@
-// An agent's tool call is checked twice: by the callback host against the JSON Schema
-// the provider received, and by the tool against its input schema. These cases hold
-// that the two agree for `workflow_run`, and that no tool input lets an agent name a
-// session other than the one whose turn called it.
+// The callback host checks a tool call against the JSON Schema the provider received, and the tool
+// checks it against its input schema; these cases hold that the two agree for `workflow_run` and
+// that no tool input lets an agent name another session.
 import { describe, expect, it } from "vitest";
 
 import { describeArgumentRefusal } from "../../../provider/callback-tool-host.js";

@@ -1,16 +1,15 @@
-// The workflow secrets' values, held in the operating system's keychain under each
-// secret's id. The record that names a secret, its place and name, is the daemon's
-// table; this store holds only the value, and the value leaves the daemon only into the
-// step that resolves it.
+// The workflow secrets' values, held in the operating system's keychain under each secret's id.
+// The daemon's table records a secret's place and name; this store holds only the value, which
+// leaves the daemon only into the step that resolves it.
 //
-// The order is the caller's contract. Seal the value before writing the record, so a
-// keychain that refuses leaves no record naming a value that is not there. On a delete,
-// mark the record's removal first, then remove the value, then the record, so a crash in
-// between is finished at the next start instead of leaving a value with no record.
+// Call order is the caller's contract. Seal the value before writing the record, so a refusing
+// keychain leaves no record naming a missing value. To delete, mark the record's removal, remove
+// the value, then remove the record, so a crash in between is finished at the next start instead
+// of leaving a value with no record.
 //
-// A keychain that accepts a write is not trusted to have kept it: some drop a write
-// without an error (a locked login keychain, a policy that blocks the Windows
-// credential store), so every seal reads the value back and compares it.
+// A keychain that accepts a write may not have kept it (a locked login keychain or a policy on
+// the Windows credential store can drop it without an error), so every seal reads the value
+// back and compares.
 import { timingSafeEqual } from "node:crypto";
 
 import type { WorkflowSecretId } from "@ai-sidekicks/contracts";
@@ -18,7 +17,7 @@ import type { WorkflowSecretId } from "@ai-sidekicks/contracts";
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "./secret-keychain.js";
 
 /**
- * The keychain service the workflow secrets' values are filed under.
+ * The keychain service name the workflow secrets' values are filed under.
  *
  * @consumedBy the daemon's start-up, when it builds the workflow secret store
  */
@@ -49,8 +48,8 @@ export class WorkflowSecretStore {
   }
 
   /**
-   * The secret's value, or `undefined` when the keychain holds none, which the step
-   * that asked reports as `workflow.secret_not_found`.
+   * The secret's value, or `undefined` when the keychain holds none; the step that asked
+   * reports that as `workflow.secret_not_found`.
    */
   resolve(secretId: WorkflowSecretId): Promise<string | undefined> {
     return this.#keychain.read(secretId);
@@ -62,7 +61,7 @@ export class WorkflowSecretStore {
   }
 }
 
-// Compared in constant time, so the check reveals nothing about the value through timing.
+// Constant-time comparison, so the check leaks nothing about the value through timing.
 function sameText(kept: string, expected: string): boolean {
   const keptBytes = Buffer.from(kept, "utf8");
   const expectedBytes = Buffer.from(expected, "utf8");
