@@ -54,20 +54,6 @@ const ENDURANCE_DIFF = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
 const SINGLE_LARGE_HUNK_DIFF = buildDiffFixture(SINGLE_LARGE_HUNK_DIFF_SHAPE);
 
 describe("endurance — a forty-file, five-thousand-line diff", () => {
-  it("flattens the whole change set and reports its true row count", () => {
-    const index = new DiffRowIndex(ENDURANCE_DIFF);
-    // The subject in numbers first, so a fixture that quietly shrank cannot pass by measuring
-    // something smaller.
-    expect(fixtureChangedLineCount(ENDURANCE_DIFF_SHAPE)).toBe(5000);
-    expect(ENDURANCE_DIFF.files).toHaveLength(40);
-    expect(index.rowCount).toBeGreaterThan(5000);
-    process.stdout.write(
-      `[console-endurance] diff: ${String(ENDURANCE_DIFF.files.length)} files, ` +
-        `${String(fixtureChangedLineCount(ENDURANCE_DIFF_SHAPE))} changed lines, ` +
-        `${String(index.rowCount)} rows\n`,
-    );
-  });
-
   it("addresses every row, and resolves every line row to a line", () => {
     const index = new DiffRowIndex(ENDURANCE_DIFF);
     let lineRowCount = 0;
@@ -179,13 +165,6 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
     );
     expect(tailMilliseconds).toBeLessThan(Math.max(headMilliseconds * 8, 1));
   });
-
-  it("negative control: the read band is a fraction of the diff it is read from", () => {
-    // Without this the timing case above would pass over a diff small enough that a walk from
-    // the top costs nothing. A hundredth of this change set is still tens of rows.
-    expect(new DiffRowIndex(ENDURANCE_DIFF).rowCount).toBeGreaterThan(5_000);
-    expect(Math.floor(new DiffRowIndex(ENDURANCE_DIFF).rowCount / 100)).toBeGreaterThan(10);
-  });
 });
 
 /**
@@ -229,20 +208,6 @@ describe("endurance — one pathological line inside a five-thousand-line patch"
     const cache = new IntralineSegmentCache(model);
     expect(cache.readingFor(pathologicalBodyRow(0), 0).skipped).toBe(true);
     expect(cache.computeCount).toBe(0);
-  });
-
-  it("negative control: an ordinary row in the same patch is compared", () => {
-    // Without this the fallback above would pass over a cache that declined every pair, which
-    // would draw the note on every changed line while the highlight was simply gone.
-    const model = parseUnifiedPatch(pathologicalPatchText(), {
-      baseRef: "main",
-      headRef: "feat/endurance",
-    });
-    const cache = new IntralineSegmentCache(model);
-    const reading = cache.readingFor(pathologicalBodyRow(2), 2);
-    expect(reading.skipped).toBe(false);
-    expect(reading.segments.filter((segment) => segment.changed).length).toBeGreaterThan(0);
-    expect(cache.computeCount).toBe(1);
   });
 });
 

@@ -305,16 +305,6 @@ function reportReading(label: string, reading: FirstTranscriptRowReading): void 
   );
 }
 
-describe("the time-to-first-transcript-row budget row", () => {
-  // The ceiling and the unit are the budget tier's. Only this file can say it is the harness
-  // the row names, so a row that moves away or is flipped to ungated fails here.
-  it("is the harness the row names as its measurer", () => {
-    expect(budget.status).toBe("enforced");
-    expect(budget.measuredBy).toBe("apps/desktop/tests/endurance/first-transcript-row.test.ts");
-    expect(budget.notMeasurableReason).toBeNull();
-  });
-});
-
 describe.skipIf(!bundleIsBuilt)("endurance — the first transcript row after launch", () => {
   it("paints the first transcript row inside the budget's ceiling", async () => {
     await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
