@@ -13,9 +13,6 @@ import { ByteBoundedCache } from "./byte-bounded-cache.js";
 /** The document a parse produces. Derived from the parser, never restated. */
 export type MarkdownRoot = ReturnType<typeof fromMarkdown>;
 
-/** One top-level node. Derived from the root, so the union follows the pin. */
-export type MarkdownBlockNode = MarkdownRoot["children"][number];
-
 /**
  * The options `remend` is given for the volatile tail.
  *
@@ -101,11 +98,6 @@ export function parseSettledBlock(blockSource: string, definitionPreamble = ""):
  */
 export function parseVolatileTail(tailSource: string, definitionPreamble = ""): MarkdownRoot {
   return parseAgainstDefinitions(remend(tailSource, REMEND_OPTIONS), definitionPreamble);
-}
-
-/** The settled-block cache's size and cap, for the budget test. */
-export function settledBlockCacheStats(): ReturnType<ByteBoundedCache<MarkdownRoot>["stats"]> {
-  return settledBlockCache.stats();
 }
 
 /** The cache key, built in one place so store and lookup agree; no preamble keys on the source. */

@@ -103,17 +103,6 @@ export class FootnoteRegistry {
     });
   }
 
-  /** Drop every definition one source declared, when its row leaves the window. */
-  public forgetSource(sourceId: string): void {
-    const prefix = sourceId + FOOTNOTE_KEY_SEPARATOR;
-    for (const key of [...this.#definitionsByKey.keys()]) {
-      if (key.startsWith(prefix)) {
-        this.#definitionsByKey.delete(key);
-      }
-    }
-    this.#announce(new Set([sourceId]));
-  }
-
   public get definitionCount(): number {
     return this.#definitionsByKey.size;
   }

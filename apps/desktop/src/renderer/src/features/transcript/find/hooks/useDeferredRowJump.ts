@@ -12,7 +12,7 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 export function useDeferredRowJump(inputs: {
   readonly visibleRows: readonly TimelineRow[];
   readonly jumpToRow: (rowId: string) => void;
-  /** The row the transcript's current question names: `jumpOutcomeRowId`'s answer. */
+  /** The row the transcript's current question names. */
   readonly questionRowId: string | undefined;
 }): (rowId: string) => void {
   const { visibleRows, jumpToRow, questionRowId } = inputs;
